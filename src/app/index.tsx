@@ -1,98 +1,300 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { useEffect } from 'react';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { supabase } from '../lib/supabase';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+const systems = [
+  'Plumbing',
+  'HVAC',
+  'Electrical',
+  'Water Quality',
+  'Safety',
+  'Appliances',
+  'Gas',
+  'Exterior',
+  'Drains / Sewer',
+  'Documents',
+];
 
 export default function HomeScreen() {
+  useEffect(() => {
+    saveRecoverySession();
+  }, []);
+
+  async function saveRecoverySession() {
+    if (typeof window === 'undefined') return;
+
+    const hash = new URLSearchParams(window.location.hash.replace('#', ''));
+
+    const accessToken = hash.get('access_token');
+    const refreshToken = hash.get('refresh_token');
+
+    if (accessToken && refreshToken) {
+      await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+
+      window.history.replaceState({}, document.title, '/');
+    }
+  }
+
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+      contentContainerStyle={{
+        padding: 20,
+        paddingBottom: 40,
+        alignItems: 'center',
+      }}
+    >
+      <View style={{ width: '100%', maxWidth: 900 }}>
+        <Text
+          style={{
+            marginTop: 20,
+            fontSize: 18,
+            color: '#637083',
+            fontWeight: '600',
+          }}
+        >
+          Welcome Home
+        </Text>
 
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
+        <Text
+          style={{
+            fontSize: 34,
+            fontWeight: '900',
+            color: '#071B33',
+            marginTop: 6,
+          }}
+        >
+          Home Health
+        </Text>
 
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
+        <View
+          style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 26,
+            padding: 22,
+            marginTop: 22,
+            borderWidth: 1,
+            borderColor: '#E3E8EF',
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 15,
+              color: '#637083',
+              fontWeight: '700',
+              marginBottom: 10,
+            }}
+          >
+            Home Health Status
+          </Text>
 
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+          <Text
+            style={{
+              fontSize: 26,
+              fontWeight: '900',
+              color: '#071B33',
+              marginBottom: 14,
+            }}
+          >
+            Not enough data yet
+          </Text>
+
+          <View
+            style={{
+              height: 16,
+              backgroundColor: '#E7ECF3',
+              borderRadius: 999,
+              overflow: 'hidden',
+            }}
+          >
+            <View
+              style={{
+                width: '0%',
+                height: '100%',
+                backgroundColor: '#9AA6B2',
+              }}
+            />
+          </View>
+
+          <Text
+            style={{
+              marginTop: 12,
+              fontSize: 14,
+              color: '#637083',
+              lineHeight: 20,
+            }}
+          >
+            Start by adding real equipment, fixtures, documents, and photos from
+            your home.
+          </Text>
+        </View>
+
+        <Text
+          style={{
+            fontSize: 20,
+            fontWeight: '900',
+            color: '#071B33',
+            marginTop: 26,
+            marginBottom: 14,
+          }}
+        >
+          Health Breakdown
+        </Text>
+
+        <View
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            gap: 12,
+          }}
+        >
+          {systems.map((system) => (
+            <TouchableOpacity
+              key={system}
+              onPress={() => {
+                if (system === 'Documents') {
+                  router.push('/documents' as any);
+                  return;
+                }
+
+                if (system === 'Plumbing') {
+                  router.push('/system/plumbing' as any);
+                  return;
+                }
+
+                router.push({
+                  pathname: '/system/[system]',
+                  params: { system },
+                } as any);
+              }}
+              style={{
+                width: '48%',
+                minHeight: 92,
+                backgroundColor: '#FFFFFF',
+                borderRadius: 20,
+                padding: 16,
+                borderWidth: 1,
+                borderColor: '#E3E8EF',
+                justifyContent: 'space-between',
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: '900',
+                  color: '#071B33',
+                }}
+              >
+                {system}
+              </Text>
+
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: '#637083',
+                  marginTop: 10,
+                  fontWeight: '600',
+                }}
+              >
+                No items added
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View
+          style={{
+            backgroundColor: '#FFFFFF',
+            borderRadius: 24,
+            padding: 20,
+            marginTop: 26,
+            borderWidth: 1,
+            borderColor: '#E3E8EF',
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: '900',
+              color: '#071B33',
+              marginBottom: 8,
+            }}
+          >
+            Needs Attention
+          </Text>
+
+          <Text
+            style={{
+              fontSize: 15,
+              color: '#637083',
+              lineHeight: 22,
+            }}
+          >
+            No issues reported.
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          onPress={() => router.push('/contact' as any)}
+          style={{
+            backgroundColor: '#071B33',
+            borderRadius: 22,
+            padding: 18,
+            marginTop: 24,
+            alignItems: 'center',
+          }}
+        >
+          <Text
+            style={{
+              color: '#FFFFFF',
+              fontSize: 16,
+              fontWeight: '900',
+            }}
+          >
+            Request Professional Help
+          </Text>
+        </TouchableOpacity>
+
+        <View
+          style={{
+            flexDirection: 'row',
+            justifyContent: 'space-around',
+            backgroundColor: '#FFFFFF',
+            borderRadius: 26,
+            paddingVertical: 16,
+            marginTop: 28,
+            borderWidth: 1,
+            borderColor: '#E3E8EF',
+          }}
+        >
+          <Text style={{ fontWeight: '900', color: '#071B33' }}>Home</Text>
+
+          <Text
+            onPress={() => router.push('/equipment' as any)}
+            style={{ fontWeight: '800', color: '#637083' }}
+          >
+            Equipment
+          </Text>
+
+          <Text
+            onPress={() => router.push('/documents' as any)}
+            style={{ fontWeight: '800', color: '#637083' }}
+          >
+            Documents
+          </Text>
+
+          <Text
+            onPress={() => router.push('/profile' as any)}
+            style={{ fontWeight: '800', color: '#637083' }}
+          >
+            Profile
+          </Text>
+        </View>
+      </View>
+    </ScrollView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
-  },
-  title: {
-    textAlign: 'center',
-  },
-  code: {
-    textTransform: 'uppercase',
-  },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
-});

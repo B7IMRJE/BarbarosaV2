@@ -1,0 +1,274 @@
+BARBAROSA
+
+105 - HOME PROFILE MASTER
+
+VERSION 1
+
+==================================================
+PURPOSE
+=======
+
+The Home Profile is the master record for the property.
+
+All equipment, consumables, documents, service history,
+photos, inspections, warranties, and service requests
+are attached to the Home Profile.
+
+The Home Profile should provide a technician, inspector,
+homeowner, or future buyer with a complete overview
+of the property.
+
+==================================================
+1000 - BASIC PROPERTY INFORMATION
+=================================
+
+* Property Name
+* Property Address
+* City
+* State
+* Zip Code
+* GPS Coordinates
+* Year Built
+* Square Footage
+* Number of Stories
+* Number of Bedrooms
+* Number of Bathrooms
+* Lot Size
+* Property Type
+
+Property Types:
+
+* Single Family Residence
+* Townhome
+* Condominium
+* Duplex
+* Apartment
+* Commercial
+* Industrial
+* Mixed Use
+
+==================================================
+1100 - OWNERSHIP INFORMATION
+============================
+
+* Current Owner
+* Contact Information
+* Emergency Contact
+* Property Manager
+* HOA Information
+* Preferred Service Provider
+
+==================================================
+1200 - CONSTRUCTION INFORMATION
+===============================
+
+Foundation
+
+* Slab
+* Raised Foundation
+* Basement
+* Pier and Beam
+
+Exterior Walls
+
+* Stucco
+* Wood
+* Brick
+* Block
+* Metal
+
+Roof Type
+
+* Asphalt Shingle
+* Tile
+* Metal
+* Flat Roof
+* TPO
+* Modified Bitumen
+
+==================================================
+1300 - PLUMBING PROFILE
+=======================
+
+Water Supply
+
+* Copper
+* PEX
+* CPVC
+* Galvanized
+* Mixed
+
+Drain System
+
+* ABS
+* PVC
+* Cast Iron
+* Clay
+* Orangeburg
+* Mixed
+
+Gas System
+
+* Natural Gas
+* Propane
+* None
+
+Water Heating
+
+* Tank Water Heater
+* Tankless Water Heater
+* Boiler
+* Heat Pump Water Heater
+
+Water Treatment
+
+* Water Softener
+* Carbon Filter
+* Reverse Osmosis
+* UV System
+
+==================================================
+1400 - HVAC PROFILE
+===================
+
+Cooling
+
+* Central AC
+* Heat Pump
+* Mini Split
+* Evaporative Cooler
+* None
+
+Heating
+
+* Furnace
+* Heat Pump
+* Boiler
+* Electric Heat
+* None
+
+Air Quality
+
+* Media Filter
+* HEPA Filter
+* UV System
+* Humidifier
+* Dehumidifier
+
+==================================================
+1500 - ELECTRICAL PROFILE
+=========================
+
+Electrical Service
+
+* 100 Amp
+* 125 Amp
+* 150 Amp
+* 200 Amp
+* 320 Amp
+* 400 Amp
+
+Main Panel
+
+* Manufacturer
+* Model
+* Location
+
+Additional Systems
+
+* Generator
+* Solar
+* Battery Storage
+* EV Charger
+* Whole House Surge Protection
+
+==================================================
+1600 - LIFE SAFETY PROFILE
+==========================
+
+* Smoke Detectors
+* Carbon Monoxide Detectors
+* Fire Extinguishers
+* Security System
+* Cameras
+* Water Leak Sensors
+* Automatic Water Shutoff System
+
+==================================================
+1700 - HOME DOCUMENTATION
+=========================
+
+Store:
+
+* Manuals
+* Warranties
+* Permits
+* Inspection Reports
+* Invoices
+* Insurance Documents
+* Photos
+* Blueprints
+* Repipe Records
+
+==================================================
+1800 - EMERGENCY INFORMATION
+============================
+
+Store Photos and Locations Of:
+
+* Main Water Shutoff
+* Main Gas Shutoff
+* Main Electrical Disconnect
+* Water Heater Shutoff
+* Irrigation Shutoff
+
+Emergency Guidance Mode:
+
+Allow Barbarosa to guide homeowners to the
+correct shutoff location using photos and instructions.
+
+==================================================
+1900 - HOME HEALTH SUMMARY
+==========================
+
+Displays:
+
+* Overall Home Health Score
+* Plumbing Health Score
+* HVAC Health Score
+* Electrical Health Score
+* Consumables Status
+* Open Service Requests
+
+==================================================
+2000 - HOMEFAX RECORD
+=====================
+
+Purpose:
+
+Create a permanent historical record of the home.
+
+Examples:
+
+2024
+Water Heater Installed
+
+2025
+Expansion Tank Installed
+
+2026
+Whole Home Repipe Completed
+
+2027
+HVAC Condenser Replaced
+
+2028
+Electrical Panel Upgraded
+
+All future records connect to this timeline.
+
+==================================================
+END OF DOCUMENT
+===============
+
+

@@ -1,0 +1,23 @@
+When a technician is dispatched, Barbarosa should notify the homeowner by text, email, or in-app message.
+
+The message should include:
+- Technician name
+- Company name
+- Estimated arrival time
+- Job/request type
+- Optional technician photo
+- Optional vehicle description
+- Contact button
+- Reschedule/request callback option
+
+Example:
+
+Your technician Michael from Bravo Water Heaters & Plumbing has been dispatched.
+
+Estimated Arrival:
+2:15 PM - 2:45 PM
+
+Service:
+Water Heater Inspection
+
+You can reply to this message or open Barbarosa for updates.
