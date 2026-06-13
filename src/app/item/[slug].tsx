@@ -357,6 +357,8 @@ export default function ItemScreen() {
     }
 
     async function finishDocumentUpload(selectedType: string) {
+        setShowDocumentTypePicker(false);
+
         const result = await DocumentPicker.getDocumentAsync({
             copyToCacheDirectory: true,
             multiple: false,
@@ -365,8 +367,6 @@ export default function ItemScreen() {
         if (result.canceled) return;
 
         const asset = result.assets[0];
-
-        setShowDocumentTypePicker(false);
 
         await uploadExtraFile({
             uri: asset.uri,
