@@ -10,7 +10,13 @@ export default function Layout() {
   useEffect(() => {
     checkLogin();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(() => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setChecking(false);
+        router.replace('/auth/reset-password' as any);
+        return;
+      }
+
       checkLogin();
     });
 
@@ -23,13 +29,14 @@ export default function Layout() {
     const { data } = await supabase.auth.getSession();
 
     const isAuthPage = segments[0] === 'auth';
+    const isResetPasswordPage = segments[0] === 'auth' && segments[1] === 'reset-password';
     const isLoggedIn = !!data.session;
 
     if (!isLoggedIn && !isAuthPage) {
       router.replace('/auth/login' as any);
     }
 
-    if (isLoggedIn && isAuthPage) {
+    if (isLoggedIn && isAuthPage && !isResetPasswordPage) {
       router.replace('/' as any);
     }
 

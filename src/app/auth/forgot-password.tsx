@@ -16,7 +16,7 @@ export default function ForgotPasswordScreen() {
         setLoading(true);
 
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-            redirectTo: 'http://localhost:8081/auth/reset-password',
+            redirectTo: 'https://barbarosa-v2.vercel.app/auth/reset-password',
         });
 
         setLoading(false);

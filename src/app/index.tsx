@@ -28,12 +28,19 @@ export default function HomeScreen() {
 
     const accessToken = hash.get('access_token');
     const refreshToken = hash.get('refresh_token');
+    const authType = hash.get('type');
 
     if (accessToken && refreshToken) {
       await supabase.auth.setSession({
         access_token: accessToken,
         refresh_token: refreshToken,
       });
+
+      if (authType === 'recovery') {
+        window.history.replaceState({}, document.title, '/auth/reset-password');
+        router.replace('/auth/reset-password' as any);
+        return;
+      }
 
       window.history.replaceState({}, document.title, '/');
     }
