@@ -574,6 +574,20 @@ export default function ItemScreen() {
 
                     <View style={actionGridStyle}>
                         <TouchableOpacity
+                            onPress={handleAddToEstimate}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>Add To Estimate</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            onPress={() => router.push('/estimate' as any)}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>View Estimate</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
                             onPress={handleUploadMainPhoto}
                             disabled={uploading}
                             style={buttonStyle}
@@ -628,20 +642,6 @@ export default function ItemScreen() {
                             style={buttonStyle}
                         >
                             <Text style={buttonTextStyle}>View Documents</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            onPress={handleAddToEstimate}
-                            style={buttonStyle}
-                        >
-                            <Text style={buttonTextStyle}>Add To Estimate</Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            onPress={() => router.push('/estimate' as any)}
-                            style={buttonStyle}
-                        >
-                            <Text style={buttonTextStyle}>View Estimate</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
