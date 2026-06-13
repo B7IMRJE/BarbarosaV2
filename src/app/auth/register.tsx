@@ -1,7 +1,15 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+    Alert,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
 import { supabase } from '../../lib/supabase';
+
 export default function RegisterScreen() {
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
@@ -10,7 +18,11 @@ export default function RegisterScreen() {
     const [loading, setLoading] = useState(false);
 
     async function handleRegister() {
-        if (!fullName || !email || !password) {
+        const cleanName = fullName.trim();
+        const cleanPhone = phone.trim();
+        const cleanEmail = email.trim().toLowerCase();
+
+        if (!cleanName || !cleanEmail || !password) {
             Alert.alert('Missing information', 'Please enter name, email, and password.');
             return;
         }
@@ -18,8 +30,15 @@ export default function RegisterScreen() {
         setLoading(true);
 
         const { data, error } = await supabase.auth.signUp({
-            email,
+            email: cleanEmail,
             password,
+            options: {
+                data: {
+                    full_name: cleanName,
+                    phone: cleanPhone,
+                    role: 'HOMEOWNER',
+                },
+            },
         });
 
         if (error) {
@@ -31,9 +50,9 @@ export default function RegisterScreen() {
         if (data.user) {
             await supabase.from('profiles').upsert({
                 id: data.user.id,
-                email,
-                full_name: fullName,
-                phone,
+                email: cleanEmail,
+                full_name: cleanName,
+                phone: cleanPhone,
                 role: 'HOMEOWNER',
             });
         }
@@ -45,7 +64,7 @@ export default function RegisterScreen() {
             'Check your email to verify your account. After that, log in.'
         );
 
-        router.push('/auth/login' as any);
+        router.replace('/auth/login' as any);
     }
 
     return (
@@ -54,21 +73,68 @@ export default function RegisterScreen() {
             contentContainerStyle={{ padding: 24, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 500 }}>
-                <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33', marginTop: 40 }}>
-                    Create Account
-                </Text>
+                <Text style={titleStyle}>Create Account</Text>
 
-                <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
-                    Create your HomeOS account.
-                </Text>
+                <Text style={subtitleStyle}>Create your HomeOS account.</Text>
 
-                <TextInput placeholder="Full Name" value={fullName} onChangeText={setFullName} style={inputStyle} />
-                <TextInput placeholder="Phone" value={phone} onChangeText={setPhone} style={inputStyle} />
-                <TextInput placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" style={inputStyle} />
-                <TextInput placeholder="Password" value={password} onChangeText={setPassword} secureTextEntry style={inputStyle} />
+                <TextInput
+                    placeholder="Full Name"
+                    value={fullName}
+                    onChangeText={setFullName}
+                    autoCapitalize="words"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    style={inputStyle}
+                />
 
-                <TouchableOpacity onPress={handleRegister} style={buttonStyle}>
-                    <Text style={buttonTextStyle}>{loading ? 'Creating...' : 'Create Account'}</Text>
+                <TextInput
+                    placeholder="Phone"
+                    value={phone}
+                    onChangeText={setPhone}
+                    keyboardType="phone-pad"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    style={inputStyle}
+                />
+
+                <TextInput
+                    placeholder="Email"
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoCorrect={false}
+                    autoComplete="off"
+                    textContentType="none"
+                    importantForAutofill="no"
+                    style={inputStyle}
+                />
+
+                <TextInput
+                    placeholder="Password"
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="new-password"
+                    textContentType="newPassword"
+                    importantForAutofill="no"
+                    style={inputStyle}
+                />
+
+                <TouchableOpacity
+                    onPress={handleRegister}
+                    disabled={loading}
+                    style={buttonStyle}
+                >
+                    <Text style={buttonTextStyle}>
+                        {loading ? 'Creating...' : 'Create Account'}
+                    </Text>
                 </TouchableOpacity>
 
                 <Text onPress={() => router.push('/auth/login' as any)} style={linkStyle}>
@@ -78,6 +144,19 @@ export default function RegisterScreen() {
         </ScrollView>
     );
 }
+
+const titleStyle = {
+    fontSize: 34,
+    fontWeight: '900' as const,
+    color: '#071B33',
+    marginTop: 40,
+};
+
+const subtitleStyle = {
+    color: '#637083',
+    marginTop: 8,
+    marginBottom: 24,
+};
 
 const inputStyle = {
     backgroundColor: '#FFFFFF',
