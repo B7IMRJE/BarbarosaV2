@@ -1,7 +1,6 @@
 
 
 
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
@@ -18,7 +17,7 @@ type AreaItem = {
     id?: string;
     name: string;
     item_slug?: string;
-    status?: string;
+    status?: string | null;
     icon?: string;
 };
 
@@ -33,37 +32,35 @@ const fallbackAreas: AreaItem[] = [
     { name: 'Main Water Shutoff', item_slug: 'main-water-shutoff', status: 'Missing Information', icon: '💧' },
 ];
 
-function getAreaIcon(name: string) {
-    const lower = name.toLowerCase();
+function getStatusCardStyle(status?: string | null) {
+    const normalizedStatus = (status || '').trim().toLowerCase();
 
-    if (lower.includes('kitchen')) return '🍳';
-    if (lower.includes('bath') || lower.includes('shower')) return '🚿';
-    if (lower.includes('laundry')) return '🧺';
-    if (lower.includes('garage')) return '🚗';
-    if (lower.includes('exterior') || lower.includes('outside')) return '🏡';
-    if (lower.includes('water heater')) return '🔥';
-    if (lower.includes('shutoff') || lower.includes('main')) return '💧';
+    if (normalizedStatus === 'good') {
+        return { backgroundColor: '#EAF8EF', borderColor: '#BFE8CC' };
+    }
 
-    return '🏠';
+    if (normalizedStatus === 'not inspected') {
+        return { backgroundColor: '#FFF8DB', borderColor: '#F4E6A0' };
+    }
+
+    if (normalizedStatus === 'needs attention') {
+        return { backgroundColor: '#FFF0DD', borderColor: '#F2C28F' };
+    }
+
+    if (normalizedStatus === 'emergency') {
+        return { backgroundColor: '#FFEAEA', borderColor: '#F1B8B8' };
+    }
+
+    if (normalizedStatus === 'active leak' || normalizedStatus === 'active emergency') {
+        return { backgroundColor: '#FFD6D6', borderColor: '#E25C5C' };
+    }
+
+    return { backgroundColor: '#FFFFFF', borderColor: '#E3E8EF' };
 }
 
-
-
-function getAreaIconName(name: string) {
-    const lower = name.toLowerCase();
-
-    if (lower.includes('kitchen')) return 'silverware-fork-knife';
-    if (lower.includes('bathroom')) return 'shower';
-    if (lower.includes('laundry')) return 'washing-machine';
-    if (lower.includes('garage')) return 'garage';
-    if (lower.includes('exterior')) return 'home-outline';
-    if (lower.includes('water heater')) return 'water-boiler';
-    if (lower.includes('shutoff') || lower.includes('main')) return 'pipe-valve';
-
-    return 'floor-plan';
+function getItemIcon(_item: AreaItem) {
+    return '??';
 }
-
-
 
 
 
@@ -159,30 +156,17 @@ export default function PlumbingAreasScreen() {
                         <TouchableOpacity
                             key={area.id || area.name}
                             onPress={() => openArea(area)}
-                            style={cardStyle}
+                            style={[cardStyle, getStatusCardStyle(area.status)]}
                         >
-                            <View style={iconBoxStyle}>
-                                <MaterialCommunityIcons
-                                    name={getAreaIconName(area.name) as any}
-                                    size={52}
-                                    color="#071B33"
-                                />
-
- 
-
-
+                            <View style={iconCircleStyle}>
+                                <Text style={iconTextStyle}>{getItemIcon(area)}</Text>
                             </View>
+
                             <Text style={cardTitleStyle} numberOfLines={2}>
                                 {area.name}
                             </Text>
 
-                            <View style={statusBadgeStyle}>
-                                <Text style={statusBadgeTextStyle}>
-                                    {area.status || 'Missing Information'}
-                                </Text>
-                            </View>
-
-                            <Text style={openTextStyle}>Open →</Text>
+                            <Text style={openTextStyle}>Open</Text>
                         </TouchableOpacity>
                     ))}
                 </View>
@@ -257,49 +241,35 @@ const gridStyle = {
 const cardStyle = {
     width: '18.8%' as const,
     minWidth: 160,
-    backgroundColor: '#FFFFFF',
     borderRadius: 22,
-    padding: 14,
+    padding: 18,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    minHeight: 190,
 };
 
-const iconBoxStyle = {
-    height: 90,
+const iconCircleStyle = {
+    width: 82,
+    height: 82,
     backgroundColor: '#E7ECF3',
-    borderRadius: 16,
+    borderRadius: 999,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
-    marginBottom: 12,
+    marginBottom: 14,
 };
 
-
-
-
-
+const iconTextStyle = {
+    fontSize: 40,
+};
 
 const cardTitleStyle = {
     fontSize: 16,
     fontWeight: '900' as const,
     color: '#071B33',
-    minHeight: 42,
+    minHeight: 44,
+    textAlign: 'center' as const,
 };
-
-const statusBadgeStyle = {
-    marginTop: 10,
-    backgroundColor: '#FFF4D6',
-    borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignSelf: 'flex-start' as const,
-};
-
-const statusBadgeTextStyle = {
-    color: '#B7791F',
-    fontSize: 12,
-    fontWeight: '900' as const,
-};
-
 const openTextStyle = {
     color: '#0B5FFF',
     marginTop: 12,

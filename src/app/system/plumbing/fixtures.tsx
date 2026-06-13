@@ -1,4 +1,3 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
@@ -14,22 +13,42 @@ type FixtureItem = {
     status: string | null;
 };
 
-function getFixtureIconName(name: string) {
-    const lower = name.toLowerCase();
+function getStatusCardStyle(status?: string | null) {
+    const normalizedStatus = (status || '').trim().toLowerCase();
 
-    if (lower.includes('faucet')) return 'faucet';
-    if (lower.includes('drain')) return 'pipe';
-    if (lower.includes('disposal')) return 'cog';
-    if (lower.includes('dishwasher')) return 'dishwasher';
-    if (lower.includes('toilet')) return 'toilet';
-    if (lower.includes('shower')) return 'shower';
-    if (lower.includes('tub')) return 'bathtub';
-    if (lower.includes('laundry')) return 'washing-machine';
-    if (lower.includes('hose')) return 'water-pump';
+    if (normalizedStatus === 'good') {
+        return { backgroundColor: '#EAF8EF', borderColor: '#BFE8CC' };
+    }
 
-    return 'tools';
+    if (normalizedStatus === 'not inspected') {
+        return { backgroundColor: '#FFF8DB', borderColor: '#F4E6A0' };
+    }
+
+    if (normalizedStatus === 'needs attention') {
+        return { backgroundColor: '#FFF0DD', borderColor: '#F2C28F' };
+    }
+
+    if (normalizedStatus === 'emergency') {
+        return { backgroundColor: '#FFEAEA', borderColor: '#F1B8B8' };
+    }
+
+    if (normalizedStatus === 'active leak' || normalizedStatus === 'active emergency') {
+        return { backgroundColor: '#FFD6D6', borderColor: '#E25C5C' };
+    }
+
+    return { backgroundColor: '#FFFFFF', borderColor: '#E3E8EF' };
 }
 
+function getItemIcon(item: FixtureItem) {
+    const lowerName = item.name.toLowerCase();
+
+    if (lowerName.includes('toilet')) return '??';
+    if (lowerName.includes('faucet')) return '??';
+    if (lowerName.includes('shower')) return '??';
+    if (lowerName.includes('disposal')) return '???';
+
+    return '??';
+}
 export default function PlumbingFixturesScreen() {
     const [fixtures, setFixtures] = useState<FixtureItem[]>([]);
     const [message, setMessage] = useState('Loading fixtures...');
@@ -111,29 +130,20 @@ export default function PlumbingFixturesScreen() {
 
                 <View style={gridStyle}>
                     {fixtures.map((fixture) => (
-                        <View key={fixture.id} style={cardStyle}>
+                        <View key={fixture.id} style={[cardStyle, getStatusCardStyle(fixture.status)]}>
                             <TouchableOpacity
                                 onPress={() => router.push(`/item/${fixture.item_slug}` as any)}
+                                style={cardOpenAreaStyle}
                             >
-                            <View style={iconBoxStyle}>
-                                <MaterialCommunityIcons
-                                    name={getFixtureIconName(fixture.name) as any}
-                                    size={44}
-                                    color="#071B33"
-                                />
-                            </View>
+                                <View style={iconCircleStyle}>
+                                    <Text style={iconTextStyle}>{getItemIcon(fixture)}</Text>
+                                </View>
 
-                            <Text style={cardTitleStyle} numberOfLines={2}>
-                                {fixture.name}
-                            </Text>
-
-                            <View style={statusBadgeStyle}>
-                                <Text style={statusBadgeTextStyle}>
-                                    {fixture.status || 'Missing Information'}
+                                <Text style={cardTitleStyle} numberOfLines={2}>
+                                    {fixture.name}
                                 </Text>
-                            </View>
 
-                            <Text style={openTextStyle}>Open →</Text>
+                                <Text style={openTextStyle}>Open</Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity
@@ -239,44 +249,40 @@ const gridStyle = {
 const cardStyle = {
     width: '18.8%' as const,
     minWidth: 160,
-    backgroundColor: '#FFFFFF',
     borderRadius: 22,
-    padding: 14,
+    padding: 18,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    minHeight: 220,
 };
 
-const iconBoxStyle = {
-    height: 90,
+const cardOpenAreaStyle = {
+    width: '100%' as const,
+    alignItems: 'center' as const,
+};
+
+const iconCircleStyle = {
+    width: 82,
+    height: 82,
     backgroundColor: '#E7ECF3',
-    borderRadius: 16,
+    borderRadius: 999,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
-    marginBottom: 12,
+    marginBottom: 14,
+};
+
+const iconTextStyle = {
+    fontSize: 40,
 };
 
 const cardTitleStyle = {
     fontSize: 16,
     fontWeight: '900' as const,
     color: '#071B33',
-    minHeight: 42,
+    minHeight: 44,
+    textAlign: 'center' as const,
 };
-
-const statusBadgeStyle = {
-    marginTop: 10,
-    backgroundColor: '#FFF4D6',
-    borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignSelf: 'flex-start' as const,
-};
-
-const statusBadgeTextStyle = {
-    color: '#B7791F',
-    fontSize: 12,
-    fontWeight: '900' as const,
-};
-
 const openTextStyle = {
     color: '#0B5FFF',
     marginTop: 12,

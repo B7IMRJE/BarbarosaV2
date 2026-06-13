@@ -2,7 +2,7 @@ import HomeHeader from '../../../components/HomeHeader';
 
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
 import { addItemToEstimateDraft } from '../../../lib/estimateDraft';
 import { supabase } from '../../../lib/supabase';
@@ -16,6 +16,44 @@ type EquipmentItem = {
     photo_url?: string | null;
     user_id?: string | null;
 };
+
+function getStatusCardStyle(status?: string | null) {
+    const normalizedStatus = (status || '').trim().toLowerCase();
+
+    if (normalizedStatus === 'good') {
+        return { backgroundColor: '#EAF8EF', borderColor: '#BFE8CC' };
+    }
+
+    if (normalizedStatus === 'not inspected') {
+        return { backgroundColor: '#FFF8DB', borderColor: '#F4E6A0' };
+    }
+
+    if (normalizedStatus === 'needs attention') {
+        return { backgroundColor: '#FFF0DD', borderColor: '#F2C28F' };
+    }
+
+    if (normalizedStatus === 'emergency') {
+        return { backgroundColor: '#FFEAEA', borderColor: '#F1B8B8' };
+    }
+
+    if (normalizedStatus === 'active leak' || normalizedStatus === 'active emergency') {
+        return { backgroundColor: '#FFD6D6', borderColor: '#E25C5C' };
+    }
+
+    return { backgroundColor: '#FFFFFF', borderColor: '#E3E8EF' };
+}
+
+function getItemIcon(item: EquipmentItem) {
+    const lowerName = item.name.toLowerCase();
+
+    if (lowerName.includes('water heater')) return '🔥';
+    if (lowerName.includes('expansion tank')) return '🛡️';
+    if (lowerName.includes('prv') || lowerName.includes('pressure regulator')) return '🚰';
+    if (lowerName.includes('main shutoff') || lowerName.includes('shutoff')) return '🛑';
+    if (lowerName.includes('leak')) return '💧';
+
+    return '🔧';
+}
 
 export default function PlumbingEquipmentScreen() {
     const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
@@ -112,44 +150,20 @@ export default function PlumbingEquipmentScreen() {
 
                 <View style={gridStyle}>
                     {equipment.map((item) => (
-                        <View key={item.id} style={cardStyle}>
+                        <View key={item.id} style={[cardStyle, getStatusCardStyle(item.status)]}>
                             <TouchableOpacity
                                 onPress={() => router.push(`/item/${item.item_slug}` as any)}
+                                style={cardOpenAreaStyle}
                             >
-                            <View style={photoBoxStyle}>
-                                {item.photo_url ? (
-                                    <Image
-                                        source={{ uri: item.photo_url }}
-                                        style={cardImageStyle}
-                                        resizeMode="contain"
-                                    />
-                                ) : (
-                                    <>
-                                        <Text style={photoIconStyle}>📷</Text>
-                                        <Text style={photoTextStyle}>No Photo</Text>
-                                    </>
-                                )}
-                            </View>
-
-                            <Text style={cardTitleStyle} numberOfLines={2}>
-                                {item.name}
-                            </Text>
-
-                            <View style={badgeRowStyle}>
-                                <View style={installBadgeStyle}>
-                                    <Text style={installBadgeTextStyle}>
-                                        {item.install_state || 'Unknown'}
-                                    </Text>
+                                <View style={iconCircleStyle}>
+                                    <Text style={iconTextStyle}>{getItemIcon(item)}</Text>
                                 </View>
 
-                                <View style={statusBadgeStyle}>
-                                    <Text style={statusBadgeTextStyle}>
-                                        {item.status || 'Missing Information'}
-                                    </Text>
-                                </View>
-                            </View>
+                                <Text style={cardTitleStyle} numberOfLines={2}>
+                                    {item.name}
+                                </Text>
 
-                            <Text style={openTextStyle}>Open →</Text>
+                                <Text style={openTextStyle}>Open</Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity
@@ -255,79 +269,40 @@ const gridStyle = {
 const cardStyle = {
     width: '18.8%' as const,
     minWidth: 160,
-    backgroundColor: '#FFFFFF',
     borderRadius: 22,
-    padding: 14,
+    padding: 18,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    minHeight: 220,
 };
 
-const photoBoxStyle = {
-    height: 90,
+const cardOpenAreaStyle = {
+    width: '100%' as const,
+    alignItems: 'center' as const,
+};
+
+const iconCircleStyle = {
+    width: 82,
+    height: 82,
     backgroundColor: '#E7ECF3',
-    borderRadius: 16,
+    borderRadius: 999,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
-    marginBottom: 12,
+    marginBottom: 14,
 };
 
-const cardImageStyle = {
-    width: '100%' as const,
-    height: '100%' as const,
-    borderRadius: 14,
-};
-
-const photoIconStyle = {
-    fontSize: 24,
-    marginBottom: 4,
-};
-
-const photoTextStyle = {
-    color: '#637083',
-    fontSize: 12,
-    fontWeight: '900' as const,
+const iconTextStyle = {
+    fontSize: 40,
 };
 
 const cardTitleStyle = {
     fontSize: 16,
     fontWeight: '900' as const,
     color: '#071B33',
-    minHeight: 42,
+    minHeight: 44,
+    textAlign: 'center' as const,
 };
-
-const badgeRowStyle = {
-    marginTop: 10,
-    gap: 6,
-};
-
-const installBadgeStyle = {
-    backgroundColor: '#E7ECF3',
-    borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignSelf: 'flex-start' as const,
-};
-
-const installBadgeTextStyle = {
-    color: '#637083',
-    fontSize: 12,
-    fontWeight: '900' as const,
-};
-
-const statusBadgeStyle = {
-    backgroundColor: '#FFF4D6',
-    borderRadius: 999,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    alignSelf: 'flex-start' as const,
-};
-
-const statusBadgeTextStyle = {
-    color: '#B7791F',
-    fontSize: 12,
-    fontWeight: '900' as const,
-};
-
 const openTextStyle = {
     color: '#0B5FFF',
     marginTop: 12,
