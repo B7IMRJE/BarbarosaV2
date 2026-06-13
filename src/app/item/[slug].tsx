@@ -15,6 +15,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { addItemToEstimateDraft } from '../../lib/estimateDraft';
 import { supabase } from '../../lib/supabase';
 
 type ItemFile = {
@@ -423,6 +424,20 @@ export default function ItemScreen() {
         } as any);
     }
 
+    async function handleAddToEstimate() {
+        await addItemToEstimateDraft({
+            id: String(item.id || item.item_slug || slug),
+            name: item.name || 'Unknown Item',
+            item_slug: item.item_slug || String(slug),
+            system: item.system || 'Unknown',
+            category: item.category || 'Unknown',
+            status: item.status || null,
+            install_state: item.install_state || null,
+        });
+
+        setMessage(`${item.name || 'Item'} added to estimate.`);
+    }
+
     async function handleRemoveItem() {
         setMessage('Archiving item...');
 
@@ -613,6 +628,20 @@ export default function ItemScreen() {
                             style={buttonStyle}
                         >
                             <Text style={buttonTextStyle}>View Documents</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            onPress={handleAddToEstimate}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>Add To Estimate</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            onPress={() => router.push('/estimate' as any)}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>View Estimate</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity

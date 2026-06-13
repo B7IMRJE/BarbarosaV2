@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
+import { addItemToEstimateDraft } from '../../../lib/estimateDraft';
 import { supabase } from '../../../lib/supabase';
 
 type EquipmentItem = {
@@ -56,6 +57,20 @@ export default function PlumbingEquipmentScreen() {
         setMessage(`Logged in user: ${user.id} | Equipment found: ${(data || []).length}`);
     }
 
+    async function handleAddToEstimate(item: EquipmentItem) {
+        await addItemToEstimateDraft({
+            id: item.id,
+            name: item.name,
+            item_slug: item.item_slug,
+            system: 'Plumbing',
+            category: 'Equipment',
+            status: item.status,
+            install_state: item.install_state,
+        });
+
+        setMessage(`${item.name} added to estimate.`);
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
@@ -72,12 +87,21 @@ export default function PlumbingEquipmentScreen() {
                         </Text>
                     </View>
 
-                    <TouchableOpacity
-                        onPress={() => router.push('/item/create' as any)}
-                        style={addButtonStyle}
-                    >
-                        <Text style={addButtonTextStyle}>+ Add Equipment</Text>
-                    </TouchableOpacity>
+                    <View style={headerActionsStyle}>
+                        <TouchableOpacity
+                            onPress={() => router.push('/estimate' as any)}
+                            style={secondaryButtonStyle}
+                        >
+                            <Text style={secondaryButtonTextStyle}>View Estimate</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            onPress={() => router.push('/item/create' as any)}
+                            style={addButtonStyle}
+                        >
+                            <Text style={addButtonTextStyle}>+ Add Equipment</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {!!message && (
@@ -88,11 +112,10 @@ export default function PlumbingEquipmentScreen() {
 
                 <View style={gridStyle}>
                     {equipment.map((item) => (
-                        <TouchableOpacity
-                            key={item.id}
-                            onPress={() => router.push(`/item/${item.item_slug}` as any)}
-                            style={cardStyle}
-                        >
+                        <View key={item.id} style={cardStyle}>
+                            <TouchableOpacity
+                                onPress={() => router.push(`/item/${item.item_slug}` as any)}
+                            >
                             <View style={photoBoxStyle}>
                                 {item.photo_url ? (
                                     <Image
@@ -127,7 +150,15 @@ export default function PlumbingEquipmentScreen() {
                             </View>
 
                             <Text style={openTextStyle}>Open →</Text>
-                        </TouchableOpacity>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={() => handleAddToEstimate(item)}
+                                style={estimateButtonStyle}
+                            >
+                                <Text style={estimateButtonTextStyle}>Add To Estimate</Text>
+                            </TouchableOpacity>
+                        </View>
                     ))}
                 </View>
 
@@ -174,6 +205,29 @@ const addButtonStyle = {
 
 const addButtonTextStyle = {
     color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const headerActionsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'flex-end' as const,
+    gap: 10,
+};
+
+const secondaryButtonStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+    marginTop: 4,
+};
+
+const secondaryButtonTextStyle = {
+    color: '#071B33',
     fontSize: 15,
     fontWeight: '900' as const,
 };
@@ -277,5 +331,20 @@ const statusBadgeTextStyle = {
 const openTextStyle = {
     color: '#0B5FFF',
     marginTop: 12,
+    fontWeight: '900' as const,
+};
+
+const estimateButtonStyle = {
+    backgroundColor: '#071B33',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center' as const,
+    marginTop: 12,
+};
+
+const estimateButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '900' as const,
 };

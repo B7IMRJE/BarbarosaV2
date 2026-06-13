@@ -3,12 +3,14 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
+import { addItemToEstimateDraft } from '../../../lib/estimateDraft';
 import { supabase } from '../../../lib/supabase';
 
 type FixtureItem = {
     id: string;
     name: string;
     item_slug: string;
+    install_state: string | null;
     status: string | null;
 };
 
@@ -39,7 +41,7 @@ export default function PlumbingFixturesScreen() {
     async function loadFixtures() {
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, name, item_slug, status')
+            .select('id, name, item_slug, install_state, status')
             .eq('system', 'Plumbing')
             .eq('category', 'Fixture')
             .eq('archived', false)
@@ -52,6 +54,20 @@ export default function PlumbingFixturesScreen() {
 
         setFixtures(data || []);
         setMessage('');
+    }
+
+    async function handleAddToEstimate(fixture: FixtureItem) {
+        await addItemToEstimateDraft({
+            id: fixture.id,
+            name: fixture.name,
+            item_slug: fixture.item_slug,
+            system: 'Plumbing',
+            category: 'Fixture',
+            status: fixture.status,
+            install_state: fixture.install_state,
+        });
+
+        setMessage(`${fixture.name} added to estimate.`);
     }
 
     return (
@@ -70,12 +86,21 @@ export default function PlumbingFixturesScreen() {
                         </Text>
                     </View>
 
-                    <TouchableOpacity
-                        onPress={() => router.push('/item/create' as any)}
-                        style={addButtonStyle}
-                    >
-                        <Text style={addButtonTextStyle}>+ Add Fixture</Text>
-                    </TouchableOpacity>
+                    <View style={headerActionsStyle}>
+                        <TouchableOpacity
+                            onPress={() => router.push('/estimate' as any)}
+                            style={secondaryButtonStyle}
+                        >
+                            <Text style={secondaryButtonTextStyle}>View Estimate</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            onPress={() => router.push('/item/create' as any)}
+                            style={addButtonStyle}
+                        >
+                            <Text style={addButtonTextStyle}>+ Add Fixture</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {!!message && (
@@ -86,11 +111,10 @@ export default function PlumbingFixturesScreen() {
 
                 <View style={gridStyle}>
                     {fixtures.map((fixture) => (
-                        <TouchableOpacity
-                            key={fixture.id}
-                            onPress={() => router.push(`/item/${fixture.item_slug}` as any)}
-                            style={cardStyle}
-                        >
+                        <View key={fixture.id} style={cardStyle}>
+                            <TouchableOpacity
+                                onPress={() => router.push(`/item/${fixture.item_slug}` as any)}
+                            >
                             <View style={iconBoxStyle}>
                                 <MaterialCommunityIcons
                                     name={getFixtureIconName(fixture.name) as any}
@@ -110,7 +134,15 @@ export default function PlumbingFixturesScreen() {
                             </View>
 
                             <Text style={openTextStyle}>Open →</Text>
-                        </TouchableOpacity>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={() => handleAddToEstimate(fixture)}
+                                style={estimateButtonStyle}
+                            >
+                                <Text style={estimateButtonTextStyle}>Add To Estimate</Text>
+                            </TouchableOpacity>
+                        </View>
                     ))}
                 </View>
 
@@ -157,6 +189,29 @@ const addButtonStyle = {
 
 const addButtonTextStyle = {
     color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const headerActionsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'flex-end' as const,
+    gap: 10,
+};
+
+const secondaryButtonStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+    marginTop: 4,
+};
+
+const secondaryButtonTextStyle = {
+    color: '#071B33',
     fontSize: 15,
     fontWeight: '900' as const,
 };
@@ -225,5 +280,20 @@ const statusBadgeTextStyle = {
 const openTextStyle = {
     color: '#0B5FFF',
     marginTop: 12,
+    fontWeight: '900' as const,
+};
+
+const estimateButtonStyle = {
+    backgroundColor: '#071B33',
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center' as const,
+    marginTop: 12,
+};
+
+const estimateButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '900' as const,
 };
