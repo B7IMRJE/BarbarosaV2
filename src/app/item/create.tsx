@@ -210,17 +210,6 @@ export default function CreateItemScreen() {
                 </Text>
             </TouchableOpacity>
 
-            
-            <TouchableOpacity
-                onPress={saveItem}
-                disabled={saving}
-                style={buttonStyle}
-            >
-                <Text style={buttonTextStyle}>
-                    {saving ? 'Saving...' : 'Save Item'}
-                </Text>
-            </TouchableOpacity>
-
             <HomeHeader />
 
             {!!message && (

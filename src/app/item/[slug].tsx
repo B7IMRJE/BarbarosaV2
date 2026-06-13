@@ -20,6 +20,7 @@ import { supabase } from '../../lib/supabase';
 type ItemFile = {
     id: string;
     item_slug: string;
+    user_id: string | null;
     file_url: string;
     file_name: string | null;
     file_type: string;
@@ -53,12 +54,40 @@ const documentCategories = [
     'service_report',
     'maintenance_record',
 
-    'photo_report',
-
     'other',
 ];
 
+const documentCategoryLabels: Record<string, { singular: string; plural: string }> = {
+    manual: { singular: 'Manual', plural: 'Manuals' },
+    warranty: { singular: 'Warranty', plural: 'Warranties' },
+    estimate: { singular: 'Estimate', plural: 'Estimates' },
+    accepted_option: { singular: 'Accepted Option', plural: 'Accepted Options' },
+    declined_option: { singular: 'Declined Option', plural: 'Declined Options' },
+    invoice: { singular: 'Invoice', plural: 'Invoices' },
+    receipt: { singular: 'Receipt', plural: 'Receipts' },
+    permit: { singular: 'Permit', plural: 'Permits' },
+    inspection: { singular: 'Inspection', plural: 'Inspections' },
+    service_report: { singular: 'Service Report', plural: 'Service Reports' },
+    maintenance_record: { singular: 'Maintenance Record', plural: 'Maintenance Records' },
+    other: { singular: 'Other', plural: 'Other' },
+};
+
+function documentLabel(category: string, variant: 'singular' | 'plural' = 'singular') {
+    return documentCategoryLabels[category]?.[variant] || category.replace(/_/g, ' ');
+}
+
+function isImageFile(fileName?: string | null) {
+    const lowerName = fileName?.toLowerCase() || '';
+    return (
+        lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.png') ||
+        lowerName.endsWith('.webp')
+    );
+}
+
 export default function ItemScreen() {
+    const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
     const { slug } = useLocalSearchParams();
     const [item, setItem] = useState<any>(null);
     const [files, setFiles] = useState<ItemFile[]>([]);
@@ -68,7 +97,7 @@ export default function ItemScreen() {
     const [showPhotos, setShowPhotos] = useState(false);
     const [showDocuments, setShowDocuments] = useState(false);
     const [photoCategory, setPhotoCategory] = useState('equipment_photo');
-    const [documentCategory, setDocumentCategory] = useState('manual');
+    const [selectedDocumentType, setSelectedDocumentType] = useState<string | null>(null);
     const [message, setMessage] = useState('');
 
     useEffect(() => {
@@ -79,10 +108,24 @@ export default function ItemScreen() {
     async function loadItem() {
         setLoading(true);
 
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setMessage('You must be logged in to view this item.');
+            setItem(null);
+            setLoading(false);
+            router.replace('/auth/login' as any);
+            return;
+        }
+
         const { data, error } = await supabase
             .from('home_items')
             .select('*')
             .eq('item_slug', String(slug))
+            .eq('user_id', user.id)
             .maybeSingle();
 
         if (error) {
@@ -100,10 +143,23 @@ export default function ItemScreen() {
     }
 
     async function loadFiles() {
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setMessage('You must be logged in to view files.');
+            setFiles([]);
+            router.replace('/auth/login' as any);
+            return;
+        }
+
         const { data, error } = await supabase
             .from('home_item_files')
             .select('*')
             .eq('item_slug', String(slug))
+            .eq('user_id', user.id)
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -119,12 +175,23 @@ export default function ItemScreen() {
             setUploading(true);
             setMessage('Uploading main photo...');
 
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                setMessage('You must be logged in to upload photos.');
+                router.replace('/auth/login' as any);
+                return;
+            }
+
             const response = await fetch(asset.uri);
             const arrayBuffer = await response.arrayBuffer();
 
             const fileExt = asset.uri.split('.').pop() || 'jpg';
             const fileName = `${String(slug)}-main-${Date.now()}.${fileExt}`;
-            const filePath = `items/${fileName}`;
+            const filePath = `users/${user.id}/items/${String(slug)}/${fileName}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('item-photos')
@@ -147,7 +214,8 @@ export default function ItemScreen() {
             const { error: updateError } = await supabase
                 .from('home_items')
                 .update({ photo_url: photoUrl })
-                .eq('item_slug', String(slug));
+                .eq('item_slug', String(slug))
+                .eq('user_id', user.id);
 
             if (updateError) {
                 setMessage(`Photo saved but item update failed: ${updateError.message}`);
@@ -180,11 +248,22 @@ export default function ItemScreen() {
             setUploading(true);
             setMessage(`Uploading ${fileType}...`);
 
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                setMessage(`You must be logged in to upload ${fileType}s.`);
+                router.replace('/auth/login' as any);
+                return;
+            }
+
             const response = await fetch(uri);
             const arrayBuffer = await response.arrayBuffer();
 
             const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, '-');
-            const filePath = `${String(slug)}/${fileType}s/${Date.now()}-${cleanName}`;
+            const filePath = `users/${user.id}/items/${String(slug)}/${fileType}s/${Date.now()}-${cleanName}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('item-files')
@@ -207,6 +286,7 @@ export default function ItemScreen() {
             const { error: insertError } = await supabase
                 .from('home_item_files')
                 .insert({
+                    user_id: user.id,
                     item_slug: String(slug),
                     file_url: fileUrl,
                     file_name: fileName,
@@ -273,6 +353,10 @@ export default function ItemScreen() {
     }
 
     async function handleUploadDocument() {
+        setShowDocumentTypePicker(true);
+    }
+
+    async function finishDocumentUpload(selectedType: string) {
         const result = await DocumentPicker.getDocumentAsync({
             copyToCacheDirectory: true,
             multiple: false,
@@ -282,14 +366,20 @@ export default function ItemScreen() {
 
         const asset = result.assets[0];
 
+        setShowDocumentTypePicker(false);
+
         await uploadExtraFile({
             uri: asset.uri,
             fileName: asset.name || `${String(slug)}-${Date.now()}`,
             mimeType: asset.mimeType || 'application/octet-stream',
             fileType: 'document',
-            category: documentCategory,
+            category: selectedType,
         });
+
+        setSelectedDocumentType(selectedType);
+        setShowDocuments(true);
     }
+
 
     async function handleOpenCamera() {
         if (Platform.OS === 'web') {
@@ -339,7 +429,8 @@ export default function ItemScreen() {
         const { error } = await supabase
             .from('home_items')
             .update({ archived: true })
-            .eq('item_slug', String(slug));
+            .eq('item_slug', String(slug))
+            .eq('user_id', item.user_id);
 
         if (error) {
             setMessage(`Remove failed: ${error.message}`);
@@ -466,13 +557,6 @@ export default function ItemScreen() {
                         onChange={setPhotoCategory}
                     />
 
-                    <Text style={sectionTitleStyle}>Document Type</Text>
-                    <OptionRow
-                        options={documentCategories}
-                        value={documentCategory}
-                        onChange={setDocumentCategory}
-                    />
-
                     <View style={actionGridStyle}>
                         <TouchableOpacity
                             onPress={handleUploadMainPhoto}
@@ -522,7 +606,10 @@ export default function ItemScreen() {
                         </TouchableOpacity>
 
                         <TouchableOpacity
-                            onPress={() => setShowDocuments(true)}
+                            onPress={() => {
+                                setSelectedDocumentType(null);
+                                setShowDocuments(true);
+                            }}
                             style={buttonStyle}
                         >
                             <Text style={buttonTextStyle}>View Documents</Text>
@@ -621,66 +708,116 @@ export default function ItemScreen() {
             <Modal visible={showDocuments} transparent={false} animationType="slide">
                 <ScrollView style={galleryModalStyle} contentContainerStyle={{ padding: 20 }}>
                     <TouchableOpacity onPress={() => setShowDocuments(false)}>
-                        <Text style={modalBackTextStyle}>← Close Documents</Text>
+                        <Text style={modalBackTextStyle}>Close Documents</Text>
                     </TouchableOpacity>
 
                     <Text style={modalTitleStyle}>Documents</Text>
 
-                    {groupedDocuments.map((group) => {
-                        if (group.documents.length === 0) return null;
+                    {!selectedDocumentType ? (
+                        <>
+                            <Text style={documentExplorerTitleStyle}>Document Type Explorer</Text>
 
-                        return (
-                            <View key={group.category} style={{ marginBottom: 24 }}>
-                                <Text style={documentGroupTitleStyle}>
-                                    {group.category.replace(/_/g, ' ')}
-                                </Text>
-
-                                {group.documents.map((doc) => {
-                                    const isImage =
-                                        doc.file_name?.toLowerCase().endsWith('.jpg') ||
-                                        doc.file_name?.toLowerCase().endsWith('.jpeg') ||
-                                        doc.file_name?.toLowerCase().endsWith('.png') ||
-                                        doc.file_name?.toLowerCase().endsWith('.webp');
-
-                                    return (
-                                        <TouchableOpacity
-                                            key={doc.id}
-                                            style={documentCardStyle}
-                                            onPress={() => Linking.openURL(doc.file_url)}
-                                        >
-                                            <View style={documentPreviewStyle}>
-                                                {isImage ? (
-                                                    <Image
-                                                        source={{ uri: doc.file_url }}
-                                                        style={documentPreviewImageStyle}
-                                                        resizeMode="contain"
-                                                    />
-                                                ) : (
-                                                    <Text style={documentPreviewIconStyle}>📄</Text>
-                                                )}
-                                            </View>
-
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={documentTitleStyle}>
-                                                    {doc.file_name || 'Document'}
-                                                </Text>
-                                                <Text style={documentSubTextStyle}>
-                                                    {doc.category.replace(/_/g, ' ')}
-                                                </Text>
-                                                <Text style={documentOpenTextStyle}>
-                                                    Open →
-                                                </Text>
-                                            </View>
-                                        </TouchableOpacity>
-                                    );
-                                })}
+                            <View style={documentExplorerGridStyle}>
+                                {groupedDocuments.map((group) => (
+                                    <TouchableOpacity
+                                        key={group.category}
+                                        style={documentExplorerBlockStyle}
+                                        onPress={() => setSelectedDocumentType(group.category)}
+                                    >
+                                        <Text style={documentExplorerBlockTitleStyle}>
+                                            {documentLabel(group.category, 'plural')}
+                                        </Text>
+                                        <Text style={documentExplorerBlockCountStyle}>
+                                            ({group.documents.length})
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
                             </View>
-                        );
-                    })}
+                        </>
+                    ) : (
+                        <View>
+                            <TouchableOpacity onPress={() => setSelectedDocumentType(null)}>
+                                <Text style={modalBackTextStyle}>Back to Document Type Explorer</Text>
+                            </TouchableOpacity>
+
+                            <Text style={documentGroupTitleStyle}>
+                                {documentLabel(selectedDocumentType, 'plural')}
+                            </Text>
+
+                            {documents
+                                .filter((doc) => doc.category === selectedDocumentType)
+                                .map((doc) => (
+                                    <TouchableOpacity
+                                        key={doc.id}
+                                        style={documentCardStyle}
+                                        onPress={() => Linking.openURL(doc.file_url)}
+                                    >
+                                        <View style={documentPreviewStyle}>
+                                            {isImageFile(doc.file_name) ? (
+                                                <Image
+                                                    source={{ uri: doc.file_url }}
+                                                    style={documentPreviewImageStyle}
+                                                    resizeMode="contain"
+                                                />
+                                            ) : (
+                                                <Text style={documentPreviewIconStyle}>DOC</Text>
+                                            )}
+                                        </View>
+
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={documentTitleStyle}>
+                                                {doc.file_name || 'Document'}
+                                            </Text>
+                                            <Text style={documentSubTextStyle}>
+                                                {documentLabel(doc.category)}
+                                            </Text>
+                                            <Text style={documentOpenTextStyle}>Open</Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                ))}
+
+                            {documents.filter((doc) => doc.category === selectedDocumentType).length === 0 && (
+                                <Text style={emptyTextStyle}>
+                                    No {documentLabel(selectedDocumentType, 'plural').toLowerCase()} yet.
+                                </Text>
+                            )}
+                        </View>
+                    )}
 
                     {documents.length === 0 && (
                         <Text style={emptyTextStyle}>No documents yet.</Text>
                     )}
+                </ScrollView>
+            </Modal>
+            <Modal visible={showDocumentTypePicker} transparent={false} animationType="slide">
+                <ScrollView style={galleryModalStyle} contentContainerStyle={{ padding: 20 }}>
+                    <TouchableOpacity
+                        onPress={() => {
+                            setShowDocumentTypePicker(false);
+                        }}
+                    >
+                        <Text style={modalBackTextStyle}>← Cancel</Text>
+                    </TouchableOpacity>
+
+                    <Text style={modalTitleStyle}>What type of document is this?</Text>
+
+                    <Text style={subtitleStyle}>
+                        Choose where this file should be stored.
+                    </Text>
+
+                    <View style={documentTypeGridStyle}>
+                        {documentCategories.map((type) => (
+                            <TouchableOpacity
+                                key={type}
+                                style={documentTypeBlockStyle}
+                                onPress={() => finishDocumentUpload(type)}
+                            >
+                                <Text style={documentTypeBlockTitleStyle}>
+                                    {documentLabel(type)}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
                 </ScrollView>
             </Modal>
         </>
@@ -1086,5 +1223,65 @@ const documentGroupTitleStyle = {
     color: '#071B33',
     marginTop: 12,
     marginBottom: 10,
+    textTransform: 'capitalize' as const,
+};
+
+const documentExplorerTitleStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+    color: '#637083',
+    marginBottom: 14,
+};
+
+const documentExplorerGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const documentExplorerBlockStyle = {
+    width: '23%' as const,
+    minWidth: 190,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+};
+
+const documentExplorerBlockTitleStyle = {
+    color: '#071B33',
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const documentExplorerBlockCountStyle = {
+    color: '#637083',
+    marginTop: 8,
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const documentTypeGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginTop: 20,
+};
+
+const documentTypeBlockStyle = {
+    width: '31%' as const,
+    minWidth: 180,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+};
+
+const documentTypeBlockTitleStyle = {
+    color: '#071B33',
+    fontSize: 18,
+    fontWeight: '900' as const,
     textTransform: 'capitalize' as const,
 };
