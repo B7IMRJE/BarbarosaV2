@@ -1,10 +1,4 @@
-
-
-
-
 import HomeHeader from '../../components/HomeHeader';
-
-
 
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -71,28 +65,30 @@ export default function CreateItemScreen() {
     const [saving, setSaving] = useState(false);
 
     function finalLocation() {
-        if (locationChoice === 'Custom') {
-            return customLocation.trim();
-        }
-
+        if (locationChoice === 'Custom') return customLocation.trim();
         return locationChoice;
     }
 
     function finalParentArea() {
-        if (parentAreaChoice === 'Custom') {
-            return customParentArea.trim();
-        }
-
-        if (parentAreaChoice === 'None') {
-            return '';
-        }
-
+        if (parentAreaChoice === 'Custom') return customParentArea.trim();
+        if (parentAreaChoice === 'None') return '';
         return parentAreaChoice;
     }
 
     async function saveItem() {
         if (!name.trim()) {
             setMessage('Enter item name.');
+            return;
+        }
+
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setMessage('You must be logged in to create an item.');
+            router.replace('/auth/login' as any);
             return;
         }
 
@@ -112,6 +108,7 @@ export default function CreateItemScreen() {
         setMessage('Saving item...');
 
         const { error } = await supabase.from('home_items').insert({
+            user_id: user.id,
             item_slug: slug,
             name: name.trim(),
             system,
@@ -124,6 +121,7 @@ export default function CreateItemScreen() {
             brand: 'Unknown',
             model: 'Unknown',
             serial: 'Unknown',
+            archived: false,
         });
 
         setSaving(false);
@@ -202,7 +200,18 @@ export default function CreateItemScreen() {
             <Text style={sectionTitleStyle}>Status</Text>
             <OptionRow options={statuses} value={status} onChange={setStatus} />
 
+            <TouchableOpacity
+                onPress={saveItem}
+                disabled={saving}
+                style={buttonStyle}
+            >
+                <Text style={buttonTextStyle}>
+                    {saving ? 'Saving...' : 'Save Item'}
+                </Text>
+            </TouchableOpacity>
+
             <HomeHeader />
+
             {!!message && (
                 <View style={messageBoxStyle}>
                     <Text style={messageTextStyle}>{message}</Text>
