@@ -88,6 +88,12 @@ function isImageFile(fileName?: string | null) {
     );
 }
 
+function isStaffRole(role?: string | null) {
+    const normalizedRole = String(role || 'HOMEOWNER').trim().toUpperCase();
+
+    return ['TECH', 'OFFICE', 'MANAGER', 'SUPER_ADMIN', 'ADMIN'].includes(normalizedRole);
+}
+
 export default function ItemScreen() {
     const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
     const { slug } = useLocalSearchParams();
@@ -100,6 +106,7 @@ export default function ItemScreen() {
     const [showDocuments, setShowDocuments] = useState(false);
     const [photoCategory, setPhotoCategory] = useState('equipment_photo');
     const [selectedDocumentType, setSelectedDocumentType] = useState<string | null>(null);
+    const [currentUserRole, setCurrentUserRole] = useState('HOMEOWNER');
     const [message, setMessage] = useState('');
 
     useEffect(() => {
@@ -122,6 +129,14 @@ export default function ItemScreen() {
             router.replace('/auth/login' as any);
             return;
         }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        setCurrentUserRole(profile?.role || 'HOMEOWNER');
 
         const { data, error } = await supabase
             .from('home_items')
@@ -526,6 +541,7 @@ export default function ItemScreen() {
         documents: documents.filter((doc) => doc.category === category),
     }));
 
+    const canUseStaffTools = isStaffRole(currentUserRole);
 
     const detailCards = [
         { label: 'Install State', value: item.install_state || 'Unknown' },
@@ -613,26 +629,30 @@ export default function ItemScreen() {
                     />
 
                     <View style={actionGridStyle}>
-                        <TouchableOpacity
-                            onPress={handleAddToEstimate}
-                            style={buttonStyle}
-                        >
-                            <Text style={buttonTextStyle}>Add To Estimate</Text>
-                        </TouchableOpacity>
+                        {canUseStaffTools && (
+                            <>
+                                <TouchableOpacity
+                                    onPress={handleAddToEstimate}
+                                    style={buttonStyle}
+                                >
+                                    <Text style={buttonTextStyle}>Add To Estimate</Text>
+                                </TouchableOpacity>
 
-                        <TouchableOpacity
-                            onPress={() => router.push('/estimate' as any)}
-                            style={buttonStyle}
-                        >
-                            <Text style={buttonTextStyle}>View Estimate</Text>
-                        </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => router.push('/estimate' as any)}
+                                    style={buttonStyle}
+                                >
+                                    <Text style={buttonTextStyle}>View Estimate</Text>
+                                </TouchableOpacity>
 
-                        <TouchableOpacity
-                            onPress={handleStartJobThread}
-                            style={buttonStyle}
-                        >
-                            <Text style={buttonTextStyle}>Start Job Thread</Text>
-                        </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={handleStartJobThread}
+                                    style={buttonStyle}
+                                >
+                                    <Text style={buttonTextStyle}>Start Job Thread</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
 
                         <TouchableOpacity
                             onPress={handleUploadMainPhoto}
