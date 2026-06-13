@@ -39,10 +39,22 @@ const photoCategories = [
 const documentCategories = [
     'manual',
     'warranty',
+
+    'estimate',
+    'accepted_option',
+    'declined_option',
+
     'invoice',
     'receipt',
+
     'permit',
     'inspection',
+
+    'service_report',
+    'maintenance_record',
+
+    'photo_report',
+
     'other',
 ];
 
@@ -363,6 +375,12 @@ export default function ItemScreen() {
     const photos = files.filter((file) => file.file_type === 'photo');
     const documents = files.filter((file) => file.file_type === 'document');
 
+    const groupedDocuments = documentCategories.map((category) => ({
+        category,
+        documents: documents.filter((doc) => doc.category === category),
+    }));
+
+
     const detailCards = [
         { label: 'Install State', value: item.install_state || 'Unknown' },
         { label: 'Status', value: item.status || 'Missing Information' },
@@ -608,43 +626,55 @@ export default function ItemScreen() {
 
                     <Text style={modalTitleStyle}>Documents</Text>
 
-                    {documents.map((doc) => {
-                        const isImage =
-                            doc.file_name?.toLowerCase().endsWith('.jpg') ||
-                            doc.file_name?.toLowerCase().endsWith('.jpeg') ||
-                            doc.file_name?.toLowerCase().endsWith('.png') ||
-                            doc.file_name?.toLowerCase().endsWith('.webp');
+                    {groupedDocuments.map((group) => {
+                        if (group.documents.length === 0) return null;
 
                         return (
-                            <TouchableOpacity
-                                key={doc.id}
-                                style={documentCardStyle}
-                                onPress={() => Linking.openURL(doc.file_url)}
-                            >
-                                <View style={documentPreviewStyle}>
-                                    {isImage ? (
-                                        <Image
-                                            source={{ uri: doc.file_url }}
-                                            style={documentPreviewImageStyle}
-                                            resizeMode="contain"
-                                        />
-                                    ) : (
-                                        <Text style={documentPreviewIconStyle}>📄</Text>
-                                    )}
-                                </View>
+                            <View key={group.category} style={{ marginBottom: 24 }}>
+                                <Text style={documentGroupTitleStyle}>
+                                    {group.category.replace(/_/g, ' ')}
+                                </Text>
 
-                                <View style={{ flex: 1 }}>
-                                    <Text style={documentTitleStyle}>
-                                        {doc.file_name || 'Document'}
-                                    </Text>
-                                    <Text style={documentSubTextStyle}>
-                                        {doc.category}
-                                    </Text>
-                                    <Text style={documentOpenTextStyle}>
-                                        Open →
-                                    </Text>
-                                </View>
-                            </TouchableOpacity>
+                                {group.documents.map((doc) => {
+                                    const isImage =
+                                        doc.file_name?.toLowerCase().endsWith('.jpg') ||
+                                        doc.file_name?.toLowerCase().endsWith('.jpeg') ||
+                                        doc.file_name?.toLowerCase().endsWith('.png') ||
+                                        doc.file_name?.toLowerCase().endsWith('.webp');
+
+                                    return (
+                                        <TouchableOpacity
+                                            key={doc.id}
+                                            style={documentCardStyle}
+                                            onPress={() => Linking.openURL(doc.file_url)}
+                                        >
+                                            <View style={documentPreviewStyle}>
+                                                {isImage ? (
+                                                    <Image
+                                                        source={{ uri: doc.file_url }}
+                                                        style={documentPreviewImageStyle}
+                                                        resizeMode="contain"
+                                                    />
+                                                ) : (
+                                                    <Text style={documentPreviewIconStyle}>📄</Text>
+                                                )}
+                                            </View>
+
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={documentTitleStyle}>
+                                                    {doc.file_name || 'Document'}
+                                                </Text>
+                                                <Text style={documentSubTextStyle}>
+                                                    {doc.category.replace(/_/g, ' ')}
+                                                </Text>
+                                                <Text style={documentOpenTextStyle}>
+                                                    Open →
+                                                </Text>
+                                            </View>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
                         );
                     })}
 
@@ -1049,4 +1079,12 @@ const emptyTextStyle = {
     color: '#637083',
     fontSize: 16,
     fontWeight: '900' as const,
+};
+const documentGroupTitleStyle = {
+    fontSize: 22,
+    fontWeight: '900' as const,
+    color: '#071B33',
+    marginTop: 12,
+    marginBottom: 10,
+    textTransform: 'capitalize' as const,
 };
