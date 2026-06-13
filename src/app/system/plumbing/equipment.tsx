@@ -44,7 +44,7 @@ export default function PlumbingEquipmentScreen() {
             .eq('user_id', user.id)
             .eq('system', 'Plumbing')
             .eq('category', 'Equipment')
-            .eq('archived', false)
+            .or('archived.eq.false,archived.is.null')
             .order('name', { ascending: true });
 
         if (error) {
