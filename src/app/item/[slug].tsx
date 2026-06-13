@@ -16,6 +16,7 @@ import {
     View,
 } from 'react-native';
 import { addItemToEstimateDraft } from '../../lib/estimateDraft';
+import { createJobWithFirstEvent } from '../../lib/jobs';
 import { supabase } from '../../lib/supabase';
 
 type ItemFile = {
@@ -438,6 +439,45 @@ export default function ItemScreen() {
         setMessage(`${item.name || 'Item'} added to estimate.`);
     }
 
+    async function handleStartJobThread() {
+        try {
+            setMessage('Starting job thread...');
+
+            const itemSlug = item.item_slug || String(slug);
+            const itemName = item.name || 'Unknown Item';
+            const system = item.system || 'Unknown';
+            const roomOrArea = item.location || item.parent_area || null;
+            const status = String(item.status || '').toLowerCase();
+            const priority =
+                status.includes('emergency') || status.includes('active leak')
+                    ? 'emergency'
+                    : 'normal';
+
+            const { job } = await createJobWithFirstEvent({
+                title: `${itemName} Service Request`,
+                system,
+                priority,
+                room_or_area: roomOrArea,
+                item_slug: itemSlug,
+                job_source: 'item',
+                job_type: 'service_request',
+                event_type: 'job_created',
+                visibility: 'homeowner',
+                actor_role: 'homeowner',
+                metadata: {
+                    item_slug: itemSlug,
+                    item_name: itemName,
+                    system,
+                    room_or_area: roomOrArea,
+                },
+            });
+
+            router.push(`/jobs/${job.id}` as any);
+        } catch (error: any) {
+            setMessage(`Could not start job thread: ${error.message || 'Unknown error'}`);
+        }
+    }
+
     async function handleRemoveItem() {
         setMessage('Archiving item...');
 
@@ -585,6 +625,13 @@ export default function ItemScreen() {
                             style={buttonStyle}
                         >
                             <Text style={buttonTextStyle}>View Estimate</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            onPress={handleStartJobThread}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>Start Job Thread</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity

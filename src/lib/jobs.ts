@@ -10,6 +10,14 @@ export type Job = {
     title: string;
     status: string;
     priority: string;
+    job_source: string | null;
+    job_type: string | null;
+    emergency_type: string | null;
+    visibility_status: string | null;
+    dispatch_status: string | null;
+    dispatched_at: string | null;
+    arrived_at: string | null;
+    completed_at: string | null;
     created_by: string | null;
     assigned_technician: string | null;
     created_at: string;
@@ -23,6 +31,9 @@ export type JobThreadEvent = {
     event_type: string;
     message: string | null;
     created_by_name: string | null;
+    visibility: string | null;
+    actor_role: string | null;
+    metadata: Record<string, unknown> | null;
     created_at: string;
 };
 
@@ -32,6 +43,21 @@ export type CreateJobInput = {
     priority: string;
     room_or_area?: string;
     item_slug?: string;
+};
+
+export type CreateJobWithFirstEventInput = {
+    title: string;
+    system?: string | null;
+    priority?: string | null;
+    room_or_area?: string | null;
+    item_slug?: string | null;
+    job_source?: string;
+    job_type?: string;
+    event_type?: string;
+    message?: string;
+    visibility?: string;
+    actor_role?: string;
+    metadata?: Record<string, unknown>;
 };
 
 async function getCurrentUser() {
@@ -98,6 +124,63 @@ export async function createJob(input: CreateJobInput) {
     });
 
     return job;
+}
+
+export async function createJobWithFirstEvent(input: CreateJobWithFirstEventInput) {
+    const user = await getCurrentUser();
+    const now = new Date().toISOString();
+    const title = input.title.trim();
+    const jobSource = input.job_source || 'item';
+    const jobType = input.job_type || 'service_request';
+    const visibility = input.visibility || 'homeowner';
+    const actorRole = input.actor_role || 'homeowner';
+
+    const { data, error } = await supabase
+        .from('jobs')
+        .insert({
+            user_id: user.id,
+            item_slug: input.item_slug || null,
+            room_or_area: input.room_or_area?.trim() || null,
+            system: input.system?.trim() || null,
+            title,
+            status: 'open',
+            priority: input.priority?.trim() || 'normal',
+            created_by: user.id,
+            assigned_technician: null,
+            job_source: jobSource,
+            job_type: jobType,
+            visibility_status: 'shared',
+            dispatch_status: 'not_dispatched',
+            updated_at: now,
+        })
+        .select('*')
+        .single();
+
+    if (error) throw error;
+
+    const job = data as Job;
+
+    const { data: eventData, error: eventError } = await supabase
+        .from('job_thread_events')
+        .insert({
+            job_id: job.id,
+            user_id: user.id,
+            event_type: input.event_type || 'job_created',
+            message: input.message || `Job created: ${job.title}`,
+            created_by_name: userDisplayName(user),
+            visibility,
+            actor_role: actorRole,
+            metadata: input.metadata || {},
+        })
+        .select('*')
+        .single();
+
+    if (eventError) throw eventError;
+
+    return {
+        job,
+        firstEvent: eventData as JobThreadEvent,
+    };
 }
 
 export async function loadJob(jobId: string) {
