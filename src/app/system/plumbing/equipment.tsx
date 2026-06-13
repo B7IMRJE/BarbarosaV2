@@ -1,22 +1,10 @@
-
-
-
-
-
-
 import HomeHeader from '../../../components/HomeHeader';
-
 
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
-
-
 import { supabase } from '../../../lib/supabase';
-
-
-
 
 type EquipmentItem = {
     id: string;
@@ -25,6 +13,7 @@ type EquipmentItem = {
     install_state: string | null;
     status: string | null;
     photo_url?: string | null;
+    user_id?: string | null;
 };
 
 export default function PlumbingEquipmentScreen() {
@@ -36,21 +25,35 @@ export default function PlumbingEquipmentScreen() {
     }, []);
 
     async function loadEquipment() {
+        setMessage('Loading equipment...');
+
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setMessage('Not logged in.');
+            router.replace('/auth/login' as any);
+            return;
+        }
+
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, name, item_slug, install_state, status, photo_url')
+            .select('id, name, item_slug, install_state, status, photo_url, user_id')
+            .eq('user_id', user.id)
             .eq('system', 'Plumbing')
             .eq('category', 'Equipment')
             .eq('archived', false)
             .order('name', { ascending: true });
 
         if (error) {
-            setMessage(`Could not load equipment: ${error.message}`);
+            setMessage(`Error: ${error.message} | Logged in user: ${user.id}`);
             return;
         }
 
         setEquipment(data || []);
-        setMessage('');
+        setMessage(`Logged in user: ${user.id} | Equipment found: ${(data || []).length}`);
     }
 
     return (
@@ -60,6 +63,7 @@ export default function PlumbingEquipmentScreen() {
         >
             <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
+
                 <View style={headerRowStyle}>
                     <View>
                         <Text style={titleStyle}>Plumbing Equipment</Text>
@@ -127,10 +131,10 @@ export default function PlumbingEquipmentScreen() {
                     ))}
                 </View>
 
-                {equipment.length === 0 && !message && (
+                {equipment.length === 0 && (
                     <View style={messageBoxStyle}>
                         <Text style={messageTextStyle}>
-                            No plumbing equipment found. Use + Add Equipment to create one.
+                            No plumbing equipment found for this logged-in user.
                         </Text>
                     </View>
                 )}
@@ -138,14 +142,6 @@ export default function PlumbingEquipmentScreen() {
         </ScrollView>
     );
 }
-
-const backStyle = {
-    fontSize: 18,
-    fontWeight: '900' as const,
-    color: '#071B33',
-    marginTop: 20,
-    marginBottom: 20,
-};
 
 const headerRowStyle = {
     flexDirection: 'row' as const,
@@ -226,7 +222,6 @@ const cardImageStyle = {
     height: '100%' as const,
     borderRadius: 14,
 };
-
 
 const photoIconStyle = {
     fontSize: 24,
