@@ -1,17 +1,8 @@
-
-
-
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import { supabase } from '../../../lib/supabase';
-
-
-
-
-
-
-
 
 type AreaItem = {
     id?: string;
@@ -22,48 +13,30 @@ type AreaItem = {
 };
 
 const fallbackAreas: AreaItem[] = [
-    { name: 'Kitchen', item_slug: 'kitchen-area', status: 'Missing Information', icon: '🍳' },
-    { name: 'Master Bathroom', item_slug: 'master-bathroom-area', status: 'Missing Information', icon: '🚿' },
-    { name: 'Bathroom 2', item_slug: 'bathroom-2-area', status: 'Missing Information', icon: '🚽' },
-    { name: 'Laundry', item_slug: 'laundry-area', status: 'Missing Information', icon: '🧺' },
-    { name: 'Garage', item_slug: 'garage-area', status: 'Missing Information', icon: '🚗' },
-    { name: 'Exterior', item_slug: 'exterior-area', status: 'Missing Information', icon: '🏡' },
-    { name: 'Water Heater Area', item_slug: 'water-heater-area', status: 'Missing Information', icon: '🔥' },
-    { name: 'Main Water Shutoff', item_slug: 'main-water-shutoff', status: 'Missing Information', icon: '💧' },
+    { name: 'Kitchen', item_slug: 'kitchen-area', icon: '🍳' },
+    { name: 'Master Bathroom', item_slug: 'master-bathroom-area', icon: '🚿' },
+    { name: 'Bathroom 2', item_slug: 'bathroom-2-area', icon: '🚽' },
+    { name: 'Laundry', item_slug: 'laundry-area', icon: '🧺' },
+    { name: 'Garage', item_slug: 'garage-area', icon: '🚗' },
+    { name: 'Exterior', item_slug: 'exterior-area', icon: '🏡' },
+    { name: 'Water Heater Area', item_slug: 'water-heater-area', icon: '🔥' },
+    { name: 'Main Water Shutoff', item_slug: 'main-water-shutoff', icon: '💧' },
 ];
 
-function getStatusCardStyle(status?: string | null) {
-    const normalizedStatus = (status || '').trim().toLowerCase();
+function getItemIcon(item: AreaItem) {
+    const lowerName = item.name.toLowerCase();
 
-    if (normalizedStatus === 'good') {
-        return { backgroundColor: '#EAF8EF', borderColor: '#BFE8CC' };
-    }
+    if (item.icon) return item.icon;
+    if (lowerName.includes('kitchen')) return '🍳';
+    if (lowerName.includes('bath') || lowerName.includes('shower')) return '🚿';
+    if (lowerName.includes('laundry')) return '🧺';
+    if (lowerName.includes('garage')) return '🚗';
+    if (lowerName.includes('exterior')) return '🏡';
+    if (lowerName.includes('water heater')) return '🔥';
+    if (lowerName.includes('shutoff')) return '💧';
 
-    if (normalizedStatus === 'not inspected') {
-        return { backgroundColor: '#FFF8DB', borderColor: '#F4E6A0' };
-    }
-
-    if (normalizedStatus === 'needs attention') {
-        return { backgroundColor: '#FFF0DD', borderColor: '#F2C28F' };
-    }
-
-    if (normalizedStatus === 'emergency') {
-        return { backgroundColor: '#FFEAEA', borderColor: '#F1B8B8' };
-    }
-
-    if (normalizedStatus === 'active leak' || normalizedStatus === 'active emergency') {
-        return { backgroundColor: '#FFD6D6', borderColor: '#E25C5C' };
-    }
-
-    return { backgroundColor: '#FFFFFF', borderColor: '#E3E8EF' };
+    return '🏠';
 }
-
-function getItemIcon(_item: AreaItem) {
-    return '??';
-}
-
-
-
 
 export default function PlumbingAreasScreen() {
     const [areas, setAreas] = useState<AreaItem[]>(fallbackAreas);
@@ -74,11 +47,24 @@ export default function PlumbingAreasScreen() {
     }, []);
 
     async function loadAreas() {
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setMessage('Not logged in.');
+            router.replace('/auth/login' as any);
+            return;
+        }
+
         const { data, error } = await supabase
             .from('home_items')
             .select('id, name, item_slug, status')
+            .eq('user_id', user.id)
             .eq('system', 'Plumbing')
             .eq('category', 'Area')
+            .or('archived.eq.false,archived.is.null')
             .order('name', { ascending: true });
 
         if (error) {
@@ -88,25 +74,25 @@ export default function PlumbingAreasScreen() {
 
         if (data && data.length > 0) {
             const mergedAreas = [...fallbackAreas, ...data];
-
             const uniqueAreas = mergedAreas.filter(
                 (area, index, self) =>
                     index ===
                     self.findIndex(
-                        (a) =>
-                            (a.item_slug || a.name) ===
+                        (candidate) =>
+                            (candidate.item_slug || candidate.name) ===
                             (area.item_slug || area.name)
                     )
             );
 
             setAreas(uniqueAreas);
-            setMessage('');
         }
+
+        setMessage('');
     }
 
     function openArea(area: AreaItem) {
         if (area.name === 'Kitchen') {
-            router.push('/item/kitchen-faucet' as any)
+            router.push('/item/kitchen-faucet' as any);
             return;
         }
 
@@ -125,7 +111,7 @@ export default function PlumbingAreasScreen() {
                     onPress={() => router.push('/system/plumbing' as any)}
                     style={backStyle}
                 >
-                    ← Back
+                    Back
                 </Text>
 
                 <View style={headerRowStyle}>
@@ -153,21 +139,14 @@ export default function PlumbingAreasScreen() {
 
                 <View style={gridStyle}>
                     {areas.map((area) => (
-                        <TouchableOpacity
+                        <SystemStatusCard
                             key={area.id || area.name}
+                            title={area.name}
+                            icon={getItemIcon(area)}
+                            status={area.status}
                             onPress={() => openArea(area)}
-                            style={[cardStyle, getStatusCardStyle(area.status)]}
-                        >
-                            <View style={iconCircleStyle}>
-                                <Text style={iconTextStyle}>{getItemIcon(area)}</Text>
-                            </View>
-
-                            <Text style={cardTitleStyle} numberOfLines={2}>
-                                {area.name}
-                            </Text>
-
-                            <Text style={openTextStyle}>Open</Text>
-                        </TouchableOpacity>
+                            style={cardStyle}
+                        />
                     ))}
                 </View>
             </View>
@@ -241,37 +220,5 @@ const gridStyle = {
 const cardStyle = {
     width: '18.8%' as const,
     minWidth: 160,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
     minHeight: 190,
-};
-
-const iconCircleStyle = {
-    width: 82,
-    height: 82,
-    backgroundColor: '#E7ECF3',
-    borderRadius: 999,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    marginBottom: 14,
-};
-
-const iconTextStyle = {
-    fontSize: 40,
-};
-
-const cardTitleStyle = {
-    fontSize: 16,
-    fontWeight: '900' as const,
-    color: '#071B33',
-    minHeight: 44,
-    textAlign: 'center' as const,
-};
-const openTextStyle = {
-    color: '#0B5FFF',
-    marginTop: 12,
-    fontWeight: '900' as const,
 };

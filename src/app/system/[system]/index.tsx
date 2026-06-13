@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
+import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import { AREAS } from '../../../constants/areas';
 
 export default function SystemAreasScreen() {
@@ -84,8 +85,10 @@ export default function SystemAreasScreen() {
                     }}
                 >
                     {filteredAreas.map((area) => (
-                        <TouchableOpacity
+                        <SystemStatusCard
                             key={area.name}
+                            title={area.name}
+                            icon={area.icon}
                             onPress={() =>
                                 router.push({
                                     pathname: '/system/[system]/area/[area]',
@@ -97,31 +100,8 @@ export default function SystemAreasScreen() {
                             }
                             style={{
                                 width: '48%',
-                                minHeight: 110,
-                                backgroundColor: '#FFFFFF',
-                                borderRadius: 20,
-                                padding: 16,
-                                borderWidth: 1,
-                                borderColor: '#E3E8EF',
-                                justifyContent: 'center',
-                                alignItems: 'center',
                             }}
-                        >
-                            <Text style={{ fontSize: 30, marginBottom: 8 }}>
-                                {area.icon}
-                            </Text>
-
-                            <Text
-                                style={{
-                                    fontSize: 15,
-                                    fontWeight: '900',
-                                    color: '#071B33',
-                                    textAlign: 'center',
-                                }}
-                            >
-                                {area.name}
-                            </Text>
-                        </TouchableOpacity>
+                        />
                     ))}
                 </View>
             </View>

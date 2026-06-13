@@ -2,31 +2,29 @@
 
 
 import HomeHeader from '../../../components/HomeHeader';
+import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 
 
 
 
 
 import { router } from 'expo-router';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 
 const plumbingSections = [
     {
         title: 'Areas',
-        status: 'Missing Information',
-        subtitle: 'Kitchen, bathrooms, laundry, garage, exterior, shutoff areas.',
+        icon: '🏠',
         route: '/system/plumbing/areas',
     },
     {
         title: 'Fixtures',
-        status: 'Missing Information',
-        subtitle: 'Faucets, toilets, showers, hose bibs, laundry valves, drains.',
+        icon: '🚰',
         route: '/system/plumbing/fixtures',
     },
     {
         title: 'Equipment',
-        status: 'Missing Information',
-        subtitle: 'Water heater, PRV, shutoff, softener, filtration, expansion tank.',
+        icon: '🔧',
         route: '/system/plumbing/equipment',
     },
 ];
@@ -61,52 +59,23 @@ export default function PlumbingSystemScreen() {
                     information entered into HomeOS.
                 </Text>
 
-                {plumbingSections.map((section) => (
-                    <TouchableOpacity
-                        key={section.title}
-                        onPress={() => router.push(section.route as any)}
-                        style={{
-                            backgroundColor: '#FFFFFF',
-                            borderRadius: 20,
-                            padding: 20,
-                            borderWidth: 1,
-                            borderColor: '#E3E8EF',
-                            marginBottom: 14,
-                        }}
-                    >
-                        <Text
-                            style={{
-                                fontSize: 22,
-                                fontWeight: '900',
-                                color: '#071B33',
-                            }}
-                        >
-                            {section.title}
-                        </Text>
-
-                        <Text
-                            style={{
-                                marginTop: 8,
-                                fontSize: 14,
-                                fontWeight: '900',
-                                color: '#B7791F',
-                            }}
-                        >
-                            Status: {section.status}
-                        </Text>
-
-                        <Text
-                            style={{
-                                color: '#637083',
-                                marginTop: 8,
-                                fontSize: 15,
-                                lineHeight: 21,
-                            }}
-                        >
-                            {section.subtitle}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
+                <View
+                    style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 14,
+                    }}
+                >
+                    {plumbingSections.map((section) => (
+                        <SystemStatusCard
+                            key={section.title}
+                            title={section.title}
+                            icon={section.icon}
+                            onPress={() => router.push(section.route as any)}
+                            style={{ width: '31.8%' }}
+                        />
+                    ))}
+                </View>
             </View>
         </ScrollView>
     );

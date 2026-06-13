@@ -1,16 +1,17 @@
 import { router } from 'expo-router';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import SystemStatusCard from '../components/cards/SystemStatusCard';
 
 const systems = [
-    'Plumbing',
-    'HVAC',
-    'Electrical',
-    'Water Quality',
-    'Safety',
-    'Appliances',
-    'Gas',
-    'Exterior',
-    'Drains / Sewer',
+    { name: 'Plumbing', icon: '🚰' },
+    { name: 'HVAC', icon: '❄️' },
+    { name: 'Electrical', icon: '⚡' },
+    { name: 'Water Quality', icon: '💧' },
+    { name: 'Safety', icon: '🛡️' },
+    { name: 'Appliances', icon: '🔌' },
+    { name: 'Gas', icon: '🔥' },
+    { name: 'Exterior', icon: '🏠' },
+    { name: 'Drains / Sewer', icon: '🧰' },
 ];
 
 export default function EquipmentScreen() {
@@ -60,50 +61,33 @@ export default function EquipmentScreen() {
                     only added when you enter real items.
                 </Text>
 
-                <View style={{ gap: 14 }}>
+                <View
+                    style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 12,
+                    }}
+                >
                     {systems.map((system) => (
-                        <TouchableOpacity
-                            key={system}
+                        <SystemStatusCard
+                            key={system.name}
+                            title={system.name}
+                            icon={system.icon}
                             onPress={() => {
-                                if (system === 'Plumbing') {
+                                if (system.name === 'Plumbing') {
                                     router.push('/system/plumbing' as any);
                                     return;
                                 }
 
                                 router.push({
                                     pathname: '/system/[system]',
-                                    params: { system },
+                                    params: { system: system.name },
                                 } as any);
                             }}
                             style={{
-                                backgroundColor: '#FFFFFF',
-                                borderRadius: 22,
-                                padding: 20,
-                                borderWidth: 1,
-                                borderColor: '#E3E8EF',
+                                width: '48%',
                             }}
-                        >
-                            <Text
-                                style={{
-                                    fontSize: 20,
-                                    fontWeight: '900',
-                                    color: '#071B33',
-                                }}
-                            >
-                                {system}
-                            </Text>
-
-                            <Text
-                                style={{
-                                    fontSize: 14,
-                                    color: '#637083',
-                                    marginTop: 8,
-                                    lineHeight: 20,
-                                }}
-                            >
-                                Select areas, fixtures, and equipment.
-                            </Text>
-                        </TouchableOpacity>
+                        />
                     ))}
                 </View>
             </View>

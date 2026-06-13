@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
-import { addItemToEstimateDraft } from '../../../lib/estimateDraft';
+import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import { supabase } from '../../../lib/supabase';
 
 type FixtureItem = {
@@ -13,44 +13,26 @@ type FixtureItem = {
     status: string | null;
 };
 
-function getStatusCardStyle(status?: string | null) {
-    const normalizedStatus = (status || '').trim().toLowerCase();
+function isStaffRole(role?: string | null) {
+    const normalizedRole = String(role || 'HOMEOWNER').trim().toUpperCase();
 
-    if (normalizedStatus === 'good') {
-        return { backgroundColor: '#EAF8EF', borderColor: '#BFE8CC' };
-    }
-
-    if (normalizedStatus === 'not inspected') {
-        return { backgroundColor: '#FFF8DB', borderColor: '#F4E6A0' };
-    }
-
-    if (normalizedStatus === 'needs attention') {
-        return { backgroundColor: '#FFF0DD', borderColor: '#F2C28F' };
-    }
-
-    if (normalizedStatus === 'emergency') {
-        return { backgroundColor: '#FFEAEA', borderColor: '#F1B8B8' };
-    }
-
-    if (normalizedStatus === 'active leak' || normalizedStatus === 'active emergency') {
-        return { backgroundColor: '#FFD6D6', borderColor: '#E25C5C' };
-    }
-
-    return { backgroundColor: '#FFFFFF', borderColor: '#E3E8EF' };
+    return ['TECH', 'OFFICE', 'MANAGER', 'SUPER_ADMIN', 'ADMIN'].includes(normalizedRole);
 }
 
 function getItemIcon(item: FixtureItem) {
     const lowerName = item.name.toLowerCase();
 
-    if (lowerName.includes('toilet')) return '??';
-    if (lowerName.includes('faucet')) return '??';
-    if (lowerName.includes('shower')) return '??';
-    if (lowerName.includes('disposal')) return '???';
+    if (lowerName.includes('toilet')) return '🚽';
+    if (lowerName.includes('faucet')) return '🚰';
+    if (lowerName.includes('shower')) return '🚿';
+    if (lowerName.includes('disposal')) return '🗑️';
 
-    return '??';
+    return '🧰';
 }
+
 export default function PlumbingFixturesScreen() {
     const [fixtures, setFixtures] = useState<FixtureItem[]>([]);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const [message, setMessage] = useState('Loading fixtures...');
 
     useEffect(() => {
@@ -58,12 +40,32 @@ export default function PlumbingFixturesScreen() {
     }, []);
 
     async function loadFixtures() {
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setMessage('Not logged in.');
+            router.replace('/auth/login' as any);
+            return;
+        }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        setCanUseStaffTools(isStaffRole(profile?.role));
+
         const { data, error } = await supabase
             .from('home_items')
             .select('id, name, item_slug, install_state, status')
+            .eq('user_id', user.id)
             .eq('system', 'Plumbing')
             .eq('category', 'Fixture')
-            .eq('archived', false)
+            .or('archived.eq.false,archived.is.null')
             .order('name', { ascending: true });
 
         if (error) {
@@ -73,20 +75,6 @@ export default function PlumbingFixturesScreen() {
 
         setFixtures(data || []);
         setMessage('');
-    }
-
-    async function handleAddToEstimate(fixture: FixtureItem) {
-        await addItemToEstimateDraft({
-            id: fixture.id,
-            name: fixture.name,
-            item_slug: fixture.item_slug,
-            system: 'Plumbing',
-            category: 'Fixture',
-            status: fixture.status,
-            install_state: fixture.install_state,
-        });
-
-        setMessage(`${fixture.name} added to estimate.`);
     }
 
     return (
@@ -106,12 +94,14 @@ export default function PlumbingFixturesScreen() {
                     </View>
 
                     <View style={headerActionsStyle}>
-                        <TouchableOpacity
-                            onPress={() => router.push('/estimate' as any)}
-                            style={secondaryButtonStyle}
-                        >
-                            <Text style={secondaryButtonTextStyle}>View Estimate</Text>
-                        </TouchableOpacity>
+                        {canUseStaffTools && (
+                            <TouchableOpacity
+                                onPress={() => router.push('/estimate' as any)}
+                                style={secondaryButtonStyle}
+                            >
+                                <Text style={secondaryButtonTextStyle}>View Estimate</Text>
+                            </TouchableOpacity>
+                        )}
 
                         <TouchableOpacity
                             onPress={() => router.push('/item/create' as any)}
@@ -130,29 +120,14 @@ export default function PlumbingFixturesScreen() {
 
                 <View style={gridStyle}>
                     {fixtures.map((fixture) => (
-                        <View key={fixture.id} style={[cardStyle, getStatusCardStyle(fixture.status)]}>
-                            <TouchableOpacity
-                                onPress={() => router.push(`/item/${fixture.item_slug}` as any)}
-                                style={cardOpenAreaStyle}
-                            >
-                                <View style={iconCircleStyle}>
-                                    <Text style={iconTextStyle}>{getItemIcon(fixture)}</Text>
-                                </View>
-
-                                <Text style={cardTitleStyle} numberOfLines={2}>
-                                    {fixture.name}
-                                </Text>
-
-                                <Text style={openTextStyle}>Open</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                onPress={() => handleAddToEstimate(fixture)}
-                                style={estimateButtonStyle}
-                            >
-                                <Text style={estimateButtonTextStyle}>Add To Estimate</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <SystemStatusCard
+                            key={fixture.id}
+                            title={fixture.name}
+                            icon={getItemIcon(fixture)}
+                            status={fixture.status}
+                            onPress={() => router.push(`/item/${fixture.item_slug}` as any)}
+                            style={cardStyle}
+                        />
                     ))}
                 </View>
 
@@ -249,57 +224,5 @@ const gridStyle = {
 const cardStyle = {
     width: '18.8%' as const,
     minWidth: 160,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    minHeight: 220,
-};
-
-const cardOpenAreaStyle = {
-    width: '100%' as const,
-    alignItems: 'center' as const,
-};
-
-const iconCircleStyle = {
-    width: 82,
-    height: 82,
-    backgroundColor: '#E7ECF3',
-    borderRadius: 999,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    marginBottom: 14,
-};
-
-const iconTextStyle = {
-    fontSize: 40,
-};
-
-const cardTitleStyle = {
-    fontSize: 16,
-    fontWeight: '900' as const,
-    color: '#071B33',
-    minHeight: 44,
-    textAlign: 'center' as const,
-};
-const openTextStyle = {
-    color: '#0B5FFF',
-    marginTop: 12,
-    fontWeight: '900' as const,
-};
-
-const estimateButtonStyle = {
-    backgroundColor: '#071B33',
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    alignItems: 'center' as const,
-    marginTop: 12,
-};
-
-const estimateButtonTextStyle = {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '900' as const,
+    minHeight: 190,
 };

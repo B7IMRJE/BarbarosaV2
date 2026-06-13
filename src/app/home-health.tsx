@@ -1,17 +1,18 @@
 import { router } from 'expo-router';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import SystemStatusCard from '../components/cards/SystemStatusCard';
 
 const systems = [
-    'Plumbing',
-    'HVAC',
-    'Electrical',
-    'Water Quality',
-    'Safety',
-    'Appliances',
-    'Gas',
-    'Exterior',
-    'Drains / Sewer',
-    'Documents',
+    { name: 'Plumbing', icon: '🚰' },
+    { name: 'HVAC', icon: '❄️' },
+    { name: 'Electrical', icon: '⚡' },
+    { name: 'Water Quality', icon: '💧' },
+    { name: 'Safety', icon: '🛡️' },
+    { name: 'Appliances', icon: '🔌' },
+    { name: 'Gas', icon: '🔥' },
+    { name: 'Exterior', icon: '🏠' },
+    { name: 'Drains / Sewer', icon: '🧰' },
+    { name: 'Documents', icon: '📄' },
 ];
 
 export default function HomeScreen() {
@@ -132,56 +133,30 @@ export default function HomeScreen() {
                     }}
                 >
                     {systems.map((system) => (
-                        <TouchableOpacity
-                            key={system}
+                        <SystemStatusCard
+                            key={system.name}
+                            title={system.name}
+                            icon={system.icon}
                             onPress={() => {
-                                if (system === 'Documents') {
+                                if (system.name === 'Documents') {
                                     router.push('/documents' as any);
                                     return;
                                 }
 
-                                if (system === 'Plumbing') {
+                                if (system.name === 'Plumbing') {
                                     router.push('/system/plumbing' as any);
                                     return;
                                 }
 
                                 router.push({
                                     pathname: '/system/[system]',
-                                    params: { system },
+                                    params: { system: system.name },
                                 } as any);
                             }}
                             style={{
                                 width: '48%',
-                                minHeight: 92,
-                                backgroundColor: '#FFFFFF',
-                                borderRadius: 20,
-                                padding: 16,
-                                borderWidth: 1,
-                                borderColor: '#E3E8EF',
-                                justifyContent: 'space-between',
                             }}
-                        >
-                            <Text
-                                style={{
-                                    fontSize: 16,
-                                    fontWeight: '900',
-                                    color: '#071B33',
-                                }}
-                            >
-                                {system}
-                            </Text>
-
-                            <Text
-                                style={{
-                                    fontSize: 13,
-                                    color: '#637083',
-                                    marginTop: 10,
-                                    fontWeight: '600',
-                                }}
-                            >
-                                No items added
-                            </Text>
-                        </TouchableOpacity>
+                        />
                     ))}
                 </View>
 

@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
-import { addItemToEstimateDraft } from '../../../lib/estimateDraft';
+import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import { supabase } from '../../../lib/supabase';
 
 type EquipmentItem = {
@@ -17,30 +17,10 @@ type EquipmentItem = {
     user_id?: string | null;
 };
 
-function getStatusCardStyle(status?: string | null) {
-    const normalizedStatus = (status || '').trim().toLowerCase();
+function isStaffRole(role?: string | null) {
+    const normalizedRole = String(role || 'HOMEOWNER').trim().toUpperCase();
 
-    if (normalizedStatus === 'good') {
-        return { backgroundColor: '#EAF8EF', borderColor: '#BFE8CC' };
-    }
-
-    if (normalizedStatus === 'not inspected') {
-        return { backgroundColor: '#FFF8DB', borderColor: '#F4E6A0' };
-    }
-
-    if (normalizedStatus === 'needs attention') {
-        return { backgroundColor: '#FFF0DD', borderColor: '#F2C28F' };
-    }
-
-    if (normalizedStatus === 'emergency') {
-        return { backgroundColor: '#FFEAEA', borderColor: '#F1B8B8' };
-    }
-
-    if (normalizedStatus === 'active leak' || normalizedStatus === 'active emergency') {
-        return { backgroundColor: '#FFD6D6', borderColor: '#E25C5C' };
-    }
-
-    return { backgroundColor: '#FFFFFF', borderColor: '#E3E8EF' };
+    return ['TECH', 'OFFICE', 'MANAGER', 'SUPER_ADMIN', 'ADMIN'].includes(normalizedRole);
 }
 
 function getItemIcon(item: EquipmentItem) {
@@ -57,6 +37,7 @@ function getItemIcon(item: EquipmentItem) {
 
 export default function PlumbingEquipmentScreen() {
     const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const [message, setMessage] = useState('Loading equipment...');
 
     useEffect(() => {
@@ -77,6 +58,14 @@ export default function PlumbingEquipmentScreen() {
             return;
         }
 
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        setCanUseStaffTools(isStaffRole(profile?.role));
+
         const { data, error } = await supabase
             .from('home_items')
             .select('id, name, item_slug, install_state, status, photo_url, user_id')
@@ -87,26 +76,12 @@ export default function PlumbingEquipmentScreen() {
             .order('name', { ascending: true });
 
         if (error) {
-            setMessage(`Error: ${error.message} | Logged in user: ${user.id}`);
+            setMessage(`Error: ${error.message}`);
             return;
         }
 
         setEquipment(data || []);
-        setMessage(`Logged in user: ${user.id} | Equipment found: ${(data || []).length}`);
-    }
-
-    async function handleAddToEstimate(item: EquipmentItem) {
-        await addItemToEstimateDraft({
-            id: item.id,
-            name: item.name,
-            item_slug: item.item_slug,
-            system: 'Plumbing',
-            category: 'Equipment',
-            status: item.status,
-            install_state: item.install_state,
-        });
-
-        setMessage(`${item.name} added to estimate.`);
+        setMessage('');
     }
 
     return (
@@ -126,12 +101,14 @@ export default function PlumbingEquipmentScreen() {
                     </View>
 
                     <View style={headerActionsStyle}>
-                        <TouchableOpacity
-                            onPress={() => router.push('/estimate' as any)}
-                            style={secondaryButtonStyle}
-                        >
-                            <Text style={secondaryButtonTextStyle}>View Estimate</Text>
-                        </TouchableOpacity>
+                        {canUseStaffTools && (
+                            <TouchableOpacity
+                                onPress={() => router.push('/estimate' as any)}
+                                style={secondaryButtonStyle}
+                            >
+                                <Text style={secondaryButtonTextStyle}>View Estimate</Text>
+                            </TouchableOpacity>
+                        )}
 
                         <TouchableOpacity
                             onPress={() => router.push('/item/create' as any)}
@@ -150,33 +127,18 @@ export default function PlumbingEquipmentScreen() {
 
                 <View style={gridStyle}>
                     {equipment.map((item) => (
-                        <View key={item.id} style={[cardStyle, getStatusCardStyle(item.status)]}>
-                            <TouchableOpacity
-                                onPress={() => router.push(`/item/${item.item_slug}` as any)}
-                                style={cardOpenAreaStyle}
-                            >
-                                <View style={iconCircleStyle}>
-                                    <Text style={iconTextStyle}>{getItemIcon(item)}</Text>
-                                </View>
-
-                                <Text style={cardTitleStyle} numberOfLines={2}>
-                                    {item.name}
-                                </Text>
-
-                                <Text style={openTextStyle}>Open</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity
-                                onPress={() => handleAddToEstimate(item)}
-                                style={estimateButtonStyle}
-                            >
-                                <Text style={estimateButtonTextStyle}>Add To Estimate</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <SystemStatusCard
+                            key={item.id}
+                            title={item.name}
+                            icon={getItemIcon(item)}
+                            status={item.status}
+                            onPress={() => router.push(`/item/${item.item_slug}` as any)}
+                            style={cardStyle}
+                        />
                     ))}
                 </View>
 
-                {equipment.length === 0 && (
+                {equipment.length === 0 && !message && (
                     <View style={messageBoxStyle}>
                         <Text style={messageTextStyle}>
                             No plumbing equipment found for this logged-in user.
@@ -269,57 +231,5 @@ const gridStyle = {
 const cardStyle = {
     width: '18.8%' as const,
     minWidth: 160,
-    borderRadius: 22,
-    padding: 18,
-    borderWidth: 1,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    minHeight: 220,
-};
-
-const cardOpenAreaStyle = {
-    width: '100%' as const,
-    alignItems: 'center' as const,
-};
-
-const iconCircleStyle = {
-    width: 82,
-    height: 82,
-    backgroundColor: '#E7ECF3',
-    borderRadius: 999,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    marginBottom: 14,
-};
-
-const iconTextStyle = {
-    fontSize: 40,
-};
-
-const cardTitleStyle = {
-    fontSize: 16,
-    fontWeight: '900' as const,
-    color: '#071B33',
-    minHeight: 44,
-    textAlign: 'center' as const,
-};
-const openTextStyle = {
-    color: '#0B5FFF',
-    marginTop: 12,
-    fontWeight: '900' as const,
-};
-
-const estimateButtonStyle = {
-    backgroundColor: '#071B33',
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    alignItems: 'center' as const,
-    marginTop: 12,
-};
-
-const estimateButtonTextStyle = {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '900' as const,
+    minHeight: 190,
 };
