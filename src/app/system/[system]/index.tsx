@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
+import ThemedButton from '../../../components/theme/ThemedButton';
 import { getSystemLabel } from '../../../lib/homeSystems';
 import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
 import { useTheme } from '../../../theme/useTheme';
@@ -49,12 +50,23 @@ export default function SystemAreasScreen() {
                     style={{
                         fontSize: 16,
                         color: theme.colors.mutedText,
-                        marginBottom: 20,
+                        marginBottom: 14,
                         lineHeight: 22,
                     }}
                 >
                     Choose an area. Areas are available by default, but items are added only when real equipment is entered.
                 </Text>
+
+                <ThemedButton
+                    title="Add Area"
+                    onPress={() =>
+                        router.push({
+                            pathname: '/area/create',
+                            params: { system: systemName },
+                        } as any)
+                    }
+                    style={{ marginBottom: 20 }}
+                />
 
                 <TextInput
                     value={search}
