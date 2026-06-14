@@ -63,33 +63,28 @@ export const areaTemplates: AreaTemplate[] = [
         starterItems: {
             Plumbing: [
                 item('Kitchen Faucet', 'Plumbing', 'Fixture'),
-                item('Kitchen Sink', 'Plumbing', 'Fixture'),
-                item('Dishwasher Connection', 'Plumbing', 'Component'),
-                item('Refrigerator Water Line', 'Plumbing', 'Component'),
                 item('Garbage Disposal', 'Plumbing', 'Equipment'),
+                item('Dishwasher Connection', 'Plumbing', 'Fixture'),
+                item('Hot Angle Stop', 'Plumbing', 'Component'),
+                item('Cold Angle Stop', 'Plumbing', 'Component'),
+                item('Air Gap', 'Plumbing', 'Component'),
+                item('Refrigerator Water Line', 'Plumbing', 'Component'),
+            ],
+            'Water Quality': [
+                item('Reverse Osmosis', 'Water Quality', 'Equipment'),
             ],
             'Drains / Sewer': [
-                item('Kitchen Sink Drain', 'Drains / Sewer', 'Fixture'),
-                item('Dishwasher Drain', 'Drains / Sewer', 'Component'),
-                item('Cleanout if Applicable', 'Drains / Sewer', 'Component', notInspected),
-            ],
-            Gas: [item('Gas Range Connection', 'Gas', 'Component', notInspected)],
-            Electrical: [
-                item('GFCI Outlets', 'Electrical', 'Fixture', notInspected),
-                item('Garbage Disposal Switch', 'Electrical', 'Component', notInspected),
-                item('Dishwasher Power', 'Electrical', 'Component', notInspected),
-                item('Refrigerator Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Lighting', 'Electrical', 'Fixture', notInspected),
+                item('Sink Drain', 'Drains / Sewer', 'Fixture'),
+                item('P-Trap', 'Drains / Sewer', 'Component'),
             ],
             Appliances: [
-                item('Refrigerator', 'Appliances', 'Equipment'),
+                item('Stove', 'Appliances', 'Equipment'),
                 item('Dishwasher', 'Appliances', 'Equipment'),
-                item('Range / Oven', 'Appliances', 'Equipment'),
-                item('Microwave', 'Appliances', 'Equipment'),
+                item('Refrigerator', 'Appliances', 'Equipment'),
             ],
-            Safety: [
-                item('Smoke Detector', 'Safety', 'Equipment', notInspected),
-                item('Fire Extinguisher', 'Safety', 'Equipment', notInspected),
+            Electrical: [
+                item('GFCI Outlet', 'Electrical', 'Component', notInspected),
+                item('Garbage Disposal Switch', 'Electrical', 'Component', notInspected),
             ],
         },
     },

@@ -1,10 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { getStatusCardStyle } from '../../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
 import { getSystemLabel } from '../../../../lib/homeSystems';
-import { getSystemDefaults } from '../../../../lib/systemDefaults';
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -29,10 +29,8 @@ export default function AreaScreen() {
     const systemName = system ? String(system) : 'System';
     const systemLabel = getSystemLabel(systemName);
     const areaName = area ? String(area) : 'Area';
-    const defaults = getSystemDefaults(systemName);
     const [items, setItems] = useState<AreaHomeItem[]>([]);
     const [message, setMessage] = useState('');
-    const groupedItems = groupItemsBySystem(items);
 
     useEffect(() => {
         loadAreaItems();
@@ -64,8 +62,13 @@ export default function AreaScreen() {
         }
 
         setItems(
-            ((data || []) as AreaHomeItem[]).filter((item) =>
-                sameText(item.location, areaName) || sameText(item.parent_area, areaName)
+            sortAreaItems(
+                areaName,
+                ((data || []) as AreaHomeItem[]).filter(
+                    (item) =>
+                        !sameText(item.category, 'Area') &&
+                        (sameText(item.location, areaName) || sameText(item.parent_area, areaName))
+                )
             )
         );
         setMessage('');
@@ -98,7 +101,7 @@ export default function AreaScreen() {
             <View
                 style={{
                     width: '100%',
-                    maxWidth: 900,
+                    maxWidth: 1200,
                 }}
             >
                 <Text
@@ -135,77 +138,24 @@ export default function AreaScreen() {
                     {systemLabel}
                 </Text>
 
-                {items.length === 0 && (
-                    <ThemedCard style={{ marginBottom: 20 }}>
-                        <Text
-                            style={{
-                                fontSize: 22,
-                                fontWeight: '900',
-                                color: theme.colors.text,
-                                marginBottom: 10,
-                            }}
-                        >
-                            No information has been added here yet.
-                        </Text>
-
-                        <Text
-                            style={{
-                                fontSize: 15,
-                                color: theme.colors.mutedText,
-                                lineHeight: 22,
-                            }}
-                        >
-                            Add items for this area when you are ready. Suggestions below are based on {systemLabel}.
-                        </Text>
-                    </ThemedCard>
-                )}
-
                 <ThemedButton
                     title="+ Add Item"
                     onPress={() => createSuggestedItem('Equipment')}
                     style={{ marginBottom: 24 }}
                 />
 
-                {items.length > 0 && (
+                {items.length === 0 ? (
                     <ThemedCard style={{ marginBottom: 16 }}>
-                        <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900', marginBottom: 10 }}>
-                            Items in {areaName}
+                        <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                            No items added yet.
                         </Text>
-
-                        <View style={{ gap: 16 }}>
-                            {groupedItems.map(([itemSystem, systemItems]) => (
-                                <View key={itemSystem}>
-                                    <Text
-                                        style={{
-                                            color: theme.colors.text,
-                                            fontSize: 18,
-                                            fontWeight: '900',
-                                            marginBottom: 10,
-                                        }}
-                                    >
-                                        {getSystemLabel(itemSystem)}
-                                    </Text>
-
-                                    <View style={{ gap: 10 }}>
-                                        {systemItems.map((item) => (
-                                            <ThemedCard
-                                                key={item.id || item.item_slug || item.name}
-                                                onPress={() => item.item_slug && router.push(`/item/${item.item_slug}` as any)}
-                                                style={{ padding: 14 }}
-                                            >
-                                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
-                                                    {item.name || 'Unnamed Item'}
-                                                </Text>
-                                                <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '800' }}>
-                                                    {[item.category, item.status].filter(Boolean).join(' - ') || 'Home item'}
-                                                </Text>
-                                            </ThemedCard>
-                                        ))}
-                                    </View>
-                                </View>
-                            ))}
-                        </View>
                     </ThemedCard>
+                ) : (
+                    <View style={gridStyle}>
+                        {items.map((item) => (
+                            <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
+                        ))}
+                    </View>
                 )}
 
                 {!!message && (
@@ -213,60 +163,6 @@ export default function AreaScreen() {
                         <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>{message}</Text>
                     </ThemedCard>
                 )}
-
-                <SuggestionSection
-                    title="Suggested Fixtures"
-                    items={defaults.fixtures}
-                    onPress={(name) => createSuggestedItem('Fixture', name)}
-                />
-
-                <SuggestionSection
-                    title="Suggested Equipment"
-                    items={defaults.equipment}
-                    onPress={(name) => createSuggestedItem('Equipment', name)}
-                />
-
-                <ThemedCard style={{ marginBottom: 16 }}>
-                    <Text
-                        style={{
-                            fontSize: 20,
-                            fontWeight: '900',
-                            color: theme.colors.text,
-                            marginBottom: 8,
-                        }}
-                    >
-                        Documents
-                    </Text>
-
-                    <Text
-                        style={{
-                            color: theme.colors.mutedText,
-                        }}
-                    >
-                        No documents uploaded.
-                    </Text>
-                </ThemedCard>
-
-                <ThemedCard>
-                    <Text
-                        style={{
-                            fontSize: 20,
-                            fontWeight: '900',
-                            color: theme.colors.text,
-                            marginBottom: 8,
-                        }}
-                    >
-                        Photos
-                    </Text>
-
-                    <Text
-                        style={{
-                            color: theme.colors.mutedText,
-                        }}
-                    >
-                        No photos uploaded.
-                    </Text>
-                </ThemedCard>
             </View>
         </ScrollView>
     );
@@ -276,55 +172,149 @@ function sameText(a?: string | null, b?: string | null) {
     return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
 
-function groupItemsBySystem(items: AreaHomeItem[]) {
-    const groups = new Map<string, AreaHomeItem[]>();
-
-    for (const item of items) {
-        const system = item.system || 'Other';
-        groups.set(system, [...(groups.get(system) || []), item]);
-    }
-
-    return Array.from(groups.entries());
-}
-
-function SuggestionSection({
-    title,
-    items,
-    onPress,
-}: {
-    title: string;
-    items: string[];
-    onPress: (name: string) => void;
-}) {
+function AreaItemCard({ item }: { item: AreaHomeItem }) {
     const { theme } = useTheme();
+    const itemName = item.name || 'Unnamed Item';
+    const systemLabel = item.system ? getSystemLabel(item.system) : '';
+    const itemSlug = item.item_slug || '';
 
     return (
-        <ThemedCard style={{ marginBottom: 16 }}>
-            <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900', marginBottom: 10 }}>
-                {title}
+        <TouchableOpacity
+            onPress={() => itemSlug && router.push(`/item/${itemSlug}` as any)}
+            activeOpacity={0.82}
+            disabled={!itemSlug}
+            style={[
+                itemCardStyle,
+                { borderRadius: theme.radii.card },
+                getStatusCardStyle(item.status, theme),
+            ]}
+        >
+            <View style={[iconCircleStyle, { backgroundColor: theme.colors.iconBackground }]}>
+                <Text style={iconTextStyle}>{getItemIcon(item)}</Text>
+            </View>
+
+            <Text
+                style={[itemTitleStyle, { color: theme.colors.text }]}
+                numberOfLines={2}
+                ellipsizeMode="tail"
+            >
+                {itemName}
             </Text>
 
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                {items.map((item) => (
-                    <TouchableOpacity
-                        key={item}
-                        onPress={() => onPress(item)}
-                        style={{
-                            backgroundColor: theme.colors.surfaceAlt,
-                            borderColor: theme.colors.border,
-                            borderWidth: 1,
-                            paddingVertical: 10,
-                            paddingHorizontal: 12,
-                            borderRadius: theme.radii.pill,
-                            flexGrow: 1,
-                        }}
-                    >
-                        <Text style={{ color: theme.colors.text, fontWeight: '900', textAlign: 'center' }}>
-                            {item}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </View>
-        </ThemedCard>
+            {!!systemLabel && (
+                <Text style={[systemLabelStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                    {systemLabel}
+                </Text>
+            )}
+        </TouchableOpacity>
     );
 }
+
+function sortAreaItems(areaName: string, items: AreaHomeItem[]) {
+    const preferredNames = getPreferredItemOrder(areaName);
+
+    return [...items].sort((a, b) => {
+        const aName = a.name || '';
+        const bName = b.name || '';
+        const aIndex = preferredNames.indexOf(normalize(aName));
+        const bIndex = preferredNames.indexOf(normalize(bName));
+
+        if (aIndex !== -1 || bIndex !== -1) {
+            if (aIndex === -1) return 1;
+            if (bIndex === -1) return -1;
+            return aIndex - bIndex;
+        }
+
+        return aName.localeCompare(bName);
+    });
+}
+
+function getPreferredItemOrder(areaName: string) {
+    if (!sameText(areaName, 'Kitchen')) return [];
+
+    return [
+        'kitchen faucet',
+        'garbage disposal',
+        'dishwasher connection',
+        'hot angle stop',
+        'cold angle stop',
+        'air gap',
+        'refrigerator water line',
+        'reverse osmosis',
+        'sink drain',
+        'p-trap',
+        'stove',
+        'dishwasher',
+        'refrigerator',
+        'gfci outlet',
+        'garbage disposal switch',
+    ];
+}
+
+function normalize(value: string) {
+    return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function getItemIcon(item: AreaHomeItem) {
+    const name = normalize(item.name || '');
+    const system = normalize(item.system || '');
+
+    if (name.includes('faucet')) return '🚰';
+    if (name.includes('garbage disposal')) return '⚙️';
+    if (name.includes('dishwasher')) return '🍽️';
+    if (name.includes('angle stop') || name.includes('shutoff') || name.includes('valve')) return '🔘';
+    if (name.includes('air gap')) return '↕️';
+    if (name.includes('refrigerator')) return '🧊';
+    if (name.includes('reverse osmosis') || system.includes('water quality')) return '💧';
+    if (name.includes('drain') || name.includes('p-trap')) return '🔧';
+    if (name.includes('stove')) return '🔥';
+    if (name.includes('gfci') || name.includes('switch') || system.includes('electrical')) return '⚡';
+    if (system.includes('appliance')) return '🔌';
+    if (system.includes('drain')) return '🧰';
+
+    return '🏠';
+}
+
+const gridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 14,
+};
+
+const itemCardStyle = {
+    width: '18.8%' as const,
+    minWidth: 160,
+    minHeight: 170,
+    padding: 18,
+    borderWidth: 1,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    flexGrow: 1,
+};
+
+const iconCircleStyle = {
+    width: 76,
+    height: 76,
+    borderRadius: 999,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    marginBottom: 12,
+};
+
+const iconTextStyle = {
+    fontSize: 36,
+};
+
+const itemTitleStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+    textAlign: 'center' as const,
+    lineHeight: 20,
+};
+
+const systemLabelStyle = {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '800' as const,
+    textAlign: 'center' as const,
+};
