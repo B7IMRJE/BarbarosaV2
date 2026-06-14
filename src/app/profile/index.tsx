@@ -79,6 +79,13 @@ export default function ProfileScreen() {
                 />
 
                 <ThemedButton
+                    title="Data Ownership"
+                    variant="secondary"
+                    onPress={() => router.push('/data' as any)}
+                    style={{ marginBottom: 14 }}
+                />
+
+                <ThemedButton
                     title="Change Password"
                     onPress={() => router.push('/profile/change-password' as any)}
                     style={{ marginBottom: 14 }}
