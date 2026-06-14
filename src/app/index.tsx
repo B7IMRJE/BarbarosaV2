@@ -215,6 +215,41 @@ export default function HomeScreen() {
           </Text>
         </ThemedCard>
 
+        <ThemedCard
+          style={{
+            marginTop: 18,
+            borderColor: theme.colors.status.activeEmergency.border,
+            backgroundColor: theme.colors.status.activeEmergency.background,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: '900',
+              color: theme.colors.text,
+              marginBottom: 8,
+            }}
+          >
+            Emergency Center
+          </Text>
+
+          <Text
+            style={{
+              fontSize: 15,
+              color: theme.colors.mutedText,
+              lineHeight: 22,
+              marginBottom: 14,
+            }}
+          >
+            Report urgent home issues with photos, notes, and status history.
+          </Text>
+
+          <ThemedButton
+            title="Open Emergency Center"
+            onPress={() => router.push('/emergency' as any)}
+          />
+        </ThemedCard>
+
         <ThemedButton
           title="Request Professional Help"
           onPress={() => router.push('/contact' as any)}
