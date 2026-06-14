@@ -499,7 +499,7 @@ export function buildStarterRows(userId: string, areaName: string, template: Are
         system: starterItem.system,
         category: starterItem.category,
         location: areaName,
-        parent_area: areaName,
+        parent_area: '',
         status: starterItem.status,
         install_state: starterItem.install_state,
         archived: false,

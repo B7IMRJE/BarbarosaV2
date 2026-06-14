@@ -27,17 +27,6 @@ const locations = [
     'Custom',
 ];
 
-const parentAreas = [
-    'Kitchen Sink Area',
-    'Water Heater Area',
-    'Main Shutoff Area',
-    'Laundry Area',
-    'Garage',
-    'Exterior',
-    'None',
-    'Custom',
-];
-
 const installStates = [
     'Unknown',
     'Installed',
@@ -73,9 +62,6 @@ export default function EditItemScreen() {
     const [locationChoice, setLocationChoice] = useState('Garage');
     const [customLocation, setCustomLocation] = useState('');
 
-    const [parentAreaChoice, setParentAreaChoice] = useState('None');
-    const [customParentArea, setCustomParentArea] = useState('');
-
     const [brand, setBrand] = useState('');
     const [model, setModel] = useState('');
     const [serial, setSerial] = useState('');
@@ -94,18 +80,6 @@ export default function EditItemScreen() {
         return locationChoice;
     }
 
-    function finalParentArea() {
-        if (parentAreaChoice === 'Custom') {
-            return customParentArea.trim();
-        }
-
-        if (parentAreaChoice === 'None') {
-            return '';
-        }
-
-        return parentAreaChoice;
-    }
-
     async function loadItem() {
         const { data, error } = await supabase
             .from('home_items')
@@ -118,14 +92,9 @@ export default function EditItemScreen() {
             return;
         }
 
-        const savedLocation = data.location || '';
-        const savedParentArea = data.parent_area || '';
+        const savedLocation = data.location || data.parent_area || '';
 
         const nextLocationChoice = getPickerValue(savedLocation, locations);
-        const nextParentAreaChoice = getPickerValue(
-            savedParentArea || 'None',
-            parentAreas
-        );
 
         setName(data.name || '');
         setAbout(data.about || '');
@@ -133,11 +102,6 @@ export default function EditItemScreen() {
 
         setLocationChoice(nextLocationChoice);
         setCustomLocation(nextLocationChoice === 'Custom' ? savedLocation : '');
-
-        setParentAreaChoice(nextParentAreaChoice);
-        setCustomParentArea(
-            nextParentAreaChoice === 'Custom' ? savedParentArea : ''
-        );
 
         setBrand(data.brand || '');
         setModel(data.model || '');
@@ -159,11 +123,6 @@ export default function EditItemScreen() {
             return;
         }
 
-        if (parentAreaChoice === 'Custom' && !customParentArea.trim()) {
-            alert('Enter a custom parent area or select an existing one.');
-            return;
-        }
-
         setSaving(true);
 
         const { error } = await supabase
@@ -172,7 +131,6 @@ export default function EditItemScreen() {
                 name: name.trim(),
                 about: about.trim(),
                 location: finalLocation(),
-                parent_area: finalParentArea(),
                 brand: brand.trim() || 'Unknown',
                 model: model.trim() || 'Unknown',
                 serial: serial.trim() || 'Unknown',
@@ -236,21 +194,6 @@ export default function EditItemScreen() {
                         placeholder="Custom Location"
                         value={customLocation}
                         onChangeText={setCustomLocation}
-                    />
-                )}
-
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Parent Area</Text>
-                <OptionRow
-                    options={parentAreas}
-                    value={parentAreaChoice}
-                    onChange={setParentAreaChoice}
-                />
-
-                {parentAreaChoice === 'Custom' && (
-                    <ThemedInput
-                        placeholder="Custom Parent Area"
-                        value={customParentArea}
-                        onChangeText={setCustomParentArea}
                     />
                 )}
 

@@ -10,7 +10,7 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import { homeSystemOptions } from '../../lib/homeSystems';
+import { getSystemLabel, homeSystemOptions } from '../../lib/homeSystems';
 import { getSystemDefaults } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -37,6 +37,7 @@ export default function CreateItemScreen() {
     }>();
     const initialSystem = typeof params.system === 'string' ? params.system : 'Plumbing';
     const initialArea = typeof params.area === 'string' ? params.area : '';
+    const hasAreaContext = !!initialSystem && !!initialArea;
     const initialCategory = typeof params.category === 'string' && categories.includes(params.category)
         ? params.category
         : 'Equipment';
@@ -49,9 +50,6 @@ export default function CreateItemScreen() {
     const [locationChoice, setLocationChoice] = useState(initialArea || 'Garage');
     const [customLocation, setCustomLocation] = useState('');
 
-    const [parentAreaChoice, setParentAreaChoice] = useState(initialArea || 'Main Shutoff Area');
-    const [customParentArea, setCustomParentArea] = useState('');
-
     const [installState, setInstallState] = useState('Unknown');
     const [status, setStatus] = useState('Missing Information');
     const [about, setAbout] = useState('');
@@ -60,10 +58,6 @@ export default function CreateItemScreen() {
     const systemDefaults = useMemo(() => getSystemDefaults(system), [system]);
     const areaOptions = useMemo(
         () => uniqueOptions([...systemDefaults.areas, initialArea].filter(Boolean), 'Custom'),
-        [systemDefaults.areas, initialArea]
-    );
-    const parentAreaOptions = useMemo(
-        () => uniqueOptions(['None', ...systemDefaults.areas, initialArea].filter(Boolean), 'Custom'),
         [systemDefaults.areas, initialArea]
     );
     const itemSuggestions = category === 'Fixture'
@@ -78,20 +72,12 @@ export default function CreateItemScreen() {
 
         setSystem(nextSystem);
         setLocationChoice(nextArea);
-        setParentAreaChoice(nextArea);
         setCustomLocation('');
-        setCustomParentArea('');
     }
 
     function finalLocation() {
         if (locationChoice === 'Custom') return customLocation.trim();
         return locationChoice;
-    }
-
-    function finalParentArea() {
-        if (parentAreaChoice === 'Custom') return customParentArea.trim();
-        if (parentAreaChoice === 'None') return '';
-        return parentAreaChoice;
     }
 
     async function saveItem() {
@@ -116,11 +102,6 @@ export default function CreateItemScreen() {
             return;
         }
 
-        if (parentAreaChoice === 'Custom' && !customParentArea.trim()) {
-            setMessage('Enter custom parent area or choose an existing one.');
-            return;
-        }
-
         const slug = makeSlug(name);
 
         setSaving(true);
@@ -132,7 +113,7 @@ export default function CreateItemScreen() {
             name: name.trim(),
             system,
             category,
-            parent_area: finalParentArea(),
+            parent_area: '',
             install_state: installState,
             status,
             location: finalLocation(),
@@ -167,6 +148,20 @@ export default function CreateItemScreen() {
                     Add real items only. Do not guess. Use Unknown until verified.
                 </Text>
 
+                {hasAreaContext && (
+                    <ThemedCard style={{ marginBottom: 16 }}>
+                        <Text style={{ color: theme.colors.mutedText, fontWeight: '900', marginBottom: 6 }}>
+                            Adding item to:
+                        </Text>
+                        <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '900' }}>
+                            {initialArea}
+                        </Text>
+                        <Text style={{ color: theme.colors.mutedText, marginTop: 8, fontWeight: '900' }}>
+                            System: {getSystemLabel(initialSystem)}
+                        </Text>
+                    </ThemedCard>
+                )}
+
                 <ThemedInput
                     placeholder="Item Name"
                     value={name}
@@ -181,26 +176,19 @@ export default function CreateItemScreen() {
                     multiline
                 />
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
-                <OptionRow options={areaOptions} value={locationChoice} onChange={setLocationChoice} />
+                {!hasAreaContext && (
+                    <>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
+                        <OptionRow options={areaOptions} value={locationChoice} onChange={setLocationChoice} />
 
-                {locationChoice === 'Custom' && (
-                    <ThemedInput
-                        placeholder="Custom Location"
-                        value={customLocation}
-                        onChangeText={setCustomLocation}
-                    />
-                )}
-
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Parent Area</Text>
-                <OptionRow options={parentAreaOptions} value={parentAreaChoice} onChange={setParentAreaChoice} />
-
-                {parentAreaChoice === 'Custom' && (
-                    <ThemedInput
-                        placeholder="Custom Parent Area"
-                        value={customParentArea}
-                        onChangeText={setCustomParentArea}
-                    />
+                        {locationChoice === 'Custom' && (
+                            <ThemedInput
+                                placeholder="Custom Location"
+                                value={customLocation}
+                                onChangeText={setCustomLocation}
+                            />
+                        )}
+                    </>
                 )}
 
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
