@@ -1,18 +1,7 @@
 import { router } from 'expo-router';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
-
-const systems = [
-    { name: 'Plumbing', icon: '🚰' },
-    { name: 'HVAC', icon: '❄️' },
-    { name: 'Electrical', icon: '⚡' },
-    { name: 'Water Quality', icon: '💧' },
-    { name: 'Safety', icon: '🛡️' },
-    { name: 'Appliances', icon: '🔌' },
-    { name: 'Gas', icon: '🔥' },
-    { name: 'Exterior', icon: '🏠' },
-    { name: 'Drains / Sewer', icon: '🧰' },
-];
+import { homeSystemOptions } from '../lib/homeSystems';
 
 export default function EquipmentScreen() {
     return (
@@ -68,20 +57,20 @@ export default function EquipmentScreen() {
                         gap: 12,
                     }}
                 >
-                    {systems.map((system) => (
+                    {homeSystemOptions.map((system) => (
                         <SystemStatusCard
-                            key={system.name}
-                            title={system.name}
+                            key={system.key}
+                            title={system.label}
                             icon={system.icon}
                             onPress={() => {
-                                if (system.name === 'Plumbing') {
+                                if (system.key === 'Plumbing') {
                                     router.push('/system/plumbing' as any);
                                     return;
                                 }
 
                                 router.push({
                                     pathname: '/system/[system]',
-                                    params: { system: system.name },
+                                    params: { system: system.key },
                                 } as any);
                             }}
                             style={{

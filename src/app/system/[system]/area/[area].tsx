@@ -1,5 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { getSystemLabel } from '../../../../lib/homeSystems';
 import { useTheme } from '../../../../theme/useTheme';
 
 export default function AreaScreen() {
@@ -10,6 +11,7 @@ export default function AreaScreen() {
     }>();
 
     const systemName = system ? String(system) : 'System';
+    const systemLabel = getSystemLabel(systemName);
     const areaName = area ? String(area) : 'Area';
 
     return (
@@ -61,7 +63,7 @@ export default function AreaScreen() {
                         marginBottom: 25,
                     }}
                 >
-                    {systemName}
+                    {systemLabel}
                 </Text>
 
                 <View

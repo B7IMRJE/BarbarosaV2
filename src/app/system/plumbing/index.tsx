@@ -16,6 +16,7 @@ import {
     statusForCard,
     type HomeHealthItem,
 } from '../../../lib/homeHealth';
+import { getSystemLabel } from '../../../lib/homeSystems';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
 
@@ -77,7 +78,7 @@ export default function PlumbingSystemScreen() {
                 <HomeHeader />
 
                 <Text style={{ fontSize: 34, fontWeight: '900', color: theme.colors.text }}>
-                    Plumbing
+                    {getSystemLabel('Plumbing')}
                 </Text>
 
                 <Text
@@ -89,7 +90,7 @@ export default function PlumbingSystemScreen() {
                         lineHeight: 22,
                     }}
                 >
-                    View plumbing by area, fixture, or equipment. Status is based on real
+                    View water service by area, fixture, or equipment. Status is based on real
                     information entered into HomeOS.
                 </Text>
 

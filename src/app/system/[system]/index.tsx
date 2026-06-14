@@ -3,12 +3,14 @@ import { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import { AREAS } from '../../../constants/areas';
+import { getSystemLabel } from '../../../lib/homeSystems';
 
 export default function SystemAreasScreen() {
     const { system } = useLocalSearchParams<{ system: string }>();
     const [search, setSearch] = useState('');
 
     const systemName = system ? String(system) : 'System';
+    const systemLabel = getSystemLabel(systemName);
 
     const filteredAreas = useMemo(() => {
         return AREAS.filter((area) =>
@@ -47,7 +49,7 @@ export default function SystemAreasScreen() {
                         marginBottom: 8,
                     }}
                 >
-                    {systemName}
+                    {systemLabel}
                 </Text>
 
                 <Text

@@ -11,21 +11,9 @@ import {
   type HomeHealthEmergency,
   type HomeHealthItem,
 } from '../lib/homeHealth';
+import { homeSystems } from '../lib/homeSystems';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
-
-const systems = [
-  { name: 'Plumbing', icon: '🚰' },
-  { name: 'HVAC', icon: '❄️' },
-  { name: 'Electrical', icon: '⚡' },
-  { name: 'Water Quality', icon: '💧' },
-  { name: 'Safety', icon: '🛡️' },
-  { name: 'Appliances', icon: '🔌' },
-  { name: 'Gas', icon: '🔥' },
-  { name: 'Exterior', icon: '🏠' },
-  { name: 'Drains / Sewer', icon: '🧰' },
-  { name: 'Documents', icon: '📄' },
-];
 
 export default function HomeScreen() {
   const { theme } = useTheme();
@@ -42,7 +30,7 @@ export default function HomeScreen() {
     [homeItems, activeEmergencies]
   );
   const systemSummaries = useMemo(
-    () => scoreAllSystems(homeItems, systems.map((system) => system.name)),
+    () => scoreAllSystems(homeItems, homeSystems.map((system) => system.key)),
     [homeItems]
   );
   const progressWidth = `${healthSummary.score ?? 0}%` as `${number}%`;
@@ -204,26 +192,26 @@ export default function HomeScreen() {
             gap: 12,
           }}
         >
-          {systems.map((system) => (
+          {homeSystems.map((system) => (
             <SystemStatusCard
-              key={system.name}
-              title={system.name}
+              key={system.key}
+              title={system.label}
               icon={system.icon}
-              status={statusForCard(systemSummaries[system.name])}
+              status={statusForCard(systemSummaries[system.key])}
               onPress={() => {
-                if (system.name === 'Documents') {
+                if (system.key === 'Documents') {
                   router.push('/documents' as any);
                   return;
                 }
 
-                if (system.name === 'Plumbing') {
+                if (system.key === 'Plumbing') {
                   router.push('/system/plumbing' as any);
                   return;
                 }
 
                 router.push({
                   pathname: '/system/[system]',
-                  params: { system: system.name },
+                  params: { system: system.key },
                 } as any);
               }}
               style={{

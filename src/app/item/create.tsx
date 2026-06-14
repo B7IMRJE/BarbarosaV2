@@ -9,9 +9,9 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { homeSystemOptions } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
 
-const systems = ['Plumbing', 'HVAC', 'Electrical', 'Gas', 'Water Quality', 'Safety', 'Appliances', 'Exterior'];
 const categories = ['Area', 'Fixture', 'Equipment', 'Component'];
 const installStates = ['Unknown', 'Installed', 'Missing', 'Not Applicable'];
 const statuses = ['Missing Information', 'Not Inspected', 'Good', 'Needs Attention', 'Emergency'];
@@ -189,7 +189,7 @@ export default function CreateItemScreen() {
             )}
 
             <Text style={sectionTitleStyle}>System</Text>
-            <OptionRow options={systems} value={system} onChange={setSystem} />
+            <SystemOptionRow value={system} onChange={setSystem} />
 
             <Text style={sectionTitleStyle}>Category</Text>
             <OptionRow options={categories} value={category} onChange={setCategory} />
@@ -248,6 +248,38 @@ function OptionRow({
                         ]}
                     >
                         {option}
+                    </Text>
+                </TouchableOpacity>
+            ))}
+        </View>
+    );
+}
+
+function SystemOptionRow({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (value: string) => void;
+}) {
+    return (
+        <View style={optionRowStyle}>
+            {homeSystemOptions.map((option) => (
+                <TouchableOpacity
+                    key={option.key}
+                    onPress={() => onChange(option.key)}
+                    style={[
+                        optionButtonStyle,
+                        value === option.key && optionButtonSelectedStyle,
+                    ]}
+                >
+                    <Text
+                        style={[
+                            optionButtonTextStyle,
+                            value === option.key && optionButtonSelectedTextStyle,
+                        ]}
+                    >
+                        {option.label}
                     </Text>
                 </TouchableOpacity>
             ))}

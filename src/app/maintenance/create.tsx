@@ -13,6 +13,7 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import { homeSystemOptions } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -23,7 +24,10 @@ type HomeItem = {
     location: string | null;
 };
 
-const systems = ['Plumbing', 'HVAC', 'Electrical', 'Gas', 'Water Quality', 'Safety', 'Appliances', 'Exterior', 'Other'];
+const systemOptions = [
+    ...homeSystemOptions,
+    { key: 'Other', label: 'Other' },
+];
 const areas = ['Kitchen', 'Bathroom', 'Laundry', 'Garage', 'Exterior', 'Water Heater Area', 'Main Shutoff Area', 'Whole Home', 'Other'];
 
 function cleanFileName(value: string) {
@@ -33,7 +37,7 @@ function cleanFileName(value: string) {
 export default function CreateMaintenanceRecordScreen() {
     const { theme } = useTheme();
     const [items, setItems] = useState<HomeItem[]>([]);
-    const [system, setSystem] = useState(systems[0]);
+    const [system, setSystem] = useState(systemOptions[0].key);
     const [area, setArea] = useState(areas[0]);
     const [itemId, setItemId] = useState('');
     const [title, setTitle] = useState('');
@@ -238,10 +242,10 @@ export default function CreateMaintenanceRecordScreen() {
                 </Text>
 
                 <Text style={[labelStyle, { color: theme.colors.text }]}>Title</Text>
-                <ThemedInput value={title} onChangeText={setTitle} placeholder="Example: Replaced HVAC filter" />
+                <ThemedInput value={title} onChangeText={setTitle} placeholder="Example: Replaced AC filter" />
 
                 <Text style={[labelStyle, { color: theme.colors.text }]}>System</Text>
-                <OptionRow options={systems} value={system} onChange={setSystem} />
+                <SystemOptionRow value={system} onChange={setSystem} />
 
                 <Text style={[labelStyle, { color: theme.colors.text }]}>Area</Text>
                 <OptionRow options={areas} value={area} onChange={setArea} />
@@ -354,6 +358,48 @@ function ThemedInput({
                 marginBottom: 4,
             }}
         />
+    );
+}
+
+function SystemOptionRow({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (value: string) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            {systemOptions.map((option) => {
+                const selected = option.key === value;
+
+                return (
+                    <TouchableOpacity
+                        key={option.key}
+                        onPress={() => onChange(option.key)}
+                        style={{
+                            backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                            borderColor: selected ? theme.colors.primary : theme.colors.border,
+                            borderRadius: theme.radii.pill,
+                            borderWidth: 1,
+                            paddingHorizontal: 14,
+                            paddingVertical: 10,
+                        }}
+                    >
+                        <Text
+                            style={{
+                                color: selected ? theme.colors.primaryText : theme.colors.mutedText,
+                                fontWeight: '900',
+                            }}
+                        >
+                            {option.label}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            })}
+        </View>
     );
 }
 

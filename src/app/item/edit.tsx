@@ -13,6 +13,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { homeSystemOptions } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
 
 const locations = [
@@ -67,6 +68,7 @@ export default function EditItemScreen() {
 
     const [name, setName] = useState('');
     const [about, setAbout] = useState('');
+    const [system, setSystem] = useState('Plumbing');
 
     const [locationChoice, setLocationChoice] = useState('Garage');
     const [customLocation, setCustomLocation] = useState('');
@@ -127,6 +129,7 @@ export default function EditItemScreen() {
 
         setName(data.name || '');
         setAbout(data.about || '');
+        setSystem(data.system || 'Plumbing');
 
         setLocationChoice(nextLocationChoice);
         setCustomLocation(nextLocationChoice === 'Custom' ? savedLocation : '');
@@ -173,6 +176,7 @@ export default function EditItemScreen() {
                 brand: brand.trim() || 'Unknown',
                 model: model.trim() || 'Unknown',
                 serial: serial.trim() || 'Unknown',
+                system,
                 install_state: installState,
                 status,
             })
@@ -254,6 +258,9 @@ export default function EditItemScreen() {
                         onChangeText={setCustomParentArea}
                     />
                 )}
+
+                <Text style={sectionTitleStyle}>System</Text>
+                <SystemOptionRow value={system} onChange={setSystem} />
 
                 <View style={rowStyle}>
                     <View style={smallCardStyle}>
@@ -349,6 +356,39 @@ function OptionRow({
                         ]}
                     >
                         {option}
+                    </Text>
+                </TouchableOpacity>
+            ))}
+        </View>
+    );
+}
+
+function SystemOptionRow({
+    value,
+    onChange,
+}: {
+    value: string;
+    onChange: (value: string) => void;
+}) {
+    return (
+        <View style={optionRowStyle}>
+            {homeSystemOptions.map((option) => (
+                <TouchableOpacity
+                    key={option.key}
+                    onPress={() => onChange(option.key)}
+                    style={[
+                        optionButtonStyle,
+                        value === option.key && optionButtonSelectedStyle,
+                    ]}
+                >
+                    <Text
+                        style={[
+                            optionButtonTextStyle,
+                            value === option.key &&
+                            optionButtonSelectedTextStyle,
+                        ]}
+                    >
+                        {option.label}
                     </Text>
                 </TouchableOpacity>
             ))}
