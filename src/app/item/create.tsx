@@ -131,6 +131,17 @@ export default function CreateItemScreen() {
             return;
         }
 
+        if (hasAreaContext) {
+            router.replace({
+                pathname: '/system/[system]/area/[area]',
+                params: {
+                    system: initialSystem,
+                    area: initialArea,
+                },
+            } as any);
+            return;
+        }
+
         router.replace(`/item/${slug}` as any);
     }
 

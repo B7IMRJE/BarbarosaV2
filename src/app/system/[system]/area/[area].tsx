@@ -11,6 +11,7 @@ import { useTheme } from '../../../../theme/useTheme';
 type AreaHomeItem = {
     id?: string;
     name: string | null;
+    system: string | null;
     item_slug: string | null;
     category: string | null;
     status: string | null;
@@ -31,6 +32,7 @@ export default function AreaScreen() {
     const defaults = getSystemDefaults(systemName);
     const [items, setItems] = useState<AreaHomeItem[]>([]);
     const [message, setMessage] = useState('');
+    const groupedItems = groupItemsBySystem(items);
 
     useEffect(() => {
         loadAreaItems();
@@ -50,10 +52,10 @@ export default function AreaScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, name, item_slug, category, status, location, parent_area')
+            .select('id, name, system, item_slug, category, status, location, parent_area')
             .eq('user_id', user.id)
-            .eq('system', systemName)
             .or('archived.eq.false,archived.is.null')
+            .order('system', { ascending: true })
             .order('name', { ascending: true });
 
         if (error) {
@@ -170,20 +172,37 @@ export default function AreaScreen() {
                             Items in {areaName}
                         </Text>
 
-                        <View style={{ gap: 10 }}>
-                            {items.map((item) => (
-                                <ThemedCard
-                                    key={item.id || item.item_slug || item.name}
-                                    onPress={() => item.item_slug && router.push(`/item/${item.item_slug}` as any)}
-                                    style={{ padding: 14 }}
-                                >
-                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
-                                        {item.name || 'Unnamed Item'}
+                        <View style={{ gap: 16 }}>
+                            {groupedItems.map(([itemSystem, systemItems]) => (
+                                <View key={itemSystem}>
+                                    <Text
+                                        style={{
+                                            color: theme.colors.text,
+                                            fontSize: 18,
+                                            fontWeight: '900',
+                                            marginBottom: 10,
+                                        }}
+                                    >
+                                        {getSystemLabel(itemSystem)}
                                     </Text>
-                                    <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '800' }}>
-                                        {[item.category, item.status].filter(Boolean).join(' • ') || 'Home item'}
-                                    </Text>
-                                </ThemedCard>
+
+                                    <View style={{ gap: 10 }}>
+                                        {systemItems.map((item) => (
+                                            <ThemedCard
+                                                key={item.id || item.item_slug || item.name}
+                                                onPress={() => item.item_slug && router.push(`/item/${item.item_slug}` as any)}
+                                                style={{ padding: 14 }}
+                                            >
+                                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                                    {item.name || 'Unnamed Item'}
+                                                </Text>
+                                                <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '800' }}>
+                                                    {[item.category, item.status].filter(Boolean).join(' - ') || 'Home item'}
+                                                </Text>
+                                            </ThemedCard>
+                                        ))}
+                                    </View>
+                                </View>
                             ))}
                         </View>
                     </ThemedCard>
@@ -255,6 +274,17 @@ export default function AreaScreen() {
 
 function sameText(a?: string | null, b?: string | null) {
     return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
+function groupItemsBySystem(items: AreaHomeItem[]) {
+    const groups = new Map<string, AreaHomeItem[]>();
+
+    for (const item of items) {
+        const system = item.system || 'Other';
+        groups.set(system, [...(groups.get(system) || []), item]);
+    }
+
+    return Array.from(groups.entries());
 }
 
 function SuggestionSection({
