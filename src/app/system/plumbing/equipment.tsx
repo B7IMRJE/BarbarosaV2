@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
+import { isStaffRole, loadCurrentUserRole } from '../../../lib/roles';
 import { supabase } from '../../../lib/supabase';
 
 type EquipmentItem = {
@@ -16,12 +17,6 @@ type EquipmentItem = {
     photo_url?: string | null;
     user_id?: string | null;
 };
-
-function isStaffRole(role?: string | null) {
-    const normalizedRole = String(role || 'HOMEOWNER').trim().toUpperCase();
-
-    return ['TECH', 'OFFICE', 'MANAGER', 'SUPER_ADMIN', 'ADMIN'].includes(normalizedRole);
-}
 
 function getItemIcon(item: EquipmentItem) {
     const lowerName = item.name.toLowerCase();
@@ -58,13 +53,7 @@ export default function PlumbingEquipmentScreen() {
             return;
         }
 
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        setCanUseStaffTools(isStaffRole(profile?.role));
+        setCanUseStaffTools(isStaffRole(await loadCurrentUserRole()));
 
         const { data, error } = await supabase
             .from('home_items')

@@ -1,6 +1,8 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { getStatusColor, STATUS, type EquipmentStatus } from '../../constants/status';
+import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import ComponentCard from '../cards/ComponentCard';
 
 type MaintenanceItem = {
@@ -58,6 +60,22 @@ export default function EquipmentDetailTemplate({
     components = [],
 }: EquipmentDetailTemplateProps) {
     const statusColor = getStatusColor(status);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+    const homeownerActions = ['Upload Photo', 'Request Service', 'Report Emergency'];
+    const staffActions = ['Add Service Record', 'Upload Invoice', 'Add Component', 'Edit', 'Remove'];
+    const quickActions = canUseStaffTools
+        ? [...homeownerActions, ...staffActions]
+        : homeownerActions;
+
+    useEffect(() => {
+        loadRole();
+    }, []);
+
+    async function loadRole() {
+        const role = await loadCurrentUserRole();
+
+        setCanUseStaffTools(isStaffRole(role));
+    }
 
     return (
         <ScrollView
@@ -119,22 +137,20 @@ export default function EquipmentDetailTemplate({
                 <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
                     <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Quick Actions</Text>
 
-                    {['Add Service Record', 'Upload Photo', 'Upload Invoice', 'Request Service', 'Add Component', 'Edit', 'Remove'].map(
-                        (button) => (
-                            <Pressable
-                                key={button}
-                                style={{
-                                    backgroundColor: '#071B33',
-                                    paddingVertical: 18,
-                                    borderRadius: 12,
-                                    marginBottom: 12,
-                                    alignItems: 'center',
-                                }}
-                            >
-                                <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>{button}</Text>
-                            </Pressable>
-                        )
-                    )}
+                    {quickActions.map((button) => (
+                        <Pressable
+                            key={button}
+                            style={{
+                                backgroundColor: '#071B33',
+                                paddingVertical: 18,
+                                borderRadius: 12,
+                                marginBottom: 12,
+                                alignItems: 'center',
+                            }}
+                        >
+                            <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>{button}</Text>
+                        </Pressable>
+                    ))}
                 </View>
 
                 <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>

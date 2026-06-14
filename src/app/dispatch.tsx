@@ -1,7 +1,12 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { isStaffRole, loadCurrentUserRole } from '../lib/roles';
 
 export default function DispatchScreen() {
+    const [checkingAccess, setCheckingAccess] = useState(true);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+
     const quickUpdates = [
         'Stopped for gas',
         'Traffic delay',
@@ -11,6 +16,25 @@ export default function DispatchScreen() {
         'Running behind',
         'Arrived on site',
     ];
+
+    useEffect(() => {
+        checkAccess();
+    }, []);
+
+    async function checkAccess() {
+        const role = await loadCurrentUserRole();
+
+        setCanUseStaffTools(isStaffRole(role));
+        setCheckingAccess(false);
+    }
+
+    if (checkingAccess) {
+        return <StaffOnlyMessage message="Checking access..." />;
+    }
+
+    if (!canUseStaffTools) {
+        return <StaffOnlyMessage message="This area is for technicians and office staff." />;
+    }
 
     return (
         <ScrollView
@@ -112,6 +136,44 @@ export default function DispatchScreen() {
                     <Text style={{ fontSize: 16, lineHeight: 24 }}>
                         Your technician has sent an update: “Stopped for gas.” The estimated arrival time may be adjusted if needed.
                     </Text>
+                </View>
+            </View>
+        </ScrollView>
+    );
+}
+
+function StaffOnlyMessage({ message }: { message: string }) {
+    return (
+        <ScrollView
+            style={{ flex: 1, backgroundColor: '#F6F8FB' }}
+            contentContainerStyle={{ padding: 24, alignItems: 'center' }}
+        >
+            <View style={{ width: '100%', maxWidth: 700 }}>
+                <View
+                    style={{
+                        backgroundColor: 'white',
+                        padding: 24,
+                        borderRadius: 18,
+                        marginTop: 40,
+                    }}
+                >
+                    <Text style={{ fontSize: 22, fontWeight: 'bold', color: '#071B33', marginBottom: 16 }}>
+                        {message}
+                    </Text>
+
+                    <Pressable
+                        onPress={() => router.replace('/' as any)}
+                        style={{
+                            backgroundColor: '#071B33',
+                            paddingVertical: 16,
+                            borderRadius: 12,
+                            alignItems: 'center',
+                        }}
+                    >
+                        <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>
+                            Back Home
+                        </Text>
+                    </Pressable>
                 </View>
             </View>
         </ScrollView>

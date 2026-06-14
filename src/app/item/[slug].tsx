@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { addItemToEstimateDraft } from '../../lib/estimateDraft';
 import { createJobWithFirstEvent } from '../../lib/jobs';
+import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
 
 type ItemFile = {
@@ -88,12 +89,6 @@ function isImageFile(fileName?: string | null) {
     );
 }
 
-function isStaffRole(role?: string | null) {
-    const normalizedRole = String(role || 'HOMEOWNER').trim().toUpperCase();
-
-    return ['TECH', 'OFFICE', 'MANAGER', 'SUPER_ADMIN', 'ADMIN'].includes(normalizedRole);
-}
-
 export default function ItemScreen() {
     const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
     const { slug } = useLocalSearchParams();
@@ -130,13 +125,7 @@ export default function ItemScreen() {
             return;
         }
 
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        setCurrentUserRole(profile?.role || 'HOMEOWNER');
+        setCurrentUserRole(await loadCurrentUserRole());
 
         const { data, error } = await supabase
             .from('home_items')

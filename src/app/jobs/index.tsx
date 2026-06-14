@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Job, createJob, loadJobs } from '../../lib/jobs';
+import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 
 const systems = ['Plumbing', 'HVAC', 'Electrical', 'Gas', 'Water Quality', 'Safety', 'Appliances', 'Exterior'];
 const priorities = ['normal', 'urgent', 'emergency'];
@@ -16,10 +17,26 @@ export default function JobsIndexScreen() {
     const [roomOrArea, setRoomOrArea] = useState('');
     const [message, setMessage] = useState('Loading jobs...');
     const [creating, setCreating] = useState(false);
+    const [checkingAccess, setCheckingAccess] = useState(true);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
 
     useEffect(() => {
-        refreshJobs();
+        checkAccess();
     }, []);
+
+    async function checkAccess() {
+        const role = await loadCurrentUserRole();
+        const canAccess = isStaffRole(role);
+
+        setCanUseStaffTools(canAccess);
+        setCheckingAccess(false);
+
+        if (canAccess) {
+            await refreshJobs();
+        } else {
+            setMessage('');
+        }
+    }
 
     async function refreshJobs() {
         try {
@@ -59,6 +76,14 @@ export default function JobsIndexScreen() {
         } finally {
             setCreating(false);
         }
+    }
+
+    if (checkingAccess) {
+        return <StaffOnlyMessage message="Checking access..." />;
+    }
+
+    if (!canUseStaffTools) {
+        return <StaffOnlyMessage message="This area is for technicians and office staff." />;
     }
 
     return (
@@ -148,6 +173,30 @@ export default function JobsIndexScreen() {
                         <Text style={messageTextStyle}>No jobs yet. Create one above.</Text>
                     </View>
                 )}
+            </View>
+        </ScrollView>
+    );
+}
+
+function StaffOnlyMessage({ message }: { message: string }) {
+    return (
+        <ScrollView
+            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+        >
+            <View style={{ width: '100%', maxWidth: 700 }}>
+                <HomeHeader />
+
+                <View style={messageBoxStyle}>
+                    <Text style={sectionTitleStyle}>{message}</Text>
+
+                    <TouchableOpacity
+                        onPress={() => router.replace('/' as any)}
+                        style={primaryButtonStyle}
+                    >
+                        <Text style={primaryButtonTextStyle}>Back Home</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
         </ScrollView>
     );

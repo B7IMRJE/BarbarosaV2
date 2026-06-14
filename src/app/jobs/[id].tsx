@@ -1,6 +1,6 @@
 import HomeHeader from '../../components/HomeHeader';
 
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
@@ -11,6 +11,7 @@ import {
     loadJob,
     loadJobThreadEvents,
 } from '../../lib/jobs';
+import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 
 const statuses = ['open', 'in_progress', 'waiting_on_customer', 'completed'];
 
@@ -23,10 +24,26 @@ export default function JobThreadScreen() {
     const [selectedStatus, setSelectedStatus] = useState('open');
     const [message, setMessage] = useState('Loading job thread...');
     const [saving, setSaving] = useState(false);
+    const [checkingAccess, setCheckingAccess] = useState(true);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
 
     useEffect(() => {
-        refreshThread();
+        checkAccess();
     }, [jobId]);
+
+    async function checkAccess() {
+        const role = await loadCurrentUserRole();
+        const canAccess = isStaffRole(role);
+
+        setCanUseStaffTools(canAccess);
+        setCheckingAccess(false);
+
+        if (canAccess) {
+            await refreshThread();
+        } else {
+            setMessage('');
+        }
+    }
 
     async function refreshThread() {
         if (!jobId) {
@@ -86,6 +103,14 @@ export default function JobThreadScreen() {
         } finally {
             setSaving(false);
         }
+    }
+
+    if (checkingAccess) {
+        return <StaffOnlyMessage message="Checking access..." />;
+    }
+
+    if (!canUseStaffTools) {
+        return <StaffOnlyMessage message="This area is for technicians and office staff." />;
     }
 
     return (
@@ -176,6 +201,30 @@ export default function JobThreadScreen() {
                         )}
                     </>
                 )}
+            </View>
+        </ScrollView>
+    );
+}
+
+function StaffOnlyMessage({ message }: { message: string }) {
+    return (
+        <ScrollView
+            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+        >
+            <View style={{ width: '100%', maxWidth: 700 }}>
+                <HomeHeader />
+
+                <View style={messageBoxStyle}>
+                    <Text style={sectionTitleStyle}>{message}</Text>
+
+                    <TouchableOpacity
+                        onPress={() => router.replace('/' as any)}
+                        style={primaryButtonStyle}
+                    >
+                        <Text style={primaryButtonTextStyle}>Back Home</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
         </ScrollView>
     );

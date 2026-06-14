@@ -8,14 +8,31 @@ import {
     loadEstimateDraft,
     removeItemFromEstimateDraft,
 } from '../../lib/estimateDraft';
+import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 
 export default function EstimateScreen() {
     const [items, setItems] = useState<EstimateDraftItem[]>([]);
     const [message, setMessage] = useState('Loading estimate draft...');
+    const [checkingAccess, setCheckingAccess] = useState(true);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
 
     useEffect(() => {
-        loadDraft();
+        checkAccess();
     }, []);
+
+    async function checkAccess() {
+        const role = await loadCurrentUserRole();
+        const canAccess = isStaffRole(role);
+
+        setCanUseStaffTools(canAccess);
+        setCheckingAccess(false);
+
+        if (canAccess) {
+            await loadDraft();
+        } else {
+            setMessage('');
+        }
+    }
 
     async function loadDraft() {
         const draftItems = await loadEstimateDraft();
@@ -29,6 +46,14 @@ export default function EstimateScreen() {
 
         setItems(nextItems);
         setMessage('Item removed from estimate.');
+    }
+
+    if (checkingAccess) {
+        return <StaffOnlyMessage message="Checking access..." />;
+    }
+
+    if (!canUseStaffTools) {
+        return <StaffOnlyMessage message="This area is for technicians and office staff." />;
     }
 
     return (
@@ -110,6 +135,30 @@ export default function EstimateScreen() {
                         ))}
                     </View>
                 )}
+            </View>
+        </ScrollView>
+    );
+}
+
+function StaffOnlyMessage({ message }: { message: string }) {
+    return (
+        <ScrollView
+            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+        >
+            <View style={{ width: '100%', maxWidth: 700 }}>
+                <HomeHeader />
+
+                <View style={emptyBoxStyle}>
+                    <Text style={emptyTitleStyle}>{message}</Text>
+
+                    <TouchableOpacity
+                        onPress={() => router.replace('/' as any)}
+                        style={openButtonStyle}
+                    >
+                        <Text style={openButtonTextStyle}>Back Home</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
         </ScrollView>
     );
