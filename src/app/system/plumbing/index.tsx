@@ -9,7 +9,14 @@ import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 
 
 import { router } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
+import {
+    scorePlumbingCategories,
+    statusForCard,
+    type HomeHealthItem,
+} from '../../../lib/homeHealth';
+import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
 
 const plumbingSections = [
@@ -32,6 +39,30 @@ const plumbingSections = [
 
 export default function PlumbingSystemScreen() {
     const { theme } = useTheme();
+    const [items, setItems] = useState<HomeHealthItem[]>([]);
+
+    useEffect(() => {
+        loadPlumbingItems();
+    }, []);
+
+    const categorySummaries = useMemo(() => scorePlumbingCategories(items), [items]);
+
+    async function loadPlumbingItems() {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) return;
+
+        const { data } = await supabase
+            .from('home_items')
+            .select('*')
+            .eq('user_id', user.id)
+            .eq('system', 'Plumbing')
+            .or('archived.eq.false,archived.is.null');
+
+        setItems((data || []) as HomeHealthItem[]);
+    }
 
     return (
         <ScrollView
@@ -74,6 +105,7 @@ export default function PlumbingSystemScreen() {
                             key={section.title}
                             title={section.title}
                             icon={section.icon}
+                            status={statusForCard(categorySummaries[section.title as keyof typeof categorySummaries])}
                             onPress={() => router.push(section.route as any)}
                             style={{ width: '31.8%', minWidth: 156, flexGrow: 1 }}
                         />

@@ -2,6 +2,11 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
+import {
+    scoreAreaHealth,
+    statusForCard,
+    type HomeHealthItem,
+} from '../../../lib/homeHealth';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
 
@@ -10,6 +15,7 @@ type AreaItem = {
     name: string;
     item_slug?: string;
     status?: string | null;
+    category?: string | null;
     icon?: string;
 };
 
@@ -42,6 +48,7 @@ function getItemIcon(item: AreaItem) {
 export default function PlumbingAreasScreen() {
     const { theme } = useTheme();
     const [areas, setAreas] = useState<AreaItem[]>(fallbackAreas);
+    const [plumbingItems, setPlumbingItems] = useState<HomeHealthItem[]>([]);
     const [message, setMessage] = useState('');
 
     useEffect(() => {
@@ -62,10 +69,9 @@ export default function PlumbingAreasScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, name, item_slug, status')
+            .select('*')
             .eq('user_id', user.id)
             .eq('system', 'Plumbing')
-            .eq('category', 'Area')
             .or('archived.eq.false,archived.is.null')
             .order('name', { ascending: true });
 
@@ -74,8 +80,13 @@ export default function PlumbingAreasScreen() {
             return;
         }
 
-        if (data && data.length > 0) {
-            const mergedAreas = [...fallbackAreas, ...data];
+        const allItems = (data || []) as AreaItem[];
+        setPlumbingItems(allItems as HomeHealthItem[]);
+
+        const areaItems = allItems.filter((item) => item.category === 'Area');
+
+        if (areaItems.length > 0) {
+            const mergedAreas = [...fallbackAreas, ...areaItems];
             const uniqueAreas = mergedAreas.filter(
                 (area, index, self) =>
                     index ===
@@ -161,7 +172,7 @@ export default function PlumbingAreasScreen() {
                             key={area.id || area.name}
                             title={area.name}
                             icon={getItemIcon(area)}
-                            status={area.status}
+                            status={statusForCard(scoreAreaHealth(plumbingItems, area.name))}
                             onPress={() => openArea(area)}
                             style={cardStyle}
                         />

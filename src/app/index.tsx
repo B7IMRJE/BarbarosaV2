@@ -1,9 +1,16 @@
 import { router } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import {
+  scoreAllSystems,
+  scoreOverallHomeHealth,
+  statusForCard,
+  type HomeHealthEmergency,
+  type HomeHealthItem,
+} from '../lib/homeHealth';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -22,10 +29,23 @@ const systems = [
 
 export default function HomeScreen() {
   const { theme } = useTheme();
+  const [homeItems, setHomeItems] = useState<HomeHealthItem[]>([]);
+  const [activeEmergencies, setActiveEmergencies] = useState<HomeHealthEmergency[]>([]);
 
   useEffect(() => {
     saveRecoverySession();
+    loadHomeHealthData();
   }, []);
+
+  const healthSummary = useMemo(
+    () => scoreOverallHomeHealth(homeItems, activeEmergencies),
+    [homeItems, activeEmergencies]
+  );
+  const systemSummaries = useMemo(
+    () => scoreAllSystems(homeItems, systems.map((system) => system.name)),
+    [homeItems]
+  );
+  const progressWidth = `${healthSummary.score ?? 0}%` as `${number}%`;
 
   async function saveRecoverySession() {
     if (typeof window === 'undefined') return;
@@ -50,6 +70,29 @@ export default function HomeScreen() {
 
       window.history.replaceState({}, document.title, '/');
     }
+  }
+
+  async function loadHomeHealthData() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return;
+
+    const { data: items } = await supabase
+      .from('home_items')
+      .select('*')
+      .eq('user_id', user.id)
+      .or('archived.eq.false,archived.is.null');
+
+    const { data: emergencies } = await supabase
+      .from('home_emergencies')
+      .select('id, status, emergency_type')
+      .eq('user_id', user.id)
+      .neq('status', 'Resolved');
+
+    setHomeItems((items || []) as HomeHealthItem[]);
+    setActiveEmergencies((emergencies || []) as HomeHealthEmergency[]);
   }
 
   return (
@@ -108,7 +151,7 @@ export default function HomeScreen() {
               marginBottom: 14,
             }}
           >
-            Not enough data yet
+            {healthSummary.label}
           </Text>
 
           <View
@@ -121,7 +164,7 @@ export default function HomeScreen() {
           >
             <View
               style={{
-                width: '0%',
+                width: progressWidth,
                 height: '100%',
                 backgroundColor: theme.colors.progressFill,
               }}
@@ -136,8 +179,9 @@ export default function HomeScreen() {
               lineHeight: 20,
             }}
           >
-            Start by adding real equipment, fixtures, documents, and photos from
-            your home.
+            {healthSummary.score === null
+              ? 'Start by adding real equipment, fixtures, documents, and photos from your home.'
+              : `${healthSummary.score}/100 based on ${healthSummary.itemCount} home item${healthSummary.itemCount === 1 ? '' : 's'}.`}
           </Text>
         </ThemedCard>
 
@@ -165,6 +209,7 @@ export default function HomeScreen() {
               key={system.name}
               title={system.name}
               icon={system.icon}
+              status={statusForCard(systemSummaries[system.name])}
               onPress={() => {
                 if (system.name === 'Documents') {
                   router.push('/documents' as any);

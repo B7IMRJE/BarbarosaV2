@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
+import { scoreItems, statusForCard } from '../../../lib/homeHealth';
 import { isStaffRole, loadCurrentUserRole } from '../../../lib/roles';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
@@ -15,6 +16,7 @@ type EquipmentItem = {
     item_slug: string;
     install_state: string | null;
     status: string | null;
+    condition?: string | null;
     photo_url?: string | null;
     user_id?: string | null;
 };
@@ -59,7 +61,7 @@ export default function PlumbingEquipmentScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, name, item_slug, install_state, status, photo_url, user_id')
+            .select('*')
             .eq('user_id', user.id)
             .eq('system', 'Plumbing')
             .eq('category', 'Equipment')
@@ -143,7 +145,7 @@ export default function PlumbingEquipmentScreen() {
                             key={item.id}
                             title={item.name}
                             icon={getItemIcon(item)}
-                            status={item.status}
+                            status={statusForCard(scoreItems([item]))}
                             onPress={() => router.push(`/item/${item.item_slug}` as any)}
                             style={cardStyle}
                         />

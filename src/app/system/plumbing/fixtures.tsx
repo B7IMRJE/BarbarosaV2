@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
+import { scoreItems, statusForCard } from '../../../lib/homeHealth';
 import { isStaffRole, loadCurrentUserRole } from '../../../lib/roles';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
@@ -13,6 +14,7 @@ type FixtureItem = {
     item_slug: string;
     install_state: string | null;
     status: string | null;
+    condition?: string | null;
 };
 
 function getItemIcon(item: FixtureItem) {
@@ -52,7 +54,7 @@ export default function PlumbingFixturesScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, name, item_slug, install_state, status')
+            .select('*')
             .eq('user_id', user.id)
             .eq('system', 'Plumbing')
             .eq('category', 'Fixture')
@@ -136,7 +138,7 @@ export default function PlumbingFixturesScreen() {
                             key={fixture.id}
                             title={fixture.name}
                             icon={getItemIcon(fixture)}
-                            status={fixture.status}
+                            status={statusForCard(scoreItems([fixture]))}
                             onPress={() => router.push(`/item/${fixture.item_slug}` as any)}
                             style={cardStyle}
                         />
