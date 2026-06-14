@@ -1,5 +1,6 @@
 import { router } from 'expo-router';
 import { Text, TouchableOpacity, View } from 'react-native';
+import { APP_VERSION, BUILD_DATE, BUILD_LABEL } from '../lib/appVersion';
 import { useTheme } from '../theme/useTheme';
 
 export default function HomeHeader() {
@@ -8,36 +9,73 @@ export default function HomeHeader() {
     return (
         <View
             style={{
-                flexDirection: 'row',
-                gap: 20,
-                alignItems: 'center',
                 marginTop: 20,
                 marginBottom: 20,
+                gap: 6,
             }}
         >
-            <TouchableOpacity onPress={() => router.push('/')}>
-                <Text
-                    style={{
-                        fontSize: 18,
-                        fontWeight: '900',
-                        color: theme.colors.text,
-                    }}
-                >
-                    🏠 Home
-                </Text>
-            </TouchableOpacity>
+            <View
+                style={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    gap: 20,
+                    alignItems: 'center',
+                }}
+            >
+                <TouchableOpacity onPress={() => router.push('/')}>
+                    <Text
+                        style={{
+                            fontSize: 18,
+                            fontWeight: '900',
+                            color: theme.colors.text,
+                        }}
+                    >
+                        🏠 Home
+                    </Text>
+                </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => router.back()}>
+                <TouchableOpacity onPress={() => router.back()}>
+                    <Text
+                        style={{
+                            fontSize: 18,
+                            fontWeight: '900',
+                            color: theme.colors.text,
+                        }}
+                    >
+                        ← Back
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            <View
+                style={{
+                    alignSelf: 'flex-end',
+                    maxWidth: '100%',
+                }}
+            >
                 <Text
                     style={{
-                        fontSize: 18,
-                        fontWeight: '900',
-                        color: theme.colors.text,
+                        color: theme.colors.mutedText,
+                        fontSize: 11,
+                        fontWeight: '700',
+                        lineHeight: 15,
+                        textAlign: 'right',
                     }}
                 >
-                    ← Back
+                    {BUILD_LABEL} v{APP_VERSION}
                 </Text>
-            </TouchableOpacity>
+                <Text
+                    style={{
+                        color: theme.colors.mutedText,
+                        fontSize: 11,
+                        fontWeight: '700',
+                        lineHeight: 15,
+                        textAlign: 'right',
+                    }}
+                >
+                    Build: {BUILD_DATE}
+                </Text>
+            </View>
         </View>
     );
 }
