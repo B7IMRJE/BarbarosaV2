@@ -250,6 +250,40 @@ export default function HomeScreen() {
           />
         </ThemedCard>
 
+        <ThemedCard
+          style={{
+            marginTop: 18,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: '900',
+              color: theme.colors.text,
+              marginBottom: 8,
+            }}
+          >
+            Maintenance Center
+          </Text>
+
+          <Text
+            style={{
+              fontSize: 15,
+              color: theme.colors.mutedText,
+              lineHeight: 22,
+              marginBottom: 14,
+            }}
+          >
+            Track service history, photos, documents, and next maintenance dates.
+          </Text>
+
+          <ThemedButton
+            title="Open Maintenance Center"
+            variant="secondary"
+            onPress={() => router.push('/maintenance' as any)}
+          />
+        </ThemedCard>
+
         <ThemedButton
           title="Request Professional Help"
           onPress={() => router.push('/contact' as any)}
