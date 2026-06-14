@@ -13,22 +13,25 @@ import { useTheme } from '../../../theme/useTheme';
 type AreaItem = {
     id?: string;
     name: string;
-    item_slug?: string;
     status?: string | null;
     category?: string | null;
     icon?: string;
 };
 
 const fallbackAreas: AreaItem[] = [
-    { name: 'Kitchen', item_slug: 'kitchen-area', icon: '🍳' },
-    { name: 'Master Bathroom', item_slug: 'master-bathroom-area', icon: '🚿' },
-    { name: 'Bathroom 2', item_slug: 'bathroom-2-area', icon: '🚽' },
-    { name: 'Laundry', item_slug: 'laundry-area', icon: '🧺' },
-    { name: 'Garage', item_slug: 'garage-area', icon: '🚗' },
-    { name: 'Exterior', item_slug: 'exterior-area', icon: '🏡' },
-    { name: 'Water Heater Area', item_slug: 'water-heater-area', icon: '🔥' },
-    { name: 'Main Water Shutoff', item_slug: 'main-water-shutoff', icon: '💧' },
+    { name: 'Kitchen', icon: '🍳' },
+    { name: 'Master Bathroom', icon: '🚿' },
+    { name: 'Bathroom 2', icon: '🚽' },
+    { name: 'Laundry', icon: '🧺' },
+    { name: 'Garage', icon: '🚗' },
+    { name: 'Exterior', icon: '🏡' },
+    { name: 'Water Heater Area', icon: '🔥' },
+    { name: 'Main Shutoff Area', icon: '💧' },
 ];
+
+function getAreaKey(area: AreaItem) {
+    return area.name.trim().toLowerCase();
+}
 
 function getItemIcon(item: AreaItem) {
     const lowerName = item.name.toLowerCase();
@@ -90,11 +93,7 @@ export default function PlumbingAreasScreen() {
             const uniqueAreas = mergedAreas.filter(
                 (area, index, self) =>
                     index ===
-                    self.findIndex(
-                        (candidate) =>
-                            (candidate.item_slug || candidate.name) ===
-                            (area.item_slug || area.name)
-                    )
+                    self.findIndex((candidate) => getAreaKey(candidate) === getAreaKey(area))
             );
 
             setAreas(uniqueAreas);
@@ -104,14 +103,13 @@ export default function PlumbingAreasScreen() {
     }
 
     function openArea(area: AreaItem) {
-        if (area.name === 'Kitchen') {
-            router.push('/item/kitchen-faucet' as any);
-            return;
-        }
-
-        if (area.item_slug) {
-            router.push(`/item/${area.item_slug}` as any);
-        }
+        router.push({
+            pathname: '/system/[system]/area/[area]',
+            params: {
+                system: 'Plumbing',
+                area: area.name,
+            },
+        } as any);
     }
 
     return (
