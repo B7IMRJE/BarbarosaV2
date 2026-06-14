@@ -1,11 +1,14 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
+import HomeHeader from '../../../components/HomeHeader';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import { AREAS } from '../../../constants/areas';
 import { getSystemLabel } from '../../../lib/homeSystems';
+import { useTheme } from '../../../theme/useTheme';
 
 export default function SystemAreasScreen() {
+    const { theme } = useTheme();
     const { system } = useLocalSearchParams<{ system: string }>();
     const [search, setSearch] = useState('');
 
@@ -20,7 +23,7 @@ export default function SystemAreasScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
                 padding: 20,
                 paddingBottom: 40,
@@ -28,24 +31,13 @@ export default function SystemAreasScreen() {
             }}
         >
             <View style={{ width: '100%', maxWidth: 900 }}>
-                <Text
-                    onPress={() => router.back()}
-                    style={{
-                        marginTop: 20,
-                        marginBottom: 20,
-                        fontSize: 18,
-                        color: '#071B33',
-                        fontWeight: '900',
-                    }}
-                >
-                    ← Back
-                </Text>
+                <HomeHeader />
 
                 <Text
                     style={{
                         fontSize: 34,
                         fontWeight: '900',
-                        color: '#071B33',
+                        color: theme.colors.text,
                         marginBottom: 8,
                     }}
                 >
@@ -55,7 +47,7 @@ export default function SystemAreasScreen() {
                 <Text
                     style={{
                         fontSize: 16,
-                        color: '#637083',
+                        color: theme.colors.mutedText,
                         marginBottom: 20,
                         lineHeight: 22,
                     }}
@@ -67,14 +59,15 @@ export default function SystemAreasScreen() {
                     value={search}
                     onChangeText={setSearch}
                     placeholder="Search areas..."
-                    placeholderTextColor="#9AA6B2"
+                    placeholderTextColor={theme.colors.mutedText}
                     style={{
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: 18,
+                        backgroundColor: theme.colors.surface,
+                        borderRadius: theme.radii.button,
                         padding: 16,
                         fontSize: 16,
+                        color: theme.colors.text,
                         borderWidth: 1,
-                        borderColor: '#E3E8EF',
+                        borderColor: theme.colors.border,
                         marginBottom: 20,
                     }}
                 />

@@ -1,8 +1,3 @@
-
-
-import HomeHeader from '../../components/HomeHeader';
-
-
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -13,8 +8,12 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import HomeHeader from '../../components/HomeHeader';
+import ThemedButton from '../../components/theme/ThemedButton';
+import ThemedCard from '../../components/theme/ThemedCard';
 import { homeSystemOptions } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
+import { useTheme } from '../../theme/useTheme';
 
 const locations = [
     'Kitchen',
@@ -61,6 +60,7 @@ function getPickerValue(value: string, options: string[]) {
 }
 
 export default function EditItemScreen() {
+    const { theme } = useTheme();
     const { slug } = useLocalSearchParams();
 
     const [loading, setLoading] = useState(true);
@@ -194,40 +194,37 @@ export default function EditItemScreen() {
 
     if (loading) {
         return (
-            <View style={centerStyle}>
-                <ActivityIndicator size="large" />
+            <View style={[centerStyle, { backgroundColor: theme.colors.background }]}>
+                <ActivityIndicator size="large" color={theme.colors.text} />
             </View>
         );
     }
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
         >
-            <View style={{ width: '100%', maxWidth: 1200 }}>
-                <Text onPress={() => router.back()} style={backStyle}>
-                    ← Back
-                </Text>
+            <View style={{ width: '100%', maxWidth: 900 }}>
+                <HomeHeader />
 
-                <Text style={titleStyle}>Edit Item</Text>
+                <Text style={[titleStyle, { color: theme.colors.text }]}>Edit Item</Text>
 
-                <TextInput
-                    style={inputStyle}
+                <ThemedInput
                     placeholder="Name"
                     value={name}
                     onChangeText={setName}
                 />
 
-                <TextInput
-                    style={[inputStyle, { minHeight: 100 }]}
+                <ThemedInput
                     placeholder="About"
                     value={about}
                     onChangeText={setAbout}
+                    minHeight={100}
                     multiline
                 />
 
-                <Text style={sectionTitleStyle}>Location</Text>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
                 <OptionRow
                     options={locations}
                     value={locationChoice}
@@ -235,15 +232,14 @@ export default function EditItemScreen() {
                 />
 
                 {locationChoice === 'Custom' && (
-                    <TextInput
-                        style={inputStyle}
+                    <ThemedInput
                         placeholder="Custom Location"
                         value={customLocation}
                         onChangeText={setCustomLocation}
                     />
                 )}
 
-                <Text style={sectionTitleStyle}>Parent Area</Text>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Parent Area</Text>
                 <OptionRow
                     options={parentAreas}
                     value={parentAreaChoice}
@@ -251,50 +247,52 @@ export default function EditItemScreen() {
                 />
 
                 {parentAreaChoice === 'Custom' && (
-                    <TextInput
-                        style={inputStyle}
+                    <ThemedInput
                         placeholder="Custom Parent Area"
                         value={customParentArea}
                         onChangeText={setCustomParentArea}
                     />
                 )}
 
-                <Text style={sectionTitleStyle}>System</Text>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
                 <SystemOptionRow value={system} onChange={setSystem} />
 
                 <View style={rowStyle}>
-                    <View style={smallCardStyle}>
-                        <Text style={smallLabelStyle}>Brand</Text>
+                    <ThemedCard style={smallCardStyle}>
+                        <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Brand</Text>
                         <TextInput
-                            style={smallInputStyle}
+                            style={[smallInputStyle, { color: theme.colors.text }]}
                             placeholder="Brand"
+                            placeholderTextColor={theme.colors.mutedText}
                             value={brand}
                             onChangeText={setBrand}
                         />
-                    </View>
+                    </ThemedCard>
 
-                    <View style={smallCardStyle}>
-                        <Text style={smallLabelStyle}>Model</Text>
+                    <ThemedCard style={smallCardStyle}>
+                        <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Model</Text>
                         <TextInput
-                            style={smallInputStyle}
+                            style={[smallInputStyle, { color: theme.colors.text }]}
                             placeholder="Model"
+                            placeholderTextColor={theme.colors.mutedText}
                             value={model}
                             onChangeText={setModel}
                         />
-                    </View>
+                    </ThemedCard>
 
-                    <View style={smallCardStyle}>
-                        <Text style={smallLabelStyle}>Serial</Text>
+                    <ThemedCard style={smallCardStyle}>
+                        <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Serial</Text>
                         <TextInput
-                            style={smallInputStyle}
+                            style={[smallInputStyle, { color: theme.colors.text }]}
                             placeholder="Serial"
+                            placeholderTextColor={theme.colors.mutedText}
                             value={serial}
                             onChangeText={setSerial}
                         />
-                    </View>
+                    </ThemedCard>
                 </View>
 
-                <Text style={sectionTitleStyle}>Condition</Text>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
 
                 <OptionRow
                     options={installStates}
@@ -302,7 +300,7 @@ export default function EditItemScreen() {
                     onChange={setInstallState}
                 />
 
-                <Text style={sectionTitleStyle}>Status</Text>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Status</Text>
 
                 <OptionRow
                     options={statuses}
@@ -310,21 +308,51 @@ export default function EditItemScreen() {
                     onChange={setStatus}
                 />
 
-                <TouchableOpacity
+                <ThemedButton
+                    title={saving ? 'Saving...' : 'Save Changes'}
                     onPress={saveItem}
                     disabled={saving}
-                    style={saveButtonStyle}
-                >
-                    <Text style={saveButtonTextStyle}>
-                        {saving ? 'Saving...' : 'Save Changes'}
-                    </Text>
-                </TouchableOpacity>
-
-                <HomeHeader />
-
-
+                    style={{ marginTop: 20, marginBottom: 20 }}
+                />
             </View>
         </ScrollView>
+    );
+}
+
+function ThemedInput({
+    value,
+    onChangeText,
+    placeholder,
+    multiline,
+    minHeight,
+}: {
+    value: string;
+    onChangeText: (value: string) => void;
+    placeholder: string;
+    multiline?: boolean;
+    minHeight?: number;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <TextInput
+            style={{
+                backgroundColor: theme.colors.surface,
+                borderRadius: theme.radii.button,
+                padding: 16,
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                color: theme.colors.text,
+                minHeight,
+                textAlignVertical: multiline ? 'top' : 'auto',
+            }}
+            placeholder={placeholder}
+            placeholderTextColor={theme.colors.mutedText}
+            value={value}
+            onChangeText={onChangeText}
+            multiline={multiline}
+        />
     );
 }
 
@@ -337,28 +365,37 @@ function OptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
+    const { theme } = useTheme();
+
     return (
         <View style={optionRowStyle}>
-            {options.map((option) => (
-                <TouchableOpacity
-                    key={option}
-                    onPress={() => onChange(option)}
-                    style={[
-                        optionButtonStyle,
-                        value === option && optionButtonSelectedStyle,
-                    ]}
-                >
-                    <Text
-                        style={[
-                            optionButtonTextStyle,
-                            value === option &&
-                            optionButtonSelectedTextStyle,
-                        ]}
+            {options.map((option) => {
+                const selected = value === option;
+
+                return (
+                    <TouchableOpacity
+                        key={option}
+                        onPress={() => onChange(option)}
+                        style={{
+                            backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                            borderRadius: theme.radii.pill,
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            borderWidth: 1,
+                            borderColor: selected ? theme.colors.primary : theme.colors.border,
+                        }}
                     >
-                        {option}
-                    </Text>
-                </TouchableOpacity>
-            ))}
+                        <Text
+                            style={{
+                                color: selected ? theme.colors.primaryText : theme.colors.mutedText,
+                                fontWeight: '900',
+                            }}
+                        >
+                            {option}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            })}
         </View>
     );
 }
@@ -370,28 +407,37 @@ function SystemOptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
+    const { theme } = useTheme();
+
     return (
         <View style={optionRowStyle}>
-            {homeSystemOptions.map((option) => (
-                <TouchableOpacity
-                    key={option.key}
-                    onPress={() => onChange(option.key)}
-                    style={[
-                        optionButtonStyle,
-                        value === option.key && optionButtonSelectedStyle,
-                    ]}
-                >
-                    <Text
-                        style={[
-                            optionButtonTextStyle,
-                            value === option.key &&
-                            optionButtonSelectedTextStyle,
-                        ]}
+            {homeSystemOptions.map((option) => {
+                const selected = value === option.key;
+
+                return (
+                    <TouchableOpacity
+                        key={option.key}
+                        onPress={() => onChange(option.key)}
+                        style={{
+                            backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                            borderRadius: theme.radii.pill,
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            borderWidth: 1,
+                            borderColor: selected ? theme.colors.primary : theme.colors.border,
+                        }}
                     >
-                        {option.label}
-                    </Text>
-                </TouchableOpacity>
-            ))}
+                        <Text
+                            style={{
+                                color: selected ? theme.colors.primaryText : theme.colors.mutedText,
+                                fontWeight: '900',
+                            }}
+                        >
+                            {option.label}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            })}
         </View>
     );
 }
@@ -402,34 +448,15 @@ const centerStyle = {
     alignItems: 'center' as const,
 };
 
-const backStyle = {
-    fontSize: 18,
-    fontWeight: '900' as const,
-    color: '#071B33',
-    marginTop: 20,
-    marginBottom: 20,
-};
-
 const titleStyle = {
     fontSize: 34,
     fontWeight: '900' as const,
-    color: '#071B33',
     marginBottom: 20,
-};
-
-const inputStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const sectionTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    color: '#071B33',
     marginTop: 14,
     marginBottom: 10,
 };
@@ -439,29 +466,6 @@ const optionRowStyle = {
     flexWrap: 'wrap' as const,
     gap: 8,
     marginBottom: 12,
-};
-
-const optionButtonStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 999,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
-};
-
-const optionButtonSelectedStyle = {
-    backgroundColor: '#071B33',
-    borderColor: '#071B33',
-};
-
-const optionButtonTextStyle = {
-    color: '#637083',
-    fontWeight: '900' as const,
-};
-
-const optionButtonSelectedTextStyle = {
-    color: '#FFFFFF',
 };
 
 const rowStyle = {
@@ -475,37 +479,15 @@ const rowStyle = {
 const smallCardStyle = {
     flex: 1,
     minWidth: 220,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const smallLabelStyle = {
-    color: '#637083',
     fontSize: 13,
     fontWeight: '900' as const,
     marginBottom: 8,
 };
 
 const smallInputStyle = {
-    fontSize: 16,
-    fontWeight: '900' as const,
-    color: '#071B33',
-};
-
-const saveButtonStyle = {
-    backgroundColor: '#071B33',
-    borderRadius: 18,
-    padding: 18,
-    alignItems: 'center' as const,
-    marginTop: 20,
-    marginBottom: 20,
-};
-
-const saveButtonTextStyle = {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '900' as const,
 };

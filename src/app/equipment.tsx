@@ -1,12 +1,16 @@
 import { router } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
+import HomeHeader from '../components/HomeHeader';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import { homeSystemOptions } from '../lib/homeSystems';
+import { useTheme } from '../theme/useTheme';
 
 export default function EquipmentScreen() {
+    const { theme } = useTheme();
+
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
                 padding: 20,
                 paddingBottom: 40,
@@ -14,24 +18,13 @@ export default function EquipmentScreen() {
             }}
         >
             <View style={{ width: '100%', maxWidth: 900 }}>
-                <Text
-                    onPress={() => router.push('/' as any)}
-                    style={{
-                        marginTop: 20,
-                        marginBottom: 20,
-                        fontSize: 18,
-                        color: '#071B33',
-                        fontWeight: '900',
-                    }}
-                >
-                    ← Back
-                </Text>
+                <HomeHeader />
 
                 <Text
                     style={{
                         fontSize: 34,
                         fontWeight: '900',
-                        color: '#071B33',
+                        color: theme.colors.text,
                         marginBottom: 8,
                     }}
                 >
@@ -41,7 +34,7 @@ export default function EquipmentScreen() {
                 <Text
                     style={{
                         fontSize: 16,
-                        color: '#637083',
+                        color: theme.colors.mutedText,
                         marginBottom: 24,
                         lineHeight: 22,
                     }}

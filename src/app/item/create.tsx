@@ -1,5 +1,3 @@
-import HomeHeader from '../../components/HomeHeader';
-
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -9,8 +7,12 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import HomeHeader from '../../components/HomeHeader';
+import ThemedButton from '../../components/theme/ThemedButton';
+import ThemedCard from '../../components/theme/ThemedCard';
 import { homeSystemOptions } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
+import { useTheme } from '../../theme/useTheme';
 
 const categories = ['Area', 'Fixture', 'Equipment', 'Component'];
 const installStates = ['Unknown', 'Installed', 'Missing', 'Not Applicable'];
@@ -48,6 +50,7 @@ function makeSlug(value: string) {
 }
 
 export default function CreateItemScreen() {
+    const { theme } = useTheme();
     const [name, setName] = useState('');
     const [system, setSystem] = useState('Plumbing');
     const [category, setCategory] = useState('Equipment');
@@ -136,88 +139,117 @@ export default function CreateItemScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20 }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
         >
-            <Text onPress={() => router.back()} style={backStyle}>
-                ← Back
-            </Text>
+            <View style={{ width: '100%', maxWidth: 900 }}>
+                <HomeHeader />
 
-            <Text style={titleStyle}>Create Item</Text>
+                <Text style={[titleStyle, { color: theme.colors.text }]}>Create Item</Text>
 
-            <Text style={subtitleStyle}>
-                Add real items only. Do not guess. Use Unknown until verified.
-            </Text>
-
-            <TextInput
-                placeholder="Item Name"
-                value={name}
-                onChangeText={setName}
-                style={inputStyle}
-            />
-
-            <TextInput
-                placeholder="About"
-                value={about}
-                onChangeText={setAbout}
-                style={[inputStyle, { minHeight: 100 }]}
-                multiline
-            />
-
-            <Text style={sectionTitleStyle}>Location</Text>
-            <OptionRow options={locations} value={locationChoice} onChange={setLocationChoice} />
-
-            {locationChoice === 'Custom' && (
-                <TextInput
-                    placeholder="Custom Location"
-                    value={customLocation}
-                    onChangeText={setCustomLocation}
-                    style={inputStyle}
-                />
-            )}
-
-            <Text style={sectionTitleStyle}>Parent Area</Text>
-            <OptionRow options={parentAreas} value={parentAreaChoice} onChange={setParentAreaChoice} />
-
-            {parentAreaChoice === 'Custom' && (
-                <TextInput
-                    placeholder="Custom Parent Area"
-                    value={customParentArea}
-                    onChangeText={setCustomParentArea}
-                    style={inputStyle}
-                />
-            )}
-
-            <Text style={sectionTitleStyle}>System</Text>
-            <SystemOptionRow value={system} onChange={setSystem} />
-
-            <Text style={sectionTitleStyle}>Category</Text>
-            <OptionRow options={categories} value={category} onChange={setCategory} />
-
-            <Text style={sectionTitleStyle}>Condition</Text>
-            <OptionRow options={installStates} value={installState} onChange={setInstallState} />
-
-            <Text style={sectionTitleStyle}>Status</Text>
-            <OptionRow options={statuses} value={status} onChange={setStatus} />
-
-            <TouchableOpacity
-                onPress={saveItem}
-                disabled={saving}
-                style={buttonStyle}
-            >
-                <Text style={buttonTextStyle}>
-                    {saving ? 'Saving...' : 'Save Item'}
+                <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
+                    Add real items only. Do not guess. Use Unknown until verified.
                 </Text>
-            </TouchableOpacity>
 
-            <HomeHeader />
+                <ThemedInput
+                    placeholder="Item Name"
+                    value={name}
+                    onChangeText={setName}
+                />
 
-            {!!message && (
-                <View style={messageBoxStyle}>
-                    <Text style={messageTextStyle}>{message}</Text>
-                </View>
-            )}
+                <ThemedInput
+                    placeholder="About"
+                    value={about}
+                    onChangeText={setAbout}
+                    minHeight={100}
+                    multiline
+                />
+
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
+                <OptionRow options={locations} value={locationChoice} onChange={setLocationChoice} />
+
+                {locationChoice === 'Custom' && (
+                    <ThemedInput
+                        placeholder="Custom Location"
+                        value={customLocation}
+                        onChangeText={setCustomLocation}
+                    />
+                )}
+
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Parent Area</Text>
+                <OptionRow options={parentAreas} value={parentAreaChoice} onChange={setParentAreaChoice} />
+
+                {parentAreaChoice === 'Custom' && (
+                    <ThemedInput
+                        placeholder="Custom Parent Area"
+                        value={customParentArea}
+                        onChangeText={setCustomParentArea}
+                    />
+                )}
+
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
+                <SystemOptionRow value={system} onChange={setSystem} />
+
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Category</Text>
+                <OptionRow options={categories} value={category} onChange={setCategory} />
+
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
+                <OptionRow options={installStates} value={installState} onChange={setInstallState} />
+
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Status</Text>
+                <OptionRow options={statuses} value={status} onChange={setStatus} />
+
+                <ThemedButton
+                    title={saving ? 'Saving...' : 'Save Item'}
+                    onPress={saveItem}
+                    disabled={saving}
+                    style={{ marginTop: 20, marginBottom: 12 }}
+                />
+
+                {!!message && (
+                    <ThemedCard style={{ marginTop: 8 }}>
+                        <Text style={[messageTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                    </ThemedCard>
+                )}
+            </View>
         </ScrollView>
+    );
+}
+
+function ThemedInput({
+    value,
+    onChangeText,
+    placeholder,
+    multiline,
+    minHeight,
+}: {
+    value: string;
+    onChangeText: (value: string) => void;
+    placeholder: string;
+    multiline?: boolean;
+    minHeight?: number;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <TextInput
+            placeholder={placeholder}
+            placeholderTextColor={theme.colors.mutedText}
+            value={value}
+            onChangeText={onChangeText}
+            multiline={multiline}
+            style={{
+                backgroundColor: theme.colors.surface,
+                borderRadius: theme.radii.button,
+                padding: 16,
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                color: theme.colors.text,
+                minHeight,
+                textAlignVertical: multiline ? 'top' : 'auto',
+            }}
+        />
     );
 }
 
@@ -230,27 +262,37 @@ function OptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
+    const { theme } = useTheme();
+
     return (
         <View style={optionRowStyle}>
-            {options.map((option) => (
-                <TouchableOpacity
-                    key={option}
-                    onPress={() => onChange(option)}
-                    style={[
-                        optionButtonStyle,
-                        value === option && optionButtonSelectedStyle,
-                    ]}
-                >
-                    <Text
-                        style={[
-                            optionButtonTextStyle,
-                            value === option && optionButtonSelectedTextStyle,
-                        ]}
+            {options.map((option) => {
+                const selected = value === option;
+
+                return (
+                    <TouchableOpacity
+                        key={option}
+                        onPress={() => onChange(option)}
+                        style={{
+                            backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                            borderRadius: theme.radii.pill,
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            borderWidth: 1,
+                            borderColor: selected ? theme.colors.primary : theme.colors.border,
+                        }}
                     >
-                        {option}
-                    </Text>
-                </TouchableOpacity>
-            ))}
+                        <Text
+                            style={{
+                                color: selected ? theme.colors.primaryText : theme.colors.mutedText,
+                                fontWeight: '900',
+                            }}
+                        >
+                            {option}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            })}
         </View>
     );
 }
@@ -262,66 +304,56 @@ function SystemOptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
+    const { theme } = useTheme();
+
     return (
         <View style={optionRowStyle}>
-            {homeSystemOptions.map((option) => (
-                <TouchableOpacity
-                    key={option.key}
-                    onPress={() => onChange(option.key)}
-                    style={[
-                        optionButtonStyle,
-                        value === option.key && optionButtonSelectedStyle,
-                    ]}
-                >
-                    <Text
-                        style={[
-                            optionButtonTextStyle,
-                            value === option.key && optionButtonSelectedTextStyle,
-                        ]}
+            {homeSystemOptions.map((option) => {
+                const selected = value === option.key;
+
+                return (
+                    <TouchableOpacity
+                        key={option.key}
+                        onPress={() => onChange(option.key)}
+                        style={{
+                            backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                            borderRadius: theme.radii.pill,
+                            paddingVertical: 10,
+                            paddingHorizontal: 14,
+                            borderWidth: 1,
+                            borderColor: selected ? theme.colors.primary : theme.colors.border,
+                        }}
                     >
-                        {option.label}
-                    </Text>
-                </TouchableOpacity>
-            ))}
+                        <Text
+                            style={{
+                                color: selected ? theme.colors.primaryText : theme.colors.mutedText,
+                                fontWeight: '900',
+                            }}
+                        >
+                            {option.label}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            })}
         </View>
     );
 }
 
-const backStyle = {
-    fontSize: 18,
-    fontWeight: '900' as const,
-    color: '#071B33',
-    marginTop: 20,
-    marginBottom: 20,
-};
-
 const titleStyle = {
     fontSize: 34,
     fontWeight: '900' as const,
-    color: '#071B33',
 };
 
 const subtitleStyle = {
-    color: '#637083',
     marginTop: 8,
     marginBottom: 24,
     fontSize: 16,
     lineHeight: 22,
 };
 
-const inputStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
-};
-
 const sectionTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    color: '#071B33',
     marginTop: 14,
     marginBottom: 10,
 };
@@ -333,55 +365,7 @@ const optionRowStyle = {
     marginBottom: 12,
 };
 
-const optionButtonStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 999,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
-};
-
-const optionButtonSelectedStyle = {
-    backgroundColor: '#071B33',
-    borderColor: '#071B33',
-};
-
-const optionButtonTextStyle = {
-    color: '#637083',
-    fontWeight: '900' as const,
-};
-
-const optionButtonSelectedTextStyle = {
-    color: '#FFFFFF',
-};
-
-const buttonStyle = {
-    backgroundColor: '#071B33',
-    borderRadius: 18,
-    padding: 18,
-    alignItems: 'center' as const,
-    marginTop: 20,
-    marginBottom: 12,
-};
-
-const buttonTextStyle = {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900' as const,
-};
-
-const messageBoxStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
-    marginTop: 8,
-};
-
 const messageTextStyle = {
-    color: '#637083',
     fontSize: 14,
     lineHeight: 20,
 };
