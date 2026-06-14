@@ -2,6 +2,7 @@ import { Slot, router, useSegments } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { ThemeProvider } from '../theme';
 
 export default function Layout() {
   const segments = useSegments();
@@ -51,5 +52,9 @@ export default function Layout() {
     );
   }
 
-  return <Slot />;
+  return (
+    <ThemeProvider>
+      <Slot />
+    </ThemeProvider>
+  );
 }

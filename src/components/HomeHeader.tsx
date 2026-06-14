@@ -1,7 +1,10 @@
 import { router } from 'expo-router';
 import { Text, TouchableOpacity, View } from 'react-native';
+import { useTheme } from '../theme/useTheme';
 
 export default function HomeHeader() {
+    const { theme } = useTheme();
+
     return (
         <View
             style={{
@@ -17,7 +20,7 @@ export default function HomeHeader() {
                     style={{
                         fontSize: 18,
                         fontWeight: '900',
-                        color: '#071B33',
+                        color: theme.colors.text,
                     }}
                 >
                     🏠 Home
@@ -29,7 +32,7 @@ export default function HomeHeader() {
                     style={{
                         fontSize: 18,
                         fontWeight: '900',
-                        color: '#071B33',
+                        color: theme.colors.text,
                     }}
                 >
                     ← Back

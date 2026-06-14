@@ -2,7 +2,10 @@ import { router } from 'expo-router';
 import { useEffect } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
+import ThemedButton from '../components/theme/ThemedButton';
+import ThemedCard from '../components/theme/ThemedCard';
 import { supabase } from '../lib/supabase';
+import { useTheme } from '../theme/useTheme';
 
 const systems = [
   { name: 'Plumbing', icon: '🚰' },
@@ -18,6 +21,8 @@ const systems = [
 ];
 
 export default function HomeScreen() {
+  const { theme } = useTheme();
+
   useEffect(() => {
     saveRecoverySession();
   }, []);
@@ -49,7 +54,7 @@ export default function HomeScreen() {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
       contentContainerStyle={{
         padding: 20,
         paddingBottom: 40,
@@ -61,7 +66,7 @@ export default function HomeScreen() {
           style={{
             marginTop: 20,
             fontSize: 18,
-            color: '#637083',
+            color: theme.colors.mutedText,
             fontWeight: '600',
           }}
         >
@@ -72,27 +77,22 @@ export default function HomeScreen() {
           style={{
             fontSize: 34,
             fontWeight: '900',
-            color: '#071B33',
+            color: theme.colors.text,
             marginTop: 6,
           }}
         >
           Home Health
         </Text>
 
-        <View
+        <ThemedCard
           style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: 26,
-            padding: 22,
             marginTop: 22,
-            borderWidth: 1,
-            borderColor: '#E3E8EF',
           }}
         >
           <Text
             style={{
               fontSize: 15,
-              color: '#637083',
+              color: theme.colors.mutedText,
               fontWeight: '700',
               marginBottom: 10,
             }}
@@ -104,7 +104,7 @@ export default function HomeScreen() {
             style={{
               fontSize: 26,
               fontWeight: '900',
-              color: '#071B33',
+              color: theme.colors.text,
               marginBottom: 14,
             }}
           >
@@ -114,7 +114,7 @@ export default function HomeScreen() {
           <View
             style={{
               height: 16,
-              backgroundColor: '#E7ECF3',
+              backgroundColor: theme.colors.progressTrack,
               borderRadius: 999,
               overflow: 'hidden',
             }}
@@ -123,7 +123,7 @@ export default function HomeScreen() {
               style={{
                 width: '0%',
                 height: '100%',
-                backgroundColor: '#9AA6B2',
+                backgroundColor: theme.colors.progressFill,
               }}
             />
           </View>
@@ -132,20 +132,20 @@ export default function HomeScreen() {
             style={{
               marginTop: 12,
               fontSize: 14,
-              color: '#637083',
+              color: theme.colors.mutedText,
               lineHeight: 20,
             }}
           >
             Start by adding real equipment, fixtures, documents, and photos from
             your home.
           </Text>
-        </View>
+        </ThemedCard>
 
         <Text
           style={{
             fontSize: 20,
             fontWeight: '900',
-            color: '#071B33',
+            color: theme.colors.text,
             marginTop: 26,
             marginBottom: 14,
           }}
@@ -188,21 +188,16 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        <View
+        <ThemedCard
           style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: 24,
-            padding: 20,
             marginTop: 26,
-            borderWidth: 1,
-            borderColor: '#E3E8EF',
           }}
         >
           <Text
             style={{
               fontSize: 20,
               fontWeight: '900',
-              color: '#071B33',
+              color: theme.colors.text,
               marginBottom: 8,
             }}
           >
@@ -212,66 +207,53 @@ export default function HomeScreen() {
           <Text
             style={{
               fontSize: 15,
-              color: '#637083',
+              color: theme.colors.mutedText,
               lineHeight: 22,
             }}
           >
             No issues reported.
           </Text>
-        </View>
+        </ThemedCard>
 
-        <TouchableOpacity
+        <ThemedButton
+          title="Request Professional Help"
           onPress={() => router.push('/contact' as any)}
           style={{
-            backgroundColor: '#071B33',
-            borderRadius: 22,
-            padding: 18,
             marginTop: 24,
-            alignItems: 'center',
           }}
-        >
-          <Text
-            style={{
-              color: '#FFFFFF',
-              fontSize: 16,
-              fontWeight: '900',
-            }}
-          >
-            Request Professional Help
-          </Text>
-        </TouchableOpacity>
+        />
 
         <View
           style={{
             flexDirection: 'row',
             justifyContent: 'space-around',
-            backgroundColor: '#FFFFFF',
+            backgroundColor: theme.colors.surface,
             borderRadius: 26,
             paddingVertical: 16,
             marginTop: 28,
             borderWidth: 1,
-            borderColor: '#E3E8EF',
+            borderColor: theme.colors.border,
           }}
         >
-          <Text style={{ fontWeight: '900', color: '#071B33' }}>Home</Text>
+          <Text style={{ fontWeight: '900', color: theme.colors.text }}>Home</Text>
 
           <Text
             onPress={() => router.push('/equipment' as any)}
-            style={{ fontWeight: '800', color: '#637083' }}
+            style={{ fontWeight: '800', color: theme.colors.mutedText }}
           >
             Equipment
           </Text>
 
           <Text
             onPress={() => router.push('/documents' as any)}
-            style={{ fontWeight: '800', color: '#637083' }}
+            style={{ fontWeight: '800', color: theme.colors.mutedText }}
           >
             Documents
           </Text>
 
           <Text
             onPress={() => router.push('/profile' as any)}
-            style={{ fontWeight: '800', color: '#637083' }}
+            style={{ fontWeight: '800', color: theme.colors.mutedText }}
           >
             Profile
           </Text>

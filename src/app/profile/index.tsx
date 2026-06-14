@@ -1,9 +1,13 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import ThemedButton from '../../components/theme/ThemedButton';
+import ThemedCard from '../../components/theme/ThemedCard';
 import { supabase } from '../../lib/supabase';
+import { useTheme } from '../../theme/useTheme';
 
 export default function ProfileScreen() {
+    const { theme } = useTheme();
     const [email, setEmail] = useState('');
     const [message, setMessage] = useState('Loading profile...');
 
@@ -30,7 +34,7 @@ export default function ProfileScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 24, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 500, marginTop: 50 }}>
@@ -39,7 +43,7 @@ export default function ProfileScreen() {
                     style={{
                         fontSize: 18,
                         fontWeight: '900',
-                        color: '#071B33',
+                        color: theme.colors.text,
                         marginBottom: 20,
                     }}
                 >
@@ -50,90 +54,73 @@ export default function ProfileScreen() {
                     style={{
                         fontSize: 34,
                         fontWeight: '900',
-                        color: '#071B33',
+                        color: theme.colors.text,
                     }}
                 >
                     Profile
                 </Text>
 
-                <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
+                <Text style={{ color: theme.colors.mutedText, marginTop: 8, marginBottom: 24 }}>
                     Account settings.
                 </Text>
 
-                <View style={cardStyle}>
-                    <Text style={labelStyle}>Status</Text>
-                    <Text style={valueStyle}>{message}</Text>
+                <ThemedCard style={{ marginBottom: 18 }}>
+                    <Text style={[labelStyle, { color: theme.colors.mutedText }]}>Status</Text>
+                    <Text style={[valueStyle, { color: theme.colors.text }]}>{message}</Text>
 
-                    <Text style={labelStyle}>Email</Text>
-                    <Text style={valueStyle}>{email || 'No email found'}</Text>
-                </View>
+                    <Text style={[labelStyle, { color: theme.colors.mutedText }]}>Email</Text>
+                    <Text style={[valueStyle, { color: theme.colors.text }]}>{email || 'No email found'}</Text>
+                </ThemedCard>
 
-                <TouchableOpacity
+                <ThemedButton
+                    title="Theme"
+                    onPress={() => router.push('/profile/theme' as any)}
+                    style={{ marginBottom: 14 }}
+                />
+
+                <ThemedButton
+                    title="Change Password"
                     onPress={() => router.push('/profile/change-password' as any)}
-                    style={buttonStyle}
-                >
-                    <Text style={buttonTextStyle}>Change Password</Text>
-                </TouchableOpacity>
+                    style={{ marginBottom: 14 }}
+                />
 
                 <TouchableOpacity
                     onPress={handleLogout}
-                    style={logoutButtonStyle}
+                    style={[
+                        logoutButtonStyle,
+                        {
+                            backgroundColor: theme.colors.surface,
+                            borderColor: theme.colors.border,
+                        },
+                    ]}
                 >
-                    <Text style={logoutTextStyle}>Logout</Text>
+                    <Text style={[logoutTextStyle, { color: theme.colors.danger }]}>Logout</Text>
                 </TouchableOpacity>
             </View>
         </ScrollView>
     );
 }
 
-const cardStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
-    marginBottom: 18,
-};
-
 const labelStyle = {
     fontSize: 13,
-    color: '#637083',
     fontWeight: '900' as const,
     marginTop: 8,
 };
 
 const valueStyle = {
     fontSize: 16,
-    color: '#071B33',
     fontWeight: '800' as const,
     marginTop: 4,
 };
 
-const buttonStyle = {
-    backgroundColor: '#071B33',
-    padding: 18,
-    borderRadius: 18,
-    alignItems: 'center' as const,
-    marginBottom: 14,
-};
-
-const buttonTextStyle = {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900' as const,
-};
-
 const logoutButtonStyle = {
-    backgroundColor: '#FFFFFF',
     padding: 18,
     borderRadius: 18,
     alignItems: 'center' as const,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const logoutTextStyle = {
-    color: '#B00020',
     fontSize: 16,
     fontWeight: '900' as const,
 };

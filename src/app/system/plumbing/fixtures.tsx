@@ -5,6 +5,7 @@ import HomeHeader from '../../../components/HomeHeader';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import { isStaffRole, loadCurrentUserRole } from '../../../lib/roles';
 import { supabase } from '../../../lib/supabase';
+import { useTheme } from '../../../theme/useTheme';
 
 type FixtureItem = {
     id: string;
@@ -26,6 +27,7 @@ function getItemIcon(item: FixtureItem) {
 }
 
 export default function PlumbingFixturesScreen() {
+    const { theme } = useTheme();
     const [fixtures, setFixtures] = useState<FixtureItem[]>([]);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const [message, setMessage] = useState('Loading fixtures...');
@@ -68,7 +70,7 @@ export default function PlumbingFixturesScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 1200 }}>
@@ -76,8 +78,8 @@ export default function PlumbingFixturesScreen() {
 
                 <View style={headerRowStyle}>
                     <View style={headerTitleBlockStyle}>
-                        <Text style={titleStyle}>Plumbing Fixtures</Text>
-                        <Text style={subtitleStyle}>
+                        <Text style={[titleStyle, { color: theme.colors.text }]}>Plumbing Fixtures</Text>
+                        <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
                             Faucets, toilets, drains, showers, and fixture connections.
                         </Text>
                     </View>
@@ -86,24 +88,45 @@ export default function PlumbingFixturesScreen() {
                         {canUseStaffTools && (
                             <TouchableOpacity
                                 onPress={() => router.push('/estimate' as any)}
-                                style={secondaryButtonStyle}
+                                style={[
+                                    secondaryButtonStyle,
+                                    {
+                                        backgroundColor: theme.colors.secondaryButton,
+                                        borderColor: theme.colors.border,
+                                        borderRadius: theme.radii.button,
+                                    },
+                                ]}
                             >
-                                <Text style={secondaryButtonTextStyle}>View Estimate</Text>
+                                <Text style={[secondaryButtonTextStyle, { color: theme.colors.secondaryButtonText }]}>View Estimate</Text>
                             </TouchableOpacity>
                         )}
 
                         <TouchableOpacity
                             onPress={() => router.push('/item/create' as any)}
-                            style={addButtonStyle}
+                            style={[
+                                addButtonStyle,
+                                {
+                                    backgroundColor: theme.colors.primary,
+                                    borderRadius: theme.radii.button,
+                                },
+                            ]}
                         >
-                            <Text style={addButtonTextStyle}>+ Add Fixture</Text>
+                            <Text style={[addButtonTextStyle, { color: theme.colors.primaryText }]}>+ Add Fixture</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
 
                 {!!message && (
-                    <View style={messageBoxStyle}>
-                        <Text style={messageTextStyle}>{message}</Text>
+                    <View
+                        style={[
+                            messageBoxStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                    >
+                        <Text style={[messageTextStyle, { color: theme.colors.text }]}>{message}</Text>
                     </View>
                 )}
 
@@ -121,8 +144,16 @@ export default function PlumbingFixturesScreen() {
                 </View>
 
                 {fixtures.length === 0 && !message && (
-                    <View style={messageBoxStyle}>
-                        <Text style={messageTextStyle}>
+                    <View
+                        style={[
+                            messageBoxStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                    >
+                        <Text style={[messageTextStyle, { color: theme.colors.text }]}>
                             No plumbing fixtures have been added yet.
                         </Text>
                     </View>
@@ -152,18 +183,15 @@ const headerTitleBlockStyle = {
 const titleStyle = {
     fontSize: 34,
     fontWeight: '900' as const,
-    color: '#071B33',
 };
 
 const subtitleStyle = {
-    color: '#637083',
     marginTop: 8,
     fontSize: 16,
     lineHeight: 22,
 };
 
 const addButtonStyle = {
-    backgroundColor: '#071B33',
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 18,
@@ -173,7 +201,6 @@ const addButtonStyle = {
 };
 
 const addButtonTextStyle = {
-    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '900' as const,
 };
@@ -187,34 +214,28 @@ const headerActionsStyle = {
 };
 
 const secondaryButtonStyle = {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 18,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
     marginTop: 4,
     maxWidth: '100%' as const,
     alignItems: 'center' as const,
 };
 
 const secondaryButtonTextStyle = {
-    color: '#071B33',
     fontSize: 15,
     fontWeight: '900' as const,
 };
 
 const messageBoxStyle = {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
     marginBottom: 14,
 };
 
 const messageTextStyle = {
-    color: '#637083',
     fontSize: 14,
 };
 

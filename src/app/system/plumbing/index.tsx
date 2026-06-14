@@ -10,6 +10,7 @@ import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 
 import { router } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
+import { useTheme } from '../../../theme/useTheme';
 
 const plumbingSections = [
     {
@@ -30,9 +31,11 @@ const plumbingSections = [
 ];
 
 export default function PlumbingSystemScreen() {
+    const { theme } = useTheme();
+
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
                 padding: 20,
                 paddingBottom: 40,
@@ -42,13 +45,13 @@ export default function PlumbingSystemScreen() {
             <View style={{ width: '100%', maxWidth: 900 }}>
                 <HomeHeader />
 
-                <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33' }}>
+                <Text style={{ fontSize: 34, fontWeight: '900', color: theme.colors.text }}>
                     Plumbing
                 </Text>
 
                 <Text
                     style={{
-                        color: '#637083',
+                        color: theme.colors.mutedText,
                         marginTop: 8,
                         marginBottom: 24,
                         fontSize: 16,
@@ -72,7 +75,7 @@ export default function PlumbingSystemScreen() {
                             title={section.title}
                             icon={section.icon}
                             onPress={() => router.push(section.route as any)}
-                            style={{ width: '31.8%' }}
+                            style={{ width: '31.8%', minWidth: 156, flexGrow: 1 }}
                         />
                     ))}
                 </View>

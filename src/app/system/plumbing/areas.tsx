@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import { supabase } from '../../../lib/supabase';
+import { useTheme } from '../../../theme/useTheme';
 
 type AreaItem = {
     id?: string;
@@ -39,6 +40,7 @@ function getItemIcon(item: AreaItem) {
 }
 
 export default function PlumbingAreasScreen() {
+    const { theme } = useTheme();
     const [areas, setAreas] = useState<AreaItem[]>(fallbackAreas);
     const [message, setMessage] = useState('');
 
@@ -103,22 +105,22 @@ export default function PlumbingAreasScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 1200 }}>
                 <Text
                     onPress={() => router.push('/system/plumbing' as any)}
-                    style={backStyle}
+                    style={[backStyle, { color: theme.colors.text }]}
                 >
                     Back
                 </Text>
 
                 <View style={headerRowStyle}>
                     <View style={headerTitleBlockStyle}>
-                        <Text style={titleStyle}>Plumbing Areas</Text>
+                        <Text style={[titleStyle, { color: theme.colors.text }]}>Plumbing Areas</Text>
 
-                        <Text style={subtitleStyle}>
+                        <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
                             Plumbing organized by rooms and locations.
                         </Text>
                     </View>
@@ -126,16 +128,30 @@ export default function PlumbingAreasScreen() {
                     <View style={headerActionsStyle}>
                         <TouchableOpacity
                             onPress={() => router.push('/item/create' as any)}
-                            style={addButtonStyle}
+                            style={[
+                                addButtonStyle,
+                                {
+                                    backgroundColor: theme.colors.primary,
+                                    borderRadius: theme.radii.button,
+                                },
+                            ]}
                         >
-                            <Text style={addButtonTextStyle}>+ Add Area</Text>
+                            <Text style={[addButtonTextStyle, { color: theme.colors.primaryText }]}>+ Add Area</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
 
                 {!!message && (
-                    <View style={messageBoxStyle}>
-                        <Text style={messageTextStyle}>{message}</Text>
+                    <View
+                        style={[
+                            messageBoxStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                    >
+                        <Text style={[messageTextStyle, { color: theme.colors.text }]}>{message}</Text>
                     </View>
                 )}
 
@@ -159,7 +175,6 @@ export default function PlumbingAreasScreen() {
 const backStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    color: '#071B33',
     marginTop: 20,
     marginBottom: 20,
 };
@@ -192,18 +207,15 @@ const headerActionsStyle = {
 const titleStyle = {
     fontSize: 34,
     fontWeight: '900' as const,
-    color: '#071B33',
 };
 
 const subtitleStyle = {
-    color: '#637083',
     marginTop: 8,
     fontSize: 16,
     lineHeight: 22,
 };
 
 const addButtonStyle = {
-    backgroundColor: '#071B33',
     borderRadius: 16,
     paddingVertical: 14,
     paddingHorizontal: 18,
@@ -213,22 +225,18 @@ const addButtonStyle = {
 };
 
 const addButtonTextStyle = {
-    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '900' as const,
 };
 
 const messageBoxStyle = {
-    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
     marginBottom: 14,
 };
 
 const messageTextStyle = {
-    color: '#637083',
     fontSize: 14,
 };
 

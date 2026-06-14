@@ -19,6 +19,7 @@ import { addItemToEstimateDraft } from '../../lib/estimateDraft';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
+import { useTheme } from '../../theme/useTheme';
 
 type ItemFile = {
     id: string;
@@ -90,6 +91,7 @@ function isImageFile(fileName?: string | null) {
 }
 
 export default function ItemScreen() {
+    const { theme } = useTheme();
     const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
     const { slug } = useLocalSearchParams();
     const [item, setItem] = useState<any>(null);
@@ -514,10 +516,10 @@ export default function ItemScreen() {
     if (!item) {
         return (
             <View style={centerStyle}>
-                <Text style={{ fontSize: 18, color: '#071B33', fontWeight: '900' }}>
+                <Text style={{ fontSize: 18, color: theme.colors.text, fontWeight: '900' }}>
                     Item not found.
                 </Text>
-                <Text style={{ marginTop: 10, color: '#637083' }}>{message}</Text>
+                <Text style={{ marginTop: 10, color: theme.colors.mutedText }}>{message}</Text>
             </View>
         );
     }
@@ -544,23 +546,44 @@ export default function ItemScreen() {
         { label: 'Serial', value: item.serial || 'Unknown' },
     ];
 
+    const primaryButtonThemeStyle = {
+        backgroundColor: theme.colors.primary,
+        borderRadius: theme.radii.button,
+    };
+    const primaryButtonTextThemeStyle = { color: theme.colors.primaryText };
+    const removeButtonThemeStyle = {
+        backgroundColor: theme.colors.surface,
+        borderColor: theme.colors.dangerBackground,
+        borderRadius: theme.radii.button,
+    };
+    const removeButtonTextThemeStyle = { color: theme.colors.danger };
+
     return (
         <>
             <ScrollView
-                style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+                style={{ flex: 1, backgroundColor: theme.colors.background }}
                 contentContainerStyle={{ padding: 20, alignItems: 'center' }}
             >
                 <View style={{ width: '100%', maxWidth: 1200 }}>
                     <HomeHeader />
 
-                    <Text style={titleStyle}>{item.name}</Text>
+                    <Text style={[titleStyle, { color: theme.colors.text }]}>{item.name}</Text>
 
-                    <Text style={subtitleStyle}>
+                    <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
                         {item.about || 'This item has not been fully documented yet.'}
                     </Text>
 
-                    <View style={photoCardStyle}>
-                        <Text style={labelStyle}>Main Item Photo</Text>
+                    <View
+                        style={[
+                            photoCardStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                                borderRadius: theme.radii.card,
+                            },
+                        ]}
+                    >
+                        <Text style={[labelStyle, { color: theme.colors.mutedText }]}>Main Item Photo</Text>
 
                         {item.photo_url ? (
                             <>
@@ -572,26 +595,42 @@ export default function ItemScreen() {
 
                                 <TouchableOpacity
                                     onPress={() => setShowPhoto(true)}
-                                    style={secondaryButtonStyle}
+                                    style={[
+                                        secondaryButtonStyle,
+                                        {
+                                            backgroundColor: theme.colors.secondaryButton,
+                                            borderRadius: theme.radii.button,
+                                        },
+                                    ]}
                                 >
-                                    <Text style={secondaryButtonTextStyle}>
+                                    <Text style={[secondaryButtonTextStyle, { color: theme.colors.secondaryButtonText }]}>
                                         View Full Photo
                                     </Text>
                                 </TouchableOpacity>
                             </>
                         ) : (
-                            <View style={photoPlaceholderStyle}>
+                            <View style={[photoPlaceholderStyle, { backgroundColor: theme.colors.surfaceAlt }]}>
                                 <Text style={photoIconStyle}>📷</Text>
-                                <Text style={photoTextStyle}>No main photo uploaded</Text>
+                                <Text style={[photoTextStyle, { color: theme.colors.mutedText }]}>No main photo uploaded</Text>
                             </View>
                         )}
                     </View>
 
                     <View style={infoGridStyle}>
                         {detailCards.map((detail) => (
-                            <View key={detail.label} style={miniCardStyle}>
-                                <Text style={miniLabelStyle}>{detail.label}</Text>
-                                <Text style={miniValueStyle} numberOfLines={2}>
+                            <View
+                                key={detail.label}
+                                style={[
+                                    miniCardStyle,
+                                    {
+                                        backgroundColor: theme.colors.surface,
+                                        borderColor: theme.colors.border,
+                                        borderRadius: theme.radii.button,
+                                    },
+                                ]}
+                            >
+                                <Text style={[miniLabelStyle, { color: theme.colors.mutedText }]}>{detail.label}</Text>
+                                <Text style={[miniValueStyle, { color: theme.colors.text }]} numberOfLines={2}>
                                     {detail.value}
                                 </Text>
                             </View>
@@ -599,18 +638,36 @@ export default function ItemScreen() {
                     </View>
 
                     <View style={fileSummaryStyle}>
-                        <View style={fileSummaryCardStyle}>
-                            <Text style={fileSummaryTitleStyle}>Photos</Text>
-                            <Text style={fileSummaryCountStyle}>{photos.length}</Text>
+                        <View
+                            style={[
+                                fileSummaryCardStyle,
+                                {
+                                    backgroundColor: theme.colors.secondaryButton,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.button,
+                                },
+                            ]}
+                        >
+                            <Text style={[fileSummaryTitleStyle, { color: theme.colors.mutedText }]}>Photos</Text>
+                            <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{photos.length}</Text>
                         </View>
 
-                        <View style={fileSummaryCardStyle}>
-                            <Text style={fileSummaryTitleStyle}>Documents</Text>
-                            <Text style={fileSummaryCountStyle}>{documents.length}</Text>
+                        <View
+                            style={[
+                                fileSummaryCardStyle,
+                                {
+                                    backgroundColor: theme.colors.secondaryButton,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.button,
+                                },
+                            ]}
+                        >
+                            <Text style={[fileSummaryTitleStyle, { color: theme.colors.mutedText }]}>Documents</Text>
+                            <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{documents.length}</Text>
                         </View>
                     </View>
 
-                    <Text style={sectionTitleStyle}>Photo Type</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Photo Type</Text>
                     <OptionRow
                         options={photoCategories}
                         value={photoCategory}
@@ -622,23 +679,23 @@ export default function ItemScreen() {
                             <>
                                 <TouchableOpacity
                                     onPress={handleAddToEstimate}
-                                    style={buttonStyle}
+                                    style={[buttonStyle, primaryButtonThemeStyle]}
                                 >
-                                    <Text style={buttonTextStyle}>Add To Estimate</Text>
+                                    <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Add To Estimate</Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
                                     onPress={() => router.push('/estimate' as any)}
-                                    style={buttonStyle}
+                                    style={[buttonStyle, primaryButtonThemeStyle]}
                                 >
-                                    <Text style={buttonTextStyle}>View Estimate</Text>
+                                    <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>View Estimate</Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
                                     onPress={handleStartJobThread}
-                                    style={buttonStyle}
+                                    style={[buttonStyle, primaryButtonThemeStyle]}
                                 >
-                                    <Text style={buttonTextStyle}>Start Job Thread</Text>
+                                    <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Start Job Thread</Text>
                                 </TouchableOpacity>
                             </>
                         )}
@@ -646,9 +703,9 @@ export default function ItemScreen() {
                         <TouchableOpacity
                             onPress={handleUploadMainPhoto}
                             disabled={uploading}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>
                                 {uploading ? 'Uploading...' : 'Upload Main Photo'}
                             </Text>
                         </TouchableOpacity>
@@ -656,9 +713,9 @@ export default function ItemScreen() {
                         <TouchableOpacity
                             onPress={handleUploadAdditionalPhoto}
                             disabled={uploading}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>
                                 {uploading ? 'Uploading...' : 'Upload Additional Photo'}
                             </Text>
                         </TouchableOpacity>
@@ -666,9 +723,9 @@ export default function ItemScreen() {
                         <TouchableOpacity
                             onPress={handleUploadDocument}
                             disabled={uploading}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>
                                 {uploading ? 'Uploading...' : 'Upload Document'}
                             </Text>
                         </TouchableOpacity>
@@ -676,18 +733,18 @@ export default function ItemScreen() {
                         <TouchableOpacity
                             onPress={handleOpenCamera}
                             disabled={uploading}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>
                                 {uploading ? 'Uploading...' : 'Open Camera'}
                             </Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             onPress={() => setShowPhotos(true)}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>View Photos</Text>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>View Photos</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -695,56 +752,65 @@ export default function ItemScreen() {
                                 setSelectedDocumentType(null);
                                 setShowDocuments(true);
                             }}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>View Documents</Text>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>View Documents</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             onPress={handleEditInformation}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>Edit Information</Text>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Edit Information</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             onPress={handleAddRelatedItem}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>Add Related Item</Text>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Add Related Item</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             onPress={() => setMessage('Request service comes next.')}
-                            style={buttonStyle}
+                            style={[buttonStyle, primaryButtonThemeStyle]}
                         >
-                            <Text style={buttonTextStyle}>Request Service</Text>
+                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Request Service</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
                             onPress={handleRemoveItem}
-                            style={removeButtonStyle}
+                            style={[removeButtonStyle, removeButtonThemeStyle]}
                         >
-                            <Text style={removeButtonTextStyle}>Remove Item</Text>
+                            <Text style={[removeButtonTextStyle, removeButtonTextThemeStyle]}>Remove Item</Text>
                         </TouchableOpacity>
                     </View>
 
                     {!!message && (
-                        <View style={messageCardStyle}>
-                            <Text style={labelStyle}>Message</Text>
-                            <Text style={bodyTextStyle}>{message}</Text>
+                        <View
+                            style={[
+                                messageCardStyle,
+                                {
+                                    backgroundColor: theme.colors.surface,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.card,
+                                },
+                            ]}
+                        >
+                            <Text style={[labelStyle, { color: theme.colors.mutedText }]}>Message</Text>
+                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
                         </View>
                     )}
                 </View>
             </ScrollView>
 
             <Modal visible={showPhoto} transparent={false} animationType="fade">
-                <View style={modalStyle}>
+                <View style={[modalStyle, { backgroundColor: theme.colors.overlay }]}>
                     <TouchableOpacity
                         onPress={() => setShowPhoto(false)}
                         style={modalCloseStyle}
                     >
-                        <Text style={modalCloseTextStyle}>✕</Text>
+                        <Text style={[modalCloseTextStyle, { color: theme.colors.primaryText }]}>✕</Text>
                     </TouchableOpacity>
 
                     {item.photo_url && (
@@ -758,26 +824,36 @@ export default function ItemScreen() {
             </Modal>
 
             <Modal visible={showPhotos} transparent={false} animationType="slide">
-                <ScrollView style={galleryModalStyle} contentContainerStyle={{ padding: 20 }}>
+                <ScrollView
+                    style={[galleryModalStyle, { backgroundColor: theme.colors.background }]}
+                    contentContainerStyle={{ padding: 20 }}
+                >
                     <TouchableOpacity onPress={() => setShowPhotos(false)}>
-                        <Text style={modalBackTextStyle}>← Close Photos</Text>
+                        <Text style={[modalBackTextStyle, { color: theme.colors.text }]}>← Close Photos</Text>
                     </TouchableOpacity>
 
-                    <Text style={modalTitleStyle}>Photos</Text>
+                    <Text style={[modalTitleStyle, { color: theme.colors.text }]}>Photos</Text>
 
                     <View style={galleryGridStyle}>
                         {photos.map((photo) => (
                             <TouchableOpacity
                                 key={photo.id}
-                                style={galleryCardStyle}
+                                style={[
+                                    galleryCardStyle,
+                                    {
+                                        backgroundColor: theme.colors.surface,
+                                        borderColor: theme.colors.border,
+                                        borderRadius: theme.radii.button,
+                                    },
+                                ]}
                                 onPress={() => Linking.openURL(photo.file_url)}
                             >
                                 <Image
                                     source={{ uri: photo.file_url }}
-                                    style={galleryImageStyle}
+                                    style={[galleryImageStyle, { backgroundColor: theme.colors.surfaceAlt }]}
                                     resizeMode="contain"
                                 />
-                                <Text style={galleryCategoryStyle}>
+                                <Text style={[galleryCategoryStyle, { color: theme.colors.text }]}>
                                     {photo.category}
                                 </Text>
                             </TouchableOpacity>
@@ -785,34 +861,44 @@ export default function ItemScreen() {
                     </View>
 
                     {photos.length === 0 && (
-                        <Text style={emptyTextStyle}>No additional photos yet.</Text>
+                        <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>No additional photos yet.</Text>
                     )}
                 </ScrollView>
             </Modal>
 
             <Modal visible={showDocuments} transparent={false} animationType="slide">
-                <ScrollView style={galleryModalStyle} contentContainerStyle={{ padding: 20 }}>
+                <ScrollView
+                    style={[galleryModalStyle, { backgroundColor: theme.colors.background }]}
+                    contentContainerStyle={{ padding: 20 }}
+                >
                     <TouchableOpacity onPress={() => setShowDocuments(false)}>
-                        <Text style={modalBackTextStyle}>Close Documents</Text>
+                        <Text style={[modalBackTextStyle, { color: theme.colors.text }]}>Close Documents</Text>
                     </TouchableOpacity>
 
-                    <Text style={modalTitleStyle}>Documents</Text>
+                    <Text style={[modalTitleStyle, { color: theme.colors.text }]}>Documents</Text>
 
                     {!selectedDocumentType ? (
                         <>
-                            <Text style={documentExplorerTitleStyle}>Document Type Explorer</Text>
+                            <Text style={[documentExplorerTitleStyle, { color: theme.colors.mutedText }]}>Document Type Explorer</Text>
 
                             <View style={documentExplorerGridStyle}>
                                 {groupedDocuments.map((group) => (
                                     <TouchableOpacity
                                         key={group.category}
-                                        style={documentExplorerBlockStyle}
+                                        style={[
+                                            documentExplorerBlockStyle,
+                                            {
+                                                backgroundColor: theme.colors.surface,
+                                                borderColor: theme.colors.border,
+                                                borderRadius: theme.radii.card,
+                                            },
+                                        ]}
                                         onPress={() => setSelectedDocumentType(group.category)}
                                     >
-                                        <Text style={documentExplorerBlockTitleStyle}>
+                                        <Text style={[documentExplorerBlockTitleStyle, { color: theme.colors.text }]}>
                                             {documentLabel(group.category, 'plural')}
                                         </Text>
-                                        <Text style={documentExplorerBlockCountStyle}>
+                                        <Text style={[documentExplorerBlockCountStyle, { color: theme.colors.mutedText }]}>
                                             ({group.documents.length})
                                         </Text>
                                     </TouchableOpacity>
@@ -822,10 +908,10 @@ export default function ItemScreen() {
                     ) : (
                         <View>
                             <TouchableOpacity onPress={() => setSelectedDocumentType(null)}>
-                                <Text style={modalBackTextStyle}>Back to Document Type Explorer</Text>
+                                <Text style={[modalBackTextStyle, { color: theme.colors.text }]}>Back to Document Type Explorer</Text>
                             </TouchableOpacity>
 
-                            <Text style={documentGroupTitleStyle}>
+                            <Text style={[documentGroupTitleStyle, { color: theme.colors.text }]}>
                                 {documentLabel(selectedDocumentType, 'plural')}
                             </Text>
 
@@ -834,10 +920,17 @@ export default function ItemScreen() {
                                 .map((doc) => (
                                     <TouchableOpacity
                                         key={doc.id}
-                                        style={documentCardStyle}
+                                        style={[
+                                            documentCardStyle,
+                                            {
+                                                backgroundColor: theme.colors.surface,
+                                                borderColor: theme.colors.border,
+                                                borderRadius: theme.radii.button,
+                                            },
+                                        ]}
                                         onPress={() => Linking.openURL(doc.file_url)}
                                     >
-                                        <View style={documentPreviewStyle}>
+                                        <View style={[documentPreviewStyle, { backgroundColor: theme.colors.surfaceAlt }]}>
                                             {isImageFile(doc.file_name) ? (
                                                 <Image
                                                     source={{ uri: doc.file_url }}
@@ -850,19 +943,19 @@ export default function ItemScreen() {
                                         </View>
 
                                         <View style={{ flex: 1 }}>
-                                            <Text style={documentTitleStyle}>
+                                            <Text style={[documentTitleStyle, { color: theme.colors.text }]}>
                                                 {doc.file_name || 'Document'}
                                             </Text>
-                                            <Text style={documentSubTextStyle}>
+                                            <Text style={[documentSubTextStyle, { color: theme.colors.mutedText }]}>
                                                 {documentLabel(doc.category)}
                                             </Text>
-                                            <Text style={documentOpenTextStyle}>Open</Text>
+                                            <Text style={[documentOpenTextStyle, { color: theme.colors.link }]}>Open</Text>
                                         </View>
                                     </TouchableOpacity>
                                 ))}
 
                             {documents.filter((doc) => doc.category === selectedDocumentType).length === 0 && (
-                                <Text style={emptyTextStyle}>
+                                <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>
                                     No {documentLabel(selectedDocumentType, 'plural').toLowerCase()} yet.
                                 </Text>
                             )}
@@ -870,23 +963,26 @@ export default function ItemScreen() {
                     )}
 
                     {documents.length === 0 && (
-                        <Text style={emptyTextStyle}>No documents yet.</Text>
+                        <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>No documents yet.</Text>
                     )}
                 </ScrollView>
             </Modal>
             <Modal visible={showDocumentTypePicker} transparent={false} animationType="slide">
-                <ScrollView style={galleryModalStyle} contentContainerStyle={{ padding: 20 }}>
+                <ScrollView
+                    style={[galleryModalStyle, { backgroundColor: theme.colors.background }]}
+                    contentContainerStyle={{ padding: 20 }}
+                >
                     <TouchableOpacity
                         onPress={() => {
                             setShowDocumentTypePicker(false);
                         }}
                     >
-                        <Text style={modalBackTextStyle}>← Cancel</Text>
+                        <Text style={[modalBackTextStyle, { color: theme.colors.text }]}>← Cancel</Text>
                     </TouchableOpacity>
 
-                    <Text style={modalTitleStyle}>What type of document is this?</Text>
+                    <Text style={[modalTitleStyle, { color: theme.colors.text }]}>What type of document is this?</Text>
 
-                    <Text style={subtitleStyle}>
+                    <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
                         Choose where this file should be stored.
                     </Text>
 
@@ -894,10 +990,17 @@ export default function ItemScreen() {
                         {documentCategories.map((type) => (
                             <TouchableOpacity
                                 key={type}
-                                style={documentTypeBlockStyle}
+                                style={[
+                                    documentTypeBlockStyle,
+                                    {
+                                        backgroundColor: theme.colors.surface,
+                                        borderColor: theme.colors.border,
+                                        borderRadius: theme.radii.card,
+                                    },
+                                ]}
                                 onPress={() => finishDocumentUpload(type)}
                             >
-                                <Text style={documentTypeBlockTitleStyle}>
+                                <Text style={[documentTypeBlockTitleStyle, { color: theme.colors.text }]}>
                                     {documentLabel(type)}
                                 </Text>
                             </TouchableOpacity>
@@ -918,6 +1021,8 @@ function OptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
+    const { theme } = useTheme();
+
     return (
         <View style={optionRowStyle}>
             {options.map((option) => (
@@ -926,13 +1031,22 @@ function OptionRow({
                     onPress={() => onChange(option)}
                     style={[
                         optionButtonStyle,
-                        value === option && optionButtonSelectedStyle,
+                        {
+                            backgroundColor: theme.colors.surface,
+                            borderColor: theme.colors.border,
+                            borderRadius: theme.radii.pill,
+                        },
+                        value === option && {
+                            backgroundColor: theme.colors.primary,
+                            borderColor: theme.colors.primary,
+                        },
                     ]}
                 >
                     <Text
                         style={[
                             optionButtonTextStyle,
-                            value === option && optionButtonSelectedTextStyle,
+                            { color: theme.colors.mutedText },
+                            value === option && { color: theme.colors.primaryText },
                         ]}
                     >
                         {option.replace(/_/g, ' ')}
@@ -953,11 +1067,9 @@ const centerStyle = {
 const titleStyle = {
     fontSize: 34,
     fontWeight: '900' as const,
-    color: '#071B33',
 };
 
 const subtitleStyle = {
-    color: '#637083',
     marginTop: 8,
     marginBottom: 24,
     fontSize: 16,
@@ -965,17 +1077,14 @@ const subtitleStyle = {
 };
 
 const photoCardStyle = {
-    backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 18,
     marginBottom: 14,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const labelStyle = {
     fontSize: 14,
-    color: '#637083',
     marginBottom: 6,
     fontWeight: '900' as const,
 };
@@ -985,12 +1094,10 @@ const photoStyle = {
     width: '100%' as const,
     borderRadius: 18,
     marginTop: 12,
-    backgroundColor: '#F3F6FA',
 };
 
 const photoPlaceholderStyle = {
     height: 260,
-    backgroundColor: '#E3E8EF',
     borderRadius: 18,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
@@ -1003,12 +1110,10 @@ const photoIconStyle = {
 };
 
 const photoTextStyle = {
-    color: '#637083',
     fontWeight: '900' as const,
 };
 
 const secondaryButtonStyle = {
-    backgroundColor: '#E7ECF3',
     borderRadius: 16,
     padding: 14,
     alignItems: 'center' as const,
@@ -1016,7 +1121,6 @@ const secondaryButtonStyle = {
 };
 
 const secondaryButtonTextStyle = {
-    color: '#071B33',
     fontSize: 15,
     fontWeight: '900' as const,
 };
@@ -1031,16 +1135,13 @@ const infoGridStyle = {
 const miniCardStyle = {
     width: '32%' as const,
     minWidth: 180,
-    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const miniLabelStyle = {
     fontSize: 13,
-    color: '#637083',
     fontWeight: '900' as const,
     marginBottom: 6,
 };
@@ -1048,7 +1149,6 @@ const miniLabelStyle = {
 const miniValueStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    color: '#071B33',
 };
 
 const fileSummaryStyle = {
@@ -1061,21 +1161,17 @@ const fileSummaryStyle = {
 const fileSummaryCardStyle = {
     flex: 1,
     minWidth: 180,
-    backgroundColor: '#EAF2FF',
     borderRadius: 18,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#CFE1FF',
 };
 
 const fileSummaryTitleStyle = {
-    color: '#637083',
     fontSize: 13,
     fontWeight: '900' as const,
 };
 
 const fileSummaryCountStyle = {
-    color: '#071B33',
     fontSize: 28,
     fontWeight: '900' as const,
     marginTop: 4,
@@ -1084,7 +1180,6 @@ const fileSummaryCountStyle = {
 const sectionTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    color: '#071B33',
     marginTop: 14,
     marginBottom: 10,
 };
@@ -1097,26 +1192,20 @@ const optionRowStyle = {
 };
 
 const optionButtonStyle = {
-    backgroundColor: '#FFFFFF',
     borderRadius: 999,
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const optionButtonSelectedStyle = {
-    backgroundColor: '#071B33',
-    borderColor: '#071B33',
 };
 
 const optionButtonTextStyle = {
-    color: '#637083',
     fontWeight: '900' as const,
 };
 
 const optionButtonSelectedTextStyle = {
-    color: '#FFFFFF',
 };
 
 const actionGridStyle = {
@@ -1129,14 +1218,12 @@ const actionGridStyle = {
 const buttonStyle = {
     width: '32%' as const,
     minWidth: 180,
-    backgroundColor: '#071B33',
     borderRadius: 18,
     padding: 18,
     alignItems: 'center' as const,
 };
 
 const buttonTextStyle = {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '900' as const,
 };
@@ -1144,38 +1231,31 @@ const buttonTextStyle = {
 const removeButtonStyle = {
     width: '32%' as const,
     minWidth: 180,
-    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 18,
     alignItems: 'center' as const,
     borderWidth: 1,
-    borderColor: '#F1B8B8',
 };
 
 const removeButtonTextStyle = {
-    color: '#B00020',
     fontSize: 16,
     fontWeight: '900' as const,
 };
 
 const messageCardStyle = {
-    backgroundColor: '#FFFFFF',
     borderRadius: 20,
     padding: 18,
     marginTop: 12,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const bodyTextStyle = {
     fontSize: 16,
-    color: '#637083',
     lineHeight: 22,
 };
 
 const modalStyle = {
     flex: 1,
-    backgroundColor: '#000000',
     justifyContent: 'center' as const,
     alignItems: 'center' as const,
 };
@@ -1188,7 +1268,6 @@ const modalCloseStyle = {
 };
 
 const modalCloseTextStyle = {
-    color: '#FFFFFF',
     fontSize: 30,
     fontWeight: '900' as const,
 };
@@ -1200,20 +1279,17 @@ const modalImageStyle = {
 
 const galleryModalStyle = {
     flex: 1,
-    backgroundColor: '#F3F6FA',
 };
 
 const modalBackTextStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    color: '#071B33',
     marginBottom: 20,
 };
 
 const modalTitleStyle = {
     fontSize: 34,
     fontWeight: '900' as const,
-    color: '#071B33',
     marginBottom: 20,
 };
 
@@ -1226,23 +1302,19 @@ const galleryGridStyle = {
 const galleryCardStyle = {
     width: '23%' as const,
     minWidth: 160,
-    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const galleryImageStyle = {
     width: '100%' as const,
     height: 140,
     borderRadius: 14,
-    backgroundColor: '#E7ECF3',
 };
 
 const galleryCategoryStyle = {
     marginTop: 8,
-    color: '#071B33',
     fontWeight: '900' as const,
 };
 
@@ -1250,7 +1322,6 @@ const galleryCategoryStyle = {
 const documentPreviewStyle = {
     width: 90,
     height: 90,
-    backgroundColor: '#E7ECF3',
     borderRadius: 14,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
@@ -1267,45 +1338,38 @@ const documentPreviewIconStyle = {
 };
 
 const documentOpenTextStyle = {
-    color: '#0B5FFF',
     marginTop: 8,
     fontWeight: '900' as const,
 };
 
 
 const documentCardStyle = {
-    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     padding: 12,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
     flexDirection: 'row' as const,
     gap: 12,
     alignItems: 'center' as const,
 };
 
 const documentTitleStyle = {
-    color: '#071B33',
     fontSize: 18,
     fontWeight: '900' as const,
 };
 
 const documentSubTextStyle = {
-    color: '#637083',
     marginTop: 6,
     fontWeight: '900' as const,
 };
 
 const emptyTextStyle = {
-    color: '#637083',
     fontSize: 16,
     fontWeight: '900' as const,
 };
 const documentGroupTitleStyle = {
     fontSize: 22,
     fontWeight: '900' as const,
-    color: '#071B33',
     marginTop: 12,
     marginBottom: 10,
     textTransform: 'capitalize' as const,
@@ -1314,7 +1378,6 @@ const documentGroupTitleStyle = {
 const documentExplorerTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    color: '#637083',
     marginBottom: 14,
 };
 
@@ -1327,21 +1390,17 @@ const documentExplorerGridStyle = {
 const documentExplorerBlockStyle = {
     width: '23%' as const,
     minWidth: 190,
-    backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const documentExplorerBlockTitleStyle = {
-    color: '#071B33',
     fontSize: 18,
     fontWeight: '900' as const,
 };
 
 const documentExplorerBlockCountStyle = {
-    color: '#637083',
     marginTop: 8,
     fontSize: 16,
     fontWeight: '900' as const,
@@ -1357,15 +1416,12 @@ const documentTypeGridStyle = {
 const documentTypeBlockStyle = {
     width: '31%' as const,
     minWidth: 180,
-    backgroundColor: '#FFFFFF',
     borderRadius: 22,
     padding: 20,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
 };
 
 const documentTypeBlockTitleStyle = {
-    color: '#071B33',
     fontSize: 18,
     fontWeight: '900' as const,
     textTransform: 'capitalize' as const,

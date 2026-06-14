@@ -1,7 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { useTheme } from '../../../../theme/useTheme';
 
 export default function AreaScreen() {
+    const { theme } = useTheme();
     const { system, area } = useLocalSearchParams<{
         system: string;
         area: string;
@@ -14,7 +16,7 @@ export default function AreaScreen() {
         <ScrollView
             style={{
                 flex: 1,
-                backgroundColor: '#F3F6FA',
+                backgroundColor: theme.colors.background,
             }}
             contentContainerStyle={{
                 padding: 20,
@@ -34,7 +36,7 @@ export default function AreaScreen() {
                         marginTop: 20,
                         marginBottom: 20,
                         fontSize: 18,
-                        color: '#071B33',
+                        color: theme.colors.text,
                         fontWeight: '900',
                     }}
                 >
@@ -45,7 +47,7 @@ export default function AreaScreen() {
                     style={{
                         fontSize: 34,
                         fontWeight: '900',
-                        color: '#071B33',
+                        color: theme.colors.text,
                         marginBottom: 6,
                     }}
                 >
@@ -55,7 +57,7 @@ export default function AreaScreen() {
                 <Text
                     style={{
                         fontSize: 16,
-                        color: '#637083',
+                        color: theme.colors.mutedText,
                         marginBottom: 25,
                     }}
                 >
@@ -64,11 +66,11 @@ export default function AreaScreen() {
 
                 <View
                     style={{
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: 20,
+                        backgroundColor: theme.colors.surface,
+                        borderRadius: theme.radii.card,
                         padding: 24,
                         borderWidth: 1,
-                        borderColor: '#E3E8EF',
+                        borderColor: theme.colors.border,
                         marginBottom: 20,
                     }}
                 >
@@ -76,7 +78,7 @@ export default function AreaScreen() {
                         style={{
                             fontSize: 22,
                             fontWeight: '900',
-                            color: '#071B33',
+                            color: theme.colors.text,
                             marginBottom: 10,
                         }}
                     >
@@ -86,7 +88,7 @@ export default function AreaScreen() {
                     <Text
                         style={{
                             fontSize: 15,
-                            color: '#637083',
+                            color: theme.colors.mutedText,
                             lineHeight: 22,
                         }}
                     >
@@ -97,16 +99,16 @@ export default function AreaScreen() {
                 <TouchableOpacity
                     onPress={() => router.push('/item/create' as any)}
                     style={{
-                        backgroundColor: '#0B5FFF',
+                        backgroundColor: theme.colors.primary,
                         paddingVertical: 18,
-                        borderRadius: 16,
+                        borderRadius: theme.radii.button,
                         alignItems: 'center',
                         marginBottom: 24,
                     }}
                 >
                     <Text
                         style={{
-                            color: '#FFFFFF',
+                            color: theme.colors.primaryText,
                             fontSize: 18,
                             fontWeight: '900',
                         }}
@@ -117,11 +119,11 @@ export default function AreaScreen() {
 
                 <View
                     style={{
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: 20,
+                        backgroundColor: theme.colors.surface,
+                        borderRadius: theme.radii.card,
                         padding: 20,
                         borderWidth: 1,
-                        borderColor: '#E3E8EF',
+                        borderColor: theme.colors.border,
                         marginBottom: 16,
                     }}
                 >
@@ -129,7 +131,7 @@ export default function AreaScreen() {
                         style={{
                             fontSize: 20,
                             fontWeight: '900',
-                            color: '#071B33',
+                            color: theme.colors.text,
                             marginBottom: 8,
                         }}
                     >
@@ -138,7 +140,7 @@ export default function AreaScreen() {
 
                     <Text
                         style={{
-                            color: '#637083',
+                            color: theme.colors.mutedText,
                         }}
                     >
                         No documents uploaded.
@@ -147,18 +149,18 @@ export default function AreaScreen() {
 
                 <View
                     style={{
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: 20,
+                        backgroundColor: theme.colors.surface,
+                        borderRadius: theme.radii.card,
                         padding: 20,
                         borderWidth: 1,
-                        borderColor: '#E3E8EF',
+                        borderColor: theme.colors.border,
                     }}
                 >
                     <Text
                         style={{
                             fontSize: 20,
                             fontWeight: '900',
-                            color: '#071B33',
+                            color: theme.colors.text,
                             marginBottom: 8,
                         }}
                     >
@@ -167,7 +169,7 @@ export default function AreaScreen() {
 
                     <Text
                         style={{
-                            color: '#637083',
+                            color: theme.colors.mutedText,
                         }}
                     >
                         No photos uploaded.
