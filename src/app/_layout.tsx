@@ -1,6 +1,11 @@
 import { Slot, router, useSegments } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import {
+  clearSessionActivity,
+  hasSessionTimedOut,
+  recordSessionActivity,
+} from '../lib/sessionSecurity';
 import { supabase } from '../lib/supabase';
 import { ThemeProvider } from '../theme';
 
@@ -32,6 +37,22 @@ export default function Layout() {
     const isAuthPage = segments[0] === 'auth';
     const isResetPasswordPage = segments[0] === 'auth' && segments[1] === 'reset-password';
     const isLoggedIn = !!data.session;
+
+    if (isLoggedIn) {
+      const timedOut = await hasSessionTimedOut();
+
+      if (timedOut) {
+        await supabase.auth.signOut();
+        await clearSessionActivity();
+        router.replace('/auth/login' as any);
+        setChecking(false);
+        return;
+      }
+
+      if (!isAuthPage) {
+        await recordSessionActivity();
+      }
+    }
 
     if (!isLoggedIn && !isAuthPage) {
       router.replace('/auth/login' as any);

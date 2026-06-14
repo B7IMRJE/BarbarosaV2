@@ -86,6 +86,13 @@ export default function ProfileScreen() {
                 />
 
                 <ThemedButton
+                    title="Session Security"
+                    variant="secondary"
+                    onPress={() => router.push('/profile/security' as any)}
+                    style={{ marginBottom: 14 }}
+                />
+
+                <ThemedButton
                     title="Change Password"
                     onPress={() => router.push('/profile/change-password' as any)}
                     style={{ marginBottom: 14 }}
