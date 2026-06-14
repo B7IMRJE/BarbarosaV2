@@ -115,7 +115,7 @@ export default function PlumbingAreasScreen() {
                 </Text>
 
                 <View style={headerRowStyle}>
-                    <View>
+                    <View style={headerTitleBlockStyle}>
                         <Text style={titleStyle}>Plumbing Areas</Text>
 
                         <Text style={subtitleStyle}>
@@ -123,12 +123,14 @@ export default function PlumbingAreasScreen() {
                         </Text>
                     </View>
 
-                    <TouchableOpacity
-                        onPress={() => router.push('/item/create' as any)}
-                        style={addButtonStyle}
-                    >
-                        <Text style={addButtonTextStyle}>+ Add Area</Text>
-                    </TouchableOpacity>
+                    <View style={headerActionsStyle}>
+                        <TouchableOpacity
+                            onPress={() => router.push('/item/create' as any)}
+                            style={addButtonStyle}
+                        >
+                            <Text style={addButtonTextStyle}>+ Add Area</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {!!message && (
@@ -164,10 +166,27 @@ const backStyle = {
 
 const headerRowStyle = {
     flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
     justifyContent: 'space-between' as const,
     alignItems: 'flex-start' as const,
-    gap: 16,
+    gap: 12,
     marginBottom: 24,
+};
+
+const headerTitleBlockStyle = {
+    flexBasis: 280,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: '100%' as const,
+};
+
+const headerActionsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'flex-end' as const,
+    gap: 8,
+    maxWidth: '100%' as const,
 };
 
 const titleStyle = {
@@ -189,6 +208,8 @@ const addButtonStyle = {
     paddingVertical: 14,
     paddingHorizontal: 18,
     marginTop: 4,
+    maxWidth: '100%' as const,
+    alignItems: 'center' as const,
 };
 
 const addButtonTextStyle = {

@@ -86,7 +86,7 @@ export default function PlumbingFixturesScreen() {
                 <HomeHeader />
 
                 <View style={headerRowStyle}>
-                    <View>
+                    <View style={headerTitleBlockStyle}>
                         <Text style={titleStyle}>Plumbing Fixtures</Text>
                         <Text style={subtitleStyle}>
                             Faucets, toilets, drains, showers, and fixture connections.
@@ -145,10 +145,19 @@ export default function PlumbingFixturesScreen() {
 
 const headerRowStyle = {
     flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
     justifyContent: 'space-between' as const,
     alignItems: 'flex-start' as const,
-    gap: 16,
+    gap: 12,
     marginBottom: 24,
+};
+
+const headerTitleBlockStyle = {
+    flexBasis: 280,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: '100%' as const,
 };
 
 const titleStyle = {
@@ -170,6 +179,8 @@ const addButtonStyle = {
     paddingVertical: 14,
     paddingHorizontal: 18,
     marginTop: 4,
+    maxWidth: '100%' as const,
+    alignItems: 'center' as const,
 };
 
 const addButtonTextStyle = {
@@ -182,7 +193,8 @@ const headerActionsStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     justifyContent: 'flex-end' as const,
-    gap: 10,
+    gap: 8,
+    maxWidth: '100%' as const,
 };
 
 const secondaryButtonStyle = {
@@ -193,6 +205,8 @@ const secondaryButtonStyle = {
     borderWidth: 1,
     borderColor: '#E3E8EF',
     marginTop: 4,
+    maxWidth: '100%' as const,
+    alignItems: 'center' as const,
 };
 
 const secondaryButtonTextStyle = {
