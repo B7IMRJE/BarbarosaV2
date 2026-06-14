@@ -1,4 +1,6 @@
 import { Pressable, Text, View } from 'react-native';
+import { type HomeOSTheme } from '../../theme';
+import { useTheme } from '../../theme/useTheme';
 
 type ConsumableCardProps = {
     title: string;
@@ -13,30 +15,33 @@ export default function ConsumableCard({
     daysRemaining,
     onPress,
 }: ConsumableCardProps) {
+    const { theme } = useTheme();
 
-    let statusColor = '#4ADE80';
     let statusText = 'Good';
+    let statusStyle = theme.colors.status.good;
 
     if (daysRemaining <= 30) {
-        statusColor = '#FACC15';
         statusText = 'Due Soon';
+        statusStyle = theme.colors.status.notInspected;
     }
 
     if (daysRemaining <= 0) {
-        statusColor = '#EF4444';
         statusText = 'Action Required';
+        statusStyle = theme.colors.status.emergency;
     }
 
     return (
         <Pressable
             onPress={onPress}
             style={{
-                backgroundColor: 'white',
+                backgroundColor: theme.colors.surface,
                 padding: 20,
-                borderRadius: 16,
+                borderRadius: theme.radii.card,
                 marginBottom: 15,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
                 borderLeftWidth: 8,
-                borderLeftColor: statusColor,
+                borderLeftColor: statusStyle.border,
             }}
         >
             <Text
@@ -44,6 +49,7 @@ export default function ConsumableCard({
                     fontSize: 22,
                     fontWeight: 'bold',
                     marginBottom: 10,
+                    color: theme.colors.text,
                 }}
             >
                 {title}
@@ -53,6 +59,7 @@ export default function ConsumableCard({
                 style={{
                     fontSize: 16,
                     marginBottom: 6,
+                    color: theme.colors.text,
                 }}
             >
                 {status}
@@ -61,7 +68,7 @@ export default function ConsumableCard({
             <Text
                 style={{
                     fontSize: 15,
-                    color: statusColor,
+                    color: theme.colors.text,
                     fontWeight: 'bold',
                     marginBottom: 15,
                 }}
@@ -77,57 +84,64 @@ export default function ConsumableCard({
                 }}
             >
                 <View
-                    style={{
-                        backgroundColor: '#071B33',
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 8,
-                    }}
+                    style={chipStyle(theme, 'primary')}
                 >
-                    <Text style={{ color: 'white' }}>
+                    <Text style={{ color: theme.colors.primaryText }}>
                         Completed
                     </Text>
                 </View>
 
                 <View
-                    style={{
-                        backgroundColor: '#374151',
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 8,
-                    }}
+                    style={chipStyle(theme, 'secondary')}
                 >
-                    <Text style={{ color: 'white' }}>
+                    <Text style={{ color: theme.colors.secondaryButtonText }}>
                         Snooze
                     </Text>
                 </View>
 
                 <View
-                    style={{
-                        backgroundColor: '#6B7280',
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 8,
-                    }}
+                    style={chipStyle(theme, 'muted')}
                 >
-                    <Text style={{ color: 'white' }}>
+                    <Text style={{ color: theme.colors.mutedText }}>
                         Ignore
                     </Text>
                 </View>
 
                 <View
-                    style={{
-                        backgroundColor: '#059669',
-                        paddingHorizontal: 12,
-                        paddingVertical: 8,
-                        borderRadius: 8,
-                    }}
+                    style={chipStyle(theme, 'status')}
                 >
-                    <Text style={{ color: 'white' }}>
+                    <Text style={{ color: theme.colors.text }}>
                         Service
                     </Text>
                 </View>
             </View>
         </Pressable>
     );
+}
+
+function chipStyle(theme: HomeOSTheme, variant: 'primary' | 'secondary' | 'muted' | 'status') {
+    const backgroundColor =
+        variant === 'primary'
+            ? theme.colors.primary
+            : variant === 'secondary'
+                ? theme.colors.secondaryButton
+                : variant === 'status'
+                    ? theme.colors.status.good.background
+                    : theme.colors.surfaceAlt;
+
+    const borderColor =
+        variant === 'primary'
+            ? theme.colors.primary
+            : variant === 'status'
+                ? theme.colors.status.good.border
+                : theme.colors.border;
+
+    return {
+        backgroundColor,
+        borderColor,
+        borderWidth: 1,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: theme.radii.button,
+    };
 }

@@ -1,4 +1,5 @@
 import { Pressable, Text } from 'react-native';
+import { useTheme } from '../../theme/useTheme';
 
 type EquipmentCardProps = {
     title: string;
@@ -13,14 +14,18 @@ export default function EquipmentCard({
     subtitle,
     onPress,
 }: EquipmentCardProps) {
+    const { theme } = useTheme();
+
     return (
         <Pressable
             onPress={onPress}
             style={{
-                backgroundColor: 'white',
+                backgroundColor: theme.colors.surface,
                 padding: 20,
-                borderRadius: 16,
+                borderRadius: theme.radii.card,
                 marginBottom: 15,
+                borderWidth: 1,
+                borderColor: theme.colors.border,
             }}
         >
             <Text
@@ -28,7 +33,7 @@ export default function EquipmentCard({
                     fontSize: 22,
                     fontWeight: 'bold',
                     marginBottom: 8,
-                    color: '#071B33',
+                    color: theme.colors.text,
                 }}
             >
                 {title}
@@ -39,6 +44,7 @@ export default function EquipmentCard({
                     style={{
                         fontSize: 16,
                         marginBottom: 4,
+                        color: theme.colors.text,
                     }}
                 >
                     {status}
@@ -49,7 +55,7 @@ export default function EquipmentCard({
                 <Text
                     style={{
                         fontSize: 14,
-                        color: '#6B7280',
+                        color: theme.colors.mutedText,
                     }}
                 >
                     {subtitle}
