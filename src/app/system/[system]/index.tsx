@@ -3,8 +3,8 @@ import { useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
-import { AREAS } from '../../../constants/areas';
 import { getSystemLabel } from '../../../lib/homeSystems';
+import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
 import { useTheme } from '../../../theme/useTheme';
 
 export default function SystemAreasScreen() {
@@ -14,12 +14,13 @@ export default function SystemAreasScreen() {
 
     const systemName = system ? String(system) : 'System';
     const systemLabel = getSystemLabel(systemName);
+    const systemDefaults = useMemo(() => getSystemDefaults(systemName), [systemName]);
 
     const filteredAreas = useMemo(() => {
-        return AREAS.filter((area) =>
-            area.name.toLowerCase().includes(search.toLowerCase())
+        return systemDefaults.areas.filter((area) =>
+            area.toLowerCase().includes(search.toLowerCase())
         );
-    }, [search]);
+    }, [search, systemDefaults]);
 
     return (
         <ScrollView
@@ -81,15 +82,15 @@ export default function SystemAreasScreen() {
                 >
                     {filteredAreas.map((area) => (
                         <SystemStatusCard
-                            key={area.name}
-                            title={area.name}
-                            icon={area.icon}
+                            key={area}
+                            title={area}
+                            icon={getAreaIcon(area)}
                             onPress={() =>
                                 router.push({
                                     pathname: '/system/[system]/area/[area]',
                                     params: {
                                         system: systemName,
-                                        area: area.name,
+                                        area,
                                     },
                                 } as any)
                             }

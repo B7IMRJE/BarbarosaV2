@@ -1,6 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import ThemedButton from '../../../../components/theme/ThemedButton';
+import ThemedCard from '../../../../components/theme/ThemedCard';
 import { getSystemLabel } from '../../../../lib/homeSystems';
+import { getSystemDefaults } from '../../../../lib/systemDefaults';
 import { useTheme } from '../../../../theme/useTheme';
 
 export default function AreaScreen() {
@@ -13,6 +16,19 @@ export default function AreaScreen() {
     const systemName = system ? String(system) : 'System';
     const systemLabel = getSystemLabel(systemName);
     const areaName = area ? String(area) : 'Area';
+    const defaults = getSystemDefaults(systemName);
+
+    function createSuggestedItem(category: string, name?: string) {
+        router.push({
+            pathname: '/item/create',
+            params: {
+                system: systemName,
+                area: areaName,
+                category,
+                name: name || '',
+            },
+        } as any);
+    }
 
     return (
         <ScrollView
@@ -42,7 +58,7 @@ export default function AreaScreen() {
                         fontWeight: '900',
                     }}
                 >
-                    ← Back
+                    Back
                 </Text>
 
                 <Text
@@ -66,16 +82,7 @@ export default function AreaScreen() {
                     {systemLabel}
                 </Text>
 
-                <View
-                    style={{
-                        backgroundColor: theme.colors.surface,
-                        borderRadius: theme.radii.card,
-                        padding: 24,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                        marginBottom: 20,
-                    }}
-                >
+                <ThemedCard style={{ marginBottom: 20 }}>
                     <Text
                         style={{
                             fontSize: 22,
@@ -94,41 +101,29 @@ export default function AreaScreen() {
                             lineHeight: 22,
                         }}
                     >
-                        Add items for this area when you are ready.
+                        Add items for this area when you are ready. Suggestions below are based on {systemLabel}.
                     </Text>
-                </View>
+                </ThemedCard>
 
-                <TouchableOpacity
-                    onPress={() => router.push('/item/create' as any)}
-                    style={{
-                        backgroundColor: theme.colors.primary,
-                        paddingVertical: 18,
-                        borderRadius: theme.radii.button,
-                        alignItems: 'center',
-                        marginBottom: 24,
-                    }}
-                >
-                    <Text
-                        style={{
-                            color: theme.colors.primaryText,
-                            fontSize: 18,
-                            fontWeight: '900',
-                        }}
-                    >
-                        + Add Item
-                    </Text>
-                </TouchableOpacity>
+                <ThemedButton
+                    title="+ Add Item"
+                    onPress={() => createSuggestedItem('Equipment')}
+                    style={{ marginBottom: 24 }}
+                />
 
-                <View
-                    style={{
-                        backgroundColor: theme.colors.surface,
-                        borderRadius: theme.radii.card,
-                        padding: 20,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                        marginBottom: 16,
-                    }}
-                >
+                <SuggestionSection
+                    title="Suggested Fixtures"
+                    items={defaults.fixtures}
+                    onPress={(name) => createSuggestedItem('Fixture', name)}
+                />
+
+                <SuggestionSection
+                    title="Suggested Equipment"
+                    items={defaults.equipment}
+                    onPress={(name) => createSuggestedItem('Equipment', name)}
+                />
+
+                <ThemedCard style={{ marginBottom: 16 }}>
                     <Text
                         style={{
                             fontSize: 20,
@@ -147,17 +142,9 @@ export default function AreaScreen() {
                     >
                         No documents uploaded.
                     </Text>
-                </View>
+                </ThemedCard>
 
-                <View
-                    style={{
-                        backgroundColor: theme.colors.surface,
-                        borderRadius: theme.radii.card,
-                        padding: 20,
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                    }}
-                >
+                <ThemedCard>
                     <Text
                         style={{
                             fontSize: 20,
@@ -176,8 +163,50 @@ export default function AreaScreen() {
                     >
                         No photos uploaded.
                     </Text>
-                </View>
+                </ThemedCard>
             </View>
         </ScrollView>
+    );
+}
+
+function SuggestionSection({
+    title,
+    items,
+    onPress,
+}: {
+    title: string;
+    items: string[];
+    onPress: (name: string) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={{ marginBottom: 16 }}>
+            <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900', marginBottom: 10 }}>
+                {title}
+            </Text>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {items.map((item) => (
+                    <TouchableOpacity
+                        key={item}
+                        onPress={() => onPress(item)}
+                        style={{
+                            backgroundColor: theme.colors.surfaceAlt,
+                            borderColor: theme.colors.border,
+                            borderWidth: 1,
+                            paddingVertical: 10,
+                            paddingHorizontal: 12,
+                            borderRadius: theme.radii.pill,
+                            flexGrow: 1,
+                        }}
+                    >
+                        <Text style={{ color: theme.colors.text, fontWeight: '900', textAlign: 'center' }}>
+                            {item}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
+        </ThemedCard>
     );
 }

@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useMemo, useState } from 'react';
 import {
     ScrollView,
     Text,
@@ -11,35 +11,13 @@ import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { homeSystemOptions } from '../../lib/homeSystems';
+import { getSystemDefaults } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
 const categories = ['Area', 'Fixture', 'Equipment', 'Component'];
 const installStates = ['Unknown', 'Installed', 'Missing', 'Not Applicable'];
 const statuses = ['Missing Information', 'Not Inspected', 'Good', 'Needs Attention', 'Emergency'];
-
-const locations = [
-    'Kitchen',
-    'Master Bathroom',
-    'Bathroom 2',
-    'Laundry',
-    'Garage',
-    'Exterior',
-    'Water Heater Area',
-    'Main Shutoff Area',
-    'Custom',
-];
-
-const parentAreas = [
-    'Kitchen Sink Area',
-    'Water Heater Area',
-    'Main Shutoff Area',
-    'Laundry Area',
-    'Garage',
-    'Exterior',
-    'None',
-    'Custom',
-];
 
 function makeSlug(value: string) {
     return value
@@ -51,14 +29,27 @@ function makeSlug(value: string) {
 
 export default function CreateItemScreen() {
     const { theme } = useTheme();
-    const [name, setName] = useState('');
-    const [system, setSystem] = useState('Plumbing');
-    const [category, setCategory] = useState('Equipment');
+    const params = useLocalSearchParams<{
+        system?: string;
+        area?: string;
+        category?: string;
+        name?: string;
+    }>();
+    const initialSystem = typeof params.system === 'string' ? params.system : 'Plumbing';
+    const initialArea = typeof params.area === 'string' ? params.area : '';
+    const initialCategory = typeof params.category === 'string' && categories.includes(params.category)
+        ? params.category
+        : 'Equipment';
+    const initialName = typeof params.name === 'string' ? params.name : '';
 
-    const [locationChoice, setLocationChoice] = useState('Garage');
+    const [name, setName] = useState(initialName);
+    const [system, setSystem] = useState(initialSystem);
+    const [category, setCategory] = useState(initialCategory);
+
+    const [locationChoice, setLocationChoice] = useState(initialArea || 'Garage');
     const [customLocation, setCustomLocation] = useState('');
 
-    const [parentAreaChoice, setParentAreaChoice] = useState('Main Shutoff Area');
+    const [parentAreaChoice, setParentAreaChoice] = useState(initialArea || 'Main Shutoff Area');
     const [customParentArea, setCustomParentArea] = useState('');
 
     const [installState, setInstallState] = useState('Unknown');
@@ -66,6 +57,31 @@ export default function CreateItemScreen() {
     const [about, setAbout] = useState('');
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
+    const systemDefaults = useMemo(() => getSystemDefaults(system), [system]);
+    const areaOptions = useMemo(
+        () => uniqueOptions([...systemDefaults.areas, initialArea].filter(Boolean), 'Custom'),
+        [systemDefaults.areas, initialArea]
+    );
+    const parentAreaOptions = useMemo(
+        () => uniqueOptions(['None', ...systemDefaults.areas, initialArea].filter(Boolean), 'Custom'),
+        [systemDefaults.areas, initialArea]
+    );
+    const itemSuggestions = category === 'Fixture'
+        ? systemDefaults.fixtures
+        : category === 'Equipment' || category === 'Component'
+            ? systemDefaults.equipment
+            : systemDefaults.areas;
+
+    function chooseSystem(nextSystem: string) {
+        const nextDefaults = getSystemDefaults(nextSystem);
+        const nextArea = nextDefaults.areas[0] || 'Custom';
+
+        setSystem(nextSystem);
+        setLocationChoice(nextArea);
+        setParentAreaChoice(nextArea);
+        setCustomLocation('');
+        setCustomParentArea('');
+    }
 
     function finalLocation() {
         if (locationChoice === 'Custom') return customLocation.trim();
@@ -166,7 +182,7 @@ export default function CreateItemScreen() {
                 />
 
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
-                <OptionRow options={locations} value={locationChoice} onChange={setLocationChoice} />
+                <OptionRow options={areaOptions} value={locationChoice} onChange={setLocationChoice} />
 
                 {locationChoice === 'Custom' && (
                     <ThemedInput
@@ -177,7 +193,7 @@ export default function CreateItemScreen() {
                 )}
 
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Parent Area</Text>
-                <OptionRow options={parentAreas} value={parentAreaChoice} onChange={setParentAreaChoice} />
+                <OptionRow options={parentAreaOptions} value={parentAreaChoice} onChange={setParentAreaChoice} />
 
                 {parentAreaChoice === 'Custom' && (
                     <ThemedInput
@@ -188,10 +204,17 @@ export default function CreateItemScreen() {
                 )}
 
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
-                <SystemOptionRow value={system} onChange={setSystem} />
+                <SystemOptionRow value={system} onChange={chooseSystem} />
 
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Category</Text>
                 <OptionRow options={categories} value={category} onChange={setCategory} />
+
+                {itemSuggestions.length > 0 && (
+                    <>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Suggested {category}</Text>
+                        <OptionRow options={itemSuggestions} value={name} onChange={setName} />
+                    </>
+                )}
 
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
                 <OptionRow options={installStates} value={installState} onChange={setInstallState} />
@@ -214,6 +237,12 @@ export default function CreateItemScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function uniqueOptions(options: string[], finalOption: string) {
+    const unique = options.filter((option, index, self) => option && self.indexOf(option) === index);
+
+    return unique.includes(finalOption) ? unique : [...unique, finalOption];
 }
 
 function ThemedInput({
