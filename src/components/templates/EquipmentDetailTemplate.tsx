@@ -240,7 +240,7 @@ export default function EquipmentDetailTemplate({
 
                 {components.length > 0 && (
                     <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                        <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Connected Components</Text>
+                        <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Related Parts</Text>
 
                         {components.map((component) => (
                             <ComponentCard

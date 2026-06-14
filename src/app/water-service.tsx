@@ -23,7 +23,7 @@ export default function WaterServiceScreen() {
                 model="Municipal Water Service"
                 serial="N/A"
                 installDate="Unknown"
-                warranty="Varies By Component"
+                warranty="Varies by related part"
                 aboutEquipment="The water service is the main entry point where water comes into the home. This area may include the water main, main shutoff valve, pressure regulator valve, backflow device, hose bib, irrigation shutoff, and branches feeding other buildings or systems."
                 whyThisEquipmentMatters="The water service is one of the most important plumbing areas in the home because it controls and protects the incoming water supply. If a leak, burst pipe, water heater failure, toilet overflow, irrigation break, or supply line failure occurs, the main shutoff valve in this area may be the fastest way to stop water damage. Keeping this area documented helps homeowners, plumbers, emergency responders, and property managers quickly locate the correct valves and understand how water is distributed through the property."
                 commonProblems={[
@@ -60,7 +60,7 @@ export default function WaterServiceScreen() {
                     {
                         title: 'Identify Irrigation And Building Branch Valves',
                         description:
-                            'Properties may have separate valves for irrigation, ADUs, detached garages, additions, or other buildings. Labeling these valves helps technicians and homeowners isolate only the affected system instead of shutting down the entire property.',
+                            'Properties may have separate valves for irrigation, ADUs, detached garages, additions, or other buildings. Labeling these valves helps you and your service provider isolate only the affected system instead of shutting down the entire property.',
                     },
                 ]}
                 recommendations={[
@@ -72,7 +72,7 @@ export default function WaterServiceScreen() {
                 ]}
                 specifications={[
                     'Main Water Entry Point',
-                    'Contains Service Components',
+                    'Includes Related Parts',
                     'Feeds Entire Home',
                     'May Support Irrigation, ADUs, Garages, Or Other Building Branches',
                 ]}
@@ -116,7 +116,7 @@ export default function WaterServiceScreen() {
                         status: STATUS.NOT_INSPECTED,
                     },
                 ]}
-                notes="Water Service is the parent asset for the home's incoming water system. All service-entry components should be tracked here so homeowners and technicians know where valves are located, what they control, and what needs attention."
+                notes="Water Service is the parent asset for the home's incoming water system. All service-entry related parts should be tracked here so you and your service provider know where valves are located, what they control, and what needs attention."
             />
         </View>
     );

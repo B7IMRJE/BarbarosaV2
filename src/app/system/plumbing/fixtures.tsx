@@ -92,12 +92,14 @@ export default function PlumbingFixturesScreen() {
                             </TouchableOpacity>
                         )}
 
-                        <TouchableOpacity
-                            onPress={() => router.push('/item/create' as any)}
-                            style={addButtonStyle}
-                        >
-                            <Text style={addButtonTextStyle}>+ Add Fixture</Text>
-                        </TouchableOpacity>
+                        {canUseStaffTools && (
+                            <TouchableOpacity
+                                onPress={() => router.push('/item/create' as any)}
+                                style={addButtonStyle}
+                            >
+                                <Text style={addButtonTextStyle}>+ Add Fixture</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
 
@@ -123,7 +125,7 @@ export default function PlumbingFixturesScreen() {
                 {fixtures.length === 0 && !message && (
                     <View style={messageBoxStyle}>
                         <Text style={messageTextStyle}>
-                            No plumbing fixtures found. Use + Add Fixture to create one.
+                            No plumbing fixtures have been added yet.
                         </Text>
                     </View>
                 )}

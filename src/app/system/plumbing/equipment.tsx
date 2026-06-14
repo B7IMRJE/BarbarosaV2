@@ -99,12 +99,14 @@ export default function PlumbingEquipmentScreen() {
                             </TouchableOpacity>
                         )}
 
-                        <TouchableOpacity
-                            onPress={() => router.push('/item/create' as any)}
-                            style={addButtonStyle}
-                        >
-                            <Text style={addButtonTextStyle}>+ Add Equipment</Text>
-                        </TouchableOpacity>
+                        {canUseStaffTools && (
+                            <TouchableOpacity
+                                onPress={() => router.push('/item/create' as any)}
+                                style={addButtonStyle}
+                            >
+                                <Text style={addButtonTextStyle}>+ Add Equipment</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
 

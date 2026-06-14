@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
+import { isStaffRole, loadCurrentUserRole } from '../../../lib/roles';
 import { supabase } from '../../../lib/supabase';
 
 type AreaItem = {
@@ -40,6 +41,7 @@ function getItemIcon(item: AreaItem) {
 
 export default function PlumbingAreasScreen() {
     const [areas, setAreas] = useState<AreaItem[]>(fallbackAreas);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const [message, setMessage] = useState('');
 
     useEffect(() => {
@@ -57,6 +59,8 @@ export default function PlumbingAreasScreen() {
             router.replace('/auth/login' as any);
             return;
         }
+
+        setCanUseStaffTools(isStaffRole(await loadCurrentUserRole()));
 
         const { data, error } = await supabase
             .from('home_items')
@@ -123,14 +127,16 @@ export default function PlumbingAreasScreen() {
                         </Text>
                     </View>
 
-                    <View style={headerActionsStyle}>
-                        <TouchableOpacity
-                            onPress={() => router.push('/item/create' as any)}
-                            style={addButtonStyle}
-                        >
-                            <Text style={addButtonTextStyle}>+ Add Area</Text>
-                        </TouchableOpacity>
-                    </View>
+                    {canUseStaffTools && (
+                        <View style={headerActionsStyle}>
+                            <TouchableOpacity
+                                onPress={() => router.push('/item/create' as any)}
+                                style={addButtonStyle}
+                            >
+                                <Text style={addButtonTextStyle}>+ Add Area</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
                 </View>
 
                 {!!message && (

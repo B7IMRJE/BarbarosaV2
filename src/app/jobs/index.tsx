@@ -83,7 +83,7 @@ export default function JobsIndexScreen() {
     }
 
     if (!canUseStaffTools) {
-        return <StaffOnlyMessage message="This area is for technicians and office staff." />;
+        return <StaffOnlyMessage message="This area is for the HomeOS service team." />;
     }
 
     return (

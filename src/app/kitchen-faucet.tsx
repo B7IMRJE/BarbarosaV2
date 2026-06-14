@@ -40,7 +40,7 @@ export default function KitchenFaucetScreen() {
                 installDate="Unknown"
                 warranty="Unknown"
                 aboutEquipment="The Kitchen Sink Area is a parent fixture area that includes the faucet, angle stops, supply lines, sink drain assembly, garbage disposal, dishwasher connections, air gap, and optional accessories such as a reverse osmosis system, instant hot system, or refrigerator water line."
-                whyThisEquipmentMatters="The kitchen sink is one of the most frequently used plumbing areas in the home. Small leaks, worn supply lines, loose drain connections, failed disposals, or damaged dishwasher connections can lead to water damage inside cabinets, flooring, walls, and nearby equipment. Keeping this area documented helps homeowners and technicians identify problems before they become major repairs."
+                whyThisEquipmentMatters="The kitchen sink is one of the most frequently used plumbing areas in the home. Small leaks, worn supply lines, loose drain connections, failed disposals, or damaged dishwasher connections can lead to water damage inside cabinets, flooring, walls, and nearby equipment. Keeping this area documented helps you and your service provider identify problems before they become major repairs."
                 commonProblems={[
                     'Leaking angle stops.',
                     'Failed supply lines.',
@@ -203,7 +203,7 @@ export default function KitchenFaucetScreen() {
                         onPress: () => openPlumbingItem('refrigerator-ice-maker-line'),
                     },
                 ]}
-                notes="Kitchen Sink Area is a parent fixture area. It includes faucet, angle stops, supply lines, drain assembly, garbage disposal, dishwasher connections, air gap, and optional RO, InstaHot, or ice maker connections. Future versions will allow technicians to add, remove, edit, and document components individually."
+                notes="Kitchen Sink Area is a parent fixture area. It includes faucet, angle stops, supply lines, drain assembly, garbage disposal, dishwasher connections, air gap, and optional RO, InstaHot, or ice maker connections. Future versions will allow service providers to add, remove, edit, and document related parts individually."
             />
         </View>
     );

@@ -53,7 +53,7 @@ export default function EstimateScreen() {
     }
 
     if (!canUseStaffTools) {
-        return <StaffOnlyMessage message="This area is for technicians and office staff." />;
+        return <StaffOnlyMessage message="This area is for the HomeOS service team." />;
     }
 
     return (
@@ -112,7 +112,7 @@ export default function EstimateScreen() {
                                         Status: {item.status || 'Missing Information'}
                                     </Text>
                                     <Text style={itemMetaStyle}>
-                                        Install State: {item.install_state || 'Unknown'}
+                                        Condition: {item.install_state || 'Unknown'}
                                     </Text>
                                 </View>
 

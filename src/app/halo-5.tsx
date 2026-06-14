@@ -53,7 +53,7 @@ export default function Halo5Screen() {
                     {
                         title: 'Document Warranty And Install Information',
                         description:
-                            'Record model number, serial number, installation date, installer, warranty information, and photos so future homeowners and technicians can identify the system correctly.',
+                            'Record model number, serial number, installation date, installer, warranty information, and photos so future homeowners and service providers can identify the system correctly.',
                     },
                 ]}
                 recommendations={[

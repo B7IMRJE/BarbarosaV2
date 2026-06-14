@@ -33,7 +33,7 @@ export default function DispatchScreen() {
     }
 
     if (!canUseStaffTools) {
-        return <StaffOnlyMessage message="This area is for technicians and office staff." />;
+        return <StaffOnlyMessage message="This area is for the HomeOS service team." />;
     }
 
     return (
@@ -134,7 +134,7 @@ export default function DispatchScreen() {
                     </Text>
 
                     <Text style={{ fontSize: 16, lineHeight: 24 }}>
-                        Your technician has sent an update: “Stopped for gas.” The estimated arrival time may be adjusted if needed.
+                        Your service provider has sent an update: “Stopped for gas.” The estimated arrival time may be adjusted if needed.
                     </Text>
                 </View>
             </View>

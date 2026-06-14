@@ -98,7 +98,7 @@ export default function WaterHeaterComponentsScreen() {
                     marginBottom: 20,
                 }}
             >
-                Water Heater Components
+                Water Heater Related Parts
             </Text>
 
             {components.map((item) => (

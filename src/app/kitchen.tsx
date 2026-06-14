@@ -177,7 +177,6 @@ export default function KitchenScreen() {
                     <Text style={{ marginBottom: 8 }}>• Upload Photos</Text>
                     <Text style={{ marginBottom: 8 }}>• Upload Documents</Text>
                     <Text style={{ marginBottom: 8 }}>• Request Service</Text>
-                    <Text style={{ marginBottom: 8 }}>• Add Component</Text>
                 </View>
 
                 <Text
@@ -188,7 +187,7 @@ export default function KitchenScreen() {
                         marginBottom: 15,
                     }}
                 >
-                    Components
+                    Related Parts
                 </Text>
 
                 {components.map((item) => (

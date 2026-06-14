@@ -1,5 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { isStaffRole, loadCurrentUserRole } from '../../../../lib/roles';
 
 export default function AreaScreen() {
     const { system, area } = useLocalSearchParams<{
@@ -9,6 +11,15 @@ export default function AreaScreen() {
 
     const systemName = system ? String(system) : 'System';
     const areaName = area ? String(area) : 'Area';
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+
+    useEffect(() => {
+        loadRole();
+    }, []);
+
+    async function loadRole() {
+        setCanUseStaffTools(isStaffRole(await loadCurrentUserRole()));
+    }
 
     return (
         <ScrollView
@@ -80,43 +91,46 @@ export default function AreaScreen() {
                             marginBottom: 10,
                         }}
                     >
-                        No Items Added Yet
+                        No information has been added here yet.
                     </Text>
 
-                    <Text
-                        style={{
-                            fontSize: 15,
-                            color: '#637083',
-                            lineHeight: 22,
-                        }}
-                    >
-                        Add real items from this area. Nothing is preloaded.
-                        Everything in the home is entered by the homeowner or technician.
-                    </Text>
+                    {canUseStaffTools && (
+                        <Text
+                            style={{
+                                fontSize: 15,
+                                color: '#637083',
+                                lineHeight: 22,
+                            }}
+                        >
+                            Staff can add real items for this area when verified.
+                        </Text>
+                    )}
                 </View>
 
-                <TouchableOpacity
-                    onPress={() => {
-                        // Add Item screen next
-                    }}
-                    style={{
-                        backgroundColor: '#0B5FFF',
-                        paddingVertical: 18,
-                        borderRadius: 16,
-                        alignItems: 'center',
-                        marginBottom: 24,
-                    }}
-                >
-                    <Text
+                {canUseStaffTools && (
+                    <TouchableOpacity
+                        onPress={() => {
+                            // Add Item screen next
+                        }}
                         style={{
-                            color: '#FFFFFF',
-                            fontSize: 18,
-                            fontWeight: '900',
+                            backgroundColor: '#0B5FFF',
+                            paddingVertical: 18,
+                            borderRadius: 16,
+                            alignItems: 'center',
+                            marginBottom: 24,
                         }}
                     >
-                        + Add Item
-                    </Text>
-                </TouchableOpacity>
+                        <Text
+                            style={{
+                                color: '#FFFFFF',
+                                fontSize: 18,
+                                fontWeight: '900',
+                            }}
+                        >
+                            + Add Item
+                        </Text>
+                    </TouchableOpacity>
+                )}
 
                 <View
                     style={{

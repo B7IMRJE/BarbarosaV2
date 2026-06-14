@@ -55,7 +55,7 @@ export default function PRVScreen() {
                     {
                         title: 'Identify Nearby Valves',
                         description:
-                            'The main shutoff, irrigation shutoff, ADU branch valves, hose bibs, backflow devices, and filtration connections should be identified and documented so the homeowner or technician knows what each valve controls.',
+                            'The main shutoff, irrigation shutoff, ADU branch valves, hose bibs, backflow devices, and filtration connections should be identified and documented so you or your service provider knows what each valve controls.',
                     },
                 ]}
                 recommendations={[
@@ -68,7 +68,7 @@ export default function PRVScreen() {
                 specifications={[
                     'Type: Pressure Regulating Valve',
                     'Size: 3/4 Inch',
-                    'Material: Lead-Free Brass',
+                    'Made From: Lead-Free Brass',
                     'Adjustable Pressure Range: 25-75 PSI',
                     'Current Setting: Approximately 60 PSI',
                 ]}

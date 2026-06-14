@@ -533,7 +533,7 @@ export default function ItemScreen() {
     const canUseStaffTools = isStaffRole(currentUserRole);
 
     const detailCards = [
-        { label: 'Install State', value: item.install_state || 'Unknown' },
+        { label: 'Condition', value: item.install_state || 'Unknown' },
         { label: 'Status', value: item.status || 'Missing Information' },
         { label: 'System', value: item.system || 'Unknown' },
         { label: 'Category', value: item.category || 'Unknown' },
@@ -700,19 +700,23 @@ export default function ItemScreen() {
                             <Text style={buttonTextStyle}>View Documents</Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                            onPress={handleEditInformation}
-                            style={buttonStyle}
-                        >
-                            <Text style={buttonTextStyle}>Edit Information</Text>
-                        </TouchableOpacity>
+                        {canUseStaffTools && (
+                            <>
+                                <TouchableOpacity
+                                    onPress={handleEditInformation}
+                                    style={buttonStyle}
+                                >
+                                    <Text style={buttonTextStyle}>Edit Information</Text>
+                                </TouchableOpacity>
 
-                        <TouchableOpacity
-                            onPress={handleAddRelatedItem}
-                            style={buttonStyle}
-                        >
-                            <Text style={buttonTextStyle}>Add Related Item</Text>
-                        </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={handleAddRelatedItem}
+                                    style={buttonStyle}
+                                >
+                                    <Text style={buttonTextStyle}>Add Related Item</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
 
                         <TouchableOpacity
                             onPress={() => setMessage('Request service comes next.')}
@@ -721,12 +725,14 @@ export default function ItemScreen() {
                             <Text style={buttonTextStyle}>Request Service</Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                            onPress={handleRemoveItem}
-                            style={removeButtonStyle}
-                        >
-                            <Text style={removeButtonTextStyle}>Remove Item</Text>
-                        </TouchableOpacity>
+                        {canUseStaffTools && (
+                            <TouchableOpacity
+                                onPress={handleRemoveItem}
+                                style={removeButtonStyle}
+                            >
+                                <Text style={removeButtonTextStyle}>Remove Item</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
 
                     {!!message && (
