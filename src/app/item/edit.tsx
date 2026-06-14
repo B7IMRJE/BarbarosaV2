@@ -13,7 +13,6 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
 
 const locations = [
@@ -63,8 +62,6 @@ function getPickerValue(value: string, options: string[]) {
 export default function EditItemScreen() {
     const { slug } = useLocalSearchParams();
 
-    const [checkingAccess, setCheckingAccess] = useState(true);
-    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
@@ -84,22 +81,8 @@ export default function EditItemScreen() {
     const [status, setStatus] = useState('Missing Information');
 
     useEffect(() => {
-        checkAccess();
+        loadItem();
     }, [slug]);
-
-    async function checkAccess() {
-        const role = await loadCurrentUserRole();
-        const canAccess = isStaffRole(role);
-
-        setCanUseStaffTools(canAccess);
-        setCheckingAccess(false);
-
-        if (canAccess) {
-            await loadItem();
-        } else {
-            setLoading(false);
-        }
-    }
 
     function finalLocation() {
         if (locationChoice === 'Custom') {
@@ -203,14 +186,6 @@ export default function EditItemScreen() {
         }
 
         router.back();
-    }
-
-    if (checkingAccess) {
-        return <StaffOnlyMessage message="Checking access..." />;
-    }
-
-    if (!canUseStaffTools) {
-        return <StaffOnlyMessage message="This area is for the HomeOS service team." />;
     }
 
     if (loading) {
@@ -341,30 +316,6 @@ export default function EditItemScreen() {
                 <HomeHeader />
 
 
-            </View>
-        </ScrollView>
-    );
-}
-
-function StaffOnlyMessage({ message }: { message: string }) {
-    return (
-        <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
-        >
-            <View style={{ width: '100%', maxWidth: 700 }}>
-                <HomeHeader />
-
-                <View style={smallCardStyle}>
-                    <Text style={sectionTitleStyle}>{message}</Text>
-
-                    <TouchableOpacity
-                        onPress={() => router.replace('/' as any)}
-                        style={saveButtonStyle}
-                    >
-                        <Text style={saveButtonTextStyle}>Back Home</Text>
-                    </TouchableOpacity>
-                </View>
             </View>
         </ScrollView>
     );

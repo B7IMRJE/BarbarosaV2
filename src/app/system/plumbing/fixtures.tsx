@@ -92,14 +92,12 @@ export default function PlumbingFixturesScreen() {
                             </TouchableOpacity>
                         )}
 
-                        {canUseStaffTools && (
-                            <TouchableOpacity
-                                onPress={() => router.push('/item/create' as any)}
-                                style={addButtonStyle}
-                            >
-                                <Text style={addButtonTextStyle}>+ Add Fixture</Text>
-                            </TouchableOpacity>
-                        )}
+                        <TouchableOpacity
+                            onPress={() => router.push('/item/create' as any)}
+                            style={addButtonStyle}
+                        >
+                            <Text style={addButtonTextStyle}>+ Add Fixture</Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
 

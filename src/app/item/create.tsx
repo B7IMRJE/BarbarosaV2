@@ -1,7 +1,7 @@
 import HomeHeader from '../../components/HomeHeader';
 
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
     ScrollView,
     Text,
@@ -9,7 +9,6 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
 
 const systems = ['Plumbing', 'HVAC', 'Electrical', 'Gas', 'Water Quality', 'Safety', 'Appliances', 'Exterior'];
@@ -49,8 +48,6 @@ function makeSlug(value: string) {
 }
 
 export default function CreateItemScreen() {
-    const [checkingAccess, setCheckingAccess] = useState(true);
-    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const [name, setName] = useState('');
     const [system, setSystem] = useState('Plumbing');
     const [category, setCategory] = useState('Equipment');
@@ -66,17 +63,6 @@ export default function CreateItemScreen() {
     const [about, setAbout] = useState('');
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
-
-    useEffect(() => {
-        checkAccess();
-    }, []);
-
-    async function checkAccess() {
-        const role = await loadCurrentUserRole();
-
-        setCanUseStaffTools(isStaffRole(role));
-        setCheckingAccess(false);
-    }
 
     function finalLocation() {
         if (locationChoice === 'Custom') return customLocation.trim();
@@ -146,14 +132,6 @@ export default function CreateItemScreen() {
         }
 
         router.replace(`/item/${slug}` as any);
-    }
-
-    if (checkingAccess) {
-        return <StaffOnlyMessage message="Checking access..." />;
-    }
-
-    if (!canUseStaffTools) {
-        return <StaffOnlyMessage message="This area is for the HomeOS service team." />;
     }
 
     return (
@@ -239,30 +217,6 @@ export default function CreateItemScreen() {
                     <Text style={messageTextStyle}>{message}</Text>
                 </View>
             )}
-        </ScrollView>
-    );
-}
-
-function StaffOnlyMessage({ message }: { message: string }) {
-    return (
-        <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
-        >
-            <View style={{ width: '100%', maxWidth: 700 }}>
-                <HomeHeader />
-
-                <View style={messageBoxStyle}>
-                    <Text style={sectionTitleStyle}>{message}</Text>
-
-                    <TouchableOpacity
-                        onPress={() => router.replace('/' as any)}
-                        style={buttonStyle}
-                    >
-                        <Text style={buttonTextStyle}>Back Home</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
         </ScrollView>
     );
 }

@@ -700,23 +700,19 @@ export default function ItemScreen() {
                             <Text style={buttonTextStyle}>View Documents</Text>
                         </TouchableOpacity>
 
-                        {canUseStaffTools && (
-                            <>
-                                <TouchableOpacity
-                                    onPress={handleEditInformation}
-                                    style={buttonStyle}
-                                >
-                                    <Text style={buttonTextStyle}>Edit Information</Text>
-                                </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={handleEditInformation}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>Edit Information</Text>
+                        </TouchableOpacity>
 
-                                <TouchableOpacity
-                                    onPress={handleAddRelatedItem}
-                                    style={buttonStyle}
-                                >
-                                    <Text style={buttonTextStyle}>Add Related Item</Text>
-                                </TouchableOpacity>
-                            </>
-                        )}
+                        <TouchableOpacity
+                            onPress={handleAddRelatedItem}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>Add Related Item</Text>
+                        </TouchableOpacity>
 
                         <TouchableOpacity
                             onPress={() => setMessage('Request service comes next.')}
@@ -725,14 +721,12 @@ export default function ItemScreen() {
                             <Text style={buttonTextStyle}>Request Service</Text>
                         </TouchableOpacity>
 
-                        {canUseStaffTools && (
-                            <TouchableOpacity
-                                onPress={handleRemoveItem}
-                                style={removeButtonStyle}
-                            >
-                                <Text style={removeButtonTextStyle}>Remove Item</Text>
-                            </TouchableOpacity>
-                        )}
+                        <TouchableOpacity
+                            onPress={handleRemoveItem}
+                            style={removeButtonStyle}
+                        >
+                            <Text style={removeButtonTextStyle}>Remove Item</Text>
+                        </TouchableOpacity>
                     </View>
 
                     {!!message && (
