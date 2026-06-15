@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
     ScrollView,
     Text,
@@ -18,6 +18,11 @@ import { useTheme } from '../../theme/useTheme';
 const categories = ['Area', 'Fixture', 'Equipment', 'Component'];
 const installStates = ['Unknown', 'Installed', 'Missing', 'Not Applicable'];
 const statuses = ['Missing Information', 'Not Inspected', 'Good', 'Needs Attention', 'Emergency'];
+
+type Choice = {
+    value: string;
+    label: string;
+};
 
 function makeSlug(value: string) {
     return value
@@ -42,10 +47,18 @@ export default function CreateItemScreen() {
         ? params.category
         : 'Equipment';
     const initialName = typeof params.name === 'string' ? params.name : '';
+    const hasInitialSystemSelection = typeof params.system === 'string' && !!params.system;
+    const hasInitialCategorySelection = typeof params.category === 'string' && categories.includes(params.category);
 
     const [name, setName] = useState(initialName);
     const [system, setSystem] = useState(initialSystem);
     const [category, setCategory] = useState(initialCategory);
+    const [isSystemSelected, setIsSystemSelected] = useState(hasInitialSystemSelection || hasAreaContext);
+    const [isCategorySelected, setIsCategorySelected] = useState(hasInitialCategorySelection);
+    const [isSystemOpen, setIsSystemOpen] = useState(!hasInitialSystemSelection && !hasAreaContext);
+    const [isCategoryOpen, setIsCategoryOpen] = useState(
+        (hasInitialSystemSelection || hasAreaContext) && !hasInitialCategorySelection
+    );
 
     const [locationChoice, setLocationChoice] = useState(initialArea || 'Garage');
     const [customLocation, setCustomLocation] = useState('');
@@ -65,6 +78,19 @@ export default function CreateItemScreen() {
         : category === 'Equipment' || category === 'Component'
             ? systemDefaults.equipment
             : systemDefaults.areas;
+    const selectedSystemLabel = getSystemLabel(system);
+    const systemChoices = homeSystemOptions.map((option) => ({
+        value: option.key,
+        label: option.label,
+    }));
+    const categoryChoices = categories.map((option) => ({ value: option, label: option }));
+    const locationChoices = areaOptions.map((option) => ({ value: option, label: option }));
+    const suggestionChoices = itemSuggestions.map((option) => ({ value: option, label: option }));
+    const installStateChoices = installStates.map((option) => ({ value: option, label: option }));
+    const statusChoices = statuses.map((option) => ({ value: option, label: option }));
+    const showCategoryStep = isSystemSelected;
+    const showItemSections = isCategorySelected;
+    const showOptionalDetails = showItemSections && !!name.trim();
 
     function chooseSystem(nextSystem: string) {
         const nextDefaults = getSystemDefaults(nextSystem);
@@ -73,6 +99,16 @@ export default function CreateItemScreen() {
         setSystem(nextSystem);
         setLocationChoice(nextArea);
         setCustomLocation('');
+        setIsSystemSelected(true);
+        setIsSystemOpen(false);
+        setIsCategorySelected(false);
+        setIsCategoryOpen(true);
+    }
+
+    function chooseCategory(nextCategory: string) {
+        setCategory(nextCategory);
+        setIsCategorySelected(true);
+        setIsCategoryOpen(false);
     }
 
     function finalLocation() {
@@ -156,85 +192,140 @@ export default function CreateItemScreen() {
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Create Item</Text>
 
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                    Add real items only. Do not guess. Use Unknown until verified.
+                    Add one home item at a time. Choose where it belongs, then fill in only what you know.
                 </Text>
 
                 {hasAreaContext && (
-                    <ThemedCard style={{ marginBottom: 16 }}>
-                        <Text style={{ color: theme.colors.mutedText, fontWeight: '900', marginBottom: 6 }}>
-                            Adding item to:
-                        </Text>
-                        <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '900' }}>
+                    <ThemedCard style={contextCardStyle}>
+                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Adding to</Text>
+                        <Text style={[contextTitleStyle, { color: theme.colors.text }]}>
                             {initialArea}
                         </Text>
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 8, fontWeight: '900' }}>
-                            System: {getSystemLabel(initialSystem)}
+                        <Text style={[contextMetaStyle, { color: theme.colors.mutedText }]}>
+                            {getSystemLabel(initialSystem)}
                         </Text>
                     </ThemedCard>
                 )}
 
-                <ThemedCard style={formCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Item Details</Text>
-
-                    <ThemedInput
-                        placeholder="Item Name"
-                        value={name}
-                        onChangeText={setName}
-                    />
-
-                    <ThemedInput
-                        placeholder="About"
-                        value={about}
-                        onChangeText={setAbout}
-                        minHeight={100}
-                        multiline
-                    />
-                </ThemedCard>
-
-                <ThemedCard style={formCardStyle}>
-                    {!hasAreaContext && (
+                <StepCard
+                    step="1"
+                    title="System"
+                    summary={isSystemSelected && !isSystemOpen ? selectedSystemLabel : undefined}
+                    onEdit={() => setIsSystemOpen(true)}
+                >
+                    {isSystemOpen && (
                         <>
-                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
-                            <OptionRow options={areaOptions} value={locationChoice} onChange={setLocationChoice} />
+                            <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                                Pick the home system this item belongs to.
+                            </Text>
+                            <ChoiceCardGrid
+                                choices={systemChoices}
+                                value={isSystemSelected ? system : ''}
+                                onChange={chooseSystem}
+                            />
+                        </>
+                    )}
+                </StepCard>
 
-                            {locationChoice === 'Custom' && (
-                                <ThemedInput
-                                    placeholder="Custom Location"
-                                    value={customLocation}
-                                    onChangeText={setCustomLocation}
+                {showCategoryStep && (
+                    <StepCard
+                        step="2"
+                        title="Category"
+                        summary={isCategorySelected && !isCategoryOpen ? category : undefined}
+                        onEdit={() => setIsCategoryOpen(true)}
+                    >
+                        {isCategoryOpen && (
+                            <>
+                                <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                                    Choose the kind of item you are adding.
+                                </Text>
+                                <ChoiceCardGrid
+                                    choices={categoryChoices}
+                                    value={isCategorySelected ? category : ''}
+                                    onChange={chooseCategory}
                                 />
-                            )}
-                        </>
-                    )}
+                            </>
+                        )}
+                    </StepCard>
+                )}
 
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
-                    <SystemOptionRow value={system} onChange={chooseSystem} />
+                {showItemSections && itemSuggestions.length > 0 && (
+                    <ThemedCard style={formCardStyle}>
+                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Suggested {category}</Text>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Common items</Text>
+                        <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                            Tap one to fill the item name, or type your own below.
+                        </Text>
+                        <ChoiceCardGrid choices={suggestionChoices} value={name} onChange={setName} />
+                    </ThemedCard>
+                )}
 
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Category</Text>
-                    <OptionRow options={categories} value={category} onChange={setCategory} />
-                </ThemedCard>
+                {showItemSections && (
+                    <ThemedCard style={formCardStyle}>
+                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Item Info</Text>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Name and notes</Text>
 
-                <ThemedCard style={formCardStyle}>
-                    {itemSuggestions.length > 0 && (
-                        <>
-                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Suggested {category}</Text>
-                            <OptionRow options={itemSuggestions} value={name} onChange={setName} />
-                        </>
-                    )}
+                        <ThemedInput
+                            label="Item Name"
+                            placeholder="Kitchen Faucet"
+                            value={name}
+                            onChangeText={setName}
+                        />
 
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
-                    <OptionRow options={installStates} value={installState} onChange={setInstallState} />
+                        <ThemedInput
+                            label="About"
+                            placeholder="Optional notes for the homeowner"
+                            value={about}
+                            onChangeText={setAbout}
+                            minHeight={116}
+                            multiline
+                        />
+                    </ThemedCard>
+                )}
 
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Status</Text>
-                    <OptionRow options={statuses} value={status} onChange={setStatus} />
-                </ThemedCard>
+                {showOptionalDetails && (
+                    <ThemedCard style={formCardStyle}>
+                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Optional Details</Text>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location and status</Text>
 
-                <ThemedButton
-                    title={saving ? 'Saving...' : 'Save Item'}
-                    onPress={saveItem}
-                    disabled={saving}
-                    style={{ marginTop: 20, marginBottom: 12 }}
-                />
+                        {!hasAreaContext && (
+                            <>
+                                <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Location</Text>
+                                <ChoiceCardGrid choices={locationChoices} value={locationChoice} onChange={setLocationChoice} />
+
+                                {locationChoice === 'Custom' && (
+                                    <ThemedInput
+                                        label="Custom Location"
+                                        placeholder="Where is it?"
+                                        value={customLocation}
+                                        onChangeText={setCustomLocation}
+                                    />
+                                )}
+                            </>
+                        )}
+
+                        <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Condition</Text>
+                        <ChoiceCardGrid choices={installStateChoices} value={installState} onChange={setInstallState} />
+
+                        <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Status</Text>
+                        <ChoiceCardGrid choices={statusChoices} value={status} onChange={setStatus} />
+                    </ThemedCard>
+                )}
+
+                {showItemSections ? (
+                    <ThemedButton
+                        title={saving ? 'Saving...' : 'Save Item'}
+                        onPress={saveItem}
+                        disabled={saving}
+                        style={saveButtonStyle}
+                    />
+                ) : (
+                    <ThemedCard style={nextStepCardStyle}>
+                        <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                            Choose a system and category to continue.
+                        </Text>
+                    </ThemedCard>
+                )}
 
                 {!!message && (
                     <ThemedCard style={{ marginTop: 8 }}>
@@ -256,117 +347,131 @@ function ThemedInput({
     value,
     onChangeText,
     placeholder,
+    label,
     multiline,
     minHeight,
 }: {
     value: string;
     onChangeText: (value: string) => void;
     placeholder: string;
+    label?: string;
     multiline?: boolean;
     minHeight?: number;
 }) {
     const { theme } = useTheme();
 
     return (
-        <TextInput
-            placeholder={placeholder}
-            placeholderTextColor={theme.colors.mutedText}
-            value={value}
-            onChangeText={onChangeText}
-            multiline={multiline}
-            style={{
-                backgroundColor: theme.colors.surface,
-                borderRadius: theme.radii.button,
-                padding: 16,
-                marginBottom: 12,
-                borderWidth: 1,
-                borderColor: theme.colors.border,
-                color: theme.colors.text,
-                minHeight,
-                textAlignVertical: multiline ? 'top' : 'auto',
-            }}
-        />
-    );
-}
-
-function OptionRow({
-    options,
-    value,
-    onChange,
-}: {
-    options: string[];
-    value: string;
-    onChange: (value: string) => void;
-}) {
-    const { theme } = useTheme();
-
-    return (
-        <View style={optionRowStyle}>
-            {options.map((option) => {
-                const selected = value === option;
-
-                return (
-                    <TouchableOpacity
-                        key={option}
-                        onPress={() => onChange(option)}
-                        style={{
-                            backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
-                            borderRadius: theme.radii.pill,
-                            paddingVertical: 10,
-                            paddingHorizontal: 14,
-                            borderWidth: 1,
-                            borderColor: selected ? theme.colors.primary : theme.colors.border,
-                        }}
-                    >
-                        <Text
-                            style={{
-                                color: selected ? theme.colors.primaryText : theme.colors.mutedText,
-                                fontWeight: '900',
-                            }}
-                        >
-                            {option}
-                        </Text>
-                    </TouchableOpacity>
-                );
-            })}
+        <View style={inputGroupStyle}>
+            {!!label && (
+                <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>
+                    {label}
+                </Text>
+            )}
+            <TextInput
+                placeholder={placeholder}
+                placeholderTextColor={theme.colors.mutedText}
+                value={value}
+                onChangeText={onChangeText}
+                multiline={multiline}
+                style={{
+                    backgroundColor: theme.colors.surfaceAlt,
+                    borderRadius: theme.radii.button,
+                    paddingVertical: 18,
+                    paddingHorizontal: 18,
+                    color: theme.colors.text,
+                    fontSize: 17,
+                    lineHeight: multiline ? 24 : undefined,
+                    minHeight,
+                    textAlignVertical: multiline ? 'top' : 'auto',
+                }}
+            />
         </View>
     );
 }
 
-function SystemOptionRow({
+function StepCard({
+    step,
+    title,
+    summary,
+    onEdit,
+    children,
+}: {
+    step: string;
+    title: string;
+    summary?: string;
+    onEdit: () => void;
+    children?: ReactNode;
+}) {
+    const { theme } = useTheme();
+    const hasSummary = !!summary;
+
+    return (
+        <ThemedCard style={formCardStyle}>
+            <View style={stepHeaderStyle}>
+                <View style={stepTitleRowStyle}>
+                    <View style={[stepBadgeStyle, { backgroundColor: theme.colors.iconBackground }]}>
+                        <Text style={[stepBadgeTextStyle, { color: theme.colors.text }]}>{step}</Text>
+                    </View>
+                    <Text style={[stepTitleStyle, { color: theme.colors.text }]}>{title}</Text>
+                </View>
+
+                {hasSummary && (
+                    <TouchableOpacity onPress={onEdit} activeOpacity={0.82} style={changeButtonStyle}>
+                        <Text style={[changeButtonTextStyle, { color: theme.colors.link }]}>Change</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {hasSummary && (
+                <Text style={[stepSummaryStyle, { color: theme.colors.mutedText }]}>
+                    {summary}
+                </Text>
+            )}
+
+            {children}
+        </ThemedCard>
+    );
+}
+
+function ChoiceCardGrid({
+    choices,
     value,
     onChange,
 }: {
+    choices: Choice[];
     value: string;
     onChange: (value: string) => void;
 }) {
     const { theme } = useTheme();
 
     return (
-        <View style={optionRowStyle}>
-            {homeSystemOptions.map((option) => {
-                const selected = value === option.key;
+        <View style={choiceGridStyle}>
+            {choices.map((choice) => {
+                const selected = value === choice.value;
 
                 return (
                     <TouchableOpacity
-                        key={option.key}
-                        onPress={() => onChange(option.key)}
+                        key={choice.value}
+                        onPress={() => onChange(choice.value)}
+                        activeOpacity={0.82}
                         style={{
-                            backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
-                            borderRadius: theme.radii.pill,
-                            paddingVertical: 10,
-                            paddingHorizontal: 14,
+                            ...choiceCardStyle,
+                            backgroundColor: selected ? theme.colors.primary : theme.colors.surfaceAlt,
+                            borderRadius: theme.radii.card,
                             borderWidth: 1,
-                            borderColor: selected ? theme.colors.primary : theme.colors.border,
+                            borderColor: selected ? theme.colors.primary : theme.colors.surfaceAlt,
                         }}
                     >
                         <Text
                             style={{
                                 color: selected ? theme.colors.primaryText : theme.colors.mutedText,
+                                fontSize: 16,
                                 fontWeight: '900',
+                                lineHeight: 21,
                             }}
+                            numberOfLines={2}
                         >
-                            {option.label}
+                            {choice.label}
                         </Text>
                     </TouchableOpacity>
                 );
@@ -382,27 +487,134 @@ const titleStyle = {
 
 const subtitleStyle = {
     marginTop: 8,
-    marginBottom: 24,
-    fontSize: 16,
-    lineHeight: 22,
+    marginBottom: 28,
+    fontSize: 17,
+    lineHeight: 24,
 };
 
 const sectionTitleStyle = {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '900' as const,
-    marginTop: 4,
+    marginTop: 6,
     marginBottom: 10,
 };
 
 const formCardStyle = {
-    marginBottom: 14,
+    marginBottom: 22,
 };
 
-const optionRowStyle = {
+const contextCardStyle = {
+    marginBottom: 22,
+};
+
+const contextTitleStyle = {
+    fontSize: 26,
+    fontWeight: '900' as const,
+    marginTop: 6,
+};
+
+const contextMetaStyle = {
+    fontSize: 15,
+    fontWeight: '800' as const,
+    marginTop: 8,
+};
+
+const eyebrowStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    textTransform: 'uppercase' as const,
+};
+
+const helperTextStyle = {
+    fontSize: 16,
+    lineHeight: 23,
+    marginBottom: 16,
+};
+
+const stepHeaderStyle = {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+};
+
+const stepTitleRowStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    flex: 1,
+};
+
+const stepBadgeStyle = {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+};
+
+const stepBadgeTextStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const stepTitleStyle = {
+    fontSize: 23,
+    fontWeight: '900' as const,
+};
+
+const stepSummaryStyle = {
+    marginTop: 12,
+    fontSize: 17,
+    fontWeight: '800' as const,
+};
+
+const changeButtonStyle = {
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+};
+
+const changeButtonTextStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const choiceGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
-    gap: 8,
-    marginBottom: 12,
+    gap: 12,
+};
+
+const choiceCardStyle = {
+    flexGrow: 1,
+    flexBasis: '31%' as const,
+    minWidth: 148,
+    minHeight: 72,
+    justifyContent: 'center' as const,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+};
+
+const inputGroupStyle = {
+    marginTop: 10,
+    marginBottom: 16,
+};
+
+const fieldLabelStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginBottom: 10,
+};
+
+const saveButtonStyle = {
+    marginTop: 4,
+    marginBottom: 14,
+    paddingVertical: 20,
+};
+
+const nextStepCardStyle = {
+    marginTop: 4,
+    marginBottom: 16,
 };
 
 const messageTextStyle = {
