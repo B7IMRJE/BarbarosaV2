@@ -12,9 +12,11 @@ import {
     Platform,
     ScrollView,
     Text,
-    TouchableOpacity,
     View,
+    TouchableOpacity,
 } from 'react-native';
+import ThemedButton from '../../components/theme/ThemedButton';
+import ThemedCard from '../../components/theme/ThemedCard';
 import { addItemToEstimateDraft } from '../../lib/estimateDraft';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
@@ -546,23 +548,11 @@ export default function ItemScreen() {
         { label: 'Serial', value: item.serial || 'Unknown' },
     ];
 
-    const primaryButtonThemeStyle = {
-        backgroundColor: theme.colors.primary,
-        borderRadius: theme.radii.button,
-    };
-    const primaryButtonTextThemeStyle = { color: theme.colors.primaryText };
-    const removeButtonThemeStyle = {
-        backgroundColor: theme.colors.surface,
-        borderColor: theme.colors.dangerBackground,
-        borderRadius: theme.radii.button,
-    };
-    const removeButtonTextThemeStyle = { color: theme.colors.danger };
-
     return (
         <>
             <ScrollView
                 style={{ flex: 1, backgroundColor: theme.colors.background }}
-                contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+                contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
             >
                 <View style={{ width: '100%', maxWidth: 1200 }}>
                     <HomeHeader />
@@ -573,16 +563,7 @@ export default function ItemScreen() {
                         {item.about || 'This item has not been fully documented yet.'}
                     </Text>
 
-                    <View
-                        style={[
-                            photoCardStyle,
-                            {
-                                backgroundColor: theme.colors.surface,
-                                borderColor: theme.colors.border,
-                                borderRadius: theme.radii.card,
-                            },
-                        ]}
-                    >
+                    <ThemedCard style={photoCardStyle}>
                         <Text style={[labelStyle, { color: theme.colors.mutedText }]}>Main Item Photo</Text>
 
                         {item.photo_url ? (
@@ -593,20 +574,13 @@ export default function ItemScreen() {
                                     resizeMode="contain"
                                 />
 
-                                <TouchableOpacity
+                                <ThemedButton
+                                    title="View Full Photo"
+                                    variant="secondary"
                                     onPress={() => setShowPhoto(true)}
-                                    style={[
-                                        secondaryButtonStyle,
-                                        {
-                                            backgroundColor: theme.colors.secondaryButton,
-                                            borderRadius: theme.radii.button,
-                                        },
-                                    ]}
-                                >
-                                    <Text style={[secondaryButtonTextStyle, { color: theme.colors.secondaryButtonText }]}>
-                                        View Full Photo
-                                    </Text>
-                                </TouchableOpacity>
+                                    style={secondaryButtonStyle}
+                                    textStyle={secondaryButtonTextStyle}
+                                />
                             </>
                         ) : (
                             <View style={[photoPlaceholderStyle, { backgroundColor: theme.colors.surfaceAlt }]}>
@@ -614,57 +588,32 @@ export default function ItemScreen() {
                                 <Text style={[photoTextStyle, { color: theme.colors.mutedText }]}>No main photo uploaded</Text>
                             </View>
                         )}
-                    </View>
+                    </ThemedCard>
 
                     <View style={infoGridStyle}>
                         {detailCards.map((detail) => (
-                            <View
+                            <ThemedCard
                                 key={detail.label}
-                                style={[
-                                    miniCardStyle,
-                                    {
-                                        backgroundColor: theme.colors.surface,
-                                        borderColor: theme.colors.border,
-                                        borderRadius: theme.radii.button,
-                                    },
-                                ]}
+                                style={miniCardStyle}
                             >
                                 <Text style={[miniLabelStyle, { color: theme.colors.mutedText }]}>{detail.label}</Text>
                                 <Text style={[miniValueStyle, { color: theme.colors.text }]} numberOfLines={2}>
                                     {detail.value}
                                 </Text>
-                            </View>
+                            </ThemedCard>
                         ))}
                     </View>
 
                     <View style={fileSummaryStyle}>
-                        <View
-                            style={[
-                                fileSummaryCardStyle,
-                                {
-                                    backgroundColor: theme.colors.secondaryButton,
-                                    borderColor: theme.colors.border,
-                                    borderRadius: theme.radii.button,
-                                },
-                            ]}
-                        >
+                        <ThemedCard style={fileSummaryCardStyle}>
                             <Text style={[fileSummaryTitleStyle, { color: theme.colors.mutedText }]}>Photos</Text>
                             <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{photos.length}</Text>
-                        </View>
+                        </ThemedCard>
 
-                        <View
-                            style={[
-                                fileSummaryCardStyle,
-                                {
-                                    backgroundColor: theme.colors.secondaryButton,
-                                    borderColor: theme.colors.border,
-                                    borderRadius: theme.radii.button,
-                                },
-                            ]}
-                        >
+                        <ThemedCard style={fileSummaryCardStyle}>
                             <Text style={[fileSummaryTitleStyle, { color: theme.colors.mutedText }]}>Documents</Text>
                             <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{documents.length}</Text>
-                        </View>
+                        </ThemedCard>
                     </View>
 
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Photo Type</Text>
@@ -677,129 +626,113 @@ export default function ItemScreen() {
                     <View style={actionGridStyle}>
                         {canUseStaffTools && (
                             <>
-                                <TouchableOpacity
+                                <ThemedButton
+                                    title="Add To Estimate"
                                     onPress={handleAddToEstimate}
-                                    style={[buttonStyle, primaryButtonThemeStyle]}
-                                >
-                                    <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Add To Estimate</Text>
-                                </TouchableOpacity>
+                                    style={buttonStyle}
+                                    textStyle={buttonTextStyle}
+                                />
 
-                                <TouchableOpacity
+                                <ThemedButton
+                                    title="View Estimate"
                                     onPress={() => router.push('/estimate' as any)}
-                                    style={[buttonStyle, primaryButtonThemeStyle]}
-                                >
-                                    <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>View Estimate</Text>
-                                </TouchableOpacity>
+                                    style={buttonStyle}
+                                    textStyle={buttonTextStyle}
+                                />
 
-                                <TouchableOpacity
+                                <ThemedButton
+                                    title="Start Job Thread"
                                     onPress={handleStartJobThread}
-                                    style={[buttonStyle, primaryButtonThemeStyle]}
-                                >
-                                    <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Start Job Thread</Text>
-                                </TouchableOpacity>
+                                    style={buttonStyle}
+                                    textStyle={buttonTextStyle}
+                                />
                             </>
                         )}
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title={uploading ? 'Uploading...' : 'Upload Main Photo'}
                             onPress={handleUploadMainPhoto}
                             disabled={uploading}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>
-                                {uploading ? 'Uploading...' : 'Upload Main Photo'}
-                            </Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title={uploading ? 'Uploading...' : 'Upload Additional Photo'}
                             onPress={handleUploadAdditionalPhoto}
                             disabled={uploading}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>
-                                {uploading ? 'Uploading...' : 'Upload Additional Photo'}
-                            </Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title={uploading ? 'Uploading...' : 'Upload Document'}
                             onPress={handleUploadDocument}
                             disabled={uploading}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>
-                                {uploading ? 'Uploading...' : 'Upload Document'}
-                            </Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title={uploading ? 'Uploading...' : 'Open Camera'}
                             onPress={handleOpenCamera}
                             disabled={uploading}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>
-                                {uploading ? 'Uploading...' : 'Open Camera'}
-                            </Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title="View Photos"
                             onPress={() => setShowPhotos(true)}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>View Photos</Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title="View Documents"
                             onPress={() => {
                                 setSelectedDocumentType(null);
                                 setShowDocuments(true);
                             }}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>View Documents</Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title="Edit Information"
                             onPress={handleEditInformation}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Edit Information</Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title="Add Related Item"
                             onPress={handleAddRelatedItem}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Add Related Item</Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title="Request Service"
                             onPress={() => setMessage('Request service comes next.')}
-                            style={[buttonStyle, primaryButtonThemeStyle]}
-                        >
-                            <Text style={[buttonTextStyle, primaryButtonTextThemeStyle]}>Request Service</Text>
-                        </TouchableOpacity>
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
 
-                        <TouchableOpacity
+                        <ThemedButton
+                            title="Remove Item"
+                            variant="danger"
                             onPress={handleRemoveItem}
-                            style={[removeButtonStyle, removeButtonThemeStyle]}
-                        >
-                            <Text style={[removeButtonTextStyle, removeButtonTextThemeStyle]}>Remove Item</Text>
-                        </TouchableOpacity>
+                            style={removeButtonStyle}
+                            textStyle={removeButtonTextStyle}
+                        />
                     </View>
 
                     {!!message && (
-                        <View
-                            style={[
-                                messageCardStyle,
-                                {
-                                    backgroundColor: theme.colors.surface,
-                                    borderColor: theme.colors.border,
-                                    borderRadius: theme.radii.card,
-                                },
-                            ]}
-                        >
+                        <ThemedCard style={messageCardStyle}>
                             <Text style={[labelStyle, { color: theme.colors.mutedText }]}>Message</Text>
                             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
-                        </View>
+                        </ThemedCard>
                     )}
                 </View>
             </ScrollView>

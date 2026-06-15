@@ -163,93 +163,130 @@ export default function EditItemScreen() {
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Edit Item</Text>
 
-                <ThemedInput
-                    placeholder="Name"
-                    value={name}
-                    onChangeText={setName}
-                />
+                <ThemedCard style={formCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Item Details</Text>
 
-                <ThemedInput
-                    placeholder="About"
-                    value={about}
-                    onChangeText={setAbout}
-                    minHeight={100}
-                    multiline
-                />
-
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
-                <OptionRow
-                    options={locations}
-                    value={locationChoice}
-                    onChange={setLocationChoice}
-                />
-
-                {locationChoice === 'Custom' && (
                     <ThemedInput
-                        placeholder="Custom Location"
-                        value={customLocation}
-                        onChangeText={setCustomLocation}
+                        placeholder="Name"
+                        value={name}
+                        onChangeText={setName}
                     />
-                )}
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
-                <SystemOptionRow value={system} onChange={setSystem} />
+                    <ThemedInput
+                        placeholder="About"
+                        value={about}
+                        onChangeText={setAbout}
+                        minHeight={100}
+                        multiline
+                    />
+                </ThemedCard>
 
-                <View style={rowStyle}>
-                    <ThemedCard style={smallCardStyle}>
-                        <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Brand</Text>
-                        <TextInput
-                            style={[smallInputStyle, { color: theme.colors.text }]}
-                            placeholder="Brand"
-                            placeholderTextColor={theme.colors.mutedText}
-                            value={brand}
-                            onChangeText={setBrand}
+                <ThemedCard style={formCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
+                    <OptionRow
+                        options={locations}
+                        value={locationChoice}
+                        onChange={setLocationChoice}
+                    />
+
+                    {locationChoice === 'Custom' && (
+                        <ThemedInput
+                            placeholder="Custom Location"
+                            value={customLocation}
+                            onChangeText={setCustomLocation}
                         />
-                    </ThemedCard>
+                    )}
 
-                    <ThemedCard style={smallCardStyle}>
-                        <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Model</Text>
-                        <TextInput
-                            style={[smallInputStyle, { color: theme.colors.text }]}
-                            placeholder="Model"
-                            placeholderTextColor={theme.colors.mutedText}
-                            value={model}
-                            onChangeText={setModel}
-                        />
-                    </ThemedCard>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
+                    <SystemOptionRow value={system} onChange={setSystem} />
+                </ThemedCard>
 
-                    <ThemedCard style={smallCardStyle}>
-                        <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Serial</Text>
-                        <TextInput
-                            style={[smallInputStyle, { color: theme.colors.text }]}
-                            placeholder="Serial"
-                            placeholderTextColor={theme.colors.mutedText}
-                            value={serial}
-                            onChangeText={setSerial}
-                        />
-                    </ThemedCard>
-                </View>
+                <ThemedCard style={formCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Information</Text>
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
+                    <View style={rowStyle}>
+                        <View
+                            style={[
+                                smallFieldStyle,
+                                {
+                                    backgroundColor: theme.colors.surfaceAlt,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.button,
+                                },
+                            ]}
+                        >
+                            <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Brand</Text>
+                            <TextInput
+                                style={[smallInputStyle, { color: theme.colors.text }]}
+                                placeholder="Brand"
+                                placeholderTextColor={theme.colors.mutedText}
+                                value={brand}
+                                onChangeText={setBrand}
+                            />
+                        </View>
 
-                <OptionRow
-                    options={installStates}
-                    value={installState}
-                    onChange={setInstallState}
-                />
+                        <View
+                            style={[
+                                smallFieldStyle,
+                                {
+                                    backgroundColor: theme.colors.surfaceAlt,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.button,
+                                },
+                            ]}
+                        >
+                            <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Model</Text>
+                            <TextInput
+                                style={[smallInputStyle, { color: theme.colors.text }]}
+                                placeholder="Model"
+                                placeholderTextColor={theme.colors.mutedText}
+                                value={model}
+                                onChangeText={setModel}
+                            />
+                        </View>
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Status</Text>
+                        <View
+                            style={[
+                                smallFieldStyle,
+                                {
+                                    backgroundColor: theme.colors.surfaceAlt,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.button,
+                                },
+                            ]}
+                        >
+                            <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Serial</Text>
+                            <TextInput
+                                style={[smallInputStyle, { color: theme.colors.text }]}
+                                placeholder="Serial"
+                                placeholderTextColor={theme.colors.mutedText}
+                                value={serial}
+                                onChangeText={setSerial}
+                            />
+                        </View>
+                    </View>
 
-                <OptionRow
-                    options={statuses}
-                    value={status}
-                    onChange={setStatus}
-                />
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
+
+                    <OptionRow
+                        options={installStates}
+                        value={installState}
+                        onChange={setInstallState}
+                    />
+
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Status</Text>
+
+                    <OptionRow
+                        options={statuses}
+                        value={status}
+                        onChange={setStatus}
+                    />
+                </ThemedCard>
 
                 <ThemedButton
                     title={saving ? 'Saving...' : 'Save Changes'}
@@ -400,8 +437,12 @@ const titleStyle = {
 const sectionTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    marginTop: 14,
+    marginTop: 4,
     marginBottom: 10,
+};
+
+const formCardStyle = {
+    marginBottom: 14,
 };
 
 const optionRowStyle = {
@@ -419,9 +460,11 @@ const rowStyle = {
     marginBottom: 12,
 };
 
-const smallCardStyle = {
+const smallFieldStyle = {
     flex: 1,
     minWidth: 220,
+    borderWidth: 1,
+    padding: 16,
 };
 
 const smallLabelStyle = {

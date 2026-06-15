@@ -1,9 +1,13 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { getStatusColor, STATUS, type EquipmentStatus } from '../../constants/status';
+import { STATUS, type EquipmentStatus } from '../../constants/status';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
+import { useTheme } from '../../theme/useTheme';
 import ComponentCard from '../cards/ComponentCard';
+import { getStatusCardStyle } from '../cards/SystemStatusCard';
+import ThemedButton from '../theme/ThemedButton';
+import ThemedCard from '../theme/ThemedCard';
 
 type MaintenanceItem = {
     title: string;
@@ -59,7 +63,8 @@ export default function EquipmentDetailTemplate({
     notes,
     components = [],
 }: EquipmentDetailTemplateProps) {
-    const statusColor = getStatusColor(status);
+    const { theme } = useTheme();
+    const statusPanelStyle = getStatusCardStyle(status, theme);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const homeownerActions = ['Upload Photo', 'Request Service', 'Report Emergency'];
     const staffActions = ['Add Service Record', 'Upload Invoice', 'Add Component', 'Edit', 'Remove'];
@@ -79,8 +84,8 @@ export default function EquipmentDetailTemplate({
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F6F8FB' }}
-            contentContainerStyle={{ padding: 24, alignItems: 'center' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 1100 }}>
                 <Pressable
@@ -91,156 +96,155 @@ export default function EquipmentDetailTemplate({
                         alignSelf: 'flex-start',
                     }}
                 >
-                    <Text style={{ fontSize: 18, color: '#071B33', fontWeight: 'bold' }}>
-                        ← Back
+                    <Text style={{ fontSize: 18, color: theme.colors.text, fontWeight: '900' }}>
+                        Back
                     </Text>
                 </Pressable>
 
-                <Text style={{ fontSize: 42, fontWeight: 'bold', color: '#071B33', marginBottom: 24 }}>
+                <Text style={{ fontSize: 34, fontWeight: '900', color: theme.colors.text, marginBottom: 24 }}>
                     {name}
                 </Text>
 
-                <View style={{ backgroundColor: statusColor, padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                    <Text style={{ color: 'white', fontSize: 20, fontWeight: 'bold', marginBottom: 8 }}>
+                <View
+                    style={[
+                        statusCardStyle,
+                        statusPanelStyle,
+                        { borderRadius: theme.radii.card },
+                    ]}
+                >
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '900', marginBottom: 8 }}>
                         Current Status
                     </Text>
 
-                    <Text style={{ color: 'white', fontSize: 36, fontWeight: 'bold', marginBottom: 12 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 30, fontWeight: '900', marginBottom: 12 }}>
                         {status}
                     </Text>
 
-                    <Text style={{ color: 'white', fontSize: 16, lineHeight: 24 }}>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 16, lineHeight: 24, fontWeight: '800' }}>
                         Reason: {statusReason}
                     </Text>
 
-                    <Text style={{ color: 'white', fontSize: 16, marginTop: 8 }}>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 16, marginTop: 8, fontWeight: '800' }}>
                         Priority: {priority}
                     </Text>
                 </View>
 
-                <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                    <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Equipment Photo</Text>
+                <ThemedCard style={sectionCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Equipment Photo</Text>
 
                     <View
                         style={{
                             height: 220,
-                            backgroundColor: '#E5E7EB',
-                            borderRadius: 14,
+                            backgroundColor: theme.colors.surfaceAlt,
+                            borderRadius: theme.radii.button,
                             justifyContent: 'center',
                             alignItems: 'center',
                         }}
                     >
-                        <Text style={{ color: '#6B7280', fontSize: 18 }}>Photo Placeholder</Text>
+                        <Text style={{ color: theme.colors.mutedText, fontSize: 18, fontWeight: '900' }}>Photo Placeholder</Text>
                     </View>
-                </View>
+                </ThemedCard>
 
-                <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                    <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Quick Actions</Text>
+                <ThemedCard style={sectionCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Quick Actions</Text>
 
                     {quickActions.map((button) => (
-                        <Pressable
+                        <ThemedButton
                             key={button}
-                            style={{
-                                backgroundColor: '#071B33',
-                                paddingVertical: 18,
-                                borderRadius: 12,
-                                marginBottom: 12,
-                                alignItems: 'center',
-                            }}
-                        >
-                            <Text style={{ color: 'white', fontSize: 16, fontWeight: 'bold' }}>{button}</Text>
-                        </Pressable>
+                            title={button}
+                            style={{ marginBottom: 12 }}
+                        />
                     ))}
-                </View>
+                </ThemedCard>
 
-                <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                    <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Equipment Information</Text>
+                <ThemedCard style={sectionCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Equipment Information</Text>
 
-                    <Text style={{ fontSize: 16, marginBottom: 8 }}>Manufacturer: {manufacturer}</Text>
-                    <Text style={{ fontSize: 16, marginBottom: 8 }}>Model: {model}</Text>
-                    <Text style={{ fontSize: 16, marginBottom: 8 }}>Serial: {serial}</Text>
-                    <Text style={{ fontSize: 16, marginBottom: 8 }}>Installed: {installDate}</Text>
-                    <Text style={{ fontSize: 16 }}>Warranty: {warranty}</Text>
-                </View>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Manufacturer: {manufacturer}</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Model: {model}</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Serial: {serial}</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Installed: {installDate}</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Warranty: {warranty}</Text>
+                </ThemedCard>
 
                 {aboutEquipment && (
-                    <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                        <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>About This Equipment</Text>
-                        <Text style={{ fontSize: 16, lineHeight: 24 }}>{aboutEquipment}</Text>
-                    </View>
+                    <ThemedCard style={sectionCardStyle}>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>About This Equipment</Text>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{aboutEquipment}</Text>
+                    </ThemedCard>
                 )}
 
                 {whyThisEquipmentMatters && (
-                    <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                        <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>
+                    <ThemedCard style={sectionCardStyle}>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
                             Why This Equipment Matters
                         </Text>
-                        <Text style={{ fontSize: 16, lineHeight: 24 }}>{whyThisEquipmentMatters}</Text>
-                    </View>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{whyThisEquipmentMatters}</Text>
+                    </ThemedCard>
                 )}
 
                 {commonProblems.length > 0 && (
-                    <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                        <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>
+                    <ThemedCard style={sectionCardStyle}>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
                             Common Problems With This Equipment
                         </Text>
 
                         {commonProblems.map((item) => (
-                            <Text key={item} style={{ fontSize: 16, marginBottom: 10 }}>
-                                • {item}
+                            <Text key={item} style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                {item}
                             </Text>
                         ))}
-                    </View>
+                    </ThemedCard>
                 )}
 
                 {recommendedMaintenance.length > 0 && (
-                    <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                        <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>
+                    <ThemedCard style={sectionCardStyle}>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
                             Recommended Maintenance For This Equipment
                         </Text>
 
                         {recommendedMaintenance.map((item) => (
                             <View key={item.title} style={{ marginBottom: 16 }}>
-                                <Text style={{ fontSize: 17, fontWeight: 'bold', marginBottom: 6 }}>{item.title}</Text>
-                                <Text style={{ fontSize: 16, lineHeight: 24 }}>{item.description}</Text>
+                                <Text style={{ color: theme.colors.text, fontSize: 17, fontWeight: '900', marginBottom: 6 }}>{item.title}</Text>
+                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{item.description}</Text>
                             </View>
                         ))}
-                    </View>
+                    </ThemedCard>
                 )}
 
-                <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                    <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Manufacturer Recommendations</Text>
+                <ThemedCard style={sectionCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Manufacturer Recommendations</Text>
 
                     {recommendations.map((item) => (
-                        <Text key={item} style={{ fontSize: 16, marginBottom: 10 }}>
-                            • {item}
+                        <Text key={item} style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                            {item}
                         </Text>
                     ))}
-                </View>
+                </ThemedCard>
 
-                <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                    <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Specifications</Text>
+                <ThemedCard style={sectionCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Specifications</Text>
 
                     {specifications.map((item) => (
-                        <Text key={item} style={{ fontSize: 16, marginBottom: 10 }}>
-                            • {item}
+                        <Text key={item} style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                            {item}
                         </Text>
                     ))}
-                </View>
+                </ThemedCard>
 
-                <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                    <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Service History</Text>
+                <ThemedCard style={sectionCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Service History</Text>
 
                     {history.map((item) => (
-                        <Text key={item} style={{ fontSize: 16, marginBottom: 10 }}>
-                            • {item}
+                        <Text key={item} style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                            {item}
                         </Text>
                     ))}
-                </View>
+                </ThemedCard>
 
                 {components.length > 0 && (
-                    <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 20 }}>
-                        <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Related Parts</Text>
+                    <View style={sectionCardStyle}>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Related Parts</Text>
 
                         {components.map((component) => (
                             <ComponentCard
@@ -253,11 +257,33 @@ export default function EquipmentDetailTemplate({
                     </View>
                 )}
 
-                <View style={{ backgroundColor: 'white', padding: 24, borderRadius: 18, marginBottom: 50 }}>
-                    <Text style={{ fontSize: 20, fontWeight: 'bold', marginBottom: 16 }}>Notes</Text>
-                    <Text style={{ fontSize: 16, lineHeight: 24 }}>{notes}</Text>
-                </View>
+                <ThemedCard style={{ marginBottom: 50 }}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Notes</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{notes}</Text>
+                </ThemedCard>
             </View>
         </ScrollView>
     );
 }
+
+const statusCardStyle = {
+    padding: 24,
+    borderWidth: 1,
+    marginBottom: 20,
+};
+
+const sectionCardStyle = {
+    marginBottom: 20,
+};
+
+const sectionTitleStyle = {
+    fontSize: 20,
+    fontWeight: '900' as const,
+    marginBottom: 16,
+};
+
+const bodyTextStyle = {
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 8,
+};

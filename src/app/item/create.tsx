@@ -150,7 +150,7 @@ export default function CreateItemScreen() {
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Create Item</Text>
@@ -173,53 +173,61 @@ export default function CreateItemScreen() {
                     </ThemedCard>
                 )}
 
-                <ThemedInput
-                    placeholder="Item Name"
-                    value={name}
-                    onChangeText={setName}
-                />
+                <ThemedCard style={formCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Item Details</Text>
 
-                <ThemedInput
-                    placeholder="About"
-                    value={about}
-                    onChangeText={setAbout}
-                    minHeight={100}
-                    multiline
-                />
+                    <ThemedInput
+                        placeholder="Item Name"
+                        value={name}
+                        onChangeText={setName}
+                    />
 
-                {!hasAreaContext && (
-                    <>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
-                        <OptionRow options={areaOptions} value={locationChoice} onChange={setLocationChoice} />
+                    <ThemedInput
+                        placeholder="About"
+                        value={about}
+                        onChangeText={setAbout}
+                        minHeight={100}
+                        multiline
+                    />
+                </ThemedCard>
 
-                        {locationChoice === 'Custom' && (
-                            <ThemedInput
-                                placeholder="Custom Location"
-                                value={customLocation}
-                                onChangeText={setCustomLocation}
-                            />
-                        )}
-                    </>
-                )}
+                <ThemedCard style={formCardStyle}>
+                    {!hasAreaContext && (
+                        <>
+                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
+                            <OptionRow options={areaOptions} value={locationChoice} onChange={setLocationChoice} />
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
-                <SystemOptionRow value={system} onChange={chooseSystem} />
+                            {locationChoice === 'Custom' && (
+                                <ThemedInput
+                                    placeholder="Custom Location"
+                                    value={customLocation}
+                                    onChangeText={setCustomLocation}
+                                />
+                            )}
+                        </>
+                    )}
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Category</Text>
-                <OptionRow options={categories} value={category} onChange={setCategory} />
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
+                    <SystemOptionRow value={system} onChange={chooseSystem} />
 
-                {itemSuggestions.length > 0 && (
-                    <>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Suggested {category}</Text>
-                        <OptionRow options={itemSuggestions} value={name} onChange={setName} />
-                    </>
-                )}
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Category</Text>
+                    <OptionRow options={categories} value={category} onChange={setCategory} />
+                </ThemedCard>
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
-                <OptionRow options={installStates} value={installState} onChange={setInstallState} />
+                <ThemedCard style={formCardStyle}>
+                    {itemSuggestions.length > 0 && (
+                        <>
+                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Suggested {category}</Text>
+                            <OptionRow options={itemSuggestions} value={name} onChange={setName} />
+                        </>
+                    )}
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Status</Text>
-                <OptionRow options={statuses} value={status} onChange={setStatus} />
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
+                    <OptionRow options={installStates} value={installState} onChange={setInstallState} />
+
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Status</Text>
+                    <OptionRow options={statuses} value={status} onChange={setStatus} />
+                </ThemedCard>
 
                 <ThemedButton
                     title={saving ? 'Saving...' : 'Save Item'}
@@ -382,8 +390,12 @@ const subtitleStyle = {
 const sectionTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
-    marginTop: 14,
+    marginTop: 4,
     marginBottom: 10,
+};
+
+const formCardStyle = {
+    marginBottom: 14,
 };
 
 const optionRowStyle = {
