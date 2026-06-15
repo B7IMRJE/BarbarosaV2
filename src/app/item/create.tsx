@@ -11,11 +11,16 @@ import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { getSystemLabel, homeSystemOptions } from '../../lib/homeSystems';
+import {
+    createItemCategories,
+    getGenericItemSuggestions,
+    getItemSuggestions,
+} from '../../lib/itemSuggestions';
 import { getSystemDefaults } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
-const categories = ['Area', 'Fixture', 'Equipment', 'Component'];
+const categories = createItemCategories;
 const installStates = ['Unknown', 'Installed', 'Missing', 'Not Applicable'];
 const statuses = ['Missing Information', 'Not Inspected', 'Good', 'Needs Attention', 'Emergency'];
 
@@ -73,11 +78,13 @@ export default function CreateItemScreen() {
         () => uniqueOptions([...systemDefaults.areas, initialArea].filter(Boolean), 'Custom'),
         [systemDefaults.areas, initialArea]
     );
-    const itemSuggestions = category === 'Fixture'
-        ? systemDefaults.fixtures
-        : category === 'Equipment' || category === 'Component'
-            ? systemDefaults.equipment
-            : systemDefaults.areas;
+    const genericItemSuggestions = getGenericItemSuggestions(systemDefaults, category);
+    const itemSuggestions = getItemSuggestions({
+        area: initialArea || locationChoice,
+        system,
+        category,
+        fallbackSuggestions: genericItemSuggestions,
+    });
     const selectedSystemLabel = getSystemLabel(system);
     const systemChoices = homeSystemOptions.map((option) => ({
         value: option.key,
