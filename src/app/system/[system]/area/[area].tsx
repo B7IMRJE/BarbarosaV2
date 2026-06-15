@@ -31,6 +31,7 @@ export default function AreaScreen() {
     const areaName = area ? String(area) : 'Area';
     const [items, setItems] = useState<AreaHomeItem[]>([]);
     const [message, setMessage] = useState('');
+    const itemSections = groupItemsBySystem(items);
 
     useEffect(() => {
         loadAreaItems();
@@ -151,9 +152,19 @@ export default function AreaScreen() {
                         </Text>
                     </ThemedCard>
                 ) : (
-                    <View style={gridStyle}>
-                        {items.map((item) => (
-                            <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
+                    <View style={sectionListStyle}>
+                        {itemSections.map((section) => (
+                            <View key={section.title} style={sectionBlockStyle}>
+                                <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                                    {section.title}
+                                </Text>
+
+                                <View style={gridStyle}>
+                                    {section.items.map((item) => (
+                                        <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
+                                    ))}
+                                </View>
+                            </View>
                         ))}
                     </View>
                 )}
@@ -255,6 +266,49 @@ function normalize(value: string) {
     return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function groupItemsBySystem(items: AreaHomeItem[]) {
+    const grouped = new Map<string, AreaHomeItem[]>();
+
+    items.forEach((item) => {
+        const title = getAreaItemSectionTitle(item);
+        grouped.set(title, [...(grouped.get(title) || []), item]);
+    });
+
+    const sortedSections = areaItemSectionOrder
+        .map((title) => ({ title, items: grouped.get(title) || [] }))
+        .filter((section) => section.items.length > 0);
+
+    const remainingSections = [...grouped.entries()]
+        .filter(([title]) => !areaItemSectionOrder.includes(title))
+        .map(([title, sectionItems]) => ({ title, items: sectionItems }));
+
+    return [...sortedSections, ...remainingSections];
+}
+
+function getAreaItemSectionTitle(item: AreaHomeItem) {
+    const category = normalize(item.category || '');
+    const system = normalize(item.system || '');
+
+    if (category === 'work history') return 'Work History';
+    if (category === 'documents' || system === 'documents') return 'Documents';
+    if (system === 'plumbing' || system === 'water service' || system === 'water') return 'Water Service';
+    if (system === 'electrical' || system === 'electrical system') return 'Electrical System';
+    if (system === 'appliances') return 'Appliances';
+    if (system === 'gas' || system === 'gas service') return 'Gas Service';
+    if (system === 'hvac' || system === 'ac service' || system === 'heating and cooling') return 'HVAC / AC Service';
+    if (
+        system === 'drains / sewer' ||
+        system === 'drains' ||
+        system === 'sewer' ||
+        system === 'sewer service'
+    ) {
+        return 'Sewer Service';
+    }
+    if (system === 'safety' || system === 'safety system') return 'Safety System';
+
+    return item.system ? getSystemLabel(item.system) : 'Other Items';
+}
+
 function getItemIcon(item: AreaHomeItem) {
     const name = normalize(item.name || '');
     const system = normalize(item.system || '');
@@ -274,6 +328,31 @@ function getItemIcon(item: AreaHomeItem) {
 
     return '🏠';
 }
+
+const areaItemSectionOrder = [
+    'Water Service',
+    'Electrical System',
+    'Appliances',
+    'Gas Service',
+    'HVAC / AC Service',
+    'Sewer Service',
+    'Safety System',
+    'Documents',
+    'Work History',
+];
+
+const sectionListStyle = {
+    gap: 28,
+};
+
+const sectionBlockStyle = {
+    gap: 14,
+};
+
+const sectionHeaderStyle = {
+    fontSize: 22,
+    fontWeight: '900' as const,
+};
 
 const gridStyle = {
     flexDirection: 'row' as const,
