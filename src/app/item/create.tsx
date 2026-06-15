@@ -10,7 +10,7 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import { getSystemLabel, homeSystemOptions } from '../../lib/homeSystems';
+import { getSystemDefinition, getSystemLabel, homeSystemOptions } from '../../lib/homeSystems';
 import {
     createItemCategories,
     getGenericItemSuggestions,
@@ -23,6 +23,8 @@ import { useTheme } from '../../theme/useTheme';
 const categories = createItemCategories;
 const installStates = ['Unknown', 'Installed', 'Missing', 'Not Applicable'];
 const statuses = ['Missing Information', 'Not Inspected', 'Good', 'Needs Attention', 'Emergency'];
+
+declare const __DEV__: boolean;
 
 type Choice = {
     value: string;
@@ -123,6 +125,11 @@ export default function CreateItemScreen() {
         return locationChoice;
     }
 
+    function finalAreaLocation() {
+        if (hasAreaContext) return initialArea;
+        return finalLocation();
+    }
+
     async function saveItem() {
         if (!name.trim()) {
             setMessage('Enter item name.');
@@ -140,31 +147,44 @@ export default function CreateItemScreen() {
             return;
         }
 
-        if (locationChoice === 'Custom' && !customLocation.trim()) {
+        if (!hasAreaContext && locationChoice === 'Custom' && !customLocation.trim()) {
             setMessage('Enter custom location or choose an existing one.');
             return;
         }
 
         const slug = makeSlug(name);
-
-        setSaving(true);
-        setMessage('Saving item...');
-
-        const { error } = await supabase.from('home_items').insert({
+        const savedLocation = finalAreaLocation();
+        const canonicalSystem = getSystemDefinition(system)?.key || system;
+        const insertPayload = {
             user_id: user.id,
             item_slug: slug,
             name: name.trim(),
-            system,
+            system: canonicalSystem,
             category,
-            parent_area: '',
+            parent_area: hasAreaContext ? initialArea : '',
             install_state: installState,
             status,
-            location: finalLocation(),
+            location: savedLocation,
             about: about.trim(),
             brand: 'Unknown',
             model: 'Unknown',
             serial: 'Unknown',
             archived: false,
+        };
+
+        setSaving(true);
+        setMessage('Saving item...');
+
+        logCreateItemDebug('insert payload', {
+            ...insertPayload,
+            user_id: '[current-user]',
+        });
+
+        const { error } = await supabase.from('home_items').insert(insertPayload);
+
+        logCreateItemDebug('insert result', {
+            ok: !error,
+            error: error?.message || null,
         });
 
         setSaving(false);
@@ -180,6 +200,7 @@ export default function CreateItemScreen() {
                 params: {
                     system: initialSystem,
                     area: initialArea,
+                    refresh: String(Date.now()),
                 },
             } as any);
             return;
@@ -342,6 +363,12 @@ export default function CreateItemScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function logCreateItemDebug(label: string, details: unknown) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.info(`[CreateItem] ${label}`, details);
+    }
 }
 
 function uniqueOptions(options: string[], finalOption: string) {

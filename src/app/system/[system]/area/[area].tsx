@@ -21,21 +21,23 @@ type AreaHomeItem = {
 
 export default function AreaScreen() {
     const { theme } = useTheme();
-    const { system, area } = useLocalSearchParams<{
+    const { system, area, refresh } = useLocalSearchParams<{
         system: string;
         area: string;
+        refresh?: string;
     }>();
 
     const systemName = system ? String(system) : 'System';
     const systemLabel = getSystemLabel(systemName);
     const areaName = area ? String(area) : 'Area';
+    const refreshKey = String(refresh || '');
     const [items, setItems] = useState<AreaHomeItem[]>([]);
     const [message, setMessage] = useState('');
     const itemSections = groupItemsBySystem(items);
 
     useEffect(() => {
         loadAreaItems();
-    }, [systemName, areaName]);
+    }, [systemName, areaName, refreshKey]);
 
     async function loadAreaItems() {
         const {
