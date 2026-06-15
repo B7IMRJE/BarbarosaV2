@@ -190,7 +190,7 @@ export default function CreateItemScreen() {
         setSaving(false);
 
         if (error) {
-            setMessage(`Save failed: ${error.message}`);
+            setMessage(getCreateItemErrorMessage(error.message, name.trim()));
             return;
         }
 
@@ -284,6 +284,7 @@ export default function CreateItemScreen() {
                         <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
                             Tap one to fill the item name, or type your own below.
                         </Text>
+                        <CustomItemChoice onPress={() => setName('')} />
                         <ChoiceCardGrid choices={suggestionChoices} value={name} onChange={setName} />
                     </ThemedCard>
                 )}
@@ -369,6 +370,36 @@ function logCreateItemDebug(label: string, details: unknown) {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
         console.info(`[CreateItem] ${label}`, details);
     }
+}
+
+function getCreateItemErrorMessage(errorMessage: string, itemName: string) {
+    if (isDuplicateItemError(errorMessage)) {
+        return `An item with this exact name already exists in this area. Try ${nextItemName(itemName)}.`;
+    }
+
+    return `Save failed: ${errorMessage}`;
+}
+
+function isDuplicateItemError(errorMessage: string) {
+    const normalizedError = errorMessage.toLowerCase();
+
+    return (
+        normalizedError.includes('duplicate') ||
+        normalizedError.includes('unique') ||
+        normalizedError.includes('already exists')
+    );
+}
+
+function nextItemName(itemName: string) {
+    const trimmedName = itemName.trim();
+    const numberedName = trimmedName.match(/^(.*?)(?:\s+)(\d+)$/);
+
+    if (!numberedName) return `${trimmedName} 2`;
+
+    const baseName = numberedName[1].trim();
+    const nextNumber = Number(numberedName[2]) + 1;
+
+    return `${baseName} ${nextNumber}`;
 }
 
 function uniqueOptions(options: string[], finalOption: string) {
@@ -464,6 +495,30 @@ function StepCard({
 
             {children}
         </ThemedCard>
+    );
+}
+
+function CustomItemChoice({ onPress }: { onPress: () => void }) {
+    const { theme } = useTheme();
+
+    return (
+        <TouchableOpacity
+            onPress={onPress}
+            activeOpacity={0.82}
+            style={[
+                customItemChoiceStyle,
+                {
+                    backgroundColor: theme.colors.surfaceAlt,
+                    borderColor: theme.colors.border,
+                    borderRadius: theme.radii.card,
+                },
+            ]}
+        >
+            <Text style={[customItemTitleStyle, { color: theme.colors.text }]}>Custom Item</Text>
+            <Text style={[customItemSubtitleStyle, { color: theme.colors.mutedText }]}>
+                Clear the name field and type your own item below.
+            </Text>
+        </TouchableOpacity>
     );
 }
 
@@ -611,6 +666,27 @@ const changeButtonStyle = {
 const changeButtonTextStyle = {
     fontSize: 15,
     fontWeight: '900' as const,
+};
+
+const customItemChoiceStyle = {
+    borderWidth: 1,
+    marginBottom: 12,
+    minHeight: 86,
+    justifyContent: 'center' as const,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
+};
+
+const customItemTitleStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const customItemSubtitleStyle = {
+    fontSize: 14,
+    fontWeight: '800' as const,
+    lineHeight: 20,
+    marginTop: 6,
 };
 
 const choiceGridStyle = {
