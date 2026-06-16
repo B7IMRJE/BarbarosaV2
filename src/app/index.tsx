@@ -346,6 +346,40 @@ export default function HomeScreen() {
           />
         </ThemedCard>
 
+        <ThemedCard
+          style={{
+            marginTop: 18,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: '900',
+              color: theme.colors.text,
+              marginBottom: 8,
+            }}
+          >
+            Company Connections
+          </Text>
+
+          <Text
+            style={{
+              fontSize: 15,
+              color: theme.colors.mutedText,
+              lineHeight: 22,
+              marginBottom: 14,
+            }}
+          >
+            Review connected companies and pending access requests for your home.
+          </Text>
+
+          <ThemedButton
+            title="Open Connections"
+            variant="secondary"
+            onPress={() => router.push('/connections' as any)}
+          />
+        </ThemedCard>
+
         <ThemedButton
           title="Request Professional Help"
           onPress={() => router.push('/contact' as any)}

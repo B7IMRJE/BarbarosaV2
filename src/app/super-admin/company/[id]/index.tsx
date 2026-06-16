@@ -17,6 +17,7 @@ const cards = [
     'Sales',
     'Managers',
     'Customers',
+    'Connections',
     'Properties',
     'Jobs',
     'Quotes',
@@ -70,6 +71,11 @@ export default function CompanyDashboardScreen() {
 
         if (card === 'Properties') {
             router.push(`/super-admin/company/${id}/properties` as any);
+            return;
+        }
+
+        if (card === 'Connections') {
+            router.push(`/super-admin/company/${id}/connections` as any);
             return;
         }
 
