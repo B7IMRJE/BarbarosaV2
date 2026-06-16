@@ -4,10 +4,12 @@ import {
     ScrollView,
     Text,
     TextInput,
-    TouchableOpacity,
     View,
 } from 'react-native';
+import ThemedButton from '../../../../components/theme/ThemedButton';
+import ThemedCard from '../../../../components/theme/ThemedCard';
 import { supabase } from '../../../../lib/supabase';
+import { useTheme } from '../../../../theme/useTheme';
 
 type Homeowner = {
     id: string;
@@ -16,14 +18,38 @@ type Homeowner = {
     phone: string | null;
 };
 
+const invitationStatuses = [
+    {
+        title: 'Pending',
+        body: 'Invites waiting for a homeowner to accept will appear here after the invite Edge Function is connected.',
+    },
+    {
+        title: 'Accepted',
+        body: 'Accepted invitations will show the homeowner account and first-home setup state.',
+    },
+    {
+        title: 'Revoked',
+        body: 'Revoked invitations will stay visible for audit history.',
+    },
+    {
+        title: 'Expired',
+        body: 'Expired invitations will be available for resend once server-side invite handling is live.',
+    },
+];
+
 export default function HomeownersScreen() {
+    const { theme } = useTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
 
     const [homeowners, setHomeowners] = useState<Homeowner[]>([]);
+    const [inviteFullName, setInviteFullName] = useState('');
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [invitePhone, setInvitePhone] = useState('');
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [phone, setPhone] = useState('');
     const [message, setMessage] = useState('');
+    const [inviteMessage, setInviteMessage] = useState('');
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
@@ -45,6 +71,12 @@ export default function HomeownersScreen() {
         }
 
         setHomeowners(data || []);
+    }
+
+    function showInviteComingSoon() {
+        setInviteMessage(
+            'Invite sending requires the server-side Edge Function so HomeOS can create the invitation and send email securely.'
+        );
     }
 
     async function addHomeowner() {
@@ -81,7 +113,7 @@ export default function HomeownersScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
                 padding: 20,
                 paddingBottom: 40,
@@ -91,175 +123,299 @@ export default function HomeownersScreen() {
             <View style={{ width: '100%', maxWidth: 900 }}>
                 <Text
                     onPress={() => router.push(`/super-admin/company/${id}` as any)}
-                    style={{
-                        marginTop: 20,
-                        marginBottom: 20,
-                        fontSize: 18,
-                        fontWeight: '900',
-                        color: '#071B33',
-                    }}
+                    style={[backTextStyle, { color: theme.colors.text }]}
                 >
-                    ← Back
+                    Back
                 </Text>
 
-                <Text
-                    style={{
-                        fontSize: 34,
-                        fontWeight: '900',
-                        color: '#071B33',
-                    }}
-                >
-                    Homeowners
+                <Text style={[titleStyle, { color: theme.colors.text }]}>Homeowners</Text>
+
+                <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
+                    Invite homeowners and manage customer records for this company.
                 </Text>
 
-                <Text
-                    style={{
-                        color: '#637083',
-                        marginTop: 8,
-                        marginBottom: 24,
-                    }}
-                >
-                    Add and manage homeowners.
-                </Text>
-
-                <View
-                    style={{
-                        backgroundColor: '#FFFFFF',
-                        borderRadius: 20,
-                        padding: 20,
-                        borderWidth: 1,
-                        borderColor: '#E3E8EF',
-                    }}
-                >
-                    <Text
-                        style={{
-                            fontSize: 20,
-                            fontWeight: '900',
-                            marginBottom: 14,
-                            color: '#071B33',
-                        }}
-                    >
-                        + Add Homeowner
+                <ThemedCard style={cardSpacingStyle}>
+                    <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Phase 1 shell</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Homeowner</Text>
+                    <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                        This captures the invite UI only. Email sending and invitation creation will run through an
+                        Edge Function in the next phase.
                     </Text>
 
-                    <TextInput
-                        placeholder="Full Name"
+                    <ThemedInput
+                        label="Full Name"
+                        placeholder="Homeowner name"
+                        value={inviteFullName}
+                        onChangeText={setInviteFullName}
+                    />
+
+                    <ThemedInput
+                        label="Email"
+                        placeholder="homeowner@example.com"
+                        value={inviteEmail}
+                        onChangeText={setInviteEmail}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                    />
+
+                    <ThemedInput
+                        label="Phone"
+                        placeholder="Phone number"
+                        value={invitePhone}
+                        onChangeText={setInvitePhone}
+                        keyboardType="phone-pad"
+                    />
+
+                    <ThemedButton
+                        title="Invite Sending Coming Soon"
+                        onPress={showInviteComingSoon}
+                        variant="secondary"
+                        style={buttonSpacingStyle}
+                    />
+
+                    {!!inviteMessage && (
+                        <Text style={[messageTextStyle, { color: theme.colors.mutedText }]}>
+                            {inviteMessage}
+                        </Text>
+                    )}
+                </ThemedCard>
+
+                <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Invitation Status</Text>
+
+                <View style={statusGridStyle}>
+                    {invitationStatuses.map((status) => (
+                        <ThemedCard key={status.title} style={statusCardStyle}>
+                            <Text style={[statusTitleStyle, { color: theme.colors.text }]}>{status.title}</Text>
+                            <Text style={[statusBodyStyle, { color: theme.colors.mutedText }]}>
+                                {status.body}
+                            </Text>
+                        </ThemedCard>
+                    ))}
+                </View>
+
+                <ThemedCard style={cardSpacingStyle}>
+                    <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Existing records</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Manual Homeowner Record</Text>
+                    <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                        This keeps the current customer-record flow available while invitation sending is built.
+                    </Text>
+
+                    <ThemedInput
+                        label="Full Name"
+                        placeholder="Homeowner name"
                         value={fullName}
                         onChangeText={setFullName}
-                        style={inputStyle}
                     />
 
-                    <TextInput
-                        placeholder="Email"
+                    <ThemedInput
+                        label="Email"
+                        placeholder="homeowner@example.com"
                         value={email}
                         onChangeText={setEmail}
-                        style={inputStyle}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
                     />
 
-                    <TextInput
-                        placeholder="Phone"
+                    <ThemedInput
+                        label="Phone"
+                        placeholder="Phone number"
                         value={phone}
                         onChangeText={setPhone}
-                        style={inputStyle}
+                        keyboardType="phone-pad"
                     />
 
-                    <TouchableOpacity
+                    <ThemedButton
+                        title={loading ? 'Adding...' : 'Add Homeowner'}
                         onPress={addHomeowner}
-                        style={buttonStyle}
-                    >
-                        <Text style={buttonTextStyle}>
-                            {loading ? 'Adding...' : 'Add Homeowner'}
-                        </Text>
-                    </TouchableOpacity>
+                        disabled={loading}
+                        style={buttonSpacingStyle}
+                    />
 
                     {!!message && (
-                        <Text
-                            style={{
-                                marginTop: 14,
-                                color: '#637083',
-                            }}
-                        >
+                        <Text style={[messageTextStyle, { color: theme.colors.mutedText }]}>
                             {message}
                         </Text>
                     )}
+                </ThemedCard>
+
+                <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Homeowner List</Text>
+
+                <View style={listStyle}>
+                    {homeowners.map((homeowner) => (
+                        <ThemedCard key={homeowner.id}>
+                            <Text style={[homeownerNameStyle, { color: theme.colors.text }]}>
+                                {homeowner.full_name}
+                            </Text>
+
+                            <Text style={[homeownerMetaStyle, { color: theme.colors.mutedText }]}>
+                                {homeowner.email || 'No email'}
+                            </Text>
+
+                            <Text style={[homeownerMetaStyle, { color: theme.colors.mutedText }]}>
+                                {homeowner.phone || 'No phone'}
+                            </Text>
+                        </ThemedCard>
+                    ))}
+
+                    {homeowners.length === 0 && (
+                        <ThemedCard>
+                            <Text style={[helperTextStyle, { color: theme.colors.mutedText, marginBottom: 0 }]}>
+                                No homeowners added yet.
+                            </Text>
+                        </ThemedCard>
+                    )}
                 </View>
-
-                <Text
-                    style={{
-                        marginTop: 24,
-                        marginBottom: 14,
-                        fontSize: 22,
-                        fontWeight: '900',
-                        color: '#071B33',
-                    }}
-                >
-                    Homeowner List
-                </Text>
-
-                {homeowners.map((homeowner) => (
-                    <View
-                        key={homeowner.id}
-                        style={{
-                            backgroundColor: '#FFFFFF',
-                            borderRadius: 20,
-                            padding: 18,
-                            borderWidth: 1,
-                            borderColor: '#E3E8EF',
-                            marginBottom: 12,
-                        }}
-                    >
-                        <Text
-                            style={{
-                                fontSize: 19,
-                                fontWeight: '900',
-                                color: '#071B33',
-                            }}
-                        >
-                            {homeowner.full_name}
-                        </Text>
-
-                        <Text
-                            style={{
-                                marginTop: 8,
-                                color: '#637083',
-                            }}
-                        >
-                            {homeowner.email || 'No email'}
-                        </Text>
-
-                        <Text
-                            style={{
-                                marginTop: 4,
-                                color: '#637083',
-                            }}
-                        >
-                            {homeowner.phone || 'No phone'}
-                        </Text>
-                    </View>
-                ))}
             </View>
         </ScrollView>
     );
 }
 
-const inputStyle = {
-    backgroundColor: '#F3F6FA',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
-};
+function ThemedInput({
+    label,
+    value,
+    onChangeText,
+    placeholder,
+    keyboardType,
+    autoCapitalize,
+}: {
+    label: string;
+    value: string;
+    onChangeText: (value: string) => void;
+    placeholder: string;
+    keyboardType?: 'default' | 'email-address' | 'phone-pad';
+    autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+}) {
+    const { theme } = useTheme();
 
-const buttonStyle = {
-    backgroundColor: '#071B33',
-    padding: 16,
-    borderRadius: 16,
-    alignItems: 'center' as const,
-};
+    return (
+        <View style={inputGroupStyle}>
+            <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>{label}</Text>
+            <TextInput
+                placeholder={placeholder}
+                placeholderTextColor={theme.colors.mutedText}
+                value={value}
+                onChangeText={onChangeText}
+                keyboardType={keyboardType}
+                autoCapitalize={autoCapitalize}
+                style={{
+                    backgroundColor: theme.colors.surfaceAlt,
+                    borderRadius: theme.radii.button,
+                    color: theme.colors.text,
+                    fontSize: 16,
+                    paddingHorizontal: 16,
+                    paddingVertical: 16,
+                }}
+            />
+        </View>
+    );
+}
 
-const buttonTextStyle = {
-    color: '#FFFFFF',
-    fontSize: 16,
+const backTextStyle = {
+    marginTop: 20,
+    marginBottom: 20,
+    fontSize: 18,
     fontWeight: '900' as const,
+};
+
+const titleStyle = {
+    fontSize: 34,
+    fontWeight: '900' as const,
+};
+
+const subtitleStyle = {
+    fontSize: 17,
+    lineHeight: 24,
+    marginTop: 8,
+    marginBottom: 24,
+};
+
+const cardSpacingStyle = {
+    marginBottom: 24,
+};
+
+const eyebrowStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    textTransform: 'uppercase' as const,
+};
+
+const sectionTitleStyle = {
+    fontSize: 22,
+    fontWeight: '900' as const,
+    marginTop: 6,
+    marginBottom: 10,
+};
+
+const helperTextStyle = {
+    fontSize: 15,
+    fontWeight: '800' as const,
+    lineHeight: 22,
+    marginBottom: 16,
+};
+
+const inputGroupStyle = {
+    marginBottom: 14,
+};
+
+const fieldLabelStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+    marginBottom: 8,
+};
+
+const buttonSpacingStyle = {
+    marginTop: 4,
+};
+
+const messageTextStyle = {
+    fontSize: 14,
+    fontWeight: '800' as const,
+    lineHeight: 20,
+    marginTop: 14,
+};
+
+const sectionHeadingStyle = {
+    fontSize: 22,
+    fontWeight: '900' as const,
+    marginBottom: 14,
+};
+
+const statusGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginBottom: 24,
+};
+
+const statusCardStyle = {
+    flexGrow: 1,
+    flexBasis: '45%' as const,
+    minWidth: 220,
+};
+
+const statusTitleStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const statusBodyStyle = {
+    fontSize: 14,
+    fontWeight: '800' as const,
+    lineHeight: 20,
+    marginTop: 8,
+};
+
+const listStyle = {
+    gap: 12,
+};
+
+const homeownerNameStyle = {
+    fontSize: 19,
+    fontWeight: '900' as const,
+};
+
+const homeownerMetaStyle = {
+    fontSize: 14,
+    fontWeight: '800' as const,
+    marginTop: 6,
 };
