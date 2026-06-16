@@ -4,6 +4,7 @@ import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import { APP_VERSION, BUILD_DATE, BUILD_LABEL } from '../lib/appVersion';
 import {
   scoreAllSystems,
   scoreOverallHomeHealth,
@@ -114,6 +115,34 @@ export default function HomeScreen() {
         >
           Home Health
         </Text>
+
+        <View
+          style={{
+            alignSelf: 'flex-start',
+            marginTop: 8,
+          }}
+        >
+          <Text
+            style={{
+              color: theme.colors.mutedText,
+              fontSize: 11,
+              fontWeight: '700',
+              lineHeight: 15,
+            }}
+          >
+            {BUILD_LABEL} v{APP_VERSION}
+          </Text>
+          <Text
+            style={{
+              color: theme.colors.mutedText,
+              fontSize: 11,
+              fontWeight: '700',
+              lineHeight: 15,
+            }}
+          >
+            Build: {BUILD_DATE}
+          </Text>
+        </View>
 
         <ThemedCard
           style={{
