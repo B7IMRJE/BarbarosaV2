@@ -9,7 +9,6 @@ import {
     Image,
     Linking,
     Modal,
-    Platform,
     ScrollView,
     Text,
     View,
@@ -392,26 +391,25 @@ export default function ItemScreen() {
 
 
     async function handleOpenCamera() {
-        if (Platform.OS === 'web') {
-            setMessage('Camera works on phone/tablet. On web, use Upload Main Photo.');
-            return;
+        try {
+            const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+            if (!permission.granted) {
+                setMessage('Camera permission is required. Check browser or device camera permissions and try again.');
+                return;
+            }
+
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.8,
+            });
+
+            if (result.canceled) return;
+
+            await uploadMainPhotoFromAsset(result.assets[0]);
+        } catch (error: any) {
+            setMessage(`Camera could not open: ${error.message || 'Check camera permissions and try again.'}`);
         }
-
-        const permission = await ImagePicker.requestCameraPermissionsAsync();
-
-        if (!permission.granted) {
-            setMessage('Camera permission is required.');
-            return;
-        }
-
-        const result = await ImagePicker.launchCameraAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            quality: 0.8,
-        });
-
-        if (result.canceled) return;
-
-        await uploadMainPhotoFromAsset(result.assets[0]);
     }
 
     function handleEditInformation() {
