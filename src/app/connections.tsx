@@ -29,12 +29,16 @@ type CompanyRecord = {
     name: string | null;
 };
 
+type ConnectionAction = 'approve' | 'decline';
+
 export default function ConnectionsScreen() {
     const { theme } = useTheme();
     const [connections, setConnections] = useState<PropertyConnection[]>([]);
     const [companiesById, setCompaniesById] = useState<Record<string, CompanyRecord>>({});
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const [actionConnectionId, setActionConnectionId] = useState('');
+    const [actionType, setActionType] = useState<ConnectionAction | ''>('');
 
     useEffect(() => {
         loadConnections();
@@ -46,6 +50,14 @@ export default function ConnectionsScreen() {
     );
     const pendingConnections = useMemo(
         () => connections.filter((connection) => normalizeStatus(connection.status) === 'pending'),
+        [connections]
+    );
+    const revokedConnections = useMemo(
+        () => connections.filter((connection) => normalizeStatus(connection.status) === 'revoked'),
+        [connections]
+    );
+    const declinedConnections = useMemo(
+        () => connections.filter((connection) => normalizeStatus(connection.status) === 'declined'),
         [connections]
     );
 
@@ -133,6 +145,41 @@ export default function ConnectionsScreen() {
         setCompaniesById(nextCompaniesById);
     }
 
+    async function handleConnectionDecision(connectionId: string, decision: ConnectionAction) {
+        setActionConnectionId(connectionId);
+        setActionType(decision);
+        setMessage(decision === 'approve' ? 'Approving connection...' : 'Declining connection...');
+
+        const { error } = await supabase.rpc(
+            decision === 'approve' ? 'approve_connection' : 'decline_connection',
+            {
+                connection_id: connectionId,
+            }
+        );
+
+        setActionConnectionId('');
+        setActionType('');
+
+        if (error) {
+            setMessage(
+                decision === 'approve'
+                    ? `Could not approve connection: ${error.message}`
+                    : `Could not decline connection: ${error.message}`
+            );
+            return;
+        }
+
+        setConnections((currentConnections) =>
+            currentConnections.map((connection) =>
+                connection.id === connectionId
+                    ? { ...connection, status: decision === 'approve' ? 'connected' : 'declined' }
+                    : connection
+            )
+        );
+
+        setMessage(decision === 'approve' ? 'Connection approved.' : 'Connection declined.');
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -171,11 +218,23 @@ export default function ConnectionsScreen() {
                     <ThemedCard>
                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>No Connections</Text>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                            Connected companies and pending requests will appear here.
+                            Pending, connected, revoked, and declined connections will appear here.
                         </Text>
                     </ThemedCard>
                 ) : (
                     <>
+                        <ConnectionSection
+                            title="Pending Requests"
+                            connections={pendingConnections}
+                            companiesById={companiesById}
+                            emptyText="No pending requests."
+                            showActions
+                            actionConnectionId={actionConnectionId}
+                            actionType={actionType}
+                            onApprove={(connectionId) => handleConnectionDecision(connectionId, 'approve')}
+                            onDecline={(connectionId) => handleConnectionDecision(connectionId, 'decline')}
+                        />
+
                         <ConnectionSection
                             title="Connected Companies"
                             connections={connectedConnections}
@@ -184,10 +243,17 @@ export default function ConnectionsScreen() {
                         />
 
                         <ConnectionSection
-                            title="Pending Requests"
-                            connections={pendingConnections}
+                            title="Revoked Connections"
+                            connections={revokedConnections}
                             companiesById={companiesById}
-                            emptyText="No pending requests."
+                            emptyText="No revoked connections."
+                        />
+
+                        <ConnectionSection
+                            title="Declined Requests"
+                            connections={declinedConnections}
+                            companiesById={companiesById}
+                            emptyText="No declined requests."
                         />
                     </>
                 )}
@@ -207,11 +273,21 @@ function ConnectionSection({
     connections,
     companiesById,
     emptyText,
+    showActions = false,
+    actionConnectionId = '',
+    actionType = '',
+    onApprove,
+    onDecline,
 }: {
     title: string;
     connections: PropertyConnection[];
     companiesById: Record<string, CompanyRecord>;
     emptyText: string;
+    showActions?: boolean;
+    actionConnectionId?: string;
+    actionType?: ConnectionAction | '';
+    onApprove?: (connectionId: string) => void;
+    onDecline?: (connectionId: string) => void;
 }) {
     const { theme } = useTheme();
 
@@ -233,12 +309,42 @@ function ConnectionSection({
                                 Status: {normalizeStatus(connection.status)}
                             </Text>
                             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                Property ID: {connection.property_id}
+                                Requested Date: {formatDateTime(connection.created_at)}
                             </Text>
                             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                Photos: {connection.can_view_photos ? 'Shared' : 'Private'}
-                                {' | '}Documents: {connection.can_view_documents ? 'Shared' : 'Private'}
+                                {showActions && normalizeStatus(connection.status) === 'pending'
+                                    ? 'Requested Permissions'
+                                    : 'Permissions'}
                             </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                {formatPermissions(connection)}
+                            </Text>
+
+                            {showActions && normalizeStatus(connection.status) === 'pending' && (
+                                <View style={actionRowStyle}>
+                                    <ThemedButton
+                                        title={
+                                            actionConnectionId === connection.id && actionType === 'approve'
+                                                ? 'Approving...'
+                                                : 'Approve'
+                                        }
+                                        onPress={() => onApprove?.(connection.id)}
+                                        disabled={actionConnectionId === connection.id}
+                                        style={actionButtonStyle}
+                                    />
+                                    <ThemedButton
+                                        title={
+                                            actionConnectionId === connection.id && actionType === 'decline'
+                                                ? 'Declining...'
+                                                : 'Decline'
+                                        }
+                                        onPress={() => onDecline?.(connection.id)}
+                                        disabled={actionConnectionId === connection.id}
+                                        variant="danger"
+                                        style={actionButtonStyle}
+                                    />
+                                </View>
+                            )}
                         </ThemedCard>
                     ))
                 )}
@@ -249,6 +355,25 @@ function ConnectionSection({
 
 function normalizeStatus(status: string | null) {
     return String(status || 'pending').trim().toLowerCase();
+}
+
+function formatPermissions(connection: PropertyConnection) {
+    return [
+        `Photos: ${connection.can_view_photos ? 'Shared' : 'Private'}`,
+        `Documents: ${connection.can_view_documents ? 'Shared' : 'Private'}`,
+        `Service History: ${connection.can_view_service_history ? 'Shared' : 'Private'}`,
+        `Quotes: ${connection.can_view_quotes ? 'Shared' : 'Private'}`,
+    ].join(' | ');
+}
+
+function formatDateTime(value: string | null) {
+    if (!value) return 'Unknown';
+
+    const parsed = new Date(value);
+
+    if (Number.isNaN(parsed.getTime())) return 'Unknown';
+
+    return parsed.toLocaleString();
 }
 
 const backTextStyle = {
@@ -298,6 +423,16 @@ const bodyTextStyle = {
 
 const listStyle = {
     gap: 12,
+};
+
+const actionRowStyle = {
+    flexDirection: 'row' as const,
+    gap: 12,
+    marginTop: 16,
+};
+
+const actionButtonStyle = {
+    flex: 1,
 };
 
 const cardTitleStyle = {
