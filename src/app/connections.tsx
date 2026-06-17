@@ -133,10 +133,6 @@ export default function ConnectionsScreen() {
         setCompaniesById(nextCompaniesById);
     }
 
-    function showConnectComingSoon() {
-        setMessage('Company connection requests will be created after the server-side connection flow is added.');
-    }
-
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -155,13 +151,13 @@ export default function ConnectionsScreen() {
                 </Text>
 
                 <ThemedCard style={actionCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Connect Company</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Generate Connection Code</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Request a company connection without changing your existing homeowner records.
+                        Create a time-limited code for a company. The code is generated on the server and shown once.
                     </Text>
                     <ThemedButton
-                        title="Connect Company"
-                        onPress={showConnectComingSoon}
+                        title="Generate Code"
+                        onPress={() => router.push('/connections/create-code' as any)}
                         variant="secondary"
                         style={{ marginTop: 16 }}
                     />
