@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
+import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
@@ -45,6 +46,14 @@ export default function CompanyConnectionsScreen() {
     );
     const pendingRequests = useMemo(
         () => connections.filter((connection) => normalizeStatus(connection.status) === 'pending'),
+        [connections]
+    );
+    const revokedConnections = useMemo(
+        () => connections.filter((connection) => normalizeStatus(connection.status) === 'revoked'),
+        [connections]
+    );
+    const declinedConnections = useMemo(
+        () => connections.filter((connection) => normalizeStatus(connection.status) === 'declined'),
         [connections]
     );
 
@@ -122,6 +131,19 @@ export default function CompanyConnectionsScreen() {
                     Review homeowner property connection requests for this company.
                 </Text>
 
+                <ThemedCard style={actionCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Redeem Connection Code</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        Enter a homeowner-generated code to create a pending property connection.
+                    </Text>
+                    <ThemedButton
+                        title="Redeem Code"
+                        onPress={() => router.push(`/super-admin/company/${id}/redeem-code` as any)}
+                        variant="secondary"
+                        style={{ marginTop: 16 }}
+                    />
+                </ThemedCard>
+
                 {loading ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading connections...</Text>
@@ -130,23 +152,37 @@ export default function CompanyConnectionsScreen() {
                     <ThemedCard>
                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Empty state</Text>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                            Connected properties and pending requests will appear here.
+                            Pending, connected, revoked, and declined connections will appear here.
                         </Text>
                     </ThemedCard>
                 ) : (
                     <>
                         <ConnectionSection
-                            title="Connected Properties"
+                            title="Pending"
+                            connections={pendingRequests}
+                            propertiesById={propertiesById}
+                            emptyText="No pending requests."
+                        />
+
+                        <ConnectionSection
+                            title="Connected"
                             connections={connectedProperties}
                             propertiesById={propertiesById}
                             emptyText="No connected properties yet."
                         />
 
                         <ConnectionSection
-                            title="Pending Requests"
-                            connections={pendingRequests}
+                            title="Revoked"
+                            connections={revokedConnections}
                             propertiesById={propertiesById}
-                            emptyText="No pending requests."
+                            emptyText="No revoked connections."
+                        />
+
+                        <ConnectionSection
+                            title="Declined"
+                            connections={declinedConnections}
+                            propertiesById={propertiesById}
+                            emptyText="No declined connections."
                         />
                     </>
                 )}
@@ -238,6 +274,10 @@ const subtitleStyle = {
     fontSize: 17,
     lineHeight: 24,
     marginTop: 8,
+    marginBottom: 24,
+};
+
+const actionCardStyle = {
     marginBottom: 24,
 };
 

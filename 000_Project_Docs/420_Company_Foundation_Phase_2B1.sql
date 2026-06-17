@@ -82,6 +82,9 @@ begin
 end
 $$;
 
+create index if not exists company_users_auth_user_id_idx
+on public.company_users (auth_user_id);
+
 create index if not exists company_users_company_id_status_idx
 on public.company_users (company_id, status);
 
