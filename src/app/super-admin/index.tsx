@@ -2,6 +2,14 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../../lib/supabase';
+
+function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin?: boolean | null } | null) {
+    return (
+        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
+        profile?.is_platform_admin === true
+    );
+}
+
 const cards = [
     'Companies',
     'Users',
@@ -34,11 +42,11 @@ export default function SuperAdminDashboard() {
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('full_name, role')
+            .select('full_name, role, is_platform_admin')
             .eq('id', userId)
             .single();
 
-        if (!profile || profile.role !== 'SUPER_ADMIN') {
+        if (!profile || !isSuperAdminProfile(profile)) {
             Alert.alert('Access denied', 'This area is for SUPER_ADMIN only.');
             router.replace('/' as any);
             return;

@@ -9,6 +9,13 @@ import {
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 
+function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin?: boolean | null } | null) {
+    return (
+        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
+        profile?.is_platform_admin === true
+    );
+}
+
 export default function LoginScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -43,12 +50,13 @@ export default function LoginScreen() {
             return;
         }
 
-        const role =
-            cleanEmail === 'bravomichael38@gmail.com'
-                ? 'SUPER_ADMIN'
-                : 'HOMEOWNER';
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role, is_platform_admin')
+            .eq('id', data.user.id)
+            .maybeSingle();
 
-        if (role === 'SUPER_ADMIN') {
+        if (!profileError && isSuperAdminProfile(profile)) {
             router.replace('/super-admin' as any);
             return;
         }
