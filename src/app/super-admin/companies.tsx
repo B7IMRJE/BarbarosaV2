@@ -59,11 +59,11 @@ export default function CompaniesScreen() {
         setLoading(true);
         setMessage('Creating company...');
 
-        const { error } = await supabase.from('companies').insert({
-            name: name.trim(),
-            slug: createSlug(name),
-            status: 'ACTIVE',
-            theme_color: '#071B33',
+        const { error } = await supabase.rpc('create_company', {
+            p_name: name.trim(),
+            p_slug: createSlug(name),
+            p_status: 'ACTIVE',
+            p_theme_color: '#071B33',
         });
 
         setLoading(false);

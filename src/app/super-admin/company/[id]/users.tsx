@@ -12,9 +12,11 @@ import { supabase } from '../../../../lib/supabase';
 type CompanyUser = {
     id: string;
     company_id: string;
-    full_name: string;
-    email: string;
+    auth_user_id: string;
+    full_name: string | null;
+    email: string | null;
     role: string;
+    status: string;
     created_at: string | null;
 };
 
@@ -24,6 +26,7 @@ export default function CompanyUsersScreen() {
     const [users, setUsers] = useState<CompanyUser[]>([]);
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
+    const [authUserId, setAuthUserId] = useState('');
     const [role, setRole] = useState('TECHNICIAN');
     const [message, setMessage] = useState('Loading users...');
     const [loading, setLoading] = useState(false);
@@ -40,7 +43,7 @@ export default function CompanyUsersScreen() {
 
         const { data, error } = await supabase
             .from('company_users')
-            .select('id, company_id, full_name, email, role, created_at')
+            .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
             .eq('company_id', String(id))
             .order('created_at', { ascending: false });
 
@@ -60,18 +63,25 @@ export default function CompanyUsersScreen() {
         }
 
         if (!fullName.trim() || !email.trim()) {
-            setMessage('Enter full name and email.');
+            setMessage('Enter auth user ID, full name, and email.');
+            return;
+        }
+
+        if (!authUserId.trim()) {
+            setMessage('Enter auth user ID.');
             return;
         }
 
         setLoading(true);
         setMessage('Adding user...');
 
-        const { error } = await supabase.from('company_users').insert({
-            company_id: String(id),
-            full_name: fullName.trim(),
-            email: email.trim().toLowerCase(),
-            role,
+        const { error } = await supabase.rpc('create_company_user', {
+            p_company_id: String(id),
+            p_auth_user_id: authUserId.trim(),
+            p_full_name: fullName.trim(),
+            p_email: email.trim().toLowerCase(),
+            p_role: role,
+            p_status: 'active',
         });
 
         setLoading(false);
@@ -83,6 +93,7 @@ export default function CompanyUsersScreen() {
 
         setFullName('');
         setEmail('');
+        setAuthUserId('');
         setRole('TECHNICIAN');
         setMessage('User added.');
         loadUsers();
@@ -153,6 +164,14 @@ export default function CompanyUsersScreen() {
                     </Text>
 
                     <TextInput
+                        placeholder="Auth User ID"
+                        value={authUserId}
+                        onChangeText={setAuthUserId}
+                        autoCapitalize="none"
+                        style={inputStyle}
+                    />
+
+                    <TextInput
                         placeholder="Full Name"
                         value={fullName}
                         onChangeText={setFullName}
@@ -166,7 +185,6 @@ export default function CompanyUsersScreen() {
                         autoCapitalize="none"
                         style={inputStyle}
                     />
-
                     <View
                         style={{
                             flexDirection: 'row',
@@ -175,38 +193,36 @@ export default function CompanyUsersScreen() {
                             marginBottom: 14,
                         }}
                     >
-                        {['ADMIN', 'MANAGER', 'TECHNICIAN', 'HOMEOWNER'].map(
-                            (option) => (
-                                <TouchableOpacity
-                                    key={option}
-                                    onPress={() => setRole(option)}
+                        {['ADMIN', 'MANAGER', 'TECHNICIAN', 'OFFICE', 'OWNER', 'USER'].map((option) => (
+                            <TouchableOpacity
+                                key={option}
+                                onPress={() => setRole(option)}
+                                style={{
+                                    paddingVertical: 10,
+                                    paddingHorizontal: 12,
+                                    borderRadius: 999,
+                                    backgroundColor:
+                                        role === option
+                                            ? '#071B33'
+                                            : '#F3F6FA',
+                                    borderWidth: 1,
+                                    borderColor: '#E3E8EF',
+                                }}
+                            >
+                                <Text
                                     style={{
-                                        paddingVertical: 10,
-                                        paddingHorizontal: 12,
-                                        borderRadius: 999,
-                                        backgroundColor:
+                                        color:
                                             role === option
-                                                ? '#071B33'
-                                                : '#F3F6FA',
-                                        borderWidth: 1,
-                                        borderColor: '#E3E8EF',
+                                                ? '#FFFFFF'
+                                                : '#071B33',
+                                        fontWeight: '900',
+                                        fontSize: 12,
                                     }}
                                 >
-                                    <Text
-                                        style={{
-                                            color:
-                                                role === option
-                                                    ? '#FFFFFF'
-                                                    : '#071B33',
-                                            fontWeight: '900',
-                                            fontSize: 12,
-                                        }}
-                                    >
-                                        {option}
-                                    </Text>
-                                </TouchableOpacity>
-                            )
-                        )}
+                                    {option}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
                     </View>
 
                     <TouchableOpacity
@@ -273,7 +289,7 @@ export default function CompanyUsersScreen() {
                                     color: '#071B33',
                                 }}
                             >
-                                {user.full_name}
+                                {user.full_name || 'Unnamed user'}
                             </Text>
 
                             <Text
@@ -282,7 +298,16 @@ export default function CompanyUsersScreen() {
                                     marginTop: 6,
                                 }}
                             >
-                                {user.email}
+                                {user.email || 'No email'}
+                            </Text>
+
+                            <Text
+                                style={{
+                                    color: '#637083',
+                                    marginTop: 4,
+                                }}
+                            >
+                                Auth User ID: {user.auth_user_id}
                             </Text>
 
                             <Text
@@ -292,6 +317,15 @@ export default function CompanyUsersScreen() {
                                 }}
                             >
                                 Role: {user.role}
+                            </Text>
+
+                            <Text
+                                style={{
+                                    color: '#637083',
+                                    marginTop: 4,
+                                }}
+                            >
+                                Status: {user.status}
                             </Text>
                         </View>
                     ))}
