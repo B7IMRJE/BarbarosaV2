@@ -6,6 +6,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
     Image,
     Linking,
     Modal,
@@ -24,8 +25,11 @@ import { useTheme } from '../../theme/useTheme';
 
 type ItemFile = {
     id: string;
-    item_slug: string;
+    home_item_id: string | null;
+    item_slug: string | null;
     user_id: string | null;
+    storage_bucket: string | null;
+    storage_path: string | null;
     file_url: string;
     file_name: string | null;
     file_type: string;
@@ -91,6 +95,42 @@ function isImageFile(fileName?: string | null) {
     );
 }
 
+function mergeUniqueFiles(...groups: ItemFile[][]) {
+    const filesById = new Map<string, ItemFile>();
+
+    groups.flat().forEach((file) => {
+        const key = file.id || `${file.file_url}-${file.file_name || ''}`;
+        filesById.set(key, file);
+    });
+
+    return Array.from(filesById.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+function getStorageBucket(file: ItemFile) {
+    return file.storage_bucket || 'item-files';
+}
+
+function getStoragePath(file: ItemFile) {
+    if (file.storage_path) return file.storage_path;
+
+    const bucket = getStorageBucket(file);
+    const markers = [
+        `/storage/v1/object/public/${bucket}/`,
+        `/storage/v1/object/sign/${bucket}/`,
+    ];
+
+    for (const marker of markers) {
+        const markerIndex = file.file_url.indexOf(marker);
+
+        if (markerIndex >= 0) {
+            const path = file.file_url.slice(markerIndex + marker.length).split('?')[0];
+            return decodeURIComponent(path);
+        }
+    }
+
+    return null;
+}
+
 export default function ItemScreen() {
     const { theme } = useTheme();
     const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
@@ -105,11 +145,11 @@ export default function ItemScreen() {
     const [photoCategory, setPhotoCategory] = useState('equipment_photo');
     const [selectedDocumentType, setSelectedDocumentType] = useState<string | null>(null);
     const [currentUserRole, setCurrentUserRole] = useState('HOMEOWNER');
+    const [removingFileId, setRemovingFileId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
 
     useEffect(() => {
-        loadItem();
-        loadFiles();
+        void loadItem();
     }, [slug]);
 
     async function loadItem() {
@@ -140,43 +180,88 @@ export default function ItemScreen() {
         if (error) {
             setMessage(`Item load failed: ${error.message}`);
             setItem(null);
+            setFiles([]);
         } else if (!data) {
             setMessage('Item not found.');
             setItem(null);
+            setFiles([]);
         } else {
             setItem(data);
             setMessage('');
+            await loadFiles({
+                userId: user.id,
+                homeItemId: String(data.id || ''),
+                itemSlug: data.item_slug || String(slug),
+            });
         }
 
         setLoading(false);
     }
 
-    async function loadFiles() {
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+    async function loadFiles({
+        userId,
+        homeItemId,
+        itemSlug,
+    }: {
+        userId?: string;
+        homeItemId?: string;
+        itemSlug?: string | null;
+    } = {}) {
+        let resolvedUserId = userId;
 
-        if (userError || !user) {
-            setMessage('You must be logged in to view files.');
-            setFiles([]);
-            router.replace('/auth/login' as any);
-            return;
+        if (!resolvedUserId) {
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                setMessage('You must be logged in to view files.');
+                setFiles([]);
+                router.replace('/auth/login' as any);
+                return;
+            }
+
+            resolvedUserId = user.id;
         }
 
-        const { data, error } = await supabase
-            .from('home_item_files')
-            .select('*')
-            .eq('item_slug', String(slug))
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false });
+        const resolvedHomeItemId = homeItemId || String(item?.id || '');
+        const resolvedItemSlug = itemSlug || item?.item_slug || String(slug);
+        const fileGroups: ItemFile[][] = [];
 
-        if (error) {
-            setMessage(`Files load failed: ${error.message}`);
-            return;
+        if (resolvedHomeItemId) {
+            const { data, error } = await supabase
+                .from('home_item_files')
+                .select('*')
+                .eq('home_item_id', resolvedHomeItemId)
+                .eq('user_id', resolvedUserId)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                setMessage(`Files load failed: ${error.message}`);
+                return;
+            }
+
+            fileGroups.push((data || []) as ItemFile[]);
         }
 
-        setFiles(data || []);
+        if (resolvedItemSlug) {
+            const { data, error } = await supabase
+                .from('home_item_files')
+                .select('*')
+                .eq('item_slug', resolvedItemSlug)
+                .eq('user_id', resolvedUserId)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                setMessage(`Files load failed: ${error.message}`);
+                return;
+            }
+
+            fileGroups.push((data || []) as ItemFile[]);
+        }
+
+        setFiles(mergeUniqueFiles(...fileGroups));
     }
 
     async function uploadMainPhotoFromAsset(asset: ImagePicker.ImagePickerAsset) {
@@ -296,7 +381,10 @@ export default function ItemScreen() {
                 .from('home_item_files')
                 .insert({
                     user_id: user.id,
+                    home_item_id: item?.id || null,
                     item_slug: String(slug),
+                    storage_bucket: 'item-files',
+                    storage_path: filePath,
                     file_url: fileUrl,
                     file_name: fileName,
                     file_type: fileType,
@@ -309,7 +397,11 @@ export default function ItemScreen() {
             }
 
             setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} uploaded.`);
-            await loadFiles();
+            await loadFiles({
+                userId: user.id,
+                homeItemId: String(item?.id || ''),
+                itemSlug: item?.item_slug || String(slug),
+            });
         } catch (error: any) {
             setMessage(`Upload failed: ${error.message || 'Unknown error'}`);
         } finally {
@@ -503,6 +595,88 @@ export default function ItemScreen() {
         setTimeout(() => {
             router.back();
         }, 700);
+    }
+
+    function handleRemoveFile(file: ItemFile) {
+        Alert.alert(
+            'Remove file?',
+            'This will delete the uploaded file from this item.',
+            [
+                {
+                    text: 'Cancel',
+                    style: 'cancel',
+                },
+                {
+                    text: 'Remove',
+                    style: 'destructive',
+                    onPress: () => {
+                        void removeFile(file);
+                    },
+                },
+            ]
+        );
+    }
+
+    async function removeFile(file: ItemFile) {
+        try {
+            setRemovingFileId(file.id);
+            setMessage('Removing file...');
+
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                setMessage('You must be logged in to remove files.');
+                router.replace('/auth/login' as any);
+                return;
+            }
+
+            if (file.user_id && file.user_id !== user.id) {
+                setMessage('You can only remove your own files.');
+                return;
+            }
+
+            const storageBucket = getStorageBucket(file);
+            const storagePath = getStoragePath(file);
+
+            if (!storagePath) {
+                setMessage('Could not determine storage path for this file.');
+                return;
+            }
+
+            const { error: storageError } = await supabase.storage
+                .from(storageBucket)
+                .remove([storagePath]);
+
+            if (storageError) {
+                setMessage(`Storage delete failed: ${storageError.message}`);
+                return;
+            }
+
+            const { error: deleteError } = await supabase
+                .from('home_item_files')
+                .delete()
+                .eq('id', file.id)
+                .eq('user_id', user.id);
+
+            if (deleteError) {
+                setMessage(`File record delete failed: ${deleteError.message}`);
+                return;
+            }
+
+            setMessage('File removed.');
+            await loadFiles({
+                userId: user.id,
+                homeItemId: String(item?.id || ''),
+                itemSlug: item?.item_slug || String(slug),
+            });
+        } catch (error: any) {
+            setMessage(`File remove failed: ${error.message || 'Unknown error'}`);
+        } finally {
+            setRemovingFileId(null);
+        }
     }
 
     if (loading) {
@@ -767,7 +941,7 @@ export default function ItemScreen() {
 
                     <View style={galleryGridStyle}>
                         {photos.map((photo) => (
-                            <TouchableOpacity
+                            <View
                                 key={photo.id}
                                 style={[
                                     galleryCardStyle,
@@ -777,17 +951,26 @@ export default function ItemScreen() {
                                         borderRadius: theme.radii.button,
                                     },
                                 ]}
-                                onPress={() => Linking.openURL(photo.file_url)}
                             >
-                                <Image
-                                    source={{ uri: photo.file_url }}
-                                    style={[galleryImageStyle, { backgroundColor: theme.colors.surfaceAlt }]}
-                                    resizeMode="contain"
+                                <TouchableOpacity onPress={() => Linking.openURL(photo.file_url)} activeOpacity={0.82}>
+                                    <Image
+                                        source={{ uri: photo.file_url }}
+                                        style={[galleryImageStyle, { backgroundColor: theme.colors.surfaceAlt }]}
+                                        resizeMode="contain"
+                                    />
+                                    <Text style={[galleryCategoryStyle, { color: theme.colors.text }]}>
+                                        {photo.category}
+                                    </Text>
+                                </TouchableOpacity>
+                                <ThemedButton
+                                    title={removingFileId === photo.id ? 'Removing...' : 'Remove'}
+                                    variant="danger"
+                                    disabled={removingFileId === photo.id}
+                                    onPress={() => handleRemoveFile(photo)}
+                                    style={fileActionButtonStyle}
+                                    textStyle={fileActionButtonTextStyle}
                                 />
-                                <Text style={[galleryCategoryStyle, { color: theme.colors.text }]}>
-                                    {photo.category}
-                                </Text>
-                            </TouchableOpacity>
+                            </View>
                         ))}
                     </View>
 
@@ -849,7 +1032,7 @@ export default function ItemScreen() {
                             {documents
                                 .filter((doc) => doc.category === selectedDocumentType)
                                 .map((doc) => (
-                                    <TouchableOpacity
+                                    <View
                                         key={doc.id}
                                         style={[
                                             documentCardStyle,
@@ -859,30 +1042,48 @@ export default function ItemScreen() {
                                                 borderRadius: theme.radii.button,
                                             },
                                         ]}
-                                        onPress={() => Linking.openURL(doc.file_url)}
                                     >
-                                        <View style={[documentPreviewStyle, { backgroundColor: theme.colors.surfaceAlt }]}>
-                                            {isImageFile(doc.file_name) ? (
-                                                <Image
-                                                    source={{ uri: doc.file_url }}
-                                                    style={documentPreviewImageStyle}
-                                                    resizeMode="contain"
-                                                />
-                                            ) : (
-                                                <Text style={documentPreviewIconStyle}>DOC</Text>
-                                            )}
-                                        </View>
+                                        <View style={documentOpenAreaStyle}>
+                                            <View style={[documentPreviewStyle, { backgroundColor: theme.colors.surfaceAlt }]}>
+                                                {isImageFile(doc.file_name) ? (
+                                                    <Image
+                                                        source={{ uri: doc.file_url }}
+                                                        style={documentPreviewImageStyle}
+                                                        resizeMode="contain"
+                                                    />
+                                                ) : (
+                                                    <Text style={documentPreviewIconStyle}>DOC</Text>
+                                                )}
+                                            </View>
 
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={[documentTitleStyle, { color: theme.colors.text }]}>
-                                                {doc.file_name || 'Document'}
-                                            </Text>
-                                            <Text style={[documentSubTextStyle, { color: theme.colors.mutedText }]}>
-                                                {documentLabel(doc.category)}
-                                            </Text>
-                                            <Text style={[documentOpenTextStyle, { color: theme.colors.link }]}>Open</Text>
+                                            <View style={documentContentStyle}>
+                                                <Text style={[documentTitleStyle, { color: theme.colors.text }]}>
+                                                    {doc.file_name || 'Document'}
+                                                </Text>
+                                                <Text style={[documentSubTextStyle, { color: theme.colors.mutedText }]}>
+                                                    {documentLabel(doc.category)}
+                                                </Text>
+
+                                                <View style={documentActionRowStyle}>
+                                                    <ThemedButton
+                                                        title="Open"
+                                                        variant="secondary"
+                                                        onPress={() => Linking.openURL(doc.file_url)}
+                                                        style={documentOpenButtonStyle}
+                                                        textStyle={documentActionTextStyle}
+                                                    />
+                                                    <ThemedButton
+                                                        title={removingFileId === doc.id ? 'Removing...' : 'Remove'}
+                                                        variant="danger"
+                                                        disabled={removingFileId === doc.id}
+                                                        onPress={() => handleRemoveFile(doc)}
+                                                        style={documentRemoveButtonStyle}
+                                                        textStyle={documentActionTextStyle}
+                                                    />
+                                                </View>
+                                            </View>
                                         </View>
-                                    </TouchableOpacity>
+                                    </View>
                                 ))}
 
                             {documents.filter((doc) => doc.category === selectedDocumentType).length === 0 && (
@@ -1273,15 +1474,56 @@ const documentOpenTextStyle = {
     fontWeight: '900' as const,
 };
 
+const fileActionButtonStyle = {
+    marginTop: 12,
+    paddingVertical: 12,
+};
+
+const fileActionButtonTextStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
 
 const documentCardStyle = {
     borderRadius: 18,
     padding: 12,
     marginBottom: 12,
     borderWidth: 1,
+};
+
+const documentOpenAreaStyle = {
     flexDirection: 'row' as const,
     gap: 12,
-    alignItems: 'center' as const,
+    alignItems: 'flex-start' as const,
+};
+
+const documentContentStyle = {
+    flex: 1,
+    minWidth: 0,
+};
+
+const documentActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 12,
+};
+
+const documentOpenButtonStyle = {
+    flexGrow: 1,
+    minWidth: 120,
+    paddingVertical: 12,
+};
+
+const documentRemoveButtonStyle = {
+    flexGrow: 1,
+    minWidth: 120,
+    paddingVertical: 12,
+};
+
+const documentActionTextStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
 };
 
 const documentTitleStyle = {
