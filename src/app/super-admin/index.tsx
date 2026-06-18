@@ -48,6 +48,21 @@ const cards = [
 
 export default function SuperAdminDashboard() {
     const [name, setName] = useState('SUPER_ADMIN');
+    const [guardResolved, setGuardResolved] = useState(false);
+    const [guardAllowed, setGuardAllowed] = useState(false);
+    const [guardDebug, setGuardDebug] = useState<{
+        userId: string | null;
+        email: string | null;
+        profile: unknown;
+        profileError: string | null;
+        decision: 'pending' | 'allow' | 'deny' | 'login';
+    }>({
+        userId: null,
+        email: null,
+        profile: null,
+        profileError: null,
+        decision: 'pending',
+    });
 
     useEffect(() => {
         loadProfile();
@@ -56,18 +71,36 @@ export default function SuperAdminDashboard() {
     async function loadProfile() {
         const { data: sessionData } = await supabase.auth.getSession();
 
-        const userId = sessionData.session?.user.id;
+        const sessionUser = sessionData.session?.user || null;
+        const userId = sessionUser?.id || null;
 
         if (!userId) {
-            router.replace('/auth/login' as any);
+            setGuardAllowed(false);
+            setGuardResolved(true);
+            setGuardDebug({
+                userId: null,
+                email: null,
+                profile: null,
+                profileError: 'No active session user.',
+                decision: 'login',
+            });
             return;
         }
 
-        const { data: profile } = await loadSuperAdminProfile(userId);
+        const { data: profile, error } = await loadSuperAdminProfile(userId);
+        const allowed = !!profile && isSuperAdminProfile(profile);
 
-        if (!profile || !isSuperAdminProfile(profile)) {
-            Alert.alert('Access denied', 'This area is for SUPER_ADMIN only.');
-            router.replace('/' as any);
+        setGuardDebug({
+            userId,
+            email: sessionUser?.email || null,
+            profile: profile ?? null,
+            profileError: error?.message ?? null,
+            decision: allowed ? 'allow' : 'deny',
+        });
+        setGuardAllowed(allowed);
+        setGuardResolved(true);
+
+        if (!allowed) {
             return;
         }
 
@@ -77,6 +110,85 @@ export default function SuperAdminDashboard() {
     async function handleLogout() {
         await supabase.auth.signOut();
         router.replace('/auth/login' as any);
+    }
+
+    if (guardResolved && !guardAllowed) {
+        return (
+            <ScrollView
+                style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+                contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
+            >
+                <View style={{ width: '100%', maxWidth: 900 }}>
+                    <Text style={{ marginTop: 20, fontSize: 34, fontWeight: '900', color: '#071B33' }}>
+                        Super Admin Guard Diagnostics
+                    </Text>
+
+                    <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24, lineHeight: 22 }}>
+                        Access was denied. This screen shows the actual guard inputs before any redirect.
+                    </Text>
+
+                    <View
+                        style={{
+                            backgroundColor: '#FFFFFF',
+                            borderRadius: 20,
+                            padding: 18,
+                            borderWidth: 1,
+                            borderColor: '#E3E8EF',
+                            marginBottom: 20,
+                        }}
+                    >
+                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginBottom: 8 }}>
+                            Auth User ID
+                        </Text>
+                        <Text style={{ color: '#637083', lineHeight: 22 }}>
+                            {guardDebug.userId || 'null'}
+                        </Text>
+
+                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginTop: 16, marginBottom: 8 }}>
+                            Auth Email
+                        </Text>
+                        <Text style={{ color: '#637083', lineHeight: 22 }}>
+                            {guardDebug.email || 'null'}
+                        </Text>
+
+                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginTop: 16, marginBottom: 8 }}>
+                            Profile Query Result
+                        </Text>
+                        <Text style={{ color: '#637083', lineHeight: 22 }}>
+                            {JSON.stringify(guardDebug.profile, null, 2) || 'null'}
+                        </Text>
+
+                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginTop: 16, marginBottom: 8 }}>
+                            Profile Query Error
+                        </Text>
+                        <Text style={{ color: '#637083', lineHeight: 22 }}>
+                            {guardDebug.profileError || 'none'}
+                        </Text>
+
+                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginTop: 16, marginBottom: 8 }}>
+                            Final Decision
+                        </Text>
+                        <Text style={{ color: '#637083', lineHeight: 22 }}>
+                            {guardDebug.decision}
+                        </Text>
+                    </View>
+
+                    <TouchableOpacity
+                        onPress={() => router.replace('/' as any)}
+                        style={{
+                            backgroundColor: '#071B33',
+                            padding: 16,
+                            borderRadius: 16,
+                            alignItems: 'center',
+                        }}
+                    >
+                        <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '900' }}>
+                            Back Home
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            </ScrollView>
+        );
     }
 
     return (
