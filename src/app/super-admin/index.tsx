@@ -10,12 +10,6 @@ function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin
     );
 }
 
-function isMissingIsPlatformAdminColumn(errorMessage?: string | null) {
-    const normalizedMessage = String(errorMessage || '').toLowerCase();
-
-    return normalizedMessage.includes('is_platform_admin') && normalizedMessage.includes('does not exist');
-}
-
 async function loadSuperAdminProfile(userId: string) {
     const primaryQuery = await supabase
         .from('profiles')
@@ -23,7 +17,7 @@ async function loadSuperAdminProfile(userId: string) {
         .eq('id', userId)
         .maybeSingle();
 
-    if (!primaryQuery.error || !isMissingIsPlatformAdminColumn(primaryQuery.error.message)) {
+    if (!primaryQuery.error) {
         return primaryQuery;
     }
 
@@ -104,7 +98,7 @@ export default function SuperAdminDashboard() {
                 </Text>
 
                 <TouchableOpacity
-                    onPress={() => Alert.alert('Next', 'Create Company screen comes next.')}
+                    onPress={() => router.push('/super-admin/companies' as any)}
                     style={{
                         backgroundColor: '#071B33',
                         padding: 16,
