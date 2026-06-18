@@ -16,6 +16,35 @@ function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin
     );
 }
 
+function isMissingIsPlatformAdminColumn(errorMessage?: string | null) {
+    const normalizedMessage = String(errorMessage || '').toLowerCase();
+
+    return normalizedMessage.includes('is_platform_admin') && normalizedMessage.includes('does not exist');
+}
+
+async function loadSuperAdminProfile(userId: string) {
+    const primaryQuery = await supabase
+        .from('profiles')
+        .select('role, is_platform_admin')
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (!primaryQuery.error || !isMissingIsPlatformAdminColumn(primaryQuery.error.message)) {
+        return primaryQuery;
+    }
+
+    const fallbackQuery = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+
+    return {
+        data: fallbackQuery.data ? { ...fallbackQuery.data, is_platform_admin: null } : null,
+        error: fallbackQuery.error,
+    };
+}
+
 export default function LoginScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -50,11 +79,7 @@ export default function LoginScreen() {
             return;
         }
 
-        const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('role, is_platform_admin')
-            .eq('id', data.user.id)
-            .maybeSingle();
+        const { data: profile, error: profileError } = await loadSuperAdminProfile(data.user.id);
 
         if (!profileError && isSuperAdminProfile(profile)) {
             router.replace('/super-admin' as any);
