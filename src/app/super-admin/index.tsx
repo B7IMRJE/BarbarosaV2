@@ -25,6 +25,17 @@ const cards = [
 
 export default function SuperAdminDashboard() {
     const [name, setName] = useState('SUPER_ADMIN');
+    const [guardDebug, setGuardDebug] = useState<{
+        userId: string | null;
+        role: string | null;
+        isPlatformAdmin: boolean | null;
+        queryError: string | null;
+    }>({
+        userId: null,
+        role: null,
+        isPlatformAdmin: null,
+        queryError: null,
+    });
 
     useEffect(() => {
         loadProfile();
@@ -36,19 +47,54 @@ export default function SuperAdminDashboard() {
         const userId = sessionData.session?.user.id;
 
         if (!userId) {
+            const nextDebug = {
+                userId: null,
+                role: null,
+                isPlatformAdmin: null,
+                queryError: 'No active session user.',
+            };
+
+            setGuardDebug(nextDebug);
+            console.info('[SuperAdminGuard]', nextDebug);
             router.replace('/auth/login' as any);
             return;
         }
 
-        const { data: profile } = await supabase
+        const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select('full_name, role, is_platform_admin')
             .eq('id', userId)
             .single();
 
+        const nextDebug = {
+            userId,
+            role: profile?.role ?? null,
+            isPlatformAdmin: profile?.is_platform_admin ?? null,
+            queryError: profileError?.message ?? null,
+        };
+
+        setGuardDebug(nextDebug);
+        console.info('[SuperAdminGuard]', nextDebug);
+
         if (!profile || !isSuperAdminProfile(profile)) {
-            Alert.alert('Access denied', 'This area is for SUPER_ADMIN only.');
-            router.replace('/' as any);
+            Alert.alert(
+                'Access denied',
+                [
+                    'This area is for SUPER_ADMIN only.',
+                    `user.id: ${nextDebug.userId ?? 'null'}`,
+                    `profile.role: ${nextDebug.role ?? 'null'}`,
+                    `profile.is_platform_admin: ${
+                        nextDebug.isPlatformAdmin === null ? 'null' : String(nextDebug.isPlatformAdmin)
+                    }`,
+                    `profile query error: ${nextDebug.queryError ?? 'none'}`,
+                ].join('\n'),
+                [
+                    {
+                        text: 'OK',
+                        onPress: () => router.replace('/' as any),
+                    },
+                ]
+            );
             return;
         }
 
@@ -77,6 +123,35 @@ export default function SuperAdminDashboard() {
                 <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
                     Platform control center.
                 </Text>
+
+                <View
+                    style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: 20,
+                        padding: 16,
+                        borderWidth: 1,
+                        borderColor: '#E3E8EF',
+                        marginBottom: 20,
+                    }}
+                >
+                    <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginBottom: 8 }}>
+                        Super Admin Guard Debug
+                    </Text>
+                    <Text style={{ color: '#637083', lineHeight: 20 }}>
+                        {`user.id: ${guardDebug.userId ?? 'null'}`}
+                    </Text>
+                    <Text style={{ color: '#637083', lineHeight: 20 }}>
+                        {`profile.role: ${guardDebug.role ?? 'null'}`}
+                    </Text>
+                    <Text style={{ color: '#637083', lineHeight: 20 }}>
+                        {`profile.is_platform_admin: ${
+                            guardDebug.isPlatformAdmin === null ? 'null' : String(guardDebug.isPlatformAdmin)
+                        }`}
+                    </Text>
+                    <Text style={{ color: '#637083', lineHeight: 20 }}>
+                        {`profile query error: ${guardDebug.queryError ?? 'none'}`}
+                    </Text>
+                </View>
 
                 <TouchableOpacity
                     onPress={() => Alert.alert('Next', 'Create Company screen comes next.')}
