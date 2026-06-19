@@ -112,6 +112,23 @@ export default function SuperAdminDashboard() {
         router.replace('/auth/login' as any);
     }
 
+    function openDashboardCard(card: string) {
+        if (card === 'Companies') {
+            router.push('/super-admin/companies' as any);
+            return;
+        }
+
+        if (card === 'Properties') {
+            router.push({
+                pathname: '/super-admin/companies',
+                params: { selectFor: 'properties' },
+            } as any);
+            return;
+        }
+
+        Alert.alert(card, 'This module will connect to real data next.');
+    }
+
     if (guardResolved && !guardAllowed) {
         return (
             <ScrollView
@@ -250,7 +267,7 @@ export default function SuperAdminDashboard() {
                     {cards.map((card) => (
                         <TouchableOpacity
                             key={card}
-                            onPress={() => Alert.alert(card, 'This module will connect to real data next.')}
+                            onPress={() => openDashboardCard(card)}
                             style={{
                                 width: '48%',
                                 minHeight: 100,

@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ScrollView,
@@ -18,6 +18,8 @@ type Company = {
 };
 
 export default function CompaniesScreen() {
+    const { selectFor } = useLocalSearchParams<{ selectFor?: string }>();
+    const isSelectingForProperties = selectFor === 'properties';
     const [companies, setCompanies] = useState<Company[]>([]);
     const [name, setName] = useState('');
     const [message, setMessage] = useState('Loading companies...');
@@ -78,6 +80,15 @@ export default function CompaniesScreen() {
         loadCompanies();
     }
 
+    function openCompany(companyId: string) {
+        if (isSelectingForProperties) {
+            router.push(`/super-admin/company/${companyId}/properties` as any);
+            return;
+        }
+
+        router.push(`/super-admin/company/${companyId}` as any);
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
@@ -118,7 +129,9 @@ export default function CompaniesScreen() {
                         marginBottom: 24,
                     }}
                 >
-                    Create and manage HomeOS company accounts.
+                    {isSelectingForProperties
+                        ? 'Select a company to manage its properties.'
+                        : 'Create and manage HomeOS company accounts.'}
                 </Text>
 
                 <View
@@ -205,11 +218,7 @@ export default function CompaniesScreen() {
                     {companies.map((company) => (
                         <TouchableOpacity
                             key={company.id}
-                            onPress={() =>
-                                router.push(
-                                    `/super-admin/company/${company.id}` as any
-                                )
-                            }
+                            onPress={() => openCompany(company.id)}
                             style={{
                                 backgroundColor: '#FFFFFF',
                                 borderRadius: 20,
