@@ -7,37 +7,8 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { resolveLoggedInUserRoute } from '../../lib/onboarding';
 import { supabase } from '../../lib/supabase';
-
-function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin?: boolean | null } | null) {
-    return (
-        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
-        profile?.is_platform_admin === true
-    );
-}
-
-async function loadSuperAdminProfile(userId: string) {
-    const primaryQuery = await supabase
-        .from('profiles')
-        .select('role, is_platform_admin')
-        .eq('id', userId)
-        .maybeSingle();
-
-    if (!primaryQuery.error) {
-        return primaryQuery;
-    }
-
-    const fallbackQuery = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .maybeSingle();
-
-    return {
-        data: fallbackQuery.data ? { ...fallbackQuery.data, is_platform_admin: null } : null,
-        error: fallbackQuery.error,
-    };
-}
 
 export default function LoginScreen() {
     const [email, setEmail] = useState('');
@@ -61,26 +32,31 @@ export default function LoginScreen() {
             password,
         });
 
-        setLoading(false);
-
         if (error) {
+            setLoading(false);
             setMessage(`Login failed: ${error.message}`);
             return;
         }
 
         if (!data.user) {
+            setLoading(false);
             setMessage('Login failed: no user returned.');
             return;
         }
 
-        const { data: profile, error: profileError } = await loadSuperAdminProfile(data.user.id);
+        const routeDecision = await resolveLoggedInUserRoute(data.user.id);
 
-        if (!profileError && isSuperAdminProfile(profile)) {
-            router.replace('/super-admin' as any);
+        setLoading(false);
+
+        if (routeDecision.message) {
+            setMessage(routeDecision.message);
+            setTimeout(() => {
+                router.replace(routeDecision.route as any);
+            }, 900);
             return;
         }
 
-        router.replace('/' as any);
+        router.replace(routeDecision.route as any);
     }
 
     return (

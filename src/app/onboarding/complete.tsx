@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -7,6 +7,13 @@ import { useTheme } from '../../theme/useTheme';
 
 export default function OnboardingCompleteScreen() {
     const { theme } = useTheme();
+    const { propertyId, created } = useLocalSearchParams<{
+        propertyId?: string;
+        created?: string;
+    }>();
+    const hasConnectedHome = typeof propertyId === 'string' && propertyId.trim().length > 0;
+    const wasCreated = created === 'true';
+    const statusText = getStatusText(wasCreated, hasConnectedHome);
 
     return (
         <ScrollView
@@ -20,8 +27,7 @@ export default function OnboardingCompleteScreen() {
                     <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Onboarding</Text>
                     <Text style={[titleStyle, { color: theme.colors.text }]}>HomeOS setup is ready.</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        The next phase will connect invitation acceptance to first-home ownership. For now, you can
-                        return to HomeOS and continue using the current homeowner flow.
+                        {statusText}
                     </Text>
 
                     <ThemedButton
@@ -33,6 +39,18 @@ export default function OnboardingCompleteScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function getStatusText(wasCreated: boolean, hasConnectedHome: boolean) {
+    if (wasCreated) {
+        return 'Your home was created and connected to your homeowner account. You can now start building your HomeOS record.';
+    }
+
+    if (hasConnectedHome) {
+        return 'We found an existing home for your account and connected it to your HomeOS homeowner access.';
+    }
+
+    return 'Your homeowner account is connected and HomeOS is ready.';
 }
 
 const eyebrowStyle = {
