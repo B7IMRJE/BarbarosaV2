@@ -15,7 +15,11 @@ export default function RegisterScreen() {
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [resending, setResending] = useState(false);
+    const [confirmationEmail, setConfirmationEmail] = useState('');
+    const [message, setMessage] = useState('');
 
     async function handleRegister() {
         const cleanName = fullName.trim();
@@ -27,7 +31,13 @@ export default function RegisterScreen() {
             return;
         }
 
+        if (password !== confirmPassword) {
+            Alert.alert('Passwords do not match', 'Enter the same password in both password fields.');
+            return;
+        }
+
         setLoading(true);
+        setMessage('');
 
         const { data, error } = await supabase.auth.signUp({
             email: cleanEmail,
@@ -43,7 +53,7 @@ export default function RegisterScreen() {
 
         if (error) {
             setLoading(false);
-            Alert.alert('Create account failed', error.message);
+            Alert.alert('Create account failed', 'We could not create your account right now. Please check your information and try again.');
             return;
         }
 
@@ -59,12 +69,39 @@ export default function RegisterScreen() {
 
         setLoading(false);
 
-        Alert.alert(
-            'Account created',
-            'Check your email to verify your account. After that, log in.'
-        );
+        if (data.session) {
+            router.replace('/onboarding/create-home' as any);
+            return;
+        }
 
-        router.replace('/auth/login' as any);
+        if (data.user) {
+            setConfirmationEmail(cleanEmail);
+            setMessage('Account created. A confirmation email was sent. Confirm your email before logging in with your original password. Check spam or junk if you do not see it.');
+            return;
+        }
+
+        setMessage('We could not confirm your account was created. Please try again.');
+    }
+
+    async function resendConfirmation() {
+        if (!confirmationEmail || resending) return;
+
+        setResending(true);
+        setMessage('');
+
+        const { error } = await supabase.auth.resend({
+            type: 'signup',
+            email: confirmationEmail,
+        });
+
+        setResending(false);
+
+        if (error) {
+            setMessage('We could not resend the confirmation email right now. Please try again in a few minutes.');
+            return;
+        }
+
+        setMessage('Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.');
     }
 
     return (
@@ -75,67 +112,114 @@ export default function RegisterScreen() {
             <View style={{ width: '100%', maxWidth: 500 }}>
                 <Text style={titleStyle}>Create Account</Text>
 
-                <Text style={subtitleStyle}>Create your HomeOS account.</Text>
+                {confirmationEmail ? (
+                    <>
+                        <View style={messageBoxStyle}>
+                            <Text style={messageTextStyle}>{message}</Text>
+                        </View>
 
-                <TextInput
-                    placeholder="Full Name"
-                    value={fullName}
-                    onChangeText={setFullName}
-                    autoCapitalize="words"
-                    autoCorrect={false}
-                    autoComplete="off"
-                    textContentType="none"
-                    importantForAutofill="no"
-                    style={inputStyle}
-                />
+                        <TouchableOpacity
+                            onPress={() => router.replace('/auth/login' as any)}
+                            disabled={resending}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>Go to Login</Text>
+                        </TouchableOpacity>
 
-                <TextInput
-                    placeholder="Phone"
-                    value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="phone-pad"
-                    autoCorrect={false}
-                    autoComplete="off"
-                    textContentType="none"
-                    importantForAutofill="no"
-                    style={inputStyle}
-                />
+                        <TouchableOpacity
+                            onPress={resendConfirmation}
+                            disabled={resending}
+                            style={secondaryButtonStyle}
+                        >
+                            <Text style={secondaryButtonTextStyle}>
+                                {resending ? 'Sending...' : 'Resend Confirmation Email'}
+                            </Text>
+                        </TouchableOpacity>
+                    </>
+                ) : (
+                    <>
+                        <Text style={subtitleStyle}>Create your HomeOS account.</Text>
 
-                <TextInput
-                    placeholder="Email"
-                    value={email}
-                    onChangeText={setEmail}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    autoCorrect={false}
-                    autoComplete="off"
-                    textContentType="none"
-                    importantForAutofill="no"
-                    style={inputStyle}
-                />
+                        <TextInput
+                            placeholder="Full Name"
+                            value={fullName}
+                            onChangeText={setFullName}
+                            autoCapitalize="words"
+                            autoCorrect={false}
+                            autoComplete="off"
+                            textContentType="none"
+                            importantForAutofill="no"
+                            style={inputStyle}
+                        />
 
-                <TextInput
-                    placeholder="Password"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoComplete="new-password"
-                    textContentType="newPassword"
-                    importantForAutofill="no"
-                    style={inputStyle}
-                />
+                        <TextInput
+                            placeholder="Phone"
+                            value={phone}
+                            onChangeText={setPhone}
+                            keyboardType="phone-pad"
+                            autoCorrect={false}
+                            autoComplete="off"
+                            textContentType="none"
+                            importantForAutofill="no"
+                            style={inputStyle}
+                        />
 
-                <TouchableOpacity
-                    onPress={handleRegister}
-                    disabled={loading}
-                    style={buttonStyle}
-                >
-                    <Text style={buttonTextStyle}>
-                        {loading ? 'Creating...' : 'Create Account'}
-                    </Text>
-                </TouchableOpacity>
+                        <TextInput
+                            placeholder="Email"
+                            value={email}
+                            onChangeText={setEmail}
+                            autoCapitalize="none"
+                            keyboardType="email-address"
+                            autoCorrect={false}
+                            autoComplete="off"
+                            textContentType="none"
+                            importantForAutofill="no"
+                            style={inputStyle}
+                        />
+
+                        <TextInput
+                            placeholder="Password"
+                            value={password}
+                            onChangeText={setPassword}
+                            secureTextEntry
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            autoComplete="new-password"
+                            textContentType="newPassword"
+                            importantForAutofill="no"
+                            style={inputStyle}
+                        />
+
+                        <TextInput
+                            placeholder="Confirm Password"
+                            value={confirmPassword}
+                            onChangeText={setConfirmPassword}
+                            secureTextEntry
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            autoComplete="off"
+                            textContentType="none"
+                            importantForAutofill="no"
+                            style={inputStyle}
+                        />
+
+                        {!!message && (
+                            <View style={messageBoxStyle}>
+                                <Text style={messageTextStyle}>{message}</Text>
+                            </View>
+                        )}
+
+                        <TouchableOpacity
+                            onPress={handleRegister}
+                            disabled={loading}
+                            style={buttonStyle}
+                        >
+                            <Text style={buttonTextStyle}>
+                                {loading ? 'Creating...' : 'Create Account'}
+                            </Text>
+                        </TouchableOpacity>
+                    </>
+                )}
 
                 <Text onPress={() => router.push('/auth/login' as any)} style={linkStyle}>
                     Already have an account? Login
@@ -181,9 +265,41 @@ const buttonTextStyle = {
     fontWeight: '900' as const,
 };
 
+const secondaryButtonStyle = {
+    backgroundColor: '#FFFFFF',
+    padding: 18,
+    borderRadius: 18,
+    alignItems: 'center' as const,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+};
+
+const secondaryButtonTextStyle = {
+    color: '#071B33',
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
 const linkStyle = {
     marginTop: 20,
     color: '#0B5FFF',
     fontWeight: '900' as const,
     textAlign: 'center' as const,
+};
+
+const messageBoxStyle = {
+    marginTop: 20,
+    marginBottom: 14,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+};
+
+const messageTextStyle = {
+    fontSize: 14,
+    color: '#637083',
+    lineHeight: 20,
 };

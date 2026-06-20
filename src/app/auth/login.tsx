@@ -14,7 +14,9 @@ export default function LoginScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [resending, setResending] = useState(false);
     const [message, setMessage] = useState('');
+    const [unconfirmedEmail, setUnconfirmedEmail] = useState('');
 
     async function handleLogin() {
         if (!email.trim() || !password) {
@@ -26,6 +28,7 @@ export default function LoginScreen() {
         setMessage('Logging in...');
 
         const cleanEmail = email.trim().toLowerCase();
+        setUnconfirmedEmail('');
 
         const { data, error } = await supabase.auth.signInWithPassword({
             email: cleanEmail,
@@ -34,7 +37,20 @@ export default function LoginScreen() {
 
         if (error) {
             setLoading(false);
-            setMessage(`Login failed: ${error.message}`);
+            const errorCode = classifyAuthError(error);
+
+            if (errorCode === 'email_not_confirmed') {
+                setUnconfirmedEmail(cleanEmail);
+                setMessage('Please confirm your email before logging in. Your original password has not been changed.');
+                return;
+            }
+
+            if (errorCode === 'invalid_credentials') {
+                setMessage('Incorrect email or password.');
+                return;
+            }
+
+            setMessage('Login failed. Please try again.');
             return;
         }
 
@@ -59,6 +75,27 @@ export default function LoginScreen() {
         router.replace(routeDecision.route as any);
     }
 
+    async function resendConfirmation() {
+        if (!unconfirmedEmail || resending) return;
+
+        setResending(true);
+        setMessage('');
+
+        const { error } = await supabase.auth.resend({
+            type: 'signup',
+            email: unconfirmedEmail,
+        });
+
+        setResending(false);
+
+        if (error) {
+            setMessage('We could not resend the confirmation email right now. Please try again in a few minutes.');
+            return;
+        }
+
+        setMessage('Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.');
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
@@ -76,23 +113,34 @@ export default function LoginScreen() {
                 <TextInput
                     placeholder="Email"
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(value) => {
+                        setEmail(value);
+                        if (unconfirmedEmail) setUnconfirmedEmail('');
+                    }}
                     autoCapitalize="none"
                     keyboardType="email-address"
+                    autoCorrect={false}
                     style={inputStyle}
                 />
 
                 <TextInput
                     placeholder="Password"
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={(value) => {
+                        setPassword(value);
+                        if (unconfirmedEmail) setUnconfirmedEmail('');
+                    }}
                     secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="current-password"
+                    textContentType="password"
                     style={inputStyle}
                 />
 
                 <TouchableOpacity
                     onPress={handleLogin}
-                    disabled={loading}
+                    disabled={loading || resending}
                     style={buttonStyle}
                 >
                     <Text style={buttonTextStyle}>
@@ -104,6 +152,18 @@ export default function LoginScreen() {
                     <View style={messageBoxStyle}>
                         <Text style={messageTextStyle}>{message}</Text>
                     </View>
+                )}
+
+                {!!unconfirmedEmail && (
+                    <TouchableOpacity
+                        onPress={resendConfirmation}
+                        disabled={resending || loading}
+                        style={secondaryButtonStyle}
+                    >
+                        <Text style={secondaryButtonTextStyle}>
+                            {resending ? 'Sending...' : 'Resend Confirmation Email'}
+                        </Text>
+                    </TouchableOpacity>
                 )}
 
                 <Text
@@ -122,6 +182,27 @@ export default function LoginScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function classifyAuthError(error: unknown) {
+    const code =
+        typeof (error as { code?: unknown }).code === 'string'
+            ? (error as { code: string }).code
+            : '';
+    const message =
+        typeof (error as { message?: unknown }).message === 'string'
+            ? (error as { message: string }).message.toLowerCase()
+            : '';
+
+    if (code === 'email_not_confirmed' || message.includes('email not confirmed')) {
+        return 'email_not_confirmed';
+    }
+
+    if (code === 'invalid_credentials' || message.includes('invalid login credentials')) {
+        return 'invalid_credentials';
+    }
+
+    return 'other';
 }
 
 const inputStyle = {
@@ -143,6 +224,22 @@ const buttonStyle = {
 
 const buttonTextStyle = {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const secondaryButtonStyle = {
+    backgroundColor: '#FFFFFF',
+    padding: 18,
+    borderRadius: 18,
+    alignItems: 'center' as const,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+};
+
+const secondaryButtonTextStyle = {
+    color: '#071B33',
     fontSize: 16,
     fontWeight: '900' as const,
 };
