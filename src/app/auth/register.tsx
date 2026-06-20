@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 
+const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
+
 export default function RegisterScreen() {
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
@@ -53,6 +55,11 @@ export default function RegisterScreen() {
 
         if (error) {
             setLoading(false);
+            if (isEmailRateLimitError(error)) {
+                setMessage(EMAIL_RATE_LIMIT_MESSAGE);
+                return;
+            }
+
             Alert.alert('Create account failed', 'We could not create your account right now. Please check your information and try again.');
             return;
         }
@@ -97,6 +104,11 @@ export default function RegisterScreen() {
         setResending(false);
 
         if (error) {
+            if (isEmailRateLimitError(error)) {
+                setMessage(EMAIL_RATE_LIMIT_MESSAGE);
+                return;
+            }
+
             setMessage('We could not resend the confirmation email right now. Please try again in a few minutes.');
             return;
         }
@@ -226,6 +238,29 @@ export default function RegisterScreen() {
                 </Text>
             </View>
         </ScrollView>
+    );
+}
+
+function isEmailRateLimitError(error: unknown) {
+    const status = Number(
+        (error as { status?: unknown; statusCode?: unknown })?.status ??
+        (error as { statusCode?: unknown })?.statusCode
+    );
+    const code = String(
+        (error as { code?: unknown; error_code?: unknown })?.code ??
+        (error as { error_code?: unknown })?.error_code ??
+        ''
+    ).toLowerCase();
+    const message = String((error as { message?: unknown })?.message ?? '').toLowerCase();
+
+    return (
+        status === 429 ||
+        (code.includes('email') && (code.includes('rate_limit') || code.includes('rate-limit'))) ||
+        code.includes('email_rate_limit') ||
+        code.includes('over_email_send_rate_limit') ||
+        code.includes('over-email-send-rate-limit') ||
+        message.includes('email rate limit exceeded') ||
+        message.includes('rate limit')
     );
 }
 

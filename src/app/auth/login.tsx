@@ -10,6 +10,8 @@ import {
 import { resolveLoggedInUserRoute } from '../../lib/onboarding';
 import { supabase } from '../../lib/supabase';
 
+const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
+
 export default function LoginScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -89,6 +91,11 @@ export default function LoginScreen() {
         setResending(false);
 
         if (error) {
+            if (isEmailRateLimitError(error)) {
+                setMessage(EMAIL_RATE_LIMIT_MESSAGE);
+                return;
+            }
+
             setMessage('We could not resend the confirmation email right now. Please try again in a few minutes.');
             return;
         }
@@ -181,6 +188,29 @@ export default function LoginScreen() {
                 </Text>
             </View>
         </ScrollView>
+    );
+}
+
+function isEmailRateLimitError(error: unknown) {
+    const status = Number(
+        (error as { status?: unknown; statusCode?: unknown })?.status ??
+        (error as { statusCode?: unknown })?.statusCode
+    );
+    const code = String(
+        (error as { code?: unknown; error_code?: unknown })?.code ??
+        (error as { error_code?: unknown })?.error_code ??
+        ''
+    ).toLowerCase();
+    const message = String((error as { message?: unknown })?.message ?? '').toLowerCase();
+
+    return (
+        status === 429 ||
+        (code.includes('email') && (code.includes('rate_limit') || code.includes('rate-limit'))) ||
+        code.includes('email_rate_limit') ||
+        code.includes('over_email_send_rate_limit') ||
+        code.includes('over-email-send-rate-limit') ||
+        message.includes('email rate limit exceeded') ||
+        message.includes('rate limit')
     );
 }
 
