@@ -17,10 +17,18 @@ import { supabase } from '../lib/supabase';
 import { ThemeProvider } from '../theme';
 
 const LOGIN_ROUTE = '/auth/login';
+const REGISTER_ROUTE = '/auth/register';
+const FORGOT_PASSWORD_ROUTE = '/auth/forgot-password';
 const RESET_PASSWORD_ROUTE = '/auth/reset-password';
 const ONBOARDING_INVITE_ROUTE = '/onboarding/invite';
 const ONBOARDING_COMPLETE_ROUTE = '/onboarding/complete';
 const PROFILE_CHANGE_PASSWORD_ROUTE = '/profile/change-password';
+const PUBLIC_AUTH_ROUTES = new Set<string>([
+  LOGIN_ROUTE,
+  REGISTER_ROUTE,
+  FORGOT_PASSWORD_ROUTE,
+  RESET_PASSWORD_ROUTE,
+]);
 
 export default function Layout() {
   const pathname = usePathname();
@@ -72,7 +80,7 @@ export default function Layout() {
         return;
       }
 
-      if (event === 'SIGNED_IN' && isAuthPath(normalizePath(pathnameRef.current))) {
+      if (event === 'SIGNED_IN' && isPublicAuthPath(normalizePath(pathnameRef.current))) {
         return;
       }
 
@@ -103,9 +111,13 @@ export default function Layout() {
     if (runId !== checkRunRef.current) return;
 
     const currentPath = normalizePath(currentPathname);
-    const isAuthPage = isAuthPath(currentPath);
-    const isResetPasswordPage = currentPath === RESET_PASSWORD_ROUTE;
+    const isPublicAuthPage = isPublicAuthPath(currentPath);
     const isLoggedIn = !!data.session;
+
+    if (isPublicAuthPage) {
+      finishCheck(runId);
+      return;
+    }
 
     if (isLoggedIn) {
       const timedOut = await hasSessionTimedOut();
@@ -120,18 +132,13 @@ export default function Layout() {
         return;
       }
 
-      if (!isAuthPage) {
+      if (!isAuthPath(currentPath)) {
         await recordSessionActivity();
       }
     }
 
-    if (!isLoggedIn && !isAuthPage) {
+    if (!isLoggedIn) {
       replaceIfNeeded(LOGIN_ROUTE, currentPath);
-      finishCheck(runId);
-      return;
-    }
-
-    if (!isLoggedIn || isResetPasswordPage) {
       finishCheck(runId);
       return;
     }
@@ -198,6 +205,10 @@ function isAuthPath(pathname: string) {
   return pathname === '/auth' || pathname.startsWith('/auth/');
 }
 
+function isPublicAuthPath(pathname: string) {
+  return PUBLIC_AUTH_ROUTES.has(pathname);
+}
+
 function isAllowedFirstHomeOnboardingPath(pathname: string) {
   return pathname === FIRST_HOME_ONBOARDING_ROUTE || pathname === ONBOARDING_INVITE_ROUTE;
 }
@@ -210,6 +221,10 @@ function resolveRedirectForPath(
   pathname: string,
   routeDecision: LoggedInUserRouteDecision
 ) {
+  if (isPublicAuthPath(pathname)) {
+    return null;
+  }
+
   if (isAuthPath(pathname)) {
     return routeDecision.route;
   }
