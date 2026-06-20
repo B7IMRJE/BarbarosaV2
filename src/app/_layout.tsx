@@ -26,11 +26,21 @@ export default function Layout() {
   const pathname = usePathname();
   const pathnameRef = useRef(pathname);
   const checkRunRef = useRef(0);
-  const [checking, setChecking] = useState(true);
+  const initialCheckCompleteRef = useRef(false);
+  const pendingRedirectRef = useRef<string | null>(null);
+  const [initializing, setInitializing] = useState(true);
 
   useEffect(() => {
     pathnameRef.current = pathname;
-    checkLogin(pathname);
+    const currentPath = normalizePath(pathname);
+
+    if (pendingRedirectRef.current === currentPath) {
+      pendingRedirectRef.current = null;
+    }
+
+    checkLogin(pathname, {
+      showLoading: !initialCheckCompleteRef.current,
+    });
   }, [pathname]);
 
   useEffect(() => {
@@ -47,15 +57,22 @@ export default function Layout() {
       clearPendingCheck();
       pendingCheck = setTimeout(() => {
         pendingCheck = null;
-        checkLogin(pathnameRef.current);
+        checkLogin(pathnameRef.current, {
+          showLoading: !initialCheckCompleteRef.current,
+        });
       }, 0);
     }
 
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         clearPendingCheck();
-        setChecking(false);
+        initialCheckCompleteRef.current = true;
+        setInitializing(false);
         replaceIfNeeded(RESET_PASSWORD_ROUTE, pathnameRef.current);
+        return;
+      }
+
+      if (event === 'SIGNED_IN' && isAuthPath(normalizePath(pathnameRef.current))) {
         return;
       }
 
@@ -70,10 +87,16 @@ export default function Layout() {
     };
   }, []);
 
-  async function checkLogin(currentPathname = pathnameRef.current) {
+  async function checkLogin(
+    currentPathname = pathnameRef.current,
+    options: { showLoading?: boolean } = {}
+  ) {
     const runId = checkRunRef.current + 1;
     checkRunRef.current = runId;
-    setChecking(true);
+
+    if (options.showLoading ?? !initialCheckCompleteRef.current) {
+      setInitializing(true);
+    }
 
     const { data } = await supabase.auth.getSession();
 
@@ -93,7 +116,7 @@ export default function Layout() {
         await supabase.auth.signOut();
         await clearSessionActivity();
         replaceIfNeeded(LOGIN_ROUTE, currentPath);
-        setChecking(false);
+        finishCheck(runId);
         return;
       }
 
@@ -104,12 +127,12 @@ export default function Layout() {
 
     if (!isLoggedIn && !isAuthPage) {
       replaceIfNeeded(LOGIN_ROUTE, currentPath);
-      setChecking(false);
+      finishCheck(runId);
       return;
     }
 
     if (!isLoggedIn || isResetPasswordPage) {
-      setChecking(false);
+      finishCheck(runId);
       return;
     }
 
@@ -123,22 +146,46 @@ export default function Layout() {
       replaceIfNeeded(redirectRoute, currentPath);
     }
 
-    setChecking(false);
-  }
-
-  if (checking) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
+    finishCheck(runId);
   }
 
   return (
     <ThemeProvider>
-      <Slot />
+      {initializing ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator size="large" />
+        </View>
+      ) : (
+        <Slot />
+      )}
     </ThemeProvider>
   );
+
+  function finishCheck(runId: number) {
+    if (runId !== checkRunRef.current) return;
+
+    initialCheckCompleteRef.current = true;
+    setInitializing(false);
+  }
+
+  function replaceIfNeeded(route: string, pathname: string) {
+    const currentPath = normalizePath(pathname);
+
+    if (currentPath === route) {
+      if (pendingRedirectRef.current === route) {
+        pendingRedirectRef.current = null;
+      }
+
+      return;
+    }
+
+    if (pendingRedirectRef.current === route) {
+      return;
+    }
+
+    pendingRedirectRef.current = route;
+    router.replace(route as any);
+  }
 }
 
 function normalizePath(pathname: string) {
@@ -195,10 +242,4 @@ function resolveRedirectForPath(
   }
 
   return null;
-}
-
-function replaceIfNeeded(route: string, pathname: string) {
-  if (normalizePath(pathname) !== route) {
-    router.replace(route as any);
-  }
 }
