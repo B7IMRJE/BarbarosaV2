@@ -1,10 +1,10 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
+import HomeIdentityCard from '../components/HomeIdentityCard';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
-import { APP_VERSION, BUILD_DATE, BUILD_LABEL } from '../lib/appVersion';
 import {
   scoreAllSystems,
   scoreHomeItem,
@@ -14,6 +14,7 @@ import {
   type HomeHealthItem,
 } from '../lib/homeHealth';
 import { homeSystems } from '../lib/homeSystems';
+import { loadActiveHomeIdentity, type HomeIdentity } from '../lib/homeIdentity';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -32,6 +33,8 @@ type HomeDashboardItem = HomeHealthItem & {
 
 export default function HomeScreen() {
   const { theme } = useTheme();
+  const [homeIdentity, setHomeIdentity] = useState<HomeIdentity | null>(null);
+  const [homeIdentityLoading, setHomeIdentityLoading] = useState(true);
   const [homeItems, setHomeItems] = useState<HomeDashboardItem[]>([]);
   const [activeEmergencies, setActiveEmergencies] = useState<HomeHealthEmergency[]>([]);
 
@@ -40,7 +43,21 @@ export default function HomeScreen() {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (!user) return;
+    if (!user) {
+      setHomeIdentity(null);
+      setHomeIdentityLoading(false);
+      return;
+    }
+
+    setHomeIdentityLoading(true);
+
+    try {
+      setHomeIdentity(await loadActiveHomeIdentity());
+    } catch {
+      setHomeIdentity(null);
+    } finally {
+      setHomeIdentityLoading(false);
+    }
 
     const { data: items } = await supabase
       .from('home_items')
@@ -134,55 +151,11 @@ export default function HomeScreen() {
       }}
     >
       <View style={{ width: '100%', maxWidth: 900 }}>
-        <Text
-          style={{
-            marginTop: 20,
-            fontSize: 18,
-            color: theme.colors.mutedText,
-            fontWeight: '600',
-          }}
-        >
-          Welcome Home
-        </Text>
-
-        <Text
-          style={{
-            fontSize: 34,
-            fontWeight: '900',
-            color: theme.colors.text,
-            marginTop: 6,
-          }}
-        >
-          Home Health
-        </Text>
-
-        <View
-          style={{
-            alignSelf: 'flex-start',
-            marginTop: 8,
-          }}
-        >
-          <Text
-            style={{
-              color: theme.colors.mutedText,
-              fontSize: 11,
-              fontWeight: '700',
-              lineHeight: 15,
-            }}
-          >
-            {BUILD_LABEL} v{APP_VERSION}
-          </Text>
-          <Text
-            style={{
-              color: theme.colors.mutedText,
-              fontSize: 11,
-              fontWeight: '700',
-              lineHeight: 15,
-            }}
-          >
-            Build: {BUILD_DATE}
-          </Text>
-        </View>
+        <HomeIdentityCard
+          identity={homeIdentity}
+          loading={homeIdentityLoading}
+          onEdit={() => router.push('/home/edit' as any)}
+        />
 
         <ThemedCard
           style={{

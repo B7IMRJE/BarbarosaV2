@@ -10,48 +10,26 @@ import {
     View,
     type TextInputProps,
 } from 'react-native';
+import VerifiedAddressPicker from '../../components/address/VerifiedAddressPicker';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    PROPERTY_TYPE_OPTIONS,
+    createFirstHomeIdentity,
+    type PropertyType,
+    type VerifiedAddress,
+} from '../../lib/homeIdentity';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
-type PropertyType =
-    | 'HOUSE'
-    | 'CONDO'
-    | 'TOWNHOME'
-    | 'APARTMENT'
-    | 'MANUFACTURED_HOME'
-    | 'OTHER';
-
-type FieldName = 'homeName' | 'streetAddress' | 'city' | 'stateName' | 'zip' | 'propertyType';
-
+type FieldName = 'homeName' | 'address' | 'propertyType';
 type FormErrors = Partial<Record<FieldName, string>>;
-
-type FirstPropertyRow = {
-    property_id?: string | null;
-    membership_id?: string | null;
-    created?: boolean | null;
-};
-
-const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
-    { value: 'HOUSE', label: 'Single-family home' },
-    { value: 'CONDO', label: 'Condo' },
-    { value: 'TOWNHOME', label: 'Townhouse' },
-    { value: 'APARTMENT', label: 'Apartment' },
-    { value: 'MANUFACTURED_HOME', label: 'Manufactured home' },
-    { value: 'OTHER', label: 'Other' },
-];
-
-const ZIP_CODE_PATTERN = /^\d{5}(-\d{4})?$/;
 
 export default function CreateHomeOnboardingScreen() {
     const { theme } = useTheme();
     const [homeName, setHomeName] = useState('');
-    const [streetAddress, setStreetAddress] = useState('');
-    const [city, setCity] = useState('');
-    const [stateName, setStateName] = useState('CA');
-    const [zip, setZip] = useState('');
     const [propertyType, setPropertyType] = useState<PropertyType>('HOUSE');
+    const [verifiedAddress, setVerifiedAddress] = useState<VerifiedAddress | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState<FormErrors>({});
     const [canGoBack, setCanGoBack] = useState(false);
@@ -65,17 +43,9 @@ export default function CreateHomeOnboardingScreen() {
         if (submitting) return;
 
         const trimmedHomeName = homeName.trim();
-        const trimmedStreetAddress = streetAddress.trim();
-        const trimmedCity = city.trim();
-        const trimmedState = stateName.trim();
-        const trimmedZip = zip.trim();
-
         const nextErrors = validateHomeForm({
             homeName: trimmedHomeName,
-            streetAddress: trimmedStreetAddress,
-            city: trimmedCity,
-            stateName: trimmedState,
-            zip: trimmedZip,
+            address: verifiedAddress,
             propertyType,
         });
 
@@ -84,6 +54,8 @@ export default function CreateHomeOnboardingScreen() {
             setMessage('');
             return;
         }
+
+        if (!verifiedAddress) return;
 
         setErrors({});
         setMessage('');
@@ -101,34 +73,19 @@ export default function CreateHomeOnboardingScreen() {
             return;
         }
 
-        const { data, error } = await supabase.rpc('create_homeowner_first_property', {
-            p_name: trimmedHomeName,
-            p_address: trimmedStreetAddress,
-            p_city: trimmedCity,
-            p_state: trimmedState,
-            p_zip: trimmedZip,
-            p_property_type: propertyType,
-        });
+        try {
+            await createFirstHomeIdentity({
+                name: trimmedHomeName,
+                propertyType,
+                address: verifiedAddress,
+            });
 
-        setSubmitting(false);
-
-        if (error) {
-            setMessage('We could not create your home right now. Please try again.');
-            return;
+            router.replace('/' as any);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'We could not create your home right now. Please try again.');
+        } finally {
+            setSubmitting(false);
         }
-
-        const createdProperty = normalizeFirstPropertyRow(data);
-        const propertyId =
-            typeof createdProperty?.property_id === 'string'
-                ? createdProperty.property_id.trim()
-                : '';
-
-        if (!propertyId) {
-            setMessage('We could not confirm your home was created. Please try again.');
-            return;
-        }
-
-        router.replace('/' as any);
     }
 
     return (
@@ -175,62 +132,18 @@ export default function CreateHomeOnboardingScreen() {
                             error={errors.homeName}
                         />
 
-                        <ThemedInput
-                            label="Street address"
-                            placeholder="Street address"
-                            value={streetAddress}
-                            onChangeText={(value) => {
-                                setStreetAddress(value);
-                                clearFieldError('streetAddress');
+                        <VerifiedAddressPicker
+                            disabled={submitting}
+                            onAddressConfirmed={(address) => {
+                                setVerifiedAddress(address);
+                                if (address) clearFieldError('address');
                             }}
-                            autoCapitalize="words"
-                            editable={!submitting}
-                            error={errors.streetAddress}
                         />
-
-                        <ThemedInput
-                            label="City"
-                            placeholder="City"
-                            value={city}
-                            onChangeText={(value) => {
-                                setCity(value);
-                                clearFieldError('city');
-                            }}
-                            autoCapitalize="words"
-                            editable={!submitting}
-                            error={errors.city}
-                        />
-
-                        <View style={rowStyle}>
-                            <View style={rowItemStyle}>
-                                <ThemedInput
-                                    label="State"
-                                    placeholder="CA"
-                                    value={stateName}
-                                    onChangeText={(value) => {
-                                        setStateName(value);
-                                        clearFieldError('stateName');
-                                    }}
-                                    autoCapitalize="characters"
-                                    editable={!submitting}
-                                    error={errors.stateName}
-                                />
-                            </View>
-                            <View style={rowItemStyle}>
-                                <ThemedInput
-                                    label="ZIP code"
-                                    placeholder="ZIP code"
-                                    value={zip}
-                                    onChangeText={(value) => {
-                                        setZip(value);
-                                        clearFieldError('zip');
-                                    }}
-                                    keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
-                                    editable={!submitting}
-                                    error={errors.zip}
-                                />
-                            </View>
-                        </View>
+                        {!!errors.address && (
+                            <Text style={[fieldErrorStyle, { color: theme.colors.danger }]}>
+                                {errors.address}
+                            </Text>
+                        )}
 
                         <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Property type</Text>
                         <View style={propertyTypeGridStyle}>
@@ -260,7 +173,7 @@ export default function CreateHomeOnboardingScreen() {
 
                         <ThemedButton
                             title={submitting ? 'Creating home...' : 'Create Home'}
-                            disabled={submitting}
+                            disabled={submitting || !verifiedAddress}
                             onPress={createHome}
                             style={{ marginTop: 18 }}
                         />
@@ -287,29 +200,13 @@ export default function CreateHomeOnboardingScreen() {
     }
 }
 
-function normalizeFirstPropertyRow(data: unknown) {
-    const row = Array.isArray(data) ? data[0] : data;
-
-    if (!row || typeof row !== 'object') {
-        return null;
-    }
-
-    return row as FirstPropertyRow;
-}
-
 function validateHomeForm({
     homeName,
-    streetAddress,
-    city,
-    stateName,
-    zip,
+    address,
     propertyType,
 }: {
     homeName: string;
-    streetAddress: string;
-    city: string;
-    stateName: string;
-    zip: string;
+    address: VerifiedAddress | null;
     propertyType: string;
 }) {
     const nextErrors: FormErrors = {};
@@ -318,22 +215,8 @@ function validateHomeForm({
         nextErrors.homeName = 'Enter a home nickname or display name.';
     }
 
-    if (!streetAddress) {
-        nextErrors.streetAddress = 'Enter the street address.';
-    }
-
-    if (!city) {
-        nextErrors.city = 'Enter the city.';
-    }
-
-    if (!stateName) {
-        nextErrors.stateName = 'Enter the state.';
-    }
-
-    if (!zip) {
-        nextErrors.zip = 'Enter the ZIP code.';
-    } else if (!ZIP_CODE_PATTERN.test(zip)) {
-        nextErrors.zip = 'Enter a valid ZIP code.';
+    if (!address) {
+        nextErrors.address = 'Choose and confirm your verified home address.';
     }
 
     if (!PROPERTY_TYPE_OPTIONS.some((option) => option.value === propertyType)) {
@@ -436,17 +319,6 @@ const fieldErrorStyle = {
     marginTop: 6,
 };
 
-const rowStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 12,
-};
-
-const rowItemStyle = {
-    flexGrow: 1,
-    flexBasis: 220,
-};
-
 const propertyTypeGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
@@ -456,7 +328,7 @@ const propertyTypeGridStyle = {
 
 const propertyTypeButtonStyle = {
     flexGrow: 1,
-    minWidth: 130,
+    minWidth: 150,
     paddingHorizontal: 14,
     paddingVertical: 14,
 };

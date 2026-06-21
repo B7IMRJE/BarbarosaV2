@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { Text, TouchableOpacity, View } from 'react-native';
-import { APP_VERSION, BUILD_DATE, BUILD_LABEL } from '../lib/appVersion';
+import { BUILD_DISPLAY } from '../lib/appVersion';
 import { useTheme } from '../theme/useTheme';
 
 export default function HomeHeader() {
@@ -62,18 +62,7 @@ export default function HomeHeader() {
                         textAlign: 'right',
                     }}
                 >
-                    {BUILD_LABEL} v{APP_VERSION}
-                </Text>
-                <Text
-                    style={{
-                        color: theme.colors.mutedText,
-                        fontSize: 11,
-                        fontWeight: '700',
-                        lineHeight: 15,
-                        textAlign: 'right',
-                    }}
-                >
-                    Build: {BUILD_DATE}
+                    {BUILD_DISPLAY}
                 </Text>
             </View>
         </View>
