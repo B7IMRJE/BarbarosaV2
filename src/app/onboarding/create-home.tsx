@@ -220,6 +220,13 @@ export default function CreateHomeOnboardingScreen() {
                             onPress={() => router.push('/onboarding/invite' as any)}
                             style={{ marginTop: 12 }}
                         />
+
+                        <ThemedButton
+                            title="Company Invitations"
+                            variant="secondary"
+                            onPress={() => router.push('/onboarding/company-invitations' as any)}
+                            style={{ marginTop: 12 }}
+                        />
                     </ThemedCard>
 
                     {!!message && (

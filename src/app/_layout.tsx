@@ -21,6 +21,7 @@ const REGISTER_ROUTE = '/auth/register';
 const FORGOT_PASSWORD_ROUTE = '/auth/forgot-password';
 const RESET_PASSWORD_ROUTE = '/auth/reset-password';
 const ONBOARDING_INVITE_ROUTE = '/onboarding/invite';
+const COMPANY_INVITATIONS_ROUTE = '/onboarding/company-invitations';
 const ONBOARDING_COMPLETE_ROUTE = '/onboarding/complete';
 const PROFILE_CHANGE_PASSWORD_ROUTE = '/profile/change-password';
 const PUBLIC_AUTH_ROUTES = new Set<string>([
@@ -210,7 +211,11 @@ function isPublicAuthPath(pathname: string) {
 }
 
 function isAllowedFirstHomeOnboardingPath(pathname: string) {
-  return pathname === FIRST_HOME_ONBOARDING_ROUTE || pathname === ONBOARDING_INVITE_ROUTE;
+  return (
+    pathname === FIRST_HOME_ONBOARDING_ROUTE ||
+    pathname === ONBOARDING_INVITE_ROUTE ||
+    pathname === COMPANY_INVITATIONS_ROUTE
+  );
 }
 
 function isSuperAdminPath(pathname: string) {

@@ -86,6 +86,13 @@ export default function ProfileScreen() {
                 />
 
                 <ThemedButton
+                    title="Company Invitations"
+                    variant="secondary"
+                    onPress={() => router.push('/onboarding/company-invitations' as any)}
+                    style={{ marginBottom: 14 }}
+                />
+
+                <ThemedButton
                     title="Session Security"
                     variant="secondary"
                     onPress={() => router.push('/profile/security' as any)}
