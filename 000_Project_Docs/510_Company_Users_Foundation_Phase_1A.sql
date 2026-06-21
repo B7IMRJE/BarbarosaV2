@@ -2,21 +2,34 @@
 -- Creates multi-company membership support, invitation records, secured RPCs,
 -- and explicit company-id connection-code redemption.
 
+begin;
+
 alter table public.company_users
-    add column if not exists updated_at timestamptz;
+    add column if not exists auth_user_id uuid null,
+    add column if not exists status text,
+    add column if not exists updated_at timestamptz,
+    add column if not exists invited_by_user_id uuid null,
+    add column if not exists deactivated_at timestamptz null;
+
+alter table public.company_users
+    alter column auth_user_id drop not null,
+    alter column status drop not null,
+    alter column updated_at drop not null;
 
 update public.company_users
 set updated_at = coalesce(updated_at, created_at, now())
 where updated_at is null;
 
 alter table public.company_users
-    alter column updated_at set default now(),
-    alter column updated_at set not null,
-    add column if not exists invited_by_user_id uuid null,
-    add column if not exists deactivated_at timestamptz null;
+    alter column updated_at set default now();
 
 alter table public.company_users
-    alter column auth_user_id set not null;
+    drop constraint if exists company_users_auth_user_id_key,
+    drop constraint if exists company_users_company_id_auth_user_id_key,
+    drop constraint if exists company_users_role_check,
+    drop constraint if exists company_users_status_check;
+
+drop index if exists public.company_users_auth_user_id_key;
 
 update public.company_users company_user
 set role = normalized.normalized_role,
@@ -37,6 +50,74 @@ from (
 where company_user.id = normalized.id
   and company_user.role is distinct from normalized.normalized_role;
 
+with legacy_company_users as (
+    select
+        company_user.id,
+        company_user.company_id,
+        lower(btrim(company_user.email)) as normalized_email
+    from public.company_users company_user
+    where company_user.auth_user_id is null
+      and nullif(btrim(coalesce(company_user.email, '')), '') is not null
+),
+profile_matches as (
+    select
+        legacy_company_user.id as company_user_id,
+        profile.id as auth_user_id
+    from legacy_company_users legacy_company_user
+    join public.profiles profile
+      on lower(btrim(coalesce(profile.email, ''))) = legacy_company_user.normalized_email
+    join auth.users auth_user
+      on auth_user.id = profile.id
+),
+auth_matches as (
+    select
+        legacy_company_user.id as company_user_id,
+        auth_user.id as auth_user_id
+    from legacy_company_users legacy_company_user
+    join auth.users auth_user
+      on lower(btrim(coalesce(auth_user.email, ''))) = legacy_company_user.normalized_email
+),
+unambiguous_matches as (
+    select
+        candidate_match.company_user_id,
+        (array_agg(
+            candidate_match.auth_user_id
+            order by candidate_match.auth_user_id
+        ))[1] as auth_user_id
+    from (
+        select company_user_id, auth_user_id from profile_matches
+        union
+        select company_user_id, auth_user_id from auth_matches
+    ) candidate_match
+    group by candidate_match.company_user_id
+    having count(distinct candidate_match.auth_user_id) = 1
+),
+unique_membership_matches as (
+    select
+        company_user.id as company_user_id,
+        unambiguous_match.auth_user_id,
+        count(*) over (
+            partition by company_user.company_id, unambiguous_match.auth_user_id
+        ) as membership_match_count
+    from public.company_users company_user
+    join unambiguous_matches unambiguous_match
+      on unambiguous_match.company_user_id = company_user.id
+)
+update public.company_users company_user
+set auth_user_id = unique_membership_match.auth_user_id,
+    status = 'active',
+    updated_at = now()
+from unique_membership_matches unique_membership_match
+where company_user.id = unique_membership_match.company_user_id
+  and unique_membership_match.membership_match_count = 1
+  and not exists (
+      select 1
+      from public.company_users existing_company_user
+      where existing_company_user.id <> company_user.id
+        and existing_company_user.company_id = company_user.company_id
+        and existing_company_user.auth_user_id = unique_membership_match.auth_user_id
+  );
+
 update public.company_users company_user
 set status = normalized.normalized_status,
     updated_at = now()
@@ -44,70 +125,15 @@ from (
     select
         id,
         case
+            when auth_user_id is null then 'pending'
             when lower(trim(coalesce(status, ''))) in ('pending', 'active', 'suspended', 'inactive', 'revoked')
                 then lower(trim(status))
-            else 'inactive'
+            else 'active'
         end as normalized_status
     from public.company_users
 ) normalized
 where company_user.id = normalized.id
   and company_user.status is distinct from normalized.normalized_status;
-
-alter table public.company_users
-    alter column role set default 'technician',
-    alter column status set default 'active',
-    alter column role set not null,
-    alter column status set not null;
-
-alter table public.company_users
-    drop constraint if exists company_users_auth_user_id_key,
-    drop constraint if exists company_users_role_check,
-    drop constraint if exists company_users_status_check;
-
-alter table public.company_users
-    add constraint company_users_role_check
-        check (role in ('owner', 'admin', 'manager', 'office', 'technician')),
-    add constraint company_users_status_check
-        check (status in ('pending', 'active', 'suspended', 'inactive', 'revoked'));
-
-do $$
-begin
-    if not exists (
-        select 1
-        from pg_constraint
-        where conname = 'company_users_company_id_auth_user_id_key'
-          and conrelid = 'public.company_users'::regclass
-    ) then
-        alter table public.company_users
-            add constraint company_users_company_id_auth_user_id_key
-            unique (company_id, auth_user_id);
-    end if;
-end
-$$;
-
-create index if not exists company_users_company_id_auth_user_id_idx
-on public.company_users (company_id, auth_user_id);
-
-create index if not exists company_users_company_id_normalized_email_idx
-on public.company_users (company_id, lower(btrim(email)))
-where email is not null;
-
-do $$
-begin
-    if to_regclass('auth.users') is not null
-       and not exists (
-           select 1
-           from pg_constraint
-           where conname = 'company_users_invited_by_user_id_fkey'
-             and conrelid = 'public.company_users'::regclass
-       ) then
-        alter table public.company_users
-            add constraint company_users_invited_by_user_id_fkey
-            foreign key (invited_by_user_id)
-            references auth.users(id);
-    end if;
-end
-$$;
 
 create table if not exists public.company_user_invitations (
     id uuid primary key default gen_random_uuid(),
@@ -118,7 +144,7 @@ create table if not exists public.company_user_invitations (
     status text not null default 'pending',
     token_hash text null,
     expires_at timestamptz null,
-    invited_by_user_id uuid not null,
+    invited_by_user_id uuid null,
     accepted_by_user_id uuid null,
     accepted_at timestamptz null,
     revoked_at timestamptz null,
@@ -141,6 +167,9 @@ alter table public.company_user_invitations
     add column if not exists revoked_at timestamptz null,
     add column if not exists created_at timestamptz,
     add column if not exists updated_at timestamptz;
+
+alter table public.company_user_invitations
+    alter column invited_by_user_id drop not null;
 
 update public.company_user_invitations
 set email = lower(btrim(email))
@@ -204,7 +233,6 @@ alter table public.company_user_invitations
     alter column role set default 'technician',
     alter column status set not null,
     alter column status set default 'pending',
-    alter column invited_by_user_id set not null,
     alter column created_at set not null,
     alter column created_at set default now(),
     alter column updated_at set not null,
@@ -294,6 +322,202 @@ begin
         alter table public.company_user_invitations
             add constraint company_user_invitations_accepted_by_user_id_fkey
             foreign key (accepted_by_user_id)
+            references auth.users(id);
+    end if;
+end
+$$;
+
+do $$
+declare
+    v_company_user_id_references integer := 0;
+begin
+    select count(*)
+    into v_company_user_id_references
+    from pg_constraint constraint_info
+    where constraint_info.contype = 'f'
+      and constraint_info.confrelid = 'public.company_users'::regclass
+      and (
+          select id_attribute.attnum
+          from pg_attribute id_attribute
+          where id_attribute.attrelid = 'public.company_users'::regclass
+            and id_attribute.attname = 'id'
+      ) = any (constraint_info.confkey);
+
+    if v_company_user_id_references > 0
+       and exists (
+           select 1
+           from public.company_users company_user
+           where company_user.auth_user_id is null
+       ) then
+        raise exception
+            'Cannot delete unlinked legacy company_users rows while foreign keys reference company_users.id';
+    end if;
+end
+$$;
+
+with unlinked_legacy_company_users as (
+    select
+        company_user.id,
+        company_user.company_id,
+        nullif(btrim(company_user.full_name), '') as full_name,
+        lower(btrim(company_user.email)) as normalized_email,
+        company_user.role,
+        company_user.created_at
+    from public.company_users company_user
+    where company_user.auth_user_id is null
+      and company_user.company_id is not null
+      and nullif(btrim(coalesce(company_user.email, '')), '') is not null
+),
+prepared_legacy_invitations as (
+    select distinct on (
+        unlinked_legacy_company_user.company_id,
+        unlinked_legacy_company_user.normalized_email
+    )
+        unlinked_legacy_company_user.company_id,
+        unlinked_legacy_company_user.normalized_email,
+        unlinked_legacy_company_user.full_name,
+        unlinked_legacy_company_user.role,
+        coalesce(unlinked_legacy_company_user.created_at, now()) as created_at
+    from unlinked_legacy_company_users unlinked_legacy_company_user
+    order by
+        unlinked_legacy_company_user.company_id,
+        unlinked_legacy_company_user.normalized_email,
+        unlinked_legacy_company_user.created_at nulls last,
+        unlinked_legacy_company_user.id
+),
+inserted_legacy_invitations as (
+    insert into public.company_user_invitations (
+        company_id,
+        email,
+        full_name,
+        role,
+        status,
+        invited_by_user_id,
+        created_at,
+        updated_at
+    )
+    select
+        prepared_legacy_invitation.company_id,
+        prepared_legacy_invitation.normalized_email,
+        prepared_legacy_invitation.full_name,
+        prepared_legacy_invitation.role,
+        'pending',
+        null,
+        prepared_legacy_invitation.created_at,
+        now()
+    from prepared_legacy_invitations prepared_legacy_invitation
+    where not exists (
+        select 1
+        from public.company_user_invitations existing_invitation
+        where existing_invitation.company_id = prepared_legacy_invitation.company_id
+          and existing_invitation.status = 'pending'
+          and lower(btrim(existing_invitation.email)) = prepared_legacy_invitation.normalized_email
+    )
+    returning company_id, lower(btrim(email)) as normalized_email
+),
+available_legacy_invitations as (
+    select
+        inserted_legacy_invitation.company_id,
+        inserted_legacy_invitation.normalized_email
+    from inserted_legacy_invitations inserted_legacy_invitation
+    union
+    select
+        prepared_legacy_invitation.company_id,
+        prepared_legacy_invitation.normalized_email
+    from prepared_legacy_invitations prepared_legacy_invitation
+    where exists (
+        select 1
+        from public.company_user_invitations existing_invitation
+        where existing_invitation.company_id = prepared_legacy_invitation.company_id
+          and existing_invitation.status = 'pending'
+          and lower(btrim(existing_invitation.email)) = prepared_legacy_invitation.normalized_email
+    )
+)
+delete from public.company_users company_user
+using unlinked_legacy_company_users unlinked_legacy_company_user
+where company_user.id = unlinked_legacy_company_user.id
+  and exists (
+      select 1
+      from available_legacy_invitations available_legacy_invitation
+      where available_legacy_invitation.company_id = unlinked_legacy_company_user.company_id
+        and available_legacy_invitation.normalized_email = unlinked_legacy_company_user.normalized_email
+  );
+
+do $$
+begin
+    if exists (
+        select 1
+        from public.company_users company_user
+        where company_user.auth_user_id is null
+    ) then
+        raise exception
+            'Cannot set company_users.auth_user_id not null because unlinked legacy rows remain';
+    end if;
+end
+$$;
+
+alter table public.company_users
+    alter column updated_at set not null,
+    alter column role set default 'technician',
+    alter column status set default 'active',
+    alter column role set not null,
+    alter column status set not null,
+    alter column auth_user_id set not null;
+
+alter table public.company_users
+    add constraint company_users_role_check
+        check (role in ('owner', 'admin', 'manager', 'office', 'technician')),
+    add constraint company_users_status_check
+        check (status in ('pending', 'active', 'suspended', 'inactive', 'revoked'));
+
+do $$
+begin
+    if not exists (
+        select 1
+        from pg_constraint
+        where conname = 'company_users_company_id_auth_user_id_key'
+          and conrelid = 'public.company_users'::regclass
+    ) then
+        alter table public.company_users
+            add constraint company_users_company_id_auth_user_id_key
+            unique (company_id, auth_user_id);
+    end if;
+end
+$$;
+
+create index if not exists company_users_company_id_auth_user_id_idx
+on public.company_users (company_id, auth_user_id);
+
+create index if not exists company_users_company_id_normalized_email_idx
+on public.company_users (company_id, lower(btrim(email)))
+where email is not null;
+
+do $$
+begin
+    if to_regclass('auth.users') is not null
+       and not exists (
+           select 1
+           from pg_constraint
+           where conname = 'company_users_auth_user_id_fkey'
+             and conrelid = 'public.company_users'::regclass
+       ) then
+        alter table public.company_users
+            add constraint company_users_auth_user_id_fkey
+            foreign key (auth_user_id)
+            references auth.users(id)
+            on delete cascade;
+    end if;
+
+    if to_regclass('auth.users') is not null
+       and not exists (
+           select 1
+           from pg_constraint
+           where conname = 'company_users_invited_by_user_id_fkey'
+             and conrelid = 'public.company_users'::regclass
+       ) then
+        alter table public.company_users
+            add constraint company_users_invited_by_user_id_fkey
+            foreign key (invited_by_user_id)
             references auth.users(id);
     end if;
 end
@@ -797,3 +1021,5 @@ begin
     end if;
 end
 $$;
+
+commit;
