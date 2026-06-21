@@ -14,6 +14,11 @@ type RedemptionResult = {
     status: string;
 };
 
+type PlatformProfile = {
+    role?: string | null;
+    is_platform_admin?: boolean | null;
+};
+
 export default function CompanyRedeemCodeScreen() {
     const { theme } = useTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -24,9 +29,15 @@ export default function CompanyRedeemCodeScreen() {
 
     async function redeemCode() {
         const cleanCode = code.trim().toUpperCase();
+        const companyId = id ? String(id) : '';
 
         if (!cleanCode) {
             setMessage('Enter a connection code.');
+            return;
+        }
+
+        if (!companyId) {
+            setMessage('Missing company id.');
             return;
         }
 
@@ -40,26 +51,26 @@ export default function CompanyRedeemCodeScreen() {
             return;
         }
 
-        const { data: membership, error: membershipError } = await supabase
-            .from('company_users')
-            .select('company_id')
-            .eq('auth_user_id', user.id)
-            .eq('status', 'active')
-            .maybeSingle();
+        const platformAdminCheck = await loadPlatformAdminStatus(user.id);
 
-        if (membershipError) {
-            setMessage(`Could not verify company access: ${membershipError.message}`);
-            return;
-        }
+        if (!platformAdminCheck.isPlatformAdmin) {
+            const { data: memberships, error: membershipError } = await supabase
+                .from('company_users')
+                .select('id')
+                .eq('auth_user_id', user.id)
+                .eq('company_id', companyId)
+                .eq('status', 'active')
+                .limit(1);
 
-        if (!membership) {
-            setMessage('No active company membership found.');
-            return;
-        }
+            if (membershipError) {
+                setMessage(`Could not verify company access: ${membershipError.message}`);
+                return;
+            }
 
-        if (id && String(id) !== membership.company_id) {
-            setMessage('This page does not match your active company.');
-            return;
+            if (!memberships || memberships.length === 0) {
+                setMessage('No active membership found for this company.');
+                return;
+            }
         }
 
         setLoading(true);
@@ -68,6 +79,7 @@ export default function CompanyRedeemCodeScreen() {
 
         const { data, error } = await supabase.rpc('redeem_connection_code', {
             p_code: cleanCode,
+            p_company_id: companyId,
         });
 
         setLoading(false);
@@ -169,6 +181,39 @@ export default function CompanyRedeemCodeScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function isPlatformAdminProfile(profile?: PlatformProfile | null) {
+    return (
+        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
+        profile?.is_platform_admin === true
+    );
+}
+
+async function loadPlatformAdminStatus(userId: string) {
+    const primaryQuery = await supabase
+        .from('profiles')
+        .select('role, is_platform_admin')
+        .eq('id', userId)
+        .limit(1);
+
+    if (!primaryQuery.error) {
+        return {
+            isPlatformAdmin: isPlatformAdminProfile((primaryQuery.data || [])[0] as PlatformProfile | undefined),
+            error: null,
+        };
+    }
+
+    const fallbackQuery = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .limit(1);
+
+    return {
+        isPlatformAdmin: isPlatformAdminProfile((fallbackQuery.data || [])[0] as PlatformProfile | undefined),
+        error: fallbackQuery.error,
+    };
 }
 
 const backTextStyle = {
