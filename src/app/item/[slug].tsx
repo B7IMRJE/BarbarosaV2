@@ -23,6 +23,8 @@ import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
+declare const __DEV__: boolean;
+
 type ItemFile = {
     id: string;
     home_item_id: string | null;
@@ -34,16 +36,18 @@ type ItemFile = {
     file_name: string | null;
     file_type: string;
     category: string;
-    created_at: string;
+    created_at: string | null;
+};
+
+type GalleryPhoto = ItemFile & {
+    isMainPhoto?: boolean;
 };
 
 const photoCategories = [
     'equipment_photo',
-    'label_photo',
     'serial_photo',
-    'before_photo',
-    'after_photo',
-    'other',
+    'model_photo',
+    'other_photo',
 ];
 
 const documentCategories = [
@@ -85,6 +89,26 @@ function documentLabel(category: string, variant: 'singular' | 'plural' = 'singu
     return documentCategoryLabels[category]?.[variant] || category.replace(/_/g, ' ');
 }
 
+function photoLabel(category: string) {
+    const labels: Record<string, string> = {
+        main_photo: 'Main Photo',
+        equipment_photo: 'Equipment Photo',
+        label_photo: 'Label Photo',
+        serial_photo: 'Serial Number Photo',
+        model_photo: 'Model Number Photo',
+        before_photo: 'Before Photo',
+        after_photo: 'After Photo',
+        other: 'Other Photo',
+        other_photo: 'Other Photo',
+    };
+
+    return labels[category] || category.replace(/_/g, ' ');
+}
+
+function normalizePhotoCategory(category: string) {
+    return category === 'other' ? 'other_photo' : category;
+}
+
 function isImageFile(fileName?: string | null) {
     const lowerName = fileName?.toLowerCase() || '';
     return (
@@ -103,7 +127,9 @@ function mergeUniqueFiles(...groups: ItemFile[][]) {
         filesById.set(key, file);
     });
 
-    return Array.from(filesById.values()).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return Array.from(filesById.values()).sort((a, b) =>
+        String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    );
 }
 
 function getStorageBucket(file: ItemFile) {
@@ -131,6 +157,52 @@ function getStoragePath(file: ItemFile) {
     return null;
 }
 
+function buildGalleryPhotos(mainPhotoUrl: string | null | undefined, appendedPhotos: ItemFile[]) {
+    const usedUrls = new Set<string>();
+    const galleryPhotos: GalleryPhoto[] = [];
+
+    if (mainPhotoUrl) {
+        usedUrls.add(mainPhotoUrl);
+        galleryPhotos.push({
+            id: 'main-photo',
+            home_item_id: null,
+            item_slug: null,
+            user_id: null,
+            storage_bucket: 'item-photos',
+            storage_path: null,
+            file_url: mainPhotoUrl,
+            file_name: 'Main Photo',
+            file_type: 'photo',
+            category: 'main_photo',
+            created_at: null,
+            isMainPhoto: true,
+        });
+    }
+
+    appendedPhotos.forEach((photo) => {
+        if (!photo.file_url || usedUrls.has(photo.file_url)) return;
+        usedUrls.add(photo.file_url);
+        galleryPhotos.push(photo);
+    });
+
+    return galleryPhotos;
+}
+
+function getSafeErrorCode(error: unknown) {
+    const candidate =
+        (error as { code?: unknown; status?: unknown; name?: unknown } | null)?.code ??
+        (error as { status?: unknown; name?: unknown } | null)?.status ??
+        (error as { name?: unknown } | null)?.name;
+
+    return typeof candidate === 'string' || typeof candidate === 'number' ? String(candidate) : 'unknown';
+}
+
+function logMediaDebug(stage: string, error?: unknown) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.info('[ItemMedia]', { stage, code: error ? getSafeErrorCode(error) : 'none' });
+    }
+}
+
 export default function ItemScreen() {
     const { theme } = useTheme();
     const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
@@ -139,6 +211,7 @@ export default function ItemScreen() {
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [capturingPhoto, setCapturingPhoto] = useState(false);
     const [showPhoto, setShowPhoto] = useState(false);
     const [showPhotos, setShowPhotos] = useState(false);
     const [showDocuments, setShowDocuments] = useState(false);
@@ -228,6 +301,7 @@ export default function ItemScreen() {
         const resolvedHomeItemId = homeItemId || String(item?.id || '');
         const resolvedItemSlug = itemSlug || item?.item_slug || String(slug);
         const fileGroups: ItemFile[][] = [];
+        let homeItemIdQueryFailed = false;
 
         if (resolvedHomeItemId) {
             const { data, error } = await supabase
@@ -238,11 +312,11 @@ export default function ItemScreen() {
                 .order('created_at', { ascending: false });
 
             if (error) {
-                setMessage(`Files load failed: ${error.message}`);
-                return;
+                homeItemIdQueryFailed = true;
+                logMediaDebug('load-files-home-item-id', error);
+            } else {
+                fileGroups.push((data || []) as ItemFile[]);
             }
-
-            fileGroups.push((data || []) as ItemFile[]);
         }
 
         if (resolvedItemSlug) {
@@ -254,11 +328,18 @@ export default function ItemScreen() {
                 .order('created_at', { ascending: false });
 
             if (error) {
-                setMessage(`Files load failed: ${error.message}`);
+                logMediaDebug('load-files-item-slug', error);
+                setMessage('Files could not be loaded. Please try again.');
                 return;
             }
 
             fileGroups.push((data || []) as ItemFile[]);
+        }
+
+        if (homeItemIdQueryFailed && !resolvedItemSlug) {
+            setMessage('Files could not be loaded. Please try again.');
+            setFiles([]);
+            return;
         }
 
         setFiles(mergeUniqueFiles(...fileGroups));
@@ -295,7 +376,8 @@ export default function ItemScreen() {
                 });
 
             if (uploadError) {
-                setMessage(`Upload failed: ${uploadError.message}`);
+                logMediaDebug('main-photo-storage-upload', uploadError);
+                setMessage('Main photo upload failed. Please try again.');
                 return;
             }
 
@@ -312,16 +394,26 @@ export default function ItemScreen() {
                 .eq('user_id', user.id);
 
             if (updateError) {
-                setMessage(`Photo saved but item update failed: ${updateError.message}`);
+                logMediaDebug('main-photo-item-update', updateError);
+                setMessage('Main photo uploaded but could not be saved. Please try again.');
                 return;
             }
 
             setMessage('Main photo uploaded.');
             await loadItem();
         } catch (error: any) {
-            setMessage(`Upload failed: ${error.message || 'Unknown error'}`);
+            logMediaDebug('main-photo-upload', error);
+            setMessage('Main photo upload failed. Please try again.');
         } finally {
             setUploading(false);
+        }
+    }
+
+    async function cleanupUploadedFile(bucket: string, path: string, stage: string) {
+        const { error } = await supabase.storage.from(bucket).remove([path]);
+
+        if (error) {
+            logMediaDebug(stage, error);
         }
     }
 
@@ -337,7 +429,7 @@ export default function ItemScreen() {
         mimeType: string;
         fileType: 'photo' | 'document';
         category: string;
-    }) {
+    }): Promise<boolean> {
         try {
             setUploading(true);
             setMessage(`Uploading ${fileType}...`);
@@ -350,14 +442,15 @@ export default function ItemScreen() {
             if (userError || !user) {
                 setMessage(`You must be logged in to upload ${fileType}s.`);
                 router.replace('/auth/login' as any);
-                return;
+                return false;
             }
 
             const response = await fetch(uri);
             const arrayBuffer = await response.arrayBuffer();
 
             const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, '-');
-            const filePath = `users/${user.id}/items/${String(slug)}/${fileType}s/${Date.now()}-${cleanName}`;
+            const resolvedItemSlug = item?.item_slug || String(slug);
+            const filePath = `users/${user.id}/items/${resolvedItemSlug}/${fileType}s/${Date.now()}-${cleanName}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('item-files')
@@ -367,8 +460,9 @@ export default function ItemScreen() {
                 });
 
             if (uploadError) {
-                setMessage(`Upload failed: ${uploadError.message}`);
-                return;
+                logMediaDebug(`${fileType}-storage-upload`, uploadError);
+                setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} upload failed. Please try again.`);
+                return false;
             }
 
             const { data: publicUrlData } = supabase.storage
@@ -382,7 +476,7 @@ export default function ItemScreen() {
                 .insert({
                     user_id: user.id,
                     home_item_id: item?.id || null,
-                    item_slug: String(slug),
+                    item_slug: resolvedItemSlug,
                     storage_bucket: 'item-files',
                     storage_path: filePath,
                     file_url: fileUrl,
@@ -392,8 +486,10 @@ export default function ItemScreen() {
                 });
 
             if (insertError) {
-                setMessage(`File uploaded but record failed: ${insertError.message}`);
-                return;
+                logMediaDebug(`${fileType}-metadata-insert`, insertError);
+                await cleanupUploadedFile('item-files', filePath, `${fileType}-metadata-cleanup`);
+                setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} upload failed. Please try again.`);
+                return false;
             }
 
             setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} uploaded.`);
@@ -402,8 +498,11 @@ export default function ItemScreen() {
                 homeItemId: String(item?.id || ''),
                 itemSlug: item?.item_slug || String(slug),
             });
+            return true;
         } catch (error: any) {
-            setMessage(`Upload failed: ${error.message || 'Unknown error'}`);
+            logMediaDebug(`${fileType}-upload`, error);
+            setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} upload failed. Please try again.`);
+            return false;
         } finally {
             setUploading(false);
         }
@@ -427,7 +526,12 @@ export default function ItemScreen() {
         await uploadMainPhotoFromAsset(result.assets[0]);
     }
 
+    async function handleTakeMainPhoto() {
+        await capturePhoto('main');
+    }
+
     async function handleUploadAdditionalPhoto() {
+        const selectedCategory = normalizePhotoCategory(photoCategory);
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
         if (!permission.granted) {
@@ -449,8 +553,12 @@ export default function ItemScreen() {
             fileName: asset.fileName || `${String(slug)}-${Date.now()}.jpg`,
             mimeType: asset.mimeType || 'image/jpeg',
             fileType: 'photo',
-            category: photoCategory,
+            category: selectedCategory,
         });
+    }
+
+    async function handleTakeAdditionalPhoto() {
+        await capturePhoto('additional', normalizePhotoCategory(photoCategory));
     }
 
     async function handleUploadDocument() {
@@ -469,7 +577,7 @@ export default function ItemScreen() {
 
         const asset = result.assets[0];
 
-        await uploadExtraFile({
+        const uploaded = await uploadExtraFile({
             uri: asset.uri,
             fileName: asset.name || `${String(slug)}-${Date.now()}`,
             mimeType: asset.mimeType || 'application/octet-stream',
@@ -477,13 +585,17 @@ export default function ItemScreen() {
             category: selectedType,
         });
 
-        setSelectedDocumentType(selectedType);
-        setShowDocuments(true);
+        if (uploaded) {
+            setSelectedDocumentType(selectedType);
+            setShowDocuments(true);
+        }
     }
 
-
-    async function handleOpenCamera() {
+    async function capturePhoto(intent: 'main' | 'additional', category = 'equipment_photo') {
         try {
+            if (capturingPhoto || uploading) return;
+
+            setCapturingPhoto(true);
             const permission = await ImagePicker.requestCameraPermissionsAsync();
 
             if (!permission.granted) {
@@ -498,9 +610,25 @@ export default function ItemScreen() {
 
             if (result.canceled) return;
 
-            await uploadMainPhotoFromAsset(result.assets[0]);
+            const asset = result.assets[0];
+
+            if (intent === 'main') {
+                await uploadMainPhotoFromAsset(asset);
+                return;
+            }
+
+            await uploadExtraFile({
+                uri: asset.uri,
+                fileName: asset.fileName || `${String(slug)}-${Date.now()}.jpg`,
+                mimeType: asset.mimeType || 'image/jpeg',
+                fileType: 'photo',
+                category,
+            });
         } catch (error: any) {
-            setMessage(`Camera could not open: ${error.message || 'Check camera permissions and try again.'}`);
+            logMediaDebug('camera-capture', error);
+            setMessage('Camera could not open. Check camera permissions and try again.');
+        } finally {
+            setCapturingPhoto(false);
         }
     }
 
@@ -642,7 +770,7 @@ export default function ItemScreen() {
             const storagePath = getStoragePath(file);
 
             if (!storagePath) {
-                setMessage('Could not determine storage path for this file.');
+                setMessage('This legacy file record cannot be removed from storage safely yet.');
                 return;
             }
 
@@ -651,7 +779,8 @@ export default function ItemScreen() {
                 .remove([storagePath]);
 
             if (storageError) {
-                setMessage(`Storage delete failed: ${storageError.message}`);
+                logMediaDebug('file-storage-remove', storageError);
+                setMessage('File could not be removed. Please try again.');
                 return;
             }
 
@@ -662,7 +791,8 @@ export default function ItemScreen() {
                 .eq('user_id', user.id);
 
             if (deleteError) {
-                setMessage(`File record delete failed: ${deleteError.message}`);
+                logMediaDebug('file-metadata-delete', deleteError);
+                setMessage('File could not be removed. Please try again.');
                 return;
             }
 
@@ -673,7 +803,8 @@ export default function ItemScreen() {
                 itemSlug: item?.item_slug || String(slug),
             });
         } catch (error: any) {
-            setMessage(`File remove failed: ${error.message || 'Unknown error'}`);
+            logMediaDebug('file-remove', error);
+            setMessage('File could not be removed. Please try again.');
         } finally {
             setRemovingFileId(null);
         }
@@ -699,7 +830,10 @@ export default function ItemScreen() {
     }
 
     const photos = files.filter((file) => file.file_type === 'photo');
+    const galleryPhotos = buildGalleryPhotos(item.photo_url, photos);
     const documents = files.filter((file) => file.file_type === 'document');
+    const mediaActionBusy = uploading || capturingPhoto;
+    const mediaBusyTitle = uploading ? 'Uploading...' : 'Opening...';
 
     const groupedDocuments = documentCategories.map((category) => ({
         category,
@@ -779,7 +913,7 @@ export default function ItemScreen() {
                     <View style={fileSummaryStyle}>
                         <ThemedCard style={fileSummaryCardStyle}>
                             <Text style={[fileSummaryTitleStyle, { color: theme.colors.mutedText }]}>Photos</Text>
-                            <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{photos.length}</Text>
+                            <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{galleryPhotos.length}</Text>
                         </ThemedCard>
 
                         <ThemedCard style={fileSummaryCardStyle}>
@@ -793,6 +927,7 @@ export default function ItemScreen() {
                         options={photoCategories}
                         value={photoCategory}
                         onChange={setPhotoCategory}
+                        labelForOption={photoLabel}
                     />
 
                     <View style={actionGridStyle}>
@@ -822,33 +957,41 @@ export default function ItemScreen() {
                         )}
 
                         <ThemedButton
-                            title={uploading ? 'Uploading...' : 'Upload Main Photo'}
+                            title={mediaActionBusy ? mediaBusyTitle : 'Upload Main Photo'}
                             onPress={handleUploadMainPhoto}
-                            disabled={uploading}
+                            disabled={mediaActionBusy}
                             style={buttonStyle}
                             textStyle={buttonTextStyle}
                         />
 
                         <ThemedButton
-                            title={uploading ? 'Uploading...' : 'Upload Additional Photo'}
+                            title={mediaActionBusy ? mediaBusyTitle : 'Take Main Photo'}
+                            onPress={handleTakeMainPhoto}
+                            disabled={mediaActionBusy}
+                            style={buttonStyle}
+                            textStyle={buttonTextStyle}
+                        />
+
+                        <ThemedButton
+                            title={mediaActionBusy ? mediaBusyTitle : 'Choose Photo'}
                             onPress={handleUploadAdditionalPhoto}
-                            disabled={uploading}
+                            disabled={mediaActionBusy}
                             style={buttonStyle}
                             textStyle={buttonTextStyle}
                         />
 
                         <ThemedButton
-                            title={uploading ? 'Uploading...' : 'Upload Document'}
+                            title={mediaActionBusy ? mediaBusyTitle : 'Upload Document'}
                             onPress={handleUploadDocument}
-                            disabled={uploading}
+                            disabled={mediaActionBusy}
                             style={buttonStyle}
                             textStyle={buttonTextStyle}
                         />
 
                         <ThemedButton
-                            title={uploading ? 'Uploading...' : 'Open Camera'}
-                            onPress={handleOpenCamera}
-                            disabled={uploading}
+                            title={mediaActionBusy ? mediaBusyTitle : 'Take Photo'}
+                            onPress={handleTakeAdditionalPhoto}
+                            disabled={mediaActionBusy}
                             style={buttonStyle}
                             textStyle={buttonTextStyle}
                         />
@@ -940,7 +1083,7 @@ export default function ItemScreen() {
                     <Text style={[modalTitleStyle, { color: theme.colors.text }]}>Photos</Text>
 
                     <View style={galleryGridStyle}>
-                        {photos.map((photo) => (
+                        {galleryPhotos.map((photo) => (
                             <View
                                 key={photo.id}
                                 style={[
@@ -959,23 +1102,25 @@ export default function ItemScreen() {
                                         resizeMode="contain"
                                     />
                                     <Text style={[galleryCategoryStyle, { color: theme.colors.text }]}>
-                                        {photo.category}
+                                        {photoLabel(photo.category)}
                                     </Text>
                                 </TouchableOpacity>
-                                <ThemedButton
-                                    title={removingFileId === photo.id ? 'Removing...' : 'Remove'}
-                                    variant="danger"
-                                    disabled={removingFileId === photo.id}
-                                    onPress={() => handleRemoveFile(photo)}
-                                    style={fileActionButtonStyle}
-                                    textStyle={fileActionButtonTextStyle}
-                                />
+                                {!photo.isMainPhoto && (
+                                    <ThemedButton
+                                        title={removingFileId === photo.id ? 'Removing...' : 'Remove'}
+                                        variant="danger"
+                                        disabled={removingFileId === photo.id}
+                                        onPress={() => handleRemoveFile(photo)}
+                                        style={fileActionButtonStyle}
+                                        textStyle={fileActionButtonTextStyle}
+                                    />
+                                )}
                             </View>
                         ))}
                     </View>
 
-                    {photos.length === 0 && (
-                        <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>No additional photos yet.</Text>
+                    {galleryPhotos.length === 0 && (
+                        <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>No photos yet.</Text>
                     )}
                 </ScrollView>
             </Modal>
@@ -1148,10 +1293,12 @@ function OptionRow({
     options,
     value,
     onChange,
+    labelForOption = (option: string) => option.replace(/_/g, ' '),
 }: {
     options: string[];
     value: string;
     onChange: (value: string) => void;
+    labelForOption?: (option: string) => string;
 }) {
     const { theme } = useTheme();
 
@@ -1181,7 +1328,7 @@ function OptionRow({
                             value === option && { color: theme.colors.primaryText },
                         ]}
                     >
-                        {option.replace(/_/g, ' ')}
+                        {labelForOption(option)}
                     </Text>
                 </TouchableOpacity>
             ))}
