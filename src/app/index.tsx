@@ -1,12 +1,13 @@
-import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ScrollView, Text, View } from 'react-native';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import { APP_VERSION, BUILD_DATE, BUILD_LABEL } from '../lib/appVersion';
 import {
   scoreAllSystems,
+  scoreHomeItem,
   scoreOverallHomeHealth,
   statusForCard,
   type HomeHealthEmergency,
@@ -16,15 +17,77 @@ import { homeSystems } from '../lib/homeSystems';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
+type HomeDashboardItem = HomeHealthItem & {
+  name?: string | null;
+  item_slug?: string | null;
+  system?: string | null;
+  area?: string | null;
+  location?: string | null;
+  parent_area?: string | null;
+  status?: string | null;
+  condition?: string | null;
+  install_state?: string | null;
+  category?: string | null;
+};
+
 export default function HomeScreen() {
   const { theme } = useTheme();
-  const [homeItems, setHomeItems] = useState<HomeHealthItem[]>([]);
+  const [homeItems, setHomeItems] = useState<HomeDashboardItem[]>([]);
   const [activeEmergencies, setActiveEmergencies] = useState<HomeHealthEmergency[]>([]);
+
+  const loadHomeHealthData = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return;
+
+    const { data: items } = await supabase
+      .from('home_items')
+      .select('*')
+      .eq('user_id', user.id)
+      .or('archived.eq.false,archived.is.null');
+
+    const { data: emergencies } = await supabase
+      .from('home_emergencies')
+      .select('id, status, emergency_type')
+      .eq('user_id', user.id)
+      .neq('status', 'Resolved');
+
+    setHomeItems((items || []) as HomeDashboardItem[]);
+    setActiveEmergencies((emergencies || []) as HomeHealthEmergency[]);
+  }, []);
 
   useEffect(() => {
     saveRecoverySession();
-    loadHomeHealthData();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadHomeHealthData();
+    }, [loadHomeHealthData])
+  );
+
+  const issueItems = useMemo(() => {
+    return homeItems
+      .map((item) => ({
+        item,
+        health: scoreHomeItem(item),
+      }))
+      .filter(
+        ({ item, health }) =>
+          !sameText(item.category, 'Area') &&
+          (health.status === 'critical' || health.status === 'needs_attention')
+      )
+      .sort((a, b) => {
+        const severityDifference =
+          issueSeverity(a.health.status) - issueSeverity(b.health.status);
+
+        if (severityDifference !== 0) return severityDifference;
+
+        return issueItemName(a.item).localeCompare(issueItemName(b.item));
+      });
+  }, [homeItems]);
 
   const healthSummary = useMemo(
     () => scoreOverallHomeHealth(homeItems, activeEmergencies),
@@ -59,29 +122,6 @@ export default function HomeScreen() {
 
       window.history.replaceState({}, document.title, '/');
     }
-  }
-
-  async function loadHomeHealthData() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) return;
-
-    const { data: items } = await supabase
-      .from('home_items')
-      .select('*')
-      .eq('user_id', user.id)
-      .or('archived.eq.false,archived.is.null');
-
-    const { data: emergencies } = await supabase
-      .from('home_emergencies')
-      .select('id, status, emergency_type')
-      .eq('user_id', user.id)
-      .neq('status', 'Resolved');
-
-    setHomeItems((items || []) as HomeHealthItem[]);
-    setActiveEmergencies((emergencies || []) as HomeHealthEmergency[]);
   }
 
   return (
@@ -266,15 +306,102 @@ export default function HomeScreen() {
             Needs Attention
           </Text>
 
-          <Text
-            style={{
-              fontSize: 15,
-              color: theme.colors.mutedText,
-              lineHeight: 22,
-            }}
-          >
-            No issues reported.
-          </Text>
+          {issueItems.length === 0 ? (
+            <Text
+              style={{
+                fontSize: 15,
+                color: theme.colors.mutedText,
+                lineHeight: 22,
+              }}
+            >
+              No issues reported.
+            </Text>
+          ) : (
+            <View style={{ gap: 12 }}>
+              {issueItems.map(({ item, health }) => {
+                const itemSlug = firstText(item.item_slug);
+                const isCritical = health.status === 'critical';
+
+                return (
+                  <View
+                    key={item.id || itemSlug || issueItemName(item)}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: isCritical
+                        ? theme.colors.status.activeEmergency.border
+                        : theme.colors.border,
+                      backgroundColor: isCritical
+                        ? theme.colors.status.activeEmergency.background
+                        : theme.colors.surface,
+                      borderRadius: theme.radii.card,
+                      padding: 14,
+                      gap: 10,
+                    }}
+                  >
+                    <View style={{ gap: 5 }}>
+                      <Text
+                        style={{
+                          fontSize: 17,
+                          fontWeight: '900',
+                          color: theme.colors.text,
+                        }}
+                      >
+                        {issueItemName(item)}
+                      </Text>
+
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          color: theme.colors.mutedText,
+                          lineHeight: 20,
+                        }}
+                      >
+                        System: {firstText(item.system) || 'System not set'}
+                      </Text>
+
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          color: theme.colors.mutedText,
+                          lineHeight: 20,
+                        }}
+                      >
+                        Location:{' '}
+                        {firstText(item.area, item.location, item.parent_area) ||
+                          'Location not set'}
+                      </Text>
+
+                      <Text
+                        style={{
+                          fontSize: 14,
+                          color: theme.colors.mutedText,
+                          lineHeight: 20,
+                        }}
+                      >
+                        Status: {issueStatusLabel(item, health.status)}
+                      </Text>
+                    </View>
+
+                    {!!itemSlug && (
+                      <ThemedButton
+                        title="Open Item"
+                        variant="secondary"
+                        onPress={() => router.push(`/item/${itemSlug}` as any)}
+                        style={{
+                          alignSelf: 'flex-start',
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                        }}
+                        textStyle={{
+                          fontSize: 14,
+                        }}
+                      />
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </ThemedCard>
 
         <ThemedCard
@@ -425,5 +552,34 @@ export default function HomeScreen() {
         </View>
       </View>
     </ScrollView>
+  );
+}
+
+function firstText(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+
+    if (text) return text;
+  }
+
+  return '';
+}
+
+function sameText(a?: string | null, b?: string | null) {
+  return firstText(a).toLowerCase() === firstText(b).toLowerCase();
+}
+
+function issueSeverity(status: string) {
+  return status === 'critical' ? 0 : 1;
+}
+
+function issueItemName(item: HomeDashboardItem) {
+  return firstText(item.name) || 'Unnamed Item';
+}
+
+function issueStatusLabel(item: HomeDashboardItem, status: string) {
+  return (
+    firstText(item.status, item.condition, item.install_state) ||
+    (status === 'critical' ? 'Emergency' : 'Needs Attention')
   );
 }
