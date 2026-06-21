@@ -16,7 +16,7 @@ import {
     getGenericItemSuggestions,
     getItemSuggestions,
 } from '../../lib/itemSuggestions';
-import { getSystemDefaults } from '../../lib/systemDefaults';
+import { getSystemDefaults, normalizeAreaName } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -51,11 +51,13 @@ export default function CreateItemScreen() {
     const params = useLocalSearchParams<{
         system?: string;
         area?: string;
+        parentArea?: string;
         category?: string;
         name?: string;
     }>();
     const initialSystem = typeof params.system === 'string' ? params.system : 'Plumbing';
     const initialArea = typeof params.area === 'string' ? params.area : '';
+    const initialParentArea = typeof params.parentArea === 'string' ? params.parentArea.trim() : '';
     const hasAreaContext = !!initialSystem && !!initialArea;
     const initialCategory = typeof params.category === 'string' && categories.includes(params.category)
         ? params.category
@@ -137,6 +139,11 @@ export default function CreateItemScreen() {
         return finalLocation();
     }
 
+    function finalParentArea() {
+        if (hasAreaContext) return initialParentArea;
+        return '';
+    }
+
     async function saveItem() {
         if (!name.trim()) {
             setMessage('Enter item name.');
@@ -161,6 +168,7 @@ export default function CreateItemScreen() {
 
         const itemName = name.trim();
         const savedLocation = finalAreaLocation();
+        const savedParentArea = finalParentArea();
         const canonicalSystem = getSystemDefinition(system)?.key || system;
         const slug = makeManualItemSlug(savedLocation, canonicalSystem, itemName);
         const insertPayload = {
@@ -169,7 +177,7 @@ export default function CreateItemScreen() {
             name: itemName,
             system: canonicalSystem,
             category,
-            parent_area: hasAreaContext ? initialArea : '',
+            parent_area: savedParentArea,
             install_state: installState,
             status,
             location: savedLocation,
@@ -196,7 +204,7 @@ export default function CreateItemScreen() {
         }
 
         const matchingAreaItem = ((existingItems || []) as ExistingHomeItem[]).some((item) =>
-            isDuplicateItemInArea(item, savedLocation, itemName)
+            isDuplicateItemInArea(item, savedLocation, savedParentArea, itemName)
         );
 
         if (matchingAreaItem) {
@@ -231,6 +239,7 @@ export default function CreateItemScreen() {
                 params: {
                     system: initialSystem,
                     area: initialArea,
+                    ...(initialParentArea ? { parentArea: initialParentArea } : {}),
                     refresh: String(Date.now()),
                 },
             } as any);
@@ -261,7 +270,9 @@ export default function CreateItemScreen() {
                             {initialArea}
                         </Text>
                         <Text style={[contextMetaStyle, { color: theme.colors.mutedText }]}>
-                            {getSystemLabel(initialSystem)}
+                            {initialParentArea
+                                ? `${getSystemLabel(initialSystem)} / ${initialParentArea}`
+                                : getSystemLabel(initialSystem)}
                         </Text>
                     </ThemedCard>
                 )}
@@ -407,20 +418,21 @@ function makeManualItemSlug(area: string, system: string, itemName: string) {
     return makeSlug([area, system, itemName].map((part) => part.trim()).filter(Boolean).join('-'));
 }
 
-function normalizeItemText(value?: string | null) {
-    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
 function sameItemText(a?: string | null, b?: string | null) {
-    return normalizeItemText(a) === normalizeItemText(b);
+    return normalizeAreaName(a) === normalizeAreaName(b);
 }
 
-function isDuplicateItemInArea(item: ExistingHomeItem, areaName: string, itemName: string) {
+function isDuplicateItemInArea(item: ExistingHomeItem, areaName: string, parentArea: string, itemName: string) {
+    if (sameItemText(item.category, 'Area') || !sameItemText(item.name, itemName)) return false;
+
+    if (parentArea) {
+        return sameItemText(item.location, areaName) && sameItemText(item.parent_area, parentArea);
+    }
+
     return (
-        !sameItemText(item.category, 'Area') &&
-        sameItemText(item.name, itemName) &&
-        (sameItemText(item.location, areaName) || sameItemText(item.parent_area, areaName))
-    );
+        sameItemText(item.location, areaName) &&
+        (!String(item.parent_area || '').trim() || sameItemText(item.parent_area, areaName))
+    ) || (!String(item.location || '').trim() && sameItemText(item.parent_area, areaName));
 }
 
 function getSameAreaDuplicateMessage(itemName: string) {

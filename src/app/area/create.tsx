@@ -21,11 +21,21 @@ import { useTheme } from '../../theme/useTheme';
 
 export default function CreateAreaScreen() {
     const { theme } = useTheme();
-    const { system } = useLocalSearchParams<{ system?: string }>();
+    const params = useLocalSearchParams<{
+        system?: string;
+        parentArea?: string;
+        areaName?: string;
+    }>();
+    const system = firstParam(params.system);
+    const parentAreaName = firstParam(params.parentArea).trim();
+    const initialAreaName = firstParam(params.areaName).trim();
     const canonicalSystem = getSystemDefinition(system)?.key || 'Plumbing';
     const systemLabel = getSystemLabel(canonicalSystem);
-    const [selectedTemplate, setSelectedTemplate] = useState<AreaTemplate | null>(null);
-    const [customAreaName, setCustomAreaName] = useState('');
+    const customAreaTemplate = areaTemplates.find((template) => template.id === 'custom-area') || null;
+    const [selectedTemplate, setSelectedTemplate] = useState<AreaTemplate | null>(
+        initialAreaName ? customAreaTemplate : null
+    );
+    const [customAreaName, setCustomAreaName] = useState(initialAreaName);
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
 
@@ -65,7 +75,7 @@ export default function CreateAreaScreen() {
 
         const { data: existingRows, error: existingError } = await supabase
             .from('home_items')
-            .select('name, system, location, parent_area')
+            .select('name, system, category, location, parent_area')
             .eq('user_id', user.id)
             .or('archived.eq.false,archived.is.null');
 
@@ -77,7 +87,20 @@ export default function CreateAreaScreen() {
 
         const existingKeys = existingDuplicateKeys((existingRows || []) as ExistingAreaItem[]);
         const rowsToInsert: HomeItemInsert[] = [];
-        const areaRow = buildAreaRow(user.id, areaName, canonicalSystem);
+        const duplicateAreaExists = ((existingRows || []) as ExistingAreaItem[]).some(
+            (row) =>
+                sameAreaText(row.category, 'Area') &&
+                sameAreaText(row.system, canonicalSystem) &&
+                sameAreaText(row.name, areaName)
+        );
+
+        if (duplicateAreaExists) {
+            setSaving(false);
+            setMessage('An area with this name already exists for this system.');
+            return;
+        }
+
+        const areaRow = buildAreaRow(user.id, areaName, canonicalSystem, parentAreaName);
         const areaKey = duplicateKey(areaRow.system, areaName, areaName);
 
         if (!existingKeys.has(areaKey)) {
@@ -86,7 +109,7 @@ export default function CreateAreaScreen() {
         }
 
         if (includeStarterItems && selectedTemplate.id !== 'custom-area') {
-            for (const row of buildStarterRows(user.id, areaName, selectedTemplate)) {
+            for (const row of buildStarterRows(user.id, areaName, selectedTemplate, parentAreaName)) {
                 const key = duplicateKey(row.system, areaName, row.name);
 
                 if (!existingKeys.has(key)) {
@@ -113,6 +136,7 @@ export default function CreateAreaScreen() {
             params: {
                 system: canonicalSystem,
                 area: areaName,
+                ...(parentAreaName ? { parentArea: parentAreaName } : {}),
             },
         } as any);
     }
@@ -137,7 +161,9 @@ export default function CreateAreaScreen() {
                         lineHeight: 22,
                     }}
                 >
-                    Create a shared home area for {systemLabel}. You can add starter items across multiple systems.
+                    {parentAreaName
+                        ? `Create a child area inside ${parentAreaName} for ${systemLabel}.`
+                        : `Create a shared home area for ${systemLabel}. You can add starter items across multiple systems.`}
                 </Text>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
@@ -234,4 +260,17 @@ export default function CreateAreaScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function firstParam(value?: string | string[]) {
+    if (Array.isArray(value)) return value[0] || '';
+    return value || '';
+}
+
+function normalizeAreaText(value?: string | null) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function sameAreaText(a?: string | null, b?: string | null) {
+    return normalizeAreaText(a) === normalizeAreaText(b);
 }

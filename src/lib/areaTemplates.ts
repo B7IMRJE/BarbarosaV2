@@ -19,6 +19,7 @@ export type AreaTemplate = {
 export type ExistingAreaItem = {
     name: string | null;
     system: string | null;
+    category?: string | null;
     location?: string | null;
     parent_area?: string | null;
 };
@@ -471,7 +472,7 @@ export function existingDuplicateKeys(items: ExistingAreaItem[]) {
     );
 }
 
-export function buildAreaRow(userId: string, areaName: string, system: string): HomeItemInsert {
+export function buildAreaRow(userId: string, areaName: string, system: string, parentArea = ''): HomeItemInsert {
     return {
         user_id: userId,
         item_slug: makeAreaSlug(areaName, system),
@@ -479,14 +480,14 @@ export function buildAreaRow(userId: string, areaName: string, system: string): 
         system,
         category: 'Area',
         location: areaName,
-        parent_area: '',
+        parent_area: parentArea,
         status: missingInfo,
         install_state: unknown,
         archived: false,
     };
 }
 
-export function buildStarterRows(userId: string, areaName: string, template: AreaTemplate): HomeItemInsert[] {
+export function buildStarterRows(userId: string, areaName: string, template: AreaTemplate, parentArea = ''): HomeItemInsert[] {
     return getStarterItems(template).map((starterItem) => ({
         user_id: userId,
         item_slug: makeStarterItemSlug(areaName, starterItem),
@@ -494,7 +495,7 @@ export function buildStarterRows(userId: string, areaName: string, template: Are
         system: starterItem.system,
         category: starterItem.category,
         location: areaName,
-        parent_area: '',
+        parent_area: parentArea,
         status: starterItem.status,
         install_state: starterItem.install_state,
         archived: false,

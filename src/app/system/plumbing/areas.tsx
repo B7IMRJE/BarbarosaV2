@@ -15,6 +15,7 @@ type AreaItem = {
     name: string;
     status?: string | null;
     category?: string | null;
+    parent_area?: string | null;
     icon?: string;
 };
 
@@ -86,7 +87,7 @@ export default function PlumbingAreasScreen() {
         const allItems = (data || []) as AreaItem[];
         setPlumbingItems(allItems as HomeHealthItem[]);
 
-        const areaItems = allItems.filter((item) => item.category === 'Area');
+        const areaItems = allItems.filter((item) => item.category === 'Area' && !item.parent_area?.trim());
 
         if (areaItems.length > 0) {
             const mergedAreas = [...fallbackAreas, ...areaItems];

@@ -5,6 +5,12 @@ import { getStatusCardStyle } from '../../../../components/cards/SystemStatusCar
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
 import { getSystemLabel } from '../../../../lib/homeSystems';
+import {
+    getAreaIcon,
+    getBroadZoneDefinition,
+    getSuggestedChildAreas,
+    normalizeAreaName,
+} from '../../../../lib/systemDefaults';
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -21,23 +27,28 @@ type AreaHomeItem = {
 
 export default function AreaScreen() {
     const { theme } = useTheme();
-    const { system, area, refresh } = useLocalSearchParams<{
+    const { system, area, parentArea, refresh } = useLocalSearchParams<{
         system: string;
         area: string;
+        parentArea?: string;
         refresh?: string;
     }>();
 
     const systemName = system ? String(system) : 'System';
     const systemLabel = getSystemLabel(systemName);
     const areaName = area ? String(area) : 'Area';
+    const parentAreaName = firstParam(parentArea).trim();
     const refreshKey = String(refresh || '');
     const [items, setItems] = useState<AreaHomeItem[]>([]);
+    const [childAreas, setChildAreas] = useState<AreaHomeItem[]>([]);
+    const [suggestedChildAreas, setSuggestedChildAreas] = useState<string[]>([]);
+    const [isBroadZoneMode, setIsBroadZoneMode] = useState(false);
     const [message, setMessage] = useState('');
     const itemSections = groupItemsBySystem(items);
 
     useEffect(() => {
         loadAreaItems();
-    }, [systemName, areaName, refreshKey]);
+    }, [systemName, areaName, parentAreaName, refreshKey]);
 
     async function loadAreaItems() {
         const {
@@ -64,14 +75,40 @@ export default function AreaScreen() {
             return;
         }
 
+        const rows = (data || []) as AreaHomeItem[];
+        const savedChildAreas = rows.filter(
+            (item) =>
+                sameText(item.category, 'Area') &&
+                sameText(item.system, systemName) &&
+                sameText(item.parent_area, areaName)
+        );
+        const broadZoneDefinition = getBroadZoneDefinition(areaName);
+        const nextBroadZoneMode = !parentAreaName && (!!broadZoneDefinition || savedChildAreas.length > 0);
+        const savedChildNames = new Set(savedChildAreas.map((item) => normalizeAreaName(item.name)));
+        const nextSuggestedChildAreas = nextBroadZoneMode
+            ? getSuggestedChildAreas(areaName).filter((childArea) => !savedChildNames.has(normalizeAreaName(childArea)))
+            : [];
+        const nextItems = rows.filter((item) => {
+            if (sameText(item.category, 'Area')) return false;
+
+            if (parentAreaName) {
+                return sameText(item.location, areaName) && sameText(item.parent_area, parentAreaName);
+            }
+
+            if (nextBroadZoneMode) {
+                return isDirectItemInBroadZone(item, areaName);
+            }
+
+            return sameText(item.location, areaName) || sameText(item.parent_area, areaName);
+        });
+
+        setChildAreas(sortAreaRecords(savedChildAreas));
+        setSuggestedChildAreas(nextSuggestedChildAreas);
+        setIsBroadZoneMode(nextBroadZoneMode);
         setItems(
             sortAreaItems(
                 areaName,
-                ((data || []) as AreaHomeItem[]).filter(
-                    (item) =>
-                        !sameText(item.category, 'Area') &&
-                        (sameText(item.location, areaName) || sameText(item.parent_area, areaName))
-                )
+                nextItems
             )
         );
         setMessage('');
@@ -83,8 +120,31 @@ export default function AreaScreen() {
             params: {
                 system: systemName,
                 area: areaName,
+                ...(parentAreaName ? { parentArea: parentAreaName } : {}),
                 category,
                 name: name || '',
+            },
+        } as any);
+    }
+
+    function openChildArea(childAreaName: string) {
+        router.push({
+            pathname: '/system/[system]/area/[area]',
+            params: {
+                system: systemName,
+                area: childAreaName,
+                parentArea: areaName,
+            },
+        } as any);
+    }
+
+    function createChildArea(childAreaName?: string) {
+        router.push({
+            pathname: '/area/create',
+            params: {
+                system: systemName,
+                parentArea: areaName,
+                ...(childAreaName ? { areaName: childAreaName } : {}),
             },
         } as any);
     }
@@ -138,37 +198,107 @@ export default function AreaScreen() {
                         marginBottom: 25,
                     }}
                 >
-                    {systemLabel}
+                    {parentAreaName ? `${systemLabel} / ${parentAreaName}` : systemLabel}
                 </Text>
 
-                <ThemedButton
-                    title="+ Add Item"
-                    onPress={() => createSuggestedItem('Equipment')}
-                    style={{ marginBottom: 24 }}
-                />
+                {isBroadZoneMode ? (
+                    <>
+                        <ThemedButton
+                            title="+ Add Area"
+                            onPress={() => createChildArea()}
+                            style={{ marginBottom: 24 }}
+                        />
 
-                {items.length === 0 ? (
-                    <ThemedCard style={{ marginBottom: 16 }}>
-                        <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
-                            No items added yet.
-                        </Text>
-                    </ThemedCard>
-                ) : (
-                    <View style={sectionListStyle}>
-                        {itemSections.map((section) => (
-                            <View key={section.title} style={sectionBlockStyle}>
-                                <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                                    {section.title}
-                                </Text>
+                        <View style={sectionBlockStyle}>
+                            <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                                Areas inside {areaName}
+                            </Text>
 
-                                <View style={gridStyle}>
-                                    {section.items.map((item) => (
-                                        <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
+                            <View style={gridStyle}>
+                                {childAreas.map((childArea) => (
+                                    <ChildAreaCard
+                                        key={childArea.id || childArea.item_slug || childArea.name}
+                                        title={childArea.name || 'Unnamed Area'}
+                                        subtitle="Open area"
+                                        onPress={() => openChildArea(childArea.name || '')}
+                                    />
+                                ))}
+
+                                {suggestedChildAreas.map((childArea) => (
+                                    <ChildAreaCard
+                                        key={childArea}
+                                        title={childArea}
+                                        subtitle="Suggested area"
+                                        onPress={() => createChildArea(childArea)}
+                                    />
+                                ))}
+                            </View>
+
+                            {childAreas.length === 0 && suggestedChildAreas.length === 0 && (
+                                <ThemedCard style={{ marginBottom: 16 }}>
+                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                        No child areas yet.
+                                    </Text>
+                                </ThemedCard>
+                            )}
+                        </View>
+
+                        {items.length > 0 && (
+                            <View style={[sectionListStyle, directItemsSectionStyle]}>
+                                <View style={sectionBlockStyle}>
+                                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                                        Items directly in {areaName}
+                                    </Text>
+
+                                    {itemSections.map((section) => (
+                                        <View key={section.title} style={sectionBlockStyle}>
+                                            <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
+                                                {section.title}
+                                            </Text>
+
+                                            <View style={gridStyle}>
+                                                {section.items.map((item) => (
+                                                    <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
+                                                ))}
+                                            </View>
+                                        </View>
                                     ))}
                                 </View>
                             </View>
-                        ))}
-                    </View>
+                        )}
+                    </>
+                ) : (
+                    <>
+                        <ThemedButton
+                            title="+ Add Item"
+                            onPress={() => createSuggestedItem('Equipment')}
+                            style={{ marginBottom: 24 }}
+                        />
+
+                        {items.length === 0 ? (
+                            <ThemedCard style={{ marginBottom: 16 }}>
+                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                    No items added yet.
+                                </Text>
+                            </ThemedCard>
+                        ) : (
+                            <View style={sectionListStyle}>
+                                {itemSections.map((section) => (
+                                    <View key={section.title} style={sectionBlockStyle}>
+                                        <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                                            {section.title}
+                                        </Text>
+
+                                        <View style={gridStyle}>
+                                            {section.items.map((item) => (
+                                                <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
+                                            ))}
+                                        </View>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+                    </>
                 )}
 
                 {!!message && (
@@ -181,8 +311,60 @@ export default function AreaScreen() {
     );
 }
 
+function firstParam(value?: string | string[]) {
+    if (Array.isArray(value)) return value[0] || '';
+    return value || '';
+}
+
 function sameText(a?: string | null, b?: string | null) {
-    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    return normalizeAreaName(a) === normalizeAreaName(b);
+}
+
+function isDirectItemInBroadZone(item: AreaHomeItem, areaName: string) {
+    if (sameText(item.location, areaName)) return true;
+    return !String(item.location || '').trim() && sameText(item.parent_area, areaName);
+}
+
+function sortAreaRecords(areas: AreaHomeItem[]) {
+    return [...areas].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+}
+
+function ChildAreaCard({
+    title,
+    subtitle,
+    onPress,
+}: {
+    title: string;
+    subtitle: string;
+    onPress: () => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <TouchableOpacity
+            onPress={onPress}
+            activeOpacity={0.82}
+            style={[
+                childAreaCardStyle,
+                {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    borderRadius: theme.radii.card,
+                },
+            ]}
+        >
+            <View style={[iconCircleStyle, { backgroundColor: theme.colors.iconBackground }]}>
+                <Text style={iconTextStyle}>{getAreaIcon(title)}</Text>
+            </View>
+
+            <Text style={[itemTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                {title}
+            </Text>
+            <Text style={[childAreaSubtitleStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                {subtitle}
+            </Text>
+        </TouchableOpacity>
+    );
 }
 
 function AreaItemCard({ item }: { item: AreaHomeItem }) {
@@ -356,10 +538,37 @@ const sectionHeaderStyle = {
     fontWeight: '900' as const,
 };
 
+const subsectionHeaderStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
 const gridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 14,
+};
+
+const directItemsSectionStyle = {
+    marginTop: 32,
+};
+
+const childAreaCardStyle = {
+    width: '18.8%' as const,
+    minWidth: 160,
+    minHeight: 170,
+    padding: 18,
+    borderWidth: 1,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    flexGrow: 1,
+};
+
+const childAreaSubtitleStyle = {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '800' as const,
+    textAlign: 'center' as const,
 };
 
 const itemCardStyle = {

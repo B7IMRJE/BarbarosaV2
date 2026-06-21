@@ -18,6 +18,65 @@ type SuggestionContext = {
 };
 
 type KitchenSuggestionMap = Record<string, string[]>;
+type AreaSuggestionTag = 'laundry';
+
+const areaSuggestionTags: Record<AreaSuggestionTag, string[]> = {
+    laundry: [
+        'Laundry',
+        'Laundry Room',
+        'Laundry Area',
+        'Outdoor Laundry',
+    ],
+};
+
+const laundrySystemSuggestions: KitchenSuggestionMap = {
+    Plumbing: [
+        'Washing Machine Valves',
+        'Laundry Sink',
+        'Utility Sink',
+        'Laundry Hose Bib',
+    ],
+    'Drains / Sewer': [
+        'Laundry Standpipe',
+        'Laundry Sink Drain',
+        'Floor Drain',
+    ],
+    Gas: [
+        'Dryer Gas Connection',
+        'Gas Shutoff Valve',
+    ],
+    Electrical: [
+        'Washer Outlet',
+        'Dryer Outlet',
+        'GFCI Outlet',
+        'Laundry Light',
+    ],
+    Appliances: [
+        'Washing Machine',
+        'Dryer',
+        'Laundry Pedestal',
+    ],
+    Safety: [
+        'Water Leak Sensor',
+        'Dryer Vent',
+        'GFCI Protection',
+    ],
+};
+
+const laundryCategorySuggestions: KitchenSuggestionMap = {
+    Documents: [
+        'Appliance Manual',
+        'Appliance Warranty',
+        'Installation Receipt',
+        'Service Record',
+    ],
+    'Work History': [
+        'Washer Installation',
+        'Dryer Installation',
+        'Laundry Valve Repair',
+        'Dryer Vent Cleaning',
+    ],
+};
 
 const kitchenSystemSuggestions: KitchenSuggestionMap = {
     Plumbing: [
@@ -136,6 +195,12 @@ export function getItemSuggestions({
     category,
     fallbackSuggestions = [],
 }: SuggestionContext) {
+    const taggedSuggestions = getTaggedAreaSuggestions(area, system, category);
+
+    if (taggedSuggestions) {
+        return taggedSuggestions;
+    }
+
     if (!sameText(area, 'Kitchen')) {
         return fallbackSuggestions;
     }
@@ -150,6 +215,23 @@ export function getItemSuggestions({
     const systemSuggestions = getByNormalizedKey(kitchenSystemSuggestions, systemKey);
 
     return systemSuggestions || fallbackSuggestions;
+}
+
+function getTaggedAreaSuggestions(area?: string | null, system?: string | null, category?: string | null) {
+    if (!hasAreaTag(area, 'laundry')) return null;
+
+    const categorySuggestions = getByNormalizedKey(laundryCategorySuggestions, category);
+
+    if (categorySuggestions) {
+        return categorySuggestions;
+    }
+
+    const systemKey = getSystemDefinition(system)?.key || system || '';
+    return getByNormalizedKey(laundrySystemSuggestions, systemKey);
+}
+
+function hasAreaTag(area: string | null | undefined, tag: AreaSuggestionTag) {
+    return areaSuggestionTags[tag].some((taggedArea) => sameText(area, taggedArea));
 }
 
 function getByNormalizedKey(map: KitchenSuggestionMap, key?: string | null) {

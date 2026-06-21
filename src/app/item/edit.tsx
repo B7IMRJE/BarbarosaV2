@@ -27,6 +27,12 @@ const locations = [
     'Custom',
 ];
 
+type AreaLocation = {
+    name: string | null;
+    system: string | null;
+    parent_area: string | null;
+};
+
 const installStates = [
     'Unknown',
     'Installed',
@@ -48,6 +54,18 @@ function getPickerValue(value: string, options: string[]) {
     return 'Custom';
 }
 
+function normalizeLocationText(value?: string | null) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function sameLocationText(a?: string | null, b?: string | null) {
+    return normalizeLocationText(a) === normalizeLocationText(b);
+}
+
+function uniqueOptions(options: string[]) {
+    return options.filter((option, index, self) => option && self.indexOf(option) === index);
+}
+
 export default function EditItemScreen() {
     const { theme } = useTheme();
     const { slug } = useLocalSearchParams();
@@ -61,6 +79,9 @@ export default function EditItemScreen() {
 
     const [locationChoice, setLocationChoice] = useState('Garage');
     const [customLocation, setCustomLocation] = useState('');
+    const [areaLocations, setAreaLocations] = useState<AreaLocation[]>([]);
+    const [originalLocation, setOriginalLocation] = useState('');
+    const [originalParentArea, setOriginalParentArea] = useState('');
 
     const [brand, setBrand] = useState('');
     const [model, setModel] = useState('');
@@ -80,6 +101,27 @@ export default function EditItemScreen() {
         return locationChoice;
     }
 
+    function finalParentArea(nextLocation: string) {
+        if (sameLocationText(nextLocation, originalLocation)) {
+            return originalParentArea;
+        }
+
+        const matchingArea = areaLocations.find(
+            (area) => sameLocationText(area.name, nextLocation) && sameLocationText(area.system, system)
+        ) || areaLocations.find(
+            (area) => sameLocationText(area.name, nextLocation)
+        );
+
+        return matchingArea?.parent_area?.trim() || '';
+    }
+
+    const locationOptions = uniqueOptions([
+        ...locations.filter((location) => location !== 'Custom'),
+        ...areaLocations.map((area) => area.name || '').filter(Boolean),
+        originalLocation,
+        'Custom',
+    ]);
+
     async function loadItem() {
         const { data, error } = await supabase
             .from('home_items')
@@ -93,6 +135,7 @@ export default function EditItemScreen() {
         }
 
         const savedLocation = data.location || data.parent_area || '';
+        const savedParentArea = data.parent_area || '';
 
         const nextLocationChoice = getPickerValue(savedLocation, locations);
 
@@ -102,12 +145,25 @@ export default function EditItemScreen() {
 
         setLocationChoice(nextLocationChoice);
         setCustomLocation(nextLocationChoice === 'Custom' ? savedLocation : '');
+        setOriginalLocation(savedLocation);
+        setOriginalParentArea(savedParentArea);
 
         setBrand(data.brand || '');
         setModel(data.model || '');
         setSerial(data.serial || '');
         setInstallState(data.install_state || 'Unknown');
         setStatus(data.status || 'Missing Information');
+
+        if (data.user_id) {
+            const { data: areaRows } = await supabase
+                .from('home_items')
+                .select('name, system, parent_area')
+                .eq('user_id', data.user_id)
+                .eq('category', 'Area')
+                .or('archived.eq.false,archived.is.null');
+
+            setAreaLocations((areaRows || []) as AreaLocation[]);
+        }
 
         setLoading(false);
     }
@@ -123,6 +179,8 @@ export default function EditItemScreen() {
             return;
         }
 
+        const nextLocation = finalLocation();
+
         setSaving(true);
 
         const { error } = await supabase
@@ -130,7 +188,8 @@ export default function EditItemScreen() {
             .update({
                 name: name.trim(),
                 about: about.trim(),
-                location: finalLocation(),
+                location: nextLocation,
+                parent_area: finalParentArea(nextLocation),
                 brand: brand.trim() || 'Unknown',
                 model: model.trim() || 'Unknown',
                 serial: serial.trim() || 'Unknown',
@@ -189,7 +248,7 @@ export default function EditItemScreen() {
                 <ThemedCard style={formCardStyle}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
                     <OptionRow
-                        options={locations}
+                        options={locationOptions}
                         value={locationChoice}
                         onChange={setLocationChoice}
                     />

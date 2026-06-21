@@ -6,6 +6,46 @@ export type SystemDefaults = {
     equipment: string[];
 };
 
+export type BroadZoneDefinition = {
+    area: string;
+    suggestedChildAreas: string[];
+};
+
+export const broadZoneDefinitions: BroadZoneDefinition[] = [
+    {
+        area: 'Exterior',
+        suggestedChildAreas: [
+            'Outdoor Laundry',
+            'Backyard',
+            'Front Yard',
+            'Side Yard',
+            'Patio',
+            'Balcony',
+            'Roof',
+            'Crawl Space',
+            'Other Exterior Area',
+        ],
+    },
+];
+
+export function normalizeAreaName(value?: string | null) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+export function getBroadZoneDefinition(area?: string | null) {
+    const normalizedArea = normalizeAreaName(area);
+
+    return broadZoneDefinitions.find((zone) => normalizeAreaName(zone.area) === normalizedArea) || null;
+}
+
+export function isBroadZoneArea(area?: string | null) {
+    return !!getBroadZoneDefinition(area);
+}
+
+export function getSuggestedChildAreas(area?: string | null) {
+    return getBroadZoneDefinition(area)?.suggestedChildAreas || [];
+}
+
 const waterServiceDefaults: SystemDefaults = {
     areas: [
         'Kitchen',
