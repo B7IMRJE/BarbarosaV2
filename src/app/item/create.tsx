@@ -31,6 +31,13 @@ type Choice = {
     label: string;
 };
 
+type ExistingHomeItem = {
+    name: string | null;
+    category: string | null;
+    location: string | null;
+    parent_area: string | null;
+};
+
 function makeSlug(value: string) {
     return value
         .trim()
@@ -152,13 +159,14 @@ export default function CreateItemScreen() {
             return;
         }
 
-        const slug = makeSlug(name);
+        const itemName = name.trim();
         const savedLocation = finalAreaLocation();
         const canonicalSystem = getSystemDefinition(system)?.key || system;
+        const slug = makeManualItemSlug(savedLocation, canonicalSystem, itemName);
         const insertPayload = {
             user_id: user.id,
             item_slug: slug,
-            name: name.trim(),
+            name: itemName,
             system: canonicalSystem,
             category,
             parent_area: hasAreaContext ? initialArea : '',
@@ -175,22 +183,45 @@ export default function CreateItemScreen() {
         setSaving(true);
         setMessage('Saving item...');
 
+        const { data: existingItems, error: duplicateCheckError } = await supabase
+            .from('home_items')
+            .select('name, category, location, parent_area')
+            .eq('user_id', user.id)
+            .or('archived.eq.false,archived.is.null');
+
+        if (duplicateCheckError) {
+            setSaving(false);
+            setMessage('Could not check existing items. Please try again.');
+            return;
+        }
+
+        const matchingAreaItem = ((existingItems || []) as ExistingHomeItem[]).some((item) =>
+            isDuplicateItemInArea(item, savedLocation, itemName)
+        );
+
+        if (matchingAreaItem) {
+            setSaving(false);
+            setMessage(getSameAreaDuplicateMessage(itemName));
+            return;
+        }
+
         logCreateItemDebug('insert payload', {
-            ...insertPayload,
-            user_id: '[current-user]',
+            category: insertPayload.category,
+            hasAreaContext,
+            system: insertPayload.system,
         });
 
         const { error } = await supabase.from('home_items').insert(insertPayload);
 
         logCreateItemDebug('insert result', {
             ok: !error,
-            error: error?.message || null,
+            errorCode: getPostgresErrorCode(error),
         });
 
         setSaving(false);
 
         if (error) {
-            setMessage(getCreateItemErrorMessage(error.message, name.trim()));
+            setMessage(getCreateItemErrorMessage(error, itemName));
             return;
         }
 
@@ -372,22 +403,46 @@ function logCreateItemDebug(label: string, details: unknown) {
     }
 }
 
-function getCreateItemErrorMessage(errorMessage: string, itemName: string) {
-    if (isDuplicateItemError(errorMessage)) {
-        return `An item with this exact name already exists in this area. Try ${nextItemName(itemName)}.`;
-    }
-
-    return `Save failed: ${errorMessage}`;
+function makeManualItemSlug(area: string, system: string, itemName: string) {
+    return makeSlug([area, system, itemName].map((part) => part.trim()).filter(Boolean).join('-'));
 }
 
-function isDuplicateItemError(errorMessage: string) {
-    const normalizedError = errorMessage.toLowerCase();
+function normalizeItemText(value?: string | null) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
 
+function sameItemText(a?: string | null, b?: string | null) {
+    return normalizeItemText(a) === normalizeItemText(b);
+}
+
+function isDuplicateItemInArea(item: ExistingHomeItem, areaName: string, itemName: string) {
     return (
-        normalizedError.includes('duplicate') ||
-        normalizedError.includes('unique') ||
-        normalizedError.includes('already exists')
+        !sameItemText(item.category, 'Area') &&
+        sameItemText(item.name, itemName) &&
+        (sameItemText(item.location, areaName) || sameItemText(item.parent_area, areaName))
     );
+}
+
+function getSameAreaDuplicateMessage(itemName: string) {
+    return `An item with this exact name already exists in this area. Try ${nextItemName(itemName)}.`;
+}
+
+function getCreateItemErrorMessage(error: unknown, itemName: string) {
+    if (isPostgresUniqueViolation(error)) {
+        return `An item with this name already exists. Try ${nextItemName(itemName)}.`;
+    }
+
+    return 'Save failed. Please try again.';
+}
+
+function getPostgresErrorCode(error: unknown) {
+    const code = (error as { code?: unknown } | null)?.code;
+
+    return typeof code === 'string' ? code : null;
+}
+
+function isPostgresUniqueViolation(error: unknown) {
+    return getPostgresErrorCode(error) === '23505';
 }
 
 function nextItemName(itemName: string) {
