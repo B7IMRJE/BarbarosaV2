@@ -136,7 +136,14 @@ export default function PlumbingAreasScreen() {
 
                     <View style={headerActionsStyle}>
                         <TouchableOpacity
-                            onPress={() => router.push('/item/create' as any)}
+                            onPress={() =>
+                                router.push({
+                                    pathname: '/area/create',
+                                    params: {
+                                        system: 'Plumbing',
+                                    },
+                                } as any)
+                            }
                             style={[
                                 addButtonStyle,
                                 {
