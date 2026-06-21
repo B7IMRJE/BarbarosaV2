@@ -32,7 +32,18 @@ type CompanyInvitation = {
     full_name: string | null;
     role: string;
     status: string;
+    expires_at: string | null;
     created_at: string | null;
+    last_email_attempted_at: string | null;
+    last_email_sent_at: string | null;
+    email_send_count: number | null;
+    email_delivery_status: string | null;
+    email_delivery_error: string | null;
+};
+
+type DeliveryFeedback = {
+    status: 'sent' | 'failed';
+    message: string;
 };
 
 const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
@@ -42,6 +53,8 @@ const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
     { label: 'Office', value: 'office' },
     { label: 'Technician', value: 'technician' },
 ];
+
+const EMAIL_SEND_COOLDOWN_MS = 60_000;
 
 export default function CompanyUsersScreen() {
     const { theme } = useTheme();
@@ -56,10 +69,20 @@ export default function CompanyUsersScreen() {
     const [loadingLists, setLoadingLists] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
+    const [deliveryFeedbackById, setDeliveryFeedbackById] = useState<Record<string, DeliveryFeedback>>({});
+    const [nowMs, setNowMs] = useState(() => Date.now());
 
     useEffect(() => {
         loadCompanyUsers();
     }, [id]);
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setNowMs(Date.now());
+        }, 1000);
+
+        return () => clearInterval(timer);
+    }, []);
 
     async function loadCompanyUsers(showLoading = true) {
         if (!id) {
@@ -81,9 +104,10 @@ export default function CompanyUsersScreen() {
                 .order('created_at', { ascending: false }),
             supabase
                 .from('company_user_invitations')
-                .select('id, company_id, full_name, email, role, status, created_at')
+                .select(
+                    'id, company_id, full_name, email, role, status, expires_at, created_at, last_email_attempted_at, last_email_sent_at, email_send_count, email_delivery_status, email_delivery_error'
+                )
                 .eq('company_id', String(id))
-                .eq('status', 'pending')
                 .order('created_at', { ascending: false }),
         ]);
 
@@ -95,7 +119,7 @@ export default function CompanyUsersScreen() {
         }
 
         if (invitationsResult.error) {
-            setMessage(`Error loading pending invitations: ${invitationsResult.error.message}`);
+            setMessage(`Error loading invitations: ${invitationsResult.error.message}`);
             return false;
         }
 
@@ -141,7 +165,58 @@ export default function CompanyUsersScreen() {
         setEmail('');
         setRole('technician');
         await loadCompanyUsers(false);
-        setMessage('Invitation created.');
+        setMessage('Invitation created. Use Send Email when ready.');
+    }
+
+    async function sendInvitationEmail(invitationId: string) {
+        const actionKey = `${invitationId}:email`;
+        setActionLoadingKey(actionKey);
+        setDeliveryFeedbackById((current) => ({
+            ...current,
+            [invitationId]: {
+                status: 'sent',
+                message: 'Sending invitation email...',
+            },
+        }));
+        setMessage('Sending invitation email...');
+
+        const { data, error } = await supabase.functions.invoke('send-company-user-invitation', {
+            body: {
+                invitation_id: invitationId,
+            },
+        });
+
+        setActionLoadingKey(null);
+        setNowMs(Date.now());
+
+        if (error) {
+            const errorMessage = await getFunctionErrorMessage(error);
+            setDeliveryFeedbackById((current) => ({
+                ...current,
+                [invitationId]: {
+                    status: 'failed',
+                    message: errorMessage,
+                },
+            }));
+            await loadCompanyUsers(false);
+            setMessage(`Email delivery failed: ${errorMessage}`);
+            return;
+        }
+
+        const responseMessage =
+            data && typeof data === 'object' && 'message' in data && typeof data.message === 'string'
+                ? data.message
+                : 'Invitation email sent.';
+
+        setDeliveryFeedbackById((current) => ({
+            ...current,
+            [invitationId]: {
+                status: 'sent',
+                message: responseMessage,
+            },
+        }));
+        await loadCompanyUsers(false);
+        setMessage(responseMessage);
     }
 
     async function updateMemberStatus(memberId: string, nextStatus: MemberActionStatus) {
@@ -211,8 +286,8 @@ export default function CompanyUsersScreen() {
                 <ThemedCard style={formCardStyle}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Create Invitation</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        This creates a pending invitation record. Email delivery will be connected in a later phase. It
-                        does not create or modify a Supabase Auth account.
+                        This creates a pending invitation record. Use Send Email after creation to deliver a Supabase
+                        Auth sign-in link. Invitation creation does not directly modify a Supabase Auth account.
                     </Text>
 
                     <TextInput
@@ -323,12 +398,12 @@ export default function CompanyUsersScreen() {
                         </View>
 
                         <View style={sectionStyle}>
-                            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Pending Invitations</Text>
+                            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Invitations</Text>
                             <View style={listStyle}>
                                 {invitations.length === 0 ? (
                                     <ThemedCard>
                                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                            No pending invitations.
+                                            No invitations found.
                                         </Text>
                                     </ThemedCard>
                                 ) : (
@@ -337,6 +412,9 @@ export default function CompanyUsersScreen() {
                                             key={invitation.id}
                                             invitation={invitation}
                                             actionLoadingKey={actionLoadingKey}
+                                            feedback={deliveryFeedbackById[invitation.id]}
+                                            nowMs={nowMs}
+                                            onSendEmail={sendInvitationEmail}
                                             onRevoke={revokeInvitation}
                                         />
                                     ))
@@ -406,14 +484,28 @@ function MemberCard({
 function InvitationCard({
     invitation,
     actionLoadingKey,
+    feedback,
+    nowMs,
+    onSendEmail,
     onRevoke,
 }: {
     invitation: CompanyInvitation;
     actionLoadingKey: string | null;
+    feedback?: DeliveryFeedback;
+    nowMs: number;
+    onSendEmail: (invitationId: string) => void;
     onRevoke: (invitationId: string) => void;
 }) {
     const { theme } = useTheme();
+    const emailKey = `${invitation.id}:email`;
     const revokeKey = `${invitation.id}:revoke`;
+    const status = normalizeStatus(invitation.status);
+    const expired = isInvitationExpired(invitation, nowMs);
+    const sendable = status === 'pending' && !expired;
+    const cooldownRemainingMs = getCooldownRemainingMs(invitation, nowMs);
+    const sending = actionLoadingKey === emailKey;
+    const anyActionLoading = actionLoadingKey !== null;
+    const emailSendCount = invitation.email_send_count || 0;
 
     return (
         <ThemedCard>
@@ -423,14 +515,29 @@ function InvitationCard({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{invitation.email}</Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatLabel(invitation.role)}</Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Status: {formatLabel(invitation.status)}
+                Status: {expired ? 'Expired' : formatLabel(invitation.status)}
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Created: {formatDate(invitation.created_at)}
             </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Email: {formatDeliverySummary(invitation, feedback)}
+            </Text>
 
-            {normalizeStatus(invitation.status) === 'pending' && (
+            {status === 'pending' && (
                 <View style={actionRowStyle}>
+                    <ThemedButton
+                        title={getEmailButtonTitle({
+                            sending,
+                            sendable,
+                            cooldownRemainingMs,
+                            emailSendCount,
+                        })}
+                        variant={feedback?.status === 'failed' ? 'danger' : 'secondary'}
+                        onPress={() => onSendEmail(invitation.id)}
+                        disabled={anyActionLoading || !sendable || cooldownRemainingMs > 0}
+                        style={actionButtonStyle}
+                    />
                     <ThemedButton
                         title={actionLoadingKey === revokeKey ? 'Revoking...' : 'Revoke Invitation'}
                         variant="danger"
@@ -442,6 +549,24 @@ function InvitationCard({
             )}
         </ThemedCard>
     );
+}
+
+async function getFunctionErrorMessage(error: unknown) {
+    const context = (error as { context?: { json?: () => Promise<unknown> } })?.context;
+
+    if (context?.json) {
+        try {
+            const data = await context.json();
+
+            if (data && typeof data === 'object' && 'message' in data && typeof data.message === 'string') {
+                return data.message;
+            }
+        } catch {
+            return 'Invitation email could not be sent.';
+        }
+    }
+
+    return 'Invitation email could not be sent.';
 }
 
 function normalizeStatus(status: string | null) {
@@ -464,6 +589,69 @@ function formatDate(value: string | null) {
     if (Number.isNaN(date.getTime())) return 'Unknown';
 
     return date.toLocaleDateString();
+}
+
+function isInvitationExpired(invitation: CompanyInvitation, nowMs: number) {
+    if (normalizeStatus(invitation.status) === 'expired') return true;
+    if (!invitation.expires_at) return false;
+
+    const expiresAtMs = new Date(invitation.expires_at).getTime();
+
+    return Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs;
+}
+
+function getCooldownRemainingMs(invitation: CompanyInvitation, nowMs: number) {
+    if (!invitation.last_email_attempted_at) return 0;
+
+    const attemptedAtMs = new Date(invitation.last_email_attempted_at).getTime();
+
+    if (!Number.isFinite(attemptedAtMs)) return 0;
+
+    return Math.max(0, attemptedAtMs + EMAIL_SEND_COOLDOWN_MS - nowMs);
+}
+
+function formatDuration(ms: number) {
+    return `${Math.ceil(ms / 1000)}s`;
+}
+
+function formatDeliverySummary(invitation: CompanyInvitation, feedback?: DeliveryFeedback) {
+    if (feedback?.message) return feedback.message;
+
+    const status = normalizeStatus(invitation.email_delivery_status);
+
+    if (status === 'sent') {
+        const sentAt = formatDate(invitation.last_email_sent_at);
+        const count = invitation.email_send_count || 0;
+
+        return count > 1 ? `Sent ${sentAt} (${count} total)` : `Sent ${sentAt}`;
+    }
+
+    if (status === 'failed') {
+        return invitation.email_delivery_error || 'Last send failed';
+    }
+
+    if (status === 'sending') {
+        return 'Sending invitation email...';
+    }
+
+    return 'Not sent';
+}
+
+function getEmailButtonTitle({
+    sending,
+    sendable,
+    cooldownRemainingMs,
+    emailSendCount,
+}: {
+    sending: boolean;
+    sendable: boolean;
+    cooldownRemainingMs: number;
+    emailSendCount: number;
+}) {
+    if (sending) return 'Sending...';
+    if (!sendable) return 'Email Unavailable';
+    if (cooldownRemainingMs > 0) return `Wait ${formatDuration(cooldownRemainingMs)}`;
+    return emailSendCount > 0 ? 'Resend Email' : 'Send Email';
 }
 
 function statusVerb(status: MemberActionStatus) {

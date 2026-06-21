@@ -18,6 +18,7 @@ import { ThemeProvider } from '../theme';
 
 const LOGIN_ROUTE = '/auth/login';
 const REGISTER_ROUTE = '/auth/register';
+const AUTH_CONFIRM_ROUTE = '/auth/confirm';
 const FORGOT_PASSWORD_ROUTE = '/auth/forgot-password';
 const RESET_PASSWORD_ROUTE = '/auth/reset-password';
 const ONBOARDING_INVITE_ROUTE = '/onboarding/invite';
@@ -27,6 +28,7 @@ const PROFILE_CHANGE_PASSWORD_ROUTE = '/profile/change-password';
 const PUBLIC_AUTH_ROUTES = new Set<string>([
   LOGIN_ROUTE,
   REGISTER_ROUTE,
+  AUTH_CONFIRM_ROUTE,
   FORGOT_PASSWORD_ROUTE,
   RESET_PASSWORD_ROUTE,
 ]);
