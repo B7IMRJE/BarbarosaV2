@@ -1,21 +1,31 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
     ScrollView,
     Text,
     TextInput,
+    TouchableOpacity,
     View,
     type TextInputProps,
 } from 'react-native';
-import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
-type PropertyType = 'HOUSE' | 'CONDO' | 'TOWNHOME' | 'APARTMENT' | 'OTHER';
+type PropertyType =
+    | 'HOUSE'
+    | 'CONDO'
+    | 'TOWNHOME'
+    | 'APARTMENT'
+    | 'MANUFACTURED_HOME'
+    | 'OTHER';
+
+type FieldName = 'homeName' | 'streetAddress' | 'city' | 'stateName' | 'zip' | 'propertyType';
+
+type FormErrors = Partial<Record<FieldName, string>>;
 
 type FirstPropertyRow = {
     property_id?: string | null;
@@ -24,24 +34,32 @@ type FirstPropertyRow = {
 };
 
 const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
-    { value: 'HOUSE', label: 'House' },
+    { value: 'HOUSE', label: 'Single-family home' },
     { value: 'CONDO', label: 'Condo' },
-    { value: 'TOWNHOME', label: 'Townhome' },
+    { value: 'TOWNHOME', label: 'Townhouse' },
     { value: 'APARTMENT', label: 'Apartment' },
+    { value: 'MANUFACTURED_HOME', label: 'Manufactured home' },
     { value: 'OTHER', label: 'Other' },
 ];
+
+const ZIP_CODE_PATTERN = /^\d{5}(-\d{4})?$/;
 
 export default function CreateHomeOnboardingScreen() {
     const { theme } = useTheme();
     const [homeName, setHomeName] = useState('');
     const [streetAddress, setStreetAddress] = useState('');
     const [city, setCity] = useState('');
-    const [stateName, setStateName] = useState('');
+    const [stateName, setStateName] = useState('CA');
     const [zip, setZip] = useState('');
     const [propertyType, setPropertyType] = useState<PropertyType>('HOUSE');
     const [submitting, setSubmitting] = useState(false);
-    const [nameError, setNameError] = useState('');
+    const [errors, setErrors] = useState<FormErrors>({});
+    const [canGoBack, setCanGoBack] = useState(false);
     const [message, setMessage] = useState('');
+
+    useEffect(() => {
+        setCanGoBack(router.canGoBack());
+    }, []);
 
     async function createHome() {
         if (submitting) return;
@@ -52,13 +70,22 @@ export default function CreateHomeOnboardingScreen() {
         const trimmedState = stateName.trim();
         const trimmedZip = zip.trim();
 
-        if (!trimmedHomeName) {
-            setNameError('Enter a home name to continue.');
+        const nextErrors = validateHomeForm({
+            homeName: trimmedHomeName,
+            streetAddress: trimmedStreetAddress,
+            city: trimmedCity,
+            stateName: trimmedState,
+            zip: trimmedZip,
+            propertyType,
+        });
+
+        if (Object.keys(nextErrors).length > 0) {
+            setErrors(nextErrors);
             setMessage('');
             return;
         }
 
-        setNameError('');
+        setErrors({});
         setMessage('');
         setSubmitting(true);
 
@@ -76,19 +103,16 @@ export default function CreateHomeOnboardingScreen() {
 
         const { data, error } = await supabase.rpc('create_homeowner_first_property', {
             p_name: trimmedHomeName,
-            p_address: trimmedStreetAddress || null,
-            p_city: trimmedCity || null,
-            p_state: trimmedState || null,
-            p_zip: trimmedZip || null,
+            p_address: trimmedStreetAddress,
+            p_city: trimmedCity,
+            p_state: trimmedState,
+            p_zip: trimmedZip,
             p_property_type: propertyType,
         });
 
         setSubmitting(false);
 
         if (error) {
-            console.error('create_homeowner_first_property failed', {
-                code: error.code || 'unknown',
-            });
             setMessage('We could not create your home right now. Please try again.');
             return;
         }
@@ -100,18 +124,11 @@ export default function CreateHomeOnboardingScreen() {
                 : '';
 
         if (!propertyId) {
-            console.error('create_homeowner_first_property returned no property_id');
             setMessage('We could not confirm your home was created. Please try again.');
             return;
         }
 
-        router.replace({
-            pathname: '/onboarding/complete',
-            params: {
-                propertyId,
-                created: createdProperty?.created === true ? 'true' : 'false',
-            },
-        } as any);
+        router.replace('/' as any);
     }
 
     return (
@@ -125,45 +142,63 @@ export default function CreateHomeOnboardingScreen() {
                 contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
             >
                 <View style={{ width: '100%', maxWidth: 900 }}>
-                    <HomeHeader />
+                    <View style={headerStyle}>
+                        {canGoBack && (
+                            <TouchableOpacity
+                                onPress={() => router.back()}
+                                disabled={submitting}
+                                activeOpacity={0.82}
+                            >
+                                <Text style={[backTextStyle, { color: theme.colors.text }]}>Back</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
 
                     <Text style={[titleStyle, { color: theme.colors.text }]}>Create First Home</Text>
                     <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                        Add the home you own so HomeOS can finish setting up your account.
+                        Add your home so HomeOS can finish setting up your account.
                     </Text>
 
                     <ThemedCard>
                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Home Details</Text>
 
                         <ThemedInput
-                            label="Home name"
+                            label="Home nickname or display name"
                             placeholder="Main Home"
                             value={homeName}
                             onChangeText={(value) => {
                                 setHomeName(value);
-                                if (nameError) setNameError('');
+                                clearFieldError('homeName');
                             }}
                             autoCapitalize="words"
                             editable={!submitting}
-                            error={nameError}
+                            error={errors.homeName}
                         />
 
                         <ThemedInput
                             label="Street address"
                             placeholder="Street address"
                             value={streetAddress}
-                            onChangeText={setStreetAddress}
+                            onChangeText={(value) => {
+                                setStreetAddress(value);
+                                clearFieldError('streetAddress');
+                            }}
                             autoCapitalize="words"
                             editable={!submitting}
+                            error={errors.streetAddress}
                         />
 
                         <ThemedInput
                             label="City"
                             placeholder="City"
                             value={city}
-                            onChangeText={setCity}
+                            onChangeText={(value) => {
+                                setCity(value);
+                                clearFieldError('city');
+                            }}
                             autoCapitalize="words"
                             editable={!submitting}
+                            error={errors.city}
                         />
 
                         <View style={rowStyle}>
@@ -172,9 +207,13 @@ export default function CreateHomeOnboardingScreen() {
                                     label="State"
                                     placeholder="CA"
                                     value={stateName}
-                                    onChangeText={setStateName}
+                                    onChangeText={(value) => {
+                                        setStateName(value);
+                                        clearFieldError('stateName');
+                                    }}
                                     autoCapitalize="characters"
                                     editable={!submitting}
+                                    error={errors.stateName}
                                 />
                             </View>
                             <View style={rowItemStyle}>
@@ -182,9 +221,13 @@ export default function CreateHomeOnboardingScreen() {
                                     label="ZIP code"
                                     placeholder="ZIP code"
                                     value={zip}
-                                    onChangeText={setZip}
+                                    onChangeText={(value) => {
+                                        setZip(value);
+                                        clearFieldError('zip');
+                                    }}
                                     keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
                                     editable={!submitting}
+                                    error={errors.zip}
                                 />
                             </View>
                         </View>
@@ -200,32 +243,26 @@ export default function CreateHomeOnboardingScreen() {
                                         title={option.label}
                                         variant={selected ? 'primary' : 'secondary'}
                                         disabled={submitting}
-                                        onPress={() => setPropertyType(option.value)}
+                                        onPress={() => {
+                                            setPropertyType(option.value);
+                                            clearFieldError('propertyType');
+                                        }}
                                         style={propertyTypeButtonStyle}
                                     />
                                 );
                             })}
                         </View>
+                        {!!errors.propertyType && (
+                            <Text style={[fieldErrorStyle, { color: theme.colors.danger }]}>
+                                {errors.propertyType}
+                            </Text>
+                        )}
 
                         <ThemedButton
                             title={submitting ? 'Creating home...' : 'Create Home'}
                             disabled={submitting}
                             onPress={createHome}
                             style={{ marginTop: 18 }}
-                        />
-
-                        <ThemedButton
-                            title="Back to Invitation"
-                            variant="secondary"
-                            onPress={() => router.push('/onboarding/invite' as any)}
-                            style={{ marginTop: 12 }}
-                        />
-
-                        <ThemedButton
-                            title="Company Invitations"
-                            variant="secondary"
-                            onPress={() => router.push('/onboarding/company-invitations' as any)}
-                            style={{ marginTop: 12 }}
                         />
                     </ThemedCard>
 
@@ -238,6 +275,16 @@ export default function CreateHomeOnboardingScreen() {
             </ScrollView>
         </KeyboardAvoidingView>
     );
+
+    function clearFieldError(fieldName: FieldName) {
+        if (!errors[fieldName]) return;
+
+        setErrors((currentErrors) => {
+            const nextErrors = { ...currentErrors };
+            delete nextErrors[fieldName];
+            return nextErrors;
+        });
+    }
 }
 
 function normalizeFirstPropertyRow(data: unknown) {
@@ -248,6 +295,52 @@ function normalizeFirstPropertyRow(data: unknown) {
     }
 
     return row as FirstPropertyRow;
+}
+
+function validateHomeForm({
+    homeName,
+    streetAddress,
+    city,
+    stateName,
+    zip,
+    propertyType,
+}: {
+    homeName: string;
+    streetAddress: string;
+    city: string;
+    stateName: string;
+    zip: string;
+    propertyType: string;
+}) {
+    const nextErrors: FormErrors = {};
+
+    if (!homeName) {
+        nextErrors.homeName = 'Enter a home nickname or display name.';
+    }
+
+    if (!streetAddress) {
+        nextErrors.streetAddress = 'Enter the street address.';
+    }
+
+    if (!city) {
+        nextErrors.city = 'Enter the city.';
+    }
+
+    if (!stateName) {
+        nextErrors.stateName = 'Enter the state.';
+    }
+
+    if (!zip) {
+        nextErrors.zip = 'Enter the ZIP code.';
+    } else if (!ZIP_CODE_PATTERN.test(zip)) {
+        nextErrors.zip = 'Enter a valid ZIP code.';
+    }
+
+    if (!PROPERTY_TYPE_OPTIONS.some((option) => option.value === propertyType)) {
+        nextErrors.propertyType = 'Choose a property type.';
+    }
+
+    return nextErrors;
 }
 
 function ThemedInput({
@@ -299,6 +392,18 @@ function ThemedInput({
 
 const titleStyle = {
     fontSize: 34,
+    fontWeight: '900' as const,
+};
+
+const headerStyle = {
+    minHeight: 44,
+    justifyContent: 'center' as const,
+    marginTop: 12,
+    marginBottom: 12,
+};
+
+const backTextStyle = {
+    fontSize: 18,
     fontWeight: '900' as const,
 };
 
