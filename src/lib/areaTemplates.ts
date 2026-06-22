@@ -26,6 +26,7 @@ export type ExistingAreaItem = {
 
 export type HomeItemInsert = {
     user_id: string;
+    property_id: string;
     item_slug: string;
     name: string;
     system: string;
@@ -472,9 +473,16 @@ export function existingDuplicateKeys(items: ExistingAreaItem[]) {
     );
 }
 
-export function buildAreaRow(userId: string, areaName: string, system: string, parentArea = ''): HomeItemInsert {
+export function buildAreaRow(
+    userId: string,
+    propertyId: string,
+    areaName: string,
+    system: string,
+    parentArea = ''
+): HomeItemInsert {
     return {
         user_id: userId,
+        property_id: propertyId,
         item_slug: makeAreaSlug(areaName, system),
         name: areaName,
         system,
@@ -487,9 +495,16 @@ export function buildAreaRow(userId: string, areaName: string, system: string, p
     };
 }
 
-export function buildStarterRows(userId: string, areaName: string, template: AreaTemplate, parentArea = ''): HomeItemInsert[] {
+export function buildStarterRows(
+    userId: string,
+    propertyId: string,
+    areaName: string,
+    template: AreaTemplate,
+    parentArea = ''
+): HomeItemInsert[] {
     return getStarterItems(template).map((starterItem) => ({
         user_id: userId,
+        property_id: propertyId,
         item_slug: makeStarterItemSlug(areaName, starterItem),
         name: starterItem.name,
         system: starterItem.system,

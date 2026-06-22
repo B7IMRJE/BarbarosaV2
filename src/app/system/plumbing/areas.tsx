@@ -3,6 +3,11 @@ import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../../lib/activeProperty';
+import {
     scoreAreaHealth,
     statusForCard,
     type HomeHealthItem,
@@ -60,21 +65,28 @@ export default function PlumbingAreasScreen() {
     }, []);
 
     async function loadAreas() {
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('Not logged in.');
-            router.replace('/auth/login' as any);
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
+            setAreas(fallbackAreas);
+            setPlumbingItems([]);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
         const { data, error } = await supabase
             .from('home_items')
             .select('*')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .eq('system', 'Plumbing')
             .or('archived.eq.false,archived.is.null')
             .order('name', { ascending: true });

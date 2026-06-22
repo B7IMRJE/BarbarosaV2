@@ -16,6 +16,10 @@ import {
     statusForCard,
     type HomeHealthItem,
 } from '../../../lib/homeHealth';
+import {
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../../lib/activeProperty';
 import { getSystemLabel } from '../../../lib/homeSystems';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
@@ -49,16 +53,26 @@ export default function PlumbingSystemScreen() {
     const categorySummaries = useMemo(() => scorePlumbingCategories(items), [items]);
 
     async function loadPlumbingItems() {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (!user) return;
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setItems([]);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
 
         const { data } = await supabase
             .from('home_items')
             .select('*')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .eq('system', 'Plumbing')
             .or('archived.eq.false,archived.is.null');
 

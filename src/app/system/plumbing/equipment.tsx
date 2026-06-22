@@ -5,6 +5,11 @@ import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../../lib/activeProperty';
 import { scoreItems, statusForCard } from '../../../lib/homeHealth';
 import { isStaffRole, loadCurrentUserRole } from '../../../lib/roles';
 import { supabase } from '../../../lib/supabase';
@@ -46,14 +51,20 @@ export default function PlumbingEquipmentScreen() {
     async function loadEquipment() {
         setMessage('Loading equipment...');
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('Not logged in.');
-            router.replace('/auth/login' as any);
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setEquipment([]);
+            setMessage(activePropertyErrorMessage(error));
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
@@ -62,7 +73,7 @@ export default function PlumbingEquipmentScreen() {
         const { data, error } = await supabase
             .from('home_items')
             .select('*')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .eq('system', 'Plumbing')
             .eq('category', 'Equipment')
             .or('archived.eq.false,archived.is.null')

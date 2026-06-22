@@ -4,6 +4,11 @@ import { Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native'
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../lib/activeProperty';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -29,21 +34,28 @@ export default function DocumentsScreen() {
     async function loadDocuments() {
         setLoading(true);
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setDocuments([]);
+            setMessage(activePropertyErrorMessage(error));
             setLoading(false);
-            router.replace('/auth/login' as any);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
         const { data, error } = await supabase
             .from('home_item_files')
             .select('id, item_slug, file_url, file_name, category, created_at')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .eq('file_type', 'document')
             .order('created_at', { ascending: false });
 

@@ -17,6 +17,10 @@ import {
 } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { addItemToEstimateDraft } from '../../lib/estimateDraft';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
@@ -27,6 +31,7 @@ declare const __DEV__: boolean;
 
 type ItemFile = {
     id: string;
+    property_id: string | null;
     home_item_id: string | null;
     item_slug: string | null;
     user_id: string | null;
@@ -165,6 +170,7 @@ function buildGalleryPhotos(mainPhotoUrl: string | null | undefined, appendedPho
         usedUrls.add(mainPhotoUrl);
         galleryPhotos.push({
             id: 'main-photo',
+            property_id: null,
             home_item_id: null,
             item_slug: null,
             user_id: null,
@@ -228,16 +234,22 @@ export default function ItemScreen() {
     async function loadItem() {
         setLoading(true);
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('You must be logged in to view this item.');
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
             setItem(null);
+            setFiles([]);
             setLoading(false);
-            router.replace('/auth/login' as any);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
@@ -247,7 +259,7 @@ export default function ItemScreen() {
             .from('home_items')
             .select('*')
             .eq('item_slug', String(slug))
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .maybeSingle();
 
         if (error) {
@@ -262,7 +274,7 @@ export default function ItemScreen() {
             setItem(data);
             setMessage('');
             await loadFiles({
-                userId: user.id,
+                propertyId: activeProperty.propertyId,
                 homeItemId: String(data.id || ''),
                 itemSlug: data.item_slug || String(slug),
             });
@@ -272,30 +284,31 @@ export default function ItemScreen() {
     }
 
     async function loadFiles({
-        userId,
+        propertyId,
         homeItemId,
         itemSlug,
     }: {
-        userId?: string;
+        propertyId?: string;
         homeItemId?: string;
         itemSlug?: string | null;
     } = {}) {
-        let resolvedUserId = userId;
+        let resolvedPropertyId = propertyId;
 
-        if (!resolvedUserId) {
-            const {
-                data: { user },
-                error: userError,
-            } = await supabase.auth.getUser();
-
-            if (userError || !user) {
-                setMessage('You must be logged in to view files.');
+        if (!resolvedPropertyId) {
+            try {
+                resolvedPropertyId = (await requireActivePropertyMembership()).propertyId;
+            } catch (error) {
+                setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
                 setFiles([]);
-                router.replace('/auth/login' as any);
+
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
                 return;
             }
-
-            resolvedUserId = user.id;
         }
 
         const resolvedHomeItemId = homeItemId || String(item?.id || '');
@@ -308,7 +321,7 @@ export default function ItemScreen() {
                 .from('home_item_files')
                 .select('*')
                 .eq('home_item_id', resolvedHomeItemId)
-                .eq('user_id', resolvedUserId)
+                .eq('property_id', resolvedPropertyId)
                 .order('created_at', { ascending: false });
 
             if (error) {
@@ -324,7 +337,7 @@ export default function ItemScreen() {
                 .from('home_item_files')
                 .select('*')
                 .eq('item_slug', resolvedItemSlug)
-                .eq('user_id', resolvedUserId)
+                .eq('property_id', resolvedPropertyId)
                 .order('created_at', { ascending: false });
 
             if (error) {
@@ -350,14 +363,19 @@ export default function ItemScreen() {
             setUploading(true);
             setMessage('Uploading main photo...');
 
-            const {
-                data: { user },
-                error: userError,
-            } = await supabase.auth.getUser();
+            let activeProperty;
 
-            if (userError || !user) {
-                setMessage('You must be logged in to upload photos.');
-                router.replace('/auth/login' as any);
+            try {
+                activeProperty = await requireActivePropertyMembership();
+            } catch (error) {
+                setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
+
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
                 return;
             }
 
@@ -366,7 +384,7 @@ export default function ItemScreen() {
 
             const fileExt = asset.uri.split('.').pop() || 'jpg';
             const fileName = `${String(slug)}-main-${Date.now()}.${fileExt}`;
-            const filePath = `users/${user.id}/items/${String(slug)}/${fileName}`;
+            const filePath = `users/${activeProperty.userId}/items/${String(slug)}/${fileName}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('item-photos')
@@ -391,7 +409,7 @@ export default function ItemScreen() {
                 .from('home_items')
                 .update({ photo_url: photoUrl })
                 .eq('item_slug', String(slug))
-                .eq('user_id', user.id);
+                .eq('property_id', activeProperty.propertyId);
 
             if (updateError) {
                 logMediaDebug('main-photo-item-update', updateError);
@@ -434,14 +452,19 @@ export default function ItemScreen() {
             setUploading(true);
             setMessage(`Uploading ${fileType}...`);
 
-            const {
-                data: { user },
-                error: userError,
-            } = await supabase.auth.getUser();
+            let activeProperty;
 
-            if (userError || !user) {
-                setMessage(`You must be logged in to upload ${fileType}s.`);
-                router.replace('/auth/login' as any);
+            try {
+                activeProperty = await requireActivePropertyMembership();
+            } catch (error) {
+                setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
+
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
                 return false;
             }
 
@@ -450,7 +473,7 @@ export default function ItemScreen() {
 
             const cleanName = fileName.replace(/[^a-zA-Z0-9._-]/g, '-');
             const resolvedItemSlug = item?.item_slug || String(slug);
-            const filePath = `users/${user.id}/items/${resolvedItemSlug}/${fileType}s/${Date.now()}-${cleanName}`;
+            const filePath = `users/${activeProperty.userId}/items/${resolvedItemSlug}/${fileType}s/${Date.now()}-${cleanName}`;
 
             const { error: uploadError } = await supabase.storage
                 .from('item-files')
@@ -474,7 +497,8 @@ export default function ItemScreen() {
             const { error: insertError } = await supabase
                 .from('home_item_files')
                 .insert({
-                    user_id: user.id,
+                    user_id: activeProperty.userId,
+                    property_id: activeProperty.propertyId,
                     home_item_id: item?.id || null,
                     item_slug: resolvedItemSlug,
                     storage_bucket: 'item-files',
@@ -494,7 +518,7 @@ export default function ItemScreen() {
 
             setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} uploaded.`);
             await loadFiles({
-                userId: user.id,
+                propertyId: activeProperty.propertyId,
                 homeItemId: String(item?.id || ''),
                 itemSlug: item?.item_slug || String(slug),
             });
@@ -707,11 +731,27 @@ export default function ItemScreen() {
     async function handleRemoveItem() {
         setMessage('Archiving item...');
 
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
+
         const { error } = await supabase
             .from('home_items')
             .update({ archived: true })
             .eq('item_slug', String(slug))
-            .eq('user_id', item.user_id);
+            .eq('property_id', activeProperty.propertyId);
 
         if (error) {
             setMessage(`Remove failed: ${error.message}`);
@@ -750,18 +790,23 @@ export default function ItemScreen() {
             setRemovingFileId(file.id);
             setMessage('Removing file...');
 
-            const {
-                data: { user },
-                error: userError,
-            } = await supabase.auth.getUser();
+            let activeProperty;
 
-            if (userError || !user) {
-                setMessage('You must be logged in to remove files.');
-                router.replace('/auth/login' as any);
+            try {
+                activeProperty = await requireActivePropertyMembership();
+            } catch (error) {
+                setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
+
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
                 return;
             }
 
-            if (file.user_id && file.user_id !== user.id) {
+            if (file.user_id && file.user_id !== activeProperty.userId) {
                 setMessage('You can only remove your own files.');
                 return;
             }
@@ -788,7 +833,7 @@ export default function ItemScreen() {
                 .from('home_item_files')
                 .delete()
                 .eq('id', file.id)
-                .eq('user_id', user.id);
+                .eq('property_id', activeProperty.propertyId);
 
             if (deleteError) {
                 logMediaDebug('file-metadata-delete', deleteError);
@@ -798,7 +843,7 @@ export default function ItemScreen() {
 
             setMessage('File removed.');
             await loadFiles({
-                userId: user.id,
+                propertyId: activeProperty.propertyId,
                 homeItemId: String(item?.id || ''),
                 itemSlug: item?.item_slug || String(slug),
             });

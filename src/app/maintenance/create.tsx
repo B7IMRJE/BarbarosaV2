@@ -13,6 +13,11 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { homeSystemOptions } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -54,20 +59,27 @@ export default function CreateMaintenanceRecordScreen() {
     }, []);
 
     async function loadItems() {
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            router.replace('/auth/login' as any);
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setItems([]);
+            setMessage(activePropertyErrorMessage(error));
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
         const { data, error } = await supabase
             .from('home_items')
             .select('id, name, system, location')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null')
             .order('name', { ascending: true });
 
@@ -150,21 +162,27 @@ export default function CreateMaintenanceRecordScreen() {
         setMessage('Saving maintenance record...');
 
         try {
-            const {
-                data: { user },
-                error: userError,
-            } = await supabase.auth.getUser();
+            let activeProperty;
 
-            if (userError || !user) {
-                setMessage('You must be logged in to save maintenance records.');
-                router.replace('/auth/login' as any);
+            try {
+                activeProperty = await requireActivePropertyMembership();
+            } catch (error) {
+                setMessage(activePropertyErrorMessage(error));
+
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
                 return;
             }
 
             const { data: created, error: insertError } = await supabase
                 .from('maintenance_records')
                 .insert({
-                    user_id: user.id,
+                    user_id: activeProperty.userId,
+                    property_id: activeProperty.propertyId,
                     system,
                     area,
                     item_id: itemId || null,
@@ -190,14 +208,14 @@ export default function CreateMaintenanceRecordScreen() {
             if (photos.length > 0) {
                 setMessage('Uploading photos...');
                 for (const photo of photos) {
-                    photoUrls.push(await uploadPhoto(user.id, recordId, photo));
+                    photoUrls.push(await uploadPhoto(activeProperty.userId, recordId, photo));
                 }
             }
 
             if (documents.length > 0) {
                 setMessage('Uploading documents...');
                 for (const document of documents) {
-                    documentUrls.push(await uploadDocument(user.id, recordId, document));
+                    documentUrls.push(await uploadDocument(activeProperty.userId, recordId, document));
                 }
             }
 
@@ -210,7 +228,7 @@ export default function CreateMaintenanceRecordScreen() {
                         updated_at: new Date().toISOString(),
                     })
                     .eq('id', recordId)
-                    .eq('user_id', user.id);
+                    .eq('property_id', activeProperty.propertyId);
 
                 if (updateError) {
                     setMessage(`Record saved but attachments failed: ${updateError.message}`);

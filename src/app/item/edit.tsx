@@ -11,6 +11,10 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { homeSystemOptions } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -123,10 +127,27 @@ export default function EditItemScreen() {
     ]);
 
     async function loadItem() {
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setLoading(false);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
+
         const { data, error } = await supabase
             .from('home_items')
             .select('*')
             .eq('item_slug', String(slug))
+            .eq('property_id', activeProperty.propertyId)
             .maybeSingle();
 
         if (error || !data) {
@@ -154,16 +175,14 @@ export default function EditItemScreen() {
         setInstallState(data.install_state || 'Unknown');
         setStatus(data.status || 'Missing Information');
 
-        if (data.user_id) {
-            const { data: areaRows } = await supabase
-                .from('home_items')
-                .select('name, system, parent_area')
-                .eq('user_id', data.user_id)
-                .eq('category', 'Area')
-                .or('archived.eq.false,archived.is.null');
+        const { data: areaRows } = await supabase
+            .from('home_items')
+            .select('name, system, parent_area')
+            .eq('property_id', activeProperty.propertyId)
+            .eq('category', 'Area')
+            .or('archived.eq.false,archived.is.null');
 
-            setAreaLocations((areaRows || []) as AreaLocation[]);
-        }
+        setAreaLocations((areaRows || []) as AreaLocation[]);
 
         setLoading(false);
     }
@@ -183,6 +202,23 @@ export default function EditItemScreen() {
 
         setSaving(true);
 
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setSaving(false);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            alert(error instanceof Error ? error.message : 'Could not confirm your active home.');
+            return;
+        }
+
         const { error } = await supabase
             .from('home_items')
             .update({
@@ -197,7 +233,8 @@ export default function EditItemScreen() {
                 install_state: installState,
                 status,
             })
-            .eq('item_slug', String(slug));
+            .eq('item_slug', String(slug))
+            .eq('property_id', activeProperty.propertyId);
 
         setSaving(false);
 

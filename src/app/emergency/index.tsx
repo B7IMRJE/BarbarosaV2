@@ -4,6 +4,11 @@ import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -38,23 +43,28 @@ export default function EmergencyCenterScreen() {
         setLoading(true);
         setMessage('');
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('You must be logged in to view emergencies.');
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
             setEmergencies([]);
             setLoading(false);
-            router.replace('/auth/login' as any);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
         const { data, error } = await supabase
             .from('home_emergencies')
             .select('id, emergency_type, area, description, status, created_at, photo_urls')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .order('created_at', { ascending: false });
 
         if (error) {

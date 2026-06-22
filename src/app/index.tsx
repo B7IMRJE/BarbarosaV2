@@ -6,6 +6,10 @@ import SystemStatusCard from '../components/cards/SystemStatusCard';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import {
+  isActivePropertyResolutionError,
+  requireActivePropertyMembership,
+} from '../lib/activeProperty';
+import {
   scoreAllSystems,
   scoreHomeItem,
   scoreOverallHomeHealth,
@@ -39,13 +43,22 @@ export default function HomeScreen() {
   const [activeEmergencies, setActiveEmergencies] = useState<HomeHealthEmergency[]>([]);
 
   const loadHomeHealthData = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    let activeProperty;
 
-    if (!user) {
+    try {
+      activeProperty = await requireActivePropertyMembership();
+    } catch (error) {
       setHomeIdentity(null);
       setHomeIdentityLoading(false);
+      setHomeItems([]);
+      setActiveEmergencies([]);
+
+      if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+        router.replace('/auth/login' as any);
+      } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+        router.replace('/onboarding/create-home' as any);
+      }
+
       return;
     }
 
@@ -62,13 +75,13 @@ export default function HomeScreen() {
     const { data: items } = await supabase
       .from('home_items')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('property_id', activeProperty.propertyId)
       .or('archived.eq.false,archived.is.null');
 
     const { data: emergencies } = await supabase
       .from('home_emergencies')
       .select('id, status, emergency_type')
-      .eq('user_id', user.id)
+      .eq('property_id', activeProperty.propertyId)
       .neq('status', 'Resolved');
 
     setHomeItems((items || []) as HomeDashboardItem[]);

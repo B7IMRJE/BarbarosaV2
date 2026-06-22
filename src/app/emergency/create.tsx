@@ -12,6 +12,11 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -127,14 +132,19 @@ export default function CreateEmergencyScreen() {
         setMessage('Submitting emergency...');
 
         try {
-            const {
-                data: { user },
-                error: userError,
-            } = await supabase.auth.getUser();
+            let activeProperty;
 
-            if (userError || !user) {
-                setMessage('You must be logged in to report an emergency.');
-                router.replace('/auth/login' as any);
+            try {
+                activeProperty = await requireActivePropertyMembership();
+            } catch (error) {
+                setMessage(activePropertyErrorMessage(error));
+
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
                 return;
             }
 
@@ -149,7 +159,8 @@ export default function CreateEmergencyScreen() {
             const { data: created, error: insertError } = await supabase
                 .from('home_emergencies')
                 .insert({
-                    user_id: user.id,
+                    user_id: activeProperty.userId,
+                    property_id: activeProperty.propertyId,
                     emergency_type: emergencyType,
                     area,
                     description: description.trim(),
@@ -170,7 +181,7 @@ export default function CreateEmergencyScreen() {
 
             if (photos.length > 0) {
                 setMessage('Uploading photos...');
-                const photoUrls = await uploadPhotos(user.id, emergencyId);
+                const photoUrls = await uploadPhotos(activeProperty.userId, emergencyId);
                 const nextHistory = [
                     ...history,
                     makeHistoryEntry('photo', `${photoUrls.length} photo${photoUrls.length === 1 ? '' : 's'} added.`),
@@ -184,7 +195,7 @@ export default function CreateEmergencyScreen() {
                         updated_at: new Date().toISOString(),
                     })
                     .eq('id', emergencyId)
-                    .eq('user_id', user.id);
+                    .eq('property_id', activeProperty.propertyId);
 
                 if (updateError) {
                     setMessage(`Emergency created but photos were not saved: ${updateError.message}`);

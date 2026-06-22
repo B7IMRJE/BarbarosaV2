@@ -11,12 +11,18 @@ import {
 } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
 type MaintenanceRecord = {
     id: string;
     user_id: string;
+    property_id: string;
     system: string | null;
     area: string | null;
     item_id: string | null;
@@ -60,16 +66,21 @@ export default function MaintenanceDetailScreen() {
         setLoading(true);
         setMessage('');
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('You must be logged in to view this maintenance record.');
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
             setRecord(null);
             setLoading(false);
-            router.replace('/auth/login' as any);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
@@ -77,7 +88,7 @@ export default function MaintenanceDetailScreen() {
             .from('maintenance_records')
             .select('*')
             .eq('id', String(id))
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .maybeSingle();
 
         if (error) {
@@ -102,7 +113,7 @@ export default function MaintenanceDetailScreen() {
                 .from('home_items')
                 .select('id, name')
                 .eq('id', nextRecord.item_id)
-                .eq('user_id', user.id)
+                .eq('property_id', activeProperty.propertyId)
                 .maybeSingle();
 
             setItem((itemData as HomeItem | null) || null);

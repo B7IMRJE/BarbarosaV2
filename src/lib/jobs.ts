@@ -1,3 +1,4 @@
+import { requireActivePropertyMembership } from './activeProperty';
 import { supabase } from './supabase';
 
 export type Job = {
@@ -28,6 +29,7 @@ export type JobThreadEvent = {
     id: string;
     job_id: string;
     user_id: string;
+    property_id: string;
     event_type: string;
     message: string | null;
     created_by_name: string | null;
@@ -78,12 +80,12 @@ function userDisplayName(user: Awaited<ReturnType<typeof getCurrentUser>>) {
 }
 
 export async function loadJobs() {
-    const user = await getCurrentUser();
+    const activeProperty = await requireActivePropertyMembership();
 
     const { data, error } = await supabase
         .from('jobs')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('property_id', activeProperty.propertyId)
         .order('updated_at', { ascending: false });
 
     if (error) throw error;
@@ -92,6 +94,7 @@ export async function loadJobs() {
 }
 
 export async function createJob(input: CreateJobInput) {
+    const activeProperty = await requireActivePropertyMembership();
     const user = await getCurrentUser();
     const now = new Date().toISOString();
 
@@ -99,6 +102,7 @@ export async function createJob(input: CreateJobInput) {
         .from('jobs')
         .insert({
             user_id: user.id,
+            property_id: activeProperty.propertyId,
             item_slug: input.item_slug || null,
             room_or_area: input.room_or_area?.trim() || null,
             system: input.system.trim() || null,
@@ -118,6 +122,7 @@ export async function createJob(input: CreateJobInput) {
 
     await addJobThreadEvent({
         jobId: job.id,
+        propertyId: activeProperty.propertyId,
         eventType: 'job_created',
         message: `Job created: ${job.title}`,
         createdByName: userDisplayName(user),
@@ -127,6 +132,7 @@ export async function createJob(input: CreateJobInput) {
 }
 
 export async function createJobWithFirstEvent(input: CreateJobWithFirstEventInput) {
+    const activeProperty = await requireActivePropertyMembership();
     const user = await getCurrentUser();
     const now = new Date().toISOString();
     const title = input.title.trim();
@@ -139,6 +145,7 @@ export async function createJobWithFirstEvent(input: CreateJobWithFirstEventInpu
         .from('jobs')
         .insert({
             user_id: user.id,
+            property_id: activeProperty.propertyId,
             item_slug: input.item_slug || null,
             room_or_area: input.room_or_area?.trim() || null,
             system: input.system?.trim() || null,
@@ -165,6 +172,7 @@ export async function createJobWithFirstEvent(input: CreateJobWithFirstEventInpu
         .insert({
             job_id: job.id,
             user_id: user.id,
+            property_id: activeProperty.propertyId,
             event_type: input.event_type || 'job_created',
             message: input.message || `Job created: ${job.title}`,
             created_by_name: userDisplayName(user),
@@ -184,13 +192,13 @@ export async function createJobWithFirstEvent(input: CreateJobWithFirstEventInpu
 }
 
 export async function loadJob(jobId: string) {
-    const user = await getCurrentUser();
+    const activeProperty = await requireActivePropertyMembership();
 
     const { data, error } = await supabase
         .from('jobs')
         .select('*')
         .eq('id', jobId)
-        .eq('user_id', user.id)
+        .eq('property_id', activeProperty.propertyId)
         .maybeSingle();
 
     if (error) throw error;
@@ -199,13 +207,13 @@ export async function loadJob(jobId: string) {
 }
 
 export async function loadJobThreadEvents(jobId: string) {
-    const user = await getCurrentUser();
+    const activeProperty = await requireActivePropertyMembership();
 
     const { data, error } = await supabase
         .from('job_thread_events')
         .select('*')
         .eq('job_id', jobId)
-        .eq('user_id', user.id)
+        .eq('property_id', activeProperty.propertyId)
         .order('created_at', { ascending: true });
 
     if (error) throw error;
@@ -214,35 +222,42 @@ export async function loadJobThreadEvents(jobId: string) {
 }
 
 async function touchJob(jobId: string) {
-    const user = await getCurrentUser();
+    const activeProperty = await requireActivePropertyMembership();
 
     const { error } = await supabase
         .from('jobs')
         .update({ updated_at: new Date().toISOString() })
         .eq('id', jobId)
-        .eq('user_id', user.id);
+        .eq('property_id', activeProperty.propertyId);
 
     if (error) throw error;
 }
 
 export async function addJobThreadEvent({
     jobId,
+    propertyId,
     eventType,
     message,
     createdByName,
 }: {
     jobId: string;
+    propertyId?: string;
     eventType: string;
     message: string;
     createdByName?: string;
 }) {
+    const activeProperty = propertyId
+        ? null
+        : await requireActivePropertyMembership();
     const user = await getCurrentUser();
+    const resolvedPropertyId = propertyId || activeProperty?.propertyId || '';
 
     const { data, error } = await supabase
         .from('job_thread_events')
         .insert({
             job_id: jobId,
             user_id: user.id,
+            property_id: resolvedPropertyId,
             event_type: eventType,
             message,
             created_by_name: createdByName || userDisplayName(user),
@@ -266,7 +281,7 @@ export async function addJobNote(jobId: string, message: string) {
 }
 
 export async function changeJobStatus(jobId: string, nextStatus: string) {
-    const user = await getCurrentUser();
+    const activeProperty = await requireActivePropertyMembership();
     const normalizedStatus = nextStatus.trim();
 
     const { error } = await supabase
@@ -276,14 +291,14 @@ export async function changeJobStatus(jobId: string, nextStatus: string) {
             updated_at: new Date().toISOString(),
         })
         .eq('id', jobId)
-        .eq('user_id', user.id);
+        .eq('property_id', activeProperty.propertyId);
 
     if (error) throw error;
 
     return addJobThreadEvent({
         jobId,
+        propertyId: activeProperty.propertyId,
         eventType: normalizedStatus === 'completed' ? 'job_completed' : 'status_change',
         message: `Status changed to ${normalizedStatus}.`,
-        createdByName: userDisplayName(user),
     });
 }

@@ -15,6 +15,11 @@ import {
     type ExistingAreaItem,
     type HomeItemInsert,
 } from '../../lib/areaTemplates';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { getSystemDefinition, getSystemLabel } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -61,22 +66,27 @@ export default function CreateAreaScreen() {
         setSaving(true);
         setMessage(includeStarterItems ? 'Creating area and starter items...' : 'Creating area...');
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
             setSaving(false);
-            setMessage('You must be logged in to create an area.');
-            router.replace('/auth/login' as any);
+            setMessage(activePropertyErrorMessage(error));
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
         const { data: existingRows, error: existingError } = await supabase
             .from('home_items')
             .select('name, system, category, location, parent_area')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 
         if (existingError) {
@@ -100,7 +110,7 @@ export default function CreateAreaScreen() {
             return;
         }
 
-        const areaRow = buildAreaRow(user.id, areaName, canonicalSystem, parentAreaName);
+        const areaRow = buildAreaRow(activeProperty.userId, activeProperty.propertyId, areaName, canonicalSystem, parentAreaName);
         const areaKey = duplicateKey(areaRow.system, areaName, areaName);
 
         if (!existingKeys.has(areaKey)) {
@@ -109,7 +119,7 @@ export default function CreateAreaScreen() {
         }
 
         if (includeStarterItems && selectedTemplate.id !== 'custom-area') {
-            for (const row of buildStarterRows(user.id, areaName, selectedTemplate, parentAreaName)) {
+            for (const row of buildStarterRows(activeProperty.userId, activeProperty.propertyId, areaName, selectedTemplate, parentAreaName)) {
                 const key = duplicateKey(row.system, areaName, row.name);
 
                 if (!existingKeys.has(key)) {

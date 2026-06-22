@@ -10,6 +10,11 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { getSystemDefinition, getSystemLabel, homeSystemOptions } from '../../lib/homeSystems';
 import {
     createItemCategories,
@@ -150,19 +155,24 @@ export default function CreateItemScreen() {
             return;
         }
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
-
-        if (userError || !user) {
-            setMessage('You must be logged in to create an item.');
-            router.replace('/auth/login' as any);
+        if (!hasAreaContext && locationChoice === 'Custom' && !customLocation.trim()) {
+            setMessage('Enter custom location or choose an existing one.');
             return;
         }
 
-        if (!hasAreaContext && locationChoice === 'Custom' && !customLocation.trim()) {
-            setMessage('Enter custom location or choose an existing one.');
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
@@ -172,7 +182,8 @@ export default function CreateItemScreen() {
         const canonicalSystem = getSystemDefinition(system)?.key || system;
         const slug = makeManualItemSlug(savedLocation, canonicalSystem, itemName);
         const insertPayload = {
-            user_id: user.id,
+            user_id: activeProperty.userId,
+            property_id: activeProperty.propertyId,
             item_slug: slug,
             name: itemName,
             system: canonicalSystem,
@@ -194,7 +205,7 @@ export default function CreateItemScreen() {
         const { data: existingItems, error: duplicateCheckError } = await supabase
             .from('home_items')
             .select('name, category, location, parent_area')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 
         if (duplicateCheckError) {

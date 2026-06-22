@@ -4,6 +4,11 @@ import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { getStatusCardStyle } from '../../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../../../lib/activeProperty';
 import { getSystemLabel } from '../../../../lib/homeSystems';
 import {
     getAreaIcon,
@@ -51,21 +56,29 @@ export default function AreaScreen() {
     }, [systemName, areaName, parentAreaName, refreshKey]);
 
     async function loadAreaItems() {
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('Not logged in.');
-            router.replace('/auth/login' as any);
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setItems([]);
+            setChildAreas([]);
+            setSuggestedChildAreas([]);
+            setMessage(activePropertyErrorMessage(error));
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
         const { data, error } = await supabase
             .from('home_items')
             .select('id, name, system, item_slug, category, status, location, parent_area')
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null')
             .order('system', { ascending: true })
             .order('name', { ascending: true });

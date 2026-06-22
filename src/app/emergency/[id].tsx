@@ -12,6 +12,11 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../lib/activeProperty';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -27,6 +32,7 @@ type EmergencyHistoryEntry = {
 type EmergencyRecord = {
     id: string;
     user_id: string;
+    property_id: string;
     emergency_type: string;
     area: string;
     description: string;
@@ -82,16 +88,21 @@ export default function EmergencyDetailScreen() {
         setLoading(true);
         setMessage('');
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('You must be logged in to view this emergency.');
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
             setEmergency(null);
             setLoading(false);
-            router.replace('/auth/login' as any);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
@@ -99,7 +110,7 @@ export default function EmergencyDetailScreen() {
             .from('home_emergencies')
             .select('*')
             .eq('id', String(id))
-            .eq('user_id', user.id)
+            .eq('property_id', activeProperty.propertyId)
             .maybeSingle();
 
         if (error) {
@@ -159,21 +170,26 @@ export default function EmergencyDetailScreen() {
         setMessage('Uploading photos...');
 
         try {
-            const {
-                data: { user },
-                error: userError,
-            } = await supabase.auth.getUser();
+            let activeProperty;
 
-            if (userError || !user) {
-                setMessage('You must be logged in to add photos.');
-                router.replace('/auth/login' as any);
+            try {
+                activeProperty = await requireActivePropertyMembership();
+            } catch (error) {
+                setMessage(activePropertyErrorMessage(error));
+
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
                 return;
             }
 
             const uploadedUrls: string[] = [];
 
             for (const asset of result.assets) {
-                uploadedUrls.push(await uploadPhoto(user.id, emergency.id, asset));
+                uploadedUrls.push(await uploadPhoto(activeProperty.userId, emergency.id, asset));
             }
 
             const nextPhotoUrls = [...normalizePhotos(emergency.photo_urls), ...uploadedUrls];
@@ -193,7 +209,7 @@ export default function EmergencyDetailScreen() {
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', emergency.id)
-                .eq('user_id', user.id);
+                .eq('property_id', activeProperty.propertyId);
 
             if (error) {
                 setMessage(`Photo update failed: ${error.message}`);
@@ -218,15 +234,20 @@ export default function EmergencyDetailScreen() {
         setSaving(true);
         setMessage('Adding note...');
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('You must be logged in to add notes.');
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
             setSaving(false);
-            router.replace('/auth/login' as any);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
@@ -242,7 +263,7 @@ export default function EmergencyDetailScreen() {
                 updated_at: new Date().toISOString(),
             })
             .eq('id', emergency.id)
-            .eq('user_id', user.id);
+            .eq('property_id', activeProperty.propertyId);
 
         setSaving(false);
 
@@ -262,15 +283,20 @@ export default function EmergencyDetailScreen() {
         setSaving(true);
         setMessage('Marking resolved...');
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let activeProperty;
 
-        if (userError || !user) {
-            setMessage('You must be logged in to update this emergency.');
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
             setSaving(false);
-            router.replace('/auth/login' as any);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
             return;
         }
 
@@ -289,7 +315,7 @@ export default function EmergencyDetailScreen() {
                 history: nextHistory,
             })
             .eq('id', emergency.id)
-            .eq('user_id', user.id);
+            .eq('property_id', activeProperty.propertyId);
 
         setSaving(false);
 
