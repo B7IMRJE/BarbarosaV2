@@ -17,7 +17,9 @@ Examples:
 param(
     [switch] $Execute,
     [ValidateRange(1, 1000)]
-    [int] $PageSize = 100
+    [int] $PageSize = 100,
+    [ValidateRange(1, 10000)]
+    [int] $MaxPages = 1000
 )
 
 $ErrorActionPreference = 'Stop'
@@ -115,14 +117,86 @@ function Get-HeaderValue {
 }
 
 function Get-ExactCountFromContentRange {
-    param([AllowNull()][string] $ContentRange)
+    param(
+        [AllowNull()][string] $ContentRange,
+        [Parameter(Mandatory = $true)][string] $Table
+    )
 
     if ([string]::IsNullOrWhiteSpace($ContentRange)) {
         return $null
     }
 
-    if ($ContentRange -match '/(\d+|\*)$' -and $Matches[1] -ne '*') {
+    if ($ContentRange -match '^(?:\d+-\d+|\*)/(\d+)$') {
         return [int]$Matches[1]
+    }
+
+    if ($ContentRange -match '^(?:\d+-\d+|\*)/\*$') {
+        return $null
+    }
+
+    throw "Supabase returned malformed Content-Range for public.$Table. Storage cleanup aborted."
+}
+
+function Copy-QueryWithPagination {
+    param(
+        [Parameter(Mandatory = $true)][hashtable] $Query,
+        [Parameter(Mandatory = $true)][int] $Limit,
+        [Parameter(Mandatory = $true)][int] $Offset
+    )
+
+    $pagedQuery = @{}
+    foreach ($entry in $Query.GetEnumerator()) {
+        $pagedQuery[$entry.Key] = $entry.Value
+    }
+
+    if (-not $pagedQuery.ContainsKey('order')) {
+        $pagedQuery['order'] = 'id.asc'
+    }
+
+    $pagedQuery['limit'] = [string]$Limit
+    $pagedQuery['offset'] = [string]$Offset
+    ,$pagedQuery
+}
+
+function Get-ObjectIds {
+    param([AllowEmptyCollection()][object[]] $Rows)
+
+    @($Rows | ForEach-Object { [string]$_.id } | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_)
+    })
+}
+
+function Test-DuplicateObjectIds {
+    param([AllowEmptyCollection()][object[]] $Rows)
+
+    @($Rows | Group-Object id | Where-Object {
+        -not [string]::IsNullOrWhiteSpace([string]$_.Name) -and $_.Count -gt 1
+    })
+}
+
+function Assert-NoPaginationLoop {
+    param(
+        [Parameter(Mandatory = $true)][string] $Table,
+        [AllowEmptyCollection()][object[]] $ExistingRows,
+        [AllowEmptyCollection()][object[]] $PageRows
+    )
+
+    $pageRowsMissingIds = @($PageRows | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.id) })
+    if ($pageRowsMissingIds.Count -gt 0) {
+        throw "Supabase pagination for public.$Table returned rows with blank ids. Storage cleanup aborted."
+    }
+
+    $existingIds = [System.Collections.Generic.HashSet[string]]::new()
+    Get-ObjectIds -Rows $ExistingRows | ForEach-Object { [void]$existingIds.Add([string]$_) }
+
+    $overlappingIds = @(Get-ObjectIds -Rows $PageRows | Where-Object { $existingIds.Contains([string]$_) })
+    if ($overlappingIds.Count -gt 0) {
+        throw "Supabase pagination for public.$Table returned duplicate ids across pages. Storage cleanup aborted."
+    }
+
+    $pageDuplicateIds = @(Test-DuplicateObjectIds -Rows $PageRows)
+    if ($pageDuplicateIds.Count -gt 0) {
+        throw "Supabase pagination for public.$Table returned duplicate ids within a page. Storage cleanup aborted."
     }
 
     $null
@@ -147,22 +221,20 @@ function Invoke-SupabaseRestPage {
     param(
         [Parameter(Mandatory = $true)][string] $Table,
         [Parameter(Mandatory = $true)][hashtable] $Query,
-        [Parameter(Mandatory = $true)][int] $From,
-        [Parameter(Mandatory = $true)][int] $To
+        [Parameter(Mandatory = $true)][int] $Limit,
+        [Parameter(Mandatory = $true)][int] $Offset
     )
 
-    $uri = New-PostgrestUri -Table $Table -Query $Query
+    $pagedQuery = Copy-QueryWithPagination -Query $Query -Limit $Limit -Offset $Offset
+    $uri = New-PostgrestUri -Table $Table -Query $pagedQuery
     Add-RequestPathLog -Uri $uri
 
-    $headers = $RestHeaders.Clone()
-    $headers['Range'] = "$From-$To"
-
-    $response = Invoke-WebRequest -Method Get -Uri $uri -Headers $headers -UseBasicParsing
+    $response = Invoke-WebRequest -Method Get -Uri $uri -Headers $RestHeaders -UseBasicParsing
     $contentRange = Get-HeaderValue -Headers $response.Headers -Name 'Content-Range'
 
     [pscustomobject]@{
         Rows = @(ConvertFrom-JsonArray -Content $response.Content)
-        ExactCount = Get-ExactCountFromContentRange -ContentRange $contentRange
+        ExactCount = Get-ExactCountFromContentRange -ContentRange $contentRange -Table $Table
         ContentRange = $contentRange
     }
 }
@@ -175,11 +247,16 @@ function Invoke-SupabaseRestAll {
 
     $allRows = @()
     $exactCount = $null
-    $from = 0
+    $offset = 0
+    $pageCount = 0
 
     while ($true) {
-        $to = $from + $PageSize - 1
-        $page = Invoke-SupabaseRestPage -Table $Table -Query $Query -From $from -To $to
+        if ($pageCount -ge $MaxPages) {
+            throw "Supabase pagination for public.$Table exceeded $MaxPages pages. Storage cleanup aborted."
+        }
+
+        $page = Invoke-SupabaseRestPage -Table $Table -Query $Query -Limit $PageSize -Offset $offset
+        $pageCount += 1
         $pageRows = @($page.Rows)
 
         if ($null -ne $page.ExactCount) {
@@ -189,21 +266,18 @@ function Invoke-SupabaseRestAll {
             $exactCount = $page.ExactCount
         }
 
+        Assert-NoPaginationLoop -Table $Table -ExistingRows $allRows -PageRows $pageRows
         $allRows += $pageRows
 
-        if ($pageRows.Count -eq 0) {
+        if ($null -ne $exactCount -and $allRows.Count -gt $exactCount) {
+            throw "Supabase pagination for public.$Table returned more rows than the exact count. Storage cleanup aborted."
+        }
+
+        if ($pageRows.Count -lt $PageSize) {
             break
         }
 
-        if ($null -ne $exactCount -and $allRows.Count -ge $exactCount) {
-            break
-        }
-
-        if ($null -eq $exactCount -and $pageRows.Count -lt $PageSize) {
-            break
-        }
-
-        $from += $pageRows.Count
+        $offset += $PageSize
     }
 
     [pscustomobject]@{
@@ -415,14 +489,12 @@ $objects = @($candidateRows.Values | Where-Object {
 } | Sort-Object storage_bucket, storage_path -Unique)
 
 Write-Host "Mode: $(if ($Execute) { 'EXECUTE' } else { 'DRY RUN' })"
-Write-Host 'Home items found by legacy user:'
-foreach ($legacyUserId in $LegacyUserIds) {
-    Write-Host "  ${legacyUserId}: $($homeItemCountsByUser[$legacyUserId])"
-}
+Write-Host "Items for legacy user 1: $($homeItemCountsByUser[$LegacyUserIds[0]])"
+Write-Host "Items for legacy user 2: $($homeItemCountsByUser[$LegacyUserIds[1]])"
 Write-Host "Unique targeted item IDs: $($targetItemIds.Count)"
-Write-Host "File rows found: $($candidateRows.Count)"
+Write-Host "Related file rows: $($candidateRows.Count)"
 Write-Host "Unique storage objects: $($objects.Count)"
-Write-Host "Missing bucket/path metadata: $($missingStorageMetadataRows.Count)"
+Write-Host "Rows missing bucket/path metadata: $($missingStorageMetadataRows.Count)"
 Write-Host "Objects that would be deleted: $($objects.Count)"
 Write-Host 'REST request paths reviewed without credentials:'
 foreach ($requestPath in @($RequestPaths | Sort-Object -Unique)) {
