@@ -61,7 +61,7 @@ export default function SystemAreasScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, status, condition, install_state, system, area, location, parent_area, category')
+            .select('id, status, install_state, system, area, location, parent_area, category')
             .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 
