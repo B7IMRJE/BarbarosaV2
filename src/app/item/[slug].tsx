@@ -23,6 +23,16 @@ import {
 } from '../../lib/activeProperty';
 import { addItemToEstimateDraft } from '../../lib/estimateDraft';
 import { createJobWithFirstEvent } from '../../lib/jobs';
+import {
+    calculateNextDueDate,
+    formatDateLabel,
+    formatRecurrence,
+    getMaintenancePresets,
+    labelDueStatus,
+    toDateInputValue,
+    type MaintenancePreset,
+    type MaintenanceTask,
+} from '../../lib/maintenanceTimers';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -209,12 +219,30 @@ function logMediaDebug(stage: string, error?: unknown) {
     }
 }
 
+function logMaintenanceTimerError(stage: string, error: unknown) {
+    const safeError = error as {
+        message?: unknown;
+        code?: unknown;
+        details?: unknown;
+        hint?: unknown;
+    };
+
+    console.error('[ItemMaintenanceTimers]', {
+        stage,
+        message: typeof safeError?.message === 'string' ? safeError.message : 'Unknown error',
+        code: typeof safeError?.code === 'string' || typeof safeError?.code === 'number' ? safeError.code : null,
+        details: typeof safeError?.details === 'string' ? safeError.details : null,
+        hint: typeof safeError?.hint === 'string' ? safeError.hint : null,
+    });
+}
+
 export default function ItemScreen() {
     const { theme } = useTheme();
     const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
     const { slug } = useLocalSearchParams();
     const [item, setItem] = useState<any>(null);
     const [files, setFiles] = useState<ItemFile[]>([]);
+    const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [capturingPhoto, setCapturingPhoto] = useState(false);
@@ -225,6 +253,8 @@ export default function ItemScreen() {
     const [selectedDocumentType, setSelectedDocumentType] = useState<string | null>(null);
     const [currentUserRole, setCurrentUserRole] = useState('HOMEOWNER');
     const [removingFileId, setRemovingFileId] = useState<string | null>(null);
+    const [addingMaintenanceKey, setAddingMaintenanceKey] = useState<string | null>(null);
+    const [completingMaintenanceId, setCompletingMaintenanceId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
 
     useEffect(() => {
@@ -242,6 +272,7 @@ export default function ItemScreen() {
             setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
             setItem(null);
             setFiles([]);
+            setMaintenanceTasks([]);
             setLoading(false);
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
@@ -266,10 +297,12 @@ export default function ItemScreen() {
             setMessage(`Item load failed: ${error.message}`);
             setItem(null);
             setFiles([]);
+            setMaintenanceTasks([]);
         } else if (!data) {
             setMessage('Item not found.');
             setItem(null);
             setFiles([]);
+            setMaintenanceTasks([]);
         } else {
             setItem(data);
             setMessage('');
@@ -277,6 +310,10 @@ export default function ItemScreen() {
                 propertyId: activeProperty.propertyId,
                 homeItemId: String(data.id || ''),
                 itemSlug: data.item_slug || String(slug),
+            });
+            await loadMaintenanceTasks({
+                propertyId: activeProperty.propertyId,
+                homeItemId: String(data.id || ''),
             });
         }
 
@@ -356,6 +393,56 @@ export default function ItemScreen() {
         }
 
         setFiles(mergeUniqueFiles(...fileGroups));
+    }
+
+    async function loadMaintenanceTasks({
+        propertyId,
+        homeItemId,
+    }: {
+        propertyId?: string;
+        homeItemId?: string;
+    } = {}) {
+        let resolvedPropertyId = propertyId;
+
+        if (!resolvedPropertyId) {
+            try {
+                resolvedPropertyId = (await requireActivePropertyMembership()).propertyId;
+            } catch (error) {
+                setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
+                setMaintenanceTasks([]);
+
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
+                return;
+            }
+        }
+
+        const resolvedHomeItemId = homeItemId || String(item?.id || '');
+        if (!resolvedHomeItemId) {
+            setMaintenanceTasks([]);
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('home_item_maintenance_tasks')
+            .select('id, title, description, recurrence_interval, recurrence_unit, start_date, last_completed_date, next_due_date, reminder_status, task_key, notes, created_at')
+            .eq('property_id', resolvedPropertyId)
+            .eq('home_item_id', resolvedHomeItemId)
+            .neq('reminder_status', 'archived')
+            .order('next_due_date', { ascending: true });
+
+        if (error) {
+            logMaintenanceTimerError('load-tasks', error);
+            setMaintenanceTasks([]);
+            setMessage('Maintenance reminders could not be loaded. Please try again.');
+            return;
+        }
+
+        setMaintenanceTasks((data || []) as MaintenanceTask[]);
     }
 
     async function uploadMainPhotoFromAsset(asset: ImagePicker.ImagePickerAsset) {
@@ -728,6 +815,148 @@ export default function ItemScreen() {
         }
     }
 
+    async function handleAddMaintenancePreset(preset: MaintenancePreset) {
+        if (!item?.id) {
+            setMessage('Item must be loaded before adding reminders.');
+            return;
+        }
+
+        const hasDuplicatePreset = maintenanceTasks.some(
+            (task) => task.task_key === preset.key && task.reminder_status !== 'archived'
+        );
+
+        if (hasDuplicatePreset) {
+            setMessage('That reminder already exists for this item.');
+            return;
+        }
+
+        setAddingMaintenanceKey(preset.key);
+        setMessage('Adding reminder...');
+
+        try {
+            const activeProperty = await requireActivePropertyMembership();
+            const today = toDateInputValue(new Date());
+            const nextDueDate = calculateNextDueDate(
+                new Date(),
+                preset.recurrenceInterval,
+                preset.recurrenceUnit
+            );
+
+            const { error } = await supabase
+                .from('home_item_maintenance_tasks')
+                .insert({
+                    user_id: activeProperty.userId,
+                    property_id: activeProperty.propertyId,
+                    home_item_id: item.id,
+                    item_slug: item.item_slug || String(slug),
+                    system: item.system || null,
+                    task_key: preset.key,
+                    title: preset.title,
+                    description: preset.description,
+                    recurrence_interval: preset.recurrenceInterval,
+                    recurrence_unit: preset.recurrenceUnit,
+                    start_date: today,
+                    next_due_date: nextDueDate,
+                    reminder_status: 'active',
+                    created_by: activeProperty.userId,
+                });
+
+            if (error) {
+                logMaintenanceTimerError('add-task', error);
+                setMessage('Reminder could not be added. Please try again.');
+                return;
+            }
+
+            setMessage('Reminder added.');
+            await loadMaintenanceTasks({
+                propertyId: activeProperty.propertyId,
+                homeItemId: String(item.id),
+            });
+        } catch (error) {
+            logMaintenanceTimerError('add-task', error);
+            setMessage(error instanceof Error ? error.message : 'Reminder could not be added. Please try again.');
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+        } finally {
+            setAddingMaintenanceKey(null);
+        }
+    }
+
+    async function handleCompleteMaintenanceTask(task: MaintenanceTask) {
+        if (!item?.id) {
+            setMessage('Item must be loaded before completing reminders.');
+            return;
+        }
+
+        setCompletingMaintenanceId(task.id);
+        setMessage('Completing reminder...');
+
+        try {
+            const activeProperty = await requireActivePropertyMembership();
+            const today = toDateInputValue(new Date());
+            const nextDueDate = calculateNextDueDate(
+                new Date(),
+                task.recurrence_interval,
+                task.recurrence_unit
+            );
+
+            const { error: insertError } = await supabase
+                .from('home_item_maintenance_completions')
+                .insert({
+                    maintenance_task_id: task.id,
+                    user_id: activeProperty.userId,
+                    property_id: activeProperty.propertyId,
+                    home_item_id: item.id,
+                    completed_on: today,
+                    notes: null,
+                    created_by: activeProperty.userId,
+                });
+
+            if (insertError) {
+                logMaintenanceTimerError('complete-task-insert', insertError);
+                setMessage('Reminder could not be completed. Please try again.');
+                return;
+            }
+
+            const { error: updateError } = await supabase
+                .from('home_item_maintenance_tasks')
+                .update({
+                    last_completed_date: today,
+                    next_due_date: nextDueDate,
+                    reminder_status: 'active',
+                })
+                .eq('id', task.id)
+                .eq('property_id', activeProperty.propertyId);
+
+            if (updateError) {
+                logMaintenanceTimerError('complete-task-update', updateError);
+                setMessage('Completion saved, but the reminder could not be rescheduled.');
+                return;
+            }
+
+            setMessage('Reminder completed.');
+            await loadMaintenanceTasks({
+                propertyId: activeProperty.propertyId,
+                homeItemId: String(item.id),
+            });
+        } catch (error) {
+            logMaintenanceTimerError('complete-task', error);
+            setMessage(error instanceof Error ? error.message : 'Reminder could not be completed. Please try again.');
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+        } finally {
+            setCompletingMaintenanceId(null);
+        }
+    }
+
     async function handleRemoveItem() {
         setMessage('Archiving item...');
 
@@ -886,6 +1115,18 @@ export default function ItemScreen() {
     }));
 
     const canUseStaffTools = isStaffRole(currentUserRole);
+    const activeMaintenanceTasks = maintenanceTasks.filter((task) => task.reminder_status !== 'archived');
+    const recommendedMaintenancePresets = getMaintenancePresets({
+        name: item.name,
+        system: item.system,
+        category: item.category,
+    });
+    const availableMaintenancePresets = recommendedMaintenancePresets.filter(
+        (preset) =>
+            !activeMaintenanceTasks.some(
+                (task) => task.task_key === preset.key && task.reminder_status !== 'archived'
+            )
+    );
 
     const detailCards = [
         { label: 'Condition', value: item.install_state || 'Unknown' },
@@ -966,6 +1207,98 @@ export default function ItemScreen() {
                             <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{documents.length}</Text>
                         </ThemedCard>
                     </View>
+
+                    <ThemedCard style={maintenanceCardStyle}>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text, marginTop: 0 }]}>
+                            Maintenance Reminders
+                        </Text>
+
+                        {activeMaintenanceTasks.length === 0 ? (
+                            <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>No reminders yet.</Text>
+                        ) : (
+                            <View style={maintenanceListStyle}>
+                                {activeMaintenanceTasks.map((task) => {
+                                    const dueStatus = labelDueStatus(task);
+                                    const dueStatusColor =
+                                        dueStatus === 'Overdue'
+                                            ? theme.colors.danger
+                                            : dueStatus === 'Due Soon'
+                                                ? theme.colors.primary
+                                                : theme.colors.mutedText;
+
+                                    return (
+                                        <View
+                                            key={task.id}
+                                            style={[
+                                                maintenanceTaskRowStyle,
+                                                {
+                                                    backgroundColor: theme.colors.surfaceAlt,
+                                                    borderColor: theme.colors.border,
+                                                },
+                                            ]}
+                                        >
+                                            <View style={maintenanceTaskHeaderStyle}>
+                                                <Text style={[maintenanceTaskTitleStyle, { color: theme.colors.text }]}>
+                                                    {task.title}
+                                                </Text>
+                                                <Text style={[maintenanceStatusTextStyle, { color: dueStatusColor }]}>
+                                                    {dueStatus}
+                                                </Text>
+                                            </View>
+
+                                            {!!task.description && (
+                                                <Text style={[maintenanceDescriptionStyle, { color: theme.colors.mutedText }]}>
+                                                    {task.description}
+                                                </Text>
+                                            )}
+
+                                            <Text style={[maintenanceMetaTextStyle, { color: theme.colors.text }]}>
+                                                {formatRecurrence(task.recurrence_interval, task.recurrence_unit)}
+                                            </Text>
+                                            <Text style={[maintenanceMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                                Next due: {formatDateLabel(task.next_due_date)}
+                                            </Text>
+
+                                            {!!task.last_completed_date && (
+                                                <Text style={[maintenanceMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                                    Last completed: {formatDateLabel(task.last_completed_date)}
+                                                </Text>
+                                            )}
+
+                                            <ThemedButton
+                                                title={completingMaintenanceId === task.id ? 'Completing...' : 'Complete'}
+                                                onPress={() => handleCompleteMaintenanceTask(task)}
+                                                disabled={!!completingMaintenanceId}
+                                                style={maintenanceCompleteButtonStyle}
+                                                textStyle={fileActionButtonTextStyle}
+                                            />
+                                        </View>
+                                    );
+                                })}
+                            </View>
+                        )}
+
+                        {availableMaintenancePresets.length > 0 && (
+                            <>
+                                <Text style={[maintenancePresetTitleStyle, { color: theme.colors.mutedText }]}>
+                                    Recommended reminders
+                                </Text>
+                                <View style={maintenancePresetGridStyle}>
+                                    {availableMaintenancePresets.map((preset) => (
+                                        <ThemedButton
+                                            key={preset.key}
+                                            title={addingMaintenanceKey === preset.key ? 'Adding...' : preset.title}
+                                            variant="secondary"
+                                            onPress={() => handleAddMaintenancePreset(preset)}
+                                            disabled={!!addingMaintenanceKey}
+                                            style={maintenancePresetButtonStyle}
+                                            textStyle={fileActionButtonTextStyle}
+                                        />
+                                    ))}
+                                </View>
+                            </>
+                        )}
+                    </ThemedCard>
 
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Photo Type</Text>
                     <OptionRow
@@ -1499,6 +1832,80 @@ const fileSummaryCountStyle = {
     fontSize: 28,
     fontWeight: '900' as const,
     marginTop: 4,
+};
+
+const maintenanceCardStyle = {
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+};
+
+const maintenanceListStyle = {
+    gap: 12,
+};
+
+const maintenanceTaskRowStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+};
+
+const maintenanceTaskHeaderStyle = {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'flex-start' as const,
+    gap: 12,
+};
+
+const maintenanceTaskTitleStyle = {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const maintenanceStatusTextStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const maintenanceDescriptionStyle = {
+    marginTop: 8,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800' as const,
+};
+
+const maintenanceMetaTextStyle = {
+    marginTop: 6,
+    fontSize: 14,
+    fontWeight: '800' as const,
+};
+
+const maintenanceCompleteButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+};
+
+const maintenancePresetTitleStyle = {
+    marginTop: 14,
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const maintenancePresetGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 10,
+};
+
+const maintenancePresetButtonStyle = {
+    flexGrow: 1,
+    minWidth: 180,
+    paddingVertical: 12,
 };
 
 const sectionTitleStyle = {
