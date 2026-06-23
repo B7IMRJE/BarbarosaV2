@@ -39,6 +39,8 @@ export type MaintenancePreset = {
 
 export type DueStatusLabel = 'Overdue' | 'Due Soon' | 'Upcoming' | 'Paused';
 
+export const maintenanceRecurrenceUnits: RecurrenceUnit[] = ['days', 'weeks', 'months', 'years'];
+
 const dayMs = 24 * 60 * 60 * 1000;
 
 const genericPreset: MaintenancePreset = {
@@ -63,18 +65,46 @@ export function getMaintenancePresets(item: {
     name?: string | null;
     system?: string | null;
     category?: string | null;
+    item_slug?: string | null;
 }) {
     const name = normalize(item.name);
     const system = normalize(item.system);
     const category = normalize(item.category);
+    const itemSlug = normalize(item.item_slug);
+    const text = normalize([name, system, category, itemSlug].filter(Boolean).join(' '));
     const presets: MaintenancePreset[] = [];
 
-    if (name.includes('tankless') && name.includes('water heater')) {
+    const isWaterSystem = matchesAny(text, [
+        'plumbing',
+        'water service',
+        'water quality',
+        'water heater',
+        'water main',
+        'water meter',
+        'prv',
+        'pressure',
+        'shutoff',
+        'shut off',
+        'valve',
+        'filter',
+        'reverse osmosis',
+        'softener',
+    ]);
+    const isGasSystem = matchesAny(text, ['gas', 'fireplace', 'bbq', 'barbecue', 'grill']);
+    const isHvacSystem = matchesAny(text, ['hvac', 'furnace', 'ac', 'air conditioner', 'air handler', 'heat pump', 'condenser', 'thermostat']);
+    const isElectricalSystem = matchesAny(text, ['electrical', 'breaker', 'panel', 'gfci', 'outlet']);
+    const isSafetySystem = matchesAny(text, ['safety', 'smoke', 'co detector', 'carbon monoxide', 'fire extinguisher', 'alarm']);
+    const isIrrigationSystem = matchesAny(text, ['irrigation', 'sprinkler', 'controller', 'valve box', 'drip']);
+    const isPoolSystem = matchesAny(text, ['pool', 'spa', 'pump', 'pool filter', 'equipment pad']);
+    const isApplianceSystem = matchesAny(text, ['appliance', 'dryer', 'refrigerator', 'fridge', 'dishwasher', 'washer']);
+
+    if (matchesAny(text, ['tankless water heater'])) {
         presets.push(
             preset('tankless_water_heater_descale', 'Descale tankless water heater', 1, 'years', 'Flush scale from the tankless water heater.'),
-            preset('tankless_water_heater_inlet_filter', 'Clean inlet filter', 6, 'months', 'Clean or inspect the tankless inlet filter.')
+            preset('tankless_water_heater_inlet_filter', 'Clean inlet filter', 6, 'months', 'Clean or inspect the tankless inlet filter.'),
+            preset('water_heater_tp_valve_drain_pan', 'Check T&P valve / drain pan', 1, 'years', 'Inspect the T&P valve discharge path and drain pan.')
         );
-    } else if (name.includes('water heater')) {
+    } else if (matchesAny(text, ['water heater'])) {
         presets.push(
             preset('water_heater_flush', 'Flush water heater', 1, 'years', 'Flush sediment from the water heater.'),
             preset('water_heater_anode_rod', 'Check anode rod', 3, 'years', 'Inspect the anode rod and replace if needed.'),
@@ -83,49 +113,134 @@ export function getMaintenancePresets(item: {
         );
     }
 
-    if (matchesAny(name, ['filter', 'whole house filter', 'cartridge']) || matchesAny(category, ['filter'])) {
-        presets.push(preset('replace_filter', 'Replace filter', 6, 'months', 'Replace or clean the filter.'));
+    if (isWaterSystem) {
+        if (matchesAny(text, ['prv', 'pressure regulator', 'pressure reducing valve', 'pressure'])) {
+            presets.push(preset('prv_pressure_check', 'Check PRV / water pressure', 1, 'years', 'Verify water pressure and pressure regulator behavior.'));
+        }
+
+        if (matchesAny(text, ['shutoff', 'shut off', 'valve', 'water service', 'water main'])) {
+            presets.push(preset('shutoff_valve_check', 'Check shutoff valves', 1, 'years', 'Operate accessible shutoff valves and check for leaks.'));
+        }
+
+        if (matchesAny(text, ['water meter', 'meter', 'water service'])) {
+            presets.push(preset('water_meter_leak_check', 'Check water meter for leaks', 3, 'months', 'Check the water meter for leak indications.'));
+        }
+
+        if (matchesAny(text, ['sediment filter', 'filter', 'whole house filter', 'cartridge'])) {
+            presets.push(preset('sediment_filter_replace', 'Replace sediment filter', 6, 'months', 'Replace or clean the sediment filter.'));
+        }
+
+        if (matchesAny(text, ['ro', 'reverse osmosis'])) {
+            presets.push(
+                preset('replace_ro_filters', 'Replace RO filters', 1, 'years', 'Replace reverse osmosis filters.'),
+                preset('ro_membrane_check', 'Check RO membrane', 3, 'years', 'Check reverse osmosis membrane condition and performance.')
+            );
+        }
+
+        if (matchesAny(text, ['softener', 'brine'])) {
+            presets.push(
+                preset('softener_salt_brine_check', 'Check softener salt / brine tank', 1, 'months', 'Check salt level and brine tank condition.'),
+                preset('softener_media_service', 'Service softener / media', 1, 'years', 'Check softener media and service needs.')
+            );
+        }
     }
 
-    if (matchesAny(name, ['ro', 'reverse osmosis'])) {
-        presets.push(preset('replace_ro_filters', 'Replace RO filters', 1, 'years', 'Replace reverse osmosis filters.'));
+    if (isGasSystem) {
+        presets.push(
+            preset('visible_gas_connection_check', 'Check visible gas connection', 1, 'years', 'Inspect visible gas connection and shutoff condition.'),
+            preset('gas_shutoff_operation_check', 'Check gas shutoff operation', 1, 'years', 'Confirm accessible gas shutoffs are labeled and operable.')
+        );
+
+        if (matchesAny(text, ['fireplace'])) {
+            presets.push(preset('fireplace_gas_valve_check', 'Check fireplace gas valve', 1, 'years', 'Inspect the fireplace gas valve and visible connection.'));
+        }
+
+        if (matchesAny(text, ['bbq', 'barbecue', 'grill', 'stub'])) {
+            presets.push(preset('bbq_gas_stub_check', 'Check BBQ gas stub', 1, 'years', 'Inspect the BBQ gas stub and cap or connection.'));
+        }
     }
 
-    if (matchesAny(name, ['softener', 'brine'])) {
-        presets.push(preset('softener_salt_brine_check', 'Check softener salt / brine tank', 1, 'months', 'Check salt level and brine tank condition.'));
-    }
-
-    if (matchesAny(name, ['prv', 'pressure regulator', 'pressure reducing valve', 'pressure'])) {
-        presets.push(preset('prv_pressure_check', 'Check water pressure / PRV', 1, 'years', 'Verify water pressure and pressure regulator behavior.'));
-    }
-
-    if (system.includes('gas') || name.includes('gas')) {
-        presets.push(preset('visible_gas_connection_check', 'Check visible gas connection', 1, 'years', 'Inspect visible gas connection and shutoff condition.'));
-    }
-
-    if (system.includes('hvac') || matchesAny(name, ['hvac', 'furnace', 'air handler', 'heat pump', 'condenser'])) {
+    if (isHvacSystem) {
         presets.push(
             preset('hvac_filter_replace', 'Replace HVAC filter', 3, 'months', 'Replace the HVAC air filter.'),
-            preset('hvac_system_service', 'Service HVAC system', 1, 'years', 'Schedule routine HVAC service.')
+            preset('ac_service', 'Service AC', 1, 'years', 'Schedule routine air conditioning service.'),
+            preset('furnace_service', 'Service furnace', 1, 'years', 'Schedule routine furnace service.'),
+            preset('condenser_cleaning', 'Clean condenser', 1, 'years', 'Clean debris from the outdoor condenser area.'),
+            preset('thermostat_battery_replace', 'Replace thermostat batteries', 1, 'years', 'Replace thermostat batteries if applicable.')
         );
     }
 
-    if (
-        system.includes('electrical') ||
-        system.includes('safety') ||
-        matchesAny(name, ['gfci', 'smoke', 'co detector', 'carbon monoxide'])
-    ) {
+    if (isElectricalSystem) {
+        if (matchesAny(text, ['gfci', 'outlet', 'exterior outlet'])) {
+            presets.push(preset('gfci_test', 'Test GFCI', 3, 'months', 'Test GFCI outlets and reset behavior.'));
+        }
+
+        if (matchesAny(text, ['breaker', 'panel'])) {
+            presets.push(preset('breaker_panel_label_check', 'Check breaker panel labels', 1, 'years', 'Confirm breaker labels remain clear and accurate.'));
+        }
+
+        if (matchesAny(text, ['exterior', 'outlet', 'cover'])) {
+            presets.push(preset('exterior_outlet_cover_check', 'Check exterior outlets / covers', 1, 'years', 'Inspect exterior outlet covers and weather protection.'));
+        }
+    }
+
+    if (isSafetySystem || isElectricalSystem) {
+        if (matchesAny(text, ['smoke', 'alarm'])) {
+            presets.push(
+                preset('smoke_alarm_test', 'Test smoke alarm', 1, 'years', 'Test smoke alarm operation.'),
+                preset('smoke_detector_replace', 'Replace smoke detector', 10, 'years', 'Replace smoke detector by age or manufacturer guidance.')
+            );
+        }
+
+        if (matchesAny(text, ['co detector', 'carbon monoxide', 'co alarm'])) {
+            presets.push(
+                preset('co_detector_test', 'Test CO detector', 1, 'years', 'Test carbon monoxide detector operation.'),
+                preset('co_detector_replace', 'Replace CO detector', 10, 'years', 'Replace CO detector by age or manufacturer guidance.')
+            );
+        }
+
+        if (matchesAny(text, ['battery', 'smoke', 'co detector', 'alarm'])) {
+            presets.push(preset('detector_battery_replace', 'Replace batteries', 1, 'years', 'Replace detector batteries where applicable.'));
+        }
+
+        if (matchesAny(text, ['fire extinguisher', 'extinguisher'])) {
+            presets.push(preset('fire_extinguisher_check', 'Check fire extinguisher', 1, 'years', 'Check charge, location, and expiration date.'));
+        }
+    }
+
+    if (isIrrigationSystem) {
         presets.push(
-            preset('gfci_test', 'Test GFCI', 3, 'months', 'Test GFCI outlets and reset behavior.'),
-            preset('smoke_co_detector_test', 'Test smoke / CO detector', 1, 'years', 'Test smoke and carbon monoxide detector operation.')
+            preset('irrigation_controller_schedule_check', 'Check controller schedule', 3, 'months', 'Review irrigation schedule for season and restrictions.'),
+            preset('sprinkler_head_check', 'Check sprinkler heads', 6, 'months', 'Check sprinkler heads, drip lines, and overspray.'),
+            preset('irrigation_valve_box_check', 'Check valve box', 1, 'years', 'Inspect irrigation valve box for leaks or damage.'),
+            preset('irrigation_seasonal_inspection', 'Winter / seasonal inspection', 1, 'years', 'Inspect irrigation system before seasonal changes.')
         );
     }
 
-    if (matchesAny(name, ['water meter', 'meter'])) {
-        presets.push(preset('water_meter_leak_check', 'Check water meter for leaks', 1, 'years', 'Check the water meter for leak indications.'));
+    if (isPoolSystem) {
+        presets.push(
+            preset('pool_filter_clean_replace', 'Clean / replace pool filter', 3, 'months', 'Clean or replace the pool filter based on type and use.'),
+            preset('pool_pump_filter_service', 'Service pump / filter', 1, 'years', 'Service pool pump and filter equipment.'),
+            preset('pool_light_gfci_check', 'Check pool light / GFCI', 1, 'years', 'Check pool light and GFCI protection.'),
+            preset('pool_equipment_pad_check', 'Check equipment pad', 1, 'years', 'Inspect pool equipment pad, valves, and visible connections.')
+        );
     }
 
-    return uniquePresets(presets.length > 0 ? presets : [genericPreset]);
+    if (isApplianceSystem || matchesAny(text, ['dryer', 'refrigerator', 'fridge', 'ice maker', 'water filter'])) {
+        if (matchesAny(text, ['dryer'])) {
+            presets.push(preset('dryer_vent_clean', 'Clean dryer vent', 1, 'years', 'Clean dryer vent and check airflow.'));
+        }
+
+        if (matchesAny(text, ['refrigerator', 'fridge'])) {
+            presets.push(preset('refrigerator_coils_clean', 'Clean refrigerator coils', 1, 'years', 'Clean refrigerator condenser coils.'));
+        }
+
+        if (matchesAny(text, ['water filter', 'ice maker', 'refrigerator', 'fridge'])) {
+            presets.push(preset('appliance_water_filter_replace', 'Replace appliance water filter', 6, 'months', 'Replace appliance water filter.'));
+        }
+    }
+
+    return uniquePresets([...presets, genericPreset]);
 }
 
 export function calculateNextDueDate(
@@ -156,13 +271,39 @@ export function toDateInputValue(date: Date) {
     return `${year}-${month}-${day}`;
 }
 
+export function parseDateInputValue(value?: string | null) {
+    const trimmed = String(value || '').trim();
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+
+    if (!match) return null;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(year, month - 1, day);
+
+    if (
+        parsed.getFullYear() !== year ||
+        parsed.getMonth() !== month - 1 ||
+        parsed.getDate() !== day
+    ) {
+        return null;
+    }
+
+    return parsed;
+}
+
+export function isRecurrenceUnit(value: string): value is RecurrenceUnit {
+    return maintenanceRecurrenceUnits.includes(value as RecurrenceUnit);
+}
+
 export function labelDueStatus(task: Pick<MaintenanceTask, 'next_due_date' | 'reminder_status'>): DueStatusLabel {
     if (task.reminder_status === 'paused') return 'Paused';
 
-    const dueDate = parseDateOnly(task.next_due_date);
+    const dueDate = parseDateInputValue(task.next_due_date);
     if (!dueDate) return 'Upcoming';
 
-    const today = parseDateOnly(toDateInputValue(new Date()));
+    const today = parseDateInputValue(toDateInputValue(new Date()));
     if (!today) return 'Upcoming';
 
     const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / dayMs);
@@ -179,16 +320,21 @@ export function formatRecurrence(interval: number, unit: RecurrenceUnit) {
 }
 
 export function formatDateLabel(value?: string | null) {
-    if (!value) return 'Not set';
-    return new Date(`${value}T00:00:00`).toLocaleDateString();
+    const parsed = parseDateInputValue(value);
+    if (!parsed) return 'Not set';
+    return parsed.toLocaleDateString();
 }
 
 function normalize(value?: string | null) {
-    return String(value || '').trim().toLowerCase();
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ');
 }
 
 function matchesAny(value: string, terms: string[]) {
-    return terms.some((term) => value.includes(term));
+    return terms.some((term) => value.includes(normalize(term)));
 }
 
 function uniquePresets(presets: MaintenancePreset[]) {
@@ -199,10 +345,4 @@ function uniquePresets(presets: MaintenancePreset[]) {
         }
     });
     return Array.from(presetsByKey.values());
-}
-
-function parseDateOnly(value?: string | null) {
-    if (!value) return null;
-    const parsed = new Date(`${value}T00:00:00`);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

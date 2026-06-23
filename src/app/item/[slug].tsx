@@ -12,6 +12,7 @@ import {
     Modal,
     ScrollView,
     Text,
+    TextInput,
     View,
     TouchableOpacity,
 } from 'react-native';
@@ -28,10 +29,14 @@ import {
     formatDateLabel,
     formatRecurrence,
     getMaintenancePresets,
+    isRecurrenceUnit,
     labelDueStatus,
+    maintenanceRecurrenceUnits,
+    parseDateInputValue,
     toDateInputValue,
     type MaintenancePreset,
     type MaintenanceTask,
+    type RecurrenceUnit,
 } from '../../lib/maintenanceTimers';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
@@ -255,11 +260,34 @@ export default function ItemScreen() {
     const [removingFileId, setRemovingFileId] = useState<string | null>(null);
     const [addingMaintenanceKey, setAddingMaintenanceKey] = useState<string | null>(null);
     const [completingMaintenanceId, setCompletingMaintenanceId] = useState<string | null>(null);
+    const [showCustomMaintenanceForm, setShowCustomMaintenanceForm] = useState(false);
+    const [savingCustomMaintenance, setSavingCustomMaintenance] = useState(false);
+    const [customReminderTitle, setCustomReminderTitle] = useState('');
+    const [customReminderDescription, setCustomReminderDescription] = useState('');
+    const [customReminderInterval, setCustomReminderInterval] = useState('1');
+    const [customReminderUnit, setCustomReminderUnit] = useState<RecurrenceUnit>('years');
+    const [customReminderStartDate, setCustomReminderStartDate] = useState(toDateInputValue(new Date()));
+    const [customReminderNextDueDate, setCustomReminderNextDueDate] = useState(
+        calculateNextDueDate(new Date(), 1, 'years')
+    );
     const [message, setMessage] = useState('');
 
     useEffect(() => {
         void loadItem();
     }, [slug]);
+
+    useEffect(() => {
+        if (!showCustomMaintenanceForm) return;
+
+        const interval = Number.parseInt(customReminderInterval.trim(), 10);
+        const startDate = customReminderStartDate.trim()
+            ? parseDateInputValue(customReminderStartDate)
+            : new Date();
+
+        if (!Number.isInteger(interval) || interval <= 0 || !startDate) return;
+
+        setCustomReminderNextDueDate(calculateNextDueDate(startDate, interval, customReminderUnit));
+    }, [customReminderInterval, customReminderStartDate, customReminderUnit, showCustomMaintenanceForm]);
 
     async function loadItem() {
         setLoading(true);
@@ -815,6 +843,122 @@ export default function ItemScreen() {
         }
     }
 
+    function resetCustomMaintenanceForm() {
+        const today = toDateInputValue(new Date());
+        setCustomReminderTitle('');
+        setCustomReminderDescription('');
+        setCustomReminderInterval('1');
+        setCustomReminderUnit('years');
+        setCustomReminderStartDate(today);
+        setCustomReminderNextDueDate(calculateNextDueDate(new Date(), 1, 'years'));
+    }
+
+    function handleShowCustomMaintenanceForm() {
+        resetCustomMaintenanceForm();
+        setShowCustomMaintenanceForm(true);
+        setMessage('');
+    }
+
+    function handleCancelCustomMaintenanceForm() {
+        setShowCustomMaintenanceForm(false);
+        resetCustomMaintenanceForm();
+    }
+
+    async function handleSaveCustomMaintenanceReminder() {
+        if (!item?.id) {
+            setMessage('Item must be loaded before adding reminders.');
+            return;
+        }
+
+        const title = customReminderTitle.trim();
+        if (!title) {
+            setMessage('Reminder title is required.');
+            return;
+        }
+
+        const intervalText = customReminderInterval.trim();
+        const recurrenceInterval = Number.parseInt(intervalText, 10);
+        if (!/^\d+$/.test(intervalText) || !Number.isInteger(recurrenceInterval) || recurrenceInterval <= 0) {
+            setMessage('Reminder interval must be a positive whole number.');
+            return;
+        }
+
+        if (!isRecurrenceUnit(customReminderUnit)) {
+            setMessage('Choose days, weeks, months, or years for the reminder interval.');
+            return;
+        }
+
+        const startDateText = customReminderStartDate.trim() || toDateInputValue(new Date());
+        const startDate = parseDateInputValue(startDateText);
+        if (!startDate) {
+            setMessage('Enter the start date as YYYY-MM-DD.');
+            return;
+        }
+
+        const nextDueDateText = customReminderNextDueDate.trim();
+        if (!parseDateInputValue(nextDueDateText)) {
+            setMessage('Enter the next due date as YYYY-MM-DD.');
+            return;
+        }
+
+        const hasMatchingTitle = maintenanceTasks.some(
+            (task) => task.reminder_status !== 'archived' && task.title.trim().toLowerCase() === title.toLowerCase()
+        );
+
+        setSavingCustomMaintenance(true);
+        setMessage(hasMatchingTitle ? 'Saving another reminder with the same title...' : 'Saving reminder...');
+
+        try {
+            const activeProperty = await requireActivePropertyMembership();
+            const description = customReminderDescription.trim() || null;
+
+            const { error } = await supabase
+                .from('home_item_maintenance_tasks')
+                .insert({
+                    user_id: activeProperty.userId,
+                    property_id: activeProperty.propertyId,
+                    home_item_id: item.id,
+                    item_slug: item.item_slug || String(slug),
+                    system: item.system || null,
+                    task_key: null,
+                    title,
+                    description,
+                    recurrence_interval: recurrenceInterval,
+                    recurrence_unit: customReminderUnit,
+                    start_date: startDateText,
+                    next_due_date: nextDueDateText,
+                    reminder_status: 'active',
+                    notes: null,
+                    created_by: activeProperty.userId,
+                });
+
+            if (error) {
+                logMaintenanceTimerError('add-custom-task', error);
+                setMessage('Custom reminder could not be added. Please try again.');
+                return;
+            }
+
+            setMessage('Custom reminder added.');
+            setShowCustomMaintenanceForm(false);
+            resetCustomMaintenanceForm();
+            await loadMaintenanceTasks({
+                propertyId: activeProperty.propertyId,
+                homeItemId: String(item.id),
+            });
+        } catch (error) {
+            logMaintenanceTimerError('add-custom-task', error);
+            setMessage(error instanceof Error ? error.message : 'Custom reminder could not be added. Please try again.');
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+        } finally {
+            setSavingCustomMaintenance(false);
+        }
+    }
+
     async function handleAddMaintenancePreset(preset: MaintenancePreset) {
         if (!item?.id) {
             setMessage('Item must be loaded before adding reminders.');
@@ -1120,6 +1264,7 @@ export default function ItemScreen() {
         name: item.name,
         system: item.system,
         category: item.category,
+        item_slug: item.item_slug,
     });
     const availableMaintenancePresets = recommendedMaintenancePresets.filter(
         (preset) =>
@@ -1297,6 +1442,165 @@ export default function ItemScreen() {
                                     ))}
                                 </View>
                             </>
+                        )}
+
+                        {!showCustomMaintenanceForm && (
+                            <ThemedButton
+                                title="+ Custom Reminder"
+                                variant="secondary"
+                                onPress={handleShowCustomMaintenanceForm}
+                                style={maintenanceCustomButtonStyle}
+                                textStyle={fileActionButtonTextStyle}
+                            />
+                        )}
+
+                        {showCustomMaintenanceForm && (
+                            <View
+                                style={[
+                                    maintenanceCustomFormStyle,
+                                    {
+                                        backgroundColor: theme.colors.surfaceAlt,
+                                        borderColor: theme.colors.border,
+                                    },
+                                ]}
+                            >
+                                <Text style={[maintenanceCustomTitleStyle, { color: theme.colors.text }]}>
+                                    Custom reminder
+                                </Text>
+
+                                <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                    Reminder title
+                                </Text>
+                                <TextInput
+                                    value={customReminderTitle}
+                                    onChangeText={setCustomReminderTitle}
+                                    placeholder="Example: Replace filter"
+                                    placeholderTextColor={theme.colors.mutedText}
+                                    style={[
+                                        maintenanceTextInputStyle,
+                                        {
+                                            backgroundColor: theme.colors.surface,
+                                            borderColor: theme.colors.border,
+                                            color: theme.colors.text,
+                                        },
+                                    ]}
+                                />
+
+                                <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                    Description / notes
+                                </Text>
+                                <TextInput
+                                    value={customReminderDescription}
+                                    onChangeText={setCustomReminderDescription}
+                                    placeholder="Optional"
+                                    placeholderTextColor={theme.colors.mutedText}
+                                    multiline
+                                    textAlignVertical="top"
+                                    style={[
+                                        maintenanceTextAreaStyle,
+                                        {
+                                            backgroundColor: theme.colors.surface,
+                                            borderColor: theme.colors.border,
+                                            color: theme.colors.text,
+                                        },
+                                    ]}
+                                />
+
+                                <View style={maintenanceCustomRowStyle}>
+                                    <View style={maintenanceIntervalInputWrapStyle}>
+                                        <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                            Every
+                                        </Text>
+                                        <TextInput
+                                            value={customReminderInterval}
+                                            onChangeText={setCustomReminderInterval}
+                                            keyboardType="number-pad"
+                                            placeholder="1"
+                                            placeholderTextColor={theme.colors.mutedText}
+                                            style={[
+                                                maintenanceTextInputStyle,
+                                                {
+                                                    backgroundColor: theme.colors.surface,
+                                                    borderColor: theme.colors.border,
+                                                    color: theme.colors.text,
+                                                },
+                                            ]}
+                                        />
+                                    </View>
+
+                                    <View style={maintenanceUnitInputWrapStyle}>
+                                        <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                            Unit
+                                        </Text>
+                                        <OptionRow
+                                            options={maintenanceRecurrenceUnits}
+                                            value={customReminderUnit}
+                                            onChange={(value) => setCustomReminderUnit(value as RecurrenceUnit)}
+                                            labelForOption={(value) => value}
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={maintenanceCustomRowStyle}>
+                                    <View style={maintenanceDateInputWrapStyle}>
+                                        <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                            Start date
+                                        </Text>
+                                        <TextInput
+                                            value={customReminderStartDate}
+                                            onChangeText={setCustomReminderStartDate}
+                                            placeholder="YYYY-MM-DD"
+                                            placeholderTextColor={theme.colors.mutedText}
+                                            style={[
+                                                maintenanceTextInputStyle,
+                                                {
+                                                    backgroundColor: theme.colors.surface,
+                                                    borderColor: theme.colors.border,
+                                                    color: theme.colors.text,
+                                                },
+                                            ]}
+                                        />
+                                    </View>
+
+                                    <View style={maintenanceDateInputWrapStyle}>
+                                        <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                            Next due date
+                                        </Text>
+                                        <TextInput
+                                            value={customReminderNextDueDate}
+                                            onChangeText={setCustomReminderNextDueDate}
+                                            placeholder="YYYY-MM-DD"
+                                            placeholderTextColor={theme.colors.mutedText}
+                                            style={[
+                                                maintenanceTextInputStyle,
+                                                {
+                                                    backgroundColor: theme.colors.surface,
+                                                    borderColor: theme.colors.border,
+                                                    color: theme.colors.text,
+                                                },
+                                            ]}
+                                        />
+                                    </View>
+                                </View>
+
+                                <View style={maintenanceFormActionsStyle}>
+                                    <ThemedButton
+                                        title={savingCustomMaintenance ? 'Saving...' : 'Save'}
+                                        onPress={handleSaveCustomMaintenanceReminder}
+                                        disabled={savingCustomMaintenance}
+                                        style={maintenanceFormActionButtonStyle}
+                                        textStyle={fileActionButtonTextStyle}
+                                    />
+                                    <ThemedButton
+                                        title="Cancel"
+                                        variant="ghost"
+                                        onPress={handleCancelCustomMaintenanceForm}
+                                        disabled={savingCustomMaintenance}
+                                        style={maintenanceFormActionButtonStyle}
+                                        textStyle={fileActionButtonTextStyle}
+                                    />
+                                </View>
+                            </View>
                         )}
                     </ThemedCard>
 
@@ -1905,6 +2209,82 @@ const maintenancePresetGridStyle = {
 const maintenancePresetButtonStyle = {
     flexGrow: 1,
     minWidth: 180,
+    paddingVertical: 12,
+};
+
+const maintenanceCustomButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    marginTop: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+};
+
+const maintenanceCustomFormStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 14,
+};
+
+const maintenanceCustomTitleStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+    marginBottom: 10,
+};
+
+const maintenanceFieldLabelStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    marginBottom: 6,
+};
+
+const maintenanceTextInputStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 16,
+    fontWeight: '800' as const,
+    marginBottom: 12,
+};
+
+const maintenanceTextAreaStyle = {
+    ...maintenanceTextInputStyle,
+    minHeight: 88,
+};
+
+const maintenanceCustomRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const maintenanceIntervalInputWrapStyle = {
+    width: 140,
+    maxWidth: '100%' as const,
+};
+
+const maintenanceUnitInputWrapStyle = {
+    flex: 1,
+    minWidth: 220,
+};
+
+const maintenanceDateInputWrapStyle = {
+    flex: 1,
+    minWidth: 180,
+};
+
+const maintenanceFormActionsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 2,
+};
+
+const maintenanceFormActionButtonStyle = {
+    flexGrow: 1,
+    minWidth: 120,
     paddingVertical: 12,
 };
 
