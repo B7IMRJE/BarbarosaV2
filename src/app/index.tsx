@@ -19,6 +19,7 @@ import {
 } from '../lib/homeHealth';
 import { homeSystems } from '../lib/homeSystems';
 import { loadActiveHomeIdentity, type HomeIdentity } from '../lib/homeIdentity';
+import { labelDueStatus, type DueStatusLabel } from '../lib/maintenanceTimers';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -35,12 +36,38 @@ type HomeDashboardItem = HomeHealthItem & {
   category?: string | null;
 };
 
+type HomeMaintenanceReminder = {
+  id: string;
+  title: string;
+  next_due_date: string;
+  reminder_status: 'active' | 'paused' | 'archived';
+};
+
+function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
+  const safeError = error as {
+    message?: unknown;
+    code?: unknown;
+    details?: unknown;
+    hint?: unknown;
+  };
+
+  console.error('[HomeMaintenanceSummary]', {
+    stage,
+    message: typeof safeError?.message === 'string' ? safeError.message : 'Unknown error',
+    code: typeof safeError?.code === 'string' || typeof safeError?.code === 'number' ? safeError.code : null,
+    details: typeof safeError?.details === 'string' ? safeError.details : null,
+    hint: typeof safeError?.hint === 'string' ? safeError.hint : null,
+  });
+}
+
 export default function HomeScreen() {
   const { theme } = useTheme();
   const [homeIdentity, setHomeIdentity] = useState<HomeIdentity | null>(null);
   const [homeIdentityLoading, setHomeIdentityLoading] = useState(true);
   const [homeItems, setHomeItems] = useState<HomeDashboardItem[]>([]);
   const [activeEmergencies, setActiveEmergencies] = useState<HomeHealthEmergency[]>([]);
+  const [maintenanceReminders, setMaintenanceReminders] = useState<HomeMaintenanceReminder[]>([]);
+  const [maintenanceReminderMessage, setMaintenanceReminderMessage] = useState('');
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
@@ -52,6 +79,8 @@ export default function HomeScreen() {
       setHomeIdentityLoading(false);
       setHomeItems([]);
       setActiveEmergencies([]);
+      setMaintenanceReminders([]);
+      setMaintenanceReminderMessage('');
 
       if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
         router.replace('/auth/login' as any);
@@ -83,6 +112,21 @@ export default function HomeScreen() {
       .select('id, status, emergency_type')
       .eq('property_id', activeProperty.propertyId)
       .neq('status', 'Resolved');
+
+    const { data: reminders, error: remindersError } = await supabase
+      .from('home_item_maintenance_tasks')
+      .select('id, title, next_due_date, reminder_status')
+      .eq('property_id', activeProperty.propertyId)
+      .neq('reminder_status', 'archived');
+
+    if (remindersError) {
+      logHomeMaintenanceSummaryError('load-reminders', remindersError);
+      setMaintenanceReminders([]);
+      setMaintenanceReminderMessage('Maintenance reminder summary could not be loaded.');
+    } else {
+      setMaintenanceReminders((reminders || []) as HomeMaintenanceReminder[]);
+      setMaintenanceReminderMessage('');
+    }
 
     setHomeItems((items || []) as HomeDashboardItem[]);
     setActiveEmergencies((emergencies || []) as HomeHealthEmergency[]);
@@ -127,6 +171,26 @@ export default function HomeScreen() {
     () => scoreAllSystems(homeItems, homeSystems.map((system) => system.key)),
     [homeItems]
   );
+  const maintenanceReminderCounts = useMemo(() => {
+    const counts: Record<DueStatusLabel, number> = {
+      Overdue: 0,
+      'Due Soon': 0,
+      Upcoming: 0,
+      Paused: 0,
+    };
+
+    maintenanceReminders.forEach((reminder) => {
+      counts[labelDueStatus(reminder)] += 1;
+    });
+
+    return counts;
+  }, [maintenanceReminders]);
+  const maintenanceReminderSummary = [
+    { label: 'overdue', count: maintenanceReminderCounts.Overdue },
+    { label: 'due soon', count: maintenanceReminderCounts['Due Soon'] },
+    { label: 'upcoming', count: maintenanceReminderCounts.Upcoming },
+    { label: 'paused', count: maintenanceReminderCounts.Paused },
+  ].filter((summary) => summary.count > 0);
   const progressWidth = `${healthSummary.score ?? 0}%` as `${number}%`;
 
   async function saveRecoverySession() {
@@ -226,6 +290,94 @@ export default function HomeScreen() {
               ? 'Start by adding real equipment, fixtures, documents, and photos from your home.'
               : `${healthSummary.score}/100 based on ${healthSummary.itemCount} home item${healthSummary.itemCount === 1 ? '' : 's'}.`}
           </Text>
+        </ThemedCard>
+
+        <ThemedCard
+          style={{
+            marginTop: 18,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: '900',
+              color: theme.colors.text,
+              marginBottom: 8,
+            }}
+          >
+            Maintenance Reminders
+          </Text>
+
+          {maintenanceReminderMessage ? (
+            <Text
+              style={{
+                fontSize: 15,
+                color: theme.colors.mutedText,
+                lineHeight: 22,
+                marginBottom: 14,
+              }}
+            >
+              {maintenanceReminderMessage}
+            </Text>
+          ) : maintenanceReminders.length === 0 ? (
+            <Text
+              style={{
+                fontSize: 15,
+                color: theme.colors.mutedText,
+                lineHeight: 22,
+                marginBottom: 14,
+              }}
+            >
+              No maintenance reminders yet.
+            </Text>
+          ) : (
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: 10,
+                marginBottom: 14,
+              }}
+            >
+              {maintenanceReminderSummary.map((summary) => (
+                <View
+                  key={summary.label}
+                  style={{
+                    backgroundColor: theme.colors.surfaceAlt,
+                    borderColor: theme.colors.border,
+                    borderWidth: 1,
+                    borderRadius: theme.radii.card,
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      fontSize: 16,
+                      fontWeight: '900',
+                    }}
+                  >
+                    {summary.count} {summary.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <ThemedButton
+            title="Open Maintenance"
+            variant="secondary"
+            onPress={() => router.push('/maintenance' as any)}
+            style={{
+              alignSelf: 'flex-start',
+              paddingVertical: 12,
+              paddingHorizontal: 18,
+            }}
+            textStyle={{
+              fontSize: 14,
+            }}
+          />
         </ThemedCard>
 
         <Text
