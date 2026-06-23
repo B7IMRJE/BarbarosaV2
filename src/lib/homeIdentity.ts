@@ -75,7 +75,8 @@ export async function loadActiveHomeIdentity() {
     const { data, error } = await supabase.rpc('get_my_active_home_identity');
 
     if (error) {
-        throw new Error('Could not load your home information.');
+        logHomeIdentityRpcError('Load active home identity failed', error);
+        throw new Error(`Could not load your home information: ${error.message}`);
     }
 
     const row = firstRow<HomeIdentityRow>(data);
@@ -87,7 +88,8 @@ export async function createFirstHomeIdentity(input: HomeIdentityInput) {
     const { data, error } = await supabase.rpc('create_homeowner_first_property', buildHomeIdentityRpcPayload(input));
 
     if (error) {
-        throw new Error('We could not create your home right now. Please try again.');
+        logHomeIdentityRpcError('Create first home identity failed', error);
+        throw new Error(`We could not create your home right now: ${error.message}`);
     }
 
     const row = firstRow<PropertyRpcRow>(data);
@@ -107,7 +109,8 @@ export async function updateHomeIdentity(propertyId: string, input: HomeIdentity
     });
 
     if (error) {
-        throw new Error('We could not update your home right now. Please try again.');
+        logHomeIdentityRpcError('Update home identity failed', error);
+        throw new Error(`We could not update your home right now: ${error.message}`);
     }
 
     const row = firstRow<PropertyRpcRow>(data);
@@ -206,4 +209,18 @@ function firstRow<T>(data: unknown) {
     }
 
     return (data || null) as T | null;
+}
+
+function logHomeIdentityRpcError(context: string, error: {
+    message?: unknown;
+    code?: unknown;
+    details?: unknown;
+    hint?: unknown;
+}) {
+    console.error(context, {
+        message: typeof error.message === 'string' ? error.message : 'Unknown error',
+        code: typeof error.code === 'string' || typeof error.code === 'number' ? error.code : null,
+        details: typeof error.details === 'string' ? error.details : null,
+        hint: typeof error.hint === 'string' ? error.hint : null,
+    });
 }
