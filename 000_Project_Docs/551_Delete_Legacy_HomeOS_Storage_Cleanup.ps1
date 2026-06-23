@@ -84,7 +84,7 @@ function New-PostgrestUri {
             [System.Uri]::EscapeDataString([string]$entry.Value)
     }
 
-    "$SupabaseUrl/rest/v1/$Table?$($queryParts -join '&')"
+    "{0}/rest/v1/{1}?{2}" -f $SupabaseUrl, $Table, ($queryParts -join '&')
 }
 
 function Add-RequestPathLog {
@@ -229,7 +229,50 @@ function Invoke-SupabaseRestPage {
     $uri = New-PostgrestUri -Table $Table -Query $pagedQuery
     Add-RequestPathLog -Uri $uri
 
-    $response = Invoke-WebRequest -Method Get -Uri $uri -Headers $RestHeaders -UseBasicParsing
+    try {
+        $response = Invoke-WebRequest -Method Get -Uri $uri -Headers $RestHeaders -UseBasicParsing
+    } catch {
+        $safePath = ([System.Uri]$uri).PathAndQuery
+        Write-Host "Supabase REST GET failed for request path: $safePath"
+
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+
+        if ($null -ne $statusCode) {
+            Write-Host "HTTP status code: $statusCode"
+        }
+
+        $errorBody = $null
+        if ($_.ErrorDetails -and -not [string]::IsNullOrWhiteSpace([string]$_.ErrorDetails.Message)) {
+            $errorBody = [string]$_.ErrorDetails.Message
+        }
+
+        if ([string]::IsNullOrWhiteSpace($errorBody) -and $_.Exception.Response) {
+            try {
+                $responseStream = $_.Exception.Response.GetResponseStream()
+                if ($responseStream) {
+                    $reader = [System.IO.StreamReader]::new($responseStream)
+                    try {
+                        $errorBody = $reader.ReadToEnd()
+                    } finally {
+                        $reader.Dispose()
+                    }
+                }
+            } catch {
+                $errorBody = $null
+            }
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($errorBody)) {
+            Write-Host 'Response error body:'
+            Write-Host $errorBody
+        }
+
+        throw
+    }
+
     $contentRange = Get-HeaderValue -Headers $response.Headers -Name 'Content-Range'
 
     [pscustomobject]@{
