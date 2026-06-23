@@ -1,27 +1,85 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
 import SystemStatusCard from '../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../components/theme/ThemedButton';
+import {
+    activePropertyErrorMessage,
+    isActivePropertyResolutionError,
+    requireActivePropertyMembership,
+} from '../../../lib/activeProperty';
+import { scoreAreaHealth, statusForCard, type HomeHealthItem } from '../../../lib/homeHealth';
 import { getSystemLabel } from '../../../lib/homeSystems';
 import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
+import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
 
 export default function SystemAreasScreen() {
     const { theme } = useTheme();
     const { system } = useLocalSearchParams<{ system: string }>();
     const [search, setSearch] = useState('');
+    const [homeItems, setHomeItems] = useState<HomeHealthItem[]>([]);
+    const [message, setMessage] = useState('');
 
     const systemName = system ? String(system) : 'System';
     const systemLabel = getSystemLabel(systemName);
     const systemDefaults = useMemo(() => getSystemDefaults(systemName), [systemName]);
+    const systemItems = useMemo(
+        () =>
+            homeItems.filter(
+                (item) =>
+                    sameText(item.system, systemName) ||
+                    sameText(item.system, systemLabel)
+            ),
+        [homeItems, systemLabel, systemName]
+    );
 
     const filteredAreas = useMemo(() => {
         return systemDefaults.areas.filter((area) =>
             area.toLowerCase().includes(search.toLowerCase())
         );
     }, [search, systemDefaults]);
+
+    const loadAreaHealth = useCallback(async () => {
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setHomeItems([]);
+            setMessage(activePropertyErrorMessage(error));
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('home_items')
+            .select('id, status, condition, install_state, system, area, location, parent_area, category')
+            .eq('property_id', activeProperty.propertyId)
+            .or('archived.eq.false,archived.is.null');
+
+        if (error) {
+            setHomeItems([]);
+            setMessage(`Could not load area status: ${error.message}`);
+            return;
+        }
+
+        setHomeItems((data || []) as HomeHealthItem[]);
+        setMessage('');
+    }, []);
+
+    useFocusEffect(
+        useCallback(() => {
+            loadAreaHealth();
+        }, [loadAreaHealth])
+    );
 
     return (
         <ScrollView
@@ -85,6 +143,19 @@ export default function SystemAreasScreen() {
                     }}
                 />
 
+                {!!message && (
+                    <Text
+                        style={{
+                            color: theme.colors.mutedText,
+                            fontSize: 14,
+                            fontWeight: '800',
+                            marginBottom: 14,
+                        }}
+                    >
+                        {message}
+                    </Text>
+                )}
+
                 <View
                     style={{
                         flexDirection: 'row',
@@ -92,27 +163,36 @@ export default function SystemAreasScreen() {
                         gap: 12,
                     }}
                 >
-                    {filteredAreas.map((area) => (
-                        <SystemStatusCard
-                            key={area}
-                            title={area}
-                            icon={getAreaIcon(area)}
-                            onPress={() =>
-                                router.push({
-                                    pathname: '/system/[system]/area/[area]',
-                                    params: {
-                                        system: systemName,
-                                        area,
-                                    },
-                                } as any)
-                            }
-                            style={{
-                                width: '48%',
-                            }}
-                        />
-                    ))}
+                    {filteredAreas.map((area) => {
+                        const areaSummary = scoreAreaHealth(systemItems, area);
+
+                        return (
+                            <SystemStatusCard
+                                key={area}
+                                title={area}
+                                icon={getAreaIcon(area)}
+                                status={statusForCard(areaSummary)}
+                                onPress={() =>
+                                    router.push({
+                                        pathname: '/system/[system]/area/[area]',
+                                        params: {
+                                            system: systemName,
+                                            area,
+                                        },
+                                    } as any)
+                                }
+                                style={{
+                                    width: '48%',
+                                }}
+                            />
+                        );
+                    })}
                 </View>
             </View>
         </ScrollView>
     );
+}
+
+function sameText(a?: string | null, b?: string | null) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }
