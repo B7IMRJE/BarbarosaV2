@@ -209,8 +209,16 @@ export default function CreateItemScreen() {
             .or('archived.eq.false,archived.is.null');
 
         if (duplicateCheckError) {
+            console.error('Duplicate check failed', {
+                message: duplicateCheckError.message,
+                code: duplicateCheckError.code,
+                details: duplicateCheckError.details,
+                hint: duplicateCheckError.hint,
+                propertyId: activeProperty.propertyId,
+            });
+
             setSaving(false);
-            setMessage('Could not check existing items. Please try again.');
+            setMessage(`Could not check existing items: ${duplicateCheckError.message}`);
             return;
         }
 
