@@ -234,151 +234,146 @@ export default function HomeScreen() {
           onEdit={() => router.push('/home/edit' as any)}
         />
 
-        <ThemedCard
-          style={{
-            marginTop: 22,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 15,
-              color: theme.colors.mutedText,
-              fontWeight: '700',
-              marginBottom: 10,
-            }}
-          >
-            Home Health Status
-          </Text>
-
-          <Text
-            style={{
-              fontSize: 26,
-              fontWeight: '900',
-              color: theme.colors.text,
-              marginBottom: 14,
-            }}
-          >
-            {healthSummary.label}
-          </Text>
-
-          <View
-            style={{
-              height: 16,
-              backgroundColor: theme.colors.progressTrack,
-              borderRadius: 999,
-              overflow: 'hidden',
-            }}
-          >
-            <View
-              style={{
-                width: progressWidth,
-                height: '100%',
-                backgroundColor: theme.colors.progressFill,
-              }}
-            />
-          </View>
-
-          <Text
-            style={{
-              marginTop: 12,
-              fontSize: 14,
-              color: theme.colors.mutedText,
-              lineHeight: 20,
-            }}
-          >
-            {healthSummary.score === null
-              ? 'Start by adding real equipment, fixtures, documents, and photos from your home.'
-              : `${healthSummary.score}/100 based on ${healthSummary.itemCount} home item${healthSummary.itemCount === 1 ? '' : 's'}.`}
-          </Text>
-        </ThemedCard>
-
-        <ThemedCard
-          style={{
-            marginTop: 18,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 20,
-              fontWeight: '900',
-              color: theme.colors.text,
-              marginBottom: 8,
-            }}
-          >
-            Maintenance Reminders
-          </Text>
-
-          {maintenanceReminderMessage ? (
+        <View style={summaryGridStyle}>
+          <ThemedCard style={summaryCardStyle}>
             <Text
               style={{
                 fontSize: 15,
                 color: theme.colors.mutedText,
-                lineHeight: 22,
-                marginBottom: 14,
+                fontWeight: '700',
+                marginBottom: 10,
               }}
             >
-              {maintenanceReminderMessage}
+              Home Health Status
             </Text>
-          ) : maintenanceReminders.length === 0 ? (
+
             <Text
               style={{
-                fontSize: 15,
-                color: theme.colors.mutedText,
-                lineHeight: 22,
+                fontSize: 26,
+                fontWeight: '900',
+                color: theme.colors.text,
                 marginBottom: 14,
               }}
             >
-              No maintenance reminders yet.
+              {healthSummary.label}
             </Text>
-          ) : (
+
             <View
               style={{
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                gap: 10,
-                marginBottom: 14,
+                height: 16,
+                backgroundColor: theme.colors.progressTrack,
+                borderRadius: 999,
+                overflow: 'hidden',
               }}
             >
-              {maintenanceReminderSummary.map((summary) => (
-                <View
-                  key={summary.label}
-                  style={{
-                    backgroundColor: theme.colors.surfaceAlt,
-                    borderColor: theme.colors.border,
-                    borderWidth: 1,
-                    borderRadius: theme.radii.card,
-                    paddingVertical: 10,
-                    paddingHorizontal: 12,
-                  }}
-                >
-                  <Text
+              <View
+                style={{
+                  width: progressWidth,
+                  height: '100%',
+                  backgroundColor: theme.colors.progressFill,
+                }}
+              />
+            </View>
+
+            <Text
+              style={{
+                marginTop: 12,
+                fontSize: 14,
+                color: theme.colors.mutedText,
+                lineHeight: 20,
+              }}
+            >
+              {healthSummary.score === null
+                ? 'Start by adding real equipment, fixtures, documents, and photos from your home.'
+                : `${healthSummary.score}/100 based on ${healthSummary.itemCount} home item${healthSummary.itemCount === 1 ? '' : 's'}.`}
+            </Text>
+          </ThemedCard>
+
+          <ThemedCard style={summaryCardStyle}>
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: '900',
+                color: theme.colors.text,
+                marginBottom: 8,
+              }}
+            >
+              Maintenance Reminders
+            </Text>
+
+            {maintenanceReminderMessage ? (
+              <Text
+                style={{
+                  fontSize: 15,
+                  color: theme.colors.mutedText,
+                  lineHeight: 22,
+                  marginBottom: 14,
+                }}
+              >
+                {maintenanceReminderMessage}
+              </Text>
+            ) : maintenanceReminders.length === 0 ? (
+              <Text
+                style={{
+                  fontSize: 15,
+                  color: theme.colors.mutedText,
+                  lineHeight: 22,
+                  marginBottom: 14,
+                }}
+              >
+                No maintenance reminders yet.
+              </Text>
+            ) : (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  marginBottom: 14,
+                }}
+              >
+                {maintenanceReminderSummary.map((summary) => (
+                  <View
+                    key={summary.label}
                     style={{
-                      color: theme.colors.text,
-                      fontSize: 16,
-                      fontWeight: '900',
+                      backgroundColor: theme.colors.surfaceAlt,
+                      borderColor: theme.colors.border,
+                      borderWidth: 1,
+                      borderRadius: theme.radii.card,
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
                     }}
                   >
-                    {summary.count} {summary.label}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          )}
+                    <Text
+                      style={{
+                        color: theme.colors.text,
+                        fontSize: 16,
+                        fontWeight: '900',
+                      }}
+                    >
+                      {summary.count} {summary.label}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            )}
 
-          <ThemedButton
-            title="Open Maintenance"
-            variant="secondary"
-            onPress={() => router.push('/maintenance' as any)}
-            style={{
-              alignSelf: 'flex-start',
-              paddingVertical: 12,
-              paddingHorizontal: 18,
-            }}
-            textStyle={{
-              fontSize: 14,
-            }}
-          />
-        </ThemedCard>
+            <ThemedButton
+              title="Open Maintenance"
+              variant="secondary"
+              onPress={() => router.push('/maintenance' as any)}
+              style={{
+                alignSelf: 'flex-start',
+                paddingVertical: 12,
+                paddingHorizontal: 18,
+                marginTop: 'auto',
+              }}
+              textStyle={{
+                fontSize: 14,
+              }}
+            />
+          </ThemedCard>
+        </View>
 
         <Text
           style={{
@@ -542,116 +537,141 @@ export default function HomeScreen() {
           )}
         </ThemedCard>
 
-        <ThemedCard
-          style={{
-            marginTop: 18,
-            borderColor: theme.colors.status.activeEmergency.border,
-            backgroundColor: theme.colors.status.activeEmergency.background,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 20,
-              fontWeight: '900',
-              color: theme.colors.text,
-              marginBottom: 8,
-            }}
+        <View style={actionCardGridStyle}>
+          <ThemedCard
+            style={[
+              actionCardStyle,
+              {
+                borderColor: theme.colors.status.activeEmergency.border,
+                backgroundColor: theme.colors.status.activeEmergency.background,
+              },
+            ]}
           >
-            Emergency Center
-          </Text>
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: '900',
+                color: theme.colors.text,
+                marginBottom: 8,
+              }}
+            >
+              Emergency Center
+            </Text>
 
-          <Text
-            style={{
-              fontSize: 15,
-              color: theme.colors.mutedText,
-              lineHeight: 22,
-              marginBottom: 14,
-            }}
-          >
-            Report urgent home issues with photos, notes, and status history.
-          </Text>
+            <Text
+              style={{
+                fontSize: 14,
+                color: theme.colors.mutedText,
+                lineHeight: 20,
+                marginBottom: 14,
+              }}
+            >
+              Report urgent home issues with photos, notes, and status history.
+            </Text>
 
-          <ThemedButton
-            title="Open Emergency Center"
-            onPress={() => router.push('/emergency' as any)}
-          />
-        </ThemedCard>
+            <ThemedButton
+              title="Open Emergency Center"
+              onPress={() => router.push('/emergency' as any)}
+              style={actionCardButtonStyle}
+              textStyle={actionCardButtonTextStyle}
+            />
+          </ThemedCard>
 
-        <ThemedCard
-          style={{
-            marginTop: 18,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 20,
-              fontWeight: '900',
-              color: theme.colors.text,
-              marginBottom: 8,
-            }}
-          >
-            Maintenance Center
-          </Text>
+          <ThemedCard style={actionCardStyle}>
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: '900',
+                color: theme.colors.text,
+                marginBottom: 8,
+              }}
+            >
+              Maintenance Center
+            </Text>
 
-          <Text
-            style={{
-              fontSize: 15,
-              color: theme.colors.mutedText,
-              lineHeight: 22,
-              marginBottom: 14,
-            }}
-          >
-            Track service history, photos, documents, and next maintenance dates.
-          </Text>
+            <Text
+              style={{
+                fontSize: 14,
+                color: theme.colors.mutedText,
+                lineHeight: 20,
+                marginBottom: 14,
+              }}
+            >
+              Track service history, photos, documents, and next maintenance dates.
+            </Text>
 
-          <ThemedButton
-            title="Open Maintenance Center"
-            variant="secondary"
-            onPress={() => router.push('/maintenance' as any)}
-          />
-        </ThemedCard>
+            <ThemedButton
+              title="Open Maintenance Center"
+              variant="secondary"
+              onPress={() => router.push('/maintenance' as any)}
+              style={actionCardButtonStyle}
+              textStyle={actionCardButtonTextStyle}
+            />
+          </ThemedCard>
 
-        <ThemedCard
-          style={{
-            marginTop: 18,
-          }}
-        >
-          <Text
-            style={{
-              fontSize: 20,
-              fontWeight: '900',
-              color: theme.colors.text,
-              marginBottom: 8,
-            }}
-          >
-            Company Connections
-          </Text>
+          <ThemedCard style={actionCardStyle}>
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: '900',
+                color: theme.colors.text,
+                marginBottom: 8,
+              }}
+            >
+              Company Connections
+            </Text>
 
-          <Text
-            style={{
-              fontSize: 15,
-              color: theme.colors.mutedText,
-              lineHeight: 22,
-              marginBottom: 14,
-            }}
-          >
-            Review connected companies and pending access requests for your home.
-          </Text>
+            <Text
+              style={{
+                fontSize: 14,
+                color: theme.colors.mutedText,
+                lineHeight: 20,
+                marginBottom: 14,
+              }}
+            >
+              Review connected companies and pending access requests for your home.
+            </Text>
 
-          <ThemedButton
-            title="Open Connections"
-            variant="secondary"
-            onPress={() => router.push('/connections' as any)}
-          />
-        </ThemedCard>
+            <ThemedButton
+              title="Open Connections"
+              variant="secondary"
+              onPress={() => router.push('/connections' as any)}
+              style={actionCardButtonStyle}
+              textStyle={actionCardButtonTextStyle}
+            />
+          </ThemedCard>
 
-        <ThemedButton
-          title="Request Professional Help"
-          onPress={() => router.push('/contact' as any)}
-          style={{
-            marginTop: 24,
-          }}
-        />
+          <ThemedCard style={actionCardStyle}>
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: '900',
+                color: theme.colors.text,
+                marginBottom: 8,
+              }}
+            >
+              Request Professional Help
+            </Text>
+
+            <Text
+              style={{
+                fontSize: 14,
+                color: theme.colors.mutedText,
+                lineHeight: 20,
+                marginBottom: 14,
+              }}
+            >
+              Request support from a trusted home service professional.
+            </Text>
+
+            <ThemedButton
+              title="Request Professional Help"
+              onPress={() => router.push('/contact' as any)}
+              style={actionCardButtonStyle}
+              textStyle={actionCardButtonTextStyle}
+            />
+          </ThemedCard>
+        </View>
 
         <View
           style={{
@@ -692,6 +712,45 @@ export default function HomeScreen() {
     </ScrollView>
   );
 }
+
+const summaryGridStyle = {
+  flexDirection: 'row' as const,
+  flexWrap: 'wrap' as const,
+  alignItems: 'stretch' as const,
+  gap: 14,
+  marginTop: 22,
+};
+
+const summaryCardStyle = {
+  flexGrow: 1,
+  flexBasis: 360,
+  minWidth: 280,
+};
+
+const actionCardGridStyle = {
+  flexDirection: 'row' as const,
+  flexWrap: 'wrap' as const,
+  alignItems: 'stretch' as const,
+  gap: 12,
+  marginTop: 18,
+};
+
+const actionCardStyle = {
+  flexGrow: 1,
+  flexBasis: 200,
+  minWidth: 200,
+  minHeight: 220,
+};
+
+const actionCardButtonStyle = {
+  marginTop: 'auto' as const,
+  paddingVertical: 12,
+  paddingHorizontal: 14,
+};
+
+const actionCardButtonTextStyle = {
+  fontSize: 14,
+};
 
 function firstText(...values: Array<string | null | undefined>) {
   for (const value of values) {
