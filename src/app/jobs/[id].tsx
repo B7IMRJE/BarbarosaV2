@@ -16,6 +16,37 @@ import { useTheme } from '../../theme/useTheme';
 
 const statuses = ['open', 'in_progress', 'waiting_on_customer', 'completed'];
 
+const techWorkflowSteps = [
+    {
+        title: 'Arrival',
+        description: 'Confirm the technician is on site and ready to begin.',
+    },
+    {
+        title: 'Assessment',
+        description: 'Inspect the issue, verify the system, and document findings.',
+    },
+    {
+        title: 'Photos / Notes',
+        description: 'Capture job photos, customer concerns, and field notes.',
+    },
+    {
+        title: 'Estimate Options',
+        description: 'Prepare repair, replacement, or good-better-best options.',
+    },
+    {
+        title: 'Approval',
+        description: 'Send proposal options and wait for customer approval.',
+    },
+    {
+        title: 'Completion',
+        description: 'Finish work, record final notes, and close the job.',
+    },
+    {
+        title: 'Invoice / Review',
+        description: 'Send final invoice, receipt, and review request.',
+    },
+];
+
 function scaleJobStyle<T extends Record<string, any>>(
     style: T,
     scaleFont: (value: number) => number,
@@ -193,6 +224,34 @@ export default function JobThreadScreen() {
                         </View>
 
                         <View style={scaleJobStyle(panelStyle, scaleFont, scaleIcon)}>
+                            <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>TechOS Field Workflow</Text>
+                            <Text style={scaleJobStyle(workflowIntroStyle, scaleFont, scaleIcon)}>
+                                This is the technician path we will connect to job actions, photos, estimate options,
+                                approvals, invoices, and review requests.
+                            </Text>
+
+                            <View style={scaleJobStyle(workflowGridStyle, scaleFont, scaleIcon)}>
+                                {techWorkflowSteps.map((step, index) => (
+                                    <View key={step.title} style={scaleJobStyle(workflowStepCardStyle, scaleFont, scaleIcon)}>
+                                        <View style={scaleJobStyle(workflowStepHeaderStyle, scaleFont, scaleIcon)}>
+                                            <View style={scaleJobStyle(workflowStepNumberStyle, scaleFont, scaleIcon)}>
+                                                <Text style={scaleJobStyle(workflowStepNumberTextStyle, scaleFont, scaleIcon)}>
+                                                    {index + 1}
+                                                </Text>
+                                            </View>
+                                            <Text style={scaleJobStyle(workflowStepTitleStyle, scaleFont, scaleIcon)}>
+                                                {step.title}
+                                            </Text>
+                                        </View>
+                                        <Text style={scaleJobStyle(workflowStepDescriptionStyle, scaleFont, scaleIcon)}>
+                                            {step.description}
+                                        </Text>
+                                    </View>
+                                ))}
+                            </View>
+                        </View>
+
+                        <View style={scaleJobStyle(panelStyle, scaleFont, scaleIcon)}>
                             <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>Add Note</Text>
                             <TextInput
                                 placeholder="Add a job update..."
@@ -307,6 +366,65 @@ function OptionRow({
         </View>
     );
 }
+
+const workflowIntroStyle = {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '700' as const,
+    lineHeight: 21,
+    marginBottom: 14,
+};
+
+const workflowGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const workflowStepCardStyle = {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+    width: '48%' as const,
+};
+
+const workflowStepHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 10,
+    marginBottom: 8,
+};
+
+const workflowStepNumberStyle = {
+    alignItems: 'center' as const,
+    backgroundColor: '#111827',
+    borderRadius: 999,
+    height: 28,
+    justifyContent: 'center' as const,
+    width: 28,
+};
+
+const workflowStepNumberTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const workflowStepTitleStyle = {
+    color: '#111827',
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const workflowStepDescriptionStyle = {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '700' as const,
+    lineHeight: 18,
+};
 
 const headerRowStyle = {
     flexDirection: 'row' as const,
