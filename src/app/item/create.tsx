@@ -376,7 +376,7 @@ export default function CreateItemScreen() {
                 {showOptionalDetails && (
                     <ThemedCard style={formCardStyle}>
                         <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Optional Details</Text>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location and status</Text>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition and status</Text>
 
                         {!hasAreaContext && (
                             <>
