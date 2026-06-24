@@ -14,6 +14,7 @@ import {
   type LoggedInUserRouteDecision,
 } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
+import GlobalNavigation from '../components/navigation/GlobalNavigation';
 import { ThemeProvider } from '../theme';
 
 const LOGIN_ROUTE = '/auth/login';
@@ -166,7 +167,9 @@ export default function Layout() {
           <ActivityIndicator size="large" />
         </View>
       ) : (
-        <Slot />
+        <GlobalNavigation>
+          <Slot />
+        </GlobalNavigation>
       )}
     </ThemeProvider>
   );
