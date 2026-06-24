@@ -52,7 +52,46 @@ function makeSlug(value: string) {
 }
 
 export default function CreateItemScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    function scaleStyle<T extends Record<string, any>>(style: T): T {
+        const fontKeys = new Set(['fontSize', 'lineHeight']);
+        const iconKeys = new Set([
+            'padding',
+            'paddingTop',
+            'paddingBottom',
+            'paddingVertical',
+            'paddingHorizontal',
+            'marginTop',
+            'marginBottom',
+            'marginVertical',
+            'marginHorizontal',
+            'gap',
+            'rowGap',
+            'columnGap',
+            'width',
+            'height',
+            'minWidth',
+            'minHeight',
+            'borderRadius',
+        ]);
+
+        const scaledStyle: Record<string, any> = { ...style };
+
+        Object.entries(style).forEach(([key, value]) => {
+            if (typeof value !== 'number') return;
+
+            if (fontKeys.has(key)) {
+                scaledStyle[key] = scaleFont(value);
+            }
+
+            if (iconKeys.has(key)) {
+                scaledStyle[key] = scaleIcon(value);
+            }
+        });
+
+        return scaledStyle as T;
+    }
     const params = useLocalSearchParams<{
         system?: string;
         area?: string;
@@ -271,24 +310,24 @@ export default function CreateItemScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center', paddingBottom: 40 }}
         >
             <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
-                <Text style={[titleStyle, { color: theme.colors.text }]}>Create Item</Text>
+                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Create Item</Text>
 
-                <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
+                <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
                     Add one home item at a time. Choose where it belongs, then fill in only what you know.
                 </Text>
 
                 {hasAreaContext && (
-                    <ThemedCard style={contextCardStyle}>
-                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Adding to</Text>
-                        <Text style={[contextTitleStyle, { color: theme.colors.text }]}>
+                    <ThemedCard style={scaleStyle(contextCardStyle)}>
+                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Adding to</Text>
+                        <Text style={[scaleStyle(contextTitleStyle), { color: theme.colors.text }]}>
                             {initialArea}
                         </Text>
-                        <Text style={[contextMetaStyle, { color: theme.colors.mutedText }]}>
+                        <Text style={[scaleStyle(contextMetaStyle), { color: theme.colors.mutedText }]}>
                             {initialParentArea
                                 ? `${getSystemLabel(initialSystem)} / ${initialParentArea}`
                                 : getSystemLabel(initialSystem)}
@@ -304,7 +343,7 @@ export default function CreateItemScreen() {
                 >
                     {isSystemOpen && (
                         <>
-                            <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                            <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
                                 Pick the home system this item belongs to.
                             </Text>
                             <ChoiceCardGrid
@@ -325,7 +364,7 @@ export default function CreateItemScreen() {
                     >
                         {isCategoryOpen && (
                             <>
-                                <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                                <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
                                     Choose the kind of item you are adding.
                                 </Text>
                                 <ChoiceCardGrid
@@ -339,10 +378,10 @@ export default function CreateItemScreen() {
                 )}
 
                 {showItemSections && itemSuggestions.length > 0 && (
-                    <ThemedCard style={formCardStyle}>
-                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Suggested {category}</Text>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Common items</Text>
-                        <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                    <ThemedCard style={scaleStyle(formCardStyle)}>
+                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Suggested {category}</Text>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Common items</Text>
+                        <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
                             Tap one to fill the item name, or type your own below.
                         </Text>
                         <CustomItemChoice onPress={() => setName('')} />
@@ -351,9 +390,9 @@ export default function CreateItemScreen() {
                 )}
 
                 {showItemSections && (
-                    <ThemedCard style={formCardStyle}>
-                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Item Info</Text>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Name and notes</Text>
+                    <ThemedCard style={scaleStyle(formCardStyle)}>
+                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Item Info</Text>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Name and notes</Text>
 
                         <ThemedInput
                             label="Item Name"
@@ -367,20 +406,20 @@ export default function CreateItemScreen() {
                             placeholder="Optional notes for the homeowner"
                             value={about}
                             onChangeText={setAbout}
-                            minHeight={116}
+                            minHeight={scaleIcon(116)}
                             multiline
                         />
                     </ThemedCard>
                 )}
 
                 {showOptionalDetails && (
-                    <ThemedCard style={formCardStyle}>
-                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>Optional Details</Text>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition and status</Text>
+                    <ThemedCard style={scaleStyle(formCardStyle)}>
+                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Optional Details</Text>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Condition and status</Text>
 
                         {!hasAreaContext && (
                             <>
-                                <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Location</Text>
+                                <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Location</Text>
                                 <ChoiceCardGrid choices={locationChoices} value={locationChoice} onChange={setLocationChoice} />
 
                                 {locationChoice === 'Custom' && (
@@ -394,10 +433,10 @@ export default function CreateItemScreen() {
                             </>
                         )}
 
-                        <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Condition</Text>
+                        <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Condition</Text>
                         <ChoiceCardGrid choices={installStateChoices} value={installState} onChange={setInstallState} />
 
-                        <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Status</Text>
+                        <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Status</Text>
                         <ChoiceCardGrid choices={statusChoices} value={status} onChange={setStatus} />
                     </ThemedCard>
                 )}
@@ -407,11 +446,11 @@ export default function CreateItemScreen() {
                         title={saving ? 'Saving...' : 'Save Item'}
                         onPress={saveItem}
                         disabled={saving}
-                        style={saveButtonStyle}
+                        style={scaleStyle(saveButtonStyle)}
                     />
                 ) : (
-                    <ThemedCard style={nextStepCardStyle}>
-                        <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                    <ThemedCard style={scaleStyle(nextStepCardStyle)}>
+                        <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
                             Choose a system and category to continue.
                         </Text>
                     </ThemedCard>
@@ -419,7 +458,7 @@ export default function CreateItemScreen() {
 
                 {!!message && (
                     <ThemedCard style={{ marginTop: 8 }}>
-                        <Text style={[messageTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                        <Text style={[scaleStyle(messageTextStyle), { color: theme.colors.mutedText }]}>{message}</Text>
                     </ThemedCard>
                 )}
             </View>

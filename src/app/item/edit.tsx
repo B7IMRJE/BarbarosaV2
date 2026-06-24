@@ -71,7 +71,46 @@ function uniqueOptions(options: string[]) {
 }
 
 export default function EditItemScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    function scaleStyle<T extends Record<string, any>>(style: T): T {
+        const fontKeys = new Set(['fontSize', 'lineHeight']);
+        const iconKeys = new Set([
+            'padding',
+            'paddingTop',
+            'paddingBottom',
+            'paddingVertical',
+            'paddingHorizontal',
+            'marginTop',
+            'marginBottom',
+            'marginVertical',
+            'marginHorizontal',
+            'gap',
+            'rowGap',
+            'columnGap',
+            'width',
+            'height',
+            'minWidth',
+            'minHeight',
+            'borderRadius',
+        ]);
+
+        const scaledStyle: Record<string, any> = { ...style };
+
+        Object.entries(style).forEach(([key, value]) => {
+            if (typeof value !== 'number') return;
+
+            if (fontKeys.has(key)) {
+                scaledStyle[key] = scaleFont(value);
+            }
+
+            if (iconKeys.has(key)) {
+                scaledStyle[key] = scaleIcon(value);
+            }
+        });
+
+        return scaledStyle as T;
+    }
     const { slug } = useLocalSearchParams();
 
     const [loading, setLoading] = useState(true);
@@ -248,7 +287,7 @@ export default function EditItemScreen() {
 
     if (loading) {
         return (
-            <View style={[centerStyle, { backgroundColor: theme.colors.background }]}>
+            <View style={[scaleStyle(centerStyle), { backgroundColor: theme.colors.background }]}>
                 <ActivityIndicator size="large" color={theme.colors.text} />
             </View>
         );
@@ -257,15 +296,15 @@ export default function EditItemScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center', paddingBottom: 40 }}
         >
             <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
-                <Text style={[titleStyle, { color: theme.colors.text }]}>Edit Item</Text>
+                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Edit Item</Text>
 
-                <ThemedCard style={formCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Item Details</Text>
+                <ThemedCard style={scaleStyle(formCardStyle)}>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Item Details</Text>
 
                     <ThemedInput
                         placeholder="Name"
@@ -277,13 +316,13 @@ export default function EditItemScreen() {
                         placeholder="About"
                         value={about}
                         onChangeText={setAbout}
-                        minHeight={100}
+                        minHeight={scaleIcon(100)}
                         multiline
                     />
                 </ThemedCard>
 
-                <ThemedCard style={formCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Location</Text>
+                <ThemedCard style={scaleStyle(formCardStyle)}>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Location</Text>
                     <OptionRow
                         options={locationOptions}
                         value={locationChoice}
@@ -298,14 +337,14 @@ export default function EditItemScreen() {
                         />
                     )}
 
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>System</Text>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>System</Text>
                     <SystemOptionRow value={system} onChange={setSystem} />
                 </ThemedCard>
 
-                <ThemedCard style={formCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Information</Text>
+                <ThemedCard style={scaleStyle(formCardStyle)}>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Information</Text>
 
-                    <View style={rowStyle}>
+                    <View style={scaleStyle(rowStyle)}>
                         <View
                             style={[
                                 smallFieldStyle,
@@ -316,9 +355,9 @@ export default function EditItemScreen() {
                                 },
                             ]}
                         >
-                            <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Brand</Text>
+                            <Text style={[scaleStyle(smallLabelStyle), { color: theme.colors.mutedText }]}>Brand</Text>
                             <TextInput
-                                style={[smallInputStyle, { color: theme.colors.text }]}
+                                style={[scaleStyle(smallInputStyle), { color: theme.colors.text }]}
                                 placeholder="Brand"
                                 placeholderTextColor={theme.colors.mutedText}
                                 value={brand}
@@ -336,9 +375,9 @@ export default function EditItemScreen() {
                                 },
                             ]}
                         >
-                            <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Model</Text>
+                            <Text style={[scaleStyle(smallLabelStyle), { color: theme.colors.mutedText }]}>Model</Text>
                             <TextInput
-                                style={[smallInputStyle, { color: theme.colors.text }]}
+                                style={[scaleStyle(smallInputStyle), { color: theme.colors.text }]}
                                 placeholder="Model"
                                 placeholderTextColor={theme.colors.mutedText}
                                 value={model}
@@ -356,9 +395,9 @@ export default function EditItemScreen() {
                                 },
                             ]}
                         >
-                            <Text style={[smallLabelStyle, { color: theme.colors.mutedText }]}>Serial</Text>
+                            <Text style={[scaleStyle(smallLabelStyle), { color: theme.colors.mutedText }]}>Serial</Text>
                             <TextInput
-                                style={[smallInputStyle, { color: theme.colors.text }]}
+                                style={[scaleStyle(smallInputStyle), { color: theme.colors.text }]}
                                 placeholder="Serial"
                                 placeholderTextColor={theme.colors.mutedText}
                                 value={serial}
@@ -367,7 +406,7 @@ export default function EditItemScreen() {
                         </View>
                     </View>
 
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Condition</Text>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Condition</Text>
 
                     <OptionRow
                         options={installStates}
@@ -375,7 +414,7 @@ export default function EditItemScreen() {
                         onChange={setInstallState}
                     />
 
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Status</Text>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Status</Text>
 
                     <OptionRow
                         options={statuses}
@@ -388,7 +427,7 @@ export default function EditItemScreen() {
                     title={saving ? 'Saving...' : 'Save Changes'}
                     onPress={saveItem}
                     disabled={saving}
-                    style={{ marginTop: 20, marginBottom: 20 }}
+                    style={{ marginTop: scaleIcon(20), marginBottom: 20 }}
                 />
             </View>
         </ScrollView>
