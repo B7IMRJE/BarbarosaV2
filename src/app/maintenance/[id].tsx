@@ -51,7 +51,7 @@ function normalizeUrls(value: string[] | null) {
 }
 
 export default function MaintenanceDetailScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
     const [record, setRecord] = useState<MaintenanceRecord | null>(null);
     const [item, setItem] = useState<HomeItem | null>(null);
@@ -141,15 +141,15 @@ export default function MaintenanceDetailScreen() {
         return (
             <ScrollView
                 style={{ flex: 1, backgroundColor: theme.colors.background }}
-                contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+                contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center' }}
             >
                 <View style={{ width: '100%', maxWidth: 900 }}>
                     <HomeHeader />
                     <ThemedCard>
-                        <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
                             Maintenance record unavailable
                         </Text>
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 8 }}>
+                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
                             {message || 'This record could not be loaded.'}
                         </Text>
                     </ThemedCard>
@@ -164,51 +164,51 @@ export default function MaintenanceDetailScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center', paddingBottom: 40 }}
         >
             <View style={{ width: '100%', maxWidth: 900 }}>
                 <HomeHeader />
 
-                <Text style={{ color: theme.colors.text, fontSize: 34, fontWeight: '900' }}>
+                <Text style={{ color: theme.colors.text, fontSize: scaleFont(34), fontWeight: '900' }}>
                     {record.title}
                 </Text>
-                <Text style={{ color: theme.colors.mutedText, marginTop: 8, marginBottom: 18, lineHeight: 22 }}>
+                <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), marginBottom: scaleIcon(18), lineHeight: scaleFont(22) }}>
                     Maintenance history for this home.
                 </Text>
 
-                <ThemedCard style={{ marginBottom: 14 }}>
+                <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
                     <DetailRow label="System" value={record.system || 'Unknown'} />
                     <DetailRow label="Area" value={record.area || 'Unknown'} />
                     <DetailRow label="Item" value={item?.name || (record.item_id ? 'Linked item' : 'None')} />
                     <DetailRow label="Service Date" value={formatDate(record.service_date)} />
                     <DetailRow label="Next Service Date" value={formatDate(record.next_service_date)} />
 
-                    <Text style={{ color: theme.colors.mutedText, fontWeight: '900', marginTop: 16 }}>
+                    <Text style={{ color: theme.colors.mutedText, fontWeight: '900', marginTop: scaleIcon(16) }}>
                         Description
                     </Text>
-                    <Text style={{ color: theme.colors.text, lineHeight: 22, marginTop: 6 }}>
+                    <Text style={{ color: theme.colors.text, lineHeight: scaleFont(22), marginTop: scaleIcon(6) }}>
                         {record.description || 'No description provided.'}
                     </Text>
                 </ThemedCard>
 
-                <ThemedCard style={{ marginBottom: 14 }}>
-                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
+                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
                         Photos
                     </Text>
                     {photos.length === 0 ? (
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 8 }}>
+                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
                             No photos attached.
                         </Text>
                     ) : (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10), marginTop: scaleIcon(12) }}>
                             {photos.map((photoUrl) => (
                                 <Image
                                     key={photoUrl}
                                     source={{ uri: photoUrl }}
                                     style={{
-                                        width: 110,
-                                        height: 110,
-                                        borderRadius: 14,
+                                        width: scaleIcon(110),
+                                        height: scaleIcon(110),
+                                        borderRadius: scaleIcon(14),
                                         backgroundColor: theme.colors.surfaceAlt,
                                     }}
                                 />
@@ -218,23 +218,23 @@ export default function MaintenanceDetailScreen() {
                 </ThemedCard>
 
                 <ThemedCard>
-                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
                         Documents
                     </Text>
                     {documents.length === 0 ? (
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 8 }}>
+                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
                             No documents attached.
                         </Text>
                     ) : (
-                        <View style={{ gap: 10, marginTop: 12 }}>
+                        <View style={{ gap: scaleIcon(10), marginTop: scaleIcon(12) }}>
                             {documents.map((documentUrl, index) => (
                                 <TouchableOpacity
                                     key={documentUrl}
                                     onPress={() => Linking.openURL(documentUrl)}
                                     style={{
                                         backgroundColor: theme.colors.surfaceAlt,
-                                        borderRadius: 14,
-                                        padding: 14,
+                                        borderRadius: scaleIcon(14),
+                                        padding: scaleIcon(14),
                                     }}
                                 >
                                     <Text style={{ color: theme.colors.link, fontWeight: '900' }}>
@@ -251,14 +251,14 @@ export default function MaintenanceDetailScreen() {
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={{ marginBottom: 12 }}>
+        <View style={{ marginBottom: scaleIcon(12) }}>
             <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>
                 {label}
             </Text>
-            <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900', marginTop: 4 }}>
+            <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900', marginTop: scaleIcon(4) }}>
                 {value}
             </Text>
         </View>
