@@ -18,6 +18,7 @@ import { useTheme } from '../../../theme/useTheme';
 type AreaItem = {
     id?: string;
     name: string;
+    system?: string | null;
     status?: string | null;
     category?: string | null;
     parent_area?: string | null;
@@ -57,7 +58,7 @@ function getItemIcon(item: AreaItem) {
 export default function PlumbingAreasScreen() {
     const { theme } = useTheme();
     const [areas, setAreas] = useState<AreaItem[]>(fallbackAreas);
-    const [plumbingItems, setPlumbingItems] = useState<HomeHealthItem[]>([]);
+    const [homeItems, setHomeItems] = useState<HomeHealthItem[]>([]);
     const [message, setMessage] = useState('');
 
     useEffect(() => {
@@ -72,7 +73,7 @@ export default function PlumbingAreasScreen() {
         } catch (error) {
             setMessage(activePropertyErrorMessage(error));
             setAreas(fallbackAreas);
-            setPlumbingItems([]);
+            setHomeItems([]);
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
                 router.replace('/auth/login' as any);
@@ -87,7 +88,6 @@ export default function PlumbingAreasScreen() {
             .from('home_items')
             .select('*')
             .eq('property_id', activeProperty.propertyId)
-            .eq('system', 'Plumbing')
             .or('archived.eq.false,archived.is.null')
             .order('name', { ascending: true });
 
@@ -97,9 +97,11 @@ export default function PlumbingAreasScreen() {
         }
 
         const allItems = (data || []) as AreaItem[];
-        setPlumbingItems(allItems as HomeHealthItem[]);
+        setHomeItems(allItems as HomeHealthItem[]);
 
-        const areaItems = allItems.filter((item) => item.category === 'Area' && !item.parent_area?.trim());
+        const areaItems = allItems.filter(
+            (item) => item.category === 'Area' && item.system === 'Plumbing' && !item.parent_area?.trim()
+        );
 
         if (areaItems.length > 0) {
             const mergedAreas = [...fallbackAreas, ...areaItems];
@@ -190,7 +192,7 @@ export default function PlumbingAreasScreen() {
                             key={area.id || area.name}
                             title={area.name}
                             icon={getItemIcon(area)}
-                            status={statusForCard(scoreAreaHealth(plumbingItems, area.name))}
+                            status={statusForCard(scoreAreaHealth(homeItems, area.name))}
                             onPress={() => openArea(area)}
                             style={cardStyle}
                         />

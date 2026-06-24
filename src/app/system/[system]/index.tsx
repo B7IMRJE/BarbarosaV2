@@ -25,15 +25,6 @@ export default function SystemAreasScreen() {
     const systemName = system ? String(system) : 'System';
     const systemLabel = getSystemLabel(systemName);
     const systemDefaults = useMemo(() => getSystemDefaults(systemName), [systemName]);
-    const systemItems = useMemo(
-        () =>
-            homeItems.filter(
-                (item) =>
-                    sameText(item.system, systemName) ||
-                    sameText(item.system, systemLabel)
-            ),
-        [homeItems, systemLabel, systemName]
-    );
 
     const filteredAreas = useMemo(() => {
         return systemDefaults.areas.filter((area) =>
@@ -175,7 +166,7 @@ export default function SystemAreasScreen() {
                     }}
                 >
                     {filteredAreas.map((area) => {
-                        const areaSummary = scoreAreaHealth(systemItems, area);
+                        const areaSummary = scoreAreaHealth(homeItems, area);
 
                         return (
                             <SystemStatusCard
@@ -202,8 +193,4 @@ export default function SystemAreasScreen() {
             </View>
         </ScrollView>
     );
-}
-
-function sameText(a?: string | null, b?: string | null) {
-    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
 }

@@ -94,7 +94,11 @@ export function normalizeHealthStatus(value?: string | null): HealthStatus {
         return 'unknown';
     }
 
-    if (normalized.includes('good') || normalized.includes('installed')) {
+    if (
+        normalized.includes('good') ||
+        normalized.includes('installed') ||
+        normalized.includes('not applicable')
+    ) {
         return 'good';
     }
 
@@ -186,8 +190,10 @@ export function scoreCategoryHealth(items: HomeHealthItem[], category: string): 
 
 export function scoreAreaHealth(items: HomeHealthItem[], area: string): HealthSummary {
     return scoreItems(
-        items.filter((item) =>
-            [item.area, item.location, item.parent_area].some((itemArea) => sameText(itemArea, area))
+        items.filter(
+            (item) =>
+                !sameText(item.category, 'Area') &&
+                [item.area, item.location, item.parent_area].some((itemArea) => sameText(itemArea, area))
         )
     );
 }
