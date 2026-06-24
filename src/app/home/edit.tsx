@@ -28,7 +28,37 @@ type FieldName = 'homeName' | 'address' | 'propertyType';
 type FormErrors = Partial<Record<FieldName, string>>;
 
 export default function EditHomeIdentityScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    function scaleStyle<T extends Record<string, any>>(style: T): T {
+        const scaledStyle: Record<string, any> = { ...style };
+
+        Object.entries(style).forEach(([key, value]) => {
+            if (typeof value !== 'number') return;
+
+            if (key === 'fontSize' || key === 'lineHeight') {
+                scaledStyle[key] = scaleFont(value);
+            }
+
+            if (
+                key === 'padding' ||
+                key === 'paddingBottom' ||
+                key === 'paddingVertical' ||
+                key === 'paddingHorizontal' ||
+                key === 'marginTop' ||
+                key === 'marginBottom' ||
+                key === 'gap' ||
+                key === 'minWidth' ||
+                key === 'width' ||
+                key === 'height' ||
+                key === 'borderRadius'
+            ) {
+                scaledStyle[key] = scaleIcon(value);
+            }
+        });
+
+        return scaledStyle as T;
+    }
     const [identity, setIdentity] = useState<HomeIdentity | null>(null);
     const [homeName, setHomeName] = useState('');
     const [propertyType, setPropertyType] = useState<PropertyType>('HOUSE');
@@ -108,35 +138,35 @@ export default function EditHomeIdentityScreen() {
             <ScrollView
                 style={{ flex: 1 }}
                 keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
+                contentContainerStyle={{ padding: scaleIcon(20), paddingBottom: scaleIcon(40), alignItems: 'center' }}
             >
                 <View style={{ width: '100%', maxWidth: 900 }}>
                     <TouchableOpacity
                         onPress={() => router.back()}
                         disabled={saving}
                         activeOpacity={0.82}
-                        style={backButtonStyle}
+                        style={scaleStyle(backButtonStyle)}
                     >
-                        <Text style={[backTextStyle, { color: theme.colors.text }]}>Back</Text>
+                        <Text style={[scaleStyle(backTextStyle), { color: theme.colors.text }]}>Back</Text>
                     </TouchableOpacity>
 
-                    <Text style={[titleStyle, { color: theme.colors.text }]}>Edit Home Information</Text>
-                    <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Edit Home Information</Text>
+                    <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
                         Update your home name, verified address, and property type.
                     </Text>
 
                     {loading ? (
                         <ThemedCard>
-                            <View style={loadingRowStyle}>
+                            <View style={scaleStyle(loadingRowStyle)}>
                                 <ActivityIndicator size="small" />
-                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
                                     Loading home information...
                                 </Text>
                             </View>
                         </ThemedCard>
                     ) : (
                         <ThemedCard>
-                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Home Details</Text>
+                            <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Home Details</Text>
 
                             <ThemedInput
                                 label="Home nickname or display name"
@@ -160,13 +190,13 @@ export default function EditHomeIdentityScreen() {
                                 }}
                             />
                             {!!errors.address && (
-                                <Text style={[fieldErrorStyle, { color: theme.colors.danger }]}>
+                                <Text style={[scaleStyle(fieldErrorStyle), { color: theme.colors.danger }]}>
                                     {errors.address}
                                 </Text>
                             )}
 
-                            <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Property type</Text>
-                            <View style={propertyTypeGridStyle}>
+                            <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Property type</Text>
+                            <View style={scaleStyle(propertyTypeGridStyle)}>
                                 {PROPERTY_TYPE_OPTIONS.map((option) => {
                                     const selected = propertyType === option.value;
 
@@ -180,13 +210,13 @@ export default function EditHomeIdentityScreen() {
                                                 setPropertyType(option.value);
                                                 clearFieldError('propertyType');
                                             }}
-                                            style={propertyTypeButtonStyle}
+                                            style={scaleStyle(propertyTypeButtonStyle)}
                                         />
                                     );
                                 })}
                             </View>
                             {!!errors.propertyType && (
-                                <Text style={[fieldErrorStyle, { color: theme.colors.danger }]}>
+                                <Text style={[scaleStyle(fieldErrorStyle), { color: theme.colors.danger }]}>
                                     {errors.propertyType}
                                 </Text>
                             )}
@@ -195,14 +225,14 @@ export default function EditHomeIdentityScreen() {
                                 title={saving ? 'Saving...' : 'Save Home'}
                                 disabled={saving || !identity || !verifiedAddress}
                                 onPress={saveHome}
-                                style={{ marginTop: 18 }}
+                                style={{ marginTop: scaleIcon(18) }}
                             />
                         </ThemedCard>
                     )}
 
                     {!!message && (
-                        <ThemedCard style={{ marginTop: 16 }}>
-                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                        <ThemedCard style={{ marginTop: scaleIcon(16) }}>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>{message}</Text>
                         </ThemedCard>
                     )}
                 </View>
@@ -272,11 +302,26 @@ function ThemedInput({
     editable?: boolean;
     error?: string;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    const scaledInputGroupStyle = {
+        ...inputGroupStyle,
+        marginBottom: scaleIcon(14),
+    };
+    const scaledFieldLabelStyle = {
+        ...fieldLabelStyle,
+        fontSize: scaleFont(15),
+        marginBottom: scaleIcon(8),
+    };
+    const scaledFieldErrorStyle = {
+        ...fieldErrorStyle,
+        fontSize: scaleFont(13),
+        marginTop: scaleIcon(6),
+    };
 
     return (
-        <View style={inputGroupStyle}>
-            <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>{label}</Text>
+        <View style={scaledInputGroupStyle}>
+            <Text style={[scaledFieldLabelStyle, { color: theme.colors.text }]}>{label}</Text>
             <TextInput
                 placeholder={placeholder}
                 placeholderTextColor={theme.colors.mutedText}
@@ -289,13 +334,13 @@ function ThemedInput({
                     backgroundColor: theme.colors.surfaceAlt,
                     borderRadius: theme.radii.button,
                     color: theme.colors.text,
-                    fontSize: 16,
+                    fontSize: scaleFont(16),
                     opacity: editable ? 1 : 0.65,
-                    paddingHorizontal: 16,
-                    paddingVertical: 16,
+                    paddingHorizontal: scaleIcon(16),
+                    paddingVertical: scaleIcon(16),
                 }}
             />
-            {!!error && <Text style={[fieldErrorStyle, { color: theme.colors.danger }]}>{error}</Text>}
+            {!!error && <Text style={[scaledFieldErrorStyle, { color: theme.colors.danger }]}>{error}</Text>}
         </View>
     );
 }
