@@ -361,7 +361,7 @@ function ChildAreaCard({
     subtitle: string;
     onPress: () => void;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
         <TouchableOpacity
@@ -370,20 +370,55 @@ function ChildAreaCard({
             style={[
                 childAreaCardStyle,
                 {
+                    minWidth: scaleIcon(160),
+                    minHeight: scaleIcon(170),
+                    padding: scaleIcon(18),
+                },
+                {
                     backgroundColor: theme.colors.surface,
                     borderColor: theme.colors.border,
                     borderRadius: theme.radii.card,
                 },
             ]}
         >
-            <View style={[iconCircleStyle, { backgroundColor: theme.colors.iconBackground }]}>
-                <Text style={iconTextStyle}>{getAreaIcon(title)}</Text>
+            <View
+                style={[
+                    iconCircleStyle,
+                    {
+                        backgroundColor: theme.colors.iconBackground,
+                        width: scaleIcon(76),
+                        height: scaleIcon(76),
+                        marginBottom: scaleIcon(12),
+                    },
+                ]}
+            >
+                <Text style={[iconTextStyle, { fontSize: scaleIcon(36) }]}>{getAreaIcon(title)}</Text>
             </View>
 
-            <Text style={[itemTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
+            <Text
+                style={[
+                    itemTitleStyle,
+                    {
+                        color: theme.colors.text,
+                        fontSize: scaleFont(16),
+                        lineHeight: scaleFont(20),
+                    },
+                ]}
+                numberOfLines={2}
+            >
                 {title}
             </Text>
-            <Text style={[childAreaSubtitleStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+            <Text
+                style={[
+                    childAreaSubtitleStyle,
+                    {
+                        color: theme.colors.mutedText,
+                        marginTop: scaleIcon(8),
+                        fontSize: scaleFont(12),
+                    },
+                ]}
+                numberOfLines={1}
+            >
                 {subtitle}
             </Text>
         </TouchableOpacity>
@@ -391,7 +426,7 @@ function ChildAreaCard({
 }
 
 function AreaItemCard({ item }: { item: AreaHomeItem }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
     const itemName = item.name || 'Unnamed Item';
     const systemLabel = item.system ? getSystemLabel(item.system) : '';
     const itemSlug = item.item_slug || '';
@@ -403,16 +438,38 @@ function AreaItemCard({ item }: { item: AreaHomeItem }) {
             disabled={!itemSlug}
             style={[
                 itemCardStyle,
+                {
+                    minWidth: scaleIcon(160),
+                    minHeight: scaleIcon(170),
+                    padding: scaleIcon(18),
+                },
                 { borderRadius: theme.radii.card },
                 getStatusCardStyle(item.status, theme),
             ]}
         >
-            <View style={[iconCircleStyle, { backgroundColor: theme.colors.iconBackground }]}>
-                <Text style={iconTextStyle}>{getItemIcon(item)}</Text>
+            <View
+                style={[
+                    iconCircleStyle,
+                    {
+                        backgroundColor: theme.colors.iconBackground,
+                        width: scaleIcon(76),
+                        height: scaleIcon(76),
+                        marginBottom: scaleIcon(12),
+                    },
+                ]}
+            >
+                <Text style={[iconTextStyle, { fontSize: scaleIcon(36) }]}>{getItemIcon(item)}</Text>
             </View>
 
             <Text
-                style={[itemTitleStyle, { color: theme.colors.text }]}
+                style={[
+                    itemTitleStyle,
+                    {
+                        color: theme.colors.text,
+                        fontSize: scaleFont(16),
+                        lineHeight: scaleFont(20),
+                    },
+                ]}
                 numberOfLines={2}
                 ellipsizeMode="tail"
             >
@@ -420,7 +477,17 @@ function AreaItemCard({ item }: { item: AreaHomeItem }) {
             </Text>
 
             {!!systemLabel && (
-                <Text style={[systemLabelStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                <Text
+                    style={[
+                        systemLabelStyle,
+                        {
+                            color: theme.colors.mutedText,
+                            marginTop: scaleIcon(8),
+                            fontSize: scaleFont(12),
+                        },
+                    ]}
+                    numberOfLines={1}
+                >
                     {systemLabel}
                 </Text>
             )}
