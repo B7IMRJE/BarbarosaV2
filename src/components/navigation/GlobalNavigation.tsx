@@ -2,6 +2,7 @@ import { router, usePathname } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/useTheme';
 
 type GlobalNavigationProps = {
@@ -32,6 +33,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const pathname = usePathname();
     const [drawerOpen, setDrawerOpen] = useState(false);
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const insets = useSafeAreaInsets();
 
     const currentPath = normalizePath(pathname);
     const shouldHideNavigation = hiddenRoutePrefixes.some((prefix) => currentPath.startsWith(prefix));
@@ -68,7 +70,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                     borderBottomColor: theme.colors.border,
                     borderBottomWidth: 1,
                     paddingHorizontal: scaleIcon(14),
-                    paddingVertical: scaleIcon(10),
+                    paddingTop: insets.top + scaleIcon(8),
+                    paddingBottom: scaleIcon(10),
                 }}
             >
                 <View
@@ -150,7 +153,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                     borderTopColor: theme.colors.border,
                     borderTopWidth: 1,
                     paddingHorizontal: scaleIcon(8),
-                    paddingVertical: scaleIcon(8),
+                    paddingTop: scaleIcon(8),
+                    paddingBottom: insets.bottom + scaleIcon(8),
                 }}
             >
                 <View
@@ -240,7 +244,9 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             borderColor: theme.colors.border,
                             borderLeftWidth: 1,
                             bottom: 0,
-                            padding: scaleIcon(18),
+                            paddingHorizontal: scaleIcon(18),
+                            paddingTop: insets.top + scaleIcon(18),
+                            paddingBottom: insets.bottom + scaleIcon(18),
                             position: 'absolute',
                             right: 0,
                             top: 0,
