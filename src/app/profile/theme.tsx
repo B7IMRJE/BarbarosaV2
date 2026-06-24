@@ -6,6 +6,7 @@ import { DEFAULT_APPEARANCE_PREFERENCES, DEFAULT_THEME_NAME, appearanceSizeOptio
 import { useTheme } from '../../theme/useTheme';
 
 function ThemeSwatches({ option }: { option: HomeOSTheme }) {
+    const { scaleIcon } = useTheme();
     const swatches = [
         option.colors.background,
         option.colors.surface,
@@ -17,13 +18,13 @@ function ThemeSwatches({ option }: { option: HomeOSTheme }) {
     ];
 
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(6) }}>
             {swatches.map((color, index) => (
                 <View
                     key={`${option.name}-${color}-${index}`}
                     style={{
-                        width: 22,
-                        height: 22,
+                        width: scaleIcon(22),
+                        height: scaleIcon(22),
                         borderRadius: 999,
                         backgroundColor: color,
                         borderWidth: 1,
@@ -36,16 +37,17 @@ function ThemeSwatches({ option }: { option: HomeOSTheme }) {
 }
 
 function ThemePreview({ option }: { option: HomeOSTheme }) {
+    const { scaleFont, scaleIcon } = useTheme();
     return (
         <View
             style={{
-                marginTop: 14,
+                marginTop: scaleIcon(14),
                 borderRadius: option.radii.card,
                 borderWidth: 1,
                 borderColor: option.colors.border,
                 backgroundColor: option.colors.background,
-                padding: 12,
-                gap: 10,
+                padding: scaleIcon(12),
+                gap: scaleIcon(10),
             }}
         >
             <View
@@ -54,23 +56,23 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
                     backgroundColor: option.colors.surface,
                     borderWidth: 1,
                     borderColor: option.colors.border,
-                    padding: 12,
-                    gap: 10,
+                    padding: scaleIcon(12),
+                    gap: scaleIcon(10),
                 }}
             >
                 <View
                     style={{
-                        height: 10,
+                        height: scaleIcon(10),
                         width: '58%',
-                        borderRadius: 999,
+                        borderRadius: scaleIcon(999),
                         backgroundColor: option.colors.text,
                     }}
                 />
                 <View
                     style={{
-                        height: 8,
+                        height: scaleIcon(8),
                         width: '82%',
-                        borderRadius: 999,
+                        borderRadius: scaleIcon(999),
                         backgroundColor: option.colors.mutedText,
                         opacity: 0.65,
                     }}
@@ -78,25 +80,25 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
                 <View
                     style={{
                         flexDirection: 'row',
-                        gap: 8,
+                        gap: scaleIcon(8),
                         flexWrap: 'wrap',
                     }}
                 >
                     <View
                         style={{
-                            minWidth: 72,
-                            height: 30,
+                            minWidth: scaleIcon(72),
+                            height: scaleIcon(30),
                             borderRadius: option.radii.button,
                             backgroundColor: option.colors.primary,
                             alignItems: 'center',
                             justifyContent: 'center',
-                            paddingHorizontal: 10,
+                            paddingHorizontal: scaleIcon(10),
                         }}
                     >
                         <Text
                             style={{
                                 color: option.colors.primaryText,
-                                fontSize: 11,
+                                fontSize: scaleFont(11),
                                 fontWeight: '900',
                             }}
                         >
@@ -105,21 +107,21 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
                     </View>
                     <View
                         style={{
-                            minWidth: 72,
-                            height: 30,
+                            minWidth: scaleIcon(72),
+                            height: scaleIcon(30),
                             borderRadius: option.radii.button,
                             backgroundColor: option.colors.secondaryButton,
                             borderWidth: 1,
                             borderColor: option.colors.border,
                             alignItems: 'center',
                             justifyContent: 'center',
-                            paddingHorizontal: 10,
+                            paddingHorizontal: scaleIcon(10),
                         }}
                     >
                         <Text
                             style={{
                                 color: option.colors.secondaryButtonText,
-                                fontSize: 11,
+                                fontSize: scaleFont(11),
                                 fontWeight: '900',
                             }}
                         >
@@ -129,12 +131,12 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
                 </View>
             </View>
 
-            <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flexDirection: 'row', gap: scaleIcon(8) }}>
                 <View
                     style={{
                         flex: 1,
-                        height: 18,
-                        borderRadius: 999,
+                        height: scaleIcon(18),
+                        borderRadius: scaleIcon(999),
                         backgroundColor: option.colors.status.good.background,
                         borderWidth: 1,
                         borderColor: option.colors.status.good.border,
@@ -143,8 +145,8 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
                 <View
                     style={{
                         flex: 1,
-                        height: 18,
-                        borderRadius: 999,
+                        height: scaleIcon(18),
+                        borderRadius: scaleIcon(999),
                         backgroundColor: option.colors.status.needsAttention.background,
                         borderWidth: 1,
                         borderColor: option.colors.status.needsAttention.border,
@@ -153,8 +155,8 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
                 <View
                     style={{
                         flex: 1,
-                        height: 18,
-                        borderRadius: 999,
+                        height: scaleIcon(18),
+                        borderRadius: scaleIcon(999),
                         backgroundColor: option.colors.status.emergency.background,
                         borderWidth: 1,
                         borderColor: option.colors.status.emergency.border,
@@ -178,14 +180,14 @@ function AppearanceSizeSelector({
     value,
     onChange,
 }: AppearanceSizeSelectorProps) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={{ marginTop: 18 }}>
+        <View style={{ marginTop: scaleIcon(18) }}>
             <Text
                 style={{
                     color: theme.colors.text,
-                    fontSize: 18,
+                    fontSize: scaleFont(18),
                     fontWeight: '900',
                 }}
             >
@@ -194,17 +196,17 @@ function AppearanceSizeSelector({
             <Text
                 style={{
                     color: theme.colors.mutedText,
-                    fontSize: 14,
-                    lineHeight: 20,
-                    marginTop: 4,
-                    marginBottom: 12,
+                    fontSize: scaleFont(14),
+                    lineHeight: scaleFont(20),
+                    marginTop: scaleIcon(4),
+                    marginBottom: scaleIcon(12),
                     fontWeight: '700',
                 }}
             >
                 {body}
             </Text>
 
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
                 {appearanceSizeOptions.map((option) => {
                     const selected = option.name === value;
 
@@ -217,7 +219,7 @@ function AppearanceSizeSelector({
                             style={{
                                 flexGrow: 1,
                                 flexBasis: 130,
-                                padding: 14,
+                                padding: scaleIcon(14),
                                 borderColor: selected
                                     ? theme.colors.primary
                                     : theme.colors.border,
@@ -230,7 +232,7 @@ function AppearanceSizeSelector({
                             <Text
                                 style={{
                                     color: theme.colors.text,
-                                    fontSize: 16,
+                                    fontSize: scaleFont(16),
                                     fontWeight: '900',
                                 }}
                             >
@@ -241,9 +243,9 @@ function AppearanceSizeSelector({
                                     color: selected
                                         ? theme.colors.primary
                                         : theme.colors.mutedText,
-                                    fontSize: 13,
+                                    fontSize: scaleFont(13),
                                     fontWeight: '900',
-                                    marginTop: 6,
+                                    marginTop: scaleIcon(6),
                                 }}
                             >
                                 {Math.round(option.scale * 100)}%
@@ -262,15 +264,15 @@ function AppearancePreview() {
     return (
         <View
             style={{
-                marginTop: 14,
+                marginTop: scaleIcon(14),
                 backgroundColor: theme.colors.surfaceAlt,
                 borderColor: theme.colors.border,
                 borderWidth: 1,
                 borderRadius: theme.radii.card,
-                padding: 14,
+                padding: scaleIcon(14),
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 14,
+                gap: scaleIcon(14),
                 flexWrap: 'wrap',
             }}
         >
@@ -295,7 +297,7 @@ function AppearancePreview() {
                 </Text>
             </View>
 
-            <View style={{ flex: 1, minWidth: 220 }}>
+            <View style={{ flex: 1, minWidth: scaleIcon(220) }}>
                 <Text
                     style={{
                         color: theme.colors.text,
@@ -310,7 +312,7 @@ function AppearancePreview() {
                         color: theme.colors.mutedText,
                         fontSize: scaleFont(14),
                         lineHeight: scaleFont(20),
-                        marginTop: 4,
+                        marginTop: scaleIcon(4),
                         fontWeight: '700',
                     }}
                 >
