@@ -1,8 +1,8 @@
-﻿import { router } from 'expo-router';
+import { router } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import { themeOptions, type HomeOSTheme } from '../../theme';
+import { DEFAULT_THEME_NAME, themeOptions, type HomeOSTheme } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
 function ThemeSwatches({ option }: { option: HomeOSTheme }) {
@@ -166,7 +166,8 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
 }
 
 export default function ThemeScreen() {
-    const { theme, themeName, setThemeName } = useTheme();
+        const { theme, themeName, setThemeName } = useTheme();
+    const isDefaultTheme = themeName === DEFAULT_THEME_NAME;
 
     return (
         <ScrollView
@@ -348,6 +349,14 @@ export default function ThemeScreen() {
                         );
                     })}
                 </View>
+
+                <ThemedButton
+                    title="Reset To HomeOS Classic"
+                    variant="secondary"
+                    disabled={isDefaultTheme}
+                    onPress={() => setThemeName(DEFAULT_THEME_NAME)}
+                    style={{ marginTop: 18 }}
+                />
 
                 <ThemedButton
                     title="Back To Profile"
