@@ -242,7 +242,46 @@ function logMaintenanceTimerError(stage: string, error: unknown) {
 }
 
 export default function ItemScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    function scaleStyle<T extends Record<string, any>>(style: T): T {
+        const fontKeys = new Set(['fontSize', 'lineHeight']);
+        const iconKeys = new Set([
+            'padding',
+            'paddingTop',
+            'paddingBottom',
+            'paddingVertical',
+            'paddingHorizontal',
+            'marginTop',
+            'marginBottom',
+            'marginVertical',
+            'marginHorizontal',
+            'gap',
+            'rowGap',
+            'columnGap',
+            'width',
+            'height',
+            'minWidth',
+            'minHeight',
+            'borderRadius',
+        ]);
+
+        const scaledStyle: Record<string, any> = { ...style };
+
+        Object.entries(style).forEach(([key, value]) => {
+            if (typeof value !== 'number') return;
+
+            if (fontKeys.has(key)) {
+                scaledStyle[key] = scaleFont(value);
+            }
+
+            if (iconKeys.has(key)) {
+                scaledStyle[key] = scaleIcon(value);
+            }
+        });
+
+        return scaledStyle as T;
+    }
     const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
     const { slug } = useLocalSearchParams();
     const [item, setItem] = useState<any>(null);
@@ -1230,7 +1269,7 @@ export default function ItemScreen() {
 
     if (loading) {
         return (
-            <View style={centerStyle}>
+            <View style={scaleStyle(centerStyle)}>
                 <ActivityIndicator size="large" />
             </View>
         );
@@ -1238,11 +1277,11 @@ export default function ItemScreen() {
 
     if (!item) {
         return (
-            <View style={centerStyle}>
-                <Text style={{ fontSize: 18, color: theme.colors.text, fontWeight: '900' }}>
+            <View style={scaleStyle(centerStyle)}>
+                <Text style={{ fontSize: scaleFont(18), color: theme.colors.text, fontWeight: '900' }}>
                     Item not found.
                 </Text>
-                <Text style={{ marginTop: 10, color: theme.colors.mutedText }}>{message}</Text>
+                <Text style={{ marginTop: scaleIcon(10), color: theme.colors.mutedText }}>{message}</Text>
             </View>
         );
     }
@@ -1289,25 +1328,25 @@ export default function ItemScreen() {
         <>
             <ScrollView
                 style={{ flex: 1, backgroundColor: theme.colors.background }}
-                contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
+                contentContainerStyle={{ padding: scaleIcon(20), paddingBottom: scaleIcon(40), alignItems: 'center' }}
             >
                 <View style={{ width: '100%', maxWidth: 1200 }}>
                     <HomeHeader />
 
-                    <Text style={[titleStyle, { color: theme.colors.text }]}>{item.name}</Text>
+                    <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>{item.name}</Text>
 
-                    <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
                         {item.about || 'This item has not been fully documented yet.'}
                     </Text>
 
-                    <ThemedCard style={photoCardStyle}>
-                        <Text style={[labelStyle, { color: theme.colors.mutedText }]}>Main Item Photo</Text>
+                    <ThemedCard style={scaleStyle(photoCardStyle)}>
+                        <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Main Item Photo</Text>
 
                         {item.photo_url ? (
                             <>
                                 <Image
                                     source={{ uri: item.photo_url }}
-                                    style={photoStyle}
+                                    style={scaleStyle(photoStyle)}
                                     resizeMode="contain"
                                 />
 
@@ -1315,53 +1354,53 @@ export default function ItemScreen() {
                                     title="View Full Photo"
                                     variant="secondary"
                                     onPress={() => setShowPhoto(true)}
-                                    style={secondaryButtonStyle}
-                                    textStyle={secondaryButtonTextStyle}
+                                    style={scaleStyle(secondaryButtonStyle)}
+                                    textStyle={scaleStyle(secondaryButtonTextStyle)}
                                 />
                             </>
                         ) : (
-                            <View style={[photoPlaceholderStyle, { backgroundColor: theme.colors.surfaceAlt }]}>
-                                <Text style={photoIconStyle}>📷</Text>
-                                <Text style={[photoTextStyle, { color: theme.colors.mutedText }]}>No main photo uploaded</Text>
+                            <View style={[scaleStyle(photoPlaceholderStyle), { backgroundColor: theme.colors.surfaceAlt }]}>
+                                <Text style={scaleStyle(photoIconStyle)}>📷</Text>
+                                <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>No main photo uploaded</Text>
                             </View>
                         )}
                     </ThemedCard>
 
-                    <View style={infoGridStyle}>
+                    <View style={scaleStyle(infoGridStyle)}>
                         {detailCards.map((detail) => (
                             <ThemedCard
                                 key={detail.label}
-                                style={miniCardStyle}
+                                style={scaleStyle(miniCardStyle)}
                             >
-                                <Text style={[miniLabelStyle, { color: theme.colors.mutedText }]}>{detail.label}</Text>
-                                <Text style={[miniValueStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                                <Text style={[scaleStyle(miniLabelStyle), { color: theme.colors.mutedText }]}>{detail.label}</Text>
+                                <Text style={[scaleStyle(miniValueStyle), { color: theme.colors.text }]} numberOfLines={2}>
                                     {detail.value}
                                 </Text>
                             </ThemedCard>
                         ))}
                     </View>
 
-                    <View style={fileSummaryStyle}>
-                        <ThemedCard style={fileSummaryCardStyle}>
-                            <Text style={[fileSummaryTitleStyle, { color: theme.colors.mutedText }]}>Photos</Text>
-                            <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{galleryPhotos.length}</Text>
+                    <View style={scaleStyle(fileSummaryStyle)}>
+                        <ThemedCard style={scaleStyle(fileSummaryCardStyle)}>
+                            <Text style={[scaleStyle(fileSummaryTitleStyle), { color: theme.colors.mutedText }]}>Photos</Text>
+                            <Text style={[scaleStyle(fileSummaryCountStyle), { color: theme.colors.text }]}>{galleryPhotos.length}</Text>
                         </ThemedCard>
 
-                        <ThemedCard style={fileSummaryCardStyle}>
-                            <Text style={[fileSummaryTitleStyle, { color: theme.colors.mutedText }]}>Documents</Text>
-                            <Text style={[fileSummaryCountStyle, { color: theme.colors.text }]}>{documents.length}</Text>
+                        <ThemedCard style={scaleStyle(fileSummaryCardStyle)}>
+                            <Text style={[scaleStyle(fileSummaryTitleStyle), { color: theme.colors.mutedText }]}>Documents</Text>
+                            <Text style={[scaleStyle(fileSummaryCountStyle), { color: theme.colors.text }]}>{documents.length}</Text>
                         </ThemedCard>
                     </View>
 
-                    <ThemedCard style={maintenanceCardStyle}>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text, marginTop: 0 }]}>
+                    <ThemedCard style={scaleStyle(maintenanceCardStyle)}>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
                             Maintenance Reminders
                         </Text>
 
                         {activeMaintenanceTasks.length === 0 ? (
-                            <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>No reminders yet.</Text>
+                            <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>No reminders yet.</Text>
                         ) : (
-                            <View style={maintenanceListStyle}>
+                            <View style={scaleStyle(maintenanceListStyle)}>
                                 {activeMaintenanceTasks.map((task) => {
                                     const dueStatus = labelDueStatus(task);
                                     const dueStatusColor =
@@ -1382,30 +1421,30 @@ export default function ItemScreen() {
                                                 },
                                             ]}
                                         >
-                                            <View style={maintenanceTaskHeaderStyle}>
-                                                <Text style={[maintenanceTaskTitleStyle, { color: theme.colors.text }]}>
+                                            <View style={scaleStyle(maintenanceTaskHeaderStyle)}>
+                                                <Text style={[scaleStyle(maintenanceTaskTitleStyle), { color: theme.colors.text }]}>
                                                     {task.title}
                                                 </Text>
-                                                <Text style={[maintenanceStatusTextStyle, { color: dueStatusColor }]}>
+                                                <Text style={[scaleStyle(maintenanceStatusTextStyle), { color: dueStatusColor }]}>
                                                     {dueStatus}
                                                 </Text>
                                             </View>
 
                                             {!!task.description && (
-                                                <Text style={[maintenanceDescriptionStyle, { color: theme.colors.mutedText }]}>
+                                                <Text style={[scaleStyle(maintenanceDescriptionStyle), { color: theme.colors.mutedText }]}>
                                                     {task.description}
                                                 </Text>
                                             )}
 
-                                            <Text style={[maintenanceMetaTextStyle, { color: theme.colors.text }]}>
+                                            <Text style={[scaleStyle(maintenanceMetaTextStyle), { color: theme.colors.text }]}>
                                                 {formatRecurrence(task.recurrence_interval, task.recurrence_unit)}
                                             </Text>
-                                            <Text style={[maintenanceMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                            <Text style={[scaleStyle(maintenanceMetaTextStyle), { color: theme.colors.mutedText }]}>
                                                 Next due: {formatDateLabel(task.next_due_date)}
                                             </Text>
 
                                             {!!task.last_completed_date && (
-                                                <Text style={[maintenanceMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                                <Text style={[scaleStyle(maintenanceMetaTextStyle), { color: theme.colors.mutedText }]}>
                                                     Last completed: {formatDateLabel(task.last_completed_date)}
                                                 </Text>
                                             )}
@@ -1414,8 +1453,8 @@ export default function ItemScreen() {
                                                 title={completingMaintenanceId === task.id ? 'Completing...' : 'Complete'}
                                                 onPress={() => handleCompleteMaintenanceTask(task)}
                                                 disabled={!!completingMaintenanceId}
-                                                style={maintenanceCompleteButtonStyle}
-                                                textStyle={fileActionButtonTextStyle}
+                                                style={scaleStyle(maintenanceCompleteButtonStyle)}
+                                                textStyle={scaleStyle(fileActionButtonTextStyle)}
                                             />
                                         </View>
                                     );
@@ -1425,10 +1464,10 @@ export default function ItemScreen() {
 
                         {availableMaintenancePresets.length > 0 && (
                             <>
-                                <Text style={[maintenancePresetTitleStyle, { color: theme.colors.mutedText }]}>
+                                <Text style={[scaleStyle(maintenancePresetTitleStyle), { color: theme.colors.mutedText }]}>
                                     Recommended reminders
                                 </Text>
-                                <View style={maintenancePresetGridStyle}>
+                                <View style={scaleStyle(maintenancePresetGridStyle)}>
                                     {availableMaintenancePresets.map((preset) => (
                                         <ThemedButton
                                             key={preset.key}
@@ -1436,8 +1475,8 @@ export default function ItemScreen() {
                                             variant="secondary"
                                             onPress={() => handleAddMaintenancePreset(preset)}
                                             disabled={!!addingMaintenanceKey}
-                                            style={maintenancePresetButtonStyle}
-                                            textStyle={fileActionButtonTextStyle}
+                                            style={scaleStyle(maintenancePresetButtonStyle)}
+                                            textStyle={scaleStyle(fileActionButtonTextStyle)}
                                         />
                                     ))}
                                 </View>
@@ -1449,8 +1488,8 @@ export default function ItemScreen() {
                                 title="+ Custom Reminder"
                                 variant="secondary"
                                 onPress={handleShowCustomMaintenanceForm}
-                                style={maintenanceCustomButtonStyle}
-                                textStyle={fileActionButtonTextStyle}
+                                style={scaleStyle(maintenanceCustomButtonStyle)}
+                                textStyle={scaleStyle(fileActionButtonTextStyle)}
                             />
                         )}
 
@@ -1464,11 +1503,11 @@ export default function ItemScreen() {
                                     },
                                 ]}
                             >
-                                <Text style={[maintenanceCustomTitleStyle, { color: theme.colors.text }]}>
+                                <Text style={[scaleStyle(maintenanceCustomTitleStyle), { color: theme.colors.text }]}>
                                     Custom reminder
                                 </Text>
 
-                                <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                     Reminder title
                                 </Text>
                                 <TextInput
@@ -1486,7 +1525,7 @@ export default function ItemScreen() {
                                     ]}
                                 />
 
-                                <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                     Description / notes
                                 </Text>
                                 <TextInput
@@ -1506,9 +1545,9 @@ export default function ItemScreen() {
                                     ]}
                                 />
 
-                                <View style={maintenanceCustomRowStyle}>
-                                    <View style={maintenanceIntervalInputWrapStyle}>
-                                        <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                <View style={scaleStyle(maintenanceCustomRowStyle)}>
+                                    <View style={scaleStyle(maintenanceIntervalInputWrapStyle)}>
+                                        <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                             Every
                                         </Text>
                                         <TextInput
@@ -1528,8 +1567,8 @@ export default function ItemScreen() {
                                         />
                                     </View>
 
-                                    <View style={maintenanceUnitInputWrapStyle}>
-                                        <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                    <View style={scaleStyle(maintenanceUnitInputWrapStyle)}>
+                                        <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                             Unit
                                         </Text>
                                         <OptionRow
@@ -1541,9 +1580,9 @@ export default function ItemScreen() {
                                     </View>
                                 </View>
 
-                                <View style={maintenanceCustomRowStyle}>
-                                    <View style={maintenanceDateInputWrapStyle}>
-                                        <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                <View style={scaleStyle(maintenanceCustomRowStyle)}>
+                                    <View style={scaleStyle(maintenanceDateInputWrapStyle)}>
+                                        <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                             Start date
                                         </Text>
                                         <TextInput
@@ -1562,8 +1601,8 @@ export default function ItemScreen() {
                                         />
                                     </View>
 
-                                    <View style={maintenanceDateInputWrapStyle}>
-                                        <Text style={[maintenanceFieldLabelStyle, { color: theme.colors.mutedText }]}>
+                                    <View style={scaleStyle(maintenanceDateInputWrapStyle)}>
+                                        <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                             Next due date
                                         </Text>
                                         <TextInput
@@ -1583,28 +1622,28 @@ export default function ItemScreen() {
                                     </View>
                                 </View>
 
-                                <View style={maintenanceFormActionsStyle}>
+                                <View style={scaleStyle(maintenanceFormActionsStyle)}>
                                     <ThemedButton
                                         title={savingCustomMaintenance ? 'Saving...' : 'Save'}
                                         onPress={handleSaveCustomMaintenanceReminder}
                                         disabled={savingCustomMaintenance}
-                                        style={maintenanceFormActionButtonStyle}
-                                        textStyle={fileActionButtonTextStyle}
+                                        style={scaleStyle(maintenanceFormActionButtonStyle)}
+                                        textStyle={scaleStyle(fileActionButtonTextStyle)}
                                     />
                                     <ThemedButton
                                         title="Cancel"
                                         variant="ghost"
                                         onPress={handleCancelCustomMaintenanceForm}
                                         disabled={savingCustomMaintenance}
-                                        style={maintenanceFormActionButtonStyle}
-                                        textStyle={fileActionButtonTextStyle}
+                                        style={scaleStyle(maintenanceFormActionButtonStyle)}
+                                        textStyle={scaleStyle(fileActionButtonTextStyle)}
                                     />
                                 </View>
                             </View>
                         )}
                     </ThemedCard>
 
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Photo Type</Text>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Photo Type</Text>
                     <OptionRow
                         options={photoCategories}
                         value={photoCategory}
@@ -1612,28 +1651,28 @@ export default function ItemScreen() {
                         labelForOption={photoLabel}
                     />
 
-                    <View style={actionGridStyle}>
+                    <View style={scaleStyle(actionGridStyle)}>
                         {canUseStaffTools && (
                             <>
                                 <ThemedButton
                                     title="Add To Estimate"
                                     onPress={handleAddToEstimate}
-                                    style={buttonStyle}
-                                    textStyle={buttonTextStyle}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
                                 />
 
                                 <ThemedButton
                                     title="View Estimate"
                                     onPress={() => router.push('/estimate' as any)}
-                                    style={buttonStyle}
-                                    textStyle={buttonTextStyle}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
                                 />
 
                                 <ThemedButton
                                     title="Start Job Thread"
                                     onPress={handleStartJobThread}
-                                    style={buttonStyle}
-                                    textStyle={buttonTextStyle}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
                                 />
                             </>
                         )}
@@ -1642,47 +1681,47 @@ export default function ItemScreen() {
                             title={mediaActionBusy ? mediaBusyTitle : 'Upload Main Photo'}
                             onPress={handleUploadMainPhoto}
                             disabled={mediaActionBusy}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title={mediaActionBusy ? mediaBusyTitle : 'Take Main Photo'}
                             onPress={handleTakeMainPhoto}
                             disabled={mediaActionBusy}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title={mediaActionBusy ? mediaBusyTitle : 'Choose Photo'}
                             onPress={handleUploadAdditionalPhoto}
                             disabled={mediaActionBusy}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title={mediaActionBusy ? mediaBusyTitle : 'Upload Document'}
                             onPress={handleUploadDocument}
                             disabled={mediaActionBusy}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title={mediaActionBusy ? mediaBusyTitle : 'Take Photo'}
                             onPress={handleTakeAdditionalPhoto}
                             disabled={mediaActionBusy}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title="View Photos"
                             onPress={() => setShowPhotos(true)}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
@@ -1691,62 +1730,62 @@ export default function ItemScreen() {
                                 setSelectedDocumentType(null);
                                 setShowDocuments(true);
                             }}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title="Edit Information"
                             onPress={handleEditInformation}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title="Add Related Item"
                             onPress={handleAddRelatedItem}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title="Request Service"
                             onPress={() => setMessage('Request service comes next.')}
-                            style={buttonStyle}
-                            textStyle={buttonTextStyle}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
                         />
 
                         <ThemedButton
                             title="Remove Item"
                             variant="danger"
                             onPress={handleRemoveItem}
-                            style={removeButtonStyle}
-                            textStyle={removeButtonTextStyle}
+                            style={scaleStyle(removeButtonStyle)}
+                            textStyle={scaleStyle(removeButtonTextStyle)}
                         />
                     </View>
 
                     {!!message && (
-                        <ThemedCard style={messageCardStyle}>
-                            <Text style={[labelStyle, { color: theme.colors.mutedText }]}>Message</Text>
-                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Message</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>{message}</Text>
                         </ThemedCard>
                     )}
                 </View>
             </ScrollView>
 
             <Modal visible={showPhoto} transparent={false} animationType="fade">
-                <View style={[modalStyle, { backgroundColor: theme.colors.overlay }]}>
+                <View style={[scaleStyle(modalStyle), { backgroundColor: theme.colors.overlay }]}>
                     <TouchableOpacity
                         onPress={() => setShowPhoto(false)}
-                        style={modalCloseStyle}
+                        style={scaleStyle(modalCloseStyle)}
                     >
-                        <Text style={[modalCloseTextStyle, { color: theme.colors.primaryText }]}>✕</Text>
+                        <Text style={[scaleStyle(modalCloseTextStyle), { color: theme.colors.primaryText }]}>✕</Text>
                     </TouchableOpacity>
 
                     {item.photo_url && (
                         <Image
                             source={{ uri: item.photo_url }}
-                            style={modalImageStyle}
+                            style={scaleStyle(modalImageStyle)}
                             resizeMode="contain"
                         />
                     )}
@@ -1755,16 +1794,16 @@ export default function ItemScreen() {
 
             <Modal visible={showPhotos} transparent={false} animationType="slide">
                 <ScrollView
-                    style={[galleryModalStyle, { backgroundColor: theme.colors.background }]}
+                    style={[scaleStyle(galleryModalStyle), { backgroundColor: theme.colors.background }]}
                     contentContainerStyle={{ padding: 20 }}
                 >
                     <TouchableOpacity onPress={() => setShowPhotos(false)}>
-                        <Text style={[modalBackTextStyle, { color: theme.colors.text }]}>← Close Photos</Text>
+                        <Text style={[scaleStyle(modalBackTextStyle), { color: theme.colors.text }]}>← Close Photos</Text>
                     </TouchableOpacity>
 
-                    <Text style={[modalTitleStyle, { color: theme.colors.text }]}>Photos</Text>
+                    <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>Photos</Text>
 
-                    <View style={galleryGridStyle}>
+                    <View style={scaleStyle(galleryGridStyle)}>
                         {galleryPhotos.map((photo) => (
                             <View
                                 key={photo.id}
@@ -1780,10 +1819,10 @@ export default function ItemScreen() {
                                 <TouchableOpacity onPress={() => Linking.openURL(photo.file_url)} activeOpacity={0.82}>
                                     <Image
                                         source={{ uri: photo.file_url }}
-                                        style={[galleryImageStyle, { backgroundColor: theme.colors.surfaceAlt }]}
+                                        style={[scaleStyle(galleryImageStyle), { backgroundColor: theme.colors.surfaceAlt }]}
                                         resizeMode="contain"
                                     />
-                                    <Text style={[galleryCategoryStyle, { color: theme.colors.text }]}>
+                                    <Text style={[scaleStyle(galleryCategoryStyle), { color: theme.colors.text }]}>
                                         {photoLabel(photo.category)}
                                     </Text>
                                 </TouchableOpacity>
@@ -1793,8 +1832,8 @@ export default function ItemScreen() {
                                         variant="danger"
                                         disabled={removingFileId === photo.id}
                                         onPress={() => handleRemoveFile(photo)}
-                                        style={fileActionButtonStyle}
-                                        textStyle={fileActionButtonTextStyle}
+                                        style={scaleStyle(fileActionButtonStyle)}
+                                        textStyle={scaleStyle(fileActionButtonTextStyle)}
                                     />
                                 )}
                             </View>
@@ -1802,27 +1841,27 @@ export default function ItemScreen() {
                     </View>
 
                     {galleryPhotos.length === 0 && (
-                        <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>No photos yet.</Text>
+                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>No photos yet.</Text>
                     )}
                 </ScrollView>
             </Modal>
 
             <Modal visible={showDocuments} transparent={false} animationType="slide">
                 <ScrollView
-                    style={[galleryModalStyle, { backgroundColor: theme.colors.background }]}
+                    style={[scaleStyle(galleryModalStyle), { backgroundColor: theme.colors.background }]}
                     contentContainerStyle={{ padding: 20 }}
                 >
                     <TouchableOpacity onPress={() => setShowDocuments(false)}>
-                        <Text style={[modalBackTextStyle, { color: theme.colors.text }]}>Close Documents</Text>
+                        <Text style={[scaleStyle(modalBackTextStyle), { color: theme.colors.text }]}>Close Documents</Text>
                     </TouchableOpacity>
 
-                    <Text style={[modalTitleStyle, { color: theme.colors.text }]}>Documents</Text>
+                    <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>Documents</Text>
 
                     {!selectedDocumentType ? (
                         <>
-                            <Text style={[documentExplorerTitleStyle, { color: theme.colors.mutedText }]}>Document Type Explorer</Text>
+                            <Text style={[scaleStyle(documentExplorerTitleStyle), { color: theme.colors.mutedText }]}>Document Type Explorer</Text>
 
-                            <View style={documentExplorerGridStyle}>
+                            <View style={scaleStyle(documentExplorerGridStyle)}>
                                 {groupedDocuments.map((group) => (
                                     <TouchableOpacity
                                         key={group.category}
@@ -1836,10 +1875,10 @@ export default function ItemScreen() {
                                         ]}
                                         onPress={() => setSelectedDocumentType(group.category)}
                                     >
-                                        <Text style={[documentExplorerBlockTitleStyle, { color: theme.colors.text }]}>
+                                        <Text style={[scaleStyle(documentExplorerBlockTitleStyle), { color: theme.colors.text }]}>
                                             {documentLabel(group.category, 'plural')}
                                         </Text>
-                                        <Text style={[documentExplorerBlockCountStyle, { color: theme.colors.mutedText }]}>
+                                        <Text style={[scaleStyle(documentExplorerBlockCountStyle), { color: theme.colors.mutedText }]}>
                                             ({group.documents.length})
                                         </Text>
                                     </TouchableOpacity>
@@ -1849,10 +1888,10 @@ export default function ItemScreen() {
                     ) : (
                         <View>
                             <TouchableOpacity onPress={() => setSelectedDocumentType(null)}>
-                                <Text style={[modalBackTextStyle, { color: theme.colors.text }]}>Back to Document Type Explorer</Text>
+                                <Text style={[scaleStyle(modalBackTextStyle), { color: theme.colors.text }]}>Back to Document Type Explorer</Text>
                             </TouchableOpacity>
 
-                            <Text style={[documentGroupTitleStyle, { color: theme.colors.text }]}>
+                            <Text style={[scaleStyle(documentGroupTitleStyle), { color: theme.colors.text }]}>
                                 {documentLabel(selectedDocumentType, 'plural')}
                             </Text>
 
@@ -1870,42 +1909,42 @@ export default function ItemScreen() {
                                             },
                                         ]}
                                     >
-                                        <View style={documentOpenAreaStyle}>
-                                            <View style={[documentPreviewStyle, { backgroundColor: theme.colors.surfaceAlt }]}>
+                                        <View style={scaleStyle(documentOpenAreaStyle)}>
+                                            <View style={[scaleStyle(documentPreviewStyle), { backgroundColor: theme.colors.surfaceAlt }]}>
                                                 {isImageFile(doc.file_name) ? (
                                                     <Image
                                                         source={{ uri: doc.file_url }}
-                                                        style={documentPreviewImageStyle}
+                                                        style={scaleStyle(documentPreviewImageStyle)}
                                                         resizeMode="contain"
                                                     />
                                                 ) : (
-                                                    <Text style={documentPreviewIconStyle}>DOC</Text>
+                                                    <Text style={scaleStyle(documentPreviewIconStyle)}>DOC</Text>
                                                 )}
                                             </View>
 
-                                            <View style={documentContentStyle}>
-                                                <Text style={[documentTitleStyle, { color: theme.colors.text }]}>
+                                            <View style={scaleStyle(documentContentStyle)}>
+                                                <Text style={[scaleStyle(documentTitleStyle), { color: theme.colors.text }]}>
                                                     {doc.file_name || 'Document'}
                                                 </Text>
-                                                <Text style={[documentSubTextStyle, { color: theme.colors.mutedText }]}>
+                                                <Text style={[scaleStyle(documentSubTextStyle), { color: theme.colors.mutedText }]}>
                                                     {documentLabel(doc.category)}
                                                 </Text>
 
-                                                <View style={documentActionRowStyle}>
+                                                <View style={scaleStyle(documentActionRowStyle)}>
                                                     <ThemedButton
                                                         title="Open"
                                                         variant="secondary"
                                                         onPress={() => Linking.openURL(doc.file_url)}
-                                                        style={documentOpenButtonStyle}
-                                                        textStyle={documentActionTextStyle}
+                                                        style={scaleStyle(documentOpenButtonStyle)}
+                                                        textStyle={scaleStyle(documentActionTextStyle)}
                                                     />
                                                     <ThemedButton
                                                         title={removingFileId === doc.id ? 'Removing...' : 'Remove'}
                                                         variant="danger"
                                                         disabled={removingFileId === doc.id}
                                                         onPress={() => handleRemoveFile(doc)}
-                                                        style={documentRemoveButtonStyle}
-                                                        textStyle={documentActionTextStyle}
+                                                        style={scaleStyle(documentRemoveButtonStyle)}
+                                                        textStyle={scaleStyle(documentActionTextStyle)}
                                                     />
                                                 </View>
                                             </View>
@@ -1914,7 +1953,7 @@ export default function ItemScreen() {
                                 ))}
 
                             {documents.filter((doc) => doc.category === selectedDocumentType).length === 0 && (
-                                <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>
+                                <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
                                     No {documentLabel(selectedDocumentType, 'plural').toLowerCase()} yet.
                                 </Text>
                             )}
@@ -1922,13 +1961,13 @@ export default function ItemScreen() {
                     )}
 
                     {documents.length === 0 && (
-                        <Text style={[emptyTextStyle, { color: theme.colors.mutedText }]}>No documents yet.</Text>
+                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>No documents yet.</Text>
                     )}
                 </ScrollView>
             </Modal>
             <Modal visible={showDocumentTypePicker} transparent={false} animationType="slide">
                 <ScrollView
-                    style={[galleryModalStyle, { backgroundColor: theme.colors.background }]}
+                    style={[scaleStyle(galleryModalStyle), { backgroundColor: theme.colors.background }]}
                     contentContainerStyle={{ padding: 20 }}
                 >
                     <TouchableOpacity
@@ -1936,16 +1975,16 @@ export default function ItemScreen() {
                             setShowDocumentTypePicker(false);
                         }}
                     >
-                        <Text style={[modalBackTextStyle, { color: theme.colors.text }]}>← Cancel</Text>
+                        <Text style={[scaleStyle(modalBackTextStyle), { color: theme.colors.text }]}>← Cancel</Text>
                     </TouchableOpacity>
 
-                    <Text style={[modalTitleStyle, { color: theme.colors.text }]}>What type of document is this?</Text>
+                    <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>What type of document is this?</Text>
 
-                    <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
                         Choose where this file should be stored.
                     </Text>
 
-                    <View style={documentTypeGridStyle}>
+                    <View style={scaleStyle(documentTypeGridStyle)}>
                         {documentCategories.map((type) => (
                             <TouchableOpacity
                                 key={type}
@@ -1959,7 +1998,7 @@ export default function ItemScreen() {
                                 ]}
                                 onPress={() => finishDocumentUpload(type)}
                             >
-                                <Text style={[documentTypeBlockTitleStyle, { color: theme.colors.text }]}>
+                                <Text style={[scaleStyle(documentTypeBlockTitleStyle), { color: theme.colors.text }]}>
                                     {documentLabel(type)}
                                 </Text>
                             </TouchableOpacity>
@@ -1982,10 +2021,49 @@ function OptionRow({
     onChange: (value: string) => void;
     labelForOption?: (option: string) => string;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    function scaleStyle<T extends Record<string, any>>(style: T): T {
+        const fontKeys = new Set(['fontSize', 'lineHeight']);
+        const iconKeys = new Set([
+            'padding',
+            'paddingTop',
+            'paddingBottom',
+            'paddingVertical',
+            'paddingHorizontal',
+            'marginTop',
+            'marginBottom',
+            'marginVertical',
+            'marginHorizontal',
+            'gap',
+            'rowGap',
+            'columnGap',
+            'width',
+            'height',
+            'minWidth',
+            'minHeight',
+            'borderRadius',
+        ]);
+
+        const scaledStyle: Record<string, any> = { ...style };
+
+        Object.entries(style).forEach(([key, value]) => {
+            if (typeof value !== 'number') return;
+
+            if (fontKeys.has(key)) {
+                scaledStyle[key] = scaleFont(value);
+            }
+
+            if (iconKeys.has(key)) {
+                scaledStyle[key] = scaleIcon(value);
+            }
+        });
+
+        return scaledStyle as T;
+    }
 
     return (
-        <View style={optionRowStyle}>
+        <View style={scaleStyle(optionRowStyle)}>
             {options.map((option) => (
                 <TouchableOpacity
                     key={option}
