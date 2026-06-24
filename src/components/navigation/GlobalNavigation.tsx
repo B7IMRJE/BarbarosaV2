@@ -1,8 +1,9 @@
 import { router, usePathname } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 
 type GlobalNavigationProps = {
@@ -19,9 +20,9 @@ const primaryTabs = [
 ];
 
 const drawerLinks = [
-    { label: 'ManagementOS', route: '/management' },
+    { label: 'ManagementOS', route: '/management', staffOnly: true },
     { label: 'Maintenance', route: '/maintenance' },
-    { label: 'Jobs', route: '/jobs' },
+    { label: 'Jobs', route: '/jobs', staffOnly: true },
     { label: 'Theme & Sizes', route: '/profile/theme' },
     { label: 'Security', route: '/profile/security' },
     { label: 'Data', route: '/data' },
@@ -33,12 +34,23 @@ const drawerLinks = [
 export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const pathname = usePathname();
     const [drawerOpen, setDrawerOpen] = useState(false);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const { scaleFont, scaleIcon, theme } = useTheme();
     const insets = useSafeAreaInsets();
 
     const currentPath = normalizePath(pathname);
     const canUseBack = currentPath !== '/';
     const shouldHideNavigation = hiddenRoutePrefixes.some((prefix) => currentPath.startsWith(prefix));
+
+    useEffect(() => {
+        loadDrawerAccess();
+    }, []);
+
+    async function loadDrawerAccess() {
+        const role = await loadCurrentUserRole();
+
+        setCanUseStaffTools(isStaffRole(role));
+    }
 
     if (shouldHideNavigation) {
         return <>{children}</>;
@@ -53,6 +65,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
 
         router.push(route as any);
     }
+
+    const visibleDrawerLinks = drawerLinks.filter((link) => !link.staffOnly || canUseStaffTools);
 
     function isActiveTab(route: string) {
         const normalizedRoute = normalizePath(route);
@@ -295,7 +309,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                         </View>
 
                         <ScrollView contentContainerStyle={{ gap: scaleIcon(10), paddingBottom: scaleIcon(30) }}>
-                            {drawerLinks.map((link) => {
+                            {visibleDrawerLinks.map((link) => {
                                 const active = isActiveTab(link.route);
 
                                 return (
