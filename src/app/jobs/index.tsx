@@ -5,11 +5,48 @@ import { useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Job, createJob, loadJobs } from '../../lib/jobs';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
+import { useTheme } from '../../theme/useTheme';
 
 const systems = ['Plumbing', 'HVAC', 'Electrical', 'Gas', 'Water Quality', 'Safety', 'Appliances', 'Exterior'];
 const priorities = ['normal', 'urgent', 'emergency'];
 
+function scaleJobStyle<T extends Record<string, any>>(
+    style: T,
+    scaleFont: (value: number) => number,
+    scaleIcon: (value: number) => number
+): T {
+    const scaledStyle: Record<string, any> = { ...style };
+
+    Object.entries(style).forEach(([key, value]) => {
+        if (typeof value !== 'number') return;
+
+        if (key === 'fontSize' || key === 'lineHeight') {
+            scaledStyle[key] = scaleFont(value);
+        }
+
+        if (
+            key === 'padding' ||
+            key === 'paddingBottom' ||
+            key === 'paddingVertical' ||
+            key === 'paddingHorizontal' ||
+            key === 'marginTop' ||
+            key === 'marginBottom' ||
+            key === 'gap' ||
+            key === 'minWidth' ||
+            key === 'minHeight' ||
+            key === 'width' ||
+            key === 'height' ||
+            key === 'borderRadius'
+        ) {
+            scaledStyle[key] = scaleIcon(value);
+        }
+    });
+
+    return scaledStyle as T;
+}
+
 export default function JobsIndexScreen() {
+    const { scaleFont, scaleIcon } = useTheme();
     const [jobs, setJobs] = useState<Job[]>([]);
     const [title, setTitle] = useState('');
     const [system, setSystem] = useState('Plumbing');
@@ -89,88 +126,88 @@ export default function JobsIndexScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
-                <View style={headerRowStyle}>
+                <View style={scaleJobStyle(headerRowStyle, scaleFont, scaleIcon)}>
                     <View>
-                        <Text style={titleStyle}>Jobs</Text>
-                        <Text style={subtitleStyle}>
+                        <Text style={scaleJobStyle(titleStyle, scaleFont, scaleIcon)}>Jobs</Text>
+                        <Text style={scaleJobStyle(subtitleStyle, scaleFont, scaleIcon)}>
                             Active work logs for home systems, rooms, and items.
                         </Text>
                     </View>
 
-                    <TouchableOpacity onPress={refreshJobs} style={secondaryButtonStyle}>
-                        <Text style={secondaryButtonTextStyle}>Refresh</Text>
+                    <TouchableOpacity onPress={refreshJobs} style={scaleJobStyle(secondaryButtonStyle, scaleFont, scaleIcon)}>
+                        <Text style={scaleJobStyle(secondaryButtonTextStyle, scaleFont, scaleIcon)}>Refresh</Text>
                     </TouchableOpacity>
                 </View>
 
-                <View style={createCardStyle}>
-                    <Text style={sectionTitleStyle}>Create Job</Text>
+                <View style={scaleJobStyle(createCardStyle, scaleFont, scaleIcon)}>
+                    <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>Create Job</Text>
 
                     <TextInput
                         placeholder="Job title"
                         value={title}
                         onChangeText={setTitle}
-                        style={inputStyle}
+                        style={scaleJobStyle(inputStyle, scaleFont, scaleIcon)}
                     />
 
                     <TextInput
                         placeholder="Room or area"
                         value={roomOrArea}
                         onChangeText={setRoomOrArea}
-                        style={inputStyle}
+                        style={scaleJobStyle(inputStyle, scaleFont, scaleIcon)}
                     />
 
-                    <Text style={labelStyle}>System</Text>
+                    <Text style={scaleJobStyle(labelStyle, scaleFont, scaleIcon)}>System</Text>
                     <OptionRow options={systems} value={system} onChange={setSystem} />
 
-                    <Text style={labelStyle}>Priority</Text>
+                    <Text style={scaleJobStyle(labelStyle, scaleFont, scaleIcon)}>Priority</Text>
                     <OptionRow options={priorities} value={priority} onChange={setPriority} />
 
                     <TouchableOpacity
                         onPress={handleCreateJob}
                         disabled={creating}
-                        style={primaryButtonStyle}
+                        style={scaleJobStyle(primaryButtonStyle, scaleFont, scaleIcon)}
                     >
-                        <Text style={primaryButtonTextStyle}>
+                        <Text style={scaleJobStyle(primaryButtonTextStyle, scaleFont, scaleIcon)}>
                             {creating ? 'Creating...' : 'Create Job'}
                         </Text>
                     </TouchableOpacity>
                 </View>
 
                 {!!message && (
-                    <View style={messageBoxStyle}>
-                        <Text style={messageTextStyle}>{message}</Text>
+                    <View style={scaleJobStyle(messageBoxStyle, scaleFont, scaleIcon)}>
+                        <Text style={scaleJobStyle(messageTextStyle, scaleFont, scaleIcon)}>{message}</Text>
                     </View>
                 )}
 
-                <Text style={sectionTitleStyle}>Active Jobs</Text>
+                <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>Active Jobs</Text>
 
-                <View style={listStyle}>
+                <View style={scaleJobStyle(listStyle, scaleFont, scaleIcon)}>
                     {jobs.map((job) => (
                         <TouchableOpacity
                             key={job.id}
                             onPress={() => router.push(`/jobs/${job.id}` as any)}
-                            style={jobCardStyle}
+                            style={scaleJobStyle(jobCardStyle, scaleFont, scaleIcon)}
                         >
-                            <Text style={jobTitleStyle}>{job.title}</Text>
-                            <Text style={jobMetaStyle}>
+                            <Text style={scaleJobStyle(jobTitleStyle, scaleFont, scaleIcon)}>{job.title}</Text>
+                            <Text style={scaleJobStyle(jobMetaStyle, scaleFont, scaleIcon)}>
                                 {job.system || 'Unknown system'} / {job.room_or_area || 'No area'}
                             </Text>
-                            <Text style={jobMetaStyle}>
+                            <Text style={scaleJobStyle(jobMetaStyle, scaleFont, scaleIcon)}>
                                 Status: {job.status} / Priority: {job.priority}
                             </Text>
-                            <Text style={openTextStyle}>Open Job Thread</Text>
+                            <Text style={scaleJobStyle(openTextStyle, scaleFont, scaleIcon)}>Open Job Thread</Text>
                         </TouchableOpacity>
                     ))}
                 </View>
 
                 {jobs.length === 0 && !message && (
-                    <View style={messageBoxStyle}>
-                        <Text style={messageTextStyle}>No jobs yet. Create one above.</Text>
+                    <View style={scaleJobStyle(messageBoxStyle, scaleFont, scaleIcon)}>
+                        <Text style={scaleJobStyle(messageTextStyle, scaleFont, scaleIcon)}>No jobs yet. Create one above.</Text>
                     </View>
                 )}
             </View>
@@ -179,22 +216,24 @@ export default function JobsIndexScreen() {
 }
 
 function StaffOnlyMessage({ message }: { message: string }) {
+    const { scaleFont, scaleIcon } = useTheme();
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 700 }}>
                 <HomeHeader />
 
-                <View style={messageBoxStyle}>
-                    <Text style={sectionTitleStyle}>{message}</Text>
+                <View style={scaleJobStyle(messageBoxStyle, scaleFont, scaleIcon)}>
+                    <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>{message}</Text>
 
                     <TouchableOpacity
                         onPress={() => router.replace('/' as any)}
-                        style={primaryButtonStyle}
+                        style={scaleJobStyle(primaryButtonStyle, scaleFont, scaleIcon)}
                     >
-                        <Text style={primaryButtonTextStyle}>Back Home</Text>
+                        <Text style={scaleJobStyle(primaryButtonTextStyle, scaleFont, scaleIcon)}>Back Home</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -211,20 +250,22 @@ function OptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
+    const { scaleFont, scaleIcon } = useTheme();
+
     return (
-        <View style={optionRowStyle}>
+        <View style={scaleJobStyle(optionRowStyle, scaleFont, scaleIcon)}>
             {options.map((option) => (
                 <TouchableOpacity
                     key={option}
                     onPress={() => onChange(option)}
                     style={[
-                        optionButtonStyle,
+                        scaleJobStyle(optionButtonStyle, scaleFont, scaleIcon),
                         value === option && optionButtonSelectedStyle,
                     ]}
                 >
                     <Text
                         style={[
-                            optionButtonTextStyle,
+                            scaleJobStyle(optionButtonTextStyle, scaleFont, scaleIcon),
                             value === option && optionButtonSelectedTextStyle,
                         ]}
                     >
