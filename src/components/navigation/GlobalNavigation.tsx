@@ -36,6 +36,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const insets = useSafeAreaInsets();
 
     const currentPath = normalizePath(pathname);
+    const canUseBack = currentPath !== '/';
     const shouldHideNavigation = hiddenRoutePrefixes.some((prefix) => currentPath.startsWith(prefix));
 
     if (shouldHideNavigation) {
@@ -85,8 +86,14 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}>
                         <TouchableOpacity
                             activeOpacity={0.82}
-                            onPress={() => router.back()}
+                            disabled={!canUseBack}
+                            onPress={() => {
+                                if (canUseBack) {
+                                    router.back();
+                                }
+                            }}
                             style={{
+                                opacity: canUseBack ? 1 : 0.45,
                                 backgroundColor: theme.colors.secondaryButton,
                                 borderColor: theme.colors.border,
                                 borderRadius: theme.radii.pill,
