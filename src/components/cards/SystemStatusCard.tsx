@@ -69,21 +69,49 @@ export default function SystemStatusCard({
     onPress,
     style,
 }: SystemStatusCardProps) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
         <TouchableOpacity
             onPress={onPress}
             activeOpacity={0.82}
             disabled={!onPress}
-            style={[cardStyle, { borderRadius: theme.radii.card }, getStatusCardStyle(status, theme), style]}
+            style={[
+                cardStyle,
+                {
+                    borderRadius: theme.radii.card,
+                    minHeight: scaleIcon(152),
+                    padding: scaleIcon(18),
+                },
+                getStatusCardStyle(status, theme),
+                style,
+            ]}
         >
-            <View style={[iconCircleStyle, { backgroundColor: theme.colors.iconBackground }]}>
-                <Text style={iconTextStyle}>{icon}</Text>
+            <View
+                style={[
+                    iconCircleStyle,
+                    {
+                        backgroundColor: theme.colors.iconBackground,
+                        width: scaleIcon(82),
+                        height: scaleIcon(82),
+                        marginBottom: scaleIcon(14),
+                    },
+                ]}
+            >
+                <Text style={[iconTextStyle, { fontSize: scaleIcon(40) }]}>
+                    {icon}
+                </Text>
             </View>
 
             <Text
-                style={[titleStyle, { color: theme.colors.text }]}
+                style={[
+                    titleStyle,
+                    {
+                        color: theme.colors.text,
+                        fontSize: scaleFont(16),
+                        lineHeight: scaleFont(20),
+                    },
+                ]}
                 numberOfLines={2}
                 ellipsizeMode="tail"
             >
@@ -94,31 +122,22 @@ export default function SystemStatusCard({
 }
 
 const cardStyle = {
-    minHeight: 152,
-    padding: 18,
     borderWidth: 1,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
 };
 
 const iconCircleStyle = {
-    width: 82,
-    height: 82,
     borderRadius: 999,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
-    marginBottom: 14,
 };
 
-const iconTextStyle = {
-    fontSize: 40,
-};
+const iconTextStyle = {};
 
 const titleStyle = {
-    fontSize: 16,
     fontWeight: '900' as const,
     textAlign: 'center' as const,
-    lineHeight: 20,
     wordBreak: 'normal' as const,
     overflowWrap: 'normal' as const,
 };

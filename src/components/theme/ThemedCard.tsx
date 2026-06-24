@@ -20,7 +20,7 @@ export default function ThemedCard({
     style,
     contentStyle,
 }: ThemedCardProps) {
-    const { theme } = useTheme();
+    const { scaleIcon, theme } = useTheme();
 
     const cardStyle = [
         {
@@ -28,7 +28,7 @@ export default function ThemedCard({
             borderColor: theme.colors.border,
             borderRadius: theme.radii.card,
             borderWidth: 1,
-            padding: 18,
+            padding: scaleIcon(18),
         },
         contentStyle,
     ];

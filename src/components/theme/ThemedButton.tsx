@@ -29,7 +29,7 @@ export default function ThemedButton({
     style,
     textStyle,
 }: ThemedButtonProps) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     const variantStyle = {
         primary: {
@@ -65,7 +65,7 @@ export default function ThemedButton({
                     borderColor: variantStyle.borderColor,
                     borderRadius: theme.radii.button,
                     borderWidth: 1,
-                    padding: 18,
+                    padding: scaleIcon(18),
                     alignItems: 'center',
                     opacity: disabled ? 0.55 : 1,
                 },
@@ -77,7 +77,7 @@ export default function ThemedButton({
                     style={[
                         {
                             color: variantStyle.color,
-                            fontSize: 16,
+                            fontSize: scaleFont(16),
                             fontWeight: '900',
                         },
                         textStyle,

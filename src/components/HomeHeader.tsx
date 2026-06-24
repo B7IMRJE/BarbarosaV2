@@ -4,45 +4,45 @@ import { BUILD_DISPLAY } from '../lib/appVersion';
 import { useTheme } from '../theme/useTheme';
 
 export default function HomeHeader() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
         <View
             style={{
-                marginTop: 20,
-                marginBottom: 20,
-                gap: 6,
+                marginTop: scaleIcon(20),
+                marginBottom: scaleIcon(20),
+                gap: scaleIcon(6),
             }}
         >
             <View
                 style={{
                     flexDirection: 'row',
                     flexWrap: 'wrap',
-                    gap: 20,
+                    gap: scaleIcon(20),
                     alignItems: 'center',
                 }}
             >
                 <TouchableOpacity onPress={() => router.push('/')}>
                     <Text
                         style={{
-                            fontSize: 18,
+                            fontSize: scaleFont(18),
                             fontWeight: '900',
                             color: theme.colors.text,
                         }}
                     >
-                        🏠 Home
+                        Home
                     </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity onPress={() => router.back()}>
                     <Text
                         style={{
-                            fontSize: 18,
+                            fontSize: scaleFont(18),
                             fontWeight: '900',
                             color: theme.colors.text,
                         }}
                     >
-                        ← Back
+                        Back
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -56,9 +56,9 @@ export default function HomeHeader() {
                 <Text
                     style={{
                         color: theme.colors.mutedText,
-                        fontSize: 11,
+                        fontSize: scaleFont(11),
                         fontWeight: '700',
-                        lineHeight: 15,
+                        lineHeight: scaleFont(15),
                         textAlign: 'right',
                     }}
                 >
