@@ -2,35 +2,24 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
+import { loadEstimateDraft } from '../lib/estimateDraft';
+import { loadJobs, type Job } from '../lib/jobs';
 import { isStaffRole, loadCurrentUserRole } from '../lib/roles';
 import { useTheme } from '../theme/useTheme';
 
-const summaryCards = [
-    {
-        title: "Today's Jobs",
-        value: '0',
-        note: 'Field jobs scheduled for today.',
-        route: '/jobs',
-    },
-    {
-        title: 'Open Estimates',
-        value: '0',
-        note: 'Drafts, proposals, and options waiting to be sent.',
-        route: '/estimate',
-    },
-    {
-        title: 'Waiting Approval',
-        value: '0',
-        note: 'Customer approvals, change orders, and job decisions.',
-        route: '/jobs',
-    },
-    {
-        title: 'New Messages',
-        value: '0',
-        note: 'Customer, technician, and office updates.',
-        route: '/jobs',
-    },
-];
+type DashboardCounts = {
+    todayJobs: number;
+    openEstimates: number;
+    waitingApproval: number;
+    newMessages: number;
+};
+
+const defaultCounts: DashboardCounts = {
+    todayJobs: 0,
+    openEstimates: 0,
+    waitingApproval: 0,
+    newMessages: 0,
+};
 
 const actionCards = [
     {
@@ -74,6 +63,8 @@ export default function ManagementScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const [checkingAccess, setCheckingAccess] = useState(true);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+    const [counts, setCounts] = useState<DashboardCounts>(defaultCounts);
+    const [message, setMessage] = useState('Loading ManagementOS dashboard...');
 
     useEffect(() => {
         checkAccess();
@@ -81,9 +72,38 @@ export default function ManagementScreen() {
 
     async function checkAccess() {
         const role = await loadCurrentUserRole();
+        const canAccess = isStaffRole(role);
 
-        setCanUseStaffTools(isStaffRole(role));
+        setCanUseStaffTools(canAccess);
         setCheckingAccess(false);
+
+        if (canAccess) {
+            await loadDashboardCounts();
+        } else {
+            setMessage('');
+        }
+    }
+
+    async function loadDashboardCounts() {
+        try {
+            setMessage('Loading ManagementOS dashboard...');
+
+            const [jobs, estimateDraftItems] = await Promise.all([
+                loadJobs(),
+                loadEstimateDraft(),
+            ]);
+
+            setCounts({
+                todayJobs: jobs.filter(isJobTouchedToday).length,
+                openEstimates: estimateDraftItems.length,
+                waitingApproval: jobs.filter(isWaitingForApproval).length,
+                newMessages: 0,
+            });
+            setMessage('');
+        } catch (error: any) {
+            setCounts(defaultCounts);
+            setMessage(`Could not load dashboard counts: ${error.message || 'Unknown error'}`);
+        }
     }
 
     function scaleStyle<T extends Record<string, any>>(style: T): any {
@@ -124,6 +144,33 @@ export default function ManagementScreen() {
         router.push(route as any);
     }
 
+    const summaryCards = [
+        {
+            title: "Today's Jobs",
+            value: counts.todayJobs.toString(),
+            note: 'Jobs created, dispatched, updated, or completed today.',
+            route: '/jobs',
+        },
+        {
+            title: 'Open Estimates',
+            value: counts.openEstimates.toString(),
+            note: 'Items currently waiting in the estimate draft.',
+            route: '/estimate',
+        },
+        {
+            title: 'Waiting Approval',
+            value: counts.waitingApproval.toString(),
+            note: 'Jobs marked as waiting for customer approval.',
+            route: '/jobs',
+        },
+        {
+            title: 'New Messages',
+            value: counts.newMessages.toString(),
+            note: 'Message alerts will connect after job notifications are added.',
+            route: '/jobs',
+        },
+    ];
+
     if (checkingAccess) {
         return <StaffOnlyMessage message="Checking ManagementOS access..." />;
     }
@@ -140,24 +187,54 @@ export default function ManagementScreen() {
             <View style={{ width: '100%', maxWidth: 1100 }}>
                 <HomeHeader />
 
-                <View style={scaleStyle(heroCardStyle)}>
+                <View
+                    style={[
+                        scaleStyle(heroCardStyle),
+                        {
+                            backgroundColor: theme.colors.surface,
+                            borderColor: theme.colors.border,
+                            borderWidth: 1,
+                        },
+                    ]}
+                >
                     <Text style={[scaleStyle(kickerStyle), { color: theme.colors.primary }]}>ManagementOS</Text>
                     <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>
                         Run the business side of HomeOS.
                     </Text>
                     <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
-                        This is the starting dashboard for managers, office staff, and technicians. It will connect jobs,
-                        estimates, approvals, field notes, invoices, and customer updates without mixing them into the
-                        homeowner experience.
+                        This is the starting dashboard for managers, office staff, and technicians. It connects jobs,
+                        estimate drafts, approvals, field notes, invoices, and customer updates without mixing them into
+                        the homeowner experience.
                     </Text>
 
                     <View style={scaleStyle(heroButtonRowStyle)}>
                         <TouchableOpacity
                             activeOpacity={0.82}
-                            onPress={() => goTo('/jobs')}
+                            onPress={loadDashboardCounts}
                             style={[scaleStyle(primaryButtonStyle), { backgroundColor: theme.colors.primary }]}
                         >
                             <Text style={[scaleStyle(primaryButtonTextStyle), { color: theme.colors.primaryText }]}>
+                                Refresh Dashboard
+                            </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            activeOpacity={0.82}
+                            onPress={() => goTo('/jobs')}
+                            style={[
+                                scaleStyle(secondaryButtonStyle),
+                                {
+                                    backgroundColor: theme.colors.secondaryButton,
+                                    borderColor: theme.colors.border,
+                                },
+                            ]}
+                        >
+                            <Text
+                                style={[
+                                    scaleStyle(secondaryButtonTextStyle),
+                                    { color: theme.colors.secondaryButtonText },
+                                ]}
+                            >
                                 Open Jobs
                             </Text>
                         </TouchableOpacity>
@@ -184,6 +261,22 @@ export default function ManagementScreen() {
                         </TouchableOpacity>
                     </View>
                 </View>
+
+                {!!message && (
+                    <View
+                        style={[
+                            scaleStyle(messageCardStyle),
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                    >
+                        <Text style={[scaleStyle(messageTextStyle), { color: theme.colors.mutedText }]}>
+                            {message}
+                        </Text>
+                    </View>
+                )}
 
                 <View style={scaleStyle(summaryGridStyle)}>
                     {summaryCards.map((card) => (
@@ -346,6 +439,49 @@ function StaffOnlyMessage({ message }: { message: string }) {
     );
 }
 
+function isJobTouchedToday(job: Job) {
+    return [
+        job.dispatched_at,
+        job.arrived_at,
+        job.completed_at,
+        job.updated_at,
+        job.created_at,
+    ].some((value) => isToday(value));
+}
+
+function isWaitingForApproval(job: Job) {
+    const approvalValues = [
+        job.status,
+        job.dispatch_status,
+        job.visibility_status,
+    ]
+        .filter(Boolean)
+        .map((value) => value?.toLowerCase());
+
+    return approvalValues.some((value) =>
+        value?.includes('approval') ||
+        value?.includes('approve') ||
+        value?.includes('waiting_customer') ||
+        value?.includes('pending_customer')
+    );
+}
+
+function isToday(value: string | null) {
+    if (!value) return false;
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return false;
+
+    const today = new Date();
+
+    return (
+        date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate()
+    );
+}
+
 const heroCardStyle = {
     borderRadius: 28,
     marginBottom: 18,
@@ -401,6 +537,19 @@ const secondaryButtonStyle = {
 const secondaryButtonTextStyle = {
     fontSize: 14,
     fontWeight: '900',
+};
+
+const messageCardStyle = {
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 16,
+    padding: 14,
+};
+
+const messageTextStyle = {
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
 };
 
 const summaryGridStyle = {
