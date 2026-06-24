@@ -12,10 +12,47 @@ import {
     loadJobThreadEvents,
 } from '../../lib/jobs';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
+import { useTheme } from '../../theme/useTheme';
 
 const statuses = ['open', 'in_progress', 'waiting_on_customer', 'completed'];
 
+function scaleJobStyle<T extends Record<string, any>>(
+    style: T,
+    scaleFont: (value: number) => number,
+    scaleIcon: (value: number) => number
+): T {
+    const scaledStyle: Record<string, any> = { ...style };
+
+    Object.entries(style).forEach(([key, value]) => {
+        if (typeof value !== 'number') return;
+
+        if (key === 'fontSize' || key === 'lineHeight') {
+            scaledStyle[key] = scaleFont(value);
+        }
+
+        if (
+            key === 'padding' ||
+            key === 'paddingBottom' ||
+            key === 'paddingVertical' ||
+            key === 'paddingHorizontal' ||
+            key === 'marginTop' ||
+            key === 'marginBottom' ||
+            key === 'gap' ||
+            key === 'minWidth' ||
+            key === 'minHeight' ||
+            key === 'width' ||
+            key === 'height' ||
+            key === 'borderRadius'
+        ) {
+            scaledStyle[key] = scaleIcon(value);
+        }
+    });
+
+    return scaledStyle as T;
+}
+
 export default function JobThreadScreen() {
+    const { scaleFont, scaleIcon } = useTheme();
     const { id } = useLocalSearchParams();
     const jobId = String(id || '');
     const [job, setJob] = useState<Job | null>(null);
@@ -116,34 +153,34 @@ export default function JobThreadScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
-                <View style={headerRowStyle}>
+                <View style={scaleJobStyle(headerRowStyle, scaleFont, scaleIcon)}>
                     <View>
-                        <Text style={titleStyle}>{job?.title || 'Job Thread'}</Text>
-                        <Text style={subtitleStyle}>
+                        <Text style={scaleJobStyle(titleStyle, scaleFont, scaleIcon)}>{job?.title || 'Job Thread'}</Text>
+                        <Text style={scaleJobStyle(subtitleStyle, scaleFont, scaleIcon)}>
                             {job?.system || 'Unknown system'} / {job?.room_or_area || 'No area'}
                         </Text>
                     </View>
 
-                    <TouchableOpacity onPress={refreshThread} style={secondaryButtonStyle}>
-                        <Text style={secondaryButtonTextStyle}>Refresh</Text>
+                    <TouchableOpacity onPress={refreshThread} style={scaleJobStyle(secondaryButtonStyle, scaleFont, scaleIcon)}>
+                        <Text style={scaleJobStyle(secondaryButtonTextStyle, scaleFont, scaleIcon)}>Refresh</Text>
                     </TouchableOpacity>
                 </View>
 
                 {!!message && (
-                    <View style={messageBoxStyle}>
-                        <Text style={messageTextStyle}>{message}</Text>
+                    <View style={scaleJobStyle(messageBoxStyle, scaleFont, scaleIcon)}>
+                        <Text style={scaleJobStyle(messageTextStyle, scaleFont, scaleIcon)}>{message}</Text>
                     </View>
                 )}
 
                 {job && (
                     <>
-                        <View style={panelStyle}>
-                            <Text style={sectionTitleStyle}>Status</Text>
+                        <View style={scaleJobStyle(panelStyle, scaleFont, scaleIcon)}>
+                            <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>Status</Text>
                             <OptionRow
                                 options={statuses}
                                 value={selectedStatus}
@@ -155,39 +192,39 @@ export default function JobThreadScreen() {
                             />
                         </View>
 
-                        <View style={panelStyle}>
-                            <Text style={sectionTitleStyle}>Add Note</Text>
+                        <View style={scaleJobStyle(panelStyle, scaleFont, scaleIcon)}>
+                            <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>Add Note</Text>
                             <TextInput
                                 placeholder="Add a job update..."
                                 value={note}
                                 onChangeText={setNote}
-                                style={[inputStyle, { minHeight: 100 }]}
+                                style={[scaleJobStyle(inputStyle, scaleFont, scaleIcon), { minHeight: scaleIcon(100) }]}
                                 multiline
                             />
 
                             <TouchableOpacity
                                 onPress={handleAddNote}
                                 disabled={saving}
-                                style={primaryButtonStyle}
+                                style={scaleJobStyle(primaryButtonStyle, scaleFont, scaleIcon)}
                             >
-                                <Text style={primaryButtonTextStyle}>
+                                <Text style={scaleJobStyle(primaryButtonTextStyle, scaleFont, scaleIcon)}>
                                     {saving ? 'Saving...' : 'Add Note'}
                                 </Text>
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={sectionTitleStyle}>Timeline</Text>
+                        <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>Timeline</Text>
 
-                        <View style={timelineStyle}>
+                        <View style={scaleJobStyle(timelineStyle, scaleFont, scaleIcon)}>
                             {events.map((event) => (
-                                <View key={event.id} style={eventCardStyle}>
-                                    <Text style={eventTypeStyle}>
+                                <View key={event.id} style={scaleJobStyle(eventCardStyle, scaleFont, scaleIcon)}>
+                                    <Text style={scaleJobStyle(eventTypeStyle, scaleFont, scaleIcon)}>
                                         {event.event_type.replace(/_/g, ' ')}
                                     </Text>
-                                    <Text style={eventMessageStyle}>
+                                    <Text style={scaleJobStyle(eventMessageStyle, scaleFont, scaleIcon)}>
                                         {event.message || 'No message'}
                                     </Text>
-                                    <Text style={eventMetaStyle}>
+                                    <Text style={scaleJobStyle(eventMetaStyle, scaleFont, scaleIcon)}>
                                         {event.created_by_name || 'Unknown'} / {new Date(event.created_at).toLocaleString()}
                                     </Text>
                                 </View>
@@ -195,8 +232,8 @@ export default function JobThreadScreen() {
                         </View>
 
                         {events.length === 0 && (
-                            <View style={messageBoxStyle}>
-                                <Text style={messageTextStyle}>No timeline events yet.</Text>
+                            <View style={scaleJobStyle(messageBoxStyle, scaleFont, scaleIcon)}>
+                                <Text style={scaleJobStyle(messageTextStyle, scaleFont, scaleIcon)}>No timeline events yet.</Text>
                             </View>
                         )}
                     </>
@@ -207,22 +244,24 @@ export default function JobThreadScreen() {
 }
 
 function StaffOnlyMessage({ message }: { message: string }) {
+    const { scaleFont, scaleIcon } = useTheme();
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 700 }}>
                 <HomeHeader />
 
-                <View style={messageBoxStyle}>
-                    <Text style={sectionTitleStyle}>{message}</Text>
+                <View style={scaleJobStyle(messageBoxStyle, scaleFont, scaleIcon)}>
+                    <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>{message}</Text>
 
                     <TouchableOpacity
                         onPress={() => router.replace('/' as any)}
-                        style={primaryButtonStyle}
+                        style={scaleJobStyle(primaryButtonStyle, scaleFont, scaleIcon)}
                     >
-                        <Text style={primaryButtonTextStyle}>Back Home</Text>
+                        <Text style={scaleJobStyle(primaryButtonTextStyle, scaleFont, scaleIcon)}>Back Home</Text>
                     </TouchableOpacity>
                 </View>
             </View>
@@ -241,21 +280,23 @@ function OptionRow({
     onChange: (value: string) => void;
     disabled?: boolean;
 }) {
+    const { scaleFont, scaleIcon } = useTheme();
+
     return (
-        <View style={optionRowStyle}>
+        <View style={scaleJobStyle(optionRowStyle, scaleFont, scaleIcon)}>
             {options.map((option) => (
                 <TouchableOpacity
                     key={option}
                     onPress={() => onChange(option)}
                     disabled={disabled}
                     style={[
-                        optionButtonStyle,
+                        scaleJobStyle(optionButtonStyle, scaleFont, scaleIcon),
                         value === option && optionButtonSelectedStyle,
                     ]}
                 >
                     <Text
                         style={[
-                            optionButtonTextStyle,
+                            scaleJobStyle(optionButtonTextStyle, scaleFont, scaleIcon),
                             value === option && optionButtonSelectedTextStyle,
                         ]}
                     >
