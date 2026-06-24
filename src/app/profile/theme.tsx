@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import { DEFAULT_THEME_NAME, themeOptions, type HomeOSTheme } from '../../theme';
+import { DEFAULT_APPEARANCE_PREFERENCES, DEFAULT_THEME_NAME, appearanceSizeOptions, themeOptions, type AppearanceSizeName, type HomeOSTheme } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
 function ThemeSwatches({ option }: { option: HomeOSTheme }) {
@@ -165,9 +165,175 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
     );
 }
 
+type AppearanceSizeSelectorProps = {
+    title: string;
+    body: string;
+    value: AppearanceSizeName;
+    onChange: (value: AppearanceSizeName) => Promise<void>;
+};
+
+function AppearanceSizeSelector({
+    title,
+    body,
+    value,
+    onChange,
+}: AppearanceSizeSelectorProps) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={{ marginTop: 18 }}>
+            <Text
+                style={{
+                    color: theme.colors.text,
+                    fontSize: 18,
+                    fontWeight: '900',
+                }}
+            >
+                {title}
+            </Text>
+            <Text
+                style={{
+                    color: theme.colors.mutedText,
+                    fontSize: 14,
+                    lineHeight: 20,
+                    marginTop: 4,
+                    marginBottom: 12,
+                    fontWeight: '700',
+                }}
+            >
+                {body}
+            </Text>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {appearanceSizeOptions.map((option) => {
+                    const selected = option.name === value;
+
+                    return (
+                        <ThemedCard
+                            key={option.name}
+                            onPress={() => {
+                                void onChange(option.name);
+                            }}
+                            style={{
+                                flexGrow: 1,
+                                flexBasis: 130,
+                                padding: 14,
+                                borderColor: selected
+                                    ? theme.colors.primary
+                                    : theme.colors.border,
+                                borderWidth: selected ? 2 : 1,
+                                backgroundColor: selected
+                                    ? theme.colors.secondaryButton
+                                    : theme.colors.surface,
+                            }}
+                        >
+                            <Text
+                                style={{
+                                    color: theme.colors.text,
+                                    fontSize: 16,
+                                    fontWeight: '900',
+                                }}
+                            >
+                                {option.label}
+                            </Text>
+                            <Text
+                                style={{
+                                    color: selected
+                                        ? theme.colors.primary
+                                        : theme.colors.mutedText,
+                                    fontSize: 13,
+                                    fontWeight: '900',
+                                    marginTop: 6,
+                                }}
+                            >
+                                {Math.round(option.scale * 100)}%
+                            </Text>
+                        </ThemedCard>
+                    );
+                })}
+            </View>
+        </View>
+    );
+}
+
+function AppearancePreview() {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    return (
+        <View
+            style={{
+                marginTop: 14,
+                backgroundColor: theme.colors.surfaceAlt,
+                borderColor: theme.colors.border,
+                borderWidth: 1,
+                borderRadius: theme.radii.card,
+                padding: 14,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 14,
+                flexWrap: 'wrap',
+            }}
+        >
+            <View
+                style={{
+                    width: scaleIcon(48),
+                    height: scaleIcon(48),
+                    borderRadius: theme.radii.pill,
+                    backgroundColor: theme.colors.primary,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}
+            >
+                <Text
+                    style={{
+                        color: theme.colors.primaryText,
+                        fontSize: scaleFont(18),
+                        fontWeight: '900',
+                    }}
+                >
+                    Aa
+                </Text>
+            </View>
+
+            <View style={{ flex: 1, minWidth: 220 }}>
+                <Text
+                    style={{
+                        color: theme.colors.text,
+                        fontSize: scaleFont(20),
+                        fontWeight: '900',
+                    }}
+                >
+                    Preview size
+                </Text>
+                <Text
+                    style={{
+                        color: theme.colors.mutedText,
+                        fontSize: scaleFont(14),
+                        lineHeight: scaleFont(20),
+                        marginTop: 4,
+                        fontWeight: '700',
+                    }}
+                >
+                    Font and icon sizes are saved on this device.
+                </Text>
+            </View>
+        </View>
+    );
+}
 export default function ThemeScreen() {
-        const { theme, themeName, setThemeName } = useTheme();
+        const {
+        appearance,
+        resetAppearance,
+        setFontSize,
+        setIconSize,
+        theme,
+        themeName,
+        setThemeName,
+    } = useTheme();
     const isDefaultTheme = themeName === DEFAULT_THEME_NAME;
+    const isDefaultAppearance =
+        appearance.fontSize === DEFAULT_APPEARANCE_PREFERENCES.fontSize &&
+        appearance.iconSize === DEFAULT_APPEARANCE_PREFERENCES.iconSize;
 
     return (
         <ScrollView
@@ -255,6 +421,77 @@ export default function ThemeScreen() {
                         </Text>
                     </View>
                 </View>
+                <ThemedCard style={{ marginBottom: 18 }}>
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: 14,
+                            flexWrap: 'wrap',
+                        }}
+                    >
+                        <View style={{ flex: 1, minWidth: 260 }}>
+                            <Text
+                                style={{
+                                    color: theme.colors.text,
+                                    fontSize: 24,
+                                    fontWeight: '900',
+                                }}
+                            >
+                                Size Preferences
+                            </Text>
+                            <Text
+                                style={{
+                                    color: theme.colors.mutedText,
+                                    fontSize: 15,
+                                    lineHeight: 21,
+                                    marginTop: 6,
+                                    fontWeight: '700',
+                                }}
+                            >
+                                Adjust HomeOS font and icon sizes for this device.
+                            </Text>
+                        </View>
+
+                        <ThemedButton
+                            title="Reset Sizes"
+                            variant="secondary"
+                            disabled={isDefaultAppearance}
+                            onPress={() => {
+                                void resetAppearance();
+                            }}
+                            style={{ minWidth: 150 }}
+                        />
+                    </View>
+
+                    <AppearancePreview />
+
+                    <AppearanceSizeSelector
+                        title="Font Size"
+                        body="Controls text size in screens that use HomeOS appearance scaling."
+                        value={appearance.fontSize}
+                        onChange={setFontSize}
+                    />
+
+                    <AppearanceSizeSelector
+                        title="Icon Size"
+                        body="Controls icon and visual marker size in screens that use HomeOS appearance scaling."
+                        value={appearance.iconSize}
+                        onChange={setIconSize}
+                    />
+                </ThemedCard>
+
+                <Text
+                    style={{
+                        color: theme.colors.text,
+                        fontSize: 24,
+                        fontWeight: '900',
+                        marginBottom: 12,
+                    }}
+                >
+                    Theme Packs
+                </Text>
 
                 <View
                     style={{
