@@ -265,9 +265,11 @@ export default function AreaScreen() {
 
                                     {itemSections.map((section) => (
                                         <View key={section.title} style={sectionBlockStyle}>
-                                            <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
-                                                {section.title}
-                                            </Text>
+                                            {itemSections.length > 1 && (
+                                                <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
+                                                    {getItemGroupHeading(section.title)}
+                                                </Text>
+                                            )}
 
                                             <View style={gridStyle}>
                                                 {section.items.map((item) => (
@@ -296,19 +298,27 @@ export default function AreaScreen() {
                             </ThemedCard>
                         ) : (
                             <View style={sectionListStyle}>
-                                {itemSections.map((section) => (
-                                    <View key={section.title} style={sectionBlockStyle}>
-                                        <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                                            {section.title}
-                                        </Text>
+                                <View style={sectionBlockStyle}>
+                                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                                        {getAreaItemsHeading(areaName)}
+                                    </Text>
 
-                                        <View style={gridStyle}>
-                                            {section.items.map((item) => (
-                                                <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
-                                            ))}
+                                    {itemSections.map((section) => (
+                                        <View key={section.title} style={sectionBlockStyle}>
+                                            {itemSections.length > 1 && (
+                                                <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
+                                                    {getItemGroupHeading(section.title)}
+                                                </Text>
+                                            )}
+
+                                            <View style={gridStyle}>
+                                                {section.items.map((item) => (
+                                                    <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
+                                                ))}
+                                            </View>
                                         </View>
-                                    </View>
-                                ))}
+                                    ))}
+                                </View>
                             </View>
                         )}
                     </>
@@ -480,6 +490,14 @@ function groupItemsBySystem(items: AreaHomeItem[]) {
         .map(([title, sectionItems]) => ({ title, items: sectionItems }));
 
     return [...sortedSections, ...remainingSections];
+}
+
+function getAreaItemsHeading(areaName: string) {
+    return `${areaName} items`;
+}
+
+function getItemGroupHeading(sectionTitle: string) {
+    return `${sectionTitle} items`;
 }
 
 function getAreaItemSectionTitle(item: AreaHomeItem) {

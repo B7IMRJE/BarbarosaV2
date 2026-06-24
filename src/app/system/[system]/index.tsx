@@ -112,7 +112,7 @@ export default function SystemAreasScreen() {
                         lineHeight: 22,
                     }}
                 >
-                    Choose an area. Areas are available by default, but items are added only when real equipment is entered.
+                    Choose or add an area. Items are added inside the area you open.
                 </Text>
 
                 <ThemedButton
@@ -155,6 +155,17 @@ export default function SystemAreasScreen() {
                         {message}
                     </Text>
                 )}
+
+                <Text
+                    style={{
+                        fontSize: 20,
+                        color: theme.colors.text,
+                        fontWeight: '900',
+                        marginBottom: 12,
+                    }}
+                >
+                    Areas
+                </Text>
 
                 <View
                     style={{
