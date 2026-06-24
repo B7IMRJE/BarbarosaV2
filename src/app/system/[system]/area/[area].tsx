@@ -31,7 +31,7 @@ type AreaHomeItem = {
 };
 
 export default function AreaScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
     const { system, area, parentArea, refresh } = useLocalSearchParams<{
         system: string;
         area: string;
@@ -169,8 +169,8 @@ export default function AreaScreen() {
                 backgroundColor: theme.colors.background,
             }}
             contentContainerStyle={{
-                padding: 20,
-                paddingBottom: 40,
+                padding: scaleIcon(20),
+                paddingBottom: scaleIcon(40),
                 alignItems: 'center',
             }}
         >
@@ -183,9 +183,9 @@ export default function AreaScreen() {
                 <Text
                     onPress={() => router.back()}
                     style={{
-                        marginTop: 20,
-                        marginBottom: 20,
-                        fontSize: 18,
+                        marginTop: scaleIcon(20),
+                        marginBottom: scaleIcon(20),
+                        fontSize: scaleFont(18),
                         color: theme.colors.text,
                         fontWeight: '900',
                     }}
@@ -195,10 +195,10 @@ export default function AreaScreen() {
 
                 <Text
                     style={{
-                        fontSize: 34,
+                        fontSize: scaleFont(34),
                         fontWeight: '900',
                         color: theme.colors.text,
-                        marginBottom: 6,
+                        marginBottom: scaleIcon(6),
                     }}
                 >
                     {areaName}
@@ -206,9 +206,9 @@ export default function AreaScreen() {
 
                 <Text
                     style={{
-                        fontSize: 16,
+                        fontSize: scaleFont(16),
                         color: theme.colors.mutedText,
-                        marginBottom: 25,
+                        marginBottom: scaleIcon(25),
                     }}
                 >
                     {parentAreaName ? `${systemLabel} / ${parentAreaName}` : systemLabel}
@@ -249,7 +249,7 @@ export default function AreaScreen() {
 
                             {childAreas.length === 0 && suggestedChildAreas.length === 0 && (
                                 <ThemedCard style={{ marginBottom: 16 }}>
-                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
                                         No child areas yet.
                                     </Text>
                                 </ThemedCard>
@@ -292,7 +292,7 @@ export default function AreaScreen() {
 
                         {items.length === 0 ? (
                             <ThemedCard style={{ marginBottom: 16 }}>
-                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
                                     No items added yet.
                                 </Text>
                             </ThemedCard>

@@ -16,7 +16,7 @@ import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
 
 export default function SystemAreasScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
     const { system } = useLocalSearchParams<{ system: string }>();
     const [search, setSearch] = useState('');
     const [homeItems, setHomeItems] = useState<HomeHealthItem[]>([]);
@@ -76,8 +76,8 @@ export default function SystemAreasScreen() {
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
-                padding: 20,
-                paddingBottom: 40,
+                padding: scaleIcon(20),
+                paddingBottom: scaleIcon(40),
                 alignItems: 'center',
             }}
         >
@@ -86,10 +86,10 @@ export default function SystemAreasScreen() {
 
                 <Text
                     style={{
-                        fontSize: 34,
+                        fontSize: scaleFont(34),
                         fontWeight: '900',
                         color: theme.colors.text,
-                        marginBottom: 8,
+                        marginBottom: scaleIcon(8),
                     }}
                 >
                     {systemLabel}
@@ -97,10 +97,10 @@ export default function SystemAreasScreen() {
 
                 <Text
                     style={{
-                        fontSize: 16,
+                        fontSize: scaleFont(16),
                         color: theme.colors.mutedText,
-                        marginBottom: 14,
-                        lineHeight: 22,
+                        marginBottom: scaleIcon(14),
+                        lineHeight: scaleFont(22),
                     }}
                 >
                     Choose or add an area. Items are added inside the area you open.
@@ -125,12 +125,12 @@ export default function SystemAreasScreen() {
                     style={{
                         backgroundColor: theme.colors.surface,
                         borderRadius: theme.radii.button,
-                        padding: 16,
-                        fontSize: 16,
+                        padding: scaleIcon(16),
+                        fontSize: scaleFont(16),
                         color: theme.colors.text,
                         borderWidth: 1,
                         borderColor: theme.colors.border,
-                        marginBottom: 20,
+                        marginBottom: scaleIcon(20),
                     }}
                 />
 
@@ -138,9 +138,9 @@ export default function SystemAreasScreen() {
                     <Text
                         style={{
                             color: theme.colors.mutedText,
-                            fontSize: 14,
+                            fontSize: scaleFont(14),
                             fontWeight: '800',
-                            marginBottom: 14,
+                            marginBottom: scaleIcon(14),
                         }}
                     >
                         {message}
@@ -149,10 +149,10 @@ export default function SystemAreasScreen() {
 
                 <Text
                     style={{
-                        fontSize: 20,
+                        fontSize: scaleFont(20),
                         color: theme.colors.text,
                         fontWeight: '900',
-                        marginBottom: 12,
+                        marginBottom: scaleIcon(12),
                     }}
                 >
                     Areas
@@ -162,7 +162,7 @@ export default function SystemAreasScreen() {
                     style={{
                         flexDirection: 'row',
                         flexWrap: 'wrap',
-                        gap: 12,
+                        gap: scaleIcon(12),
                     }}
                 >
                     {filteredAreas.map((area) => {
