@@ -64,6 +64,7 @@ export default function ManagementScreen() {
     const [checkingAccess, setCheckingAccess] = useState(true);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const [counts, setCounts] = useState<DashboardCounts>(defaultCounts);
+    const [recentJobs, setRecentJobs] = useState<Job[]>([]);
     const [message, setMessage] = useState('Loading ManagementOS dashboard...');
 
     useEffect(() => {
@@ -93,6 +94,7 @@ export default function ManagementScreen() {
                 loadEstimateDraft(),
             ]);
 
+            setRecentJobs(jobs.slice(0, 5));
             setCounts({
                 todayJobs: jobs.filter(isJobTouchedToday).length,
                 openEstimates: estimateDraftItems.length,
@@ -305,6 +307,74 @@ export default function ManagementScreen() {
                     ))}
                 </View>
 
+                <View
+                    style={[
+                        scaleStyle(recentActivityCardStyle),
+                        {
+                            backgroundColor: theme.colors.surface,
+                            borderColor: theme.colors.border,
+                        },
+                    ]}
+                >
+                    <View style={scaleStyle(recentHeaderStyle)}>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Recent Activity</Text>
+
+                        <TouchableOpacity
+                            activeOpacity={0.82}
+                            onPress={() => goTo('/jobs')}
+                            style={[
+                                scaleStyle(smallButtonStyle),
+                                {
+                                    backgroundColor: theme.colors.secondaryButton,
+                                    borderColor: theme.colors.border,
+                                },
+                            ]}
+                        >
+                            <Text
+                                style={[
+                                    scaleStyle(smallButtonTextStyle),
+                                    { color: theme.colors.secondaryButtonText },
+                                ]}
+                            >
+                                View All
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {recentJobs.length === 0 ? (
+                        <Text style={[scaleStyle(recentEmptyTextStyle), { color: theme.colors.mutedText }]}>
+                            No recent jobs yet. New field work will show here.
+                        </Text>
+                    ) : (
+                        <View style={scaleStyle(recentListStyle)}>
+                            {recentJobs.map((job) => (
+                                <TouchableOpacity
+                                    key={job.id}
+                                    activeOpacity={0.82}
+                                    onPress={() => goTo('/jobs/' + job.id)}
+                                    style={[
+                                        scaleStyle(recentJobCardStyle),
+                                        {
+                                            backgroundColor: theme.colors.surfaceAlt,
+                                            borderColor: theme.colors.border,
+                                        },
+                                    ]}
+                                >
+                                    <Text style={[scaleStyle(recentJobTitleStyle), { color: theme.colors.text }]}>
+                                        {job.title}
+                                    </Text>
+                                    <Text style={[scaleStyle(recentJobMetaStyle), { color: theme.colors.mutedText }]}>
+                                        {job.system || 'Unknown system'} / {job.room_or_area || 'No area'}
+                                    </Text>
+                                    <Text style={[scaleStyle(recentJobMetaStyle), { color: theme.colors.mutedText }]}>
+                                        Status: {job.status} / Priority: {job.priority} / Updated: {formatJobDate(job.updated_at)}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
+                </View>
+
                 <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Manager Actions</Text>
 
                 <View style={scaleStyle(actionGridStyle)}>
@@ -439,6 +509,21 @@ function StaffOnlyMessage({ message }: { message: string }) {
     );
 }
 
+function formatJobDate(value: string | null) {
+    if (!value) return 'Unknown';
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return 'Unknown';
+
+    return date.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
 function isJobTouchedToday(job: Job) {
     return [
         job.dispatched_at,
@@ -565,6 +650,61 @@ const summaryCardStyle = {
     minWidth: 160,
     padding: 18,
     width: '48%',
+};
+
+const recentActivityCardStyle = {
+    borderRadius: 24,
+    borderWidth: 1,
+    marginBottom: 24,
+    padding: 18,
+};
+
+const recentHeaderStyle = {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 12,
+};
+
+const recentListStyle = {
+    gap: 10,
+};
+
+const recentJobCardStyle = {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 14,
+};
+
+const recentJobTitleStyle = {
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 5,
+};
+
+const recentJobMetaStyle = {
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 18,
+};
+
+const recentEmptyTextStyle = {
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+};
+
+const smallButtonStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+};
+
+const smallButtonTextStyle = {
+    fontSize: 12,
+    fontWeight: '900',
 };
 
 const summaryValueStyle = {
