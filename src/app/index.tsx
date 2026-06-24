@@ -61,7 +61,7 @@ function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
 }
 
 export default function HomeScreen() {
-  const { theme } = useTheme();
+  const { scaleFont, scaleIcon, theme } = useTheme();
   const [homeIdentity, setHomeIdentity] = useState<HomeIdentity | null>(null);
   const [homeIdentityLoading, setHomeIdentityLoading] = useState(true);
   const [homeItems, setHomeItems] = useState<HomeDashboardItem[]>([]);
@@ -222,8 +222,8 @@ export default function HomeScreen() {
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.colors.background }}
       contentContainerStyle={{
-        padding: 20,
-        paddingBottom: 40,
+        padding: scaleIcon(20),
+        paddingBottom: scaleIcon(40),
         alignItems: 'center',
       }}
     >
@@ -238,10 +238,10 @@ export default function HomeScreen() {
           <ThemedCard style={summaryCardStyle}>
             <Text
               style={{
-                fontSize: 15,
+                fontSize: scaleFont(15),
                 color: theme.colors.mutedText,
                 fontWeight: '700',
-                marginBottom: 10,
+                marginBottom: scaleIcon(10),
               }}
             >
               Home Health Status
@@ -249,10 +249,10 @@ export default function HomeScreen() {
 
             <Text
               style={{
-                fontSize: 26,
+                fontSize: scaleFont(26),
                 fontWeight: '900',
                 color: theme.colors.text,
-                marginBottom: 14,
+                marginBottom: scaleIcon(14),
               }}
             >
               {healthSummary.label}
@@ -260,7 +260,7 @@ export default function HomeScreen() {
 
             <View
               style={{
-                height: 16,
+                height: scaleIcon(16),
                 backgroundColor: theme.colors.progressTrack,
                 borderRadius: 999,
                 overflow: 'hidden',
@@ -277,10 +277,10 @@ export default function HomeScreen() {
 
             <Text
               style={{
-                marginTop: 12,
-                fontSize: 14,
+                marginTop: scaleIcon(12),
+                fontSize: scaleFont(14),
                 color: theme.colors.mutedText,
-                lineHeight: 20,
+                lineHeight: scaleFont(20),
               }}
             >
               {healthSummary.score === null
@@ -292,10 +292,10 @@ export default function HomeScreen() {
           <ThemedCard style={summaryCardStyle}>
             <Text
               style={{
-                fontSize: 20,
+                fontSize: scaleFont(20),
                 fontWeight: '900',
                 color: theme.colors.text,
-                marginBottom: 8,
+                marginBottom: scaleIcon(8),
               }}
             >
               Maintenance Reminders
@@ -304,10 +304,10 @@ export default function HomeScreen() {
             {maintenanceReminderMessage ? (
               <Text
                 style={{
-                  fontSize: 15,
+                  fontSize: scaleFont(15),
                   color: theme.colors.mutedText,
-                  lineHeight: 22,
-                  marginBottom: 14,
+                  lineHeight: scaleFont(22),
+                  marginBottom: scaleIcon(14),
                 }}
               >
                 {maintenanceReminderMessage}
@@ -315,10 +315,10 @@ export default function HomeScreen() {
             ) : maintenanceReminders.length === 0 ? (
               <Text
                 style={{
-                  fontSize: 15,
+                  fontSize: scaleFont(15),
                   color: theme.colors.mutedText,
-                  lineHeight: 22,
-                  marginBottom: 14,
+                  lineHeight: scaleFont(22),
+                  marginBottom: scaleIcon(14),
                 }}
               >
                 No maintenance reminders yet.
@@ -328,8 +328,8 @@ export default function HomeScreen() {
                 style={{
                   flexDirection: 'row',
                   flexWrap: 'wrap',
-                  gap: 10,
-                  marginBottom: 14,
+                  gap: scaleIcon(10),
+                  marginBottom: scaleIcon(14),
                 }}
               >
                 {maintenanceReminderSummary.map((summary) => (
@@ -340,14 +340,14 @@ export default function HomeScreen() {
                       borderColor: theme.colors.border,
                       borderWidth: 1,
                       borderRadius: theme.radii.card,
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
+                      paddingVertical: scaleIcon(10),
+                      paddingHorizontal: scaleIcon(12),
                     }}
                   >
                     <Text
                       style={{
                         color: theme.colors.text,
-                        fontSize: 16,
+                        fontSize: scaleFont(16),
                         fontWeight: '900',
                       }}
                     >
@@ -364,12 +364,12 @@ export default function HomeScreen() {
               onPress={() => router.push('/maintenance' as any)}
               style={{
                 alignSelf: 'flex-start',
-                paddingVertical: 12,
-                paddingHorizontal: 18,
+                paddingVertical: scaleIcon(12),
+                paddingHorizontal: scaleIcon(18),
                 marginTop: 'auto',
               }}
               textStyle={{
-                fontSize: 14,
+                fontSize: scaleFont(14),
               }}
             />
           </ThemedCard>
@@ -377,11 +377,11 @@ export default function HomeScreen() {
 
         <Text
           style={{
-            fontSize: 20,
+            fontSize: scaleFont(20),
             fontWeight: '900',
             color: theme.colors.text,
-            marginTop: 26,
-            marginBottom: 14,
+            marginTop: scaleIcon(26),
+            marginBottom: scaleIcon(14),
           }}
         >
           Health Breakdown
@@ -391,7 +391,7 @@ export default function HomeScreen() {
           style={{
             flexDirection: 'row',
             flexWrap: 'wrap',
-            gap: 12,
+            gap: scaleIcon(12),
           }}
         >
           {homeSystems.map((system) => (
@@ -425,15 +425,15 @@ export default function HomeScreen() {
 
         <ThemedCard
           style={{
-            marginTop: 26,
+            marginTop: scaleIcon(26),
           }}
         >
           <Text
             style={{
-              fontSize: 20,
+              fontSize: scaleFont(20),
               fontWeight: '900',
               color: theme.colors.text,
-              marginBottom: 8,
+              marginBottom: scaleIcon(8),
             }}
           >
             Needs Attention
@@ -442,9 +442,9 @@ export default function HomeScreen() {
           {issueItems.length === 0 ? (
             <Text
               style={{
-                fontSize: 15,
+                fontSize: scaleFont(15),
                 color: theme.colors.mutedText,
-                lineHeight: 22,
+                lineHeight: scaleFont(22),
               }}
             >
               No issues reported.
@@ -467,14 +467,14 @@ export default function HomeScreen() {
                         ? theme.colors.status.activeEmergency.background
                         : theme.colors.surface,
                       borderRadius: theme.radii.card,
-                      padding: 14,
-                      gap: 10,
+                      padding: scaleIcon(14),
+                      gap: scaleIcon(10),
                     }}
                   >
                     <View style={{ gap: 5 }}>
                       <Text
                         style={{
-                          fontSize: 17,
+                          fontSize: scaleFont(17),
                           fontWeight: '900',
                           color: theme.colors.text,
                         }}
@@ -484,9 +484,9 @@ export default function HomeScreen() {
 
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: scaleFont(14),
                           color: theme.colors.mutedText,
-                          lineHeight: 20,
+                          lineHeight: scaleFont(20),
                         }}
                       >
                         System: {firstText(item.system) || 'System not set'}
@@ -494,9 +494,9 @@ export default function HomeScreen() {
 
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: scaleFont(14),
                           color: theme.colors.mutedText,
-                          lineHeight: 20,
+                          lineHeight: scaleFont(20),
                         }}
                       >
                         Location:{' '}
@@ -506,9 +506,9 @@ export default function HomeScreen() {
 
                       <Text
                         style={{
-                          fontSize: 14,
+                          fontSize: scaleFont(14),
                           color: theme.colors.mutedText,
-                          lineHeight: 20,
+                          lineHeight: scaleFont(20),
                         }}
                       >
                         Status: {issueStatusLabel(item, health.status)}
@@ -522,11 +522,11 @@ export default function HomeScreen() {
                         onPress={() => router.push(`/item/${itemSlug}` as any)}
                         style={{
                           alignSelf: 'flex-start',
-                          paddingVertical: 12,
-                          paddingHorizontal: 16,
+                          paddingVertical: scaleIcon(12),
+                          paddingHorizontal: scaleIcon(16),
                         }}
                         textStyle={{
-                          fontSize: 14,
+                          fontSize: scaleFont(14),
                         }}
                       />
                     )}
@@ -549,10 +549,10 @@ export default function HomeScreen() {
           >
             <Text
               style={{
-                fontSize: 18,
+                fontSize: scaleFont(18),
                 fontWeight: '900',
                 color: theme.colors.text,
-                marginBottom: 8,
+                marginBottom: scaleIcon(8),
               }}
             >
               Emergency Center
@@ -560,10 +560,10 @@ export default function HomeScreen() {
 
             <Text
               style={{
-                fontSize: 14,
+                fontSize: scaleFont(14),
                 color: theme.colors.mutedText,
-                lineHeight: 20,
-                marginBottom: 14,
+                lineHeight: scaleFont(20),
+                marginBottom: scaleIcon(14),
               }}
             >
               Report urgent home issues with photos, notes, and status history.
@@ -572,18 +572,18 @@ export default function HomeScreen() {
             <ThemedButton
               title="Open Emergency Center"
               onPress={() => router.push('/emergency' as any)}
-              style={actionCardButtonStyle}
-              textStyle={actionCardButtonTextStyle}
+              style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
+              textStyle={{ fontSize: scaleFont(14) }}
             />
           </ThemedCard>
 
           <ThemedCard style={actionCardStyle}>
             <Text
               style={{
-                fontSize: 18,
+                fontSize: scaleFont(18),
                 fontWeight: '900',
                 color: theme.colors.text,
-                marginBottom: 8,
+                marginBottom: scaleIcon(8),
               }}
             >
               Maintenance Center
@@ -591,10 +591,10 @@ export default function HomeScreen() {
 
             <Text
               style={{
-                fontSize: 14,
+                fontSize: scaleFont(14),
                 color: theme.colors.mutedText,
-                lineHeight: 20,
-                marginBottom: 14,
+                lineHeight: scaleFont(20),
+                marginBottom: scaleIcon(14),
               }}
             >
               Track service history, photos, documents, and next maintenance dates.
@@ -604,18 +604,18 @@ export default function HomeScreen() {
               title="Open Maintenance Center"
               variant="secondary"
               onPress={() => router.push('/maintenance' as any)}
-              style={actionCardButtonStyle}
-              textStyle={actionCardButtonTextStyle}
+              style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
+              textStyle={{ fontSize: scaleFont(14) }}
             />
           </ThemedCard>
 
           <ThemedCard style={actionCardStyle}>
             <Text
               style={{
-                fontSize: 18,
+                fontSize: scaleFont(18),
                 fontWeight: '900',
                 color: theme.colors.text,
-                marginBottom: 8,
+                marginBottom: scaleIcon(8),
               }}
             >
               Company Connections
@@ -623,10 +623,10 @@ export default function HomeScreen() {
 
             <Text
               style={{
-                fontSize: 14,
+                fontSize: scaleFont(14),
                 color: theme.colors.mutedText,
-                lineHeight: 20,
-                marginBottom: 14,
+                lineHeight: scaleFont(20),
+                marginBottom: scaleIcon(14),
               }}
             >
               Review connected companies and pending access requests for your home.
@@ -636,18 +636,18 @@ export default function HomeScreen() {
               title="Open Connections"
               variant="secondary"
               onPress={() => router.push('/connections' as any)}
-              style={actionCardButtonStyle}
-              textStyle={actionCardButtonTextStyle}
+              style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
+              textStyle={{ fontSize: scaleFont(14) }}
             />
           </ThemedCard>
 
           <ThemedCard style={actionCardStyle}>
             <Text
               style={{
-                fontSize: 18,
+                fontSize: scaleFont(18),
                 fontWeight: '900',
                 color: theme.colors.text,
-                marginBottom: 8,
+                marginBottom: scaleIcon(8),
               }}
             >
               Request Professional Help
@@ -655,10 +655,10 @@ export default function HomeScreen() {
 
             <Text
               style={{
-                fontSize: 14,
+                fontSize: scaleFont(14),
                 color: theme.colors.mutedText,
-                lineHeight: 20,
-                marginBottom: 14,
+                lineHeight: scaleFont(20),
+                marginBottom: scaleIcon(14),
               }}
             >
               Request support from a trusted home service professional.
@@ -667,8 +667,8 @@ export default function HomeScreen() {
             <ThemedButton
               title="Request Professional Help"
               onPress={() => router.push('/contact' as any)}
-              style={actionCardButtonStyle}
-              textStyle={actionCardButtonTextStyle}
+              style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
+              textStyle={{ fontSize: scaleFont(14) }}
             />
           </ThemedCard>
         </View>
@@ -679,8 +679,8 @@ export default function HomeScreen() {
             justifyContent: 'space-around',
             backgroundColor: theme.colors.surface,
             borderRadius: 26,
-            paddingVertical: 16,
-            marginTop: 28,
+            paddingVertical: scaleIcon(16),
+            marginTop: scaleIcon(28),
             borderWidth: 1,
             borderColor: theme.colors.border,
           }}
@@ -742,15 +742,7 @@ const actionCardStyle = {
   minHeight: 220,
 };
 
-const actionCardButtonStyle = {
-  marginTop: 'auto' as const,
-  paddingVertical: 12,
-  paddingHorizontal: 14,
-};
 
-const actionCardButtonTextStyle = {
-  fontSize: 14,
-};
 
 function firstText(...values: Array<string | null | undefined>) {
   for (const value of values) {
