@@ -79,7 +79,7 @@ function logMaintenanceDashboardError(stage: string, error: unknown) {
 }
 
 export default function MaintenanceCenterScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
     const [records, setRecords] = useState<MaintenanceRecord[]>([]);
     const [reminders, setReminders] = useState<MaintenanceReminder[]>([]);
     const [reminderItems, setReminderItems] = useState<Record<string, MaintenanceReminderItem>>({});
@@ -215,21 +215,21 @@ export default function MaintenanceCenterScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center', paddingBottom: 40 }}
         >
             <View style={{ width: '100%', maxWidth: 900 }}>
                 <HomeHeader />
 
-                <Text style={{ color: theme.colors.text, fontSize: 34, fontWeight: '900' }}>
+                <Text style={{ color: theme.colors.text, fontSize: scaleFont(34), fontWeight: '900' }}>
                     Maintenance Center
                 </Text>
                 <Text
                     style={{
                         color: theme.colors.mutedText,
-                        fontSize: 16,
-                        lineHeight: 22,
-                        marginTop: 8,
-                        marginBottom: 20,
+                        fontSize: scaleFont(16),
+                        lineHeight: scaleFont(22),
+                        marginTop: scaleIcon(8),
+                        marginBottom: scaleIcon(20),
                     }}
                 >
                     Track homeowner maintenance history, photos, documents, and future service dates.
@@ -238,17 +238,17 @@ export default function MaintenanceCenterScreen() {
                 <ThemedButton
                     title="Add Maintenance Record"
                     onPress={() => router.push('/maintenance/create' as any)}
-                    style={{ marginBottom: 18 }}
+                    style={{ marginBottom: scaleIcon(18) }}
                 />
 
                 {loading && (
-                    <View style={{ padding: 24 }}>
+                    <View style={{ padding: scaleIcon(24) }}>
                         <ActivityIndicator size="large" />
                     </View>
                 )}
 
                 {!!message && (
-                    <ThemedCard style={{ marginBottom: 14 }}>
+                    <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
                         <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>
                             {message}
                         </Text>
@@ -256,17 +256,17 @@ export default function MaintenanceCenterScreen() {
                 )}
 
                 {!loading && (
-                    <ThemedCard style={{ marginBottom: 18 }}>
-                        <Text style={{ color: theme.colors.text, fontSize: 24, fontWeight: '900' }}>
+                    <ThemedCard style={{ marginBottom: scaleIcon(18) }}>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(24), fontWeight: '900' }}>
                             Maintenance Reminders
                         </Text>
 
                         {reminders.length === 0 ? (
-                            <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>
+                            <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), lineHeight: scaleFont(20) }}>
                                 No maintenance reminders yet. Open an item to add presets or custom reminders.
                             </Text>
                         ) : (
-                            <View style={{ gap: 14, marginTop: 14 }}>
+                            <View style={{ gap: scaleIcon(14), marginTop: scaleIcon(14) }}>
                                 {reminderGroups.map((group) => {
                                     if (group.reminders.length === 0) return null;
 
@@ -275,15 +275,15 @@ export default function MaintenanceCenterScreen() {
                                             <Text
                                                 style={{
                                                     color: theme.colors.mutedText,
-                                                    fontSize: 16,
+                                                    fontSize: scaleFont(16),
                                                     fontWeight: '900',
-                                                    marginBottom: 8,
+                                                    marginBottom: scaleIcon(8),
                                                 }}
                                             >
                                                 {group.label}
                                             </Text>
 
-                                            <View style={{ gap: 10 }}>
+                                            <View style={{ gap: scaleIcon(10) }}>
                                                 {group.reminders.map((reminder) => {
                                                     const linkedItem = reminder.home_item_id
                                                         ? reminderItems[reminder.home_item_id]
@@ -309,16 +309,16 @@ export default function MaintenanceCenterScreen() {
                                                                     flexDirection: 'row',
                                                                     flexWrap: 'wrap',
                                                                     justifyContent: 'space-between',
-                                                                    gap: 10,
+                                                                    gap: scaleIcon(10),
                                                                 }}
                                                             >
                                                                 <Text
                                                                     style={{
                                                                         color: theme.colors.text,
-                                                                        fontSize: 19,
+                                                                        fontSize: scaleFont(19),
                                                                         fontWeight: '900',
                                                                         flex: 1,
-                                                                        minWidth: 220,
+                                                                        minWidth: scaleIcon(220),
                                                                     }}
                                                                 >
                                                                     {reminder.title}
@@ -341,7 +341,7 @@ export default function MaintenanceCenterScreen() {
                                                             <Text
                                                                 style={{
                                                                     color: theme.colors.text,
-                                                                    marginTop: 8,
+                                                                    marginTop: scaleIcon(8),
                                                                     fontWeight: '900',
                                                                 }}
                                                             >
@@ -350,23 +350,23 @@ export default function MaintenanceCenterScreen() {
                                                             <Text
                                                                 style={{
                                                                     color: theme.colors.mutedText,
-                                                                    marginTop: 6,
+                                                                    marginTop: scaleIcon(6),
                                                                     fontWeight: '800',
                                                                 }}
                                                             >
                                                                 {system} Â· {location}
                                                             </Text>
-                                                            <Text style={{ color: theme.colors.mutedText, marginTop: 8 }}>
+                                                            <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
                                                                 {formatRecurrence(
                                                                     reminder.recurrence_interval,
                                                                     reminder.recurrence_unit
                                                                 )}
                                                             </Text>
-                                                            <Text style={{ color: theme.colors.mutedText, marginTop: 6 }}>
+                                                            <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(6) }}>
                                                                 Next due: {formatDateLabel(reminder.next_due_date)}
                                                             </Text>
                                                             {!!reminder.last_completed_date && (
-                                                                <Text style={{ color: theme.colors.mutedText, marginTop: 6 }}>
+                                                                <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(6) }}>
                                                                     Last completed: {formatDateLabel(reminder.last_completed_date)}
                                                                 </Text>
                                                             )}
@@ -377,11 +377,11 @@ export default function MaintenanceCenterScreen() {
                                                                 onPress={() => openReminderItem(reminder)}
                                                                 style={{
                                                                     alignSelf: 'flex-start',
-                                                                    marginTop: 12,
-                                                                    paddingVertical: 12,
-                                                                    paddingHorizontal: 18,
+                                                                    marginTop: scaleIcon(12),
+                                                                    paddingVertical: scaleIcon(12),
+                                                                    paddingHorizontal: scaleIcon(18),
                                                                 }}
-                                                                textStyle={{ fontSize: 14, fontWeight: '900' }}
+                                                                textStyle={{ fontSize: scaleFont(14), fontWeight: '900' }}
                                                             />
                                                         </ThemedCard>
                                                     );
@@ -397,34 +397,34 @@ export default function MaintenanceCenterScreen() {
 
                 {!loading && records.length === 0 && !message && (
                     <ThemedCard>
-                        <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
                             No maintenance records yet
                         </Text>
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>
+                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), lineHeight: scaleFont(20) }}>
                             Add service visits, filter changes, repairs, inspections, and warranty documents here.
                         </Text>
                     </ThemedCard>
                 )}
 
-                <View style={{ gap: 12 }}>
+                <View style={{ gap: scaleIcon(12) }}>
                     {records.map((record) => (
                         <ThemedCard
                             key={record.id}
                             onPress={() => router.push(`/maintenance/${record.id}` as any)}
                         >
-                            <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
                                 {record.title}
                             </Text>
                             <Text
                                 style={{
                                     color: theme.colors.mutedText,
-                                    marginTop: 6,
+                                    marginTop: scaleIcon(6),
                                     fontWeight: '800',
                                 }}
                             >
                                 {record.system || 'Unknown system'} · {record.area || 'Unknown area'}
                             </Text>
-                            <Text style={{ color: theme.colors.mutedText, marginTop: 8 }}>
+                            <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
                                 Service: {formatDate(record.service_date)}
                                 {record.next_service_date ? ` · Next: ${formatDate(record.next_service_date)}` : ''}
                             </Text>
@@ -433,8 +433,8 @@ export default function MaintenanceCenterScreen() {
                                     numberOfLines={2}
                                     style={{
                                         color: theme.colors.mutedText,
-                                        marginTop: 8,
-                                        lineHeight: 20,
+                                        marginTop: scaleIcon(8),
+                                        lineHeight: scaleFont(20),
                                     }}
                                 >
                                     {record.description}
