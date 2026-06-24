@@ -14,7 +14,38 @@ type SettingsCardProps = {
 };
 
 export default function ProfileScreen() {
-    const { theme, themeName } = useTheme();
+    const { scaleFont, scaleIcon, theme, themeName } = useTheme();
+
+    function scaleStyle<T extends Record<string, any>>(style: T): T {
+        const scaledStyle: Record<string, any> = { ...style };
+
+        Object.entries(style).forEach(([key, value]) => {
+            if (typeof value !== 'number') return;
+
+            if (key === 'fontSize' || key === 'lineHeight') {
+                scaledStyle[key] = scaleFont(value);
+            }
+
+            if (
+                key === 'padding' ||
+                key === 'paddingBottom' ||
+                key === 'paddingVertical' ||
+                key === 'paddingHorizontal' ||
+                key === 'marginTop' ||
+                key === 'marginBottom' ||
+                key === 'gap' ||
+                key === 'minWidth' ||
+                key === 'minHeight' ||
+                key === 'width' ||
+                key === 'height' ||
+                key === 'borderRadius'
+            ) {
+                scaledStyle[key] = scaleIcon(value);
+            }
+        });
+
+        return scaledStyle as T;
+    }
     const [email, setEmail] = useState('');
     const [message, setMessage] = useState('Loading profile...');
 
@@ -45,16 +76,16 @@ export default function ProfileScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 24, alignItems: 'center', paddingBottom: 44 }}
+            contentContainerStyle={{ padding: scaleIcon(24), alignItems: 'center', paddingBottom: 44 }}
         >
-            <View style={{ width: '100%', maxWidth: 900, marginTop: 50 }}>
+            <View style={{ width: '100%', maxWidth: 900, marginTop: scaleIcon(50) }}>
                 <Text
                     onPress={() => router.push('/' as any)}
                     style={{
-                        fontSize: 18,
+                        fontSize: scaleFont(18),
                         fontWeight: '900',
                         color: theme.colors.text,
-                        marginBottom: 20,
+                        marginBottom: scaleIcon(20),
                     }}
                 >
                     Back
@@ -66,14 +97,14 @@ export default function ProfileScreen() {
                         alignItems: 'flex-start',
                         justifyContent: 'space-between',
                         flexWrap: 'wrap',
-                        gap: 16,
-                        marginBottom: 20,
+                        gap: scaleIcon(16),
+                        marginBottom: scaleIcon(20),
                     }}
                 >
-                    <View style={{ flex: 1, minWidth: 260 }}>
+                    <View style={{ flex: 1, minWidth: scaleIcon(260) }}>
                         <Text
                             style={{
-                                fontSize: 34,
+                                fontSize: scaleFont(34),
                                 fontWeight: '900',
                                 color: theme.colors.text,
                             }}
@@ -84,9 +115,9 @@ export default function ProfileScreen() {
                         <Text
                             style={{
                                 color: theme.colors.mutedText,
-                                marginTop: 8,
-                                fontSize: 16,
-                                lineHeight: 22,
+                                marginTop: scaleIcon(8),
+                                fontSize: scaleFont(16),
+                                lineHeight: scaleFont(22),
                             }}
                         >
                             Account, appearance, security, and data controls.
@@ -99,19 +130,19 @@ export default function ProfileScreen() {
                             borderColor: theme.colors.border,
                             borderWidth: 1,
                             borderRadius: theme.radii.card,
-                            padding: 14,
-                            minWidth: 220,
+                            padding: scaleIcon(14),
+                            minWidth: scaleIcon(220),
                         }}
                     >
-                        <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>
+                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>
                             Current Theme
                         </Text>
                         <Text
                             style={{
                                 color: theme.colors.text,
-                                fontSize: 18,
+                                fontSize: scaleFont(18),
                                 fontWeight: '900',
-                                marginTop: 4,
+                                marginTop: scaleIcon(4),
                             }}
                         >
                             {currentThemeLabel}
@@ -119,15 +150,15 @@ export default function ProfileScreen() {
                     </View>
                 </View>
 
-                <ThemedCard style={{ marginBottom: 18 }}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
+                <ThemedCard style={{ marginBottom: scaleIcon(18) }}>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>
                         Account
                     </Text>
 
-                    <View style={accountGridStyle}>
+                    <View style={scaleStyle(accountGridStyle)}>
                         <View
                             style={[
-                                accountInfoBoxStyle,
+                                scaleStyle(accountInfoBoxStyle),
                                 {
                                     backgroundColor: theme.colors.surfaceAlt,
                                     borderColor: theme.colors.border,
@@ -135,17 +166,17 @@ export default function ProfileScreen() {
                                 },
                             ]}
                         >
-                            <Text style={[labelStyle, { color: theme.colors.mutedText }]}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>
                                 Status
                             </Text>
-                            <Text style={[valueStyle, { color: theme.colors.text }]}>
+                            <Text style={[scaleStyle(valueStyle), { color: theme.colors.text }]}>
                                 {message}
                             </Text>
                         </View>
 
                         <View
                             style={[
-                                accountInfoBoxStyle,
+                                scaleStyle(accountInfoBoxStyle),
                                 {
                                     backgroundColor: theme.colors.surfaceAlt,
                                     borderColor: theme.colors.border,
@@ -153,10 +184,10 @@ export default function ProfileScreen() {
                                 },
                             ]}
                         >
-                            <Text style={[labelStyle, { color: theme.colors.mutedText }]}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>
                                 Email
                             </Text>
-                            <Text style={[valueStyle, { color: theme.colors.text }]}>
+                            <Text style={[scaleStyle(valueStyle), { color: theme.colors.text }]}>
                                 {email || 'No email found'}
                             </Text>
                         </View>
@@ -166,15 +197,15 @@ export default function ProfileScreen() {
                 <Text
                     style={{
                         color: theme.colors.text,
-                        fontSize: 22,
+                        fontSize: scaleFont(22),
                         fontWeight: '900',
-                        marginBottom: 12,
+                        marginBottom: scaleIcon(12),
                     }}
                 >
                     Settings
                 </Text>
 
-                <View style={settingsGridStyle}>
+                <View style={scaleStyle(settingsGridStyle)}>
                     <SettingsCard
                         title="Appearance & Theme"
                         body="Choose from HomeOS Classic, dark themes, high contrast, and custom color packs."
@@ -210,7 +241,7 @@ export default function ProfileScreen() {
                 <TouchableOpacity
                     onPress={handleLogout}
                     style={[
-                        logoutButtonStyle,
+                        scaleStyle(logoutButtonStyle),
                         {
                             backgroundColor: theme.colors.dangerBackground,
                             borderColor: theme.colors.danger,
@@ -218,7 +249,7 @@ export default function ProfileScreen() {
                         },
                     ]}
                 >
-                    <Text style={[logoutTextStyle, { color: theme.colors.danger }]}>
+                    <Text style={[scaleStyle(logoutTextStyle), { color: theme.colors.danger }]}>
                         Logout
                     </Text>
                 </TouchableOpacity>
@@ -228,7 +259,7 @@ export default function ProfileScreen() {
 }
 
 function SettingsCard({ title, body, route, badge }: SettingsCardProps) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
         <ThemedCard
@@ -236,23 +267,23 @@ function SettingsCard({ title, body, route, badge }: SettingsCardProps) {
             style={{
                 flexGrow: 1,
                 flexBasis: 260,
-                minHeight: 160,
+                minHeight: scaleIcon(160),
             }}
         >
-            <View style={{ flex: 1, justifyContent: 'space-between', gap: 14 }}>
+            <View style={{ flex: 1, justifyContent: 'space-between', gap: scaleIcon(14) }}>
                 <View>
                     <View
                         style={{
                             flexDirection: 'row',
                             alignItems: 'flex-start',
                             justifyContent: 'space-between',
-                            gap: 12,
+                            gap: scaleIcon(12),
                         }}
                     >
                         <Text
                             style={{
                                 color: theme.colors.text,
-                                fontSize: 19,
+                                fontSize: scaleFont(19),
                                 fontWeight: '900',
                                 flex: 1,
                             }}
@@ -263,7 +294,7 @@ function SettingsCard({ title, body, route, badge }: SettingsCardProps) {
                         <Text
                             style={{
                                 color: theme.colors.mutedText,
-                                fontSize: 20,
+                                fontSize: scaleFont(20),
                                 fontWeight: '900',
                             }}
                         >{'>'}</Text>
@@ -272,9 +303,9 @@ function SettingsCard({ title, body, route, badge }: SettingsCardProps) {
                     <Text
                         style={{
                             color: theme.colors.mutedText,
-                            fontSize: 15,
-                            lineHeight: 21,
-                            marginTop: 8,
+                            fontSize: scaleFont(15),
+                            lineHeight: scaleFont(21),
+                            marginTop: scaleIcon(8),
                             fontWeight: '700',
                         }}
                     >
@@ -290,14 +321,14 @@ function SettingsCard({ title, body, route, badge }: SettingsCardProps) {
                             borderColor: theme.colors.border,
                             borderWidth: 1,
                             borderRadius: theme.radii.pill,
-                            paddingHorizontal: 12,
-                            paddingVertical: 8,
+                            paddingHorizontal: scaleIcon(12),
+                            paddingVertical: scaleIcon(8),
                         }}
                     >
                         <Text
                             style={{
                                 color: theme.colors.secondaryButtonText,
-                                fontSize: 13,
+                                fontSize: scaleFont(13),
                                 fontWeight: '900',
                             }}
                         >
