@@ -19,6 +19,7 @@ const primaryTabs = [
 ];
 
 const drawerLinks = [
+    { label: 'ManagementOS', route: '/management' },
     { label: 'Maintenance', route: '/maintenance' },
     { label: 'Jobs', route: '/jobs' },
     { label: 'Theme & Sizes', route: '/profile/theme' },
