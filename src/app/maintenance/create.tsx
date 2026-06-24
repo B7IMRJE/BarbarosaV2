@@ -40,7 +40,13 @@ function cleanFileName(value: string) {
 }
 
 export default function CreateMaintenanceRecordScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const scaledLabelStyle = {
+        ...labelStyle,
+        fontSize: scaleFont(18),
+        marginTop: scaleIcon(14),
+        marginBottom: scaleIcon(10),
+    };
     const [items, setItems] = useState<HomeItem[]>([]);
     const [system, setSystem] = useState(systemOptions[0].key);
     const [area, setArea] = useState(areas[0]);
@@ -247,30 +253,30 @@ export default function CreateMaintenanceRecordScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center', paddingBottom: 40 }}
         >
             <View style={{ width: '100%', maxWidth: 900 }}>
                 <HomeHeader />
 
-                <Text style={{ color: theme.colors.text, fontSize: 34, fontWeight: '900' }}>
+                <Text style={{ color: theme.colors.text, fontSize: scaleFont(34), fontWeight: '900' }}>
                     Add Maintenance Record
                 </Text>
-                <Text style={{ color: theme.colors.mutedText, marginTop: 8, marginBottom: 20, lineHeight: 22 }}>
+                <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), marginBottom: scaleIcon(20), lineHeight: scaleFont(22) }}>
                     Save homeowner maintenance history. This does not create jobs, estimates, dispatch, or technician workflows.
                 </Text>
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>Title</Text>
+                <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>Title</Text>
                 <ThemedInput value={title} onChangeText={setTitle} placeholder="Example: Replaced AC filter" />
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>System</Text>
+                <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>System</Text>
                 <SystemOptionRow value={system} onChange={setSystem} />
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>Area</Text>
+                <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>Area</Text>
                 <OptionRow options={areas} value={area} onChange={setArea} />
 
                 {items.length > 0 && (
                     <>
-                        <Text style={[labelStyle, { color: theme.colors.text }]}>Item</Text>
+                        <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>Item</Text>
                         <OptionRow
                             options={['None', ...items.map((item) => item.name)]}
                             value={items.find((item) => item.id === itemId)?.name || 'None'}
@@ -282,7 +288,7 @@ export default function CreateMaintenanceRecordScreen() {
                     </>
                 )}
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>Description</Text>
+                <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>Description</Text>
                 <ThemedInput
                     value={description}
                     onChangeText={setDescription}
@@ -291,32 +297,32 @@ export default function CreateMaintenanceRecordScreen() {
                     minHeight={120}
                 />
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>Service Date</Text>
+                <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>Service Date</Text>
                 <ThemedInput value={serviceDate} onChangeText={setServiceDate} placeholder="YYYY-MM-DD" />
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>Next Service Date</Text>
+                <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>Next Service Date</Text>
                 <ThemedInput value={nextServiceDate} onChangeText={setNextServiceDate} placeholder="YYYY-MM-DD optional" />
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>Photos</Text>
+                <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>Photos</Text>
                 <ThemedButton title="Attach Photos" variant="secondary" onPress={addPhotos} />
                 {photos.length > 0 && (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10), marginTop: scaleIcon(12) }}>
                         {photos.map((photo, index) => (
                             <Image
                                 key={`${photo.uri}-${index}`}
                                 source={{ uri: photo.uri }}
-                                style={{ width: 96, height: 96, borderRadius: 14, backgroundColor: theme.colors.surfaceAlt }}
+                                style={{ width: scaleIcon(96), height: scaleIcon(96), borderRadius: scaleIcon(14), backgroundColor: theme.colors.surfaceAlt }}
                             />
                         ))}
                     </View>
                 )}
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>Documents</Text>
+                <Text style={[scaledLabelStyle, { color: theme.colors.text }]}>Documents</Text>
                 <ThemedButton title="Attach Documents" variant="secondary" onPress={addDocument} />
                 {documents.length > 0 && (
-                    <ThemedCard style={{ marginTop: 12 }}>
+                    <ThemedCard style={{ marginTop: scaleIcon(12) }}>
                         {documents.map((document) => (
-                            <Text key={`${document.uri}-${document.name}`} style={{ color: theme.colors.text, fontWeight: '900', marginBottom: 6 }}>
+                            <Text key={`${document.uri}-${document.name}`} style={{ color: theme.colors.text, fontWeight: '900', marginBottom: scaleIcon(6) }}>
                                 {document.name}
                             </Text>
                         ))}
@@ -327,11 +333,11 @@ export default function CreateMaintenanceRecordScreen() {
                     title={saving ? 'Saving...' : 'Save Maintenance Record'}
                     disabled={saving}
                     onPress={saveRecord}
-                    style={{ marginTop: 20 }}
+                    style={{ marginTop: scaleIcon(20) }}
                 />
 
                 {!!message && (
-                    <ThemedCard style={{ marginTop: 14 }}>
+                    <ThemedCard style={{ marginTop: scaleIcon(14) }}>
                         <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>{message}</Text>
                     </ThemedCard>
                 )}
@@ -353,7 +359,7 @@ function ThemedInput({
     multiline?: boolean;
     minHeight?: number;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
         <TextInput
@@ -367,13 +373,13 @@ function ThemedInput({
                 backgroundColor: theme.colors.surface,
                 borderColor: theme.colors.border,
                 borderWidth: 1,
-                borderRadius: 16,
-                padding: 16,
-                fontSize: 16,
-                lineHeight: 22,
-                minHeight,
+                borderRadius: scaleIcon(16),
+                padding: scaleIcon(16),
+                fontSize: scaleFont(16),
+                lineHeight: scaleFont(22),
+                minHeight: minHeight ? scaleIcon(minHeight) : undefined,
                 textAlignVertical: multiline ? 'top' : 'auto',
-                marginBottom: 4,
+                marginBottom: scaleIcon(4),
             }}
         />
     );
@@ -386,10 +392,10 @@ function SystemOptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginBottom: scaleIcon(16) }}>
             {systemOptions.map((option) => {
                 const selected = option.key === value;
 
@@ -402,8 +408,8 @@ function SystemOptionRow({
                             borderColor: selected ? theme.colors.primary : theme.colors.border,
                             borderRadius: theme.radii.pill,
                             borderWidth: 1,
-                            paddingHorizontal: 14,
-                            paddingVertical: 10,
+                            paddingHorizontal: scaleIcon(14),
+                            paddingVertical: scaleIcon(10),
                         }}
                     >
                         <Text
@@ -430,10 +436,10 @@ function OptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginBottom: scaleIcon(16) }}>
             {options.map((option) => {
                 const selected = option === value;
 
@@ -446,8 +452,8 @@ function OptionRow({
                             borderColor: selected ? theme.colors.primary : theme.colors.border,
                             borderRadius: theme.radii.pill,
                             borderWidth: 1,
-                            paddingHorizontal: 14,
-                            paddingVertical: 10,
+                            paddingHorizontal: scaleIcon(14),
+                            paddingVertical: scaleIcon(10),
                         }}
                     >
                         <Text
