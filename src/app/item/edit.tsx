@@ -447,18 +447,19 @@ function ThemedInput({
     multiline?: boolean;
     minHeight?: number;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
         <TextInput
             style={{
                 backgroundColor: theme.colors.surface,
                 borderRadius: theme.radii.button,
-                padding: 16,
-                marginBottom: 12,
+                padding: scaleIcon(16),
+                marginBottom: scaleIcon(12),
                 borderWidth: 1,
                 borderColor: theme.colors.border,
                 color: theme.colors.text,
+                fontSize: scaleFont(16),
                 minHeight,
                 textAlignVertical: multiline ? 'top' : 'auto',
             }}
@@ -480,10 +481,10 @@ function OptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={optionRowStyle}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginBottom: scaleIcon(12) }}>
             {options.map((option) => {
                 const selected = value === option;
 
@@ -494,8 +495,8 @@ function OptionRow({
                         style={{
                             backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
                             borderRadius: theme.radii.pill,
-                            paddingVertical: 10,
-                            paddingHorizontal: 14,
+                            paddingVertical: scaleIcon(10),
+                            paddingHorizontal: scaleIcon(14),
                             borderWidth: 1,
                             borderColor: selected ? theme.colors.primary : theme.colors.border,
                         }}
@@ -504,6 +505,7 @@ function OptionRow({
                             style={{
                                 color: selected ? theme.colors.primaryText : theme.colors.mutedText,
                                 fontWeight: '900',
+                                fontSize: scaleFont(14),
                             }}
                         >
                             {option}
@@ -522,10 +524,10 @@ function SystemOptionRow({
     value: string;
     onChange: (value: string) => void;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={optionRowStyle}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginBottom: scaleIcon(12) }}>
             {homeSystemOptions.map((option) => {
                 const selected = value === option.key;
 
@@ -536,8 +538,8 @@ function SystemOptionRow({
                         style={{
                             backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
                             borderRadius: theme.radii.pill,
-                            paddingVertical: 10,
-                            paddingHorizontal: 14,
+                            paddingVertical: scaleIcon(10),
+                            paddingHorizontal: scaleIcon(14),
                             borderWidth: 1,
                             borderColor: selected ? theme.colors.primary : theme.colors.border,
                         }}
@@ -546,6 +548,7 @@ function SystemOptionRow({
                             style={{
                                 color: selected ? theme.colors.primaryText : theme.colors.mutedText,
                                 fontWeight: '900',
+                                fontSize: scaleFont(14),
                             }}
                         >
                             {option.label}

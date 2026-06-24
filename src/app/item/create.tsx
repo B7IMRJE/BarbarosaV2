@@ -548,12 +548,12 @@ function ThemedInput({
     multiline?: boolean;
     minHeight?: number;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={inputGroupStyle}>
+        <View style={{ marginTop: scaleIcon(10), marginBottom: scaleIcon(16) }}>
             {!!label && (
-                <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>
+                <Text style={[{ fontSize: scaleFont(16), fontWeight: '900', marginBottom: scaleIcon(10) }, { color: theme.colors.text }]}>
                     {label}
                 </Text>
             )}
@@ -566,11 +566,11 @@ function ThemedInput({
                 style={{
                     backgroundColor: theme.colors.surfaceAlt,
                     borderRadius: theme.radii.button,
-                    paddingVertical: 18,
-                    paddingHorizontal: 18,
+                    paddingVertical: scaleIcon(18),
+                    paddingHorizontal: scaleIcon(18),
                     color: theme.colors.text,
-                    fontSize: 17,
-                    lineHeight: multiline ? 24 : undefined,
+                    fontSize: scaleFont(17),
+                    lineHeight: multiline ? scaleFont(24) : undefined,
                     minHeight,
                     textAlignVertical: multiline ? 'top' : 'auto',
                 }}
@@ -592,7 +592,7 @@ function StepCard({
     onEdit: () => void;
     children?: ReactNode;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
     const hasSummary = !!summary;
 
     return (
@@ -624,7 +624,7 @@ function StepCard({
 }
 
 function CustomItemChoice({ onPress }: { onPress: () => void }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
         <TouchableOpacity
@@ -656,10 +656,10 @@ function ChoiceCardGrid({
     value: string;
     onChange: (value: string) => void;
 }) {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={choiceGridStyle}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12) }}>
             {choices.map((choice) => {
                 const selected = value === choice.value;
 
@@ -670,6 +670,10 @@ function ChoiceCardGrid({
                         activeOpacity={0.82}
                         style={{
                             ...choiceCardStyle,
+                            minWidth: scaleIcon(148),
+                            minHeight: scaleIcon(72),
+                            paddingVertical: scaleIcon(16),
+                            paddingHorizontal: scaleIcon(16),
                             backgroundColor: selected ? theme.colors.primary : theme.colors.surfaceAlt,
                             borderRadius: theme.radii.card,
                             borderWidth: 1,
@@ -679,9 +683,9 @@ function ChoiceCardGrid({
                         <Text
                             style={{
                                 color: selected ? theme.colors.primaryText : theme.colors.mutedText,
-                                fontSize: 16,
+                                fontSize: scaleFont(16),
                                 fontWeight: '900',
-                                lineHeight: 21,
+                                lineHeight: scaleFont(21),
                             }}
                             numberOfLines={2}
                         >
