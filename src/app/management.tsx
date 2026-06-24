@@ -1,6 +1,8 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
+import { isStaffRole, loadCurrentUserRole } from '../lib/roles';
 import { useTheme } from '../theme/useTheme';
 
 const summaryCards = [
@@ -70,6 +72,19 @@ const workflowSteps = [
 
 export default function ManagementScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const [checkingAccess, setCheckingAccess] = useState(true);
+    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+
+    useEffect(() => {
+        checkAccess();
+    }, []);
+
+    async function checkAccess() {
+        const role = await loadCurrentUserRole();
+
+        setCanUseStaffTools(isStaffRole(role));
+        setCheckingAccess(false);
+    }
 
     function scaleStyle<T extends Record<string, any>>(style: T): any {
         const fontKeys = new Set(['fontSize', 'lineHeight']);
@@ -107,6 +122,14 @@ export default function ManagementScreen() {
 
     function goTo(route: string) {
         router.push(route as any);
+    }
+
+    if (checkingAccess) {
+        return <StaffOnlyMessage message="Checking ManagementOS access..." />;
+    }
+
+    if (!canUseStaffTools) {
+        return <StaffOnlyMessage message="ManagementOS is for managers, office staff, and technicians." />;
     }
 
     return (
@@ -273,6 +296,51 @@ export default function ManagementScreen() {
                         ))}
                     </View>
                 </View>
+            </View>
+        </ScrollView>
+    );
+}
+
+function StaffOnlyMessage({ message }: { message: string }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    return (
+        <ScrollView
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center' }}
+        >
+            <View
+                style={{
+                    width: '100%',
+                    maxWidth: 720,
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                    borderRadius: scaleIcon(24),
+                    borderWidth: 1,
+                    padding: scaleIcon(24),
+                }}
+            >
+                <HomeHeader />
+                <Text
+                    style={{
+                        color: theme.colors.text,
+                        fontSize: scaleFont(28),
+                        fontWeight: '900',
+                        marginBottom: scaleIcon(10),
+                    }}
+                >
+                    ManagementOS
+                </Text>
+                <Text
+                    style={{
+                        color: theme.colors.mutedText,
+                        fontSize: scaleFont(16),
+                        fontWeight: '700',
+                        lineHeight: scaleFont(23),
+                    }}
+                >
+                    {message}
+                </Text>
             </View>
         </ScrollView>
     );
