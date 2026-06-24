@@ -22,7 +22,41 @@ type HomeDocument = {
 };
 
 export default function DocumentsScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    function scaleStyle<T extends Record<string, any>>(style: T): T {
+        const fontKeys = new Set(['fontSize', 'lineHeight']);
+        const iconKeys = new Set([
+            'padding',
+            'paddingBottom',
+            'paddingVertical',
+            'paddingHorizontal',
+            'marginTop',
+            'marginBottom',
+            'gap',
+            'width',
+            'height',
+            'minWidth',
+            'minHeight',
+            'borderRadius',
+        ]);
+
+        const scaledStyle: Record<string, any> = { ...style };
+
+        Object.entries(style).forEach(([key, value]) => {
+            if (typeof value !== 'number') return;
+
+            if (fontKeys.has(key)) {
+                scaledStyle[key] = scaleFont(value);
+            }
+
+            if (iconKeys.has(key)) {
+                scaledStyle[key] = scaleIcon(value);
+            }
+        });
+
+        return scaledStyle as T;
+    }
     const [documents, setDocuments] = useState<HomeDocument[]>([]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
@@ -85,57 +119,57 @@ export default function DocumentsScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
+            contentContainerStyle={{ padding: scaleIcon(20), paddingBottom: scaleIcon(40), alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 900 }}>
                 <HomeHeader />
 
                 <TouchableOpacity onPress={() => router.back()} activeOpacity={0.82}>
-                    <Text style={[backTextStyle, { color: theme.colors.text }]}>Back</Text>
+                    <Text style={[scaleStyle(backTextStyle), { color: theme.colors.text }]}>Back</Text>
                 </TouchableOpacity>
 
-                <Text style={[titleStyle, { color: theme.colors.text }]}>Documents</Text>
+                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Documents</Text>
 
-                <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
+                <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
                     Keep warranties, manuals, permits, receipts, photos, and service records connected to your home.
                 </Text>
 
-                <ThemedCard style={actionCardStyle}>
-                    <Text style={[actionTitleStyle, { color: theme.colors.text }]}>Add Document</Text>
-                    <Text style={[actionSubtitleStyle, { color: theme.colors.mutedText }]}>
+                <ThemedCard style={scaleStyle(actionCardStyle)}>
+                    <Text style={[scaleStyle(actionTitleStyle), { color: theme.colors.text }]}>Add Document</Text>
+                    <Text style={[scaleStyle(actionSubtitleStyle), { color: theme.colors.mutedText }]}>
                         Upload from an item detail page for now so each file stays attached to the right home item.
                     </Text>
                     <ThemedButton
                         title="Add Document"
                         variant="secondary"
                         onPress={handleAddDocument}
-                        style={{ marginTop: 16 }}
+                        style={{ marginTop: scaleIcon(16) }}
                     />
                 </ThemedCard>
 
                 {loading ? (
-                    <ThemedCard style={stateCardStyle}>
-                        <Text style={[stateTextStyle, { color: theme.colors.mutedText }]}>Loading documents...</Text>
+                    <ThemedCard style={scaleStyle(stateCardStyle)}>
+                        <Text style={[scaleStyle(stateTextStyle), { color: theme.colors.mutedText }]}>Loading documents...</Text>
                     </ThemedCard>
                 ) : documents.length === 0 ? (
-                    <ThemedCard style={stateCardStyle}>
-                        <Text style={[stateTitleStyle, { color: theme.colors.text }]}>No documents yet.</Text>
-                        <Text style={[stateTextStyle, { color: theme.colors.mutedText }]}>
+                    <ThemedCard style={scaleStyle(stateCardStyle)}>
+                        <Text style={[scaleStyle(stateTitleStyle), { color: theme.colors.text }]}>No documents yet.</Text>
+                        <Text style={[scaleStyle(stateTextStyle), { color: theme.colors.mutedText }]}>
                             Manuals, warranties, receipts, permits, photos, and service records will appear here after
                             they are uploaded to an item.
                         </Text>
                     </ThemedCard>
                 ) : (
-                    <View style={documentListStyle}>
+                    <View style={scaleStyle(documentListStyle)}>
                         {documents.map((document) => (
                             <ThemedCard
                                 key={document.id || `${document.item_slug}-${document.file_url}`}
                                 onPress={() => openDocument(document.file_url)}
                             >
-                                <Text style={[documentTitleStyle, { color: theme.colors.text }]}>
+                                <Text style={[scaleStyle(documentTitleStyle), { color: theme.colors.text }]}>
                                     {document.file_name || 'Document'}
                                 </Text>
-                                <Text style={[documentMetaStyle, { color: theme.colors.mutedText }]}>
+                                <Text style={[scaleStyle(documentMetaStyle), { color: theme.colors.mutedText }]}>
                                     {document.category || 'Document'}
                                     {document.item_slug ? ` | ${document.item_slug}` : ''}
                                 </Text>
@@ -145,8 +179,8 @@ export default function DocumentsScreen() {
                 )}
 
                 {!!message && (
-                    <ThemedCard style={{ marginTop: 16 }}>
-                        <Text style={[stateTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                    <ThemedCard style={{ marginTop: scaleIcon(16) }}>
+                        <Text style={[scaleStyle(stateTextStyle), { color: theme.colors.mutedText }]}>{message}</Text>
                     </ThemedCard>
                 )}
             </View>
