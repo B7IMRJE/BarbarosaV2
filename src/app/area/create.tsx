@@ -25,7 +25,7 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
 export default function CreateAreaScreen() {
-    const { theme } = useTheme();
+    const { scaleFont, scaleIcon, theme } = useTheme();
     const params = useLocalSearchParams<{
         system?: string;
         parentArea?: string;
@@ -154,21 +154,21 @@ export default function CreateAreaScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, alignItems: 'center', paddingBottom: 40 }}
+            contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center', paddingBottom: 40 }}
         >
             <View style={{ width: '100%', maxWidth: 1000 }}>
                 <HomeHeader />
 
-                <Text style={{ color: theme.colors.text, fontSize: 34, fontWeight: '900' }}>
+                <Text style={{ color: theme.colors.text, fontSize: scaleFont(34), fontWeight: '900' }}>
                     Add Area
                 </Text>
                 <Text
                     style={{
                         color: theme.colors.mutedText,
-                        marginTop: 8,
-                        marginBottom: 22,
-                        fontSize: 16,
-                        lineHeight: 22,
+                        marginTop: scaleIcon(8),
+                        marginBottom: scaleIcon(22),
+                        fontSize: scaleFont(16),
+                        lineHeight: scaleFont(22),
                     }}
                 >
                     {parentAreaName
@@ -176,7 +176,7 @@ export default function CreateAreaScreen() {
                         : `Create a shared home area for ${systemLabel}. You can add starter items across multiple systems.`}
                 </Text>
 
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12) }}>
                     {areaTemplates.map((template) => {
                         const selected = selectedTemplate?.id === template.id;
                         const count = getStarterItems(template).length;
@@ -187,17 +187,17 @@ export default function CreateAreaScreen() {
                                 onPress={() => setSelectedTemplate(template)}
                                 style={{
                                     width: '31.5%',
-                                    minWidth: 210,
+                                    minWidth: scaleIcon(210),
                                     flexGrow: 1,
                                     borderColor: selected ? theme.colors.primary : theme.colors.border,
                                     borderWidth: selected ? 2 : 1,
                                 }}
                             >
-                                <Text style={{ fontSize: 34, marginBottom: 10 }}>{template.icon}</Text>
-                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                <Text style={{ fontSize: scaleFont(34), marginBottom: scaleIcon(10) }}>{template.icon}</Text>
+                                <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
                                     {template.name}
                                 </Text>
-                                <Text style={{ color: theme.colors.mutedText, marginTop: 6, lineHeight: 20 }}>
+                                <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(6), lineHeight: scaleFont(20) }}>
                                     {template.id === 'custom-area'
                                         ? 'Create your own area name.'
                                         : `${count} starter item${count === 1 ? '' : 's'} available.`}
@@ -208,13 +208,13 @@ export default function CreateAreaScreen() {
                 </View>
 
                 {selectedTemplate && (
-                    <ThemedCard style={{ marginTop: 18 }}>
-                        <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '900' }}>
+                    <ThemedCard style={{ marginTop: scaleIcon(18) }}>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(22), fontWeight: '900' }}>
                             {selectedTemplate.id === 'custom-area'
                                 ? 'Create Custom Area'
                                 : `Create ${selectedTemplate.name} with starter items?`}
                         </Text>
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 22 }}>
+                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), lineHeight: scaleFont(22) }}>
                             Area-only creates one area record. Starter items create suggested records across systems and skip duplicates.
                         </Text>
 
@@ -230,40 +230,40 @@ export default function CreateAreaScreen() {
                                     borderRadius: theme.radii.button,
                                     borderWidth: 1,
                                     color: theme.colors.text,
-                                    fontSize: 16,
-                                    marginTop: 16,
-                                    padding: 16,
+                                    fontSize: scaleFont(16),
+                                    marginTop: scaleIcon(16),
+                                    padding: scaleIcon(16),
                                 }}
                             />
                         )}
 
                         {selectedTemplate.id !== 'custom-area' && (
-                            <Text style={{ color: theme.colors.mutedText, marginTop: 12, fontWeight: '900' }}>
+                            <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(12), fontWeight: '900' }}>
                                 {starterItemCount} starter item{starterItemCount === 1 ? '' : 's'} will be checked for duplicates.
                             </Text>
                         )}
 
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 18 }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10), marginTop: scaleIcon(18) }}>
                             <ThemedButton
                                 title={saving ? 'Creating...' : 'Create Area Only'}
                                 variant="secondary"
                                 disabled={saving}
                                 onPress={() => createArea(false)}
-                                style={{ flexGrow: 1, minWidth: 190 }}
+                                style={{ flexGrow: 1, minWidth: scaleIcon(190) }}
                             />
 
                             <ThemedButton
                                 title={saving ? 'Creating...' : 'Create Area + Starter Items'}
                                 disabled={saving || selectedTemplate.id === 'custom-area'}
                                 onPress={() => createArea(true)}
-                                style={{ flexGrow: 1, minWidth: 220 }}
+                                style={{ flexGrow: 1, minWidth: scaleIcon(220) }}
                             />
                         </View>
                     </ThemedCard>
                 )}
 
                 {!!message && (
-                    <ThemedCard style={{ marginTop: 16 }}>
+                    <ThemedCard style={{ marginTop: scaleIcon(16) }}>
                         <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>{message}</Text>
                     </ThemedCard>
                 )}
