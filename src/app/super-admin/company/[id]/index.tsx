@@ -59,6 +59,47 @@ const defaultBrandForm: CompanyBrandForm = {
     shortDescription: '',
 };
 
+const brandColorSwatches = [
+    '#071B33',
+    '#0B2E59',
+    '#0B5FFF',
+    '#1D4ED8',
+    '#E11D2E',
+    '#DC2626',
+    '#F59E0B',
+    '#D97706',
+    '#047857',
+    '#111827',
+    '#FFFFFF',
+    '#F8FAFC',
+];
+
+const brandThemePresets = [
+    {
+        name: 'Repipe 1 Starter',
+        primaryColor: '#0B2E59',
+        secondaryColor: '#FFFFFF',
+        accentColor: '#E11D2E',
+    },
+    {
+        name: 'Blue / White',
+        primaryColor: '#071B33',
+        secondaryColor: '#FFFFFF',
+        accentColor: '#0B5FFF',
+    },
+    {
+        name: 'Black / Gold',
+        primaryColor: '#111827',
+        secondaryColor: '#FFFFFF',
+        accentColor: '#D97706',
+    },
+    {
+        name: 'Green / White',
+        primaryColor: '#064E3B',
+        secondaryColor: '#FFFFFF',
+        accentColor: '#10B981',
+    },
+];
 const cards = [
     'Staff',
     'Technicians',
@@ -177,6 +218,55 @@ export default function CompanyDashboardScreen() {
             ...current,
             [key]: value,
         }));
+    }
+
+    function applyRepipeOnePreset() {
+        setBrandForm((current) => ({
+            ...current,
+            publicName: 'Repipe 1',
+            dbaName: 'Repipe 1',
+            primaryColor: '#0B2E59',
+            secondaryColor: '#FFFFFF',
+            accentColor: '#E11D2E',
+            serviceCategories: current.serviceCategories || 'Repipe, Plumbing, Leak Detection',
+            shortDescription: current.shortDescription || 'Professional repipe and plumbing services.',
+        }));
+        setMessage('Repipe 1 starter branding applied. Save to keep it.');
+    }
+
+    function applyThemePreset(preset: (typeof brandThemePresets)[number]) {
+        setBrandForm((current) => ({
+            ...current,
+            primaryColor: preset.primaryColor,
+            secondaryColor: preset.secondaryColor,
+            accentColor: preset.accentColor,
+        }));
+        setMessage(preset.name + ' colors applied. Save to keep them.');
+    }
+
+    async function extractThemeFromLogo() {
+        const logoUrl = brandForm.logoUrl.trim();
+
+        if (!logoUrl) {
+            setMessage('Paste a Logo URL first, then extract colors.');
+            return;
+        }
+
+        setMessage('Extracting theme colors from logo...');
+
+        try {
+            const colors = await extractLogoThemeColors(logoUrl);
+            setBrandForm((current) => ({
+                ...current,
+                primaryColor: colors.primaryColor,
+                secondaryColor: colors.secondaryColor,
+                accentColor: colors.accentColor,
+            }));
+            setMessage('Logo colors extracted. Review the preview, then save.');
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            setMessage('Could not extract logo colors: ' + errorMessage);
+        }
     }
 
     function openModule(card: string) {
@@ -550,7 +640,7 @@ export default function CompanyDashboardScreen() {
                                         minWidth: 150,
                                     }}
                                 >
-                                    <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '900' }}>HomeOS Rating</Text>
+                                    <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '900' }}>Company Rating</Text>
                                     <Text style={{ color: '#071B33', fontSize: 30, fontWeight: '900', marginTop: 4 }}>
                                         {brandForm.homeosRating || '0'}
                                     </Text>
@@ -576,11 +666,101 @@ export default function CompanyDashboardScreen() {
 
                         <ConfigSection
                             title="Brand Colors"
-                            description="Company colors used for HomeOS cards, TechOS, proposals, invoices, and receipts."
+                            description="Company colors used for company cards, TechOS, proposals, invoices, and receipts."
                         >
                             <Field label="Primary Color" value={brandForm.primaryColor} onChangeText={(value) => updateBrandField('primaryColor', value)} />
                             <Field label="Secondary Color" value={brandForm.secondaryColor} onChangeText={(value) => updateBrandField('secondaryColor', value)} />
                             <Field label="Accent Color" value={brandForm.accentColor} onChangeText={(value) => updateBrandField('accentColor', value)} />
+
+                            <View style={{ width: '100%', gap: 12, marginTop: 4 }}>
+                                <Text style={{ color: '#071B33', fontSize: 13, fontWeight: '900' }}>
+                                    Quick theme tools
+                                </Text>
+
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                                    <TouchableOpacity
+                                        onPress={applyRepipeOnePreset}
+                                        style={{
+                                            backgroundColor: '#071B33',
+                                            borderRadius: 999,
+                                            paddingHorizontal: 14,
+                                            paddingVertical: 10,
+                                        }}
+                                    >
+                                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>
+                                            Apply Repipe 1 preset
+                                        </Text>
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                        onPress={extractThemeFromLogo}
+                                        style={{
+                                            backgroundColor: '#EEF4FF',
+                                            borderColor: '#CFE0FF',
+                                            borderRadius: 999,
+                                            borderWidth: 1,
+                                            paddingHorizontal: 14,
+                                            paddingVertical: 10,
+                                        }}
+                                    >
+                                        <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
+                                            Extract colors from Logo URL
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                                    {brandThemePresets.map((preset) => (
+                                        <TouchableOpacity
+                                            key={preset.name}
+                                            onPress={() => applyThemePreset(preset)}
+                                            style={{
+                                                backgroundColor: '#FFFFFF',
+                                                borderColor: '#E3E8EF',
+                                                borderRadius: 14,
+                                                borderWidth: 1,
+                                                padding: 10,
+                                                minWidth: 150,
+                                            }}
+                                        >
+                                            <View style={{ flexDirection: 'row', gap: 5, marginBottom: 8 }}>
+                                                {[preset.primaryColor, preset.secondaryColor, preset.accentColor].map((color) => (
+                                                    <View
+                                                        key={color}
+                                                        style={{
+                                                            width: 18,
+                                                            height: 18,
+                                                            borderRadius: 999,
+                                                            backgroundColor: color,
+                                                            borderColor: '#CBD5E1',
+                                                            borderWidth: 1,
+                                                        }}
+                                                    />
+                                                ))}
+                                            </View>
+                                            <Text style={{ color: '#071B33', fontSize: 12, fontWeight: '900' }}>
+                                                {preset.name}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+
+                                <ColorSwatchRow
+                                    label="Primary swatches"
+                                    value={brandForm.primaryColor}
+                                    onSelect={(color) => updateBrandField('primaryColor', color)}
+                                />
+                                <ColorSwatchRow
+                                    label="Secondary swatches"
+                                    value={brandForm.secondaryColor}
+                                    onSelect={(color) => updateBrandField('secondaryColor', color)}
+                                />
+                                <ColorSwatchRow
+                                    label="Accent swatches"
+                                    value={brandForm.accentColor}
+                                    onSelect={(color) => updateBrandField('accentColor', color)}
+                                />
+                            </View>
                         </ConfigSection>
 
                         <ConfigSection
@@ -588,7 +768,7 @@ export default function CompanyDashboardScreen() {
                             description="Ratings, service categories, license details, and experience shown to homeowners."
                         >
                             <Field label="Service Categories" value={brandForm.serviceCategories} onChangeText={(value) => updateBrandField('serviceCategories', value)} />
-                            <Field label="HomeOS Rating" value={brandForm.homeosRating} onChangeText={(value) => updateBrandField('homeosRating', value)} />
+                            <Field label="Company Rating" value={brandForm.homeosRating} onChangeText={(value) => updateBrandField('homeosRating', value)} />
                             <Field label="Rating Count" value={brandForm.homeosRatingCount} onChangeText={(value) => updateBrandField('homeosRatingCount', value)} />
                             <Field label="Combined Experience Years" value={brandForm.combinedExperienceYears} onChangeText={(value) => updateBrandField('combinedExperienceYears', value)} />
                             <Field label="License Number" value={brandForm.licenseNumber} onChangeText={(value) => updateBrandField('licenseNumber', value)} />
@@ -781,6 +961,179 @@ export default function CompanyDashboardScreen() {
     );
 }
 
+function ColorSwatchRow({
+    label,
+    value,
+    onSelect,
+}: {
+    label: string;
+    value: string;
+    onSelect: (color: string) => void;
+}) {
+    return (
+        <View style={{ width: '100%' }}>
+            <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '900', marginBottom: 8 }}>
+                {label}
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {brandColorSwatches.map((color) => {
+                    const selected = value.toUpperCase() === color.toUpperCase();
+
+                    return (
+                        <TouchableOpacity
+                            key={`${label}-${color}`}
+                            onPress={() => onSelect(color)}
+                            style={{
+                                width: 34,
+                                height: 34,
+                                borderRadius: 999,
+                                backgroundColor: color,
+                                borderColor: selected ? '#071B33' : '#CBD5E1',
+                                borderWidth: selected ? 3 : 1,
+                            }}
+                        />
+                    );
+                })}
+            </View>
+        </View>
+    );
+}
+
+function extractLogoThemeColors(logoUrl: string): Promise<{
+    primaryColor: string;
+    secondaryColor: string;
+    accentColor: string;
+}> {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return Promise.reject(new Error('Color extraction is available in the web app only right now.'));
+    }
+
+    return new Promise((resolve, reject) => {
+        const image = new window.Image();
+        image.crossOrigin = 'anonymous';
+
+        image.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                const size = 64;
+                canvas.width = size;
+                canvas.height = size;
+
+                const context = canvas.getContext('2d');
+
+                if (!context) {
+                    reject(new Error('Could not read logo pixels.'));
+                    return;
+                }
+
+                context.drawImage(image, 0, 0, size, size);
+
+                const pixels = context.getImageData(0, 0, size, size).data;
+                const buckets = new Map<string, { count: number; r: number; g: number; b: number }>();
+
+                for (let i = 0; i < pixels.length; i += 16) {
+                    const alpha = pixels[i + 3];
+
+                    if (alpha < 180) {
+                        continue;
+                    }
+
+                    const r = pixels[i];
+                    const g = pixels[i + 1];
+                    const b = pixels[i + 2];
+                    const hsl = rgbToHsl(r, g, b);
+
+                    if (hsl.s < 0.12 || hsl.l < 0.08 || hsl.l > 0.92) {
+                        continue;
+                    }
+
+                    const qr = clampByte(Math.round(r / 24) * 24);
+                    const qg = clampByte(Math.round(g / 24) * 24);
+                    const qb = clampByte(Math.round(b / 24) * 24);
+                    const key = rgbToHex(qr, qg, qb);
+                    const current = buckets.get(key) || { count: 0, r: qr, g: qg, b: qb };
+
+                    buckets.set(key, {
+                        ...current,
+                        count: current.count + 1,
+                    });
+                }
+
+                const colors = Array.from(buckets.values()).sort((a, b) => b.count - a.count);
+
+                if (!colors.length) {
+                    reject(new Error('No strong logo colors found. Try a clearer logo image.'));
+                    return;
+                }
+
+                const primary = colors[0];
+                const accent = colors.find((color) => colorDistance(color, primary) > 90) || colors[1] || primary;
+                const secondaryColor = getLuma(primary) < 150 ? '#FFFFFF' : '#071B33';
+
+                resolve({
+                    primaryColor: rgbToHex(primary.r, primary.g, primary.b),
+                    secondaryColor,
+                    accentColor: rgbToHex(accent.r, accent.g, accent.b),
+                });
+            } catch (error) {
+                reject(new Error('Logo URL blocked color reading. Try an uploaded image URL or direct image link.'));
+            }
+        };
+
+        image.onerror = () => reject(new Error('Logo image could not be loaded.'));
+        image.src = logoUrl;
+    });
+}
+
+function clampByte(value: number) {
+    return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function rgbToHex(r: number, g: number, b: number) {
+    return `#${[r, g, b].map((value) => clampByte(value).toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+}
+
+function getLuma(color: { r: number; g: number; b: number }) {
+    return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+}
+
+function colorDistance(
+    first: { r: number; g: number; b: number },
+    second: { r: number; g: number; b: number }
+) {
+    return Math.sqrt(
+        (first.r - second.r) ** 2 +
+        (first.g - second.g) ** 2 +
+        (first.b - second.b) ** 2
+    );
+}
+
+function rgbToHsl(r: number, g: number, b: number) {
+    const nr = r / 255;
+    const ng = g / 255;
+    const nb = b / 255;
+    const max = Math.max(nr, ng, nb);
+    const min = Math.min(nr, ng, nb);
+    const l = (max + min) / 2;
+
+    if (max === min) {
+        return { h: 0, s: 0, l };
+    }
+
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h = 0;
+
+    if (max === nr) {
+        h = (ng - nb) / d + (ng < nb ? 6 : 0);
+    } else if (max === ng) {
+        h = (nb - nr) / d + 2;
+    } else {
+        h = (nr - ng) / d + 4;
+    }
+
+    return { h: h / 6, s, l };
+}
 function ConfigSection({
     title,
     description,
