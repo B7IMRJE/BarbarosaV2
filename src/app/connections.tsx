@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Image, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -27,6 +27,20 @@ type PropertyConnection = {
 type CompanyRecord = {
     id: string;
     name: string | null;
+    public_name: string | null;
+    dba_name: string | null;
+    logo_url: string | null;
+    primary_color: string | null;
+    secondary_color: string | null;
+    accent_color: string | null;
+    service_categories: string[] | null;
+    homeos_rating: number | null;
+    homeos_rating_count: number | null;
+    combined_experience_years: number | null;
+    license_number: string | null;
+    phone: string | null;
+    website: string | null;
+    short_description: string | null;
 };
 
 type ConnectionAction = 'approve' | 'decline';
@@ -129,10 +143,18 @@ export default function ConnectionsScreen() {
             return;
         }
 
-        const { data } = await supabase
+        const { data, error } = await supabase
             .from('companies')
-            .select('id, name')
+            .select(
+                'id, name, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, homeos_rating, homeos_rating_count, combined_experience_years, license_number, phone, website, short_description'
+            )
             .in('id', companyIds);
+
+        if (error) {
+            setCompaniesById({});
+            setMessage(`Could not load company profiles: ${error.message}`);
+            return;
+        }
 
         const nextCompaniesById = ((data || []) as CompanyRecord[]).reduce<Record<string, CompanyRecord>>(
             (accumulator, company) => {
@@ -301,54 +323,235 @@ function ConnectionSection({
                     </ThemedCard>
                 ) : (
                     connections.map((connection) => (
-                        <ThemedCard key={connection.id}>
-                            <Text style={[cardTitleStyle, { color: theme.colors.text }]}>
-                                {companiesById[connection.company_id]?.name || 'Company'}
-                            </Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                Status: {normalizeStatus(connection.status)}
-                            </Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                Requested Date: {formatDateTime(connection.created_at)}
-                            </Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                {showActions && normalizeStatus(connection.status) === 'pending'
-                                    ? 'Requested Permissions'
-                                    : 'Permissions'}
-                            </Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                {formatPermissions(connection)}
-                            </Text>
-
-                            {showActions && normalizeStatus(connection.status) === 'pending' && (
-                                <View style={actionRowStyle}>
-                                    <ThemedButton
-                                        title={
-                                            actionConnectionId === connection.id && actionType === 'approve'
-                                                ? 'Approving...'
-                                                : 'Approve'
-                                        }
-                                        onPress={() => onApprove?.(connection.id)}
-                                        disabled={actionConnectionId === connection.id}
-                                        style={actionButtonStyle}
-                                    />
-                                    <ThemedButton
-                                        title={
-                                            actionConnectionId === connection.id && actionType === 'decline'
-                                                ? 'Declining...'
-                                                : 'Decline'
-                                        }
-                                        onPress={() => onDecline?.(connection.id)}
-                                        disabled={actionConnectionId === connection.id}
-                                        variant="danger"
-                                        style={actionButtonStyle}
-                                    />
-                                </View>
-                            )}
-                        </ThemedCard>
+                        <CompanyConnectionCard
+                            key={connection.id}
+                            connection={connection}
+                            company={companiesById[connection.company_id]}
+                            showActions={showActions}
+                            actionConnectionId={actionConnectionId}
+                            actionType={actionType}
+                            onApprove={onApprove}
+                            onDecline={onDecline}
+                        />
                     ))
                 )}
             </View>
+        </View>
+    );
+}
+
+function CompanyConnectionCard({
+    connection,
+    company,
+    showActions,
+    actionConnectionId,
+    actionType,
+    onApprove,
+    onDecline,
+}: {
+    connection: PropertyConnection;
+    company?: CompanyRecord;
+    showActions: boolean;
+    actionConnectionId: string;
+    actionType: ConnectionAction | '';
+    onApprove?: (connectionId: string) => void;
+    onDecline?: (connectionId: string) => void;
+}) {
+    const { theme } = useTheme();
+    const [logoFailed, setLogoFailed] = useState(false);
+    const status = normalizeStatus(connection.status);
+    const displayName = getCompanyDisplayName(company);
+    const dbaName = getCompanyDbaName(company, displayName);
+    const categories = getCompanyCategories(company);
+    const logoUrl = company?.logo_url?.trim() || '';
+    const primaryColor = safeColor(company?.primary_color, theme.colors.primary);
+    const secondaryColor = safeColor(company?.secondary_color, theme.colors.primaryText);
+    const accentColor = safeColor(company?.accent_color, theme.colors.link);
+    const showPendingActions = showActions && status === 'pending';
+    const statusPalette =
+        status === 'connected'
+            ? {
+                  backgroundColor: theme.colors.status.good.background,
+                  borderColor: theme.colors.status.good.border,
+              }
+            : status === 'declined' || status === 'revoked'
+              ? {
+                    backgroundColor: theme.colors.dangerBackground,
+                    borderColor: theme.colors.danger,
+                }
+              : {
+                    backgroundColor: theme.colors.status.notInspected.background,
+                    borderColor: theme.colors.status.notInspected.border,
+                };
+
+    useEffect(() => {
+        setLogoFailed(false);
+    }, [logoUrl]);
+
+    return (
+        <ThemedCard style={[companyCardStyle, { borderColor: accentColor }]}>
+            <View style={companyHeaderStyle}>
+                {logoUrl && !logoFailed ? (
+                    <Image
+                        source={{ uri: logoUrl }}
+                        onError={() => setLogoFailed(true)}
+                        style={[
+                            logoStyle,
+                            {
+                                backgroundColor: theme.colors.surfaceAlt,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                        resizeMode="cover"
+                    />
+                ) : (
+                    <View
+                        style={[
+                            logoStyle,
+                            {
+                                backgroundColor: primaryColor,
+                                borderColor: accentColor,
+                            },
+                        ]}
+                    >
+                        <Text style={[logoInitialStyle, { color: secondaryColor }]}>
+                            {getFallbackInitial(displayName)}
+                        </Text>
+                    </View>
+                )}
+
+                <View style={companyContentStyle}>
+                    <View style={companyTitleRowStyle}>
+                        <View style={companyNameBlockStyle}>
+                            <Text numberOfLines={2} style={[cardTitleStyle, { color: theme.colors.text }]}>
+                                {displayName}
+                            </Text>
+                            <Text numberOfLines={1} style={[dbaTextStyle, { color: accentColor }]}>
+                                DBA: {dbaName}
+                            </Text>
+                        </View>
+
+                        <View style={[statusBadgeStyle, statusPalette]}>
+                            <Text style={[statusBadgeTextStyle, { color: theme.colors.text }]}>
+                                {formatStatusLabel(status)}
+                            </Text>
+                        </View>
+                    </View>
+
+                    <Text numberOfLines={3} style={[descriptionTextStyle, { color: theme.colors.mutedText }]}>
+                        {company?.short_description || 'No company description added yet.'}
+                    </Text>
+
+                    <View style={categoryRowStyle}>
+                        {categories.slice(0, 5).map((category, index) => (
+                            <View
+                                key={`${category}-${index}`}
+                                style={[
+                                    categoryPillStyle,
+                                    {
+                                        backgroundColor: theme.colors.surfaceAlt,
+                                        borderColor: theme.colors.border,
+                                    },
+                                ]}
+                            >
+                                <Text style={[categoryTextStyle, { color: accentColor }]}>{category}</Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+            </View>
+
+            <View style={statRowStyle}>
+                <CompanyStat label="Rating" value={formatRating(company?.homeos_rating)} />
+                <CompanyStat label="Ratings" value={formatRatingCount(company?.homeos_rating_count)} />
+                <CompanyStat
+                    label="Experience"
+                    value={formatExperienceYears(company?.combined_experience_years)}
+                />
+                <CompanyStat label="License" value={formatLicenseNumber(company?.license_number)} />
+            </View>
+
+            {(company?.phone || company?.website) && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    {[company.phone, company.website].filter(Boolean).join(' | ')}
+                </Text>
+            )}
+
+            <View style={detailBlockStyle}>
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    Requested Date: {formatDateTime(connection.created_at)}
+                </Text>
+                <Text style={[permissionLabelStyle, { color: theme.colors.text }]}>
+                    {showPendingActions ? 'Requested Permissions' : 'Permissions'}
+                </Text>
+                <View style={permissionRowStyle}>
+                    {formatPermissionItems(connection).map((permission) => (
+                        <View
+                            key={permission.label}
+                            style={[
+                                permissionPillStyle,
+                                {
+                                    backgroundColor: permission.shared
+                                        ? theme.colors.status.good.background
+                                        : theme.colors.surfaceAlt,
+                                    borderColor: permission.shared
+                                        ? theme.colors.status.good.border
+                                        : theme.colors.border,
+                                },
+                            ]}
+                        >
+                            <Text style={[permissionTextStyle, { color: theme.colors.text }]}>
+                                {permission.label}: {permission.value}
+                            </Text>
+                        </View>
+                    ))}
+                </View>
+            </View>
+
+            {showPendingActions && (
+                <View style={actionRowStyle}>
+                    <ThemedButton
+                        title={
+                            actionConnectionId === connection.id && actionType === 'approve'
+                                ? 'Approving...'
+                                : 'Approve'
+                        }
+                        onPress={() => onApprove?.(connection.id)}
+                        disabled={actionConnectionId === connection.id}
+                        style={actionButtonStyle}
+                    />
+                    <ThemedButton
+                        title={
+                            actionConnectionId === connection.id && actionType === 'decline'
+                                ? 'Declining...'
+                                : 'Decline'
+                        }
+                        onPress={() => onDecline?.(connection.id)}
+                        disabled={actionConnectionId === connection.id}
+                        variant="danger"
+                        style={actionButtonStyle}
+                    />
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
+function CompanyStat({ label, value }: { label: string; value: string }) {
+    const { theme } = useTheme();
+
+    return (
+        <View
+            style={[
+                statPillStyle,
+                {
+                    backgroundColor: theme.colors.surfaceAlt,
+                    borderColor: theme.colors.border,
+                },
+            ]}
+        >
+            <Text style={[statLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
+            <Text style={[statValueStyle, { color: theme.colors.text }]}>{value}</Text>
         </View>
     );
 }
@@ -357,13 +560,92 @@ function normalizeStatus(status: string | null) {
     return String(status || 'pending').trim().toLowerCase();
 }
 
-function formatPermissions(connection: PropertyConnection) {
+function formatPermissionItems(connection: PropertyConnection) {
     return [
-        `Photos: ${connection.can_view_photos ? 'Shared' : 'Private'}`,
-        `Documents: ${connection.can_view_documents ? 'Shared' : 'Private'}`,
-        `Service History: ${connection.can_view_service_history ? 'Shared' : 'Private'}`,
-        `Quotes: ${connection.can_view_quotes ? 'Shared' : 'Private'}`,
-    ].join(' | ');
+        {
+            label: 'Photos',
+            value: connection.can_view_photos ? 'Shared' : 'Private',
+            shared: !!connection.can_view_photos,
+        },
+        {
+            label: 'Documents',
+            value: connection.can_view_documents ? 'Shared' : 'Private',
+            shared: !!connection.can_view_documents,
+        },
+        {
+            label: 'Service History',
+            value: connection.can_view_service_history ? 'Shared' : 'Private',
+            shared: !!connection.can_view_service_history,
+        },
+        {
+            label: 'Quotes',
+            value: connection.can_view_quotes ? 'Shared' : 'Private',
+            shared: !!connection.can_view_quotes,
+        },
+    ];
+}
+
+function getCompanyDisplayName(company?: CompanyRecord) {
+    return company?.public_name?.trim() || company?.name?.trim() || 'Company';
+}
+
+function getCompanyDbaName(company: CompanyRecord | undefined, displayName: string) {
+    return company?.dba_name?.trim() || company?.name?.trim() || displayName;
+}
+
+function getCompanyCategories(company?: CompanyRecord) {
+    const categories = (company?.service_categories || [])
+        .map((category) => category.trim())
+        .filter(Boolean);
+
+    return categories.length > 0 ? categories : ['No categories listed'];
+}
+
+function getFallbackInitial(displayName: string) {
+    return displayName.trim().slice(0, 1).toUpperCase() || '?';
+}
+
+function safeColor(value: string | null | undefined, fallback: string) {
+    const color = value?.trim() || '';
+
+    return /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color) ? color : fallback;
+}
+
+function formatStatusLabel(status: string) {
+    const labels: Record<string, string> = {
+        connected: 'Connected',
+        pending: 'Pending',
+        revoked: 'Revoked',
+        declined: 'Declined',
+    };
+
+    return labels[status] || status.slice(0, 1).toUpperCase() + status.slice(1);
+}
+
+function formatRating(value: number | null | undefined) {
+    const rating = Number(value || 0);
+
+    if (!Number.isFinite(rating) || rating <= 0) return 'Not rated';
+
+    return `${rating.toFixed(1)} stars`;
+}
+
+function formatRatingCount(value: number | null | undefined) {
+    const ratingCount = Math.max(0, Math.round(Number(value || 0)));
+
+    return `${ratingCount} ${ratingCount === 1 ? 'rating' : 'ratings'}`;
+}
+
+function formatExperienceYears(value: number | null | undefined) {
+    const years = Math.max(0, Math.round(Number(value || 0)));
+
+    if (years === 0) return 'Not listed';
+
+    return `${years} ${years === 1 ? 'year' : 'years'} combined`;
+}
+
+function formatLicenseNumber(value: string | null | undefined) {
+    return value?.trim() || 'Not listed';
 }
 
 function formatDateTime(value: string | null) {
@@ -425,6 +707,60 @@ const listStyle = {
     gap: 12,
 };
 
+const companyCardStyle = {
+    borderWidth: 2,
+};
+
+const companyHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    gap: 14,
+};
+
+const companyContentStyle = {
+    flex: 1,
+    minWidth: 0,
+};
+
+const companyTitleRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'flex-start' as const,
+    gap: 10,
+};
+
+const companyNameBlockStyle = {
+    flex: 1,
+    minWidth: 180,
+};
+
+const logoStyle = {
+    width: 64,
+    height: 64,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+};
+
+const logoInitialStyle = {
+    fontSize: 27,
+    fontWeight: '900' as const,
+};
+
+const statusBadgeStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+};
+
+const statusBadgeTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
 const actionRowStyle = {
     flexDirection: 'row' as const,
     gap: 12,
@@ -437,6 +773,94 @@ const actionButtonStyle = {
 
 const cardTitleStyle = {
     fontSize: 19,
+    fontWeight: '900' as const,
+};
+
+const dbaTextStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    marginTop: 4,
+};
+
+const descriptionTextStyle = {
+    fontSize: 14,
+    fontWeight: '700' as const,
+    lineHeight: 20,
+    marginTop: 8,
+};
+
+const categoryRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 12,
+};
+
+const categoryPillStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+};
+
+const categoryTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const statRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 16,
+};
+
+const statPillStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    minWidth: 120,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const statLabelStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+    textTransform: 'uppercase' as const,
+};
+
+const statValueStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    marginTop: 3,
+};
+
+const detailBlockStyle = {
+    marginTop: 14,
+};
+
+const permissionLabelStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+    marginTop: 12,
+};
+
+const permissionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 8,
+};
+
+const permissionPillStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+};
+
+const permissionTextStyle = {
+    fontSize: 12,
     fontWeight: '900' as const,
 };
 
