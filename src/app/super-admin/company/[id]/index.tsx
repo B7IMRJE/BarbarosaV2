@@ -45,6 +45,8 @@ type CompanyBrandForm = {
 
 type BrandColorKey = 'primaryColor' | 'secondaryColor' | 'accentColor';
 
+const repipeOneLogoAsset = require('../../../../../assets/company-icons/repipe-1.jpg');
+
 const defaultBrandForm: CompanyBrandForm = {
     publicName: '',
     dbaName: '',
@@ -389,6 +391,69 @@ export default function CompanyDashboardScreen() {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             setMessage('Logo upload failed: ' + errorMessage);
+        } finally {
+            setSavingBrand(false);
+        }
+    }
+    async function useRepipeOneLogoAsset() {
+        if (!company) {
+            setMessage('Load a company before applying the Repipe 1 logo.');
+            return;
+        }
+
+        setSavingBrand(true);
+        setMessage('Applying Repipe 1 logo...');
+
+        try {
+            const assetSource = Image.resolveAssetSource(repipeOneLogoAsset);
+            const response = await fetch(assetSource.uri);
+            const arrayBuffer = await response.arrayBuffer();
+            const filePath = 'company-logos/' + company.id + '/repipe-1-' + Date.now() + '.jpg';
+
+            const { error: uploadError } = await supabase.storage.from('item-files').upload(filePath, arrayBuffer, {
+                contentType: 'image/jpeg',
+                upsert: true,
+            });
+
+            if (uploadError) {
+                throw uploadError;
+            }
+
+            const { data } = supabase.storage.from('item-files').getPublicUrl(filePath);
+            const publicUrl = data.publicUrl;
+
+            try {
+                const colors = await extractLogoThemeColors(publicUrl);
+                setExtractedLogoColors(colors.palette);
+                setBrandForm((current) => ({
+                    ...current,
+                    publicName: 'Repipe 1',
+                    dbaName: 'Repipe 1',
+                    logoUrl: publicUrl,
+                    primaryColor: colors.primaryColor,
+                    secondaryColor: colors.secondaryColor,
+                    accentColor: colors.accentColor,
+                    serviceCategories: current.serviceCategories || 'Repipe, Plumbing, Leak Detection',
+                    shortDescription: current.shortDescription || 'Professional repipe and plumbing services.',
+                }));
+                setMessage('Repipe 1 logo applied and colors extracted. Save to keep changes.');
+            } catch {
+                setBrandForm((current) => ({
+                    ...current,
+                    publicName: 'Repipe 1',
+                    dbaName: 'Repipe 1',
+                    logoUrl: publicUrl,
+                    primaryColor: '#0B2E59',
+                    secondaryColor: '#FFFFFF',
+                    accentColor: '#E11D2E',
+                    serviceCategories: current.serviceCategories || 'Repipe, Plumbing, Leak Detection',
+                    shortDescription: current.shortDescription || 'Professional repipe and plumbing services.',
+                }));
+                setMessage('Repipe 1 logo applied with starter colors. Save to keep changes.');
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            setMessage('Could not apply Repipe 1 logo: ' + errorMessage);
         } finally {
             setSavingBrand(false);
         }
@@ -800,6 +865,23 @@ export default function CompanyDashboardScreen() {
                                 >
                                     <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>
                                         Upload Logo
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={useRepipeOneLogoAsset}
+                                    disabled={savingBrand}
+                                    style={{
+                                        backgroundColor: '#ECFDF3',
+                                        borderColor: '#BBF7D0',
+                                        borderRadius: 999,
+                                        borderWidth: 1,
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 10,
+                                    }}
+                                >
+                                    <Text style={{ color: '#047857', fontSize: 12, fontWeight: '900' }}>
+                                        Use Repipe 1 Logo
                                     </Text>
                                 </TouchableOpacity>
 
