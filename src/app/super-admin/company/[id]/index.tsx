@@ -1,3 +1,4 @@
+import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -303,6 +304,77 @@ export default function CompanyDashboardScreen() {
         }
     }
 
+    async function uploadCompanyLogo() {
+        if (!company) {
+            setMessage('Load a company before uploading a logo.');
+            return;
+        }
+
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+            setMessage('Photo library permission is required to upload a logo.');
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.9,
+        });
+
+        if (result.canceled || !result.assets?.[0]) {
+            return;
+        }
+
+        setSavingBrand(true);
+        setMessage('Uploading company logo...');
+
+        try {
+            const asset = result.assets[0];
+            const response = await fetch(asset.uri);
+            const arrayBuffer = await response.arrayBuffer();
+            const extension = getFileExtension(asset.fileName || asset.uri);
+            const filePath = 'company-logos/' + company.id + '/' + Date.now() + '.' + extension;
+
+            const { error: uploadError } = await supabase.storage.from('item-files').upload(filePath, arrayBuffer, {
+                contentType: asset.mimeType || 'image/' + extension,
+                upsert: true,
+            });
+
+            if (uploadError) {
+                throw uploadError;
+            }
+
+            const { data } = supabase.storage.from('item-files').getPublicUrl(filePath);
+            const publicUrl = data.publicUrl;
+
+            setBrandForm((current) => ({
+                ...current,
+                logoUrl: publicUrl,
+            }));
+
+            try {
+                const colors = await extractLogoThemeColors(publicUrl);
+                setBrandForm((current) => ({
+                    ...current,
+                    logoUrl: publicUrl,
+                    primaryColor: colors.primaryColor,
+                    secondaryColor: colors.secondaryColor,
+                    accentColor: colors.accentColor,
+                }));
+                setMessage('Logo uploaded and colors extracted. Save to keep changes.');
+            } catch {
+                setMessage('Logo uploaded. Save to keep it. Color extraction can be adjusted manually.');
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            setMessage('Logo upload failed: ' + errorMessage);
+        } finally {
+            setSavingBrand(false);
+        }
+    }
     function openModule(card: string) {
         if (card === 'Staff') {
             router.push(`/super-admin/company/${id}/users` as any);
@@ -697,6 +769,39 @@ export default function CompanyDashboardScreen() {
                             <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
                             <Field label="DBA Name" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
                             <Field label="Logo URL" value={brandForm.logoUrl} onChangeText={(value) => updateBrandField('logoUrl', value)} />
+                            <View style={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                                <TouchableOpacity
+                                    onPress={uploadCompanyLogo}
+                                    disabled={savingBrand}
+                                    style={{
+                                        backgroundColor: '#071B33',
+                                        borderRadius: 999,
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 10,
+                                    }}
+                                >
+                                    <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>
+                                        Upload Logo
+                                    </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={extractThemeFromLogo}
+                                    disabled={savingBrand}
+                                    style={{
+                                        backgroundColor: '#EEF4FF',
+                                        borderColor: '#CFE0FF',
+                                        borderRadius: 999,
+                                        borderWidth: 1,
+                                        paddingHorizontal: 14,
+                                        paddingVertical: 10,
+                                    }}
+                                >
+                                    <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
+                                        Extract colors from current logo
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
                             <Field label="Short Description" value={brandForm.shortDescription} onChangeText={(value) => updateBrandField('shortDescription', value)} multiline />
                         </ConfigSection>
 
@@ -1001,6 +1106,20 @@ export default function CompanyDashboardScreen() {
     );
 }
 
+function getFileExtension(fileName: string) {
+    const cleanName = fileName.split('?')[0] || '';
+    const extension = cleanName.includes('.') ? cleanName.split('.').pop()?.toLowerCase() : 'jpg';
+
+    if (!extension || extension.length > 5) {
+        return 'jpg';
+    }
+
+    if (extension === 'jpeg') {
+        return 'jpg';
+    }
+
+    return extension;
+}
 function CategoryChipSelector({
     selectedCategories,
     onToggle,
