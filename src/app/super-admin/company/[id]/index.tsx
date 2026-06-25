@@ -74,6 +74,25 @@ const brandColorSwatches = [
     '#F8FAFC',
 ];
 
+const serviceCategoryOptions = [
+    'Plumbing',
+    'Repipe',
+    'Water Heaters',
+    'Leak Detection',
+    'Slab Leak',
+    'Drain Cleaning',
+    'Sewer',
+    'Gas',
+    'Water Treatment',
+    'HVAC',
+    'Electrical',
+    'Roofing',
+    'Restoration',
+    'Remodeling',
+    'Handyman',
+    'Property Management',
+];
+
 const brandThemePresets = [
     {
         name: 'Repipe 1 Starter',
@@ -218,6 +237,21 @@ export default function CompanyDashboardScreen() {
             ...current,
             [key]: value,
         }));
+    }
+
+    function toggleServiceCategory(category: string) {
+        setBrandForm((current) => {
+            const selected = parseCategories(current.serviceCategories);
+            const exists = selected.includes(category);
+            const nextCategories = exists
+                ? selected.filter((selectedCategory) => selectedCategory !== category)
+                : [...selected, category];
+
+            return {
+                ...current,
+                serviceCategories: nextCategories.join(', '),
+            };
+        });
     }
 
     function applyRepipeOnePreset() {
@@ -392,14 +426,20 @@ export default function CompanyDashboardScreen() {
                         gap: 12,
                     }}
                 >
-                    <Text style={{ color: '#64748B', fontWeight: '900' }}>
-                        Status: {company?.status || 'ACTIVE'}
-                    </Text>
-                    <Text style={{ color: '#64748B', fontWeight: '900' }}>
-                        Slug: {company?.slug || 'none'}
-                    </Text>
-                    <Text style={{ color: '#64748B', fontWeight: '900' }}>
-                        Theme: {company?.theme_color || '#071B33'}
+                    <View
+                        style={{
+                            backgroundColor: '#ECFDF3',
+                            borderRadius: 999,
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                        }}
+                    >
+                        <Text style={{ color: '#047857', fontSize: 12, fontWeight: '900' }}>
+                            {company?.status || 'ACTIVE'}
+                        </Text>
+                    </View>
+                    <Text style={{ color: '#64748B', fontWeight: '900', alignSelf: 'center' }}>
+                        Company brand profile
                     </Text>
                 </View>
 
@@ -424,12 +464,8 @@ export default function CompanyDashboardScreen() {
                             Company Profile
                         </Text>
 
-                        <Text style={{ color: '#637083', marginTop: 8 }}>
-                            Slug: {company.slug || 'none'}
-                        </Text>
-
-                        <Text style={{ color: '#637083', marginTop: 4 }}>
-                            Theme: {company.theme_color || '#071B33'}
+                        <Text style={{ color: '#64748B', marginTop: 8, lineHeight: 20, fontWeight: '700' }}>
+                            This controls how the company appears to homeowners, staff, proposals, receipts, and company selection screens.
                         </Text>
                     </View>
                 )}
@@ -768,6 +804,10 @@ export default function CompanyDashboardScreen() {
                             description="Ratings, service categories, license details, and experience shown to homeowners."
                         >
                             <Field label="Service Categories" value={brandForm.serviceCategories} onChangeText={(value) => updateBrandField('serviceCategories', value)} />
+                            <CategoryChipSelector
+                                selectedCategories={parseCategories(brandForm.serviceCategories)}
+                                onToggle={toggleServiceCategory}
+                            />
                             <Field label="Company Rating" value={brandForm.homeosRating} onChangeText={(value) => updateBrandField('homeosRating', value)} />
                             <Field label="Rating Count" value={brandForm.homeosRatingCount} onChangeText={(value) => updateBrandField('homeosRatingCount', value)} />
                             <Field label="Combined Experience Years" value={brandForm.combinedExperienceYears} onChangeText={(value) => updateBrandField('combinedExperienceYears', value)} />
@@ -958,6 +998,52 @@ export default function CompanyDashboardScreen() {
                 </View>
             </View>
         </ScrollView>
+    );
+}
+
+function CategoryChipSelector({
+    selectedCategories,
+    onToggle,
+}: {
+    selectedCategories: string[];
+    onToggle: (category: string) => void;
+}) {
+    return (
+        <View style={{ width: '100%', marginTop: 4 }}>
+            <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '900', marginBottom: 8 }}>
+                Select service categories
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {serviceCategoryOptions.map((category) => {
+                    const selected = selectedCategories.includes(category);
+
+                    return (
+                        <TouchableOpacity
+                            key={category}
+                            onPress={() => onToggle(category)}
+                            style={{
+                                backgroundColor: selected ? '#071B33' : '#FFFFFF',
+                                borderColor: selected ? '#071B33' : '#CBD5E1',
+                                borderRadius: 999,
+                                borderWidth: 1,
+                                paddingHorizontal: 12,
+                                paddingVertical: 8,
+                            }}
+                        >
+                            <Text
+                                style={{
+                                    color: selected ? '#FFFFFF' : '#334155',
+                                    fontSize: 12,
+                                    fontWeight: '900',
+                                }}
+                            >
+                                {category}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+        </View>
     );
 }
 
