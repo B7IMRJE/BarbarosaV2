@@ -43,6 +43,8 @@ type CompanyBrandForm = {
     shortDescription: string;
 };
 
+type BrandColorKey = 'primaryColor' | 'secondaryColor' | 'accentColor';
+
 const defaultBrandForm: CompanyBrandForm = {
     publicName: '',
     dbaName: '',
@@ -143,6 +145,7 @@ export default function CompanyDashboardScreen() {
     const [brandForm, setBrandForm] = useState<CompanyBrandForm>(defaultBrandForm);
     const [message, setMessage] = useState('Loading company...');
     const [savingBrand, setSavingBrand] = useState(false);
+    const [extractedLogoColors, setExtractedLogoColors] = useState<string[]>([]);
 
     useEffect(() => {
         loadCompany();
@@ -255,6 +258,19 @@ export default function CompanyDashboardScreen() {
         });
     }
 
+    function updateBrandColorSlot(slot: BrandColorKey, color: string) {
+        updateBrandField(slot, color);
+        setMessage('Custom color applied. Save to keep it.');
+    }
+
+    function swapBrandColors(first: BrandColorKey, second: BrandColorKey) {
+        setBrandForm((current) => ({
+            ...current,
+            [first]: current[second],
+            [second]: current[first],
+        }));
+        setMessage('Theme colors swapped. Save to keep changes.');
+    }
     function applyRepipeOnePreset() {
         setBrandForm((current) => ({
             ...current,
@@ -291,6 +307,7 @@ export default function CompanyDashboardScreen() {
 
         try {
             const colors = await extractLogoThemeColors(logoUrl);
+            setExtractedLogoColors(colors.palette);
             setBrandForm((current) => ({
                 ...current,
                 primaryColor: colors.primaryColor,
@@ -357,6 +374,7 @@ export default function CompanyDashboardScreen() {
 
             try {
                 const colors = await extractLogoThemeColors(publicUrl);
+                setExtractedLogoColors(colors.palette);
                 setBrandForm((current) => ({
                     ...current,
                     logoUrl: publicUrl,
@@ -813,6 +831,12 @@ export default function CompanyDashboardScreen() {
                             <Field label="Secondary Color" value={brandForm.secondaryColor} onChangeText={(value) => updateBrandField('secondaryColor', value)} />
                             <Field label="Accent Color" value={brandForm.accentColor} onChangeText={(value) => updateBrandField('accentColor', value)} />
 
+                            <BrandColorAssignmentPanel
+                                brandForm={brandForm}
+                                extractedColors={extractedLogoColors}
+                                onApply={updateBrandColorSlot}
+                                onSwap={swapBrandColors}
+                            />
                             <View style={{ width: '100%', gap: 12, marginTop: 4 }}>
                                 <Text style={{ color: '#071B33', fontSize: 13, fontWeight: '900' }}>
                                     Quick theme tools
@@ -1120,6 +1144,213 @@ function getFileExtension(fileName: string) {
 
     return extension;
 }
+function BrandColorAssignmentPanel({
+    brandForm,
+    extractedColors,
+    onApply,
+    onSwap,
+}: {
+    brandForm: CompanyBrandForm;
+    extractedColors: string[];
+    onApply: (slot: BrandColorKey, color: string) => void;
+    onSwap: (first: BrandColorKey, second: BrandColorKey) => void;
+}) {
+    const currentColors: { key: BrandColorKey; label: string; value: string }[] = [
+        { key: 'primaryColor', label: 'Primary', value: brandForm.primaryColor },
+        { key: 'secondaryColor', label: 'Secondary', value: brandForm.secondaryColor },
+        { key: 'accentColor', label: 'Accent', value: brandForm.accentColor },
+    ];
+
+    return (
+        <View
+            style={{
+                width: '100%',
+                backgroundColor: '#FFFFFF',
+                borderColor: '#E3E8EF',
+                borderRadius: 18,
+                borderWidth: 1,
+                padding: 14,
+                gap: 14,
+            }}
+        >
+            <View>
+                <Text style={{ color: '#071B33', fontSize: 15, fontWeight: '900' }}>
+                    Current Custom Theme
+                </Text>
+                <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', marginTop: 4, lineHeight: 18 }}>
+                    These are the colors currently assigned to this company.
+                </Text>
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                {currentColors.map((item) => (
+                    <View
+                        key={item.key}
+                        style={{
+                            minWidth: 150,
+                            flex: 1,
+                            borderColor: '#E3E8EF',
+                            borderRadius: 16,
+                            borderWidth: 1,
+                            overflow: 'hidden',
+                        }}
+                    >
+                        <View
+                            style={{
+                                height: 58,
+                                backgroundColor: item.value || '#F8FAFC',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                            }}
+                        >
+                            <Text style={{ color: getReadableColor(item.value), fontSize: 12, fontWeight: '900' }}>
+                                {item.value || 'none'}
+                            </Text>
+                        </View>
+                        <View style={{ padding: 10, backgroundColor: '#F8FAFC' }}>
+                            <Text style={{ color: '#071B33', fontSize: 13, fontWeight: '900' }}>
+                                {item.label}
+                            </Text>
+                        </View>
+                    </View>
+                ))}
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <TouchableOpacity
+                    onPress={() => onSwap('primaryColor', 'secondaryColor')}
+                    style={swapButtonStyle}
+                >
+                    <Text style={swapButtonTextStyle}>Swap Primary / Secondary</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => onSwap('primaryColor', 'accentColor')}
+                    style={swapButtonStyle}
+                >
+                    <Text style={swapButtonTextStyle}>Swap Primary / Accent</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => onSwap('secondaryColor', 'accentColor')}
+                    style={swapButtonStyle}
+                >
+                    <Text style={swapButtonTextStyle}>Swap Secondary / Accent</Text>
+                </TouchableOpacity>
+            </View>
+
+            <View>
+                <Text style={{ color: '#071B33', fontSize: 15, fontWeight: '900' }}>
+                    Extracted Logo Colors
+                </Text>
+                <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', marginTop: 4, lineHeight: 18 }}>
+                    Pick where each extracted logo color belongs.
+                </Text>
+            </View>
+
+            {extractedColors.length === 0 ? (
+                <View
+                    style={{
+                        backgroundColor: '#F8FAFC',
+                        borderColor: '#E3E8EF',
+                        borderRadius: 14,
+                        borderWidth: 1,
+                        padding: 12,
+                    }}
+                >
+                    <Text style={{ color: '#64748B', fontWeight: '700', lineHeight: 20 }}>
+                        No extracted colors yet. Upload a logo or click Extract colors from current logo.
+                    </Text>
+                </View>
+            ) : (
+                <View style={{ gap: 10 }}>
+                    {extractedColors.map((color) => (
+                        <View
+                            key={color}
+                            style={{
+                                backgroundColor: '#F8FAFC',
+                                borderColor: '#E3E8EF',
+                                borderRadius: 16,
+                                borderWidth: 1,
+                                padding: 10,
+                                gap: 10,
+                            }}
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                                <View
+                                    style={{
+                                        width: 44,
+                                        height: 44,
+                                        borderRadius: 14,
+                                        backgroundColor: color,
+                                        borderColor: '#CBD5E1',
+                                        borderWidth: 1,
+                                    }}
+                                />
+                                <Text style={{ color: '#071B33', fontWeight: '900' }}>
+                                    {color}
+                                </Text>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                <TouchableOpacity onPress={() => onApply('primaryColor', color)} style={assignButtonStyle}>
+                                    <Text style={assignButtonTextStyle}>Use as Primary</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => onApply('secondaryColor', color)} style={assignButtonStyle}>
+                                    <Text style={assignButtonTextStyle}>Use as Secondary</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => onApply('accentColor', color)} style={assignButtonStyle}>
+                                    <Text style={assignButtonTextStyle}>Use as Accent</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    ))}
+                </View>
+            )}
+        </View>
+    );
+}
+
+const swapButtonStyle = {
+    backgroundColor: '#EEF4FF',
+    borderColor: '#CFE0FF',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+} as const;
+
+const swapButtonTextStyle = {
+    color: '#0B5FFF',
+    fontSize: 12,
+    fontWeight: '900',
+} as const;
+
+const assignButtonStyle = {
+    backgroundColor: '#071B33',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+} as const;
+
+const assignButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+} as const;
+
+function getReadableColor(color: string) {
+    const normalized = color.replace('#', '');
+
+    if (normalized.length !== 6) {
+        return '#071B33';
+    }
+
+    const r = parseInt(normalized.slice(0, 2), 16);
+    const g = parseInt(normalized.slice(2, 4), 16);
+    const b = parseInt(normalized.slice(4, 6), 16);
+    const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+    return luma < 145 ? '#FFFFFF' : '#071B33';
+}
 function CategoryChipSelector({
     selectedCategories,
     onToggle,
@@ -1208,6 +1439,7 @@ function extractLogoThemeColors(logoUrl: string): Promise<{
     primaryColor: string;
     secondaryColor: string;
     accentColor: string;
+    palette: string[];
 }> {
     if (typeof window === 'undefined' || typeof document === 'undefined') {
         return Promise.reject(new Error('Color extraction is available in the web app only right now.'));
@@ -1279,6 +1511,7 @@ function extractLogoThemeColors(logoUrl: string): Promise<{
                     primaryColor: rgbToHex(primary.r, primary.g, primary.b),
                     secondaryColor,
                     accentColor: rgbToHex(accent.r, accent.g, accent.b),
+                    palette: colors.slice(0, 6).map((color) => rgbToHex(color.r, color.g, color.b)),
                 });
             } catch (error) {
                 reject(new Error('Logo URL blocked color reading. Try an uploaded image URL or direct image link.'));
