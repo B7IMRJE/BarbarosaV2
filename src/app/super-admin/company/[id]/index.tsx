@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../../../../lib/supabase';
 
@@ -564,26 +564,61 @@ export default function CompanyDashboardScreen() {
                                 </View>
                             </View>
                         </View>
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                        <ConfigSection
+                            title="Identity"
+                            description="Public-facing company name, DBA, logo link, and short description."
+                        >
                             <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
                             <Field label="DBA Name" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
                             <Field label="Logo URL" value={brandForm.logoUrl} onChangeText={(value) => updateBrandField('logoUrl', value)} />
+                            <Field label="Short Description" value={brandForm.shortDescription} onChangeText={(value) => updateBrandField('shortDescription', value)} multiline />
+                        </ConfigSection>
+
+                        <ConfigSection
+                            title="Brand Colors"
+                            description="Company colors used for HomeOS cards, TechOS, proposals, invoices, and receipts."
+                        >
                             <Field label="Primary Color" value={brandForm.primaryColor} onChangeText={(value) => updateBrandField('primaryColor', value)} />
                             <Field label="Secondary Color" value={brandForm.secondaryColor} onChangeText={(value) => updateBrandField('secondaryColor', value)} />
                             <Field label="Accent Color" value={brandForm.accentColor} onChangeText={(value) => updateBrandField('accentColor', value)} />
+                        </ConfigSection>
+
+                        <ConfigSection
+                            title="Services / Trust Profile"
+                            description="Ratings, service categories, license details, and experience shown to homeowners."
+                        >
                             <Field label="Service Categories" value={brandForm.serviceCategories} onChangeText={(value) => updateBrandField('serviceCategories', value)} />
                             <Field label="HomeOS Rating" value={brandForm.homeosRating} onChangeText={(value) => updateBrandField('homeosRating', value)} />
                             <Field label="Rating Count" value={brandForm.homeosRatingCount} onChangeText={(value) => updateBrandField('homeosRatingCount', value)} />
                             <Field label="Combined Experience Years" value={brandForm.combinedExperienceYears} onChangeText={(value) => updateBrandField('combinedExperienceYears', value)} />
                             <Field label="License Number" value={brandForm.licenseNumber} onChangeText={(value) => updateBrandField('licenseNumber', value)} />
+                        </ConfigSection>
+
+                        <ConfigSection
+                            title="Contact"
+                            description="Contact information shown on company cards and customer-facing screens."
+                        >
                             <Field label="Phone" value={brandForm.phone} onChangeText={(value) => updateBrandField('phone', value)} />
                             <Field label="Website" value={brandForm.website} onChangeText={(value) => updateBrandField('website', value)} />
-                            <Field label="Short Description" value={brandForm.shortDescription} onChangeText={(value) => updateBrandField('shortDescription', value)} multiline />
-                        </View>
+                        </ConfigSection>
 
-                        <Text style={{ color: '#637083', marginTop: 12, lineHeight: 20 }}>
-                            Categories: {previewCategories.length ? previewCategories.join(', ') : 'none'}
-                        </Text>
+                        <View
+                            style={{
+                                backgroundColor: '#F8FAFC',
+                                borderColor: '#E3E8EF',
+                                borderRadius: 16,
+                                borderWidth: 1,
+                                marginTop: 4,
+                                padding: 14,
+                            }}
+                        >
+                            <Text style={{ color: '#071B33', fontSize: 13, fontWeight: '900', marginBottom: 5 }}>
+                                Service category preview
+                            </Text>
+                            <Text style={{ color: '#64748B', lineHeight: 20, fontWeight: '700' }}>
+                                {previewCategories.length ? previewCategories.join('  /  ') : 'none'}
+                            </Text>
+                        </View>
 
                         <TouchableOpacity
                             onPress={saveBrandProfile}
@@ -668,6 +703,39 @@ export default function CompanyDashboardScreen() {
                 </View>
             </View>
         </ScrollView>
+    );
+}
+
+function ConfigSection({
+    title,
+    description,
+    children,
+}: {
+    title: string;
+    description: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <View
+            style={{
+                backgroundColor: '#F8FAFC',
+                borderColor: '#E3E8EF',
+                borderRadius: 20,
+                borderWidth: 1,
+                marginBottom: 16,
+                padding: 16,
+            }}
+        >
+            <Text style={{ color: '#071B33', fontSize: 18, fontWeight: '900', marginBottom: 4 }}>
+                {title}
+            </Text>
+            <Text style={{ color: '#64748B', fontWeight: '700', lineHeight: 20, marginBottom: 14 }}>
+                {description}
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                {children}
+            </View>
+        </View>
     );
 }
 
