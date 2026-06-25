@@ -656,50 +656,125 @@ export default function CompanyDashboardScreen() {
                     </View>
                 )}
 
-                <Text
-                    style={{
-                        fontSize: 22,
-                        fontWeight: '900',
-                        color: '#071B33',
-                        marginBottom: 14,
-                    }}
-                >
-                    Company Admin Modules
-                </Text>
-
                 <View
                     style={{
-                        flexDirection: 'row',
-                        flexWrap: 'wrap',
-                        gap: 12,
+                        backgroundColor: '#FFFFFF',
+                        borderColor: '#DFE7F1',
+                        borderRadius: 24,
+                        borderWidth: 1,
+                        padding: 20,
                     }}
                 >
-                    {cards.map((card) => (
-                        <TouchableOpacity
-                            key={card}
-                            onPress={() => openModule(card)}
-                            style={{
-                                width: '48%',
-                                minHeight: 100,
-                                backgroundColor: '#FFFFFF',
-                                borderRadius: 20,
-                                padding: 16,
-                                borderWidth: 1,
-                                borderColor: '#E3E8EF',
-                                justifyContent: 'center',
-                            }}
-                        >
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: 16,
+                            marginBottom: 18,
+                        }}
+                    >
+                        <View style={{ flex: 1 }}>
                             <Text
                                 style={{
-                                    fontSize: 17,
+                                    fontSize: 22,
                                     fontWeight: '900',
                                     color: '#071B33',
                                 }}
                             >
-                                {card}
+                                Company Admin Modules
                             </Text>
-                        </TouchableOpacity>
-                    ))}
+                            <Text
+                                style={{
+                                    color: '#64748B',
+                                    fontWeight: '700',
+                                    lineHeight: 20,
+                                    marginTop: 6,
+                                }}
+                            >
+                                Manage the operational areas connected to this company account.
+                            </Text>
+                        </View>
+
+                        <View
+                            style={{
+                                backgroundColor: '#EEF4FF',
+                                borderRadius: 999,
+                                paddingHorizontal: 12,
+                                paddingVertical: 8,
+                            }}
+                        >
+                            <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
+                                {cards.length} modules
+                            </Text>
+                        </View>
+                    </View>
+
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            gap: 12,
+                        }}
+                    >
+                        {cards.map((card) => (
+                            <TouchableOpacity
+                                key={card}
+                                onPress={() => openModule(card)}
+                                activeOpacity={0.82}
+                                style={{
+                                    width: '31%',
+                                    minWidth: 240,
+                                    minHeight: 82,
+                                    backgroundColor: '#F8FAFC',
+                                    borderRadius: 18,
+                                    padding: 14,
+                                    borderWidth: 1,
+                                    borderColor: '#E3E8EF',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                }}
+                            >
+                                <View
+                                    style={{
+                                        width: 42,
+                                        height: 42,
+                                        borderRadius: 14,
+                                        backgroundColor: '#EEF4FF',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                    }}
+                                >
+                                    <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
+                                        {card.slice(0, 2).toUpperCase()}
+                                    </Text>
+                                </View>
+
+                                <View style={{ flex: 1 }}>
+                                    <Text
+                                        style={{
+                                            fontSize: 16,
+                                            fontWeight: '900',
+                                            color: '#071B33',
+                                        }}
+                                    >
+                                        {card}
+                                    </Text>
+                                    <Text
+                                        style={{
+                                            color: '#64748B',
+                                            fontSize: 12,
+                                            fontWeight: '700',
+                                            marginTop: 4,
+                                        }}
+                                    >
+                                        Open {card.toLowerCase()} tools
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
                 </View>
             </View>
         </ScrollView>
