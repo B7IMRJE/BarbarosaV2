@@ -379,38 +379,93 @@ export default function CompanyDashboardScreen() {
 
                         <View
                             style={{
-                                backgroundColor: brandForm.primaryColor || '#071B33',
-                                borderRadius: 22,
+                                backgroundColor: '#F8FAFC',
+                                borderColor: '#E3E8EF',
+                                borderRadius: 24,
+                                borderWidth: 1,
+                                marginBottom: 20,
                                 padding: 18,
-                                marginBottom: 18,
                             }}
                         >
-                            <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
+                            <View
+                                style={{
+                                    flexDirection: 'row',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'flex-start',
+                                    gap: 18,
+                                    marginBottom: 16,
+                                }}
+                            >
+                                <View style={{ flex: 1 }}>
+                                    <Text
+                                        style={{
+                                            color: '#0B5FFF',
+                                            fontSize: 13,
+                                            fontWeight: '900',
+                                            marginBottom: 6,
+                                        }}
+                                    >
+                                        Live Brand Preview
+                                    </Text>
+                                    <Text
+                                        style={{
+                                            color: '#64748B',
+                                            fontSize: 14,
+                                            fontWeight: '700',
+                                            lineHeight: 20,
+                                        }}
+                                    >
+                                        This is how the company card will feel in homeowner search, ManagementOS, TechOS, proposals, and invoices.
+                                    </Text>
+                                </View>
+
+                                <View
+                                    style={{
+                                        backgroundColor: brandForm.primaryColor || '#071B33',
+                                        borderRadius: 999,
+                                        height: 18,
+                                        width: 18,
+                                    }}
+                                />
+                            </View>
+
+                            <View
+                                style={{
+                                    backgroundColor: '#FFFFFF',
+                                    borderColor: '#DFE7F1',
+                                    borderRadius: 22,
+                                    borderWidth: 1,
+                                    padding: 18,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 18,
+                                }}
+                            >
                                 {logoCanPreview ? (
                                     <Image
                                         source={{ uri: brandForm.logoUrl.trim() }}
                                         style={{
-                                            width: 72,
-                                            height: 72,
-                                            borderRadius: 18,
-                                            backgroundColor: '#FFFFFF',
+                                            width: 88,
+                                            height: 88,
+                                            borderRadius: 20,
+                                            backgroundColor: '#F8FAFC',
                                         }}
                                     />
                                 ) : (
                                     <View
                                         style={{
-                                            width: 72,
-                                            height: 72,
-                                            borderRadius: 18,
-                                            backgroundColor: brandForm.secondaryColor || '#FFFFFF',
+                                            width: 88,
+                                            height: 88,
+                                            borderRadius: 20,
+                                            backgroundColor: brandForm.primaryColor || '#071B33',
                                             alignItems: 'center',
                                             justifyContent: 'center',
                                         }}
                                     >
                                         <Text
                                             style={{
-                                                color: brandForm.primaryColor || '#071B33',
-                                                fontSize: 26,
+                                                color: brandForm.secondaryColor || '#FFFFFF',
+                                                fontSize: 38,
                                                 fontWeight: '900',
                                             }}
                                         >
@@ -422,8 +477,8 @@ export default function CompanyDashboardScreen() {
                                 <View style={{ flex: 1 }}>
                                     <Text
                                         style={{
-                                            color: brandForm.secondaryColor || '#FFFFFF',
-                                            fontSize: 22,
+                                            color: '#071B33',
+                                            fontSize: 24,
                                             fontWeight: '900',
                                         }}
                                     >
@@ -431,36 +486,84 @@ export default function CompanyDashboardScreen() {
                                     </Text>
                                     <Text
                                         style={{
-                                            color: brandForm.secondaryColor || '#FFFFFF',
+                                            color: brandForm.accentColor || '#0B5FFF',
                                             marginTop: 4,
-                                            fontWeight: '700',
+                                            fontSize: 14,
+                                            fontWeight: '900',
                                         }}
                                     >
                                         {previewDba}
                                     </Text>
                                     <Text
+                                        numberOfLines={2}
                                         style={{
-                                            color: brandForm.accentColor || '#0B5FFF',
-                                            marginTop: 6,
-                                            fontWeight: '900',
+                                            color: '#64748B',
+                                            marginTop: 8,
+                                            fontSize: 13,
+                                            fontWeight: '700',
+                                            lineHeight: 19,
                                         }}
                                     >
-                                        HomeOS Rating {brandForm.homeosRating || '0'} / 5
+                                        {brandForm.shortDescription || 'Short company description will appear here.'}
+                                    </Text>
+
+                                    <View
+                                        style={{
+                                            flexDirection: 'row',
+                                            flexWrap: 'wrap',
+                                            gap: 8,
+                                            marginTop: 12,
+                                        }}
+                                    >
+                                        {(previewCategories.length ? previewCategories : ['No categories']).map((category) => (
+                                            <View
+                                                key={category}
+                                                style={{
+                                                    backgroundColor: '#EEF4FF',
+                                                    borderRadius: 999,
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 6,
+                                                }}
+                                            >
+                                                <Text
+                                                    style={{
+                                                        color: '#0B5FFF',
+                                                        fontSize: 12,
+                                                        fontWeight: '900',
+                                                    }}
+                                                >
+                                                    {category}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                </View>
+
+                                <View
+                                    style={{
+                                        alignItems: 'flex-start',
+                                        backgroundColor: '#F8FAFC',
+                                        borderColor: '#E3E8EF',
+                                        borderRadius: 18,
+                                        borderWidth: 1,
+                                        padding: 14,
+                                        minWidth: 150,
+                                    }}
+                                >
+                                    <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '900' }}>HomeOS Rating</Text>
+                                    <Text style={{ color: '#071B33', fontSize: 30, fontWeight: '900', marginTop: 4 }}>
+                                        {brandForm.homeosRating || '0'}
+                                    </Text>
+                                    <Text style={{ color: '#64748B', fontSize: 20, fontWeight: '900' }}>star rating</Text>
+                                    <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+                                        {brandForm.homeosRatingCount || '0'} ratings
+                                    </Text>
+                                    <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+                                        {brandForm.combinedExperienceYears || '0'} years combined
                                     </Text>
                                 </View>
                             </View>
-
-                            <Text
-                                style={{
-                                    color: brandForm.secondaryColor || '#FFFFFF',
-                                    marginTop: 14,
-                                    lineHeight: 20,
-                                }}
-                            >
-                                {brandForm.shortDescription || 'Short company description will appear here.'}
-                            </Text>
                         </View>
-
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
                             <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
                             <Field label="DBA Name" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
