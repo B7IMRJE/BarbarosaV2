@@ -6,6 +6,7 @@ import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-nativ
 import {
     Job,
     JobThreadEvent,
+    addJobThreadEvent,
     addJobNote,
     changeJobStatus,
     loadJob,
@@ -168,6 +169,30 @@ export default function JobThreadScreen() {
             await refreshThread();
         } catch (error: any) {
             setMessage(`Could not change status: ${error.message || 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function handleWorkflowStep(stepTitle: string) {
+        if (!jobId) {
+            setMessage('Missing job id.');
+            return;
+        }
+
+        try {
+            setSaving(true);
+            setMessage('Logging ' + stepTitle + '...');
+
+            await addJobThreadEvent({
+                jobId,
+                eventType: 'tech_workflow_step',
+                message: 'TechOS step logged: ' + stepTitle + '.',
+            });
+
+            await refreshThread();
+        } catch (error: any) {
+            setMessage('Could not log workflow step: ' + (error.message || 'Unknown error'));
         } finally {
             setSaving(false);
         }
@@ -424,6 +449,23 @@ const workflowStepDescriptionStyle = {
     fontSize: 13,
     fontWeight: '700' as const,
     lineHeight: 18,
+};
+
+const workflowStepButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    backgroundColor: '#E5E7EB',
+    borderColor: '#CBD5E1',
+    borderRadius: 999,
+    borderWidth: 1,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+};
+
+const workflowStepButtonTextStyle = {
+    color: '#111827',
+    fontSize: 12,
+    fontWeight: '900' as const,
 };
 
 const headerRowStyle = {
