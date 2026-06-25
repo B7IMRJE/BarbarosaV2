@@ -217,39 +217,101 @@ export default function CompanyDashboardScreen() {
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 980 }}>
-                <Text
-                    onPress={() => router.push('/super-admin' as any)}
+            <View style={{ width: '100%', maxWidth: 1180 }}>
+                <View
                     style={{
-                        marginTop: 20,
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        gap: 18,
+                        marginTop: 16,
+                        marginBottom: 22,
+                    }}
+                >
+                    <View style={{ flex: 1 }}>
+                        <Text
+                            style={{
+                                color: '#64748B',
+                                fontSize: 13,
+                                fontWeight: '800',
+                                marginBottom: 8,
+                            }}
+                        >
+                            Super Admin / Company Configuration
+                        </Text>
+
+                        <Text
+                            style={{
+                                fontSize: 36,
+                                fontWeight: '900',
+                                color: '#071B33',
+                                letterSpacing: -0.4,
+                            }}
+                        >
+                            {company?.public_name || company?.name || 'Company'}
+                        </Text>
+
+                        <Text
+                            style={{
+                                color: '#64748B',
+                                marginTop: 8,
+                                lineHeight: 22,
+                                fontWeight: '700',
+                                maxWidth: 760,
+                            }}
+                        >
+                            Configure the brand, public card, service categories, ratings, colors, and company identity
+                            used by ManagementOS, TechOS, homeowner search, proposals, invoices, and receipts.
+                        </Text>
+                    </View>
+
+                    <TouchableOpacity
+                        onPress={() => router.push('/super-admin/companies' as any)}
+                        activeOpacity={0.82}
+                        style={{
+                            backgroundColor: '#FFFFFF',
+                            borderColor: '#DFE7F1',
+                            borderRadius: 16,
+                            borderWidth: 1,
+                            paddingHorizontal: 18,
+                            paddingVertical: 12,
+                        }}
+                    >
+                        <Text
+                            style={{
+                                color: '#071B33',
+                                fontSize: 14,
+                                fontWeight: '900',
+                            }}
+                        >
+                            Back to Companies
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                <View
+                    style={{
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: 22,
+                        borderWidth: 1,
+                        borderColor: '#DFE7F1',
+                        padding: 16,
                         marginBottom: 20,
-                        fontSize: 18,
-                        color: '#071B33',
-                        fontWeight: '900',
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 12,
                     }}
                 >
-                    Back
-                </Text>
-
-                <Text
-                    style={{
-                        fontSize: 34,
-                        fontWeight: '900',
-                        color: '#071B33',
-                    }}
-                >
-                    {company?.name || 'Company'}
-                </Text>
-
-                <Text
-                    style={{
-                        color: '#637083',
-                        marginTop: 8,
-                        marginBottom: 24,
-                    }}
-                >
-                    {company ? `Status: ${company.status || 'ACTIVE'}` : message}
-                </Text>
+                    <Text style={{ color: '#64748B', fontWeight: '900' }}>
+                        Status: {company?.status || 'ACTIVE'}
+                    </Text>
+                    <Text style={{ color: '#64748B', fontWeight: '900' }}>
+                        Slug: {company?.slug || 'none'}
+                    </Text>
+                    <Text style={{ color: '#64748B', fontWeight: '900' }}>
+                        Theme: {company?.theme_color || '#071B33'}
+                    </Text>
+                </View>
 
                 {company && (
                     <View
