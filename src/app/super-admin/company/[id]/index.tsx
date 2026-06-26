@@ -465,7 +465,7 @@ export default function CompanyDashboardScreen() {
         }
 
         if (card === 'Customers') {
-            router.push(`/super-admin/company/${id}/homeowners` as any);
+            router.push(`/super-admin/company/${id}/clients` as any);
             return;
         }
 
