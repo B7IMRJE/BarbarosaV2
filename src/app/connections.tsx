@@ -45,6 +45,15 @@ type CompanyRecord = {
 
 type ConnectionAction = 'approve' | 'decline';
 
+type ProviderConnectionRequestResult = {
+    connection_id: string;
+    preferred_provider_id: string;
+    company_property_client_id: string;
+    property_id: string;
+    company_id: string;
+    status: string;
+};
+
 const companyProfileSelect =
     'id, name, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, homeos_rating, homeos_rating_count, combined_experience_years, license_number, phone, website, short_description';
 
@@ -55,6 +64,9 @@ export default function ConnectionsScreen() {
     const [approvedCompanies, setApprovedCompanies] = useState<CompanyRecord[]>([]);
     const [approvedCompaniesLoading, setApprovedCompaniesLoading] = useState(true);
     const [approvedCompaniesError, setApprovedCompaniesError] = useState('');
+    const [providerRequestPropertyId, setProviderRequestPropertyId] = useState('');
+    const [providerRequestUnavailableReason, setProviderRequestUnavailableReason] = useState('');
+    const [providerActionCompanyId, setProviderActionCompanyId] = useState('');
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
     const [actionConnectionId, setActionConnectionId] = useState('');
@@ -93,6 +105,8 @@ export default function ConnectionsScreen() {
         if (userError || !user) {
             setLoading(false);
             setApprovedCompaniesLoading(false);
+            setProviderRequestPropertyId('');
+            setProviderRequestUnavailableReason('');
             router.replace('/auth/login' as any);
             return;
         }
@@ -107,6 +121,8 @@ export default function ConnectionsScreen() {
 
         if (membershipError) {
             setLoading(false);
+            setProviderRequestPropertyId('');
+            setProviderRequestUnavailableReason('');
             setMessage(`Could not load home memberships: ${membershipError.message}`);
             return;
         }
@@ -118,8 +134,20 @@ export default function ConnectionsScreen() {
         if (propertyIds.length === 0) {
             setConnections([]);
             setCompaniesById({});
+            setProviderRequestPropertyId('');
+            setProviderRequestUnavailableReason('Create your first home before requesting a provider connection.');
             setLoading(false);
             return;
+        }
+
+        if (propertyIds.length === 1) {
+            setProviderRequestPropertyId(propertyIds[0]);
+            setProviderRequestUnavailableReason('');
+        } else {
+            setProviderRequestPropertyId('');
+            setProviderRequestUnavailableReason(
+                'Provider requests need one active home. Multi-home provider selection is not implemented yet.'
+            );
         }
 
         const { data, error } = await supabase
@@ -231,10 +259,47 @@ export default function ConnectionsScreen() {
         setMessage(decision === 'approve' ? 'Connection approved.' : 'Connection declined.');
     }
 
-    function handleProviderSelection(company: CompanyRecord) {
+    async function handleProviderSelection(company: CompanyRecord) {
         const providerName = getCompanyDisplayName(company);
+
+        if (!providerRequestPropertyId) {
+            setMessage(
+                providerRequestUnavailableReason ||
+                    'Choose one active home before requesting a provider connection.'
+            );
+            return;
+        }
+
+        setProviderActionCompanyId(company.id);
+        setMessage(`Requesting connection with ${providerName}...`);
+
+        const { data, error } = await supabase.rpc('request_property_provider_connection', {
+            p_property_id: providerRequestPropertyId,
+            p_company_id: company.id,
+        });
+
+        setProviderActionCompanyId('');
+
+        if (error) {
+            if (isMissingProviderRequestRpc(error)) {
+                setMessage(
+                    'Provider selection storage is ready in the review SQL, but the database RPC has not been applied yet. Michael needs to apply 000_Project_Docs/570_Property_Provider_Connection_Request.sql before this button can save the request.'
+                );
+                return;
+            }
+
+            setMessage(`Could not request connection with ${providerName}: ${error.message}`);
+            return;
+        }
+
+        const result = firstRow<ProviderConnectionRequestResult>(data);
+        const status = normalizeStatus(result?.status || 'pending');
+
+        await loadConnections();
         setMessage(
-            `Provider selection storage is the next step. ${providerName} is not connected yet; generate a connection code or have the provider request access for now.`
+            status === 'connected'
+                ? `${providerName} is already connected and is now your preferred provider.`
+                : `Connection requested with ${providerName}. The provider relationship is now pending.`
         );
     }
 
@@ -272,6 +337,7 @@ export default function ConnectionsScreen() {
                     companies={approvedCompanies}
                     loading={approvedCompaniesLoading}
                     error={approvedCompaniesError}
+                    requestingCompanyId={providerActionCompanyId}
                     onRequestConnection={handleProviderSelection}
                 />
 
@@ -337,12 +403,14 @@ function ApprovedServiceProvidersSection({
     companies,
     loading,
     error,
+    requestingCompanyId,
     onRequestConnection,
 }: {
     companies: CompanyRecord[];
     loading: boolean;
     error: string;
-    onRequestConnection: (company: CompanyRecord) => void;
+    requestingCompanyId: string;
+    onRequestConnection: (company: CompanyRecord) => void | Promise<void>;
 }) {
     const { theme } = useTheme();
 
@@ -371,6 +439,7 @@ function ApprovedServiceProvidersSection({
                         <ApprovedServiceProviderCard
                             key={company.id}
                             company={company}
+                            requesting={requestingCompanyId === company.id}
                             onRequestConnection={onRequestConnection}
                         />
                     ))
@@ -382,10 +451,12 @@ function ApprovedServiceProvidersSection({
 
 function ApprovedServiceProviderCard({
     company,
+    requesting,
     onRequestConnection,
 }: {
     company: CompanyRecord;
-    onRequestConnection: (company: CompanyRecord) => void;
+    requesting: boolean;
+    onRequestConnection: (company: CompanyRecord) => void | Promise<void>;
 }) {
     const { theme } = useTheme();
     const [logoFailed, setLogoFailed] = useState(false);
@@ -481,8 +552,9 @@ function ApprovedServiceProviderCard({
             )}
 
             <ThemedButton
-                title="Request Connection"
+                title={requesting ? 'Requesting...' : 'Request Connection'}
                 onPress={() => onRequestConnection(company)}
+                disabled={requesting}
                 variant="secondary"
                 style={{ marginTop: 16 }}
             />
@@ -783,6 +855,30 @@ function formatPermissionItems(connection: PropertyConnection) {
             shared: !!connection.can_view_quotes,
         },
     ];
+}
+
+function firstRow<T>(data: unknown): T | null {
+    if (Array.isArray(data)) return (data[0] as T | undefined) || null;
+    return (data as T | null) || null;
+}
+
+function isMissingProviderRequestRpc(error: {
+    code?: string | null;
+    message?: string | null;
+    details?: string | null;
+    hint?: string | null;
+}) {
+    const code = String(error.code || '').trim().toUpperCase();
+    const text = [error.message, error.details, error.hint]
+        .map((value) => String(value || '').toLowerCase())
+        .join(' ');
+
+    return (
+        code === 'PGRST202' ||
+        code === '42883' ||
+        text.includes('request_property_provider_connection') ||
+        text.includes('could not find the function')
+    );
 }
 
 function getCompanyDisplayName(company?: CompanyRecord) {
