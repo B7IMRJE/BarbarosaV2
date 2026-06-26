@@ -34,6 +34,31 @@ type CompanyBrand = {
     short_description: string | null;
 };
 
+type CompanyClient = {
+    id: string;
+    company_id: string;
+    property_id: string;
+    property_connection_id: string | null;
+    display_name: string | null;
+    status: string | null;
+    source: string | null;
+    first_requested_at: string | null;
+    last_requested_at: string | null;
+    connected_at: string | null;
+    created_at: string | null;
+};
+
+type PropertyRecord = {
+    id: string;
+    name: string | null;
+    address: string | null;
+    address_line_1?: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+    postal_code?: string | null;
+};
+
 type PlatformProfile = {
     role?: string | null;
     is_platform_admin?: boolean | null;
@@ -75,9 +100,16 @@ export default function TechOSScreen() {
     const [membership, setMembership] = useState<CompanyUserAccess | null>(null);
     const [isPlatformAdminAccess, setIsPlatformAdminAccess] = useState(false);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
+    const [clients, setClients] = useState<CompanyClient[]>([]);
+    const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
+    const [clientMessage, setClientMessage] = useState('');
     const [message, setMessage] = useState('Loading TechOS...');
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
+    const visibleClients = useMemo(
+        () => clients.filter((client) => normalizeStatus(client.status) !== 'archived'),
+        [clients]
+    );
 
     useEffect(() => {
         loadTechOSAccess();
@@ -89,6 +121,9 @@ export default function TechOSScreen() {
         setMembership(null);
         setIsPlatformAdminAccess(false);
         setCompany(null);
+        setClients([]);
+        setPropertiesById({});
+        setClientMessage('');
 
         const {
             data: { user },
@@ -128,7 +163,7 @@ export default function TechOSScreen() {
         if (platformAdminCheck.isPlatformAdmin && requestedCompanyId) {
             setMembership(activeMembership);
             setIsPlatformAdminAccess(true);
-            await loadCompanyBrand(requestedCompanyId);
+            await Promise.all([loadCompanyBrand(requestedCompanyId), loadCompanyClients(requestedCompanyId)]);
             setCheckingAccess(false);
             setMessage('');
             return;
@@ -145,7 +180,7 @@ export default function TechOSScreen() {
         }
 
         setMembership(activeMembership);
-        await loadCompanyBrand(activeMembership.company_id);
+        await Promise.all([loadCompanyBrand(activeMembership.company_id), loadCompanyClients(activeMembership.company_id)]);
         setCheckingAccess(false);
         setMessage('');
     }
@@ -166,6 +201,59 @@ export default function TechOSScreen() {
         }
 
         setCompany((data || null) as CompanyBrand | null);
+    }
+
+    async function loadCompanyClients(companyIdToLoad: string) {
+        setClientMessage('');
+
+        const { data, error } = await supabase
+            .from('company_property_clients')
+            .select(
+                'id, company_id, property_id, property_connection_id, display_name, status, source, first_requested_at, last_requested_at, connected_at, created_at'
+            )
+            .eq('company_id', companyIdToLoad)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            setClients([]);
+            setPropertiesById({});
+            setClientMessage(`Could not load assigned clients: ${error.message}`);
+            return;
+        }
+
+        const loadedClients = (data || []) as CompanyClient[];
+        setClients(loadedClients);
+        await loadClientProperties(loadedClients);
+    }
+
+    async function loadClientProperties(loadedClients: CompanyClient[]) {
+        const propertyIds = Array.from(new Set(loadedClients.map((client) => client.property_id).filter(Boolean)));
+
+        if (propertyIds.length === 0) {
+            setPropertiesById({});
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('properties')
+            .select('id, name, address, address_line_1, city, state, zip, postal_code')
+            .in('id', propertyIds);
+
+        if (error) {
+            setPropertiesById({});
+            setClientMessage(`Clients loaded, but basic home details could not be loaded: ${error.message}`);
+            return;
+        }
+
+        const nextPropertiesById = ((data || []) as PropertyRecord[]).reduce<Record<string, PropertyRecord>>(
+            (accumulator, property) => {
+                accumulator[property.id] = property;
+                return accumulator;
+            },
+            {}
+        );
+
+        setPropertiesById(nextPropertiesById);
     }
 
     if (checkingAccess) {
@@ -250,15 +338,28 @@ export default function TechOSScreen() {
 
                 <View style={summaryGridStyle}>
                     <SummaryCard title="My Jobs" value="0" note="Job assignment is not connected yet." />
-                    <SummaryCard title="Assigned Clients" value="0" note="Client assignment will connect after access rules are ready." />
+                    <SummaryCard
+                        title="Assigned Clients"
+                        value={String(visibleClients.length)}
+                        note="Homes that selected this company as a provider."
+                    />
                     <SummaryCard title="Open Assessments" value="0" note="Assessment drafts will live here." />
                 </View>
 
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Technician Workflow</Text>
                 <View style={workflowGridStyle}>
-                    {workflowCards.map((card) => (
-                        <WorkflowCard key={card.title} title={card.title} description={card.description} />
-                    ))}
+                    {workflowCards.map((card) =>
+                        card.title === 'Assigned Clients' ? (
+                            <AssignedClientsCard
+                                key={card.title}
+                                clients={visibleClients}
+                                propertiesById={propertiesById}
+                                message={clientMessage}
+                            />
+                        ) : (
+                            <WorkflowCard key={card.title} title={card.title} description={card.description} />
+                        )
+                    )}
                 </View>
 
                 <ThemedCard style={nextStepCardStyle}>
@@ -342,6 +443,69 @@ function WorkflowCard({ title, description }: { title: string; description: stri
     );
 }
 
+function AssignedClientsCard({
+    clients,
+    propertiesById,
+    message,
+}: {
+    clients: CompanyClient[];
+    propertiesById: Record<string, PropertyRecord>;
+    message: string;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={assignedClientsCardStyle}>
+            <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>Assigned Clients</Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                Homeowner-selected company clients with only basic home profile details.
+            </Text>
+
+            {!!message ? (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+            ) : clients.length === 0 ? (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>No assigned clients yet</Text>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        Homes will appear here after a homeowner chooses this company as a provider.
+                    </Text>
+                </View>
+            ) : (
+                <View style={clientListStyle}>
+                    {clients.map((client) => (
+                        <ClientRow key={client.id} client={client} property={propertiesById[client.property_id]} />
+                    ))}
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
+function ClientRow({ client, property }: { client: CompanyClient; property?: PropertyRecord }) {
+    const { theme } = useTheme();
+    const displayName = client.display_name || property?.name || 'Home';
+    const linkedAt = client.connected_at || client.first_requested_at || client.created_at;
+    const address = formatAddress(property);
+
+    return (
+        <View style={[clientRowStyle, { borderColor: theme.colors.border }]}>
+            <Text style={[clientNameStyle, { color: theme.colors.text }]}>{displayName}</Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Status: {formatStatus(client.status)}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                {address || 'Home profile details are not available yet.'}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Source: {formatSource(client.source)}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Linked: {formatDate(linkedAt)}
+            </Text>
+        </View>
+    );
+}
+
 function isTechOSRole(role?: string | null) {
     return TECHOS_ROLES.includes(normalizeRole(role) as CompanyRole);
 }
@@ -388,6 +552,50 @@ function formatLabel(value?: string | null) {
         .filter(Boolean)
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
         .join(' ');
+}
+
+function formatAddress(property?: PropertyRecord) {
+    if (!property) return '';
+
+    const street = property.address || property.address_line_1;
+    const postalCode = property.zip || property.postal_code;
+
+    return [street, property.city, property.state, postalCode].filter(Boolean).join(', ');
+}
+
+function formatStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    if (normalized === 'active') return 'Active';
+    if (normalized === 'pending') return 'Pending';
+    if (normalized === 'archived') return 'Archived';
+
+    return normalized ? formatLabel(normalized) : 'Unknown';
+}
+
+function formatSource(source?: string | null) {
+    const normalized = normalizeStatus(source);
+
+    if (normalized === 'homeowner_provider_request') return 'Homeowner selected';
+    if (normalized === 'connection_code') return 'Connection code';
+    if (normalized === 'manual') return 'Manual';
+
+    return normalized ? formatLabel(normalized) : 'Not specified';
+}
+
+function formatDate(value?: string | null) {
+    if (!value) return 'Not available';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return 'Not available';
+    }
+
+    return date.toLocaleDateString();
+}
+
+function normalizeStatus(status?: string | null) {
+    return String(status || '').trim().toLowerCase();
 }
 
 function firstParam(value?: string | string[]) {
@@ -551,10 +759,46 @@ const workflowCardStyle = {
     minWidth: 280,
 };
 
+const assignedClientsCardStyle = {
+    flex: 2,
+    minHeight: 170,
+    minWidth: 320,
+};
+
 const workflowTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
     marginBottom: 8,
+};
+
+const clientListStyle = {
+    gap: 10,
+    marginTop: 14,
+};
+
+const clientRowStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+};
+
+const emptyClientStateStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 14,
+    padding: 12,
+};
+
+const clientNameStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const clientMetaTextStyle = {
+    fontSize: 13,
+    fontWeight: '800' as const,
+    lineHeight: 19,
+    marginTop: 5,
 };
 
 const comingSoonStyle = {
