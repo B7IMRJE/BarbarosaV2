@@ -26,6 +26,10 @@ begin
         raise exception 'public.companies is required before provider connection requests can be installed.';
     end if;
 
+    if to_regclass('public.company_users') is null then
+        raise exception 'public.company_users is required before provider connection requests can be installed.';
+    end if;
+
     if to_regclass('public.property_connections') is null then
         raise exception 'public.property_connections is required before provider connection requests can be installed.';
     end if;
@@ -38,10 +42,6 @@ begin
         raise exception 'public.homeos_can_read_property_record(uuid) is required before provider connection requests can be installed.';
     end if;
 
-    if to_regprocedure('public.is_active_company_member(uuid)') is null then
-        raise exception 'public.is_active_company_member(uuid) is required before provider connection requests can be installed.';
-    end if;
-
     if not exists (
         select 1
         from pg_constraint
@@ -50,8 +50,63 @@ begin
     ) then
         raise exception 'property_connections_property_id_company_id_key is required before provider connection requests can be installed.';
     end if;
+
+    if not exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'company_users'
+          and column_name = 'company_id'
+    ) then
+        raise exception 'public.company_users.company_id is required before provider connection requests can be installed.';
+    end if;
+
+    if not exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'company_users'
+          and column_name = 'auth_user_id'
+    ) then
+        raise exception 'public.company_users.auth_user_id is required before provider connection requests can be installed.';
+    end if;
+
+    if not exists (
+        select 1
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'company_users'
+          and column_name = 'status'
+    ) then
+        raise exception 'public.company_users.status is required before provider connection requests can be installed.';
+    end if;
 end
 $$;
+
+create or replace function public.is_active_company_member(p_company_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+    select public.homeos_is_platform_admin()
+        or (
+            auth.uid() is not null
+            and p_company_id is not null
+            and exists (
+                select 1
+                from public.company_users as company_user
+                where company_user.company_id = p_company_id
+                  and company_user.auth_user_id = auth.uid()
+                  and lower(btrim(coalesce(company_user.status, ''))) = 'active'
+            )
+        );
+$$;
+
+revoke all on function public.is_active_company_member(uuid) from public;
+revoke all on function public.is_active_company_member(uuid) from anon;
+grant execute on function public.is_active_company_member(uuid) to authenticated;
 
 alter table public.property_connections
     add column if not exists requested_by_user_id uuid null,
@@ -528,6 +583,7 @@ commit;
 
 select
     'property_provider_connection_request_review' as section,
+    to_regprocedure('public.is_active_company_member(uuid)') is not null as active_company_member_helper_exists,
     to_regclass('public.property_preferred_providers') is not null as preferred_provider_table_exists,
     to_regclass('public.company_property_clients') is not null as company_property_clients_table_exists,
     to_regprocedure('public.request_property_provider_connection(uuid,uuid)') is not null as request_rpc_exists,
