@@ -294,17 +294,34 @@ function ClientCard({
 }
 
 async function loadPlatformAdminStatus(userId: string) {
-    const { data } = await supabase
+    const primaryQuery = await supabase
         .from('profiles')
         .select('role, is_platform_admin')
         .eq('id', userId)
-        .maybeSingle();
+        .limit(1);
 
-    const profile = (data || null) as PlatformProfile | null;
+    if (!primaryQuery.error) {
+        return {
+            isPlatformAdmin: isPlatformAdminProfile((primaryQuery.data || [])[0] as PlatformProfile | undefined),
+        };
+    }
+
+    const fallbackQuery = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .limit(1);
 
     return {
-        isPlatformAdmin: profile?.is_platform_admin === true || profile?.role === 'super_admin',
+        isPlatformAdmin: isPlatformAdminProfile((fallbackQuery.data || [])[0] as PlatformProfile | undefined),
     };
+}
+
+function isPlatformAdminProfile(profile?: PlatformProfile | null) {
+    return (
+        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
+        profile?.is_platform_admin === true
+    );
 }
 
 function formatAddress(property?: PropertyRecord) {

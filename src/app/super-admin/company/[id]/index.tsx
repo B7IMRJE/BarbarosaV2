@@ -44,6 +44,7 @@ type CompanyBrandForm = {
 };
 
 type BrandColorKey = 'primaryColor' | 'secondaryColor' | 'accentColor';
+type ConfigSectionKey = 'identity' | 'theme' | 'services';
 
 const repipeOneLogoAsset = require('../../../../../assets/company-icons/repipe-1.jpg');
 
@@ -125,20 +126,13 @@ const brandThemePresets = [
     },
 ];
 const cards = [
-    'Staff',
-    'Technicians',
-    'Sales',
-    'Managers',
-    'Customers',
-    'Connections',
-    'Properties',
-    'Jobs',
-    'Quotes',
-    'Dispatch',
-    'Emergency',
-    'Partners',
-    'Reports',
-    'Settings',
+    'Company Profile / Identity',
+    'Theme & Brand Colors',
+    'Services & Trust Profile',
+    'Customers / Clients',
+    'Team / Technicians',
+    'TechOS',
+    'ManagementOS',
 ];
 
 export default function CompanyDashboardScreen() {
@@ -148,6 +142,7 @@ export default function CompanyDashboardScreen() {
     const [message, setMessage] = useState('Loading company...');
     const [savingBrand, setSavingBrand] = useState(false);
     const [extractedLogoColors, setExtractedLogoColors] = useState<string[]>([]);
+    const [expandedConfigSection, setExpandedConfigSection] = useState<ConfigSectionKey | null>(null);
 
     useEffect(() => {
         loadCompany();
@@ -459,33 +454,56 @@ export default function CompanyDashboardScreen() {
         }
     }
     function openModule(card: string) {
-        if (card === 'Staff') {
+        if (card === 'Company Profile / Identity') {
+            toggleConfigSection('identity');
+            return;
+        }
+
+        if (card === 'Theme & Brand Colors') {
+            toggleConfigSection('theme');
+            return;
+        }
+
+        if (card === 'Services & Trust Profile') {
+            toggleConfigSection('services');
+            return;
+        }
+
+        if (card === 'Team / Technicians') {
             router.push(`/super-admin/company/${id}/users` as any);
             return;
         }
 
-        if (card === 'Customers') {
+        if (card === 'Customers / Clients') {
             router.push(`/super-admin/company/${id}/clients` as any);
             return;
         }
 
-        if (card === 'Properties') {
-            router.push(`/super-admin/company/${id}/properties` as any);
+        if (card === 'ManagementOS') {
+            router.push(`/super-admin/company/${id}/connections` as any);
             return;
         }
 
-        if (card === 'Connections') {
-            router.push(`/super-admin/company/${id}/connections` as any);
+        if (card === 'TechOS') {
+            alert('TechOS workspace modules come next.');
             return;
         }
 
         alert(`${card} module comes next.`);
     }
 
+    function toggleConfigSection(section: ConfigSectionKey) {
+        setExpandedConfigSection((current) => (current === section ? null : section));
+    }
+
     const previewName = brandForm.publicName || company?.name || 'Company';
     const previewDba = brandForm.dbaName || 'DBA not set';
     const previewCategories = parseCategories(brandForm.serviceCategories);
     const logoCanPreview = brandForm.logoUrl.trim().startsWith('http');
+    const brandPrimary = brandForm.primaryColor || '#071B33';
+    const brandSecondary = brandForm.secondaryColor || '#FFFFFF';
+    const brandAccent = brandForm.accentColor || '#0B5FFF';
+    const brandHeaderText = getReadableColor(brandPrimary);
 
     return (
         <ScrollView
@@ -499,131 +517,246 @@ export default function CompanyDashboardScreen() {
             <View style={{ width: '100%', maxWidth: 1180 }}>
                 <View
                     style={{
-                        flexDirection: 'row',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-start',
-                        gap: 18,
+                        backgroundColor: brandPrimary,
+                        borderRadius: 28,
+                        borderWidth: 1,
+                        borderColor: brandAccent,
+                        padding: 22,
                         marginTop: 16,
                         marginBottom: 22,
                     }}
                 >
-                    <View style={{ flex: 1 }}>
-                        <Text
-                            style={{
-                                color: '#64748B',
-                                fontSize: 13,
-                                fontWeight: '800',
-                                marginBottom: 8,
-                            }}
-                        >
-                            Super Admin / Company Configuration
-                        </Text>
-
-                        <Text
-                            style={{
-                                fontSize: 36,
-                                fontWeight: '900',
-                                color: '#071B33',
-                                letterSpacing: -0.4,
-                            }}
-                        >
-                            {company?.public_name || company?.name || 'Company'}
-                        </Text>
-
-                        <Text
-                            style={{
-                                color: '#64748B',
-                                marginTop: 8,
-                                lineHeight: 22,
-                                fontWeight: '700',
-                                maxWidth: 760,
-                            }}
-                        >
-                            Configure the brand, public card, service categories, ratings, colors, and company identity
-                            used by ManagementOS, TechOS, homeowner search, proposals, invoices, and receipts.
-                        </Text>
-                    </View>
-
-                    <TouchableOpacity
-                        onPress={() => router.push('/super-admin/companies' as any)}
-                        activeOpacity={0.82}
+                    <View
                         style={{
-                            backgroundColor: '#FFFFFF',
-                            borderColor: '#DFE7F1',
-                            borderRadius: 16,
-                            borderWidth: 1,
-                            paddingHorizontal: 18,
-                            paddingVertical: 12,
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: 18,
+                            marginBottom: 22,
                         }}
                     >
-                        <Text
+                        <View style={{ flex: 1 }}>
+                            <Text
+                                style={{
+                                    color: brandHeaderText,
+                                    fontSize: 13,
+                                    fontWeight: '900',
+                                    marginBottom: 8,
+                                    opacity: 0.78,
+                                }}
+                            >
+                                Company Management Home
+                            </Text>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+                                {logoCanPreview ? (
+                                    <Image
+                                        source={{ uri: brandForm.logoUrl.trim() }}
+                                        style={{
+                                            width: 86,
+                                            height: 86,
+                                            borderRadius: 24,
+                                            backgroundColor: brandSecondary,
+                                        }}
+                                    />
+                                ) : (
+                                    <View
+                                        style={{
+                                            width: 86,
+                                            height: 86,
+                                            borderRadius: 24,
+                                            backgroundColor: brandSecondary,
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                        }}
+                                    >
+                                        <Text
+                                            style={{
+                                                color: getReadableColor(brandSecondary),
+                                                fontSize: 38,
+                                                fontWeight: '900',
+                                            }}
+                                        >
+                                            {previewName.slice(0, 1).toUpperCase()}
+                                        </Text>
+                                    </View>
+                                )}
+
+                                <View style={{ flex: 1, minWidth: 260 }}>
+                                    <Text
+                                        style={{
+                                            color: brandHeaderText,
+                                            fontSize: 36,
+                                            fontWeight: '900',
+                                        }}
+                                    >
+                                        {previewName}
+                                    </Text>
+                                    <Text
+                                        style={{
+                                            color: brandAccent,
+                                            fontSize: 16,
+                                            fontWeight: '900',
+                                            marginTop: 4,
+                                        }}
+                                    >
+                                        {previewDba}
+                                    </Text>
+                                    <Text
+                                        numberOfLines={2}
+                                        style={{
+                                            color: brandHeaderText,
+                                            fontSize: 14,
+                                            fontWeight: '700',
+                                            lineHeight: 20,
+                                            marginTop: 8,
+                                            opacity: 0.84,
+                                        }}
+                                    >
+                                        {brandForm.shortDescription || 'Company profile details and customer-facing brand settings.'}
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        <TouchableOpacity
+                            onPress={() => router.push('/super-admin/companies' as any)}
+                            activeOpacity={0.82}
                             style={{
-                                color: '#071B33',
-                                fontSize: 14,
-                                fontWeight: '900',
+                                backgroundColor: brandSecondary,
+                                borderRadius: 16,
+                                paddingHorizontal: 18,
+                                paddingVertical: 12,
                             }}
                         >
-                            Back to Companies
-                        </Text>
-                    </TouchableOpacity>
+                            <Text
+                                style={{
+                                    color: getReadableColor(brandSecondary),
+                                    fontSize: 14,
+                                    fontWeight: '900',
+                                }}
+                            >
+                                Back to Companies
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            gap: 10,
+                        }}
+                    >
+                        <BrandInfoPill label="Status" value={company?.status || 'Active'} textColor={brandHeaderText} />
+                        <BrandInfoPill label="License" value={brandForm.licenseNumber || 'Not set'} textColor={brandHeaderText} />
+                        <BrandInfoPill
+                            label="Experience"
+                            value={`${brandForm.combinedExperienceYears || '0'} years`}
+                            textColor={brandHeaderText}
+                        />
+                        {(previewCategories.length ? previewCategories.slice(0, 4) : ['Services not set']).map((category) => (
+                            <BrandInfoPill key={category} label="Service" value={category} textColor={brandHeaderText} />
+                        ))}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18 }}>
+                        {[brandPrimary, brandSecondary, brandAccent].map((color) => (
+                            <View
+                                key={color}
+                                style={{
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 999,
+                                    backgroundColor: color,
+                                    borderColor: 'rgba(255,255,255,0.7)',
+                                    borderWidth: 1,
+                                }}
+                            />
+                        ))}
+                    </View>
                 </View>
 
                 <View
                     style={{
                         backgroundColor: '#FFFFFF',
-                        borderRadius: 22,
-                        borderWidth: 1,
                         borderColor: '#DFE7F1',
-                        padding: 16,
-                        marginBottom: 20,
-                        flexDirection: 'row',
-                        flexWrap: 'wrap',
-                        gap: 12,
+                        borderRadius: 24,
+                        borderWidth: 1,
+                        padding: 20,
+                        marginBottom: 22,
                     }}
                 >
                     <View
                         style={{
-                            backgroundColor: '#ECFDF3',
-                            borderRadius: 999,
-                            paddingHorizontal: 12,
-                            paddingVertical: 8,
+                            flexDirection: 'row',
+                            justifyContent: 'space-between',
+                            alignItems: 'flex-start',
+                            gap: 16,
+                            marginBottom: 18,
                         }}
                     >
-                        <Text style={{ color: '#047857', fontSize: 12, fontWeight: '900' }}>
-                            {company?.status || 'ACTIVE'}
-                        </Text>
-                    </View>
-                    <Text style={{ color: '#64748B', fontWeight: '900', alignSelf: 'center' }}>
-                        Company brand profile
-                    </Text>
-                </View>
+                        <View style={{ flex: 1 }}>
+                            <Text
+                                style={{
+                                    fontSize: 22,
+                                    fontWeight: '900',
+                                    color: '#071B33',
+                                }}
+                            >
+                                Company Management
+                            </Text>
+                            <Text
+                                style={{
+                                    color: '#64748B',
+                                    fontWeight: '700',
+                                    lineHeight: 20,
+                                    marginTop: 6,
+                                }}
+                            >
+                                Manage the company profile, customers, team, and operating workspaces from one place.
+                            </Text>
+                        </View>
 
-                {company && (
-                    <View
-                        style={{
-                            backgroundColor: '#FFFFFF',
-                            borderRadius: 20,
-                            padding: 18,
-                            borderWidth: 1,
-                            borderColor: '#E3E8EF',
-                            marginBottom: 20,
-                        }}
-                    >
-                        <Text
+                        <View
                             style={{
-                                fontSize: 18,
-                                fontWeight: '900',
-                                color: '#071B33',
+                                backgroundColor: '#EEF4FF',
+                                borderRadius: 999,
+                                paddingHorizontal: 12,
+                                paddingVertical: 8,
                             }}
                         >
-                            Company Profile
-                        </Text>
-
-                        <Text style={{ color: '#64748B', marginTop: 8, lineHeight: 20, fontWeight: '700' }}>
-                            This controls how the company appears to homeowners, staff, proposals, receipts, and company selection screens.
-                        </Text>
+                            <Text style={{ color: brandAccent, fontSize: 12, fontWeight: '900' }}>
+                                {cards.length} core modules
+                            </Text>
+                        </View>
                     </View>
-                )}
+
+                    <View
+                        style={{
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            gap: 12,
+                        }}
+                    >
+                        {cards.map((card) => (
+                            <CompanyModuleCard
+                                key={card}
+                                title={card}
+                                description={getModuleDescription(card)}
+                                isExpanded={
+                                    (card === 'Company Profile / Identity' && expandedConfigSection === 'identity') ||
+                                    (card === 'Theme & Brand Colors' && expandedConfigSection === 'theme') ||
+                                    (card === 'Services & Trust Profile' && expandedConfigSection === 'services')
+                                }
+                                primaryColor={brandPrimary}
+                                accentColor={brandAccent}
+                                onPress={() => openModule(card)}
+                            />
+                        ))}
+                    </View>
+                </View>
 
                 {company && (
                     <View
@@ -644,7 +777,7 @@ export default function CompanyDashboardScreen() {
                                 marginBottom: 8,
                             }}
                         >
-                            Company Brand / Profile Configuration
+                            Company Configuration Editor
                         </Text>
 
                         <Text
@@ -654,8 +787,8 @@ export default function CompanyDashboardScreen() {
                                 marginBottom: 18,
                             }}
                         >
-                            This controls how the company appears in ManagementOS, TechOS, homeowner search,
-                            company cards, proposals, invoices, and future review screens.
+                            Open a management section above or use the section headers below to update the company
+                            profile, theme, services, trust details, and contact information.
                         </Text>
 
                         <View
@@ -845,9 +978,12 @@ export default function CompanyDashboardScreen() {
                                 </View>
                             </View>
                         </View>
-                        <ConfigSection
-                            title="Identity"
+                        <CollapsibleConfigSection
+                            title="Company Profile / Identity"
                             description="Public-facing company name, DBA, logo link, and short description."
+                            expanded={expandedConfigSection === 'identity'}
+                            accentColor={brandAccent}
+                            onToggle={() => toggleConfigSection('identity')}
                         >
                             <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
                             <Field label="DBA Name" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
@@ -903,11 +1039,14 @@ export default function CompanyDashboardScreen() {
                                 </TouchableOpacity>
                             </View>
                             <Field label="Short Description" value={brandForm.shortDescription} onChangeText={(value) => updateBrandField('shortDescription', value)} multiline />
-                        </ConfigSection>
+                        </CollapsibleConfigSection>
 
-                        <ConfigSection
-                            title="Brand Colors"
+                        <CollapsibleConfigSection
+                            title="Theme & Brand Colors"
                             description="Company colors used for company cards, TechOS, proposals, invoices, and receipts."
+                            expanded={expandedConfigSection === 'theme'}
+                            accentColor={brandAccent}
+                            onToggle={() => toggleConfigSection('theme')}
                         >
                             <Field label="Primary Color" value={brandForm.primaryColor} onChangeText={(value) => updateBrandField('primaryColor', value)} />
                             <Field label="Secondary Color" value={brandForm.secondaryColor} onChangeText={(value) => updateBrandField('secondaryColor', value)} />
@@ -1008,11 +1147,14 @@ export default function CompanyDashboardScreen() {
                                     onSelect={(color) => updateBrandField('accentColor', color)}
                                 />
                             </View>
-                        </ConfigSection>
+                        </CollapsibleConfigSection>
 
-                        <ConfigSection
+                        <CollapsibleConfigSection
                             title="Services / Trust Profile"
                             description="Ratings, service categories, license details, and experience shown to homeowners."
+                            expanded={expandedConfigSection === 'services'}
+                            accentColor={brandAccent}
+                            onToggle={() => toggleConfigSection('services')}
                         >
                             <Field label="Service Categories" value={brandForm.serviceCategories} onChangeText={(value) => updateBrandField('serviceCategories', value)} />
                             <CategoryChipSelector
@@ -1023,15 +1165,18 @@ export default function CompanyDashboardScreen() {
                             <Field label="Rating Count" value={brandForm.homeosRatingCount} onChangeText={(value) => updateBrandField('homeosRatingCount', value)} />
                             <Field label="Combined Experience Years" value={brandForm.combinedExperienceYears} onChangeText={(value) => updateBrandField('combinedExperienceYears', value)} />
                             <Field label="License Number" value={brandForm.licenseNumber} onChangeText={(value) => updateBrandField('licenseNumber', value)} />
-                        </ConfigSection>
+                        </CollapsibleConfigSection>
 
-                        <ConfigSection
+                        <CollapsibleConfigSection
                             title="Contact"
                             description="Contact information shown on company cards and customer-facing screens."
+                            expanded={expandedConfigSection === 'identity'}
+                            accentColor={brandAccent}
+                            onToggle={() => toggleConfigSection('identity')}
                         >
                             <Field label="Phone" value={brandForm.phone} onChangeText={(value) => updateBrandField('phone', value)} />
                             <Field label="Website" value={brandForm.website} onChangeText={(value) => updateBrandField('website', value)} />
-                        </ConfigSection>
+                        </CollapsibleConfigSection>
 
                         <View
                             style={{
@@ -1087,129 +1232,131 @@ export default function CompanyDashboardScreen() {
                     </View>
                 )}
 
-                <View
-                    style={{
-                        backgroundColor: '#FFFFFF',
-                        borderColor: '#DFE7F1',
-                        borderRadius: 24,
-                        borderWidth: 1,
-                        padding: 20,
-                    }}
-                >
-                    <View
-                        style={{
-                            flexDirection: 'row',
-                            justifyContent: 'space-between',
-                            alignItems: 'flex-start',
-                            gap: 16,
-                            marginBottom: 18,
-                        }}
-                    >
-                        <View style={{ flex: 1 }}>
-                            <Text
-                                style={{
-                                    fontSize: 22,
-                                    fontWeight: '900',
-                                    color: '#071B33',
-                                }}
-                            >
-                                Company Admin Modules
-                            </Text>
-                            <Text
-                                style={{
-                                    color: '#64748B',
-                                    fontWeight: '700',
-                                    lineHeight: 20,
-                                    marginTop: 6,
-                                }}
-                            >
-                                Manage the operational areas connected to this company account.
-                            </Text>
-                        </View>
-
-                        <View
-                            style={{
-                                backgroundColor: '#EEF4FF',
-                                borderRadius: 999,
-                                paddingHorizontal: 12,
-                                paddingVertical: 8,
-                            }}
-                        >
-                            <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
-                                {cards.length} modules
-                            </Text>
-                        </View>
-                    </View>
-
-                    <View
-                        style={{
-                            flexDirection: 'row',
-                            flexWrap: 'wrap',
-                            gap: 12,
-                        }}
-                    >
-                        {cards.map((card) => (
-                            <TouchableOpacity
-                                key={card}
-                                onPress={() => openModule(card)}
-                                activeOpacity={0.82}
-                                style={{
-                                    width: '31%',
-                                    minWidth: 240,
-                                    minHeight: 82,
-                                    backgroundColor: '#F8FAFC',
-                                    borderRadius: 18,
-                                    padding: 14,
-                                    borderWidth: 1,
-                                    borderColor: '#E3E8EF',
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    gap: 12,
-                                }}
-                            >
-                                <View
-                                    style={{
-                                        width: 42,
-                                        height: 42,
-                                        borderRadius: 14,
-                                        backgroundColor: '#EEF4FF',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                    }}
-                                >
-                                    <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
-                                        {card.slice(0, 2).toUpperCase()}
-                                    </Text>
-                                </View>
-
-                                <View style={{ flex: 1 }}>
-                                    <Text
-                                        style={{
-                                            fontSize: 16,
-                                            fontWeight: '900',
-                                            color: '#071B33',
-                                        }}
-                                    >
-                                        {card}
-                                    </Text>
-                                    <Text
-                                        style={{
-                                            color: '#64748B',
-                                            fontSize: 12,
-                                            fontWeight: '700',
-                                            marginTop: 4,
-                                        }}
-                                    >
-                                        Open {card.toLowerCase()} tools
-                                    </Text>
-                                </View>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
             </View>
         </ScrollView>
     );
+}
+
+function BrandInfoPill({ label, value, textColor }: { label: string; value: string; textColor: string }) {
+    return (
+        <View
+            style={{
+                backgroundColor: 'rgba(255,255,255,0.14)',
+                borderColor: 'rgba(255,255,255,0.28)',
+                borderRadius: 999,
+                borderWidth: 1,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+            }}
+        >
+            <Text style={{ color: textColor, fontSize: 11, fontWeight: '800', opacity: 0.72 }}>
+                {label}
+            </Text>
+            <Text style={{ color: textColor, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
+                {value}
+            </Text>
+        </View>
+    );
+}
+
+function CompanyModuleCard({
+    title,
+    description,
+    isExpanded,
+    primaryColor,
+    accentColor,
+    onPress,
+}: {
+    title: string;
+    description: string;
+    isExpanded: boolean;
+    primaryColor: string;
+    accentColor: string;
+    onPress: () => void;
+}) {
+    return (
+        <TouchableOpacity
+            onPress={onPress}
+            activeOpacity={0.82}
+            style={{
+                width: '31%',
+                minWidth: 240,
+                minHeight: 118,
+                backgroundColor: isExpanded ? primaryColor : '#F8FAFC',
+                borderRadius: 18,
+                padding: 16,
+                borderWidth: 1,
+                borderColor: isExpanded ? accentColor : '#E3E8EF',
+                gap: 12,
+            }}
+        >
+            <View
+                style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 15,
+                    backgroundColor: isExpanded ? accentColor : '#EEF4FF',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}
+            >
+                <Text
+                    style={{
+                        color: getReadableColor(isExpanded ? accentColor : '#EEF4FF'),
+                        fontSize: 12,
+                        fontWeight: '900',
+                    }}
+                >
+                    {getModuleInitials(title)}
+                </Text>
+            </View>
+
+            <View>
+                <Text
+                    style={{
+                        fontSize: 16,
+                        fontWeight: '900',
+                        color: isExpanded ? getReadableColor(primaryColor) : '#071B33',
+                    }}
+                >
+                    {title}
+                </Text>
+                <Text
+                    style={{
+                        color: isExpanded ? getReadableColor(primaryColor) : '#64748B',
+                        fontSize: 12,
+                        fontWeight: '700',
+                        lineHeight: 18,
+                        marginTop: 5,
+                        opacity: isExpanded ? 0.82 : 1,
+                    }}
+                >
+                    {description}
+                </Text>
+            </View>
+        </TouchableOpacity>
+    );
+}
+
+function getModuleInitials(title: string) {
+    return title
+        .split(/[ /]+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((word) => word.slice(0, 1).toUpperCase())
+        .join('');
+}
+
+function getModuleDescription(title: string) {
+    if (title === 'Company Profile / Identity') return 'Names, logo, description, phone, and website.';
+    if (title === 'Theme & Brand Colors') return 'Primary, secondary, accent colors, logo extraction, and presets.';
+    if (title === 'Services & Trust Profile') return 'Service categories, license, rating, and experience details.';
+    if (title === 'Customers / Clients') return 'Homes that selected this company as a preferred provider.';
+    if (title === 'Team / Technicians') return 'Company staff, managers, technicians, and invitations.';
+    if (title === 'TechOS') return 'Technician-facing service operations workspace.';
+    if (title === 'ManagementOS') return 'Company connections and management workflow.';
+
+    return `Open ${title.toLowerCase()} tools.`;
 }
 
 function getFileExtension(fileName: string) {
@@ -1654,13 +1801,19 @@ function rgbToHsl(r: number, g: number, b: number) {
 
     return { h: h / 6, s, l };
 }
-function ConfigSection({
+function CollapsibleConfigSection({
     title,
     description,
+    expanded,
+    accentColor,
+    onToggle,
     children,
 }: {
     title: string;
     description: string;
+    expanded: boolean;
+    accentColor: string;
+    onToggle: () => void;
     children: React.ReactNode;
 }) {
     return (
@@ -1674,15 +1827,50 @@ function ConfigSection({
                 padding: 16,
             }}
         >
-            <Text style={{ color: '#071B33', fontSize: 18, fontWeight: '900', marginBottom: 4 }}>
-                {title}
-            </Text>
-            <Text style={{ color: '#64748B', fontWeight: '700', lineHeight: 20, marginBottom: 14 }}>
-                {description}
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                {children}
-            </View>
+            <TouchableOpacity
+                onPress={onToggle}
+                activeOpacity={0.82}
+                style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                }}
+            >
+                <View style={{ flex: 1 }}>
+                    <Text style={{ color: '#071B33', fontSize: 18, fontWeight: '900', marginBottom: 4 }}>
+                        {title}
+                    </Text>
+                    <Text style={{ color: '#64748B', fontWeight: '700', lineHeight: 20 }}>
+                        {description}
+                    </Text>
+                </View>
+                <View
+                    style={{
+                        backgroundColor: expanded ? accentColor : '#FFFFFF',
+                        borderColor: expanded ? accentColor : '#CBD5E1',
+                        borderRadius: 999,
+                        borderWidth: 1,
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                    }}
+                >
+                    <Text
+                        style={{
+                            color: expanded ? getReadableColor(accentColor) : '#071B33',
+                            fontSize: 12,
+                            fontWeight: '900',
+                        }}
+                    >
+                        {expanded ? 'Hide' : 'Edit'}
+                    </Text>
+                </View>
+            </TouchableOpacity>
+            {expanded && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
+                    {children}
+                </View>
+            )}
         </View>
     );
 }
