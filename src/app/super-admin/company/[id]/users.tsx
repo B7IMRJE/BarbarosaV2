@@ -260,6 +260,21 @@ export default function CompanyUsersScreen() {
         setMessage('Invitation revoked.');
     }
 
+    function prepareTechnicianInvite() {
+        setRole('technician');
+        setMessage('Technician invite selected. Enter the technician name and email, then create the invitation.');
+    }
+
+    const technicianMembers = members.filter((member) => normalizeRole(member.role) === 'technician');
+    const activeTechnicians = technicianMembers.filter((member) => normalizeStatus(member.status) === 'active');
+    const activeMembers = members.filter((member) => normalizeStatus(member.status) === 'active');
+    const pendingTechnicianInvitations = invitations.filter(
+        (invitation) =>
+            normalizeRole(invitation.role) === 'technician' &&
+            normalizeStatus(invitation.status) === 'pending' &&
+            !isInvitationExpired(invitation, nowMs)
+    );
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -277,14 +292,33 @@ export default function CompanyUsersScreen() {
                     Back
                 </Text>
 
-                <Text style={[titleStyle, { color: theme.colors.text }]}>Company Users</Text>
+                <Text style={[titleStyle, { color: theme.colors.text }]}>Team / Technicians</Text>
 
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                    Manage company memberships and pending invitations.
+                    Manage company credentials, technician access, and pending team invitations for TechOS.
                 </Text>
 
+                <ThemedCard style={heroCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>TechOS Access Foundation</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        Technicians are company users with the Technician role. Invite the first test technician here;
+                        they will become active only after accepting the invitation with their own Supabase Auth account.
+                    </Text>
+                    <View style={metricGridStyle}>
+                        <MetricCard label="Active Technicians" value={activeTechnicians.length.toString()} />
+                        <MetricCard label="Pending Technician Invites" value={pendingTechnicianInvitations.length.toString()} />
+                        <MetricCard label="Active Team Members" value={activeMembers.length.toString()} />
+                    </View>
+                    <ThemedButton
+                        title="Invite First Test Technician"
+                        onPress={prepareTechnicianInvite}
+                        variant="secondary"
+                        style={{ marginTop: 14 }}
+                    />
+                </ThemedCard>
+
                 <ThemedCard style={formCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Create Invitation</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Team Member</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                         This creates a pending invitation record. Use Send Email after creation to deliver a Supabase
                         Auth sign-in link. Invitation creation does not directly modify a Supabase Auth account.
@@ -376,7 +410,29 @@ export default function CompanyUsersScreen() {
                 ) : (
                     <>
                         <View style={sectionStyle}>
-                            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Company Members</Text>
+                            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Technicians</Text>
+                            <Text style={[sectionNoteStyle, { color: theme.colors.mutedText }]}>
+                                These are the company users who will become the first TechOS field team. Customer and
+                                home assignment comes later from the selected client/home list.
+                            </Text>
+                            <View style={listStyle}>
+                                {technicianMembers.length === 0 ? (
+                                    <ThemedCard>
+                                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                            No technicians connected yet. Use Invite First Test Technician to create a
+                                            pending Technician invitation.
+                                        </Text>
+                                    </ThemedCard>
+                                ) : (
+                                    technicianMembers.map((member) => (
+                                        <TechnicianCard key={member.id} member={member} />
+                                    ))
+                                )}
+                            </View>
+                        </View>
+
+                        <View style={sectionStyle}>
+                            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>All Team Members</Text>
                             <View style={listStyle}>
                                 {members.length === 0 ? (
                                     <ThemedCard>
@@ -425,6 +481,82 @@ export default function CompanyUsersScreen() {
                 )}
             </View>
         </ScrollView>
+    );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+    const { theme } = useTheme();
+
+    return (
+        <View
+            style={[
+                metricCardStyle,
+                {
+                    backgroundColor: theme.colors.background,
+                    borderColor: theme.colors.border,
+                },
+            ]}
+        >
+            <Text style={[metricValueStyle, { color: theme.colors.text }]}>{value}</Text>
+            <Text style={[metricLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
+        </View>
+    );
+}
+
+function TechnicianCard({ member }: { member: CompanyUser }) {
+    const { theme } = useTheme();
+    const status = normalizeStatus(member.status);
+
+    return (
+        <ThemedCard>
+            <View style={technicianCardHeaderStyle}>
+                <View style={technicianAvatarStyle}>
+                    <Text style={technicianAvatarTextStyle}>{getInitials(member.full_name || member.email)}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={[cardTitleStyle, { color: theme.colors.text }]}>
+                        {member.full_name || 'Unnamed technician'}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{member.email || 'No email'}</Text>
+                </View>
+            </View>
+            <View style={badgeRowStyle}>
+                <RoleBadge label="Technician" />
+                <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
+            </View>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                TechOS field assignments will connect after client/home assignment is added.
+            </Text>
+        </ThemedCard>
+    );
+}
+
+function RoleBadge({ label, tone }: { label: string; tone?: string }) {
+    const { theme } = useTheme();
+    const normalizedTone = normalizeStatus(tone);
+    const isActive = normalizedTone === 'active';
+
+    return (
+        <View
+            style={{
+                backgroundColor: isActive ? theme.colors.secondaryButton : theme.colors.background,
+                borderColor: isActive ? theme.colors.primary : theme.colors.border,
+                borderRadius: 999,
+                borderWidth: 1,
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+            }}
+        >
+            <Text
+                style={{
+                    color: isActive ? theme.colors.primary : theme.colors.text,
+                    fontSize: 12,
+                    fontWeight: '900',
+                }}
+            >
+                {label}
+            </Text>
+        </View>
     );
 }
 
@@ -569,8 +701,12 @@ async function getFunctionErrorMessage(error: unknown) {
     return 'Invitation email could not be sent.';
 }
 
-function normalizeStatus(status: string | null) {
+function normalizeStatus(status?: string | null) {
     return String(status || '').trim().toLowerCase();
+}
+
+function normalizeRole(role?: string | null) {
+    return String(role || '').trim().toLowerCase();
 }
 
 function formatLabel(value: string | null) {
@@ -580,6 +716,20 @@ function formatLabel(value: string | null) {
         .filter(Boolean)
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
         .join(' ');
+}
+
+function getInitials(value: string | null) {
+    const parts = String(value || '')
+        .trim()
+        .split(/[\s@._-]+/)
+        .filter(Boolean);
+
+    if (parts.length === 0) return 'TE';
+
+    return parts
+        .slice(0, 2)
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('');
 }
 
 function formatDate(value: string | null) {
@@ -690,6 +840,11 @@ const formCardStyle = {
     marginBottom: 16,
 };
 
+const heroCardStyle = {
+    gap: 14,
+    marginBottom: 16,
+};
+
 const messageCardStyle = {
     marginBottom: 16,
 };
@@ -702,6 +857,13 @@ const sectionHeadingStyle = {
     fontSize: 22,
     fontWeight: '900' as const,
     marginBottom: 14,
+};
+
+const sectionNoteStyle = {
+    fontSize: 14,
+    fontWeight: '800' as const,
+    lineHeight: 20,
+    marginBottom: 12,
 };
 
 const sectionTitleStyle = {
@@ -749,6 +911,59 @@ const roleChipTextStyle = {
 
 const listStyle = {
     gap: 12,
+};
+
+const metricGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const metricCardStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: 170,
+    padding: 14,
+};
+
+const metricValueStyle = {
+    fontSize: 26,
+    fontWeight: '900' as const,
+};
+
+const metricLabelStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+    lineHeight: 17,
+    marginTop: 4,
+};
+
+const technicianCardHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 12,
+};
+
+const technicianAvatarStyle = {
+    alignItems: 'center' as const,
+    backgroundColor: '#EEF4FF',
+    borderRadius: 16,
+    height: 48,
+    justifyContent: 'center' as const,
+    width: 48,
+};
+
+const technicianAvatarTextStyle = {
+    color: '#0B5FFF',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const badgeRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 14,
 };
 
 const cardTitleStyle = {
