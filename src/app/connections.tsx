@@ -54,6 +54,10 @@ type ProviderConnectionRequestResult = {
     status: string;
 };
 
+type LoadConnectionsOptions = {
+    preserveMessage?: boolean;
+};
+
 const companyProfileSelect =
     'id, name, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, homeos_rating, homeos_rating_count, combined_experience_years, license_number, phone, website, short_description';
 
@@ -84,6 +88,17 @@ export default function ConnectionsScreen() {
         () => connections.filter((connection) => normalizeStatus(connection.status) === 'pending'),
         [connections]
     );
+    const providerStatusByCompanyId = useMemo(() => {
+        return connections.reduce<Record<string, string>>((statuses, connection) => {
+            const status = normalizeStatus(connection.status);
+
+            if (status === 'pending' || status === 'connected') {
+                statuses[connection.company_id] = status;
+            }
+
+            return statuses;
+        }, {});
+    }, [connections]);
     const revokedConnections = useMemo(
         () => connections.filter((connection) => normalizeStatus(connection.status) === 'revoked'),
         [connections]
@@ -93,9 +108,12 @@ export default function ConnectionsScreen() {
         [connections]
     );
 
-    async function loadConnections() {
+    async function loadConnections(options: LoadConnectionsOptions = {}) {
         setLoading(true);
-        setMessage('');
+
+        if (!options.preserveMessage) {
+            setMessage('');
+        }
 
         const {
             data: { user },
@@ -278,9 +296,9 @@ export default function ConnectionsScreen() {
             p_company_id: company.id,
         });
 
-        setProviderActionCompanyId('');
-
         if (error) {
+            setProviderActionCompanyId('');
+
             if (isMissingProviderRequestRpc(error)) {
                 setMessage(
                     'Provider selection storage is ready in the review SQL, but the database RPC has not been applied yet. Michael needs to apply 000_Project_Docs/570_Property_Provider_Connection_Request.sql before this button can save the request.'
@@ -295,12 +313,69 @@ export default function ConnectionsScreen() {
         const result = firstRow<ProviderConnectionRequestResult>(data);
         const status = normalizeStatus(result?.status || 'pending');
 
-        await loadConnections();
+        mergeProviderRequestResult(result, company, status);
+        await loadConnections({ preserveMessage: true });
+        mergeProviderRequestResult(result, company, status);
+        setProviderActionCompanyId('');
+
         setMessage(
             status === 'connected'
                 ? `${providerName} is already connected and is now your preferred provider.`
                 : `Connection requested with ${providerName}. The provider relationship is now pending.`
         );
+    }
+
+    function mergeProviderRequestResult(
+        result: ProviderConnectionRequestResult | null,
+        company: CompanyRecord,
+        status: string
+    ) {
+        if (!result?.connection_id) return;
+
+        const nextConnection: PropertyConnection = {
+            id: result.connection_id,
+            property_id: result.property_id || providerRequestPropertyId,
+            company_id: result.company_id || company.id,
+            status,
+            can_view_documents: false,
+            can_view_photos: false,
+            can_view_service_history: false,
+            can_view_quotes: false,
+            created_at: new Date().toISOString(),
+            expires_at: null,
+        };
+
+        setConnections((currentConnections) => {
+            const existingConnection = currentConnections.find(
+                (connection) =>
+                    connection.id === nextConnection.id ||
+                    (connection.property_id === nextConnection.property_id &&
+                        connection.company_id === nextConnection.company_id)
+            );
+
+            if (!existingConnection) {
+                return [nextConnection, ...currentConnections];
+            }
+
+            return currentConnections.map((connection) =>
+                connection.id === existingConnection.id
+                    ? {
+                          ...connection,
+                          id: nextConnection.id,
+                          property_id: nextConnection.property_id,
+                          company_id: nextConnection.company_id,
+                          status: nextConnection.status,
+                          created_at: connection.created_at || nextConnection.created_at,
+                          expires_at: connection.expires_at ?? nextConnection.expires_at,
+                      }
+                    : connection
+            );
+        });
+
+        setCompaniesById((currentCompanies) => ({
+            ...currentCompanies,
+            [company.id]: company,
+        }));
     }
 
     return (
@@ -338,6 +413,7 @@ export default function ConnectionsScreen() {
                     loading={approvedCompaniesLoading}
                     error={approvedCompaniesError}
                     requestingCompanyId={providerActionCompanyId}
+                    providerStatusByCompanyId={providerStatusByCompanyId}
                     onRequestConnection={handleProviderSelection}
                 />
 
@@ -404,12 +480,14 @@ function ApprovedServiceProvidersSection({
     loading,
     error,
     requestingCompanyId,
+    providerStatusByCompanyId,
     onRequestConnection,
 }: {
     companies: CompanyRecord[];
     loading: boolean;
     error: string;
     requestingCompanyId: string;
+    providerStatusByCompanyId: Record<string, string>;
     onRequestConnection: (company: CompanyRecord) => void | Promise<void>;
 }) {
     const { theme } = useTheme();
@@ -440,6 +518,7 @@ function ApprovedServiceProvidersSection({
                             key={company.id}
                             company={company}
                             requesting={requestingCompanyId === company.id}
+                            providerStatus={providerStatusByCompanyId[company.id] || ''}
                             onRequestConnection={onRequestConnection}
                         />
                     ))
@@ -452,10 +531,12 @@ function ApprovedServiceProvidersSection({
 function ApprovedServiceProviderCard({
     company,
     requesting,
+    providerStatus,
     onRequestConnection,
 }: {
     company: CompanyRecord;
     requesting: boolean;
+    providerStatus: string;
     onRequestConnection: (company: CompanyRecord) => void | Promise<void>;
 }) {
     const { theme } = useTheme();
@@ -467,6 +548,14 @@ function ApprovedServiceProviderCard({
     const primaryColor = safeColor(company.primary_color, theme.colors.primary);
     const secondaryColor = safeColor(company.secondary_color, theme.colors.primaryText);
     const accentColor = safeColor(company.accent_color, theme.colors.link);
+    const alreadyRequested = providerStatus === 'pending' || providerStatus === 'connected';
+    const requestButtonTitle = requesting
+        ? 'Requesting...'
+        : providerStatus === 'connected'
+          ? 'Connected'
+          : alreadyRequested
+            ? 'Requested'
+            : 'Request Connection';
 
     useEffect(() => {
         setLogoFailed(false);
@@ -552,9 +641,9 @@ function ApprovedServiceProviderCard({
             )}
 
             <ThemedButton
-                title={requesting ? 'Requesting...' : 'Request Connection'}
+                title={requestButtonTitle}
                 onPress={() => onRequestConnection(company)}
-                disabled={requesting}
+                disabled={requesting || alreadyRequested}
                 variant="secondary"
                 style={{ marginTop: 16 }}
             />
