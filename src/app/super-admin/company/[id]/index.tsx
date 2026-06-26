@@ -485,7 +485,10 @@ export default function CompanyDashboardScreen() {
         }
 
         if (card === 'TechOS') {
-            alert('TechOS workspace modules come next.');
+            router.push({
+                pathname: '/techos',
+                params: { companyId: String(id) },
+            } as any);
             return;
         }
 

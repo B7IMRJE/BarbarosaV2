@@ -4,14 +4,19 @@ import { supabase } from './supabase';
 export const HOME_ROUTE = '/' as const;
 export const SUPER_ADMIN_ROUTE = '/super-admin' as const;
 export const FIRST_HOME_ONBOARDING_ROUTE = '/onboarding/create-home' as const;
+export const TECHOS_ROUTE = '/techos' as const;
+
+const TECHOS_COMPANY_ROLES = ['technician', 'manager', 'admin', 'owner'];
 
 export type LoggedInUserRoute =
     | typeof HOME_ROUTE
     | typeof SUPER_ADMIN_ROUTE
-    | typeof FIRST_HOME_ONBOARDING_ROUTE;
+    | typeof FIRST_HOME_ONBOARDING_ROUTE
+    | typeof TECHOS_ROUTE;
 
 export type LoggedInUserRouteReason =
     | 'super-admin'
+    | 'company-staff'
     | 'staff'
     | 'homeowner-active-membership'
     | 'homeowner-needs-first-home'
@@ -68,6 +73,20 @@ export async function resolveLoggedInUserRoute(userId: string): Promise<LoggedIn
         }
 
         const role = normalizeRole(profile.role);
+        const companyAccessQuery = await supabase
+            .from('company_users')
+            .select('id')
+            .eq('auth_user_id', userId)
+            .eq('status', 'active')
+            .in('role', TECHOS_COMPANY_ROLES)
+            .limit(1);
+
+        if (!companyAccessQuery.error && (companyAccessQuery.data || []).length > 0) {
+            return {
+                route: TECHOS_ROUTE,
+                reason: 'company-staff',
+            };
+        }
 
         if (isStaffRole(role) || role !== 'HOMEOWNER') {
             return {

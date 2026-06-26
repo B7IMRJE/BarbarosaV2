@@ -10,6 +10,7 @@ import {
   FIRST_HOME_ONBOARDING_ROUTE,
   HOME_ROUTE,
   SUPER_ADMIN_ROUTE,
+  TECHOS_ROUTE,
   resolveLoggedInUserRoute,
   type LoggedInUserRouteDecision,
 } from '../lib/onboarding';
@@ -227,6 +228,10 @@ function isSuperAdminPath(pathname: string) {
   return pathname === SUPER_ADMIN_ROUTE || pathname.startsWith(`${SUPER_ADMIN_ROUTE}/`);
 }
 
+function isTechOSPath(pathname: string) {
+  return pathname === TECHOS_ROUTE || pathname.startsWith(`${TECHOS_ROUTE}/`);
+}
+
 function resolveRedirectForPath(
   pathname: string,
   routeDecision: LoggedInUserRouteDecision
@@ -245,6 +250,18 @@ function resolveRedirectForPath(
     }
 
     return SUPER_ADMIN_ROUTE;
+  }
+
+  if (routeDecision.reason === 'company-staff') {
+    if (
+      isTechOSPath(pathname) ||
+      pathname === COMPANY_INVITATIONS_ROUTE ||
+      pathname === PROFILE_CHANGE_PASSWORD_ROUTE
+    ) {
+      return null;
+    }
+
+    return TECHOS_ROUTE;
   }
 
   if (routeDecision.reason === 'homeowner-needs-first-home') {
