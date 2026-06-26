@@ -16,6 +16,7 @@ type PropertyConnection = {
     property_id: string;
     company_id: string;
     status: string | null;
+    request_source: string | null;
     can_view_documents: boolean | null;
     can_view_photos: boolean | null;
     can_view_service_history: boolean | null;
@@ -81,19 +82,32 @@ export default function ConnectionsScreen() {
     }, []);
 
     const connectedConnections = useMemo(
-        () => connections.filter((connection) => normalizeStatus(connection.status) === 'connected'),
+        () =>
+            connections.filter(
+                (connection) =>
+                    normalizeStatus(connection.status) === 'connected' && !isChosenProviderConnection(connection)
+            ),
         [connections]
     );
     const pendingConnections = useMemo(
-        () => connections.filter((connection) => normalizeStatus(connection.status) === 'pending'),
+        () =>
+            connections.filter(
+                (connection) =>
+                    normalizeStatus(connection.status) === 'pending' && !isChosenProviderConnection(connection)
+            ),
+        [connections]
+    );
+    const selectedProviderConnections = useMemo(
+        () => connections.filter((connection) => isChosenProviderConnection(connection)),
         [connections]
     );
     const providerStatusByCompanyId = useMemo(() => {
         return connections.reduce<Record<string, string>>((statuses, connection) => {
             const status = normalizeStatus(connection.status);
 
-            if (status === 'pending' || status === 'connected') {
-                statuses[connection.company_id] = status;
+            if (isChosenProviderConnection(connection)) {
+                statuses[connection.company_id] = 'preferred';
+                return statuses;
             }
 
             return statuses;
@@ -153,7 +167,7 @@ export default function ConnectionsScreen() {
             setConnections([]);
             setCompaniesById({});
             setProviderRequestPropertyId('');
-            setProviderRequestUnavailableReason('Create your first home before requesting a provider connection.');
+            setProviderRequestUnavailableReason('Create your first home before choosing a provider.');
             setLoading(false);
             return;
         }
@@ -171,7 +185,7 @@ export default function ConnectionsScreen() {
         const { data, error } = await supabase
             .from('property_connections')
             .select(
-                'id, property_id, company_id, status, can_view_documents, can_view_photos, can_view_service_history, can_view_quotes, created_at, expires_at'
+                'id, property_id, company_id, status, request_source, can_view_documents, can_view_photos, can_view_service_history, can_view_quotes, created_at, expires_at'
             )
             .in('property_id', propertyIds)
             .order('created_at', { ascending: false });
@@ -283,13 +297,13 @@ export default function ConnectionsScreen() {
         if (!providerRequestPropertyId) {
             setMessage(
                 providerRequestUnavailableReason ||
-                    'Choose one active home before requesting a provider connection.'
+                    'Choose one active home before choosing a provider.'
             );
             return;
         }
 
         setProviderActionCompanyId(company.id);
-        setMessage(`Requesting connection with ${providerName}...`);
+        setMessage(`Choosing ${providerName}...`);
 
         const { data, error } = await supabase.rpc('request_property_provider_connection', {
             p_property_id: providerRequestPropertyId,
@@ -320,8 +334,8 @@ export default function ConnectionsScreen() {
 
         setMessage(
             status === 'connected'
-                ? `${providerName} is already connected and is now your preferred provider.`
-                : `Connection requested with ${providerName}. The provider relationship is now pending.`
+                ? `${providerName} is now your preferred provider.`
+                : `${providerName} was chosen as your provider.`
         );
     }
 
@@ -337,6 +351,7 @@ export default function ConnectionsScreen() {
             property_id: result.property_id || providerRequestPropertyId,
             company_id: result.company_id || company.id,
             status,
+            request_source: 'homeowner_provider_request',
             can_view_documents: false,
             can_view_photos: false,
             can_view_service_history: false,
@@ -365,6 +380,7 @@ export default function ConnectionsScreen() {
                           property_id: nextConnection.property_id,
                           company_id: nextConnection.company_id,
                           status: nextConnection.status,
+                          request_source: nextConnection.request_source,
                           created_at: connection.created_at || nextConnection.created_at,
                           expires_at: connection.expires_at ?? nextConnection.expires_at,
                       }
@@ -425,11 +441,20 @@ export default function ConnectionsScreen() {
                     <ThemedCard>
                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>No Connections</Text>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                            Pending, connected, revoked, and declined connections will appear here.
+                            Selected providers and company access requests will appear here.
                         </Text>
                     </ThemedCard>
                 ) : (
                     <>
+                        <ConnectionSection
+                            title="Selected Providers"
+                            connections={selectedProviderConnections}
+                            companiesById={companiesById}
+                            emptyText="No selected providers yet."
+                            statusLabelOverride="Preferred"
+                            dateLabelOverride="Selected Date"
+                        />
+
                         <ConnectionSection
                             title="Pending Requests"
                             connections={pendingConnections}
@@ -548,14 +573,13 @@ function ApprovedServiceProviderCard({
     const primaryColor = safeColor(company.primary_color, theme.colors.primary);
     const secondaryColor = safeColor(company.secondary_color, theme.colors.primaryText);
     const accentColor = safeColor(company.accent_color, theme.colors.link);
-    const alreadyRequested = providerStatus === 'pending' || providerStatus === 'connected';
+    const providerAlreadyPreferred = providerStatus === 'preferred';
+    const providerButtonDisabled = requesting || providerAlreadyPreferred;
     const requestButtonTitle = requesting
-        ? 'Requesting...'
-        : providerStatus === 'connected'
-          ? 'Connected'
-          : alreadyRequested
-            ? 'Requested'
-            : 'Request Connection';
+        ? 'Choosing...'
+        : providerAlreadyPreferred
+          ? 'Preferred'
+          : 'Choose Provider';
 
     useEffect(() => {
         setLogoFailed(false);
@@ -643,7 +667,7 @@ function ApprovedServiceProviderCard({
             <ThemedButton
                 title={requestButtonTitle}
                 onPress={() => onRequestConnection(company)}
-                disabled={requesting || alreadyRequested}
+                disabled={providerButtonDisabled}
                 variant="secondary"
                 style={{ marginTop: 16 }}
             />
@@ -659,6 +683,8 @@ function ConnectionSection({
     showActions = false,
     actionConnectionId = '',
     actionType = '',
+    statusLabelOverride = '',
+    dateLabelOverride = 'Requested Date',
     onApprove,
     onDecline,
 }: {
@@ -669,6 +695,8 @@ function ConnectionSection({
     showActions?: boolean;
     actionConnectionId?: string;
     actionType?: ConnectionAction | '';
+    statusLabelOverride?: string;
+    dateLabelOverride?: string;
     onApprove?: (connectionId: string) => void;
     onDecline?: (connectionId: string) => void;
 }) {
@@ -691,6 +719,8 @@ function ConnectionSection({
                             showActions={showActions}
                             actionConnectionId={actionConnectionId}
                             actionType={actionType}
+                            statusLabelOverride={statusLabelOverride}
+                            dateLabelOverride={dateLabelOverride}
                             onApprove={onApprove}
                             onDecline={onDecline}
                         />
@@ -707,6 +737,8 @@ function CompanyConnectionCard({
     showActions,
     actionConnectionId,
     actionType,
+    statusLabelOverride,
+    dateLabelOverride,
     onApprove,
     onDecline,
 }: {
@@ -715,6 +747,8 @@ function CompanyConnectionCard({
     showActions: boolean;
     actionConnectionId: string;
     actionType: ConnectionAction | '';
+    statusLabelOverride: string;
+    dateLabelOverride: string;
     onApprove?: (connectionId: string) => void;
     onDecline?: (connectionId: string) => void;
 }) {
@@ -729,13 +763,15 @@ function CompanyConnectionCard({
     const secondaryColor = safeColor(company?.secondary_color, theme.colors.primaryText);
     const accentColor = safeColor(company?.accent_color, theme.colors.link);
     const showPendingActions = showActions && status === 'pending';
+    const statusLabel = statusLabelOverride || formatStatusLabel(status);
+    const statusForPalette = statusLabelOverride ? 'connected' : status;
     const statusPalette =
-        status === 'connected'
+        statusForPalette === 'connected'
             ? {
                   backgroundColor: theme.colors.status.good.background,
                   borderColor: theme.colors.status.good.border,
               }
-            : status === 'declined' || status === 'revoked'
+            : statusForPalette === 'declined' || statusForPalette === 'revoked'
               ? {
                     backgroundColor: theme.colors.dangerBackground,
                     borderColor: theme.colors.danger,
@@ -794,7 +830,7 @@ function CompanyConnectionCard({
 
                         <View style={[statusBadgeStyle, statusPalette]}>
                             <Text style={[statusBadgeTextStyle, { color: theme.colors.text }]}>
-                                {formatStatusLabel(status)}
+                                {statusLabel}
                             </Text>
                         </View>
                     </View>
@@ -840,7 +876,7 @@ function CompanyConnectionCard({
 
             <View style={detailBlockStyle}>
                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                    Requested Date: {formatDateTime(connection.created_at)}
+                    {dateLabelOverride}: {formatDateTime(connection.created_at)}
                 </Text>
                 <Text style={[permissionLabelStyle, { color: theme.colors.text }]}>
                     {showPendingActions ? 'Requested Permissions' : 'Permissions'}
@@ -919,6 +955,22 @@ function CompanyStat({ label, value }: { label: string; value: string }) {
 
 function normalizeStatus(status: string | null) {
     return String(status || 'pending').trim().toLowerCase();
+}
+
+function normalizeRequestSource(source: string | null) {
+    return String(source || '').trim().toLowerCase();
+}
+
+function isChosenProviderConnection(connection: PropertyConnection) {
+    const source = normalizeRequestSource(connection.request_source);
+    const status = normalizeStatus(connection.status);
+
+    return (
+        source === 'homeowner_provider_request' &&
+        status !== 'revoked' &&
+        status !== 'expired' &&
+        status !== 'declined'
+    );
 }
 
 function formatPermissionItems(connection: PropertyConnection) {

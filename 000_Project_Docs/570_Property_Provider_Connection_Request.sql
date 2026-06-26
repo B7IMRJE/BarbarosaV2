@@ -2,7 +2,7 @@
 -- Review-only SQL for HomeOS homeowner-selected provider requests.
 --
 -- Purpose:
--- - Let an active property member request an approved company from the HomeOS Connections screen.
+-- - Let an active property member choose an approved company from the HomeOS Connections screen.
 -- - Create or update the property/company relationship through an RPC instead of client-side writes.
 -- - Track one active preferred provider for the property.
 -- - Create a separate company-facing customer/client record keyed by company_id + property_id.
@@ -442,7 +442,7 @@ begin
     values (
         p_property_id,
         p_company_id,
-        'pending',
+        'connected',
         false,
         false,
         false,
@@ -453,26 +453,11 @@ begin
         'homeowner_provider_request'
     )
     on conflict on constraint property_connections_property_id_company_id_key do update
-        set status = case
-                when property_connection.status in ('connected', 'pending') then property_connection.status
-                else 'pending'
-            end,
-            can_view_documents = case
-                when property_connection.status in ('revoked', 'declined', 'expired') then false
-                else property_connection.can_view_documents
-            end,
-            can_view_photos = case
-                when property_connection.status in ('revoked', 'declined', 'expired') then false
-                else property_connection.can_view_photos
-            end,
-            can_view_service_history = case
-                when property_connection.status in ('revoked', 'declined', 'expired') then false
-                else property_connection.can_view_service_history
-            end,
-            can_view_quotes = case
-                when property_connection.status in ('revoked', 'declined', 'expired') then false
-                else property_connection.can_view_quotes
-            end,
+        set status = 'connected',
+            can_view_documents = false,
+            can_view_photos = false,
+            can_view_service_history = false,
+            can_view_quotes = false,
             expires_at = null,
             requested_by_user_id = v_user_id,
             requested_at = now(),
@@ -558,29 +543,22 @@ begin
         p_property_id,
         v_connection_id,
         nullif(btrim(v_property_name), ''),
-        case when v_connection_status = 'connected' then 'active' else 'pending' end,
+        'active',
         'homeowner_provider_request',
         v_user_id,
         v_user_id,
         now(),
         now(),
-        case when v_connection_status = 'connected' then now() else null end
+        now()
     )
     on conflict on constraint company_property_clients_company_property_key do update
         set property_connection_id = excluded.property_connection_id,
             display_name = coalesce(excluded.display_name, company_client.display_name),
-            status = case
-                when company_client.status = 'active' or excluded.status = 'active' then 'active'
-                else 'pending'
-            end,
+            status = 'active',
             source = excluded.source,
             last_requested_by_user_id = excluded.last_requested_by_user_id,
             last_requested_at = excluded.last_requested_at,
-            connected_at = case
-                when company_client.connected_at is not null then company_client.connected_at
-                when excluded.status = 'active' then now()
-                else null
-            end,
+            connected_at = coalesce(company_client.connected_at, now()),
             archived_at = null,
             updated_at = now()
     returning company_client.id
