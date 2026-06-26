@@ -306,7 +306,7 @@ begin
         on public.companies
         for select
         to authenticated
-        using (lower(btrim(coalesce(status, ''))) = 'active');
+        using (lower(btrim(coalesce(companies.status, ''))) = 'active');
     end if;
 
     if not exists (
@@ -321,8 +321,8 @@ begin
         for select
         to authenticated
         using (
-            public.homeos_can_read_property_record(property_id)
-            or public.is_active_company_member(company_id)
+            public.homeos_can_read_property_record(property_preferred_providers.property_id)
+            or public.is_active_company_member(property_preferred_providers.company_id)
         );
     end if;
 
@@ -338,8 +338,8 @@ begin
         for select
         to authenticated
         using (
-            public.homeos_can_read_property_record(property_id)
-            or public.is_active_company_member(company_id)
+            public.homeos_can_read_property_record(company_property_clients.property_id)
+            or public.is_active_company_member(company_property_clients.company_id)
         );
     end if;
 end
@@ -426,7 +426,7 @@ begin
         raise exception 'Provider is not active';
     end if;
 
-    insert into public.property_connections (
+    insert into public.property_connections as property_connection (
         property_id,
         company_id,
         status,
@@ -454,31 +454,31 @@ begin
     )
     on conflict on constraint property_connections_property_id_company_id_key do update
         set status = case
-                when public.property_connections.status in ('connected', 'pending') then public.property_connections.status
+                when property_connection.status in ('connected', 'pending') then property_connection.status
                 else 'pending'
             end,
             can_view_documents = case
-                when public.property_connections.status in ('revoked', 'declined', 'expired') then false
-                else public.property_connections.can_view_documents
+                when property_connection.status in ('revoked', 'declined', 'expired') then false
+                else property_connection.can_view_documents
             end,
             can_view_photos = case
-                when public.property_connections.status in ('revoked', 'declined', 'expired') then false
-                else public.property_connections.can_view_photos
+                when property_connection.status in ('revoked', 'declined', 'expired') then false
+                else property_connection.can_view_photos
             end,
             can_view_service_history = case
-                when public.property_connections.status in ('revoked', 'declined', 'expired') then false
-                else public.property_connections.can_view_service_history
+                when property_connection.status in ('revoked', 'declined', 'expired') then false
+                else property_connection.can_view_service_history
             end,
             can_view_quotes = case
-                when public.property_connections.status in ('revoked', 'declined', 'expired') then false
-                else public.property_connections.can_view_quotes
+                when property_connection.status in ('revoked', 'declined', 'expired') then false
+                else property_connection.can_view_quotes
             end,
             expires_at = null,
             requested_by_user_id = v_user_id,
             requested_at = now(),
             request_source = 'homeowner_provider_request',
             updated_at = now()
-    returning id, status
+    returning property_connection.id, property_connection.status
     into v_connection_id, v_connection_status;
 
     update public.property_preferred_providers as preferred_provider
@@ -489,36 +489,58 @@ begin
       and preferred_provider.status = 'active'
       and preferred_provider.company_id <> p_company_id;
 
-    insert into public.property_preferred_providers (
-        property_id,
-        company_id,
-        property_connection_id,
-        status,
-        source,
-        selected_by_user_id,
-        selected_at
-    )
-    values (
-        p_property_id,
-        p_company_id,
-        v_connection_id,
-        'active',
-        'homeowner_provider_request',
-        v_user_id,
-        now()
-    )
-    on conflict (property_id) where status = 'active' do update
-        set company_id = excluded.company_id,
-            property_connection_id = excluded.property_connection_id,
-            source = excluded.source,
-            selected_by_user_id = excluded.selected_by_user_id,
-            selected_at = excluded.selected_at,
-            archived_at = null,
-            updated_at = now()
-    returning id
+    update public.property_preferred_providers as preferred_provider
+    set company_id = p_company_id,
+        property_connection_id = v_connection_id,
+        source = 'homeowner_provider_request',
+        selected_by_user_id = v_user_id,
+        selected_at = now(),
+        archived_at = null,
+        updated_at = now()
+    where preferred_provider.property_id = p_property_id
+      and preferred_provider.status = 'active'
+    returning preferred_provider.id
     into v_preferred_provider_id;
 
-    insert into public.company_property_clients (
+    if v_preferred_provider_id is null then
+        begin
+            insert into public.property_preferred_providers as preferred_provider (
+                property_id,
+                company_id,
+                property_connection_id,
+                status,
+                source,
+                selected_by_user_id,
+                selected_at
+            )
+            values (
+                p_property_id,
+                p_company_id,
+                v_connection_id,
+                'active',
+                'homeowner_provider_request',
+                v_user_id,
+                now()
+            )
+            returning preferred_provider.id
+            into v_preferred_provider_id;
+        exception when unique_violation then
+            update public.property_preferred_providers as preferred_provider
+            set company_id = p_company_id,
+                property_connection_id = v_connection_id,
+                source = 'homeowner_provider_request',
+                selected_by_user_id = v_user_id,
+                selected_at = now(),
+                archived_at = null,
+                updated_at = now()
+            where preferred_provider.property_id = p_property_id
+              and preferred_provider.status = 'active'
+            returning preferred_provider.id
+            into v_preferred_provider_id;
+        end;
+    end if;
+
+    insert into public.company_property_clients as company_client (
         company_id,
         property_id,
         property_connection_id,
@@ -546,22 +568,22 @@ begin
     )
     on conflict on constraint company_property_clients_company_property_key do update
         set property_connection_id = excluded.property_connection_id,
-            display_name = coalesce(excluded.display_name, public.company_property_clients.display_name),
+            display_name = coalesce(excluded.display_name, company_client.display_name),
             status = case
-                when public.company_property_clients.status = 'active' or excluded.status = 'active' then 'active'
+                when company_client.status = 'active' or excluded.status = 'active' then 'active'
                 else 'pending'
             end,
             source = excluded.source,
             last_requested_by_user_id = excluded.last_requested_by_user_id,
             last_requested_at = excluded.last_requested_at,
             connected_at = case
-                when public.company_property_clients.connected_at is not null then public.company_property_clients.connected_at
+                when company_client.connected_at is not null then company_client.connected_at
                 when excluded.status = 'active' then now()
                 else null
             end,
             archived_at = null,
             updated_at = now()
-    returning id
+    returning company_client.id
     into v_company_property_client_id;
 
     return query
