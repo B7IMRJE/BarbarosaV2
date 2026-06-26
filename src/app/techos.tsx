@@ -34,6 +34,11 @@ type CompanyBrand = {
     short_description: string | null;
 };
 
+type PlatformProfile = {
+    role?: string | null;
+    is_platform_admin?: boolean | null;
+};
+
 const TECHOS_ROLES: CompanyRole[] = ['technician', 'manager', 'admin', 'owner'];
 
 const workflowCards = [
@@ -68,6 +73,7 @@ export default function TechOSScreen() {
     const { theme } = useTheme();
     const [checkingAccess, setCheckingAccess] = useState(true);
     const [membership, setMembership] = useState<CompanyUserAccess | null>(null);
+    const [isPlatformAdminAccess, setIsPlatformAdminAccess] = useState(false);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
     const [message, setMessage] = useState('Loading TechOS...');
 
@@ -81,6 +87,7 @@ export default function TechOSScreen() {
         setCheckingAccess(true);
         setMessage('Loading TechOS...');
         setMembership(null);
+        setIsPlatformAdminAccess(false);
         setCompany(null);
 
         const {
@@ -92,6 +99,8 @@ export default function TechOSScreen() {
             router.replace('/auth/login' as any);
             return;
         }
+
+        const platformAdminCheck = await loadPlatformAdminStatus(user.id);
 
         let membershipQuery = supabase
             .from('company_users')
@@ -116,9 +125,22 @@ export default function TechOSScreen() {
 
         const activeMembership = ((membershipData || []) as CompanyUserAccess[])[0] || null;
 
+        if (platformAdminCheck.isPlatformAdmin && requestedCompanyId) {
+            setMembership(activeMembership);
+            setIsPlatformAdminAccess(true);
+            await loadCompanyBrand(requestedCompanyId);
+            setCheckingAccess(false);
+            setMessage('');
+            return;
+        }
+
         if (!activeMembership || !isTechOSRole(activeMembership.role)) {
             setCheckingAccess(false);
-            setMessage('TechOS is available to active company technicians, managers, admins, and owners.');
+            setMessage(
+                platformAdminCheck.isPlatformAdmin
+                    ? 'Choose a company before opening TechOS as a platform admin.'
+                    : 'TechOS is available to active company technicians, managers, admins, and owners.'
+            );
             return;
         }
 
@@ -150,7 +172,7 @@ export default function TechOSScreen() {
         return <AccessMessage title="TechOS" message="Checking TechOS access..." />;
     }
 
-    if (!membership) {
+    if (!membership && !isPlatformAdminAccess) {
         return <AccessMessage title="TechOS" message={message} />;
     }
 
@@ -203,8 +225,16 @@ export default function TechOSScreen() {
                     </View>
 
                     <View style={pillRowStyle}>
-                        <InfoPill label="Role" value={formatLabel(membership.role)} textColor={heroTextColor} />
-                        <InfoPill label="Status" value={formatLabel(membership.status)} textColor={heroTextColor} />
+                        <InfoPill
+                            label="Role"
+                            value={isPlatformAdminAccess ? 'Platform Admin' : formatLabel(membership?.role)}
+                            textColor={heroTextColor}
+                        />
+                        <InfoPill
+                            label="Status"
+                            value={isPlatformAdminAccess ? 'Admin Preview' : formatLabel(membership?.status)}
+                            textColor={heroTextColor}
+                        />
                         <InfoPill label="License" value={company?.license_number || 'Not set'} textColor={heroTextColor} />
                         {(company?.service_categories || []).slice(0, 3).map((category) => (
                             <InfoPill key={category} label="Service" value={category} textColor={heroTextColor} />
@@ -314,6 +344,37 @@ function WorkflowCard({ title, description }: { title: string; description: stri
 
 function isTechOSRole(role?: string | null) {
     return TECHOS_ROLES.includes(normalizeRole(role) as CompanyRole);
+}
+
+async function loadPlatformAdminStatus(userId: string) {
+    const primaryQuery = await supabase
+        .from('profiles')
+        .select('role, is_platform_admin')
+        .eq('id', userId)
+        .limit(1);
+
+    if (!primaryQuery.error) {
+        return {
+            isPlatformAdmin: isPlatformAdminProfile((primaryQuery.data || [])[0] as PlatformProfile | undefined),
+        };
+    }
+
+    const fallbackQuery = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .limit(1);
+
+    return {
+        isPlatformAdmin: isPlatformAdminProfile((fallbackQuery.data || [])[0] as PlatformProfile | undefined),
+    };
+}
+
+function isPlatformAdminProfile(profile?: PlatformProfile | null) {
+    return (
+        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
+        profile?.is_platform_admin === true
+    );
 }
 
 function normalizeRole(role?: string | null) {

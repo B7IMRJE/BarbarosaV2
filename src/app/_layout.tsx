@@ -245,7 +245,7 @@ function resolveRedirectForPath(
   }
 
   if (routeDecision.reason === 'super-admin') {
-    if (isSuperAdminPath(pathname) || pathname === PROFILE_CHANGE_PASSWORD_ROUTE) {
+    if (isSuperAdminPath(pathname) || isTechOSPath(pathname) || pathname === PROFILE_CHANGE_PASSWORD_ROUTE) {
       return null;
     }
 
