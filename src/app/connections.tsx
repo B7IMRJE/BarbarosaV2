@@ -45,10 +45,16 @@ type CompanyRecord = {
 
 type ConnectionAction = 'approve' | 'decline';
 
+const companyProfileSelect =
+    'id, name, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, homeos_rating, homeos_rating_count, combined_experience_years, license_number, phone, website, short_description';
+
 export default function ConnectionsScreen() {
     const { theme } = useTheme();
     const [connections, setConnections] = useState<PropertyConnection[]>([]);
     const [companiesById, setCompaniesById] = useState<Record<string, CompanyRecord>>({});
+    const [approvedCompanies, setApprovedCompanies] = useState<CompanyRecord[]>([]);
+    const [approvedCompaniesLoading, setApprovedCompaniesLoading] = useState(true);
+    const [approvedCompaniesError, setApprovedCompaniesError] = useState('');
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
     const [actionConnectionId, setActionConnectionId] = useState('');
@@ -86,9 +92,12 @@ export default function ConnectionsScreen() {
 
         if (userError || !user) {
             setLoading(false);
+            setApprovedCompaniesLoading(false);
             router.replace('/auth/login' as any);
             return;
         }
+
+        await loadApprovedCompanies();
 
         const { data: memberships, error: membershipError } = await supabase
             .from('property_memberships')
@@ -145,9 +154,7 @@ export default function ConnectionsScreen() {
 
         const { data, error } = await supabase
             .from('companies')
-            .select(
-                'id, name, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, homeos_rating, homeos_rating_count, combined_experience_years, license_number, phone, website, short_description'
-            )
+            .select(companyProfileSelect)
             .in('id', companyIds);
 
         if (error) {
@@ -165,6 +172,28 @@ export default function ConnectionsScreen() {
         );
 
         setCompaniesById(nextCompaniesById);
+    }
+
+    async function loadApprovedCompanies() {
+        setApprovedCompaniesLoading(true);
+        setApprovedCompaniesError('');
+
+        const { data, error } = await supabase
+            .from('companies')
+            .select(companyProfileSelect)
+            .in('status', ['ACTIVE', 'active'])
+            .order('public_name', { ascending: true, nullsFirst: false })
+            .order('name', { ascending: true });
+
+        setApprovedCompaniesLoading(false);
+
+        if (error) {
+            setApprovedCompanies([]);
+            setApprovedCompaniesError(`Could not load approved providers: ${error.message}`);
+            return;
+        }
+
+        setApprovedCompanies((data || []) as CompanyRecord[]);
     }
 
     async function handleConnectionDecision(connectionId: string, decision: ConnectionAction) {
@@ -202,6 +231,13 @@ export default function ConnectionsScreen() {
         setMessage(decision === 'approve' ? 'Connection approved.' : 'Connection declined.');
     }
 
+    function handleProviderSelection(company: CompanyRecord) {
+        const providerName = getCompanyDisplayName(company);
+        setMessage(
+            `Provider selection storage is the next step. ${providerName} is not connected yet; generate a connection code or have the provider request access for now.`
+        );
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -231,6 +267,13 @@ export default function ConnectionsScreen() {
                         style={{ marginTop: 16 }}
                     />
                 </ThemedCard>
+
+                <ApprovedServiceProvidersSection
+                    companies={approvedCompanies}
+                    loading={approvedCompaniesLoading}
+                    error={approvedCompaniesError}
+                    onRequestConnection={handleProviderSelection}
+                />
 
                 {loading ? (
                     <ThemedCard>
@@ -287,6 +330,163 @@ export default function ConnectionsScreen() {
                 )}
             </View>
         </ScrollView>
+    );
+}
+
+function ApprovedServiceProvidersSection({
+    companies,
+    loading,
+    error,
+    onRequestConnection,
+}: {
+    companies: CompanyRecord[];
+    loading: boolean;
+    error: string;
+    onRequestConnection: (company: CompanyRecord) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={sectionStyle}>
+            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Approved Service Providers</Text>
+            <View style={listStyle}>
+                {loading ? (
+                    <ThemedCard>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                            Loading approved providers...
+                        </Text>
+                    </ThemedCard>
+                ) : error ? (
+                    <ThemedCard>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{error}</Text>
+                    </ThemedCard>
+                ) : companies.length === 0 ? (
+                    <ThemedCard>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                            No approved service providers are available yet.
+                        </Text>
+                    </ThemedCard>
+                ) : (
+                    companies.map((company) => (
+                        <ApprovedServiceProviderCard
+                            key={company.id}
+                            company={company}
+                            onRequestConnection={onRequestConnection}
+                        />
+                    ))
+                )}
+            </View>
+        </View>
+    );
+}
+
+function ApprovedServiceProviderCard({
+    company,
+    onRequestConnection,
+}: {
+    company: CompanyRecord;
+    onRequestConnection: (company: CompanyRecord) => void;
+}) {
+    const { theme } = useTheme();
+    const [logoFailed, setLogoFailed] = useState(false);
+    const displayName = getCompanyDisplayName(company);
+    const dbaName = getCompanyDbaName(company, displayName);
+    const categories = getCompanyCategories(company);
+    const logoUrl = company.logo_url?.trim() || '';
+    const primaryColor = safeColor(company.primary_color, theme.colors.primary);
+    const secondaryColor = safeColor(company.secondary_color, theme.colors.primaryText);
+    const accentColor = safeColor(company.accent_color, theme.colors.link);
+
+    useEffect(() => {
+        setLogoFailed(false);
+    }, [logoUrl]);
+
+    return (
+        <ThemedCard style={[companyCardStyle, { borderColor: accentColor }]}>
+            <View style={companyHeaderStyle}>
+                {logoUrl && !logoFailed ? (
+                    <Image
+                        source={{ uri: logoUrl }}
+                        onError={() => setLogoFailed(true)}
+                        style={[
+                            logoStyle,
+                            {
+                                backgroundColor: theme.colors.surfaceAlt,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                        resizeMode="cover"
+                    />
+                ) : (
+                    <View
+                        style={[
+                            logoStyle,
+                            {
+                                backgroundColor: primaryColor,
+                                borderColor: accentColor,
+                            },
+                        ]}
+                    >
+                        <Text style={[logoInitialStyle, { color: secondaryColor }]}>
+                            {getFallbackInitial(displayName)}
+                        </Text>
+                    </View>
+                )}
+
+                <View style={companyContentStyle}>
+                    <Text numberOfLines={2} style={[cardTitleStyle, { color: theme.colors.text }]}>
+                        {displayName}
+                    </Text>
+                    <Text numberOfLines={1} style={[dbaTextStyle, { color: accentColor }]}>
+                        DBA: {dbaName}
+                    </Text>
+
+                    <Text numberOfLines={3} style={[descriptionTextStyle, { color: theme.colors.mutedText }]}>
+                        {company.short_description || 'No company description added yet.'}
+                    </Text>
+
+                    <View style={categoryRowStyle}>
+                        {categories.slice(0, 5).map((category, index) => (
+                            <View
+                                key={`${company.id}-${category}-${index}`}
+                                style={[
+                                    categoryPillStyle,
+                                    {
+                                        backgroundColor: theme.colors.surfaceAlt,
+                                        borderColor: theme.colors.border,
+                                    },
+                                ]}
+                            >
+                                <Text style={[categoryTextStyle, { color: accentColor }]}>{category}</Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+            </View>
+
+            <View style={statRowStyle}>
+                <CompanyStat label="Rating" value={formatRating(company.homeos_rating)} />
+                <CompanyStat label="Ratings" value={formatRatingCount(company.homeos_rating_count)} />
+                <CompanyStat
+                    label="Experience"
+                    value={formatExperienceYears(company.combined_experience_years)}
+                />
+                <CompanyStat label="License" value={formatLicenseNumber(company.license_number)} />
+            </View>
+
+            {(company.phone || company.website) && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    {[company.phone, company.website].filter(Boolean).join(' | ')}
+                </Text>
+            )}
+
+            <ThemedButton
+                title="Request Connection"
+                onPress={() => onRequestConnection(company)}
+                variant="secondary"
+                style={{ marginTop: 16 }}
+            />
+        </ThemedCard>
     );
 }
 
