@@ -30,12 +30,12 @@ begin
         raise exception 'public.property_connections is required before provider connection requests can be installed.';
     end if;
 
-    if to_regprocedure('public.is_platform_admin()') is null then
-        raise exception 'public.is_platform_admin() is required before provider connection requests can be installed.';
+    if to_regprocedure('public.homeos_is_platform_admin()') is null then
+        raise exception 'public.homeos_is_platform_admin() is required before provider connection requests can be installed.';
     end if;
 
-    if to_regprocedure('public.is_active_property_member(uuid)') is null then
-        raise exception 'public.is_active_property_member(uuid) is required before provider connection requests can be installed.';
+    if to_regprocedure('public.homeos_can_read_property_record(uuid)') is null then
+        raise exception 'public.homeos_can_read_property_record(uuid) is required before provider connection requests can be installed.';
     end if;
 
     if to_regprocedure('public.is_active_company_member(uuid)') is null then
@@ -266,8 +266,7 @@ begin
         for select
         to authenticated
         using (
-            public.is_platform_admin()
-            or public.is_active_property_member(property_id)
+            public.homeos_can_read_property_record(property_id)
             or public.is_active_company_member(company_id)
         );
     end if;
@@ -284,8 +283,7 @@ begin
         for select
         to authenticated
         using (
-            public.is_platform_admin()
-            or public.is_active_property_member(property_id)
+            public.homeos_can_read_property_record(property_id)
             or public.is_active_company_member(company_id)
         );
     end if;
