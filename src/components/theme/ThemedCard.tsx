@@ -28,6 +28,8 @@ export default function ThemedCard({
             borderColor: theme.colors.border,
             borderRadius: theme.radii.card,
             borderWidth: 1,
+            maxWidth: '100%' as const,
+            minWidth: 0,
             padding: scaleIcon(18),
         },
         contentStyle,

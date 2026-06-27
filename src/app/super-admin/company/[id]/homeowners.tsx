@@ -120,7 +120,7 @@ export default function HomeownersScreen() {
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <Text
                     onPress={() => router.push(`/super-admin/company/${id}` as any)}
                     style={[backTextStyle, { color: theme.colors.text }]}
@@ -302,6 +302,7 @@ function ThemedInput({
                     borderRadius: theme.radii.button,
                     color: theme.colors.text,
                     fontSize: 16,
+                    minWidth: 0,
                     paddingHorizontal: 16,
                     paddingVertical: 16,
                 }}
@@ -354,6 +355,9 @@ const helperTextStyle = {
 };
 
 const inputGroupStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     marginBottom: 14,
 };
 
@@ -381,6 +385,9 @@ const sectionHeadingStyle = {
 };
 
 const statusGridStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 12,
@@ -388,9 +395,11 @@ const statusGridStyle = {
 };
 
 const statusCardStyle = {
+    maxWidth: '100%' as const,
     flexGrow: 1,
-    flexBasis: '45%' as const,
-    minWidth: 220,
+    flexBasis: 220,
+    flexShrink: 1,
+    minWidth: 0,
 };
 
 const statusTitleStyle = {
@@ -406,12 +415,16 @@ const statusBodyStyle = {
 };
 
 const listStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     gap: 12,
 };
 
 const homeownerNameStyle = {
     fontSize: 19,
     fontWeight: '900' as const,
+    flexShrink: 1,
 };
 
 const homeownerMetaStyle = {

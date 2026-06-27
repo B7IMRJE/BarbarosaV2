@@ -106,7 +106,7 @@ export default function CompanyRedeemCodeScreen() {
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <HomeHeader />
 
                 <Text
@@ -263,6 +263,7 @@ const inputStyle = {
     borderWidth: 1,
     fontSize: 16,
     fontWeight: '800' as const,
+    minWidth: 0,
     paddingHorizontal: 16,
     paddingVertical: 16,
 };

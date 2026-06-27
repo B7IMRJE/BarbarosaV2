@@ -118,7 +118,7 @@ export default function CompanyConnectionsScreen() {
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <Text
                     onPress={() => router.push(`/super-admin/company/${id}` as any)}
                     style={[backTextStyle, { color: theme.colors.text }]}
@@ -282,6 +282,9 @@ const actionCardStyle = {
 };
 
 const sectionStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     marginTop: 24,
 };
 
@@ -304,12 +307,16 @@ const bodyTextStyle = {
 };
 
 const listStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     gap: 12,
 };
 
 const cardTitleStyle = {
     fontSize: 19,
     fontWeight: '900' as const,
+    flexShrink: 1,
 };
 
 const metaTextStyle = {

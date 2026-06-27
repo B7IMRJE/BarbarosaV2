@@ -284,7 +284,7 @@ export default function CompanyUsersScreen() {
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <Text
                     onPress={() => router.push(`/super-admin/company/${id}` as any)}
                     style={[backTextStyle, { color: theme.colors.text }]}
@@ -513,7 +513,7 @@ function TechnicianCard({ member }: { member: CompanyUser }) {
                 <View style={technicianAvatarStyle}>
                     <Text style={technicianAvatarTextStyle}>{getInitials(member.full_name || member.email)}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[cardTitleStyle, { color: theme.colors.text }]}>
                         {member.full_name || 'Unnamed technician'}
                     </Text>
@@ -543,6 +543,7 @@ function RoleBadge({ label, tone }: { label: string; tone?: string }) {
                 borderColor: isActive ? theme.colors.primary : theme.colors.border,
                 borderRadius: 999,
                 borderWidth: 1,
+                maxWidth: '100%',
                 paddingHorizontal: 10,
                 paddingVertical: 6,
             }}
@@ -552,6 +553,7 @@ function RoleBadge({ label, tone }: { label: string; tone?: string }) {
                     color: isActive ? theme.colors.primary : theme.colors.text,
                     fontSize: 12,
                     fontWeight: '900',
+                    flexShrink: 1,
                 }}
             >
                 {label}
@@ -836,20 +838,32 @@ const subtitleStyle = {
 };
 
 const formCardStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     gap: 14,
     marginBottom: 16,
 };
 
 const heroCardStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     gap: 14,
     marginBottom: 16,
 };
 
 const messageCardStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     marginBottom: 16,
 };
 
 const sectionStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     marginTop: 24,
 };
 
@@ -887,11 +901,15 @@ const inputStyle = {
     borderWidth: 1,
     fontSize: 16,
     fontWeight: '800' as const,
+    minWidth: 0,
     paddingHorizontal: 16,
     paddingVertical: 16,
 };
 
 const roleGridStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 10,
@@ -900,6 +918,8 @@ const roleGridStyle = {
 const roleChipStyle = {
     borderRadius: 999,
     borderWidth: 1,
+    maxWidth: '100%' as const,
+    flexShrink: 1,
     paddingHorizontal: 14,
     paddingVertical: 10,
 };
@@ -907,22 +927,33 @@ const roleChipStyle = {
 const roleChipTextStyle = {
     fontSize: 13,
     fontWeight: '900' as const,
+    textAlign: 'center' as const,
 };
 
 const listStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     gap: 12,
 };
 
 const metricGridStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 10,
 };
 
 const metricCardStyle = {
+    flexBasis: 170,
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
     borderRadius: 16,
     borderWidth: 1,
-    minWidth: 170,
+    minWidth: 0,
     padding: 14,
 };
 
@@ -941,7 +972,9 @@ const metricLabelStyle = {
 const technicianCardHeaderStyle = {
     alignItems: 'center' as const,
     flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
     gap: 12,
+    minWidth: 0,
 };
 
 const technicianAvatarStyle = {
@@ -960,6 +993,8 @@ const technicianAvatarTextStyle = {
 };
 
 const badgeRowStyle = {
+    maxWidth: '100%' as const,
+    minWidth: 0,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 8,
@@ -969,6 +1004,7 @@ const badgeRowStyle = {
 const cardTitleStyle = {
     fontSize: 19,
     fontWeight: '900' as const,
+    flexShrink: 1,
 };
 
 const metaTextStyle = {
@@ -979,6 +1015,9 @@ const metaTextStyle = {
 };
 
 const actionRowStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 10,
@@ -986,6 +1025,10 @@ const actionRowStyle = {
 };
 
 const actionButtonStyle = {
-    minWidth: 150,
+    flexBasis: 150,
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     paddingVertical: 14,
 };

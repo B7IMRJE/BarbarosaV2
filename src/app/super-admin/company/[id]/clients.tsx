@@ -192,7 +192,7 @@ export default function CompanyClientsScreen() {
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <HomeHeader />
 
                 <Text
@@ -400,6 +400,9 @@ const actionCardStyle = {
 };
 
 const sectionStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     marginTop: 24,
 };
 
@@ -422,12 +425,16 @@ const bodyTextStyle = {
 };
 
 const listStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     gap: 12,
 };
 
 const cardTitleStyle = {
     fontSize: 19,
     fontWeight: '900' as const,
+    flexShrink: 1,
 };
 
 const metaTextStyle = {

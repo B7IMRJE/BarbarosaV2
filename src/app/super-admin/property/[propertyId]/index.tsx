@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 
 const cards = [
     'Equipment',
@@ -11,6 +11,9 @@ const cards = [
 ];
 
 export default function PropertyDashboardScreen() {
+    const { width: viewportWidth } = useWindowDimensions();
+    const isPhoneLayout = viewportWidth <= 640;
+    const pagePadding = isPhoneLayout ? 16 : 20;
     const { propertyId } = useLocalSearchParams<{
         propertyId: string;
     }>();
@@ -19,12 +22,12 @@ export default function PropertyDashboardScreen() {
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
             contentContainerStyle={{
-                padding: 20,
+                padding: pagePadding,
                 paddingBottom: 40,
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <Text
                     onPress={() => router.back()}
                     style={{
@@ -40,7 +43,7 @@ export default function PropertyDashboardScreen() {
 
                 <Text
                     style={{
-                        fontSize: 34,
+                        fontSize: isPhoneLayout ? 30 : 34,
                         fontWeight: '900',
                         color: '#071B33',
                     }}
@@ -49,10 +52,12 @@ export default function PropertyDashboardScreen() {
                 </Text>
 
                 <Text
+                    numberOfLines={1}
                     style={{
                         color: '#637083',
                         marginTop: 8,
                         marginBottom: 24,
+                        maxWidth: '100%',
                     }}
                 >
                     Property ID: {propertyId}
@@ -60,9 +65,12 @@ export default function PropertyDashboardScreen() {
 
                 <View
                     style={{
+                        width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
                         backgroundColor: '#FFFFFF',
                         borderRadius: 20,
-                        padding: 20,
+                        padding: isPhoneLayout ? 16 : 20,
                         borderWidth: 1,
                         borderColor: '#E3E8EF',
                         marginBottom: 20,
@@ -105,6 +113,8 @@ export default function PropertyDashboardScreen() {
                         flexDirection: 'row',
                         flexWrap: 'wrap',
                         gap: 12,
+                        width: '100%',
+                        minWidth: 0,
                     }}
                 >
                     {cards.map((card) => (
@@ -149,7 +159,9 @@ export default function PropertyDashboardScreen() {
                                 alert(`${card} coming soon.`);
                             }}
                             style={{
-                                width: '48%',
+                                width: isPhoneLayout ? '100%' : '48%',
+                                maxWidth: '100%',
+                                minWidth: 0,
                                 minHeight: 100,
                                 backgroundColor: '#FFFFFF',
                                 borderRadius: 20,
@@ -160,10 +172,12 @@ export default function PropertyDashboardScreen() {
                             }}
                         >
                             <Text
+                                numberOfLines={2}
                                 style={{
                                     fontSize: 18,
                                     fontWeight: '900',
                                     color: '#071B33',
+                                    flexShrink: 1,
                                 }}
                             >
                                 {card}

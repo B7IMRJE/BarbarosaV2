@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { supabase } from '../../../../lib/supabase';
 
 type Company = {
@@ -137,6 +137,11 @@ const cards = [
 
 export default function CompanyDashboardScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
+    const { width: viewportWidth } = useWindowDimensions();
+    const isPhoneLayout = viewportWidth <= 640;
+    const pagePadding = isPhoneLayout ? 16 : 20;
+    const heroLogoSize = isPhoneLayout ? 72 : 86;
+    const previewLogoSize = isPhoneLayout ? 72 : 88;
     const [company, setCompany] = useState<Company | null>(null);
     const [brandForm, setBrandForm] = useState<CompanyBrandForm>(defaultBrandForm);
     const [message, setMessage] = useState('Loading company...');
@@ -512,19 +517,22 @@ export default function CompanyDashboardScreen() {
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
             contentContainerStyle={{
-                padding: 20,
+                padding: pagePadding,
                 paddingBottom: 40,
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 1180 }}>
+            <View style={{ width: '100%', maxWidth: 1180, minWidth: 0 }}>
                 <View
                     style={{
+                        width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
                         backgroundColor: brandPrimary,
                         borderRadius: 28,
                         borderWidth: 1,
                         borderColor: brandAccent,
-                        padding: 22,
+                        padding: isPhoneLayout ? 18 : 22,
                         marginTop: 16,
                         marginBottom: 22,
                     }}
@@ -537,9 +545,10 @@ export default function CompanyDashboardScreen() {
                             alignItems: 'flex-start',
                             gap: 18,
                             marginBottom: 22,
+                            minWidth: 0,
                         }}
                     >
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, minWidth: 0, maxWidth: '100%' }}>
                             <Text
                                 style={{
                                     color: brandHeaderText,
@@ -552,26 +561,28 @@ export default function CompanyDashboardScreen() {
                                 Company Management Home
                             </Text>
 
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 16, minWidth: 0 }}>
                                 {logoCanPreview ? (
                                     <Image
                                         source={{ uri: brandForm.logoUrl.trim() }}
                                         style={{
-                                            width: 86,
-                                            height: 86,
+                                            width: heroLogoSize,
+                                            height: heroLogoSize,
                                             borderRadius: 24,
                                             backgroundColor: brandSecondary,
+                                            flexShrink: 0,
                                         }}
                                     />
                                 ) : (
                                     <View
                                         style={{
-                                            width: 86,
-                                            height: 86,
+                                            width: heroLogoSize,
+                                            height: heroLogoSize,
                                             borderRadius: 24,
                                             backgroundColor: brandSecondary,
                                             alignItems: 'center',
                                             justifyContent: 'center',
+                                            flexShrink: 0,
                                         }}
                                     >
                                         <Text
@@ -586,22 +597,26 @@ export default function CompanyDashboardScreen() {
                                     </View>
                                 )}
 
-                                <View style={{ flex: 1, minWidth: 260 }}>
+                                <View style={{ flex: 1, maxWidth: '100%', minWidth: isPhoneLayout ? 0 : 260 }}>
                                     <Text
+                                        numberOfLines={2}
                                         style={{
                                             color: brandHeaderText,
-                                            fontSize: 36,
+                                            fontSize: isPhoneLayout ? 30 : 36,
                                             fontWeight: '900',
+                                            flexShrink: 1,
                                         }}
                                     >
                                         {previewName}
                                     </Text>
                                     <Text
+                                        numberOfLines={2}
                                         style={{
                                             color: brandAccent,
                                             fontSize: 16,
                                             fontWeight: '900',
                                             marginTop: 4,
+                                            flexShrink: 1,
                                         }}
                                     >
                                         {previewDba}
@@ -627,6 +642,8 @@ export default function CompanyDashboardScreen() {
                             onPress={() => router.push('/super-admin/companies' as any)}
                             activeOpacity={0.82}
                             style={{
+                                alignSelf: 'flex-start',
+                                maxWidth: '100%',
                                 backgroundColor: brandSecondary,
                                 borderRadius: 16,
                                 paddingHorizontal: 18,
@@ -634,6 +651,7 @@ export default function CompanyDashboardScreen() {
                             }}
                         >
                             <Text
+                                numberOfLines={1}
                                 style={{
                                     color: getReadableColor(brandSecondary),
                                     fontSize: 14,
@@ -650,6 +668,8 @@ export default function CompanyDashboardScreen() {
                             flexDirection: 'row',
                             flexWrap: 'wrap',
                             gap: 10,
+                            maxWidth: '100%',
+                            minWidth: 0,
                         }}
                     >
                         <BrandInfoPill label="Status" value={company?.status || 'Active'} textColor={brandHeaderText} />
@@ -664,7 +684,7 @@ export default function CompanyDashboardScreen() {
                         ))}
                     </View>
 
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18 }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18, maxWidth: '100%', minWidth: 0 }}>
                         {[brandPrimary, brandSecondary, brandAccent].map((color) => (
                             <View
                                 key={color}
@@ -683,24 +703,29 @@ export default function CompanyDashboardScreen() {
 
                 <View
                     style={{
+                        width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
                         backgroundColor: '#FFFFFF',
                         borderColor: '#DFE7F1',
                         borderRadius: 24,
                         borderWidth: 1,
-                        padding: 20,
+                        padding: isPhoneLayout ? 16 : 20,
                         marginBottom: 22,
                     }}
                 >
                     <View
                         style={{
                             flexDirection: 'row',
+                            flexWrap: 'wrap',
                             justifyContent: 'space-between',
                             alignItems: 'flex-start',
                             gap: 16,
                             marginBottom: 18,
+                            minWidth: 0,
                         }}
                     >
-                        <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
                             <Text
                                 style={{
                                     fontSize: 22,
@@ -724,13 +749,15 @@ export default function CompanyDashboardScreen() {
 
                         <View
                             style={{
+                                alignSelf: 'flex-start',
+                                maxWidth: '100%',
                                 backgroundColor: '#EEF4FF',
                                 borderRadius: 999,
                                 paddingHorizontal: 12,
                                 paddingVertical: 8,
                             }}
                         >
-                            <Text style={{ color: brandAccent, fontSize: 12, fontWeight: '900' }}>
+                            <Text numberOfLines={1} style={{ color: brandAccent, fontSize: 12, fontWeight: '900' }}>
                                 {cards.length} core modules
                             </Text>
                         </View>
@@ -741,6 +768,8 @@ export default function CompanyDashboardScreen() {
                             flexDirection: 'row',
                             flexWrap: 'wrap',
                             gap: 12,
+                            width: '100%',
+                            minWidth: 0,
                         }}
                     >
                         {cards.map((card) => (
@@ -764,9 +793,12 @@ export default function CompanyDashboardScreen() {
                 {company && (
                     <View
                         style={{
+                            width: '100%',
+                            maxWidth: '100%',
+                            minWidth: 0,
                             backgroundColor: '#FFFFFF',
                             borderRadius: 24,
-                            padding: 20,
+                            padding: isPhoneLayout ? 16 : 20,
                             borderWidth: 1,
                             borderColor: '#E3E8EF',
                             marginBottom: 22,
@@ -801,19 +833,22 @@ export default function CompanyDashboardScreen() {
                                 borderRadius: 24,
                                 borderWidth: 1,
                                 marginBottom: 20,
-                                padding: 18,
+                                padding: isPhoneLayout ? 14 : 18,
+                                minWidth: 0,
                             }}
                         >
                             <View
                                 style={{
                                     flexDirection: 'row',
+                                    flexWrap: 'wrap',
                                     justifyContent: 'space-between',
                                     alignItems: 'flex-start',
                                     gap: 18,
                                     marginBottom: 16,
+                                    minWidth: 0,
                                 }}
                             >
-                                <View style={{ flex: 1 }}>
+                                <View style={{ flex: 1, minWidth: 0 }}>
                                     <Text
                                         style={{
                                             color: '#0B5FFF',
@@ -854,29 +889,33 @@ export default function CompanyDashboardScreen() {
                                     borderWidth: 1,
                                     padding: 18,
                                     flexDirection: 'row',
+                                    flexWrap: 'wrap',
                                     alignItems: 'center',
                                     gap: 18,
+                                    minWidth: 0,
                                 }}
                             >
                                 {logoCanPreview ? (
                                     <Image
                                         source={{ uri: brandForm.logoUrl.trim() }}
                                         style={{
-                                            width: 88,
-                                            height: 88,
+                                            width: previewLogoSize,
+                                            height: previewLogoSize,
                                             borderRadius: 20,
                                             backgroundColor: '#F8FAFC',
+                                            flexShrink: 0,
                                         }}
                                     />
                                 ) : (
                                     <View
                                         style={{
-                                            width: 88,
-                                            height: 88,
+                                            width: previewLogoSize,
+                                            height: previewLogoSize,
                                             borderRadius: 20,
                                             backgroundColor: brandForm.primaryColor || '#071B33',
                                             alignItems: 'center',
                                             justifyContent: 'center',
+                                            flexShrink: 0,
                                         }}
                                     >
                                         <Text
@@ -891,12 +930,14 @@ export default function CompanyDashboardScreen() {
                                     </View>
                                 )}
 
-                                <View style={{ flex: 1 }}>
+                                <View style={{ flex: 1, minWidth: 0 }}>
                                     <Text
+                                        numberOfLines={2}
                                         style={{
                                             color: '#071B33',
-                                            fontSize: 24,
+                                            fontSize: isPhoneLayout ? 21 : 24,
                                             fontWeight: '900',
+                                            flexShrink: 1,
                                         }}
                                     >
                                         {previewName}
@@ -936,6 +977,8 @@ export default function CompanyDashboardScreen() {
                                             <View
                                                 key={category}
                                                 style={{
+                                                    maxWidth: '100%',
+                                                    flexShrink: 1,
                                                     backgroundColor: '#EEF4FF',
                                                     borderRadius: 999,
                                                     paddingHorizontal: 10,
@@ -943,10 +986,12 @@ export default function CompanyDashboardScreen() {
                                                 }}
                                             >
                                                 <Text
+                                                    numberOfLines={1}
                                                     style={{
                                                         color: '#0B5FFF',
                                                         fontSize: 12,
                                                         fontWeight: '900',
+                                                        flexShrink: 1,
                                                     }}
                                                 >
                                                     {category}
@@ -959,12 +1004,14 @@ export default function CompanyDashboardScreen() {
                                 <View
                                     style={{
                                         alignItems: 'flex-start',
+                                        width: isPhoneLayout ? '100%' : undefined,
+                                        maxWidth: '100%',
+                                        minWidth: isPhoneLayout ? 0 : 150,
                                         backgroundColor: '#F8FAFC',
                                         borderColor: '#E3E8EF',
                                         borderRadius: 18,
                                         borderWidth: 1,
                                         padding: 14,
-                                        minWidth: 150,
                                     }}
                                 >
                                     <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '900' }}>Company Rating</Text>
@@ -991,18 +1038,20 @@ export default function CompanyDashboardScreen() {
                             <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
                             <Field label="DBA Name" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
                             <Field label="Logo URL" value={brandForm.logoUrl} onChangeText={(value) => updateBrandField('logoUrl', value)} />
-                            <View style={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                            <View style={{ width: '100%', maxWidth: '100%', minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                                 <TouchableOpacity
                                     onPress={uploadCompanyLogo}
                                     disabled={savingBrand}
                                     style={{
+                                        maxWidth: '100%',
+                                        flexShrink: 1,
                                         backgroundColor: '#071B33',
                                         borderRadius: 999,
                                         paddingHorizontal: 14,
                                         paddingVertical: 10,
                                     }}
                                 >
-                                    <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>
+                                    <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900', textAlign: 'center' }}>
                                         Upload Logo
                                     </Text>
                                 </TouchableOpacity>
@@ -1011,6 +1060,8 @@ export default function CompanyDashboardScreen() {
                                     onPress={useRepipeOneLogoAsset}
                                     disabled={savingBrand}
                                     style={{
+                                        maxWidth: '100%',
+                                        flexShrink: 1,
                                         backgroundColor: '#ECFDF3',
                                         borderColor: '#BBF7D0',
                                         borderRadius: 999,
@@ -1019,7 +1070,7 @@ export default function CompanyDashboardScreen() {
                                         paddingVertical: 10,
                                     }}
                                 >
-                                    <Text style={{ color: '#047857', fontSize: 12, fontWeight: '900' }}>
+                                    <Text style={{ color: '#047857', fontSize: 12, fontWeight: '900', textAlign: 'center' }}>
                                         Use Repipe 1 Logo
                                     </Text>
                                 </TouchableOpacity>
@@ -1028,6 +1079,8 @@ export default function CompanyDashboardScreen() {
                                     onPress={extractThemeFromLogo}
                                     disabled={savingBrand}
                                     style={{
+                                        maxWidth: '100%',
+                                        flexShrink: 1,
                                         backgroundColor: '#EEF4FF',
                                         borderColor: '#CFE0FF',
                                         borderRadius: 999,
@@ -1036,7 +1089,7 @@ export default function CompanyDashboardScreen() {
                                         paddingVertical: 10,
                                     }}
                                 >
-                                    <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
+                                    <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900', textAlign: 'center' }}>
                                         Extract colors from current logo
                                     </Text>
                                 </TouchableOpacity>
@@ -1066,17 +1119,19 @@ export default function CompanyDashboardScreen() {
                                     Quick theme tools
                                 </Text>
 
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, maxWidth: '100%', minWidth: 0 }}>
                                     <TouchableOpacity
                                         onPress={applyRepipeOnePreset}
                                         style={{
+                                            maxWidth: '100%',
+                                            flexShrink: 1,
                                             backgroundColor: '#071B33',
                                             borderRadius: 999,
                                             paddingHorizontal: 14,
                                             paddingVertical: 10,
                                         }}
                                     >
-                                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900' }}>
+                                        <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900', textAlign: 'center' }}>
                                             Apply Repipe 1 preset
                                         </Text>
                                     </TouchableOpacity>
@@ -1084,6 +1139,8 @@ export default function CompanyDashboardScreen() {
                                     <TouchableOpacity
                                         onPress={extractThemeFromLogo}
                                         style={{
+                                            maxWidth: '100%',
+                                            flexShrink: 1,
                                             backgroundColor: '#EEF4FF',
                                             borderColor: '#CFE0FF',
                                             borderRadius: 999,
@@ -1092,24 +1149,27 @@ export default function CompanyDashboardScreen() {
                                             paddingVertical: 10,
                                         }}
                                     >
-                                        <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
+                                        <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900', textAlign: 'center' }}>
                                             Extract colors from Logo URL
                                         </Text>
                                     </TouchableOpacity>
                                 </View>
 
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, maxWidth: '100%', minWidth: 0 }}>
                                     {brandThemePresets.map((preset) => (
                                         <TouchableOpacity
                                             key={preset.name}
                                             onPress={() => applyThemePreset(preset)}
                                             style={{
+                                                width: isPhoneLayout ? '100%' : undefined,
+                                                maxWidth: '100%',
+                                                minWidth: isPhoneLayout ? 0 : 150,
+                                                flexShrink: 1,
                                                 backgroundColor: '#FFFFFF',
                                                 borderColor: '#E3E8EF',
                                                 borderRadius: 14,
                                                 borderWidth: 1,
                                                 padding: 10,
-                                                minWidth: 150,
                                             }}
                                         >
                                             <View style={{ flexDirection: 'row', gap: 5, marginBottom: 8 }}>
@@ -1244,6 +1304,8 @@ function BrandInfoPill({ label, value, textColor }: { label: string; value: stri
     return (
         <View
             style={{
+                maxWidth: '100%',
+                flexShrink: 1,
                 backgroundColor: 'rgba(255,255,255,0.14)',
                 borderColor: 'rgba(255,255,255,0.28)',
                 borderRadius: 999,
@@ -1255,7 +1317,7 @@ function BrandInfoPill({ label, value, textColor }: { label: string; value: stri
             <Text style={{ color: textColor, fontSize: 11, fontWeight: '800', opacity: 0.72 }}>
                 {label}
             </Text>
-            <Text style={{ color: textColor, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
+            <Text numberOfLines={1} style={{ color: textColor, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
                 {value}
             </Text>
         </View>
@@ -1277,13 +1339,18 @@ function CompanyModuleCard({
     accentColor: string;
     onPress: () => void;
 }) {
+    const { width: viewportWidth } = useWindowDimensions();
+    const isPhoneLayout = viewportWidth <= 640;
+
     return (
         <TouchableOpacity
             onPress={onPress}
             activeOpacity={0.82}
             style={{
-                width: '31%',
-                minWidth: 240,
+                width: isPhoneLayout ? '100%' : '31%',
+                maxWidth: '100%',
+                minWidth: isPhoneLayout ? 0 : 240,
+                flexShrink: 1,
                 minHeight: 118,
                 backgroundColor: isExpanded ? primaryColor : '#F8FAFC',
                 borderRadius: 18,
@@ -1314,17 +1381,20 @@ function CompanyModuleCard({
                 </Text>
             </View>
 
-            <View>
+            <View style={{ minWidth: 0 }}>
                 <Text
+                    numberOfLines={2}
                     style={{
                         fontSize: 16,
                         fontWeight: '900',
                         color: isExpanded ? getReadableColor(primaryColor) : '#071B33',
+                        flexShrink: 1,
                     }}
                 >
                     {title}
                 </Text>
                 <Text
+                    numberOfLines={3}
                     style={{
                         color: isExpanded ? getReadableColor(primaryColor) : '#64748B',
                         fontSize: 12,
@@ -1387,6 +1457,8 @@ function BrandColorAssignmentPanel({
     onApply: (slot: BrandColorKey, color: string) => void;
     onSwap: (first: BrandColorKey, second: BrandColorKey) => void;
 }) {
+    const { width: viewportWidth } = useWindowDimensions();
+    const isPhoneLayout = viewportWidth <= 640;
     const currentColors: { key: BrandColorKey; label: string; value: string }[] = [
         { key: 'primaryColor', label: 'Primary', value: brandForm.primaryColor },
         { key: 'secondaryColor', label: 'Secondary', value: brandForm.secondaryColor },
@@ -1403,6 +1475,7 @@ function BrandColorAssignmentPanel({
                 borderWidth: 1,
                 padding: 14,
                 gap: 14,
+                minWidth: 0,
             }}
         >
             <View>
@@ -1419,8 +1492,11 @@ function BrandColorAssignmentPanel({
                     <View
                         key={item.key}
                         style={{
-                            minWidth: 150,
-                            flex: 1,
+                            width: isPhoneLayout ? '100%' : undefined,
+                            maxWidth: '100%',
+                            minWidth: isPhoneLayout ? 0 : 150,
+                            flex: isPhoneLayout ? undefined : 1,
+                            flexShrink: 1,
                             borderColor: '#E3E8EF',
                             borderRadius: 16,
                             borderWidth: 1,
@@ -1517,7 +1593,7 @@ function BrandColorAssignmentPanel({
                                         borderWidth: 1,
                                     }}
                                 />
-                                <Text style={{ color: '#071B33', fontWeight: '900' }}>
+                                <Text numberOfLines={1} style={{ color: '#071B33', fontWeight: '900', flexShrink: 1 }}>
                                     {color}
                                 </Text>
                             </View>
@@ -1542,6 +1618,8 @@ function BrandColorAssignmentPanel({
 }
 
 const swapButtonStyle = {
+    maxWidth: '100%',
+    flexShrink: 1,
     backgroundColor: '#EEF4FF',
     borderColor: '#CFE0FF',
     borderRadius: 999,
@@ -1554,9 +1632,12 @@ const swapButtonTextStyle = {
     color: '#0B5FFF',
     fontSize: 12,
     fontWeight: '900',
+    textAlign: 'center',
 } as const;
 
 const assignButtonStyle = {
+    maxWidth: '100%',
+    flexShrink: 1,
     backgroundColor: '#071B33',
     borderRadius: 999,
     paddingHorizontal: 12,
@@ -1567,6 +1648,7 @@ const assignButtonTextStyle = {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '900',
+    textAlign: 'center',
 } as const;
 
 function getReadableColor(color: string) {
@@ -1822,6 +1904,9 @@ function CollapsibleConfigSection({
     return (
         <View
             style={{
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
                 backgroundColor: '#F8FAFC',
                 borderColor: '#E3E8EF',
                 borderRadius: 20,
@@ -1835,12 +1920,14 @@ function CollapsibleConfigSection({
                 activeOpacity={0.82}
                 style={{
                     flexDirection: 'row',
+                    flexWrap: 'wrap',
                     justifyContent: 'space-between',
                     alignItems: 'center',
                     gap: 12,
+                    minWidth: 0,
                 }}
             >
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={{ color: '#071B33', fontSize: 18, fontWeight: '900', marginBottom: 4 }}>
                         {title}
                     </Text>
@@ -1850,6 +1937,8 @@ function CollapsibleConfigSection({
                 </View>
                 <View
                     style={{
+                        alignSelf: 'flex-start',
+                        maxWidth: '100%',
                         backgroundColor: expanded ? accentColor : '#FFFFFF',
                         borderColor: expanded ? accentColor : '#CBD5E1',
                         borderRadius: 999,
@@ -1870,7 +1959,7 @@ function CollapsibleConfigSection({
                 </View>
             </TouchableOpacity>
             {expanded && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 16, minWidth: 0 }}>
                     {children}
                 </View>
             )}
@@ -1889,8 +1978,11 @@ function Field({
     onChangeText: (value: string) => void;
     multiline?: boolean;
 }) {
+    const { width: viewportWidth } = useWindowDimensions();
+    const isPhoneLayout = viewportWidth <= 640;
+
     return (
-        <View style={{ width: '48%', minWidth: 260 }}>
+        <View style={{ width: isPhoneLayout ? '100%' : '48%', maxWidth: '100%', minWidth: 0, flexShrink: 1 }}>
             <Text
                 style={{
                     color: '#071B33',
@@ -1912,6 +2004,7 @@ function Field({
                     borderWidth: 1,
                     borderColor: '#E3E8EF',
                     color: '#071B33',
+                    minWidth: 0,
                 }}
             />
         </View>

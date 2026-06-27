@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { supabase } from '../../lib/supabase';
 
 function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin?: boolean | null } | null) {
@@ -47,6 +47,9 @@ const cards = [
 ];
 
 export default function SuperAdminDashboard() {
+    const { width: viewportWidth } = useWindowDimensions();
+    const isPhoneLayout = viewportWidth <= 640;
+    const pagePadding = isPhoneLayout ? 16 : 20;
     const [name, setName] = useState('SUPER_ADMIN');
     const [guardResolved, setGuardResolved] = useState(false);
     const [guardAllowed, setGuardAllowed] = useState(false);
@@ -133,10 +136,10 @@ export default function SuperAdminDashboard() {
         return (
             <ScrollView
                 style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-                contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
+                contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: 'center' }}
             >
-                <View style={{ width: '100%', maxWidth: 900 }}>
-                    <Text style={{ marginTop: 20, fontSize: 34, fontWeight: '900', color: '#071B33' }}>
+                <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
+                    <Text style={{ marginTop: 20, fontSize: isPhoneLayout ? 28 : 34, fontWeight: '900', color: '#071B33' }}>
                         Super Admin Guard Diagnostics
                     </Text>
 
@@ -211,14 +214,14 @@ export default function SuperAdminDashboard() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
+            contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: 'center' }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <Text style={{ marginTop: 20, fontSize: 16, color: '#637083', fontWeight: '700' }}>
                     Welcome, {name}
                 </Text>
 
-                <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33', marginTop: 6 }}>
+                <Text style={{ fontSize: isPhoneLayout ? 30 : 34, fontWeight: '900', color: '#071B33', marginTop: 6 }}>
                     HomeOS SUPER_ADMIN
                 </Text>
 
@@ -263,13 +266,15 @@ export default function SuperAdminDashboard() {
                     </Text>
                 </TouchableOpacity>
 
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                <View style={{ width: '100%', minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
                     {cards.map((card) => (
                         <TouchableOpacity
                             key={card}
                             onPress={() => openDashboardCard(card)}
                             style={{
-                                width: '48%',
+                                width: isPhoneLayout ? '100%' : '48%',
+                                maxWidth: '100%',
+                                minWidth: 0,
                                 minHeight: 100,
                                 backgroundColor: '#FFFFFF',
                                 borderRadius: 20,
@@ -279,7 +284,7 @@ export default function SuperAdminDashboard() {
                                 justifyContent: 'center',
                             }}
                         >
-                            <Text style={{ fontSize: 17, fontWeight: '900', color: '#071B33' }}>
+                            <Text numberOfLines={2} style={{ fontSize: 17, fontWeight: '900', color: '#071B33', flexShrink: 1 }}>
                                 {card}
                             </Text>
                         </TouchableOpacity>

@@ -6,6 +6,7 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
+    useWindowDimensions,
     View,
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
@@ -34,7 +35,11 @@ type Company = {
 
 export default function CompaniesScreen() {
     const { selectFor } = useLocalSearchParams<{ selectFor?: string }>();
+    const { width: viewportWidth } = useWindowDimensions();
     const isSelectingForProperties = selectFor === 'properties';
+    const isPhoneLayout = viewportWidth <= 640;
+    const pagePadding = isPhoneLayout ? 16 : 20;
+    const logoSize = isPhoneLayout ? 56 : 70;
     const [companies, setCompanies] = useState<Company[]>([]);
     const [name, setName] = useState('');
     const [message, setMessage] = useState('Loading companies...');
@@ -108,12 +113,12 @@ export default function CompaniesScreen() {
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
             contentContainerStyle={{
-                padding: 20,
+                padding: pagePadding,
                 paddingBottom: 40,
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <Text
                     onPress={() => router.back()}
                     style={{
@@ -151,9 +156,12 @@ export default function CompaniesScreen() {
 
                 <View
                     style={{
+                        width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
                         backgroundColor: '#FFFFFF',
                         borderRadius: 20,
-                        padding: 20,
+                        padding: isPhoneLayout ? 16 : 20,
                         borderWidth: 1,
                         borderColor: '#E3E8EF',
                         marginBottom: 20,
@@ -170,19 +178,20 @@ export default function CompaniesScreen() {
                         + Create Company
                     </Text>
 
-                    <TextInput
-                        placeholder="Company Name"
-                        value={name}
-                        onChangeText={setName}
-                        style={{
-                            backgroundColor: '#F3F6FA',
-                            borderRadius: 16,
-                            padding: 16,
-                            marginBottom: 14,
-                            borderWidth: 1,
-                            borderColor: '#E3E8EF',
-                        }}
-                    />
+                        <TextInput
+                            placeholder="Company Name"
+                            value={name}
+                            onChangeText={setName}
+                            style={{
+                                backgroundColor: '#F3F6FA',
+                                borderRadius: 16,
+                                padding: 16,
+                                marginBottom: 14,
+                                borderWidth: 1,
+                                borderColor: '#E3E8EF',
+                                minWidth: 0,
+                            }}
+                        />
 
                     <TouchableOpacity
                         onPress={createCompany}
@@ -229,7 +238,7 @@ export default function CompaniesScreen() {
                     Company List
                 </Text>
 
-                <View style={{ gap: 14 }}>
+                <View style={{ width: '100%', gap: 14 }}>
                     {companies.map((company) => {
                         const displayName = company.public_name || company.name;
                         const dbaName = company.dba_name || company.name;
@@ -247,6 +256,9 @@ export default function CompaniesScreen() {
                                 onPress={() => openCompany(company.id)}
                                 activeOpacity={0.86}
                                 style={{
+                                    width: '100%',
+                                    maxWidth: '100%',
+                                    minWidth: 0,
                                     backgroundColor: '#FFFFFF',
                                     borderRadius: 24,
                                     padding: 18,
@@ -262,60 +274,70 @@ export default function CompaniesScreen() {
                                     style={{
                                         flexDirection: 'row',
                                         alignItems: 'flex-start',
-                                        gap: 14,
+                                        gap: isPhoneLayout ? 12 : 14,
+                                        maxWidth: '100%',
+                                        minWidth: 0,
                                     }}
                                 >
                                     {company.logo_url ? (
                                         <Image
                                             source={{ uri: company.logo_url }}
                                             style={{
-                                                width: 70,
-                                                height: 70,
+                                                width: logoSize,
+                                                height: logoSize,
                                                 borderRadius: 18,
                                                 backgroundColor: '#EEF2F7',
+                                                flexShrink: 0,
                                             }}
                                         />
                                     ) : (
                                         <View
                                             style={{
-                                                width: 70,
-                                                height: 70,
+                                                width: logoSize,
+                                                height: logoSize,
                                                 borderRadius: 18,
                                                 backgroundColor: primaryColor,
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
+                                                flexShrink: 0,
                                             }}
                                         >
-                                            <Text style={{ color: secondaryColor, fontSize: 28, fontWeight: '900' }}>
+                                            <Text style={{ color: secondaryColor, fontSize: isPhoneLayout ? 22 : 28, fontWeight: '900' }}>
                                                 {displayName.slice(0, 1).toUpperCase()}
                                             </Text>
                                         </View>
                                     )}
 
-                                    <View style={{ flex: 1 }}>
+                                    <View style={{ flex: 1, minWidth: 0, maxWidth: '100%' }}>
                                         <View
                                             style={{
                                                 flexDirection: 'row',
+                                                flexWrap: 'wrap',
                                                 justifyContent: 'space-between',
                                                 alignItems: 'flex-start',
                                                 gap: 12,
+                                                minWidth: 0,
                                             }}
                                         >
-                                            <View style={{ flex: 1 }}>
+                                            <View style={{ flex: 1, minWidth: 0 }}>
                                                 <Text
+                                                    numberOfLines={2}
                                                     style={{
-                                                        fontSize: 21,
+                                                        fontSize: isPhoneLayout ? 19 : 21,
                                                         fontWeight: '900',
                                                         color: '#071B33',
+                                                        flexShrink: 1,
                                                     }}
                                                 >
                                                     {displayName}
                                                 </Text>
                                                 <Text
+                                                    numberOfLines={1}
                                                     style={{
                                                         color: accentColor,
                                                         fontWeight: '900',
                                                         marginTop: 4,
+                                                        flexShrink: 1,
                                                     }}
                                                 >
                                                     {dbaName}
@@ -324,13 +346,16 @@ export default function CompaniesScreen() {
 
                                             <View
                                                 style={{
+                                                    alignSelf: 'flex-start',
+                                                    maxWidth: '100%',
+                                                    flexShrink: 1,
                                                     backgroundColor: '#ECFDF3',
                                                     borderRadius: 999,
                                                     paddingHorizontal: 10,
                                                     paddingVertical: 6,
                                                 }}
                                             >
-                                                <Text style={{ color: '#047857', fontSize: 12, fontWeight: '900' }}>
+                                                <Text numberOfLines={1} style={{ color: '#047857', fontSize: 12, fontWeight: '900' }}>
                                                     {company.status || 'ACTIVE'}
                                                 </Text>
                                             </View>
@@ -343,6 +368,7 @@ export default function CompaniesScreen() {
                                                 lineHeight: 20,
                                                 fontWeight: '700',
                                                 marginTop: 8,
+                                                minWidth: 0,
                                             }}
                                         >
                                             {company.short_description || 'No company description added yet.'}
@@ -354,19 +380,23 @@ export default function CompaniesScreen() {
                                                 flexWrap: 'wrap',
                                                 gap: 8,
                                                 marginTop: 12,
+                                                maxWidth: '100%',
+                                                minWidth: 0,
                                             }}
                                         >
                                             {(categories.length ? categories : ['No categories']).slice(0, 4).map((category) => (
                                                 <View
                                                     key={category}
                                                     style={{
+                                                        maxWidth: '100%',
+                                                        flexShrink: 1,
                                                         backgroundColor: '#EEF4FF',
                                                         borderRadius: 999,
                                                         paddingHorizontal: 10,
                                                         paddingVertical: 6,
                                                     }}
                                                 >
-                                                    <Text style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900' }}>
+                                                    <Text numberOfLines={1} style={{ color: '#0B5FFF', fontSize: 12, fontWeight: '900', flexShrink: 1 }}>
                                                         {category}
                                                     </Text>
                                                 </View>
@@ -379,19 +409,21 @@ export default function CompaniesScreen() {
                                                 flexWrap: 'wrap',
                                                 gap: 12,
                                                 marginTop: 14,
+                                                maxWidth: '100%',
+                                                minWidth: 0,
                                             }}
                                         >
                                             <Text style={{ color: '#071B33', fontWeight: '900' }}>
                                                 HomeOS {rating} stars
                                             </Text>
-                                            <Text style={{ color: '#64748B', fontWeight: '700' }}>
+                                            <Text style={{ color: '#64748B', fontWeight: '700', flexShrink: 1 }}>
                                                 {ratingCount} ratings
                                             </Text>
-                                            <Text style={{ color: '#64748B', fontWeight: '700' }}>
+                                            <Text style={{ color: '#64748B', fontWeight: '700', flexShrink: 1 }}>
                                                 {experienceYears} years combined
                                             </Text>
                                             {!!company.license_number && (
-                                                <Text style={{ color: '#64748B', fontWeight: '700' }}>
+                                                <Text numberOfLines={1} style={{ color: '#64748B', fontWeight: '700', maxWidth: '100%' }}>
                                                     Lic# {company.license_number}
                                                 </Text>
                                             )}

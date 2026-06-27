@@ -106,7 +106,7 @@ export default function PropertiesScreen() {
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 900 }}>
+            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <Text
                     onPress={() =>
                         router.push(`/super-admin/company/${id}` as any)
@@ -144,6 +144,9 @@ export default function PropertiesScreen() {
 
                 <View
                     style={{
+                        width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
                         backgroundColor: '#FFFFFF',
                         borderRadius: 20,
                         padding: 20,
@@ -231,7 +234,7 @@ export default function PropertiesScreen() {
                     Property List
                 </Text>
 
-                <View style={{ gap: 12 }}>
+                <View style={{ width: '100%', maxWidth: '100%', minWidth: 0, gap: 12 }}>
                     {properties.map((property) => (
                         <TouchableOpacity
                             key={property.id}
@@ -241,6 +244,9 @@ export default function PropertiesScreen() {
                                 )
                             }
                             style={{
+                                width: '100%',
+                                maxWidth: '100%',
+                                minWidth: 0,
                                 backgroundColor: '#FFFFFF',
                                 borderRadius: 20,
                                 padding: 18,
@@ -253,16 +259,17 @@ export default function PropertiesScreen() {
                                     fontSize: 19,
                                     fontWeight: '900',
                                     color: '#071B33',
+                                    flexShrink: 1,
                                 }}
                             >
                                 {property.name}
                             </Text>
 
-                            <Text style={{ color: '#637083', marginTop: 6 }}>
+                            <Text style={{ color: '#637083', marginTop: 6, flexShrink: 1 }}>
                                 {property.address || 'No address'}
                             </Text>
 
-                            <Text style={{ color: '#637083' }}>
+                            <Text style={{ color: '#637083', flexShrink: 1 }}>
                                 {property.city || 'No city'}
                                 {property.state ? `, ${property.state}` : ''}{' '}
                                 {property.zip || ''}
@@ -292,6 +299,7 @@ const inputStyle = {
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#E3E8EF',
+    minWidth: 0,
 };
 
 const buttonStyle = {

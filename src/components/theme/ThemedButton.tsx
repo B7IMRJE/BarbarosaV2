@@ -67,6 +67,8 @@ export default function ThemedButton({
                     borderWidth: 1,
                     padding: scaleIcon(18),
                     alignItems: 'center',
+                    maxWidth: '100%' as const,
+                    minWidth: 0,
                     opacity: disabled ? 0.55 : 1,
                 },
                 style,
@@ -79,6 +81,8 @@ export default function ThemedButton({
                             color: variantStyle.color,
                             fontSize: scaleFont(16),
                             fontWeight: '900',
+                            flexShrink: 1,
+                            textAlign: 'center',
                         },
                         textStyle,
                     ]}
