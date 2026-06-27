@@ -392,6 +392,15 @@ export default function TechOSScreen() {
         }
     }
 
+    function handleOpenJob(job: TechOSJob) {
+        const selectedCompanyId = activeCompanyId || job.company_id || '';
+
+        router.push({
+            pathname: '/techos/job/[jobId]',
+            params: selectedCompanyId ? { jobId: job.id, companyId: selectedCompanyId } : { jobId: job.id },
+        } as any);
+    }
+
     if (checkingAccess) {
         return <AccessMessage title="TechOS" message="Checking TechOS access..." />;
     }
@@ -508,6 +517,7 @@ export default function TechOSScreen() {
                                     jobs={visibleJobs}
                                     loading={jobLoading}
                                     message={jobMessage}
+                                    onOpenJob={handleOpenJob}
                                     propertiesById={propertiesById}
                                 />
                             );
@@ -616,12 +626,14 @@ function TechOSJobsCard({
     jobs,
     loading,
     message,
+    onOpenJob,
     propertiesById,
 }: {
     clients: CompanyClient[];
     jobs: TechOSJob[];
     loading: boolean;
     message: string;
+    onOpenJob: (job: TechOSJob) => void;
     propertiesById: Record<string, PropertyRecord>;
 }) {
     const { theme } = useTheme();
@@ -667,6 +679,7 @@ function TechOSJobsCard({
                                 key={job.id}
                                 client={linkedClient}
                                 job={job}
+                                onOpenJob={onOpenJob}
                                 property={property}
                             />
                         );
@@ -680,10 +693,12 @@ function TechOSJobsCard({
 function TechOSJobRow({
     client,
     job,
+    onOpenJob,
     property,
 }: {
     client?: CompanyClient;
     job: TechOSJob;
+    onOpenJob: (job: TechOSJob) => void;
     property?: PropertyRecord;
 }) {
     const { theme } = useTheme();
@@ -704,6 +719,12 @@ function TechOSJobRow({
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Created: {formatDate(job.created_at)}
             </Text>
+            <ThemedButton
+                title="Open Job"
+                variant="secondary"
+                onPress={() => onOpenJob(job)}
+                style={clientActionButtonStyle}
+            />
         </View>
     );
 }
