@@ -1,5 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     ScrollView,
     Text,
@@ -55,6 +56,8 @@ type ManualInviteDetails = {
     message: string;
 };
 
+type SectionKey = 'technicians' | 'members' | 'invitations';
+
 const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
     { label: 'Owner', value: 'owner' },
     { label: 'Admin', value: 'admin' },
@@ -75,12 +78,20 @@ export default function CompanyUsersScreen() {
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
     const [role, setRole] = useState<CompanyRole>('technician');
+    const [searchQuery, setSearchQuery] = useState('');
     const [message, setMessage] = useState('Loading company users...');
     const [loadingLists, setLoadingLists] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
     const [deliveryFeedbackById, setDeliveryFeedbackById] = useState<Record<string, DeliveryFeedback>>({});
     const [manualInvitesById, setManualInvitesById] = useState<Record<string, ManualInviteDetails>>({});
+    const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
+        technicians: false,
+        members: true,
+        invitations: true,
+    });
+    const [touchedSections, setTouchedSections] = useState<Partial<Record<SectionKey, boolean>>>({});
+    const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
     const [nowMs, setNowMs] = useState(() => Date.now());
 
     useEffect(() => {
@@ -94,6 +105,20 @@ export default function CompanyUsersScreen() {
 
         return () => clearInterval(timer);
     }, []);
+
+    useEffect(() => {
+        const hasTechnicians = members.some((member) => isTechnicianRole(member.role));
+        const hasMembers = members.length > 0;
+        const hasPendingInvitations = invitations.some(
+            (invitation) => normalizeStatus(invitation.status) === 'pending' && !isInvitationExpired(invitation, nowMs)
+        );
+
+        setCollapsedSections((current) => ({
+            technicians: touchedSections.technicians ? current.technicians : false,
+            members: touchedSections.members ? current.members : hasTechnicians && hasMembers,
+            invitations: touchedSections.invitations ? current.invitations : !hasPendingInvitations,
+        }));
+    }, [members, invitations, touchedSections, nowMs]);
 
     async function loadCompanyUsers(showLoading = true) {
         if (!id) {
@@ -429,8 +454,36 @@ export default function CompanyUsersScreen() {
         setMessage('Technician invite selected. Enter the technician name and email, then create the invitation.');
     }
 
-    const technicianMembers = members.filter((member) => isTechnicianRole(member.role));
-    const activeTechnicians = technicianMembers.filter((member) => normalizeStatus(member.status) === 'active');
+    function toggleSection(section: SectionKey) {
+        setTouchedSections((current) => ({
+            ...current,
+            [section]: true,
+        }));
+        setCollapsedSections((current) => ({
+            ...current,
+            [section]: !current[section],
+        }));
+    }
+
+    function toggleRow(rowKey: string) {
+        setExpandedRows((current) => ({
+            ...current,
+            [rowKey]: !current[rowKey],
+        }));
+    }
+
+    const normalizedSearch = normalizeSearch(searchQuery);
+    const filteredMembers = useMemo(
+        () => members.filter((member) => matchesMemberSearch(member, normalizedSearch)),
+        [members, normalizedSearch]
+    );
+    const filteredInvitations = useMemo(
+        () => invitations.filter((invitation) => matchesInvitationSearch(invitation, normalizedSearch, nowMs)),
+        [invitations, normalizedSearch, nowMs]
+    );
+    const allTechnicianMembers = members.filter((member) => isTechnicianRole(member.role));
+    const technicianMembers = filteredMembers.filter((member) => isTechnicianRole(member.role));
+    const activeTechnicians = allTechnicianMembers.filter((member) => normalizeStatus(member.status) === 'active');
     const activeMembers = members.filter((member) => normalizeStatus(member.status) === 'active');
     const pendingTechnicianInvitations = invitations.filter(
         (invitation) =>
@@ -478,6 +531,26 @@ export default function CompanyUsersScreen() {
                         onPress={prepareTechnicianInvite}
                         variant="secondary"
                         style={{ marginTop: 14 }}
+                    />
+                </ThemedCard>
+
+                <ThemedCard style={searchCardStyle}>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Search Team</Text>
+                    <TextInput
+                        placeholder="Search name, email, role, or status"
+                        placeholderTextColor={theme.colors.mutedText}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        style={[
+                            inputStyle,
+                            {
+                                backgroundColor: theme.colors.background,
+                                borderColor: theme.colors.border,
+                                color: theme.colors.text,
+                            },
+                        ]}
                     />
                 </ThemedCard>
 
@@ -578,78 +651,78 @@ export default function CompanyUsersScreen() {
                     </ThemedCard>
                 ) : (
                     <>
-                        <View style={sectionStyle}>
-                            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Technicians</Text>
-                            <Text style={[sectionNoteStyle, { color: theme.colors.mutedText }]}>
-                                These are the company users who will become the first TechOS field team. Customer and
-                                home assignment comes later from the selected client/home list.
-                            </Text>
-                            <View style={listStyle}>
-                                {technicianMembers.length === 0 ? (
-                                    <ThemedCard>
-                                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                            No technicians connected yet. Refresh the list, or use Invite First Test Technician
-                                            to create a pending Technician invitation.
-                                        </Text>
-                                    </ThemedCard>
-                                ) : (
-                                    technicianMembers.map((member) => (
-                                        <TechnicianCard key={member.id} member={member} />
-                                    ))
-                                )}
-                            </View>
-                        </View>
+                        <CompactSection
+                            title="Technicians"
+                            count={technicianMembers.length}
+                            collapsed={collapsedSections.technicians}
+                            onToggle={() => toggleSection('technicians')}
+                        >
+                            {technicianMembers.length === 0 ? (
+                                <EmptyListMessage message="No technicians match this view. Refresh the list, clear search, or invite a technician." />
+                            ) : (
+                                technicianMembers.map((member) => (
+                                    <TeamMemberRow
+                                        key={member.id}
+                                        member={member}
+                                        expanded={!!expandedRows[`member:${member.id}`]}
+                                        actionLoadingKey={actionLoadingKey}
+                                        onToggle={() => toggleRow(`member:${member.id}`)}
+                                        onStatusChange={updateMemberStatus}
+                                    />
+                                ))
+                            )}
+                        </CompactSection>
 
-                        <View style={sectionStyle}>
-                            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>All Team Members</Text>
-                            <View style={listStyle}>
-                                {members.length === 0 ? (
-                                    <ThemedCard>
-                                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                            No company members found.
-                                        </Text>
-                                    </ThemedCard>
-                                ) : (
-                                    members.map((member) => (
-                                        <MemberCard
-                                            key={member.id}
-                                            member={member}
-                                            actionLoadingKey={actionLoadingKey}
-                                            onStatusChange={updateMemberStatus}
-                                        />
-                                    ))
-                                )}
-                            </View>
-                        </View>
+                        <CompactSection
+                            title="All Team Members"
+                            count={filteredMembers.length}
+                            collapsed={collapsedSections.members}
+                            onToggle={() => toggleSection('members')}
+                        >
+                            {filteredMembers.length === 0 ? (
+                                <EmptyListMessage message="No company members match this view." />
+                            ) : (
+                                filteredMembers.map((member) => (
+                                    <TeamMemberRow
+                                        key={member.id}
+                                        member={member}
+                                        expanded={!!expandedRows[`member:${member.id}`]}
+                                        actionLoadingKey={actionLoadingKey}
+                                        onToggle={() => toggleRow(`member:${member.id}`)}
+                                        onStatusChange={updateMemberStatus}
+                                    />
+                                ))
+                            )}
+                        </CompactSection>
 
-                        <View style={sectionStyle}>
-                            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Invitations</Text>
-                            <View style={listStyle}>
-                                {invitations.length === 0 ? (
-                                    <ThemedCard>
-                                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                            No invitations found.
-                                        </Text>
-                                    </ThemedCard>
-                                ) : (
-                                    invitations.map((invitation) => (
-                                        <InvitationCard
-                                            key={invitation.id}
-                                            invitation={invitation}
-                                            actionLoadingKey={actionLoadingKey}
-                                            feedback={deliveryFeedbackById[invitation.id]}
-                                            manualInvite={manualInvitesById[invitation.id]}
-                                            nowMs={nowMs}
-                                            onSendEmail={sendInvitationEmail}
-                                            onCreateManualInvite={createManualInvite}
-                                            onCopyManualInviteValue={copyManualInviteValue}
-                                            onRevoke={revokeInvitation}
-                                            onDeleteRevoked={deleteRevokedInvitation}
-                                        />
-                                    ))
-                                )}
-                            </View>
-                        </View>
+                        <CompactSection
+                            title="Invitations"
+                            count={filteredInvitations.length}
+                            collapsed={collapsedSections.invitations}
+                            onToggle={() => toggleSection('invitations')}
+                        >
+                            {filteredInvitations.length === 0 ? (
+                                <EmptyListMessage message="No invitations match this view." />
+                            ) : (
+                                filteredInvitations.map((invitation) => (
+                                    <InvitationRow
+                                        key={invitation.id}
+                                        invitation={invitation}
+                                        expanded={!!expandedRows[`invitation:${invitation.id}`]}
+                                        actionLoadingKey={actionLoadingKey}
+                                        feedback={deliveryFeedbackById[invitation.id]}
+                                        manualInvite={manualInvitesById[invitation.id]}
+                                        nowMs={nowMs}
+                                        onToggle={() => toggleRow(`invitation:${invitation.id}`)}
+                                        onSendEmail={sendInvitationEmail}
+                                        onCreateManualInvite={createManualInvite}
+                                        onCopyManualInviteValue={copyManualInviteValue}
+                                        onRevoke={revokeInvitation}
+                                        onDeleteRevoked={deleteRevokedInvitation}
+                                    />
+                                ))
+                            )}
+                        </CompactSection>
                     </>
                 )}
             </View>
@@ -676,77 +749,73 @@ function MetricCard({ label, value }: { label: string; value: string }) {
     );
 }
 
-function TechnicianCard({ member }: { member: CompanyUser }) {
+function CompactSection({
+    title,
+    count,
+    collapsed,
+    onToggle,
+    children,
+}: {
+    title: string;
+    count: number;
+    collapsed: boolean;
+    onToggle: () => void;
+    children: ReactNode;
+}) {
     const { theme } = useTheme();
-    const status = normalizeStatus(member.status);
-    const displayName = getMemberDisplayName(member, 'Unnamed technician');
-    const contactLine = getMemberContactLine(member);
 
     return (
-        <ThemedCard>
-            <View style={technicianCardHeaderStyle}>
-                <View style={technicianAvatarStyle}>
-                    <Text style={technicianAvatarTextStyle}>{getInitials(displayName || contactLine)}</Text>
+        <View style={compactSectionStyle}>
+            <View style={compactSectionHeaderStyle}>
+                <View style={compactSectionTitleWrapStyle}>
+                    <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>{title}</Text>
+                    <View
+                        style={[
+                            countBadgeStyle,
+                            {
+                                backgroundColor: theme.colors.background,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                    >
+                        <Text style={[countBadgeTextStyle, { color: theme.colors.mutedText }]}>{count}</Text>
+                    </View>
                 </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[cardTitleStyle, { color: theme.colors.text }]}>
-                        {displayName}
-                    </Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{contactLine}</Text>
-                </View>
+                <ThemedButton
+                    title={collapsed ? 'Expand' : 'Collapse'}
+                    variant="secondary"
+                    onPress={onToggle}
+                    style={sectionToggleButtonStyle}
+                    textStyle={sectionToggleTextStyle}
+                />
             </View>
-            <View style={badgeRowStyle}>
-                <RoleBadge label={formatRole(member.role)} />
-                <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
-            </View>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Created: {formatDate(member.created_at)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                TechOS field assignments will connect after client/home assignment is added.
-            </Text>
-        </ThemedCard>
-    );
-}
 
-function RoleBadge({ label, tone }: { label: string; tone?: string }) {
-    const { theme } = useTheme();
-    const normalizedTone = normalizeStatus(tone);
-    const isActive = normalizedTone === 'active';
-
-    return (
-        <View
-            style={{
-                backgroundColor: isActive ? theme.colors.secondaryButton : theme.colors.background,
-                borderColor: isActive ? theme.colors.primary : theme.colors.border,
-                borderRadius: 999,
-                borderWidth: 1,
-                maxWidth: '100%',
-                paddingHorizontal: 10,
-                paddingVertical: 6,
-            }}
-        >
-            <Text
-                style={{
-                    color: isActive ? theme.colors.primary : theme.colors.text,
-                    fontSize: 12,
-                    fontWeight: '900',
-                    flexShrink: 1,
-                }}
-            >
-                {label}
-            </Text>
+            {!collapsed && <View style={compactListStyle}>{children}</View>}
         </View>
     );
 }
 
-function MemberCard({
+function EmptyListMessage({ message }: { message: string }) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={compactRowStyle}>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+        </ThemedCard>
+    );
+}
+
+function TeamMemberRow({
     member,
+    expanded,
     actionLoadingKey,
+    onToggle,
     onStatusChange,
 }: {
     member: CompanyUser;
+    expanded: boolean;
     actionLoadingKey: string | null;
+    onToggle: () => void;
     onStatusChange: (memberId: string, nextStatus: MemberActionStatus) => void;
 }) {
     const { theme } = useTheme();
@@ -755,40 +824,69 @@ function MemberCard({
     const contactLine = getMemberContactLine(member);
 
     return (
-        <ThemedCard>
-            <Text style={[cardTitleStyle, { color: theme.colors.text }]}>{displayName}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{contactLine}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatRole(member.role)}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Status: {formatLabel(member.status)}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Created: {formatDate(member.created_at)}</Text>
+        <ThemedCard onPress={onToggle} style={compactRowStyle}>
+            <View style={compactRowHeaderStyle}>
+                <View style={compactIdentityStyle}>
+                    <View style={compactAvatarStyle}>
+                        <Text style={compactAvatarTextStyle}>{getInitials(displayName || contactLine)}</Text>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[compactTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                            {displayName}
+                        </Text>
+                        <Text style={[compactMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                            {contactLine}
+                        </Text>
+                    </View>
+                </View>
 
-            {(status === 'active' || status === 'suspended' || status === 'inactive') && (
-                <View style={actionRowStyle}>
-                    {status === 'active' ? (
-                        <>
-                            <ThemedButton
-                                title="Suspend"
-                                variant="secondary"
-                                onPress={() => onStatusChange(member.id, 'suspended')}
-                                disabled={actionLoadingKey !== null}
-                                style={actionButtonStyle}
-                            />
-                            <ThemedButton
-                                title="Deactivate"
-                                variant="danger"
-                                onPress={() => onStatusChange(member.id, 'inactive')}
-                                disabled={actionLoadingKey !== null}
-                                style={actionButtonStyle}
-                            />
-                        </>
-                    ) : (
-                        <ThemedButton
-                            title="Reactivate"
-                            variant="secondary"
-                            onPress={() => onStatusChange(member.id, 'active')}
-                            disabled={actionLoadingKey !== null}
-                            style={actionButtonStyle}
-                        />
+                <View style={compactBadgeClusterStyle}>
+                    <RoleBadge label={formatRole(member.role)} />
+                    <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
+                    <Text style={[compactDateTextStyle, { color: theme.colors.mutedText }]}>
+                        {formatDate(member.created_at)}
+                    </Text>
+                </View>
+            </View>
+
+            {expanded && (
+                <View style={rowDetailsStyle}>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatRole(member.role)}</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Status: {formatLabel(member.status)}</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Created: {formatDate(member.created_at)}</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        {member.email ? member.email : getMemberContactLine(member)}
+                    </Text>
+
+                    {(status === 'active' || status === 'suspended' || status === 'inactive') && (
+                        <View style={actionRowStyle}>
+                            {status === 'active' ? (
+                                <>
+                                    <ThemedButton
+                                        title="Suspend"
+                                        variant="secondary"
+                                        onPress={() => onStatusChange(member.id, 'suspended')}
+                                        disabled={actionLoadingKey !== null}
+                                        style={actionButtonStyle}
+                                    />
+                                    <ThemedButton
+                                        title="Deactivate"
+                                        variant="danger"
+                                        onPress={() => onStatusChange(member.id, 'inactive')}
+                                        disabled={actionLoadingKey !== null}
+                                        style={actionButtonStyle}
+                                    />
+                                </>
+                            ) : (
+                                <ThemedButton
+                                    title="Reactivate"
+                                    variant="secondary"
+                                    onPress={() => onStatusChange(member.id, 'active')}
+                                    disabled={actionLoadingKey !== null}
+                                    style={actionButtonStyle}
+                                />
+                            )}
+                        </View>
                     )}
                 </View>
             )}
@@ -796,12 +894,46 @@ function MemberCard({
     );
 }
 
-function InvitationCard({
+function RoleBadge({ label, tone }: { label: string; tone?: string }) {
+    const { theme } = useTheme();
+    const normalizedTone = normalizeStatus(tone);
+    const isActive = normalizedTone === 'active';
+    const isPending = normalizedTone === 'pending';
+    const isDanger = normalizedTone === 'revoked' || normalizedTone === 'inactive' || normalizedTone === 'suspended';
+
+    return (
+        <View
+            style={[
+                badgeStyle,
+                {
+                    backgroundColor: isActive || isPending ? theme.colors.secondaryButton : theme.colors.background,
+                    borderColor: isActive ? theme.colors.primary : isDanger ? theme.colors.danger : theme.colors.border,
+                },
+            ]}
+        >
+            <Text
+                style={[
+                    badgeTextStyle,
+                    {
+                        color: isActive ? theme.colors.primary : isDanger ? theme.colors.danger : theme.colors.text,
+                    },
+                ]}
+                numberOfLines={1}
+            >
+                {label}
+            </Text>
+        </View>
+    );
+}
+
+function InvitationRow({
     invitation,
+    expanded,
     actionLoadingKey,
     feedback,
     manualInvite,
     nowMs,
+    onToggle,
     onSendEmail,
     onCreateManualInvite,
     onCopyManualInviteValue,
@@ -809,10 +941,12 @@ function InvitationCard({
     onDeleteRevoked,
 }: {
     invitation: CompanyInvitation;
+    expanded: boolean;
     actionLoadingKey: string | null;
     feedback?: DeliveryFeedback;
     manualInvite?: ManualInviteDetails;
     nowMs: number;
+    onToggle: () => void;
     onSendEmail: (invitationId: string) => void;
     onCreateManualInvite: (invitationId: string) => void;
     onCopyManualInviteValue: (invitationId: string, label: string, value: string) => void;
@@ -826,6 +960,7 @@ function InvitationCard({
     const deleteKey = `${invitation.id}:delete`;
     const status = normalizeStatus(invitation.status);
     const expired = isInvitationExpired(invitation, nowMs);
+    const displayStatus = expired ? 'expired' : status;
     const sendable = status === 'pending' && !expired;
     const cooldownRemainingMs = getCooldownRemainingMs(invitation, nowMs);
     const sending = actionLoadingKey === emailKey;
@@ -833,132 +968,149 @@ function InvitationCard({
     const deletingRevoked = actionLoadingKey === deleteKey;
     const anyActionLoading = actionLoadingKey !== null;
     const emailSendCount = invitation.email_send_count || 0;
+    const inviteTitle = invitation.full_name || invitation.email || 'Unnamed invitee';
 
     return (
-        <ThemedCard>
-            <Text style={[cardTitleStyle, { color: theme.colors.text }]}>
-                {invitation.full_name || 'Unnamed invitee'}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{invitation.email}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatLabel(invitation.role)}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Status: {expired ? 'Expired' : formatLabel(invitation.status)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Created: {formatDate(invitation.created_at)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Email: {formatDeliverySummary(invitation, feedback)}
-            </Text>
-
-            {status === 'pending' && (
-                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                    Create a manual invite if email delivery fails or the technician needs a copyable fallback.
-                </Text>
-            )}
-
-            {manualInvite && (
-                <View
-                    style={[
-                        manualInviteBoxStyle,
-                        {
-                            backgroundColor: theme.colors.background,
-                            borderColor: theme.colors.border,
-                        },
-                    ]}
-                >
-                    <Text style={[manualInviteTitleStyle, { color: theme.colors.text }]}>Manual Invite</Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{manualInvite.message}</Text>
-
-                    {!!manualInvite.inviteUrl && (
-                        <>
-                            <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Link</Text>
-                            <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
-                                {manualInvite.inviteUrl}
-                            </Text>
-                        </>
-                    )}
-
-                    {!!manualInvite.inviteCode && (
-                        <>
-                            <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Code</Text>
-                            <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
-                                {manualInvite.inviteCode}
-                            </Text>
-                        </>
-                    )}
-
-                    {!!manualInvite.expiresAt && (
-                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                            Expires: {formatDate(manualInvite.expiresAt)}
+        <ThemedCard onPress={onToggle} style={compactRowStyle}>
+            <View style={compactRowHeaderStyle}>
+                <View style={compactIdentityStyle}>
+                    <View style={compactAvatarStyle}>
+                        <Text style={compactAvatarTextStyle}>{getInitials(inviteTitle)}</Text>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[compactTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                            {inviteTitle}
                         </Text>
-                    )}
+                        <Text style={[compactMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                            {invitation.email || 'No email'}
+                        </Text>
+                    </View>
+                </View>
 
-                    {(!!manualInvite.inviteUrl || !!manualInvite.inviteCode) && (
-                        <View style={actionRowStyle}>
+                <View style={compactBadgeClusterStyle}>
+                    <RoleBadge label={formatRole(invitation.role)} />
+                    <RoleBadge label={formatLabel(displayStatus)} tone={displayStatus} />
+                    <Text style={[compactDateTextStyle, { color: theme.colors.mutedText }]}>
+                        {formatDate(invitation.created_at)}
+                    </Text>
+                </View>
+            </View>
+
+            {expanded && (
+                <View style={rowDetailsStyle}>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatRole(invitation.role)}</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Status: {formatLabel(displayStatus)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Created: {formatDate(invitation.created_at)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Email: {formatDeliverySummary(invitation, feedback)}
+                    </Text>
+
+                    {manualInvite && (
+                        <View
+                            style={[
+                                manualInviteBoxStyle,
+                                {
+                                    backgroundColor: theme.colors.background,
+                                    borderColor: theme.colors.border,
+                                },
+                            ]}
+                        >
+                            <Text style={[manualInviteTitleStyle, { color: theme.colors.text }]}>Manual Invite</Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{manualInvite.message}</Text>
+
                             {!!manualInvite.inviteUrl && (
-                                <ThemedButton
-                                    title="Copy Invite Link"
-                                    variant="secondary"
-                                    onPress={() => onCopyManualInviteValue(invitation.id, 'Invite link', manualInvite.inviteUrl as string)}
-                                    disabled={actionLoadingKey !== null}
-                                    style={actionButtonStyle}
-                                />
+                                <>
+                                    <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Link</Text>
+                                    <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
+                                        {manualInvite.inviteUrl}
+                                    </Text>
+                                </>
                             )}
                             {!!manualInvite.inviteCode && (
-                                <ThemedButton
-                                    title="Copy Invite Code"
-                                    variant="secondary"
-                                    onPress={() => onCopyManualInviteValue(invitation.id, 'Invite code', manualInvite.inviteCode as string)}
-                                    disabled={actionLoadingKey !== null}
-                                    style={actionButtonStyle}
-                                />
+                                <>
+                                    <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Code</Text>
+                                    <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
+                                        {manualInvite.inviteCode}
+                                    </Text>
+                                </>
+                            )}
+                            {!!manualInvite.expiresAt && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Expires: {formatDate(manualInvite.expiresAt)}
+                                </Text>
+                            )}
+
+                            {(!!manualInvite.inviteUrl || !!manualInvite.inviteCode) && (
+                                <View style={actionRowStyle}>
+                                    {!!manualInvite.inviteUrl && (
+                                        <ThemedButton
+                                            title="Copy Invite Link"
+                                            variant="secondary"
+                                            onPress={() => onCopyManualInviteValue(invitation.id, 'Invite link', manualInvite.inviteUrl as string)}
+                                            disabled={actionLoadingKey !== null}
+                                            style={actionButtonStyle}
+                                        />
+                                    )}
+                                    {!!manualInvite.inviteCode && (
+                                        <ThemedButton
+                                            title="Copy Invite Code"
+                                            variant="secondary"
+                                            onPress={() => onCopyManualInviteValue(invitation.id, 'Invite code', manualInvite.inviteCode as string)}
+                                            disabled={actionLoadingKey !== null}
+                                            style={actionButtonStyle}
+                                        />
+                                    )}
+                                </View>
                             )}
                         </View>
                     )}
-                </View>
-            )}
 
-            {status === 'pending' && (
-                <View style={actionRowStyle}>
-                    <ThemedButton
-                        title={getEmailButtonTitle({
-                            sending,
-                            sendable,
-                            cooldownRemainingMs,
-                            emailSendCount,
-                        })}
-                        variant={feedback?.status === 'failed' ? 'danger' : 'secondary'}
-                        onPress={() => onSendEmail(invitation.id)}
-                        disabled={anyActionLoading || !sendable || cooldownRemainingMs > 0}
-                        style={actionButtonStyle}
-                    />
-                    <ThemedButton
-                        title={creatingManualInvite ? 'Creating...' : 'Create / Copy Manual Invite'}
-                        variant="secondary"
-                        onPress={() => onCreateManualInvite(invitation.id)}
-                        disabled={anyActionLoading || expired}
-                        style={actionButtonStyle}
-                    />
-                    <ThemedButton
-                        title={actionLoadingKey === revokeKey ? 'Revoking...' : 'Revoke Invitation'}
-                        variant="danger"
-                        onPress={() => onRevoke(invitation.id)}
-                        disabled={actionLoadingKey !== null}
-                        style={actionButtonStyle}
-                    />
-                </View>
-            )}
+                    {status === 'pending' && (
+                        <View style={actionRowStyle}>
+                            <ThemedButton
+                                title={getEmailButtonTitle({
+                                    sending,
+                                    sendable,
+                                    cooldownRemainingMs,
+                                    emailSendCount,
+                                })}
+                                variant={feedback?.status === 'failed' ? 'danger' : 'secondary'}
+                                onPress={() => onSendEmail(invitation.id)}
+                                disabled={anyActionLoading || !sendable || cooldownRemainingMs > 0}
+                                style={actionButtonStyle}
+                            />
+                            <ThemedButton
+                                title={creatingManualInvite ? 'Creating...' : 'Create / Copy Manual Invite'}
+                                variant="secondary"
+                                onPress={() => onCreateManualInvite(invitation.id)}
+                                disabled={anyActionLoading || expired}
+                                style={actionButtonStyle}
+                            />
+                            <ThemedButton
+                                title={actionLoadingKey === revokeKey ? 'Revoking...' : 'Revoke Invitation'}
+                                variant="danger"
+                                onPress={() => onRevoke(invitation.id)}
+                                disabled={actionLoadingKey !== null}
+                                style={actionButtonStyle}
+                            />
+                        </View>
+                    )}
 
-            {status === 'revoked' && (
-                <View style={actionRowStyle}>
-                    <ThemedButton
-                        title={deletingRevoked ? 'Deleting...' : 'Delete Revoked Invitation'}
-                        variant="danger"
-                        onPress={() => onDeleteRevoked(invitation.id)}
-                        disabled={actionLoadingKey !== null}
-                        style={actionButtonStyle}
-                    />
+                    {status === 'revoked' && (
+                        <View style={actionRowStyle}>
+                            <ThemedButton
+                                title={deletingRevoked ? 'Deleting...' : 'Delete Revoked Invitation'}
+                                variant="danger"
+                                onPress={() => onDeleteRevoked(invitation.id)}
+                                disabled={actionLoadingKey !== null}
+                                style={actionButtonStyle}
+                            />
+                        </View>
+                    )}
                 </View>
             )}
         </ThemedCard>
@@ -1074,6 +1226,36 @@ function normalizeStatus(status?: string | null) {
 
 function normalizeRole(role?: string | null) {
     return String(role || '').trim().toLowerCase();
+}
+
+function normalizeSearch(value: string) {
+    return value.trim().toLowerCase();
+}
+
+function matchesMemberSearch(member: CompanyUser, search: string) {
+    if (!search) return true;
+
+    return [
+        member.full_name,
+        member.email,
+        member.role,
+        member.status,
+        member.auth_user_id,
+    ].some((value) => String(value || '').toLowerCase().includes(search));
+}
+
+function matchesInvitationSearch(invitation: CompanyInvitation, search: string, nowMs: number) {
+    if (!search) return true;
+
+    const status = isInvitationExpired(invitation, nowMs) ? 'expired' : invitation.status;
+
+    return [
+        invitation.full_name,
+        invitation.email,
+        invitation.role,
+        status,
+        invitation.email_delivery_status,
+    ].some((value) => String(value || '').toLowerCase().includes(search));
 }
 
 function isTechnicianRole(role?: string | null) {
@@ -1237,6 +1419,14 @@ const formCardStyle = {
     marginBottom: 16,
 };
 
+const searchCardStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    gap: 10,
+    marginBottom: 16,
+};
+
 const heroCardStyle = {
     width: '100%' as const,
     maxWidth: '100%' as const,
@@ -1257,6 +1447,52 @@ const sectionStyle = {
     maxWidth: '100%' as const,
     minWidth: 0,
     marginTop: 24,
+};
+
+const compactSectionStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    marginTop: 18,
+};
+
+const compactSectionHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    justifyContent: 'space-between' as const,
+    marginBottom: 10,
+};
+
+const compactSectionTitleWrapStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    minWidth: 0,
+};
+
+const countBadgeStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+};
+
+const countBadgeTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const sectionToggleButtonStyle = {
+    minWidth: 100,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+};
+
+const sectionToggleTextStyle = {
+    fontSize: 13,
 };
 
 const sectionHeadingStyle = {
@@ -1336,6 +1572,13 @@ const listStyle = {
     gap: 12,
 };
 
+const compactListStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    gap: 8,
+};
+
 const metricGridStyle = {
     width: '100%' as const,
     maxWidth: '100%' as const,
@@ -1374,6 +1617,92 @@ const technicianCardHeaderStyle = {
     flexWrap: 'wrap' as const,
     gap: 12,
     minWidth: 0,
+};
+
+const compactRowStyle = {
+    padding: 12,
+};
+
+const compactRowHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    justifyContent: 'space-between' as const,
+    minWidth: 0,
+};
+
+const compactIdentityStyle = {
+    alignItems: 'center' as const,
+    flexBasis: 260,
+    flexDirection: 'row' as const,
+    flexGrow: 1,
+    flexShrink: 1,
+    gap: 10,
+    minWidth: 0,
+};
+
+const compactAvatarStyle = {
+    alignItems: 'center' as const,
+    backgroundColor: '#EEF4FF',
+    borderRadius: 12,
+    height: 36,
+    justifyContent: 'center' as const,
+    width: 36,
+};
+
+const compactAvatarTextStyle = {
+    color: '#0B5FFF',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const compactTitleStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+    flexShrink: 1,
+};
+
+const compactMetaTextStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 17,
+    marginTop: 2,
+};
+
+const compactBadgeClusterStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+    justifyContent: 'flex-end' as const,
+    minWidth: 0,
+};
+
+const compactDateTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const rowDetailsStyle = {
+    borderTopWidth: 1,
+    borderColor: '#E3E8EF',
+    marginTop: 10,
+    paddingTop: 10,
+};
+
+const badgeStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: 160,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+};
+
+const badgeTextStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+    flexShrink: 1,
 };
 
 const technicianAvatarStyle = {
