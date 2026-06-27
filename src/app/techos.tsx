@@ -71,6 +71,12 @@ type TechOSJob = {
     updated_at?: string | null;
 };
 
+type JobDateGroup = {
+    key: string;
+    label: string;
+    jobs: TechOSJob[];
+};
+
 type CreateTechOSServiceJobResult = {
     job_id: string;
     company_id: string;
@@ -86,15 +92,7 @@ type PlatformProfile = {
 
 const TECHOS_ROLES: CompanyRole[] = ['technician', 'manager', 'admin', 'owner'];
 
-const workflowCards = [
-    {
-        title: 'Today / My Jobs',
-        description: 'Assigned field work will appear here once technician dispatch is connected.',
-    },
-    {
-        title: 'Assigned Clients',
-        description: 'Client and home assignments will stay limited to approved company access.',
-    },
+const secondaryWorkflowCards = [
     {
         title: 'Start Assessment',
         description: 'Technician assessment checklists will begin here without exposing private HomeOS data by default.',
@@ -132,6 +130,7 @@ export default function TechOSScreen() {
     const [creatingJobClientId, setCreatingJobClientId] = useState<string | null>(null);
     const [jobMessage, setJobMessage] = useState('');
     const [message, setMessage] = useState('Loading TechOS...');
+    const [showAssignedClients, setShowAssignedClients] = useState(false);
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const visibleClients = useMemo(
@@ -142,10 +141,14 @@ export default function TechOSScreen() {
         () =>
             jobs.filter((job) => {
                 const normalizedStatus = normalizeStatus(job.status);
-                return !['archived', 'deleted', 'cancelled'].includes(normalizedStatus);
+                return !['archived', 'deleted'].includes(normalizedStatus);
             }),
         [jobs]
     );
+    const openJobs = useMemo(() => visibleJobs.filter((job) => isOpenJobStatus(job.status)), [visibleJobs]);
+    const pausedJobs = useMemo(() => visibleJobs.filter((job) => isPausedJobStatus(job.status)), [visibleJobs]);
+    const closedJobs = useMemo(() => visibleJobs.filter((job) => isClosedJobStatus(job.status)), [visibleJobs]);
+    const groupedJobSections = useMemo(() => groupJobsByDate(visibleJobs), [visibleJobs]);
 
     useEffect(() => {
         loadTechOSAccess();
@@ -462,8 +465,8 @@ export default function TechOSScreen() {
                             </Text>
                             <Text style={[dbaStyle, { color: accentColor }]}>{dbaName}</Text>
                             <Text style={[subtitleStyle, { color: heroTextColor }]}>
-                                Technician-facing workspace for assigned jobs, assessments, notes, estimates, and
-                                closeout. Private homeowner data stays hidden until explicit access is built.
+                                Field workspace for assigned service jobs. Private homeowner photos, documents, and
+                                history stay out of TechOS until explicit access is built.
                             </Text>
                         </View>
                     </View>
@@ -475,14 +478,11 @@ export default function TechOSScreen() {
                             textColor={heroTextColor}
                         />
                         <InfoPill
-                            label="Status"
+                            label="Mode"
                             value={isPlatformAdminAccess ? 'Admin Preview' : formatLabel(membership?.status)}
                             textColor={heroTextColor}
                         />
-                        <InfoPill label="License" value={company?.license_number || 'Not set'} textColor={heroTextColor} />
-                        {(company?.service_categories || []).slice(0, 3).map((category) => (
-                            <InfoPill key={category} label="Service" value={category} textColor={heroTextColor} />
-                        ))}
+                        <InfoPill label="Company" value={formatStatus(company?.status)} textColor={heroTextColor} />
                     </View>
                 </View>
 
@@ -496,66 +496,72 @@ export default function TechOSScreen() {
                     <SummaryCard
                         title="My Jobs"
                         value={String(visibleJobs.length)}
-                        note={visibleJobs.length === 1 ? 'Open company service job.' : 'Open company service jobs.'}
+                        note="Company jobs visible to this TechOS workspace."
                     />
                     <SummaryCard
-                        title="Assigned Clients"
-                        value={String(visibleClients.length)}
-                        note="Homes that selected this company as a provider."
+                        title="Open Jobs"
+                        value={String(openJobs.length)}
+                        note="Ready or in progress."
                     />
-                    <SummaryCard title="Open Assessments" value="0" note="Assessment drafts will live here." />
+                    <SummaryCard
+                        title="Paused Jobs"
+                        value={String(pausedJobs.length)}
+                        note="Waiting, paused, or on hold."
+                    />
+                    <SummaryCard
+                        title="Closed Jobs"
+                        value={String(closedJobs.length)}
+                        note="Completed, closed, or canceled."
+                    />
+                    <SummaryCard
+                        title="My Sales"
+                        value="--"
+                        note="Sales totals are not connected yet."
+                    />
                 </View>
 
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Technician Workflow</Text>
-                <View style={workflowGridStyle}>
-                    {workflowCards.map((card) => {
-                        if (card.title === 'Today / My Jobs') {
-                            return (
-                                <TechOSJobsCard
-                                    key={card.title}
-                                    clients={visibleClients}
-                                    jobs={visibleJobs}
-                                    loading={jobLoading}
-                                    message={jobMessage}
-                                    onOpenJob={handleOpenJob}
-                                    propertiesById={propertiesById}
-                                />
-                            );
-                        }
+                <TechOSJobsBoard
+                    clients={visibleClients}
+                    groupedJobs={groupedJobSections}
+                    jobs={visibleJobs}
+                    loading={jobLoading}
+                    message={jobMessage}
+                    onOpenJob={handleOpenJob}
+                    propertiesById={propertiesById}
+                />
 
-                        if (card.title === 'Assigned Clients') {
-                            return (
-                                <AssignedClientsCard
-                                    key={card.title}
-                                    clients={visibleClients}
-                                    creatingJobClientId={creatingJobClientId}
-                                    propertiesById={propertiesById}
-                                    message={clientMessage}
-                                    onStartServiceJob={handleStartServiceJob}
-                                />
-                            );
-                        }
-
-                        return <WorkflowCard key={card.title} title={card.title} description={card.description} />;
-                    })}
-                </View>
-
-                <ThemedCard style={nextStepCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Next Connection Point</Text>
+                <View style={secondarySectionHeaderStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 0 }]}>Field Tools</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Service jobs can now start from assigned clients. Technician assignment and field workflow
-                        details come next.
+                        Compact placeholders for the next technician workflow steps.
                     </Text>
-                    <View style={buttonRowStyle}>
-                        <ThemedButton title="Refresh TechOS" onPress={loadTechOSAccess} style={buttonStyle} />
-                        <ThemedButton
-                            title="Open Home"
-                            variant="secondary"
-                            onPress={() => router.push('/' as any)}
-                            style={buttonStyle}
-                        />
-                    </View>
-                </ThemedCard>
+                </View>
+                <View style={compactModuleGridStyle}>
+                    {secondaryWorkflowCards.map((card) => (
+                        <WorkflowCard key={card.title} title={card.title} description={card.description} />
+                    ))}
+                </View>
+
+                <AssignedClientsCard
+                    clients={visibleClients}
+                    creatingJobClientId={creatingJobClientId}
+                    expanded={showAssignedClients}
+                    jobs={visibleJobs}
+                    message={clientMessage}
+                    onStartServiceJob={handleStartServiceJob}
+                    onToggleExpanded={() => setShowAssignedClients((current) => !current)}
+                    propertiesById={propertiesById}
+                />
+
+                <View style={buttonRowStyle}>
+                    <ThemedButton title="Refresh TechOS" onPress={loadTechOSAccess} style={buttonStyle} />
+                    <ThemedButton
+                        title="Open Home"
+                        variant="secondary"
+                        onPress={() => router.push('/' as any)}
+                        style={buttonStyle}
+                    />
+                </View>
             </View>
         </ScrollView>
     );
@@ -621,8 +627,9 @@ function WorkflowCard({ title, description }: { title: string; description: stri
     );
 }
 
-function TechOSJobsCard({
+function TechOSJobsBoard({
     clients,
+    groupedJobs,
     jobs,
     loading,
     message,
@@ -630,6 +637,7 @@ function TechOSJobsCard({
     propertiesById,
 }: {
     clients: CompanyClient[];
+    groupedJobs: JobDateGroup[];
     jobs: TechOSJob[];
     loading: boolean;
     message: string;
@@ -643,11 +651,15 @@ function TechOSJobsCard({
     }, {});
 
     return (
-        <ThemedCard style={workflowCardStyle}>
-            <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>Today / My Jobs</Text>
-            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                Company-scoped service jobs created from assigned clients.
-            </Text>
+        <View style={jobBoardSectionStyle}>
+            <View style={jobBoardHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>Today / My Jobs</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        Real company-scoped service jobs, grouped by creation date until dispatch dates are connected.
+                    </Text>
+                </View>
+            </View>
 
             {!!message && (
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
@@ -663,34 +675,39 @@ function TechOSJobsCard({
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                     <Text style={[clientNameStyle, { color: theme.colors.text }]}>No service jobs yet</Text>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        Start a job from an assigned client when field work is ready.
+                        Jobs will appear here after ManagementOS dispatch creates company service jobs.
                     </Text>
                 </View>
             ) : (
-                <View style={clientListStyle}>
-                    {jobs.map((job) => {
-                        const linkedClient = job.company_property_client_id
-                            ? clientsById[job.company_property_client_id]
-                            : undefined;
-                        const property = job.property_id ? propertiesById[job.property_id] : undefined;
+                groupedJobs.map((group) => (
+                    <View key={group.key} style={jobDateSectionStyle}>
+                        <Text style={[jobDateHeadingStyle, { color: theme.colors.text }]}>{group.label}</Text>
+                        <View style={jobCardGridStyle}>
+                            {group.jobs.map((job) => {
+                                const linkedClient = job.company_property_client_id
+                                    ? clientsById[job.company_property_client_id]
+                                    : undefined;
+                                const property = job.property_id ? propertiesById[job.property_id] : undefined;
 
-                        return (
-                            <TechOSJobRow
-                                key={job.id}
-                                client={linkedClient}
-                                job={job}
-                                onOpenJob={onOpenJob}
-                                property={property}
-                            />
-                        );
-                    })}
-                </View>
+                                return (
+                                    <TechOSJobCard
+                                        key={job.id}
+                                        client={linkedClient}
+                                        job={job}
+                                        onOpenJob={onOpenJob}
+                                        property={property}
+                                    />
+                                );
+                            })}
+                        </View>
+                    </View>
+                ))
             )}
-        </ThemedCard>
+        </View>
     );
 }
 
-function TechOSJobRow({
+function TechOSJobCard({
     client,
     job,
     onOpenJob,
@@ -705,57 +722,81 @@ function TechOSJobRow({
     const displayName = client?.display_name || property?.name || 'Home';
 
     return (
-        <View style={[clientRowStyle, { borderColor: theme.colors.border }]}>
-            <Text style={[clientNameStyle, { color: theme.colors.text }]}>{job.title || 'Service Visit'}</Text>
-            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+        <ThemedCard style={jobCardStyle}>
+            <View style={jobCardTopRowStyle}>
+                <Text style={[jobNumberStyle, { color: theme.colors.mutedText }]}>#{shortJobId(job.id)}</Text>
+                <Text style={[jobStatusBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                    {formatStatus(job.status)}
+                </Text>
+            </View>
+            <Text numberOfLines={2} style={[jobTitleStyle, { color: theme.colors.text }]}>
+                {job.title || 'Service Visit'}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Date: {formatDate(job.created_at)}</Text>
+            <Text numberOfLines={1} style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Client: {displayName}
             </Text>
-            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                Status: {formatStatus(job.status)}
-            </Text>
-            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                Source: {formatSource(job.job_source)}
-            </Text>
-            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                Created: {formatDate(job.created_at)}
-            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Source: {formatSource(job.job_source)}</Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Sale: Not tracked yet</Text>
             <ThemedButton
                 title="Open Job"
                 variant="secondary"
                 onPress={() => onOpenJob(job)}
                 style={clientActionButtonStyle}
             />
-        </View>
+        </ThemedCard>
     );
 }
 
 function AssignedClientsCard({
     clients,
     creatingJobClientId,
+    expanded,
+    jobs,
     propertiesById,
     message,
     onStartServiceJob,
+    onToggleExpanded,
 }: {
     clients: CompanyClient[];
     creatingJobClientId: string | null;
+    expanded: boolean;
+    jobs: TechOSJob[];
     propertiesById: Record<string, PropertyRecord>;
     message: string;
     onStartServiceJob: (client: CompanyClient, property?: PropertyRecord) => void;
+    onToggleExpanded: () => void;
 }) {
     const { theme } = useTheme();
 
     return (
         <ThemedCard style={assignedClientsCardStyle}>
-            <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>Assigned Clients</Text>
-            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                Homeowner-selected company clients with only basic home profile details.
-            </Text>
+            <View style={clientSectionHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>Assigned Clients</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        Secondary view with safe basic client and home profile details.
+                    </Text>
+                </View>
+                <ThemedButton
+                    title={expanded ? 'Hide Clients' : `Show Clients (${clients.length})`}
+                    variant="secondary"
+                    onPress={onToggleExpanded}
+                    style={toggleButtonStyle}
+                />
+            </View>
 
             {!!message && (
                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
             )}
 
-            {clients.length === 0 ? (
+            {!expanded ? (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        Client list and test job creation are collapsed to keep the technician board focused on jobs.
+                    </Text>
+                </View>
+            ) : clients.length === 0 ? (
                 message ? null : (
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                     <Text style={[clientNameStyle, { color: theme.colors.text }]}>No assigned clients yet</Text>
@@ -772,6 +813,7 @@ function AssignedClientsCard({
                             client={client}
                             creating={creatingJobClientId === client.id}
                             disabled={creatingJobClientId !== null}
+                            openJobCount={countOpenJobsForClient(jobs, client)}
                             property={propertiesById[client.property_id]}
                             onStartServiceJob={onStartServiceJob}
                         />
@@ -786,12 +828,14 @@ function ClientRow({
     client,
     creating,
     disabled,
+    openJobCount,
     property,
     onStartServiceJob,
 }: {
     client: CompanyClient;
     creating: boolean;
     disabled: boolean;
+    openJobCount: number;
     property?: PropertyRecord;
     onStartServiceJob: (client: CompanyClient, property?: PropertyRecord) => void;
 }) {
@@ -815,13 +859,19 @@ function ClientRow({
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Linked: {formatDate(linkedAt)}
             </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Open jobs: {openJobCount}
+            </Text>
             <ThemedButton
-                title={creating ? 'Creating Job...' : 'Start Service Job'}
+                title={openJobCount > 0 ? 'Existing Job Open' : creating ? 'Creating Test Job...' : 'Create Test Job'}
                 variant="secondary"
-                disabled={disabled}
+                disabled={disabled || openJobCount > 0}
                 onPress={() => onStartServiceJob(client, property)}
                 style={clientActionButtonStyle}
             />
+            <Text style={[testActionNoteStyle, { color: theme.colors.mutedText }]}>
+                Test/admin action until ManagementOS dispatch creates production jobs.
+            </Text>
         </View>
     );
 }
@@ -913,6 +963,73 @@ function formatDate(value?: string | null) {
     }
 
     return date.toLocaleDateString();
+}
+
+function formatDateGroup(value?: string | null) {
+    if (!value) return 'Unscheduled';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return 'Unscheduled';
+    }
+
+    return date.toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    });
+}
+
+function groupJobsByDate(jobs: TechOSJob[]): JobDateGroup[] {
+    const groups = jobs.reduce<Record<string, JobDateGroup>>((accumulator, job) => {
+        const date = job.created_at ? new Date(job.created_at) : null;
+        const key = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : 'unscheduled';
+
+        if (!accumulator[key]) {
+            accumulator[key] = {
+                key,
+                label: key === 'unscheduled' ? 'Unscheduled' : formatDateGroup(job.created_at),
+                jobs: [],
+            };
+        }
+
+        accumulator[key].jobs.push(job);
+        return accumulator;
+    }, {});
+
+    return Object.values(groups).sort((first, second) => {
+        if (first.key === 'unscheduled') return 1;
+        if (second.key === 'unscheduled') return -1;
+        return second.key.localeCompare(first.key);
+    });
+}
+
+function isOpenJobStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+    return !isPausedJobStatus(normalized) && !isClosedJobStatus(normalized);
+}
+
+function isPausedJobStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+    return ['paused', 'on_hold', 'waiting', 'waiting_on_customer', 'blocked'].includes(normalized);
+}
+
+function isClosedJobStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+    return ['completed', 'complete', 'closed', 'done', 'cancelled', 'canceled'].includes(normalized);
+}
+
+function countOpenJobsForClient(jobs: TechOSJob[], client: CompanyClient) {
+    return jobs.filter((job) => {
+        const sameClient = job.company_property_client_id && job.company_property_client_id === client.id;
+        const sameProperty = job.property_id && job.property_id === client.property_id;
+        return (sameClient || sameProperty) && isOpenJobStatus(job.status);
+    }).length;
+}
+
+function shortJobId(id: string) {
+    return String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'JOB';
 }
 
 function normalizeStatus(status?: string | null) {
@@ -1088,28 +1205,124 @@ const workflowGridStyle = {
     marginBottom: 24,
 };
 
+const compactModuleGridStyle = {
+    width: '100%' as const,
+    minWidth: 0,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginBottom: 24,
+};
+
 const workflowCardStyle = {
     flex: 1,
-    flexBasis: 280,
+    flexBasis: 220,
     flexShrink: 1,
     maxWidth: '100%' as const,
-    minHeight: 170,
+    minHeight: 140,
     minWidth: 0,
 };
 
 const assignedClientsCardStyle = {
-    flex: 2,
-    flexBasis: 320,
-    flexShrink: 1,
     maxWidth: '100%' as const,
-    minHeight: 170,
     minWidth: 0,
+    marginBottom: 16,
+    width: '100%' as const,
 };
 
 const workflowTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
     marginBottom: 8,
+};
+
+const secondarySectionHeaderStyle = {
+    marginBottom: 10,
+};
+
+const jobBoardSectionStyle = {
+    marginBottom: 24,
+    width: '100%' as const,
+};
+
+const jobBoardHeaderStyle = {
+    alignItems: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+    marginBottom: 12,
+};
+
+const jobDateSectionStyle = {
+    marginBottom: 18,
+};
+
+const jobDateHeadingStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginBottom: 10,
+};
+
+const jobCardGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    width: '100%' as const,
+};
+
+const jobCardStyle = {
+    flex: 1,
+    flexBasis: 250,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minHeight: 230,
+    minWidth: 0,
+};
+
+const jobCardTopRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+    marginBottom: 10,
+};
+
+const jobNumberStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const jobStatusBadgeStyle = {
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: '900' as const,
+    overflow: 'hidden' as const,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+};
+
+const jobTitleStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+    lineHeight: 24,
+    marginBottom: 8,
+};
+
+const clientSectionHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+};
+
+const toggleButtonStyle = {
+    flexBasis: 180,
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minWidth: 0,
 };
 
 const clientListStyle = {
@@ -1148,6 +1361,13 @@ const clientMetaTextStyle = {
 
 const clientActionButtonStyle = {
     marginTop: 12,
+};
+
+const testActionNoteStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 17,
+    marginTop: 8,
 };
 
 const comingSoonStyle = {
