@@ -43,7 +43,6 @@ export default function CompanyInviteScreen() {
     const parsedCode = useMemo(() => parseInviteCode(params), [params]);
     const [user, setUser] = useState<SessionUser | null>(null);
     const [invitation, setInvitation] = useState<CompanyInvitation | null>(null);
-    const [candidateInvitations, setCandidateInvitations] = useState<CompanyInvitation[]>([]);
     const [loading, setLoading] = useState(true);
     const [accepting, setAccepting] = useState(false);
     const [message, setMessage] = useState('');
@@ -59,7 +58,6 @@ export default function CompanyInviteScreen() {
         setLoading(true);
         setMessage('');
         setInvitation(null);
-        setCandidateInvitations([]);
         setSuccess(false);
 
         const {
@@ -74,26 +72,15 @@ export default function CompanyInviteScreen() {
             return;
         }
 
-        const directInvitation = await loadDirectInvitation(parsedCode);
+        const lookupResult = await loadInvitationByCode(parsedCode.inviteCode);
 
-        if (directInvitation) {
-            setInvitation(directInvitation);
-        }
-
-        if (currentUser) {
-            const myInvitations = await loadMyInvitations();
-            setCandidateInvitations(myInvitations);
-
-            if (!directInvitation && parsedCode.invitationId) {
-                const matchingInvitation = myInvitations.find((item) => item.invitation_id === parsedCode.invitationId);
-                if (matchingInvitation) {
-                    setInvitation(matchingInvitation);
-                }
-            }
-
-            if (!directInvitation && !parsedCode.invitationId && myInvitations.length === 1) {
-                setInvitation(myInvitations[0]);
-            }
+        if (lookupResult.errorMessage) {
+            setMessage(lookupResult.errorMessage);
+        } else if (lookupResult.invitation) {
+            setInvitation(lookupResult.invitation);
+            setMessage(statusMessage(lookupResult.invitation.status));
+        } else {
+            setMessage('This invite link is invalid or no longer available. Ask the company admin to create a new manual invite link.');
         }
 
         setLoading(false);
@@ -107,40 +94,47 @@ export default function CompanyInviteScreen() {
             return;
         }
 
-        const invitationIds = buildAcceptInvitationIds(parsedCode.invitationId, invitation, candidateInvitations);
+        if (!invitation?.invitation_id) {
+            setMessage('This invite link is invalid or no longer available. Ask the company admin to create a new manual invite link.');
+            return;
+        }
 
-        if (invitationIds.length === 0) {
-            setMessage('We could not find a pending invitation for this code. Sign in with the invited email address, then try again.');
+        if (normalizeStatus(invitation.status) !== 'pending') {
+            setMessage(statusMessage(invitation.status));
+            return;
+        }
+
+        const signedInEmail = normalizeEmail(user.email);
+        const invitedEmail = normalizeEmail(invitation.email);
+
+        if (signedInEmail && invitedEmail && signedInEmail !== invitedEmail) {
+            setMessage(
+                `This invitation was sent to ${invitation.email}. You are signed in as ${user.email}. Sign out, then sign in or create an account with the invited email.`
+            );
             return;
         }
 
         setAccepting(true);
         setMessage('Accepting invitation...');
 
-        let lastError = '';
+        const { error } = await supabase.rpc('accept_company_user_invitation_by_code', {
+            p_invitation_id: invitation.invitation_id,
+            p_invite_code: parsedCode.inviteCode,
+        });
 
-        for (const invitationId of invitationIds) {
-            const { error } = await supabase.rpc('accept_company_user_invitation_by_code', {
-                p_invitation_id: invitationId,
-                p_invite_code: parsedCode.inviteCode,
-            });
-
-            if (!error) {
-                setSuccess(true);
-                setMessage('Invitation accepted. Opening your company workspace...');
-                const routeDecision = await resolveLoggedInUserRoute(user.id);
-                setAccepting(false);
-                setTimeout(() => {
-                    router.replace(routeDecision.route as any);
-                }, 900);
-                return;
-            }
-
-            lastError = error.message;
+        if (!error) {
+            setSuccess(true);
+            setMessage('Invitation accepted. Opening your company workspace...');
+            const routeDecision = await resolveLoggedInUserRoute(user.id);
+            setAccepting(false);
+            setTimeout(() => {
+                router.replace(routeDecision.route as any);
+            }, 900);
+            return;
         }
 
         setAccepting(false);
-        setMessage(`Accept invitation failed: ${lastError || 'The invite code could not be accepted.'}`);
+        setMessage(`Accept invitation failed: ${formatAcceptError(error.message)}`);
     }
 
     function goToLogin() {
@@ -202,7 +196,7 @@ export default function CompanyInviteScreen() {
                                     <>
                                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invitation link ready</Text>
                                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                            Sign in with the invited email address to securely load and accept this company invitation.
+                                            This invite link is invalid or no longer available. Ask the company admin to create a new manual invite link.
                                         </Text>
                                     </>
                                 )}
@@ -265,72 +259,34 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     );
 }
 
-async function loadDirectInvitation(parsedCode: ParsedInviteCode) {
-    const invitationId = parsedCode.invitationId;
-
-    if (invitationId) {
-        const byId = await supabase
-            .from('company_user_invitations')
-            .select(
-                'id, company_id, email, full_name, role, status, expires_at, created_at, manual_invite_token_expires_at, companies(name)'
-            )
-            .eq('id', invitationId)
-            .maybeSingle();
-
-        if (!byId.error && byId.data) {
-            return normalizeInvitationRecord(byId.data as Record<string, unknown>);
-        }
-    }
-
-    const tokenHash = await sha256Hex(parsedCode.inviteCode.trim().toUpperCase());
-    if (!tokenHash) return null;
-
-    const byHash = await supabase
-        .from('company_user_invitations')
-        .select(
-            'id, company_id, email, full_name, role, status, expires_at, created_at, manual_invite_token_expires_at, companies(name)'
-        )
-        .eq('manual_invite_token_hash', tokenHash)
-        .eq('status', 'pending')
-        .maybeSingle();
-
-    if (byHash.error || !byHash.data) return null;
-
-    return normalizeInvitationRecord(byHash.data as Record<string, unknown>);
-}
-
-async function loadMyInvitations() {
-    const { data, error } = await supabase.rpc('get_my_company_user_invitations');
-
-    if (error) return [];
-
-    return ((data || []) as Record<string, unknown>[]).map((row) => ({
-        invitation_id: readStringField(row, 'invitation_id') || '',
-        company_id: readStringField(row, 'company_id'),
-        company_name: readStringField(row, 'company_name'),
-        invited_role: readStringField(row, 'invited_role'),
-        full_name: readStringField(row, 'full_name'),
-        email: readStringField(row, 'email'),
-        status: readStringField(row, 'status'),
-        expires_at: readStringField(row, 'expires_at'),
-        created_at: readStringField(row, 'created_at'),
-    })).filter((invitation) => invitation.invitation_id);
-}
-
-function buildAcceptInvitationIds(
-    parsedInvitationId: string | null,
-    invitation: CompanyInvitation | null,
-    candidateInvitations: CompanyInvitation[]
-) {
-    const ids = new Set<string>();
-
-    if (parsedInvitationId) ids.add(parsedInvitationId);
-    if (invitation?.invitation_id) ids.add(invitation.invitation_id);
-    candidateInvitations.forEach((candidate) => {
-        if (candidate.invitation_id) ids.add(candidate.invitation_id);
+async function loadInvitationByCode(inviteCode: string): Promise<{
+    invitation: CompanyInvitation | null;
+    errorMessage: string;
+}> {
+    const { data, error } = await supabase.rpc('get_company_user_invitation_by_code', {
+        p_invite_code: inviteCode,
     });
 
-    return Array.from(ids);
+    if (error) {
+        return {
+            invitation: null,
+            errorMessage: `Could not load this invite link: ${formatInviteLookupError(error.message)}`,
+        };
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (!row || typeof row !== 'object') {
+        return {
+            invitation: null,
+            errorMessage: '',
+        };
+    }
+
+    return {
+        invitation: normalizeInvitationRecord(row as Record<string, unknown>),
+        errorMessage: '',
+    };
 }
 
 function parseInviteCode(params: {
@@ -370,29 +326,17 @@ function parseInviteCode(params: {
 }
 
 function normalizeInvitationRecord(record: Record<string, unknown>): CompanyInvitation {
-    const manualExpiresAt = readStringField(record, 'manual_invite_token_expires_at');
-
     return {
-        invitation_id: readStringField(record, 'id') || '',
+        invitation_id: readStringField(record, 'invitation_id') || readStringField(record, 'id') || '',
         company_id: readStringField(record, 'company_id'),
-        company_name: readCompanyName(record.companies),
-        invited_role: readStringField(record, 'role'),
+        company_name: readStringField(record, 'company_name'),
+        invited_role: readStringField(record, 'role') || readStringField(record, 'invited_role'),
         full_name: readStringField(record, 'full_name'),
-        email: readStringField(record, 'email'),
+        email: readStringField(record, 'invited_email') || readStringField(record, 'email'),
         status: readStringField(record, 'status'),
-        expires_at: manualExpiresAt || readStringField(record, 'expires_at'),
+        expires_at: readStringField(record, 'manual_invite_expires_at') || readStringField(record, 'expires_at'),
         created_at: readStringField(record, 'created_at'),
     };
-}
-
-function readCompanyName(value: unknown) {
-    const company = Array.isArray(value) ? value[0] : value;
-
-    if (company && typeof company === 'object') {
-        return readStringField(company as Record<string, unknown>, 'name');
-    }
-
-    return null;
 }
 
 function readStringField(record: Record<string, unknown>, key: string) {
@@ -413,18 +357,6 @@ function normalizeUuid(value: string | undefined | null) {
         : null;
 }
 
-async function sha256Hex(value: string) {
-    const subtle = globalThis.crypto?.subtle;
-
-    if (!subtle || typeof TextEncoder === 'undefined') return null;
-
-    const buffer = await subtle.digest('SHA-256', new TextEncoder().encode(value));
-
-    return Array.from(new Uint8Array(buffer))
-        .map((byte) => byte.toString(16).padStart(2, '0'))
-        .join('');
-}
-
 function formatLabel(value: string | null) {
     return String(value || 'unknown')
         .trim()
@@ -432,6 +364,68 @@ function formatLabel(value: string | null) {
         .filter(Boolean)
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
         .join(' ');
+}
+
+function normalizeEmail(value: string | null | undefined) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function normalizeStatus(value: string | null) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function statusMessage(status: string | null) {
+    const normalized = normalizeStatus(status);
+
+    if (!normalized || normalized === 'pending') return '';
+
+    if (normalized === 'expired') {
+        return 'This invite link has expired. Ask the company admin to create a new manual invite link.';
+    }
+
+    if (normalized === 'revoked') {
+        return 'This invite link has been revoked. Ask the company admin to create a new manual invite link.';
+    }
+
+    if (normalized === 'accepted' || normalized === 'used') {
+        return 'This invite link has already been used.';
+    }
+
+    return 'This invite link is not active. Ask the company admin to create a new manual invite link.';
+}
+
+function formatInviteLookupError(message: string) {
+    if (message.toLowerCase().includes('invite code is required')) {
+        return 'The invite code is missing. Ask your company admin for a fresh invitation link.';
+    }
+
+    return 'This invite link is invalid or no longer available. Ask the company admin to create a new manual invite link.';
+}
+
+function formatAcceptError(message: string) {
+    const normalized = message.toLowerCase();
+
+    if (
+        normalized.includes('manual invite code has not been generated') ||
+        normalized.includes('invalid invite code') ||
+        normalized.includes('invitation not found')
+    ) {
+        return 'This invite link is not active or does not match this invitation. Ask the company admin to create a new manual invite link.';
+    }
+
+    if (normalized.includes('invite code has expired')) {
+        return 'This invite link has expired. Ask the company admin to create a new manual invite link.';
+    }
+
+    if (normalized.includes('verified account email required')) {
+        return 'Use a verified account with the invited email address to accept this invitation.';
+    }
+
+    if (normalized.includes('does not match')) {
+        return 'This signed-in account does not match the invited email address.';
+    }
+
+    return message || 'The invite code could not be accepted.';
 }
 
 function formatDate(value: string | null) {
