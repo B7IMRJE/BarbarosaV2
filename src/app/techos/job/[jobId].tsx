@@ -1,13 +1,11 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
 import ThemedButton from '../../../components/theme/ThemedButton';
 import ThemedCard from '../../../components/theme/ThemedCard';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
-
-type CompanyRole = 'technician' | 'manager' | 'admin' | 'owner';
 
 type CompanyUserAccess = {
     id: string;
@@ -17,6 +15,21 @@ type CompanyUserAccess = {
     role: string | null;
     status: string | null;
     created_at: string | null;
+};
+
+type CompanyUser = CompanyUserAccess & {
+    auth_user_id: string | null;
+};
+
+type JobAssignment = {
+    id: string;
+    company_id: string | null;
+    job_id: string | null;
+    technician_company_user_id: string | null;
+    technician_auth_user_id: string | null;
+    role_on_job: string | null;
+    status: string | null;
+    assigned_at: string | null;
 };
 
 type CompanyBrand = {
@@ -62,14 +75,21 @@ type TechOSJobDetail = {
     job_source: string | null;
     created_at: string | null;
     updated_at: string | null;
+    client_display_name?: string | null;
+    client_status?: string | null;
+    client_source?: string | null;
+    client_linked_at?: string | null;
+    property_name?: string | null;
+    property_address?: string | null;
+    property_city?: string | null;
+    property_state?: string | null;
+    property_postal_code?: string | null;
+    assignment_id?: string | null;
+    assignment_status?: string | null;
+    role_on_job?: string | null;
+    access_mode?: string | null;
+    access_role?: string | null;
 };
-
-type PlatformProfile = {
-    role?: string | null;
-    is_platform_admin?: boolean | null;
-};
-
-const TECHOS_ROLES: CompanyRole[] = ['technician', 'manager', 'admin', 'owner'];
 
 const jobWorkflowSections = [
     {
@@ -105,6 +125,12 @@ export default function TechOSJobDetailScreen() {
     const [job, setJob] = useState<TechOSJobDetail | null>(null);
     const [client, setClient] = useState<CompanyClient | null>(null);
     const [property, setProperty] = useState<PropertyRecord | null>(null);
+    const [assignableUsers, setAssignableUsers] = useState<CompanyUser[]>([]);
+    const [assignments, setAssignments] = useState<JobAssignment[]>([]);
+    const [assignmentPickerOpen, setAssignmentPickerOpen] = useState(false);
+    const [assignmentLoading, setAssignmentLoading] = useState(false);
+    const [assigningUserId, setAssigningUserId] = useState<string | null>(null);
+    const [assignmentMessage, setAssignmentMessage] = useState('');
     const [message, setMessage] = useState('Loading job...');
 
     useEffect(() => {
@@ -120,6 +146,10 @@ export default function TechOSJobDetailScreen() {
         setJob(null);
         setClient(null);
         setProperty(null);
+        setAssignableUsers([]);
+        setAssignments([]);
+        setAssignmentPickerOpen(false);
+        setAssignmentMessage('');
 
         if (!requestedJobId) {
             setCheckingAccess(false);
@@ -137,11 +167,10 @@ export default function TechOSJobDetailScreen() {
             return;
         }
 
-        const { data: jobData, error: jobError } = await supabase
-            .from('jobs')
-            .select('id, company_id, property_id, company_property_client_id, title, status, job_source, created_at, updated_at')
-            .eq('id', requestedJobId)
-            .maybeSingle();
+        const { data: jobData, error: jobError } = await supabase.rpc('get_techos_job_detail', {
+            p_job_id: requestedJobId,
+            p_company_id: requestedCompanyId || null,
+        });
 
         if (jobError) {
             console.error('Could not load TechOS job detail', {
@@ -151,11 +180,11 @@ export default function TechOSJobDetailScreen() {
                 hint: jobError.hint,
             });
             setCheckingAccess(false);
-            setMessage(`Could not load job: ${jobError.message}`);
+            setMessage(getFriendlyJobAccessMessage(jobError.message));
             return;
         }
 
-        const loadedJob = (jobData || null) as TechOSJobDetail | null;
+        const loadedJob = (((jobData || []) as TechOSJobDetail[])[0] || null) as TechOSJobDetail | null;
         if (!loadedJob) {
             setCheckingAccess(false);
             setMessage('Job not found or not available to this TechOS user.');
@@ -168,35 +197,22 @@ export default function TechOSJobDetailScreen() {
             return;
         }
 
-        if (requestedCompanyId && requestedCompanyId !== loadedJob.company_id) {
-            setCheckingAccess(false);
-            setMessage('This job does not belong to the selected company.');
-            return;
-        }
-
-        const platformAdminCheck = await loadPlatformAdminStatus(user.id);
-        const activeMembership = await loadCompanyMembership(user.id, loadedJob.company_id);
-        const platformAdminAllowed = platformAdminCheck.isPlatformAdmin && requestedCompanyId === loadedJob.company_id;
-
-        if (!activeMembership && !platformAdminAllowed) {
-            setCheckingAccess(false);
-            setMessage(
-                platformAdminCheck.isPlatformAdmin
-                    ? 'Open this job from a selected company TechOS workspace.'
-                    : 'TechOS jobs are available to active company technicians, managers, admins, and owners.'
-            );
-            return;
-        }
+        const isPlatformPreview = loadedJob.access_mode === 'platform_preview';
+        const activeMembership = isPlatformPreview
+            ? null
+            : buildAccessMembership(loadedJob, user.id);
 
         setMembership(activeMembership);
-        setIsPlatformAdminAccess(platformAdminAllowed);
+        setIsPlatformAdminAccess(isPlatformPreview);
         setJob(loadedJob);
+        setClient(buildClientFromJob(loadedJob));
+        setProperty(buildPropertyFromJob(loadedJob));
         setMessage('');
 
         await Promise.all([
             loadCompanyBrand(loadedJob.company_id),
-            loadJobClient(loadedJob),
-            loadJobProperty(loadedJob.property_id),
+            loadJobAssignments(loadedJob.company_id, loadedJob.id),
+            canManageAssignments(loadedJob) ? loadAssignableUsers(loadedJob.company_id) : Promise.resolve(),
         ]);
 
         setCheckingAccess(false);
@@ -224,66 +240,86 @@ export default function TechOSJobDetailScreen() {
         setCompany((data || null) as CompanyBrand | null);
     }
 
-    async function loadJobClient(loadedJob: TechOSJobDetail) {
-        if (!loadedJob.company_id || !loadedJob.property_id) {
-            setClient(null);
-            return;
+    async function loadAssignableUsers(companyIdToLoad: string) {
+        setAssignmentLoading(true);
+
+        try {
+            const result = await loadCompanyMembers(companyIdToLoad);
+
+            if (result.error) {
+                setAssignmentMessage(`Could not load technicians: ${result.error.message}`);
+                setAssignableUsers([]);
+                return;
+            }
+
+            setAssignableUsers(
+                result.data.filter((member) => isActiveStatus(member.status) && isTechOSAssignableRole(member.role))
+            );
+        } finally {
+            setAssignmentLoading(false);
         }
-
-        let query = supabase
-            .from('company_property_clients')
-            .select('id, company_id, property_id, display_name, status, source, connected_at, first_requested_at, created_at')
-            .eq('company_id', loadedJob.company_id)
-            .eq('property_id', loadedJob.property_id)
-            .order('created_at', { ascending: false })
-            .limit(1);
-
-        if (loadedJob.company_property_client_id) {
-            query = query.eq('id', loadedJob.company_property_client_id);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-            console.error('Could not load TechOS job client', {
-                message: error.message,
-                code: error.code,
-                details: error.details,
-                hint: error.hint,
-            });
-            setClient(null);
-            setMessage('Job loaded, but client details could not be loaded.');
-            return;
-        }
-
-        setClient(((data || []) as CompanyClient[])[0] || null);
     }
 
-    async function loadJobProperty(propertyId?: string | null) {
-        if (!propertyId) {
-            setProperty(null);
-            return;
-        }
-
+    async function loadJobAssignments(companyIdToLoad: string, jobIdToLoad: string) {
         const { data, error } = await supabase
-            .from('properties')
-            .select('id, name, address, address_line_1, city, state, zip, postal_code')
-            .eq('id', propertyId)
-            .maybeSingle();
+            .from('job_assignments')
+            .select('id, company_id, job_id, technician_company_user_id, technician_auth_user_id, role_on_job, status, assigned_at')
+            .eq('company_id', companyIdToLoad)
+            .eq('job_id', jobIdToLoad)
+            .order('assigned_at', { ascending: false });
 
         if (error) {
-            console.error('Could not load TechOS job property', {
+            console.error('Could not load TechOS job assignments', {
                 message: error.message,
                 code: error.code,
                 details: error.details,
                 hint: error.hint,
             });
-            setProperty(null);
-            setMessage('Job loaded, but basic home details could not be loaded.');
+            setAssignments([]);
             return;
         }
 
-        setProperty((data || null) as PropertyRecord | null);
+        setAssignments(normalizeAssignments(data));
+    }
+
+    async function handleAssignTechnician(member: CompanyUser) {
+        if (!job?.company_id || !job.id) return;
+
+        setAssigningUserId(member.id);
+        setAssignmentMessage(`Assigning ${getMemberDisplayName(member)}...`);
+
+        const primaryResult = await supabase.rpc('assign_technician_to_job', {
+            company_id: job.company_id,
+            job_id: job.id,
+            technician_user_id: member.id,
+            note: 'Assigned from TechOS job detail',
+        });
+
+        const fallbackResult = primaryResult.error && shouldTryAssignmentFallback(primaryResult.error.message)
+            ? await supabase.rpc('assign_technician_to_job', {
+                p_company_id: job.company_id,
+                p_job_id: job.id,
+                p_technician_company_user_id: member.id,
+                p_role_on_job: 'primary',
+            })
+            : primaryResult;
+
+        if (fallbackResult.error) {
+            console.error('Could not assign TechOS technician', {
+                message: fallbackResult.error.message,
+                code: fallbackResult.error.code,
+                details: fallbackResult.error.details,
+                hint: fallbackResult.error.hint,
+            });
+            setAssignmentMessage(getFriendlyAssignmentMessage(fallbackResult.error.message));
+            setAssigningUserId(null);
+            return;
+        }
+
+        setAssignmentPickerOpen(false);
+        setAssignmentMessage(`${getMemberDisplayName(member)} was assigned. Refreshing job...`);
+        setAssigningUserId(null);
+        await loadJobDetail();
     }
 
     function handleBackToTechOS() {
@@ -308,6 +344,7 @@ export default function TechOSJobDetailScreen() {
     const heroTextColor = getReadableColor(primaryColor);
     const displayClientName = client?.display_name || property?.name || 'Home';
     const linkedAt = client?.connected_at || client?.first_requested_at || client?.created_at;
+    const canAssignTechnician = !!job && canManageAssignments(job);
 
     return (
         <ScrollView
@@ -329,7 +366,7 @@ export default function TechOSJobDetailScreen() {
                         history are not loaded here.
                     </Text>
                     <View style={pillRowStyle}>
-                        <InfoPill label="Role" value={isPlatformAdminAccess ? 'Platform Admin' : formatLabel(membership?.role)} textColor={heroTextColor} />
+                        <InfoPill label="Role" value={isPlatformAdminAccess ? 'Platform Admin' : formatLabel(membership?.role || job?.access_role)} textColor={heroTextColor} />
                         <InfoPill label="Status" value={formatStatus(job?.status)} textColor={heroTextColor} />
                         <InfoPill label="Source" value={formatSource(job?.job_source)} textColor={heroTextColor} />
                         <InfoPill label="Created" value={formatDate(job?.created_at)} textColor={heroTextColor} />
@@ -349,6 +386,18 @@ export default function TechOSJobDetailScreen() {
 
                 {job && (
                     <>
+                        <AssignmentCard
+                            assignments={assignments}
+                            assignableUsers={assignableUsers}
+                            canAssign={canAssignTechnician}
+                            loading={assignmentLoading}
+                            pickerOpen={assignmentPickerOpen}
+                            assigningUserId={assigningUserId}
+                            message={assignmentMessage}
+                            onTogglePicker={() => setAssignmentPickerOpen((current) => !current)}
+                            onAssign={handleAssignTechnician}
+                        />
+
                         <View style={summaryGridStyle}>
                             <DetailCard title="Client / Home" value={displayClientName} body={formatAddress(property) || 'Basic home details are not available yet.'} />
                             <DetailCard title="Client Status" value={formatStatus(client?.status)} body={`Source: ${formatSource(client?.source)}`} />
@@ -394,6 +443,127 @@ function AccessMessage({ message, onBack }: { message: string; onBack: () => voi
     );
 }
 
+function AssignmentCard({
+    assignments,
+    assignableUsers,
+    canAssign,
+    loading,
+    pickerOpen,
+    assigningUserId,
+    message,
+    onTogglePicker,
+    onAssign,
+}: {
+    assignments: JobAssignment[];
+    assignableUsers: CompanyUser[];
+    canAssign: boolean;
+    loading: boolean;
+    pickerOpen: boolean;
+    assigningUserId: string | null;
+    message: string;
+    onTogglePicker: () => void;
+    onAssign: (member: CompanyUser) => void;
+}) {
+    const { theme } = useTheme();
+    const activeAssignments = assignments.filter((assignment) => isActiveAssignmentStatus(assignment.status));
+
+    return (
+        <ThemedCard style={assignmentCardStyle}>
+            <View style={assignmentHeaderStyle}>
+                <View style={assignmentHeaderTextStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>Assignment</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        {activeAssignments.length > 0
+                            ? `${activeAssignments.length} active assignment${activeAssignments.length === 1 ? '' : 's'} on this job.`
+                            : 'No active assignment is visible for this job yet.'}
+                    </Text>
+                </View>
+
+                {canAssign && (
+                    <ThemedButton
+                        title={pickerOpen ? 'Hide Technicians' : 'Assign Technician'}
+                        onPress={onTogglePicker}
+                        disabled={loading || assigningUserId !== null}
+                        style={assignmentButtonStyle}
+                    />
+                )}
+            </View>
+
+            {activeAssignments.length > 0 ? (
+                <View style={assignmentListStyle}>
+                    {activeAssignments.map((assignment) => (
+                        <View key={assignment.id} style={[assignmentRowStyle, { borderColor: theme.colors.border }]}>
+                            <View style={assignmentRowTextStyle}>
+                                <Text style={[assignmentNameStyle, { color: theme.colors.text }]}>
+                                    {getAssignmentDisplayName(assignment, assignableUsers)}
+                                </Text>
+                                <Text style={[assignmentMetaStyle, { color: theme.colors.mutedText }]}>
+                                    {formatLabel(assignment.role_on_job)} / {formatStatus(assignment.status)}
+                                    {' / '}Assigned {formatDate(assignment.assigned_at)}
+                                </Text>
+                            </View>
+                            <View style={[statusBadgeStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.secondaryButton }]}>
+                                <Text style={[statusBadgeTextStyle, { color: theme.colors.secondaryButtonText }]}>
+                                    {formatStatus(assignment.status)}
+                                </Text>
+                            </View>
+                        </View>
+                    ))}
+                </View>
+            ) : (
+                <Text style={[bodyTextStyle, { color: theme.colors.mutedText, marginTop: 12 }]}>
+                    Dispatch can assign one or more technicians/helpers here. Technicians only see jobs assigned to them.
+                </Text>
+            )}
+
+            {canAssign && pickerOpen && (
+                <View style={pickerPanelStyle}>
+                    {loading ? (
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading technicians...</Text>
+                    ) : assignableUsers.length === 0 ? (
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                            No active TechOS users found for this company.
+                        </Text>
+                    ) : (
+                        assignableUsers.map((member) => {
+                            const assigning = assigningUserId === member.id;
+
+                            return (
+                                <TouchableOpacity
+                                    key={member.id}
+                                    onPress={() => onAssign(member)}
+                                    disabled={assigningUserId !== null}
+                                    style={[pickerRowStyle, { borderColor: theme.colors.border }]}
+                                >
+                                    <View style={assignmentRowTextStyle}>
+                                        <Text style={[assignmentNameStyle, { color: theme.colors.text }]}>
+                                            {getMemberDisplayName(member)}
+                                        </Text>
+                                        <Text style={[assignmentMetaStyle, { color: theme.colors.mutedText }]}>
+                                            {member.email || shortId(member.auth_user_id || member.id)}
+                                            {' / '}
+                                            {formatLabel(member.role)}
+                                        </Text>
+                                    </View>
+                                    <Text style={[pickerActionTextStyle, { color: theme.colors.primary }]}>
+                                        {assigning ? 'Assigning...' : 'Assign'}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })
+                    )}
+                </View>
+            )}
+
+            {!!message && (
+                <Text style={[assignmentMessageStyle, { color: theme.colors.mutedText }]}>
+                    {message}
+                </Text>
+            )}
+        </ThemedCard>
+    );
+}
+
 function DetailCard({ title, value, body }: { title: string; value: string; body: string }) {
     const { theme } = useTheme();
 
@@ -415,68 +585,218 @@ function InfoPill({ label, value, textColor }: { label: string; value: string; t
     );
 }
 
-async function loadCompanyMembership(userId: string, companyId: string) {
-    const { data, error } = await supabase
-        .from('company_users')
-        .select('id, company_id, full_name, email, role, status, created_at')
-        .eq('auth_user_id', userId)
-        .eq('company_id', companyId)
-        .eq('status', 'active')
-        .in('role', TECHOS_ROLES)
-        .order('created_at', { ascending: true })
-        .limit(1);
-
-    if (error) {
-        console.error('Could not verify TechOS company membership', {
-            message: error.message,
-            code: error.code,
-            details: error.details,
-            hint: error.hint,
-        });
-        return null;
-    }
-
-    const membership = ((data || []) as CompanyUserAccess[])[0] || null;
-    return membership && isTechOSRole(membership.role) ? membership : null;
-}
-
-async function loadPlatformAdminStatus(userId: string) {
-    const primaryQuery = await supabase
-        .from('profiles')
-        .select('role, is_platform_admin')
-        .eq('id', userId)
-        .limit(1);
-
-    if (!primaryQuery.error) {
-        return {
-            isPlatformAdmin: isPlatformAdminProfile((primaryQuery.data || [])[0] as PlatformProfile | undefined),
-        };
-    }
-
-    const fallbackQuery = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .limit(1);
+function buildAccessMembership(loadedJob: TechOSJobDetail, userId: string): CompanyUserAccess | null {
+    if (!loadedJob.company_id) return null;
 
     return {
-        isPlatformAdmin: isPlatformAdminProfile((fallbackQuery.data || [])[0] as PlatformProfile | undefined),
+        id: loadedJob.assignment_id || userId,
+        company_id: loadedJob.company_id,
+        full_name: null,
+        email: null,
+        role: loadedJob.access_role || loadedJob.role_on_job || 'technician',
+        status: loadedJob.assignment_status || 'active',
+        created_at: loadedJob.created_at,
     };
 }
 
-function isPlatformAdminProfile(profile?: PlatformProfile | null) {
+function buildClientFromJob(loadedJob: TechOSJobDetail): CompanyClient | null {
+    if (!loadedJob.company_id || !loadedJob.property_id) return null;
+    if (!loadedJob.company_property_client_id && !loadedJob.client_display_name) return null;
+
+    return {
+        id: loadedJob.company_property_client_id || `${loadedJob.company_id}:${loadedJob.property_id}`,
+        company_id: loadedJob.company_id,
+        property_id: loadedJob.property_id,
+        display_name: loadedJob.client_display_name || null,
+        status: loadedJob.client_status || null,
+        source: loadedJob.client_source || null,
+        connected_at: loadedJob.client_linked_at || null,
+        first_requested_at: null,
+        created_at: loadedJob.client_linked_at || null,
+    };
+}
+
+function buildPropertyFromJob(loadedJob: TechOSJobDetail): PropertyRecord | null {
+    if (!loadedJob.property_id) return null;
+
+    return {
+        id: loadedJob.property_id,
+        name: loadedJob.property_name || null,
+        address: loadedJob.property_address || null,
+        address_line_1: loadedJob.property_address || null,
+        city: loadedJob.property_city || null,
+        state: loadedJob.property_state || null,
+        zip: loadedJob.property_postal_code || null,
+        postal_code: loadedJob.property_postal_code || null,
+    };
+}
+
+function getFriendlyJobAccessMessage(message?: string | null) {
+    const normalized = normalizeStatus(message);
+
+    if (normalized.includes('not assigned')) {
+        return 'You are not assigned to this TechOS job.';
+    }
+
+    if (normalized.includes('selected company')) {
+        return 'Open this job from the selected company TechOS preview.';
+    }
+
+    if (normalized.includes('not authorized')) {
+        return 'You are not authorized to view this TechOS job.';
+    }
+
+    if (normalized.includes('not found')) {
+        return 'Job not found or not available to this TechOS user.';
+    }
+
+    return message ? `Could not load job: ${message}` : 'Could not load this TechOS job right now.';
+}
+
+function getFriendlyAssignmentMessage(message?: string | null) {
+    const normalized = normalizeStatus(message);
+
+    if (normalized.includes('not authorized')) {
+        return 'You are not authorized to assign technicians for this company.';
+    }
+
+    if (normalized.includes('not found')) {
+        return 'That technician or job is no longer available for assignment.';
+    }
+
+    return message ? `Could not assign technician: ${message}` : 'Could not assign technician right now.';
+}
+
+function shouldTryAssignmentFallback(message?: string | null) {
+    const normalized = normalizeStatus(message);
+
     return (
-        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
-        profile?.is_platform_admin === true
+        normalized.includes('function') ||
+        normalized.includes('parameter') ||
+        normalized.includes('schema cache') ||
+        normalized.includes('pgrst202')
     );
 }
 
-function isTechOSRole(role?: string | null) {
-    return TECHOS_ROLES.includes(normalizeRole(role) as CompanyRole);
+async function loadCompanyMembers(companyId: string): Promise<{
+    data: CompanyUser[];
+    error: { message: string } | null;
+}> {
+    const rpcResult = await supabase.rpc('get_company_users_for_management', {
+        p_company_id: companyId,
+    });
+
+    if (!rpcResult.error) {
+        return {
+            data: normalizeCompanyUsers(rpcResult.data),
+            error: null,
+        };
+    }
+
+    const directResult = await supabase
+        .from('company_users')
+        .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false });
+
+    if (directResult.error) {
+        return {
+            data: [],
+            error: {
+                message: `${directResult.error.message}. Management RPC fallback also failed: ${rpcResult.error.message}`,
+            },
+        };
+    }
+
+    return {
+        data: normalizeCompanyUsers(directResult.data),
+        error: null,
+    };
 }
 
-function normalizeRole(role?: string | null) {
-    return String(role || '').trim().toLowerCase();
+function normalizeCompanyUsers(data: unknown): CompanyUser[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                company_id: readStringField(record, 'company_id') || '',
+                auth_user_id: readStringField(record, 'auth_user_id'),
+                full_name: readStringField(record, 'full_name'),
+                email: readStringField(record, 'email'),
+                role: readStringField(record, 'role') || 'unknown',
+                status: readStringField(record, 'status') || 'unknown',
+                created_at: readStringField(record, 'created_at'),
+            };
+        })
+        .filter((member) => member.id && member.company_id);
+}
+
+function normalizeAssignments(data: unknown): JobAssignment[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                company_id: readStringField(record, 'company_id'),
+                job_id: readStringField(record, 'job_id'),
+                technician_company_user_id: readStringField(record, 'technician_company_user_id'),
+                technician_auth_user_id: readStringField(record, 'technician_auth_user_id'),
+                role_on_job: readStringField(record, 'role_on_job'),
+                status: readStringField(record, 'status'),
+                assigned_at: readStringField(record, 'assigned_at'),
+            };
+        })
+        .filter((assignment) => assignment.id);
+}
+
+function readStringField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function canManageAssignments(loadedJob: TechOSJobDetail) {
+    const accessMode = normalizeStatus(loadedJob.access_mode);
+    const accessRole = normalizeStatus(loadedJob.access_role);
+
+    return (
+        accessMode === 'platform_preview' ||
+        accessMode === 'company_preview' ||
+        ['owner', 'admin', 'manager', 'platform_admin'].includes(accessRole)
+    );
+}
+
+function isTechOSAssignableRole(role?: string | null) {
+    return ['technician', 'tech', 'manager', 'admin', 'owner'].includes(normalizeStatus(role));
+}
+
+function isActiveStatus(status?: string | null) {
+    return normalizeStatus(status) === 'active';
+}
+
+function isActiveAssignmentStatus(status?: string | null) {
+    return !['removed', 'revoked', 'cancelled'].includes(normalizeStatus(status));
+}
+
+function getAssignmentDisplayName(assignment: JobAssignment, members: CompanyUser[]) {
+    const member = members.find((candidate) => candidate.id === assignment.technician_company_user_id);
+
+    if (member) return getMemberDisplayName(member);
+    if (assignment.technician_auth_user_id) return `User ${shortId(assignment.technician_auth_user_id)}`;
+    if (assignment.technician_company_user_id) return `Team member ${shortId(assignment.technician_company_user_id)}`;
+
+    return 'Assigned technician';
+}
+
+function getMemberDisplayName(member: CompanyUser) {
+    return member.full_name || member.email || `Team member ${shortId(member.auth_user_id || member.id)}`;
+}
+
+function shortId(value: string) {
+    return value.length > 8 ? value.slice(0, 8) : value;
 }
 
 function formatLabel(value?: string | null) {
@@ -618,6 +938,102 @@ const pillValueStyle = {
 
 const messageCardStyle = {
     marginBottom: 18,
+};
+
+const assignmentCardStyle = {
+    marginBottom: 18,
+};
+
+const assignmentHeaderStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'flex-start' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+};
+
+const assignmentHeaderTextStyle = {
+    flex: 1,
+    flexBasis: 260,
+    minWidth: 0,
+};
+
+const assignmentButtonStyle = {
+    minWidth: 180,
+};
+
+const assignmentListStyle = {
+    gap: 10,
+    marginTop: 14,
+};
+
+const assignmentRowStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    justifyContent: 'space-between' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const assignmentRowTextStyle = {
+    flex: 1,
+    minWidth: 0,
+};
+
+const assignmentNameStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const assignmentMetaStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 18,
+    marginTop: 2,
+};
+
+const statusBadgeStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+};
+
+const statusBadgeTextStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const pickerPanelStyle = {
+    gap: 8,
+    marginTop: 14,
+};
+
+const pickerRowStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const pickerActionTextStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const assignmentMessageStyle = {
+    fontSize: 13,
+    fontWeight: '800' as const,
+    lineHeight: 19,
+    marginTop: 12,
 };
 
 const bodyTextStyle = {
