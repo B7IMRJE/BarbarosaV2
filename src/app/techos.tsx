@@ -106,6 +106,7 @@ export default function TechOSScreen() {
     const [clients, setClients] = useState<CompanyClient[]>([]);
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
     const [clientMessage, setClientMessage] = useState('');
+    const [jobMessage, setJobMessage] = useState('');
     const [message, setMessage] = useState('Loading TechOS...');
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
@@ -127,6 +128,7 @@ export default function TechOSScreen() {
         setClients([]);
         setPropertiesById({});
         setClientMessage('');
+        setJobMessage('');
 
         const {
             data: { user },
@@ -259,6 +261,16 @@ export default function TechOSScreen() {
         setPropertiesById(nextPropertiesById);
     }
 
+    function handleStartServiceJob(client: CompanyClient, property?: PropertyRecord) {
+        const clientName = client.display_name || property?.name || 'this client';
+        const setupMessage =
+            `Service jobs need the TechOS company job backend before a job can be saved for ${clientName}. ` +
+            'Apply the review SQL proposal in 000_Project_Docs/573_TechOS_Company_Service_Jobs_Proposal.sql, then connect this button to the RPC.';
+
+        setJobMessage(setupMessage);
+        setMessage(setupMessage);
+    }
+
     if (checkingAccess) {
         return <AccessMessage title="TechOS" message="Checking TechOS access..." />;
     }
@@ -351,7 +363,7 @@ export default function TechOSScreen() {
                 )}
 
                 <View style={summaryGridStyle}>
-                    <SummaryCard title="My Jobs" value="0" note="Job assignment is not connected yet." />
+                    <SummaryCard title="My Jobs" value="0" note="Company-safe job creation needs the TechOS jobs RPC." />
                     <SummaryCard
                         title="Assigned Clients"
                         value={String(visibleClients.length)}
@@ -362,18 +374,25 @@ export default function TechOSScreen() {
 
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Technician Workflow</Text>
                 <View style={workflowGridStyle}>
-                    {workflowCards.map((card) =>
-                        card.title === 'Assigned Clients' ? (
+                    {workflowCards.map((card) => {
+                        if (card.title === 'Today / My Jobs') {
+                            return <TechOSJobsCard key={card.title} message={jobMessage} />;
+                        }
+
+                        if (card.title === 'Assigned Clients') {
+                            return (
                             <AssignedClientsCard
                                 key={card.title}
                                 clients={visibleClients}
                                 propertiesById={propertiesById}
                                 message={clientMessage}
+                                onStartServiceJob={handleStartServiceJob}
                             />
-                        ) : (
-                            <WorkflowCard key={card.title} title={card.title} description={card.description} />
-                        )
-                    )}
+                            );
+                        }
+
+                        return <WorkflowCard key={card.title} title={card.title} description={card.description} />;
+                    })}
                 </View>
 
                 <ThemedCard style={nextStepCardStyle}>
@@ -457,14 +476,41 @@ function WorkflowCard({ title, description }: { title: string; description: stri
     );
 }
 
+function TechOSJobsCard({ message }: { message: string }) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={workflowCardStyle}>
+            <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>Today / My Jobs</Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                Company-scoped service jobs will appear here after the TechOS job RPC and RLS are installed.
+            </Text>
+
+            {!!message && (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                </View>
+            )}
+
+            {!message && (
+                <View style={[comingSoonStyle, { backgroundColor: theme.colors.secondaryButton, borderColor: theme.colors.border }]}>
+                    <Text style={[comingSoonTextStyle, { color: theme.colors.secondaryButtonText }]}>Backend proposal ready</Text>
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
 function AssignedClientsCard({
     clients,
     propertiesById,
     message,
+    onStartServiceJob,
 }: {
     clients: CompanyClient[];
     propertiesById: Record<string, PropertyRecord>;
     message: string;
+    onStartServiceJob: (client: CompanyClient, property?: PropertyRecord) => void;
 }) {
     const { theme } = useTheme();
 
@@ -491,7 +537,12 @@ function AssignedClientsCard({
             ) : (
                 <View style={clientListStyle}>
                     {clients.map((client) => (
-                        <ClientRow key={client.id} client={client} property={propertiesById[client.property_id]} />
+                        <ClientRow
+                            key={client.id}
+                            client={client}
+                            property={propertiesById[client.property_id]}
+                            onStartServiceJob={onStartServiceJob}
+                        />
                     ))}
                 </View>
             )}
@@ -499,7 +550,15 @@ function AssignedClientsCard({
     );
 }
 
-function ClientRow({ client, property }: { client: CompanyClient; property?: PropertyRecord }) {
+function ClientRow({
+    client,
+    property,
+    onStartServiceJob,
+}: {
+    client: CompanyClient;
+    property?: PropertyRecord;
+    onStartServiceJob: (client: CompanyClient, property?: PropertyRecord) => void;
+}) {
     const { theme } = useTheme();
     const displayName = client.display_name || property?.name || 'Home';
     const linkedAt = client.connected_at || client.first_requested_at || client.created_at;
@@ -520,6 +579,12 @@ function ClientRow({ client, property }: { client: CompanyClient; property?: Pro
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Linked: {formatDate(linkedAt)}
             </Text>
+            <ThemedButton
+                title="Start Service Job"
+                variant="secondary"
+                onPress={() => onStartServiceJob(client, property)}
+                style={clientActionButtonStyle}
+            />
         </View>
     );
 }
@@ -841,6 +906,10 @@ const clientMetaTextStyle = {
     fontWeight: '800' as const,
     lineHeight: 19,
     marginTop: 5,
+};
+
+const clientActionButtonStyle = {
+    marginTop: 12,
 };
 
 const comingSoonStyle = {
