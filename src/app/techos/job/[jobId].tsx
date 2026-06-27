@@ -324,6 +324,10 @@ export default function TechOSJobDetailScreen() {
                         {companyName}
                         {company?.dba_name ? ` / ${company.dba_name}` : ''}
                     </Text>
+                    <Text style={[subtitleStyle, { color: heroTextColor }]}>
+                        Job details are populated from the assigned job context. Private HomeOS photos, documents, and
+                        history are not loaded here.
+                    </Text>
                     <View style={pillRowStyle}>
                         <InfoPill label="Role" value={isPlatformAdminAccess ? 'Platform Admin' : formatLabel(membership?.role)} textColor={heroTextColor} />
                         <InfoPill label="Status" value={formatStatus(job?.status)} textColor={heroTextColor} />
@@ -348,7 +352,7 @@ export default function TechOSJobDetailScreen() {
                         <View style={summaryGridStyle}>
                             <DetailCard title="Client / Home" value={displayClientName} body={formatAddress(property) || 'Basic home details are not available yet.'} />
                             <DetailCard title="Client Status" value={formatStatus(client?.status)} body={`Source: ${formatSource(client?.source)}`} />
-                            <DetailCard title="Linked" value={formatDate(linkedAt)} body="Company client relationship." />
+                            <DetailCard title="Linked" value={formatDate(linkedAt)} body="Basic company client relationship for this assigned job." />
                         </View>
 
                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Job Workflow</Text>

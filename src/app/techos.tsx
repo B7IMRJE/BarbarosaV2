@@ -69,6 +69,10 @@ type TechOSJob = {
     job_source?: string | null;
     created_at: string | null;
     updated_at?: string | null;
+    assignment_id?: string | null;
+    assignment_status?: string | null;
+    role_on_job?: string | null;
+    assignment_count?: number | null;
 };
 
 type JobDateGroup = {
@@ -89,6 +93,8 @@ type PlatformProfile = {
     role?: string | null;
     is_platform_admin?: boolean | null;
 };
+
+type TechOSMode = 'technician' | 'management-preview' | 'platform-preview';
 
 const TECHOS_ROLES: CompanyRole[] = ['technician', 'manager', 'admin', 'owner'];
 
@@ -131,6 +137,8 @@ export default function TechOSScreen() {
     const [jobMessage, setJobMessage] = useState('');
     const [message, setMessage] = useState('Loading TechOS...');
     const [showAssignedClients, setShowAssignedClients] = useState(false);
+    const [assignmentModelReady, setAssignmentModelReady] = useState(false);
+    const [techOSMode, setTechOSMode] = useState<TechOSMode>('technician');
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const visibleClients = useMemo(
@@ -167,6 +175,8 @@ export default function TechOSScreen() {
         setClientMessage('');
         setCreatingJobClientId(null);
         setJobMessage('');
+        setAssignmentModelReady(false);
+        setTechOSMode('technician');
 
         const {
             data: { user },
@@ -206,11 +216,12 @@ export default function TechOSScreen() {
         if (platformAdminCheck.isPlatformAdmin && requestedCompanyId) {
             setMembership(activeMembership);
             setIsPlatformAdminAccess(true);
+            setTechOSMode('platform-preview');
             setActiveCompanyId(requestedCompanyId);
             await Promise.all([
                 loadCompanyBrand(requestedCompanyId),
                 loadCompanyClients(requestedCompanyId),
-                loadCompanyJobs(requestedCompanyId),
+                loadCompanyJobs(requestedCompanyId, 'platform-preview'),
             ]);
             setCheckingAccess(false);
             setMessage('');
@@ -228,12 +239,21 @@ export default function TechOSScreen() {
         }
 
         setMembership(activeMembership);
+        const nextMode: TechOSMode = isTechnicianRole(activeMembership.role) ? 'technician' : 'management-preview';
+        setTechOSMode(nextMode);
         setActiveCompanyId(activeMembership.company_id);
-        await Promise.all([
-            loadCompanyBrand(activeMembership.company_id),
-            loadCompanyClients(activeMembership.company_id),
-            loadCompanyJobs(activeMembership.company_id),
-        ]);
+        if (nextMode === 'technician') {
+            await Promise.all([
+                loadCompanyBrand(activeMembership.company_id),
+                loadAssignedTechnicianJobs(),
+            ]);
+        } else {
+            await Promise.all([
+                loadCompanyBrand(activeMembership.company_id),
+                loadCompanyClients(activeMembership.company_id),
+                loadCompanyJobs(activeMembership.company_id, 'management-preview'),
+            ]);
+        }
         setCheckingAccess(false);
         setMessage('');
     }
@@ -309,7 +329,35 @@ export default function TechOSScreen() {
         setPropertiesById(nextPropertiesById);
     }
 
-    async function loadCompanyJobs(companyIdToLoad: string) {
+    async function loadAssignedTechnicianJobs() {
+        setJobLoading(true);
+        setAssignmentModelReady(false);
+
+        try {
+            const { data, error } = await supabase.rpc('get_my_techos_jobs');
+
+            if (error) {
+                throw error;
+            }
+
+            setAssignmentModelReady(true);
+            setJobs((data || []) as TechOSJob[]);
+            setJobMessage('');
+        } catch (error: any) {
+            console.error('Could not load assigned TechOS jobs', {
+                message: error?.message,
+                code: error?.code,
+                details: error?.details,
+                hint: error?.hint,
+            });
+            setJobs([]);
+            setJobMessage('Job assignment is not configured yet. Jobs will appear here after dispatch assigns them.');
+        } finally {
+            setJobLoading(false);
+        }
+    }
+
+    async function loadCompanyJobs(companyIdToLoad: string, mode: TechOSMode) {
         setJobLoading(true);
 
         try {
@@ -327,6 +375,11 @@ export default function TechOSScreen() {
             }
 
             setJobs((data || []) as TechOSJob[]);
+            setJobMessage(
+                mode === 'technician'
+                    ? ''
+                    : 'This is not a technician login. Select or assign a technician from ManagementOS to preview their workload.'
+            );
         } catch (error: any) {
             console.error('Could not load TechOS jobs', {
                 message: error?.message,
@@ -335,7 +388,7 @@ export default function TechOSScreen() {
                 hint: error?.hint,
             });
             setJobs([]);
-            setJobMessage(error?.message ? `Could not load jobs: ${error.message}` : 'Could not load jobs right now.');
+            setJobMessage(error?.message ? `Could not load company jobs preview: ${error.message}` : 'Could not load company jobs preview right now.');
         } finally {
             setJobLoading(false);
         }
@@ -377,7 +430,7 @@ export default function TechOSScreen() {
 
             setJobMessage(successMessage);
             setMessage(successMessage);
-            await loadCompanyJobs(selectedCompanyId);
+            await loadCompanyJobs(selectedCompanyId, techOSMode);
         } catch (error: any) {
             console.error('Could not create TechOS service job', {
                 message: error?.message,
@@ -420,6 +473,12 @@ export default function TechOSScreen() {
     const heroTextColor = getReadableColor(primaryColor);
     const logoUrl = company?.logo_url?.trim() || '';
     const canPreviewLogo = logoUrl.startsWith('http');
+    const isTechnicianWorkspace = techOSMode === 'technician';
+    const screenTitle = isTechnicianWorkspace ? 'My TechOS Workspace' : 'TechOS Management Preview';
+    const jobBoardTitle = isTechnicianWorkspace ? 'Assigned Jobs' : 'Company Jobs Preview';
+    const jobBoardDescription = isTechnicianWorkspace
+        ? 'Only jobs assigned to the signed-in technician belong here.'
+        : 'Company-level jobs shown for setup and dispatch preview. This is not one technician workload.';
 
     return (
         <ScrollView
@@ -450,9 +509,10 @@ export default function TechOSScreen() {
                         )}
 
                         <View style={{ flex: 1, minWidth: 0 }}>
-                            <Text style={[kickerStyle, { color: heroTextColor }]}>TechOS Workspace</Text>
+                            <Text style={[kickerStyle, { color: heroTextColor }]}>
+                                {isTechnicianWorkspace ? 'Technician Workspace' : 'Management Preview'}
+                            </Text>
                             <Text
-                                numberOfLines={2}
                                 style={[
                                     titleStyle,
                                     {
@@ -461,12 +521,14 @@ export default function TechOSScreen() {
                                     },
                                 ]}
                             >
-                                {companyName}
+                                {screenTitle}
                             </Text>
-                            <Text style={[dbaStyle, { color: accentColor }]}>{dbaName}</Text>
+                            <Text style={[dbaStyle, { color: accentColor }]}>{companyName}{dbaName ? ` / ${dbaName}` : ''}</Text>
                             <Text style={[subtitleStyle, { color: heroTextColor }]}>
-                                Field workspace for assigned service jobs. Private homeowner photos, documents, and
-                                history stay out of TechOS until explicit access is built.
+                                {isTechnicianWorkspace
+                                    ? 'Field workspace for jobs assigned to the signed-in technician.'
+                                    : 'Company admins can review TechOS setup here without impersonating a technician.'}
+                                {' '}Private homeowner photos, documents, and history stay out of TechOS until explicit access is built.
                             </Text>
                         </View>
                     </View>
@@ -479,12 +541,20 @@ export default function TechOSScreen() {
                         />
                         <InfoPill
                             label="Mode"
-                            value={isPlatformAdminAccess ? 'Admin Preview' : formatLabel(membership?.status)}
+                            value={isTechnicianWorkspace ? 'Technician' : 'Preview'}
                             textColor={heroTextColor}
                         />
                         <InfoPill label="Company" value={formatStatus(company?.status)} textColor={heroTextColor} />
                     </View>
                 </View>
+
+                {!isTechnicianWorkspace && (
+                    <ThemedCard style={messageCardStyle}>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                            This is not a technician login. Select or assign a technician from ManagementOS to preview their workload.
+                        </Text>
+                    </ThemedCard>
+                )}
 
                 {!!message && (
                     <ThemedCard style={messageCardStyle}>
@@ -494,9 +564,9 @@ export default function TechOSScreen() {
 
                 <View style={summaryGridStyle}>
                     <SummaryCard
-                        title="My Jobs"
+                        title={isTechnicianWorkspace ? 'My Assigned Jobs' : 'Active Jobs'}
                         value={String(visibleJobs.length)}
-                        note="Company jobs visible to this TechOS workspace."
+                        note={isTechnicianWorkspace ? 'Jobs assigned through dispatch.' : 'Company jobs visible in preview.'}
                     />
                     <SummaryCard
                         title="Open Jobs"
@@ -514,10 +584,24 @@ export default function TechOSScreen() {
                         note="Completed, closed, or canceled."
                     />
                     <SummaryCard
-                        title="My Sales"
+                        title={isTechnicianWorkspace ? 'My Sales' : 'Technicians'}
                         value="--"
-                        note="Sales totals are not connected yet."
+                        note={isTechnicianWorkspace ? 'Sales totals are not connected yet.' : 'Technician assignment summary is not configured yet.'}
                     />
+                    {!isTechnicianWorkspace && (
+                        <SummaryCard
+                            title="Unassigned Jobs"
+                            value="--"
+                            note="Assignment tracking will connect after job_assignments is installed."
+                        />
+                    )}
+                    {!isTechnicianWorkspace && (
+                        <SummaryCard
+                            title="Dispatch Assignment"
+                            value="--"
+                            note="Assign technician workflow is proposed in SQL 577."
+                        />
+                    )}
                 </View>
 
                 <TechOSJobsBoard
@@ -528,6 +612,13 @@ export default function TechOSScreen() {
                     message={jobMessage}
                     onOpenJob={handleOpenJob}
                     propertiesById={propertiesById}
+                    title={jobBoardTitle}
+                    description={jobBoardDescription}
+                    emptyMessage={
+                        isTechnicianWorkspace && !assignmentModelReady
+                            ? 'Job assignment is not configured yet. Jobs will appear here after dispatch assigns them.'
+                            : 'Jobs will appear here after ManagementOS dispatch creates or assigns company service jobs.'
+                    }
                 />
 
                 <View style={secondarySectionHeaderStyle}>
@@ -542,16 +633,18 @@ export default function TechOSScreen() {
                     ))}
                 </View>
 
-                <AssignedClientsCard
-                    clients={visibleClients}
-                    creatingJobClientId={creatingJobClientId}
-                    expanded={showAssignedClients}
-                    jobs={visibleJobs}
-                    message={clientMessage}
-                    onStartServiceJob={handleStartServiceJob}
-                    onToggleExpanded={() => setShowAssignedClients((current) => !current)}
-                    propertiesById={propertiesById}
-                />
+                {!isTechnicianWorkspace && (
+                    <AssignedClientsCard
+                        clients={visibleClients}
+                        creatingJobClientId={creatingJobClientId}
+                        expanded={showAssignedClients}
+                        jobs={visibleJobs}
+                        message={clientMessage}
+                        onStartServiceJob={handleStartServiceJob}
+                        onToggleExpanded={() => setShowAssignedClients((current) => !current)}
+                        propertiesById={propertiesById}
+                    />
+                )}
 
                 <View style={buttonRowStyle}>
                     <ThemedButton title="Refresh TechOS" onPress={loadTechOSAccess} style={buttonStyle} />
@@ -629,20 +722,26 @@ function WorkflowCard({ title, description }: { title: string; description: stri
 
 function TechOSJobsBoard({
     clients,
+    description,
+    emptyMessage,
     groupedJobs,
     jobs,
     loading,
     message,
     onOpenJob,
     propertiesById,
+    title,
 }: {
     clients: CompanyClient[];
+    description: string;
+    emptyMessage: string;
     groupedJobs: JobDateGroup[];
     jobs: TechOSJob[];
     loading: boolean;
     message: string;
     onOpenJob: (job: TechOSJob) => void;
     propertiesById: Record<string, PropertyRecord>;
+    title: string;
 }) {
     const { theme } = useTheme();
     const clientsById = clients.reduce<Record<string, CompanyClient>>((accumulator, client) => {
@@ -654,9 +753,9 @@ function TechOSJobsBoard({
         <View style={jobBoardSectionStyle}>
             <View style={jobBoardHeaderStyle}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>Today / My Jobs</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>{title}</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Real company-scoped service jobs, grouped by creation date until dispatch dates are connected.
+                        {description}
                     </Text>
                 </View>
             </View>
@@ -675,7 +774,7 @@ function TechOSJobsBoard({
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                     <Text style={[clientNameStyle, { color: theme.colors.text }]}>No service jobs yet</Text>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        Jobs will appear here after ManagementOS dispatch creates company service jobs.
+                        {emptyMessage}
                     </Text>
                 </View>
             ) : (
@@ -878,6 +977,12 @@ function ClientRow({
 
 function isTechOSRole(role?: string | null) {
     return TECHOS_ROLES.includes(normalizeRole(role) as CompanyRole);
+}
+
+function isTechnicianRole(role?: string | null) {
+    const normalized = normalizeRole(role);
+
+    return normalized === 'technician' || normalized === 'tech';
 }
 
 async function loadPlatformAdminStatus(userId: string) {

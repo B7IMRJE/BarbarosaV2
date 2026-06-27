@@ -1354,7 +1354,7 @@ function getModuleDescription(title: string) {
     if (title === 'Services & Trust Profile') return 'Configure categories, license, rating, and experience below.';
     if (title === 'Customers / Clients') return 'Open homes that selected this company as a preferred provider.';
     if (title === 'Team / Technicians') return 'Open company staff, managers, technicians, and invitations.';
-    if (title === 'TechOS') return 'Open the technician-facing service operations workspace.';
+    if (title === 'TechOS') return 'View TechOS workspace setup and company-level preview without impersonating a technician.';
     if (title === 'ManagementOS') return 'Open the company connections workflow.';
 
     return `Open ${title.toLowerCase()} tools.`;
@@ -1364,6 +1364,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Company Profile / Identity') return 'Configure below';
     if (title === 'Theme & Brand Colors') return 'Configure below';
     if (title === 'Services & Trust Profile') return 'Configure below';
+    if (title === 'TechOS') return 'Open TechOS Preview';
 
     return 'Open';
 }
