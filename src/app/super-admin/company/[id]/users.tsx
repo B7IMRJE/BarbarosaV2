@@ -46,6 +46,14 @@ type DeliveryFeedback = {
     message: string;
 };
 
+type ManualInviteDetails = {
+    status: 'creating' | 'ready' | 'failed' | 'copied';
+    inviteCode: string | null;
+    inviteUrl: string | null;
+    expiresAt: string | null;
+    message: string;
+};
+
 const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
     { label: 'Owner', value: 'owner' },
     { label: 'Admin', value: 'admin' },
@@ -55,12 +63,7 @@ const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
 ];
 
 const EMAIL_SEND_COOLDOWN_MS = 60_000;
-const MANUAL_INVITE_UNAVAILABLE_MESSAGE =
-    'Invite link/code is not available yet. The current backend does not store a safe copyable invitation code.';
-const EMAIL_DELIVERY_FALLBACK_MESSAGE =
-    'Email could not be sent. Manual invite link/code is not available yet; apply the invite-link proposal before sending manually.';
-const REVOKED_INVITE_ARCHIVE_MESSAGE =
-    'Revoked invitations are kept for audit. Delete/archive needs a dedicated RPC before it can be shown here.';
+const EMAIL_DELIVERY_FALLBACK_MESSAGE = 'Email could not be sent. Use the manual invite link/code below.';
 
 export default function CompanyUsersScreen() {
     const { theme } = useTheme();
@@ -76,6 +79,7 @@ export default function CompanyUsersScreen() {
     const [submitting, setSubmitting] = useState(false);
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
     const [deliveryFeedbackById, setDeliveryFeedbackById] = useState<Record<string, DeliveryFeedback>>({});
+    const [manualInvitesById, setManualInvitesById] = useState<Record<string, ManualInviteDetails>>({});
     const [nowMs, setNowMs] = useState(() => Date.now());
 
     useEffect(() => {
@@ -212,6 +216,11 @@ export default function CompanyUsersScreen() {
             }));
             await loadCompanyUsers(false);
             setMessage(EMAIL_DELIVERY_FALLBACK_MESSAGE);
+            await createManualInvite(invitationId, {
+                failurePrefix: 'Email failed, and manual invite creation failed',
+                loadingMessage: 'Email failed. Creating manual invite link/code...',
+                successMessage: EMAIL_DELIVERY_FALLBACK_MESSAGE,
+            });
             return;
         }
 
@@ -270,6 +279,152 @@ export default function CompanyUsersScreen() {
 
         await loadCompanyUsers(false);
         setMessage('Invitation revoked.');
+    }
+
+    async function createManualInvite(
+        invitationId: string,
+        options?: {
+            loadingMessage?: string;
+            successMessage?: string;
+            failurePrefix?: string;
+        }
+    ) {
+        const actionKey = `${invitationId}:manual`;
+        const loadingMessage = options?.loadingMessage || 'Creating manual invite link/code...';
+        const successMessage = options?.successMessage || 'Manual invite link/code ready.';
+        const failurePrefix = options?.failurePrefix || 'Manual invite creation failed';
+
+        setActionLoadingKey(actionKey);
+        setManualInvitesById((current) => ({
+            ...current,
+            [invitationId]: {
+                status: 'creating',
+                inviteCode: current[invitationId]?.inviteCode || null,
+                inviteUrl: current[invitationId]?.inviteUrl || null,
+                expiresAt: current[invitationId]?.expiresAt || null,
+                message: loadingMessage,
+            },
+        }));
+        setMessage(loadingMessage);
+
+        const { data, error } = await supabase.rpc('create_company_user_manual_invite_link', {
+            p_invitation_id: invitationId,
+            p_site_url: getAppBaseUrl(),
+        });
+
+        setActionLoadingKey(null);
+
+        if (error) {
+            const message = `${failurePrefix}: ${error.message}`;
+            setManualInvitesById((current) => ({
+                ...current,
+                [invitationId]: {
+                    status: 'failed',
+                    inviteCode: null,
+                    inviteUrl: null,
+                    expiresAt: null,
+                    message,
+                },
+            }));
+            setMessage(message);
+            return false;
+        }
+
+        const manualInvite = parseManualInviteResponse(data);
+
+        if (!manualInvite.inviteCode && !manualInvite.inviteUrl) {
+            const message = `${failurePrefix}: the server did not return an invite link or code.`;
+            setManualInvitesById((current) => ({
+                ...current,
+                [invitationId]: {
+                    status: 'failed',
+                    inviteCode: null,
+                    inviteUrl: null,
+                    expiresAt: null,
+                    message,
+                },
+            }));
+            setMessage(message);
+            return false;
+        }
+
+        setManualInvitesById((current) => ({
+            ...current,
+            [invitationId]: {
+                status: 'ready',
+                inviteCode: manualInvite.inviteCode,
+                inviteUrl: manualInvite.inviteUrl,
+                expiresAt: manualInvite.expiresAt,
+                message: successMessage,
+            },
+        }));
+        await loadCompanyUsers(false);
+        setMessage(successMessage);
+        return true;
+    }
+
+    async function copyManualInviteValue(invitationId: string, label: string, value: string) {
+        try {
+            await writeClipboardText(value);
+            const message = `${label} copied.`;
+
+            setManualInvitesById((current) => {
+                const manualInvite = current[invitationId];
+
+                if (!manualInvite) return current;
+
+                return {
+                    ...current,
+                    [invitationId]: {
+                        ...manualInvite,
+                        status: 'copied',
+                        message,
+                    },
+                };
+            });
+            setMessage(message);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Copy is not available on this platform.';
+            setManualInvitesById((current) => {
+                const manualInvite = current[invitationId];
+
+                if (!manualInvite) return current;
+
+                return {
+                    ...current,
+                    [invitationId]: {
+                        ...manualInvite,
+                        message: errorMessage,
+                    },
+                };
+            });
+            setMessage(errorMessage);
+        }
+    }
+
+    async function deleteRevokedInvitation(invitationId: string) {
+        const actionKey = `${invitationId}:delete`;
+        setActionLoadingKey(actionKey);
+        setMessage('Deleting revoked invitation...');
+
+        const { error } = await supabase.rpc('delete_revoked_company_user_invitation', {
+            p_invitation_id: invitationId,
+        });
+
+        setActionLoadingKey(null);
+
+        if (error) {
+            setMessage(`Delete revoked invitation failed: ${error.message}`);
+            return;
+        }
+
+        setManualInvitesById((current) => {
+            const next = { ...current };
+            delete next[invitationId];
+            return next;
+        });
+        await loadCompanyUsers(false);
+        setMessage('Revoked invitation deleted.');
     }
 
     function prepareTechnicianInvite() {
@@ -486,9 +641,13 @@ export default function CompanyUsersScreen() {
                                             invitation={invitation}
                                             actionLoadingKey={actionLoadingKey}
                                             feedback={deliveryFeedbackById[invitation.id]}
+                                            manualInvite={manualInvitesById[invitation.id]}
                                             nowMs={nowMs}
                                             onSendEmail={sendInvitationEmail}
+                                            onCreateManualInvite={createManualInvite}
+                                            onCopyManualInviteValue={copyManualInviteValue}
                                             onRevoke={revokeInvitation}
+                                            onDeleteRevoked={deleteRevokedInvitation}
                                         />
                                     ))
                                 )}
@@ -636,25 +795,37 @@ function InvitationCard({
     invitation,
     actionLoadingKey,
     feedback,
+    manualInvite,
     nowMs,
     onSendEmail,
+    onCreateManualInvite,
+    onCopyManualInviteValue,
     onRevoke,
+    onDeleteRevoked,
 }: {
     invitation: CompanyInvitation;
     actionLoadingKey: string | null;
     feedback?: DeliveryFeedback;
+    manualInvite?: ManualInviteDetails;
     nowMs: number;
     onSendEmail: (invitationId: string) => void;
+    onCreateManualInvite: (invitationId: string) => void;
+    onCopyManualInviteValue: (invitationId: string, label: string, value: string) => void;
     onRevoke: (invitationId: string) => void;
+    onDeleteRevoked: (invitationId: string) => void;
 }) {
     const { theme } = useTheme();
     const emailKey = `${invitation.id}:email`;
+    const manualKey = `${invitation.id}:manual`;
     const revokeKey = `${invitation.id}:revoke`;
+    const deleteKey = `${invitation.id}:delete`;
     const status = normalizeStatus(invitation.status);
     const expired = isInvitationExpired(invitation, nowMs);
     const sendable = status === 'pending' && !expired;
     const cooldownRemainingMs = getCooldownRemainingMs(invitation, nowMs);
     const sending = actionLoadingKey === emailKey;
+    const creatingManualInvite = actionLoadingKey === manualKey;
+    const deletingRevoked = actionLoadingKey === deleteKey;
     const anyActionLoading = actionLoadingKey !== null;
     const emailSendCount = invitation.email_send_count || 0;
 
@@ -674,13 +845,73 @@ function InvitationCard({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Email: {formatDeliverySummary(invitation, feedback)}
             </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                {MANUAL_INVITE_UNAVAILABLE_MESSAGE}
-            </Text>
-            {status === 'revoked' && (
+
+            {status === 'pending' && (
                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                    {REVOKED_INVITE_ARCHIVE_MESSAGE}
+                    Create a manual invite if email delivery fails or the technician needs a copyable fallback.
                 </Text>
+            )}
+
+            {manualInvite && (
+                <View
+                    style={[
+                        manualInviteBoxStyle,
+                        {
+                            backgroundColor: theme.colors.background,
+                            borderColor: theme.colors.border,
+                        },
+                    ]}
+                >
+                    <Text style={[manualInviteTitleStyle, { color: theme.colors.text }]}>Manual Invite</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{manualInvite.message}</Text>
+
+                    {!!manualInvite.inviteUrl && (
+                        <>
+                            <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Link</Text>
+                            <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
+                                {manualInvite.inviteUrl}
+                            </Text>
+                        </>
+                    )}
+
+                    {!!manualInvite.inviteCode && (
+                        <>
+                            <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Code</Text>
+                            <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
+                                {manualInvite.inviteCode}
+                            </Text>
+                        </>
+                    )}
+
+                    {!!manualInvite.expiresAt && (
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            Expires: {formatDate(manualInvite.expiresAt)}
+                        </Text>
+                    )}
+
+                    {(!!manualInvite.inviteUrl || !!manualInvite.inviteCode) && (
+                        <View style={actionRowStyle}>
+                            {!!manualInvite.inviteUrl && (
+                                <ThemedButton
+                                    title="Copy Invite Link"
+                                    variant="secondary"
+                                    onPress={() => onCopyManualInviteValue(invitation.id, 'Invite link', manualInvite.inviteUrl as string)}
+                                    disabled={actionLoadingKey !== null}
+                                    style={actionButtonStyle}
+                                />
+                            )}
+                            {!!manualInvite.inviteCode && (
+                                <ThemedButton
+                                    title="Copy Invite Code"
+                                    variant="secondary"
+                                    onPress={() => onCopyManualInviteValue(invitation.id, 'Invite code', manualInvite.inviteCode as string)}
+                                    disabled={actionLoadingKey !== null}
+                                    style={actionButtonStyle}
+                                />
+                            )}
+                        </View>
+                    )}
+                </View>
             )}
 
             {status === 'pending' && (
@@ -698,6 +929,13 @@ function InvitationCard({
                         style={actionButtonStyle}
                     />
                     <ThemedButton
+                        title={creatingManualInvite ? 'Creating...' : 'Create / Copy Manual Invite'}
+                        variant="secondary"
+                        onPress={() => onCreateManualInvite(invitation.id)}
+                        disabled={anyActionLoading || expired}
+                        style={actionButtonStyle}
+                    />
+                    <ThemedButton
                         title={actionLoadingKey === revokeKey ? 'Revoking...' : 'Revoke Invitation'}
                         variant="danger"
                         onPress={() => onRevoke(invitation.id)}
@@ -706,8 +944,64 @@ function InvitationCard({
                     />
                 </View>
             )}
+
+            {status === 'revoked' && (
+                <View style={actionRowStyle}>
+                    <ThemedButton
+                        title={deletingRevoked ? 'Deleting...' : 'Delete Revoked Invitation'}
+                        variant="danger"
+                        onPress={() => onDeleteRevoked(invitation.id)}
+                        disabled={actionLoadingKey !== null}
+                        style={actionButtonStyle}
+                    />
+                </View>
+            )}
         </ThemedCard>
     );
+}
+
+function parseManualInviteResponse(data: unknown) {
+    const row = Array.isArray(data) ? data[0] : data;
+    const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+    return {
+        inviteCode: readStringField(record, 'invite_code'),
+        inviteUrl: readStringField(record, 'invite_url'),
+        expiresAt: readStringField(record, 'expires_at'),
+    };
+}
+
+function readStringField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function getAppBaseUrl() {
+    const globalWithLocation = globalThis as unknown as {
+        location?: { origin?: string };
+        window?: { location?: { origin?: string } };
+    };
+    const origin = globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null;
+
+    return typeof origin === 'string' && origin.trim() ? origin : null;
+}
+
+async function writeClipboardText(value: string) {
+    const globalWithNavigator = globalThis as unknown as {
+        navigator?: {
+            clipboard?: {
+                writeText?: (text: string) => Promise<void>;
+            };
+        };
+    };
+    const clipboard = globalWithNavigator.navigator?.clipboard;
+
+    if (!clipboard?.writeText) {
+        throw new Error('Copy is not available on this platform. Select the invite text and copy it manually.');
+    }
+
+    await clipboard.writeText(value);
 }
 
 function isValidEmail(value: string) {
@@ -1030,6 +1324,34 @@ const metaTextStyle = {
     fontWeight: '800' as const,
     lineHeight: 20,
     marginTop: 6,
+};
+
+const manualInviteBoxStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 14,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    padding: 14,
+};
+
+const manualInviteTitleStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const manualInviteLabelStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    marginTop: 12,
+};
+
+const manualInviteValueStyle = {
+    fontFamily: 'monospace',
+    fontSize: 13,
+    fontWeight: '700' as const,
+    lineHeight: 19,
+    marginTop: 5,
 };
 
 const actionRowStyle = {
