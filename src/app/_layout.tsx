@@ -23,6 +23,7 @@ const REGISTER_ROUTE = '/auth/register';
 const AUTH_CONFIRM_ROUTE = '/auth/confirm';
 const FORGOT_PASSWORD_ROUTE = '/auth/forgot-password';
 const RESET_PASSWORD_ROUTE = '/auth/reset-password';
+const COMPANY_INVITE_ROUTE = '/company-invite';
 const ONBOARDING_INVITE_ROUTE = '/onboarding/invite';
 const COMPANY_INVITATIONS_ROUTE = '/onboarding/company-invitations';
 const ONBOARDING_COMPLETE_ROUTE = '/onboarding/complete';
@@ -119,7 +120,7 @@ export default function Layout() {
     const isPublicAuthPage = isPublicAuthPath(currentPath);
     const isLoggedIn = !!data.session;
 
-    if (isPublicAuthPage) {
+    if (isPublicAuthPage || currentPath === COMPANY_INVITE_ROUTE) {
       finishCheck(runId);
       return;
     }
@@ -220,7 +221,8 @@ function isAllowedFirstHomeOnboardingPath(pathname: string) {
   return (
     pathname === FIRST_HOME_ONBOARDING_ROUTE ||
     pathname === ONBOARDING_INVITE_ROUTE ||
-    pathname === COMPANY_INVITATIONS_ROUTE
+    pathname === COMPANY_INVITATIONS_ROUTE ||
+    pathname === COMPANY_INVITE_ROUTE
   );
 }
 
@@ -237,6 +239,10 @@ function resolveRedirectForPath(
   routeDecision: LoggedInUserRouteDecision
 ) {
   if (isPublicAuthPath(pathname)) {
+    return null;
+  }
+
+  if (pathname === COMPANY_INVITE_ROUTE) {
     return null;
   }
 

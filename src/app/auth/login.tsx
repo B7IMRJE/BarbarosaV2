@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
     ScrollView,
@@ -13,6 +13,7 @@ import { supabase } from '../../lib/supabase';
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
 
 export default function LoginScreen() {
+    const params = useLocalSearchParams<{ next?: string | string[] }>();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -63,18 +64,19 @@ export default function LoginScreen() {
         }
 
         const routeDecision = await resolveLoggedInUserRoute(data.user.id);
+        const nextRoute = resolveSafeNext(firstParam(params.next));
 
         setLoading(false);
 
         if (routeDecision.message) {
             setMessage(routeDecision.message);
             setTimeout(() => {
-                router.replace(routeDecision.route as any);
+                router.replace((nextRoute || routeDecision.route) as any);
             }, 900);
             return;
         }
 
-        router.replace(routeDecision.route as any);
+        router.replace((nextRoute || routeDecision.route) as any);
     }
 
     async function resendConfirmation() {
@@ -174,7 +176,12 @@ export default function LoginScreen() {
                 )}
 
                 <Text
-                    onPress={() => router.push('/auth/register' as any)}
+                    onPress={() =>
+                        router.push({
+                            pathname: '/auth/register',
+                            params: resolveSafeNext(firstParam(params.next)) ? { next: firstParam(params.next) as string } : undefined,
+                        } as any)
+                    }
                     style={linkStyle}
                 >
                     Create Account
@@ -189,6 +196,26 @@ export default function LoginScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function firstParam(value: string | string[] | undefined) {
+    return Array.isArray(value) ? value[0] : value;
+}
+
+function resolveSafeNext(value: string | undefined) {
+    if (!value) return null;
+
+    try {
+        const parsed = new URL(value, 'https://app.local');
+
+        if (parsed.pathname === '/company-invite') {
+            return `${parsed.pathname}${parsed.search}`;
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
 }
 
 function isEmailRateLimitError(error: unknown) {

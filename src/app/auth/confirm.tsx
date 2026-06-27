@@ -9,6 +9,7 @@ import { useTheme } from '../../theme/useTheme';
 type EmailOtpType = 'signup' | 'invite' | 'magiclink' | 'email';
 
 const COMPANY_INVITATIONS_ROUTE = '/onboarding/company-invitations';
+const COMPANY_INVITE_ROUTE = '/company-invite';
 const ALLOWED_OTP_TYPES = new Set<EmailOtpType>([
     'signup',
     'invite',
@@ -103,6 +104,10 @@ function resolveSafeNext(value: string | undefined) {
 
     try {
         const parsed = new URL(value, 'https://app.local');
+
+        if (parsed.pathname === COMPANY_INVITE_ROUTE) {
+            return `${COMPANY_INVITE_ROUTE}${parsed.search}`;
+        }
 
         if (parsed.pathname === COMPANY_INVITATIONS_ROUTE) {
             return COMPANY_INVITATIONS_ROUTE;

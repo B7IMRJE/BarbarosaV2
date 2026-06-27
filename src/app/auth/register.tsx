@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import {
     Alert,
@@ -13,6 +13,8 @@ import { supabase } from '../../lib/supabase';
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
 
 export default function RegisterScreen() {
+    const params = useLocalSearchParams<{ next?: string | string[] }>();
+    const nextRoute = resolveSafeNext(firstParam(params.next));
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
@@ -45,6 +47,7 @@ export default function RegisterScreen() {
             email: cleanEmail,
             password,
             options: {
+                emailRedirectTo: buildConfirmRedirect(nextRoute),
                 data: {
                     full_name: cleanName,
                     phone: cleanPhone,
@@ -77,7 +80,7 @@ export default function RegisterScreen() {
         setLoading(false);
 
         if (data.session) {
-            router.replace('/onboarding/create-home' as any);
+            router.replace((nextRoute || '/onboarding/create-home') as any);
             return;
         }
 
@@ -131,7 +134,12 @@ export default function RegisterScreen() {
                         </View>
 
                         <TouchableOpacity
-                            onPress={() => router.replace('/auth/login' as any)}
+                            onPress={() =>
+                                router.replace({
+                                    pathname: '/auth/login',
+                                    params: nextRoute ? { next: nextRoute } : undefined,
+                                } as any)
+                            }
                             disabled={resending}
                             style={buttonStyle}
                         >
@@ -233,12 +241,59 @@ export default function RegisterScreen() {
                     </>
                 )}
 
-                <Text onPress={() => router.push('/auth/login' as any)} style={linkStyle}>
+                <Text
+                    onPress={() =>
+                        router.push({
+                            pathname: '/auth/login',
+                            params: nextRoute ? { next: nextRoute } : undefined,
+                        } as any)
+                    }
+                    style={linkStyle}
+                >
                     Already have an account? Login
                 </Text>
             </View>
         </ScrollView>
     );
+}
+
+function firstParam(value: string | string[] | undefined) {
+    return Array.isArray(value) ? value[0] : value;
+}
+
+function resolveSafeNext(value: string | undefined) {
+    if (!value) return null;
+
+    try {
+        const parsed = new URL(value, 'https://app.local');
+
+        if (parsed.pathname === '/company-invite') {
+            return `${parsed.pathname}${parsed.search}`;
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
+}
+
+function buildConfirmRedirect(nextRoute: string | null) {
+    const origin = getAppOrigin();
+    if (!origin) return undefined;
+
+    const nextQuery = nextRoute ? `?next=${encodeURIComponent(nextRoute)}` : '';
+
+    return `${origin}/auth/confirm${nextQuery}`;
+}
+
+function getAppOrigin() {
+    const globalWithLocation = globalThis as unknown as {
+        location?: { origin?: string };
+        window?: { location?: { origin?: string } };
+    };
+    const origin = globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null;
+
+    return typeof origin === 'string' && origin.trim() ? origin : null;
 }
 
 function isEmailRateLimitError(error: unknown) {
