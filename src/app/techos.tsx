@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -95,7 +95,10 @@ const workflowCards = [
 
 export default function TechOSScreen() {
     const { companyId } = useLocalSearchParams<{ companyId?: string }>();
+    const { width: viewportWidth } = useWindowDimensions();
     const { theme } = useTheme();
+    const isPhoneLayout = viewportWidth <= 640;
+    const pagePadding = isPhoneLayout ? 16 : 20;
     const [checkingAccess, setCheckingAccess] = useState(true);
     const [membership, setMembership] = useState<CompanyUserAccess | null>(null);
     const [isPlatformAdminAccess, setIsPlatformAdminAccess] = useState(false);
@@ -276,9 +279,9 @@ export default function TechOSScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, paddingBottom: 44, alignItems: 'center' }}
+            contentContainerStyle={{ padding: pagePadding, paddingBottom: 44, alignItems: 'center' }}
         >
-            <View style={{ width: '100%', maxWidth: 1120 }}>
+            <View style={{ width: '100%', maxWidth: 1120, minWidth: 0 }}>
                 <HomeHeader />
 
                 <View
@@ -301,9 +304,20 @@ export default function TechOSScreen() {
                             </View>
                         )}
 
-                        <View style={{ flex: 1, minWidth: 260 }}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={[kickerStyle, { color: heroTextColor }]}>TechOS Workspace</Text>
-                            <Text style={[titleStyle, { color: heroTextColor }]}>{companyName}</Text>
+                            <Text
+                                numberOfLines={2}
+                                style={[
+                                    titleStyle,
+                                    {
+                                        color: heroTextColor,
+                                        fontSize: isPhoneLayout ? 30 : titleStyle.fontSize,
+                                    },
+                                ]}
+                            >
+                                {companyName}
+                            </Text>
                             <Text style={[dbaStyle, { color: accentColor }]}>{dbaName}</Text>
                             <Text style={[subtitleStyle, { color: heroTextColor }]}>
                                 Technician-facing workspace for assigned jobs, assessments, notes, estimates, and
@@ -412,7 +426,7 @@ function InfoPill({ label, value, textColor }: { label: string; value: string; t
     return (
         <View style={pillStyle}>
             <Text style={[pillLabelStyle, { color: textColor }]}>{label}</Text>
-            <Text style={[pillValueStyle, { color: textColor }]}>{value}</Text>
+            <Text numberOfLines={1} style={[pillValueStyle, { color: textColor }]}>{value}</Text>
         </View>
     );
 }
@@ -461,15 +475,19 @@ function AssignedClientsCard({
                 Homeowner-selected company clients with only basic home profile details.
             </Text>
 
-            {!!message ? (
+            {!!message && (
                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
-            ) : clients.length === 0 ? (
+            )}
+
+            {clients.length === 0 ? (
+                message ? null : (
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                     <Text style={[clientNameStyle, { color: theme.colors.text }]}>No assigned clients yet</Text>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                         Homes will appear here after a homeowner chooses this company as a provider.
                     </Text>
                 </View>
+                )
             ) : (
                 <View style={clientListStyle}>
                     {clients.map((client) => (
@@ -620,6 +638,9 @@ function getReadableColor(color: string) {
 }
 
 const heroCardStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
     borderRadius: 28,
     borderWidth: 1,
     marginBottom: 22,
@@ -631,6 +652,7 @@ const heroTopRowStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 18,
+    minWidth: 0,
 };
 
 const logoStyle = {
@@ -683,9 +705,12 @@ const pillRowStyle = {
     flexWrap: 'wrap' as const,
     gap: 10,
     marginTop: 18,
+    maxWidth: '100%' as const,
 };
 
 const pillStyle = {
+    maxWidth: '100%' as const,
+    flexShrink: 1,
     backgroundColor: 'rgba(255,255,255,0.14)',
     borderColor: 'rgba(255,255,255,0.28)',
     borderRadius: 999,
@@ -723,6 +748,8 @@ const sectionTitleStyle = {
 };
 
 const summaryGridStyle = {
+    width: '100%' as const,
+    minWidth: 0,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 12,
@@ -731,7 +758,10 @@ const summaryGridStyle = {
 
 const summaryCardStyle = {
     flex: 1,
-    minWidth: 220,
+    flexBasis: 220,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minWidth: 0,
 };
 
 const summaryValueStyle = {
@@ -747,6 +777,8 @@ const summaryTitleStyle = {
 };
 
 const workflowGridStyle = {
+    width: '100%' as const,
+    minWidth: 0,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 12,
@@ -755,14 +787,20 @@ const workflowGridStyle = {
 
 const workflowCardStyle = {
     flex: 1,
+    flexBasis: 280,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
     minHeight: 170,
-    minWidth: 280,
+    minWidth: 0,
 };
 
 const assignedClientsCardStyle = {
     flex: 2,
+    flexBasis: 320,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
     minHeight: 170,
-    minWidth: 320,
+    minWidth: 0,
 };
 
 const workflowTitleStyle = {
@@ -777,12 +815,16 @@ const clientListStyle = {
 };
 
 const clientRowStyle = {
+    maxWidth: '100%' as const,
+    minWidth: 0,
     borderRadius: 14,
     borderWidth: 1,
     padding: 12,
 };
 
 const emptyClientStateStyle = {
+    maxWidth: '100%' as const,
+    minWidth: 0,
     borderRadius: 14,
     borderWidth: 1,
     marginTop: 14,
@@ -827,5 +869,9 @@ const buttonRowStyle = {
 };
 
 const buttonStyle = {
-    minWidth: 180,
+    flexBasis: 180,
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minWidth: 0,
 };
