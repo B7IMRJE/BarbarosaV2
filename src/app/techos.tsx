@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { Image, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -59,6 +59,26 @@ type PropertyRecord = {
     postal_code?: string | null;
 };
 
+type TechOSJob = {
+    id: string;
+    company_id: string | null;
+    property_id: string | null;
+    company_property_client_id?: string | null;
+    title: string | null;
+    status: string | null;
+    job_source?: string | null;
+    created_at: string | null;
+    updated_at?: string | null;
+};
+
+type CreateTechOSServiceJobResult = {
+    job_id: string;
+    company_id: string;
+    property_id: string;
+    title: string;
+    status: string;
+};
+
 type PlatformProfile = {
     role?: string | null;
     is_platform_admin?: boolean | null;
@@ -105,7 +125,11 @@ export default function TechOSScreen() {
     const [company, setCompany] = useState<CompanyBrand | null>(null);
     const [clients, setClients] = useState<CompanyClient[]>([]);
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
+    const [jobs, setJobs] = useState<TechOSJob[]>([]);
+    const [activeCompanyId, setActiveCompanyId] = useState('');
     const [clientMessage, setClientMessage] = useState('');
+    const [jobLoading, setJobLoading] = useState(false);
+    const [creatingJobClientId, setCreatingJobClientId] = useState<string | null>(null);
     const [jobMessage, setJobMessage] = useState('');
     const [message, setMessage] = useState('Loading TechOS...');
 
@@ -113,6 +137,14 @@ export default function TechOSScreen() {
     const visibleClients = useMemo(
         () => clients.filter((client) => normalizeStatus(client.status) !== 'archived'),
         [clients]
+    );
+    const visibleJobs = useMemo(
+        () =>
+            jobs.filter((job) => {
+                const normalizedStatus = normalizeStatus(job.status);
+                return !['archived', 'deleted', 'cancelled'].includes(normalizedStatus);
+            }),
+        [jobs]
     );
 
     useEffect(() => {
@@ -127,7 +159,10 @@ export default function TechOSScreen() {
         setCompany(null);
         setClients([]);
         setPropertiesById({});
+        setJobs([]);
+        setActiveCompanyId('');
         setClientMessage('');
+        setCreatingJobClientId(null);
         setJobMessage('');
 
         const {
@@ -168,7 +203,12 @@ export default function TechOSScreen() {
         if (platformAdminCheck.isPlatformAdmin && requestedCompanyId) {
             setMembership(activeMembership);
             setIsPlatformAdminAccess(true);
-            await Promise.all([loadCompanyBrand(requestedCompanyId), loadCompanyClients(requestedCompanyId)]);
+            setActiveCompanyId(requestedCompanyId);
+            await Promise.all([
+                loadCompanyBrand(requestedCompanyId),
+                loadCompanyClients(requestedCompanyId),
+                loadCompanyJobs(requestedCompanyId),
+            ]);
             setCheckingAccess(false);
             setMessage('');
             return;
@@ -185,7 +225,12 @@ export default function TechOSScreen() {
         }
 
         setMembership(activeMembership);
-        await Promise.all([loadCompanyBrand(activeMembership.company_id), loadCompanyClients(activeMembership.company_id)]);
+        setActiveCompanyId(activeMembership.company_id);
+        await Promise.all([
+            loadCompanyBrand(activeMembership.company_id),
+            loadCompanyClients(activeMembership.company_id),
+            loadCompanyJobs(activeMembership.company_id),
+        ]);
         setCheckingAccess(false);
         setMessage('');
     }
@@ -261,14 +306,90 @@ export default function TechOSScreen() {
         setPropertiesById(nextPropertiesById);
     }
 
-    function handleStartServiceJob(client: CompanyClient, property?: PropertyRecord) {
-        const clientName = client.display_name || property?.name || 'this client';
-        const setupMessage =
-            `Service jobs need the TechOS company job backend before a job can be saved for ${clientName}. ` +
-            'Apply the review SQL proposal in 000_Project_Docs/573_TechOS_Company_Service_Jobs_Proposal.sql, then connect this button to the RPC.';
+    async function loadCompanyJobs(companyIdToLoad: string) {
+        setJobLoading(true);
 
-        setJobMessage(setupMessage);
-        setMessage(setupMessage);
+        try {
+            const { data, error } = await supabase
+                .from('jobs')
+                .select(
+                    'id, company_id, property_id, company_property_client_id, title, status, job_source, created_at, updated_at'
+                )
+                .eq('company_id', companyIdToLoad)
+                .order('created_at', { ascending: false })
+                .limit(20);
+
+            if (error) {
+                throw error;
+            }
+
+            setJobs((data || []) as TechOSJob[]);
+        } catch (error: any) {
+            console.error('Could not load TechOS jobs', {
+                message: error?.message,
+                code: error?.code,
+                details: error?.details,
+                hint: error?.hint,
+            });
+            setJobs([]);
+            setJobMessage(error?.message ? `Could not load jobs: ${error.message}` : 'Could not load jobs right now.');
+        } finally {
+            setJobLoading(false);
+        }
+    }
+
+    async function handleStartServiceJob(client: CompanyClient, property?: PropertyRecord) {
+        const clientName = client.display_name || property?.name || 'this client';
+        const selectedCompanyId = activeCompanyId || client.company_id;
+
+        if (!selectedCompanyId || !client.property_id) {
+            const missingContextMessage = `Could not create a service job for ${clientName}: the company or home link is missing.`;
+            setJobMessage(missingContextMessage);
+            setMessage(missingContextMessage);
+            return;
+        }
+
+        setCreatingJobClientId(client.id);
+        setJobMessage(`Creating service job for ${clientName}...`);
+        setMessage('');
+
+        try {
+            const { data, error } = await supabase.rpc('create_techos_service_job', {
+                p_company_id: selectedCompanyId,
+                p_property_id: client.property_id,
+                p_company_property_client_id: client.id,
+                p_title: 'Service Visit',
+            });
+
+            if (error) {
+                throw error;
+            }
+
+            const createdJob = Array.isArray(data)
+                ? (data[0] as CreateTechOSServiceJobResult | undefined)
+                : (data as CreateTechOSServiceJobResult | null);
+            const successMessage = createdJob?.job_id
+                ? `Service job created for ${clientName}.`
+                : `Service job created for ${clientName}. Refreshing jobs...`;
+
+            setJobMessage(successMessage);
+            setMessage(successMessage);
+            await loadCompanyJobs(selectedCompanyId);
+        } catch (error: any) {
+            console.error('Could not create TechOS service job', {
+                message: error?.message,
+                code: error?.code,
+                details: error?.details,
+                hint: error?.hint,
+            });
+            const errorMessage = error?.message
+                ? `Could not create service job for ${clientName}: ${error.message}`
+                : `Could not create service job for ${clientName}.`;
+            setJobMessage(errorMessage);
+            setMessage(errorMessage);
+        } finally {
+            setCreatingJobClientId(null);
+        }
     }
 
     if (checkingAccess) {
@@ -363,7 +484,11 @@ export default function TechOSScreen() {
                 )}
 
                 <View style={summaryGridStyle}>
-                    <SummaryCard title="My Jobs" value="0" note="Company-safe job creation needs the TechOS jobs RPC." />
+                    <SummaryCard
+                        title="My Jobs"
+                        value={String(visibleJobs.length)}
+                        note={visibleJobs.length === 1 ? 'Open company service job.' : 'Open company service jobs.'}
+                    />
                     <SummaryCard
                         title="Assigned Clients"
                         value={String(visibleClients.length)}
@@ -376,18 +501,28 @@ export default function TechOSScreen() {
                 <View style={workflowGridStyle}>
                     {workflowCards.map((card) => {
                         if (card.title === 'Today / My Jobs') {
-                            return <TechOSJobsCard key={card.title} message={jobMessage} />;
+                            return (
+                                <TechOSJobsCard
+                                    key={card.title}
+                                    clients={visibleClients}
+                                    jobs={visibleJobs}
+                                    loading={jobLoading}
+                                    message={jobMessage}
+                                    propertiesById={propertiesById}
+                                />
+                            );
                         }
 
                         if (card.title === 'Assigned Clients') {
                             return (
-                            <AssignedClientsCard
-                                key={card.title}
-                                clients={visibleClients}
-                                propertiesById={propertiesById}
-                                message={clientMessage}
-                                onStartServiceJob={handleStartServiceJob}
-                            />
+                                <AssignedClientsCard
+                                    key={card.title}
+                                    clients={visibleClients}
+                                    creatingJobClientId={creatingJobClientId}
+                                    propertiesById={propertiesById}
+                                    message={clientMessage}
+                                    onStartServiceJob={handleStartServiceJob}
+                                />
                             );
                         }
 
@@ -398,8 +533,8 @@ export default function TechOSScreen() {
                 <ThemedCard style={nextStepCardStyle}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Next Connection Point</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        This shell is ready for the next pass: assigning a technician to a selected company client/home
-                        and then showing only that approved job context in TechOS.
+                        Service jobs can now start from assigned clients. Technician assignment and field workflow
+                        details come next.
                     </Text>
                     <View style={buttonRowStyle}>
                         <ThemedButton title="Refresh TechOS" onPress={loadTechOSAccess} style={buttonStyle} />
@@ -476,14 +611,30 @@ function WorkflowCard({ title, description }: { title: string; description: stri
     );
 }
 
-function TechOSJobsCard({ message }: { message: string }) {
+function TechOSJobsCard({
+    clients,
+    jobs,
+    loading,
+    message,
+    propertiesById,
+}: {
+    clients: CompanyClient[];
+    jobs: TechOSJob[];
+    loading: boolean;
+    message: string;
+    propertiesById: Record<string, PropertyRecord>;
+}) {
     const { theme } = useTheme();
+    const clientsById = clients.reduce<Record<string, CompanyClient>>((accumulator, client) => {
+        accumulator[client.id] = client;
+        return accumulator;
+    }, {});
 
     return (
         <ThemedCard style={workflowCardStyle}>
             <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>Today / My Jobs</Text>
             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                Company-scoped service jobs will appear here after the TechOS job RPC and RLS are installed.
+                Company-scoped service jobs created from assigned clients.
             </Text>
 
             {!!message && (
@@ -492,22 +643,80 @@ function TechOSJobsCard({ message }: { message: string }) {
                 </View>
             )}
 
-            {!message && (
-                <View style={[comingSoonStyle, { backgroundColor: theme.colors.secondaryButton, borderColor: theme.colors.border }]}>
-                    <Text style={[comingSoonTextStyle, { color: theme.colors.secondaryButtonText }]}>Backend proposal ready</Text>
+            {loading ? (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Loading jobs...</Text>
+                </View>
+            ) : jobs.length === 0 ? (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>No service jobs yet</Text>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        Start a job from an assigned client when field work is ready.
+                    </Text>
+                </View>
+            ) : (
+                <View style={clientListStyle}>
+                    {jobs.map((job) => {
+                        const linkedClient = job.company_property_client_id
+                            ? clientsById[job.company_property_client_id]
+                            : undefined;
+                        const property = job.property_id ? propertiesById[job.property_id] : undefined;
+
+                        return (
+                            <TechOSJobRow
+                                key={job.id}
+                                client={linkedClient}
+                                job={job}
+                                property={property}
+                            />
+                        );
+                    })}
                 </View>
             )}
         </ThemedCard>
     );
 }
 
+function TechOSJobRow({
+    client,
+    job,
+    property,
+}: {
+    client?: CompanyClient;
+    job: TechOSJob;
+    property?: PropertyRecord;
+}) {
+    const { theme } = useTheme();
+    const displayName = client?.display_name || property?.name || 'Home';
+
+    return (
+        <View style={[clientRowStyle, { borderColor: theme.colors.border }]}>
+            <Text style={[clientNameStyle, { color: theme.colors.text }]}>{job.title || 'Service Visit'}</Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Client: {displayName}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Status: {formatStatus(job.status)}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Source: {formatSource(job.job_source)}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Created: {formatDate(job.created_at)}
+            </Text>
+        </View>
+    );
+}
+
 function AssignedClientsCard({
     clients,
+    creatingJobClientId,
     propertiesById,
     message,
     onStartServiceJob,
 }: {
     clients: CompanyClient[];
+    creatingJobClientId: string | null;
     propertiesById: Record<string, PropertyRecord>;
     message: string;
     onStartServiceJob: (client: CompanyClient, property?: PropertyRecord) => void;
@@ -540,6 +749,8 @@ function AssignedClientsCard({
                         <ClientRow
                             key={client.id}
                             client={client}
+                            creating={creatingJobClientId === client.id}
+                            disabled={creatingJobClientId !== null}
                             property={propertiesById[client.property_id]}
                             onStartServiceJob={onStartServiceJob}
                         />
@@ -552,10 +763,14 @@ function AssignedClientsCard({
 
 function ClientRow({
     client,
+    creating,
+    disabled,
     property,
     onStartServiceJob,
 }: {
     client: CompanyClient;
+    creating: boolean;
+    disabled: boolean;
     property?: PropertyRecord;
     onStartServiceJob: (client: CompanyClient, property?: PropertyRecord) => void;
 }) {
@@ -580,8 +795,9 @@ function ClientRow({
                 Linked: {formatDate(linkedAt)}
             </Text>
             <ThemedButton
-                title="Start Service Job"
+                title={creating ? 'Creating Job...' : 'Start Service Job'}
                 variant="secondary"
+                disabled={disabled}
                 onPress={() => onStartServiceJob(client, property)}
                 style={clientActionButtonStyle}
             />
@@ -661,6 +877,7 @@ function formatSource(source?: string | null) {
 
     if (normalized === 'homeowner_provider_request') return 'Homeowner selected';
     if (normalized === 'connection_code') return 'Connection code';
+    if (normalized === 'techos_client') return 'TechOS client';
     if (normalized === 'manual') return 'Manual';
 
     return normalized ? formatLabel(normalized) : 'Not specified';
