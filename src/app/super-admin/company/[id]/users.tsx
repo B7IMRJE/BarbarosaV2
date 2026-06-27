@@ -18,6 +18,7 @@ type MemberActionStatus = 'active' | 'suspended' | 'inactive';
 type CompanyUser = {
     id: string;
     company_id: string;
+    auth_user_id: string | null;
     full_name: string | null;
     email: string | null;
     role: string;
@@ -107,11 +108,7 @@ export default function CompanyUsersScreen() {
         }
 
         const [membersResult, invitationsResult] = await Promise.all([
-            supabase
-                .from('company_users')
-                .select('id, company_id, full_name, email, role, status, created_at')
-                .eq('company_id', String(id))
-                .order('created_at', { ascending: false }),
+            loadCompanyMembers(String(id)),
             supabase
                 .from('company_user_invitations')
                 .select(
@@ -133,7 +130,7 @@ export default function CompanyUsersScreen() {
             return false;
         }
 
-        setMembers((membersResult.data || []) as CompanyUser[]);
+        setMembers(membersResult.data);
         setInvitations((invitationsResult.data || []) as CompanyInvitation[]);
 
         if (showLoading) {
@@ -432,12 +429,12 @@ export default function CompanyUsersScreen() {
         setMessage('Technician invite selected. Enter the technician name and email, then create the invitation.');
     }
 
-    const technicianMembers = members.filter((member) => normalizeRole(member.role) === 'technician');
+    const technicianMembers = members.filter((member) => isTechnicianRole(member.role));
     const activeTechnicians = technicianMembers.filter((member) => normalizeStatus(member.status) === 'active');
     const activeMembers = members.filter((member) => normalizeStatus(member.status) === 'active');
     const pendingTechnicianInvitations = invitations.filter(
         (invitation) =>
-            normalizeRole(invitation.role) === 'technician' &&
+            isTechnicianRole(invitation.role) &&
             normalizeStatus(invitation.status) === 'pending' &&
             !isInvitationExpired(invitation, nowMs)
     );
@@ -591,8 +588,8 @@ export default function CompanyUsersScreen() {
                                 {technicianMembers.length === 0 ? (
                                     <ThemedCard>
                                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                            No technicians connected yet. Use Invite First Test Technician to create a
-                                            pending Technician invitation.
+                                            No technicians connected yet. Refresh the list, or use Invite First Test Technician
+                                            to create a pending Technician invitation.
                                         </Text>
                                     </ThemedCard>
                                 ) : (
@@ -682,24 +679,29 @@ function MetricCard({ label, value }: { label: string; value: string }) {
 function TechnicianCard({ member }: { member: CompanyUser }) {
     const { theme } = useTheme();
     const status = normalizeStatus(member.status);
+    const displayName = getMemberDisplayName(member, 'Unnamed technician');
+    const contactLine = getMemberContactLine(member);
 
     return (
         <ThemedCard>
             <View style={technicianCardHeaderStyle}>
                 <View style={technicianAvatarStyle}>
-                    <Text style={technicianAvatarTextStyle}>{getInitials(member.full_name || member.email)}</Text>
+                    <Text style={technicianAvatarTextStyle}>{getInitials(displayName || contactLine)}</Text>
                 </View>
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[cardTitleStyle, { color: theme.colors.text }]}>
-                        {member.full_name || 'Unnamed technician'}
+                        {displayName}
                     </Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{member.email || 'No email'}</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{contactLine}</Text>
                 </View>
             </View>
             <View style={badgeRowStyle}>
-                <RoleBadge label="Technician" />
+                <RoleBadge label={formatRole(member.role)} />
                 <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
             </View>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Created: {formatDate(member.created_at)}
+            </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 TechOS field assignments will connect after client/home assignment is added.
             </Text>
@@ -749,13 +751,16 @@ function MemberCard({
 }) {
     const { theme } = useTheme();
     const status = normalizeStatus(member.status);
+    const displayName = getMemberDisplayName(member, 'Unnamed member');
+    const contactLine = getMemberContactLine(member);
 
     return (
         <ThemedCard>
-            <Text style={[cardTitleStyle, { color: theme.colors.text }]}>{member.full_name || 'Unnamed member'}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{member.email || 'No email'}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatLabel(member.role)}</Text>
+            <Text style={[cardTitleStyle, { color: theme.colors.text }]}>{displayName}</Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{contactLine}</Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatRole(member.role)}</Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Status: {formatLabel(member.status)}</Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Created: {formatDate(member.created_at)}</Text>
 
             {(status === 'active' || status === 'suspended' || status === 'inactive') && (
                 <View style={actionRowStyle}>
@@ -971,6 +976,61 @@ function parseManualInviteResponse(data: unknown) {
     };
 }
 
+async function loadCompanyMembers(companyId: string): Promise<{
+    data: CompanyUser[];
+    error: { message: string } | null;
+}> {
+    const rpcResult = await supabase.rpc('get_company_users_for_management', {
+        p_company_id: companyId,
+    });
+
+    if (!rpcResult.error) {
+        return {
+            data: normalizeCompanyUsers(rpcResult.data),
+            error: null,
+        };
+    }
+
+    const directResult = await supabase
+        .from('company_users')
+        .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false });
+
+    if (directResult.error) {
+        return {
+            data: [],
+            error: {
+                message: `${directResult.error.message}. Management RPC fallback also failed: ${rpcResult.error.message}`,
+            },
+        };
+    }
+
+    return {
+        data: normalizeCompanyUsers(directResult.data),
+        error: null,
+    };
+}
+
+function normalizeCompanyUsers(data: unknown): CompanyUser[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                company_id: readStringField(record, 'company_id') || '',
+                auth_user_id: readStringField(record, 'auth_user_id'),
+                full_name: readStringField(record, 'full_name'),
+                email: readStringField(record, 'email'),
+                role: readStringField(record, 'role') || 'unknown',
+                status: readStringField(record, 'status') || 'unknown',
+                created_at: readStringField(record, 'created_at'),
+            };
+        })
+        .filter((member) => member.id && member.company_id);
+}
+
 function readStringField(record: Record<string, unknown>, key: string) {
     const value = record[key];
 
@@ -1016,6 +1076,30 @@ function normalizeRole(role?: string | null) {
     return String(role || '').trim().toLowerCase();
 }
 
+function isTechnicianRole(role?: string | null) {
+    const normalized = normalizeRole(role);
+
+    return normalized === 'technician' || normalized === 'tech';
+}
+
+function formatRole(role?: string | null) {
+    return isTechnicianRole(role) ? 'Technician' : formatLabel(role || null);
+}
+
+function getMemberDisplayName(member: CompanyUser, fallback: string) {
+    return member.full_name?.trim() || member.email?.trim() || formatAuthUserId(member.auth_user_id) || fallback;
+}
+
+function getMemberContactLine(member: CompanyUser) {
+    return member.email?.trim() || formatAuthUserId(member.auth_user_id) || 'No email';
+}
+
+function formatAuthUserId(authUserId: string | null) {
+    if (!authUserId) return '';
+
+    return `Auth user ${authUserId.slice(0, 8)}`;
+}
+
 function formatLabel(value: string | null) {
     return String(value || 'unknown')
         .trim()
@@ -1049,7 +1133,10 @@ function formatDate(value: string | null) {
 }
 
 function isInvitationExpired(invitation: CompanyInvitation, nowMs: number) {
-    if (normalizeStatus(invitation.status) === 'expired') return true;
+    const status = normalizeStatus(invitation.status);
+
+    if (status === 'expired') return true;
+    if (status !== 'pending') return false;
     if (!invitation.expires_at) return false;
 
     const expiresAtMs = new Date(invitation.expires_at).getTime();
