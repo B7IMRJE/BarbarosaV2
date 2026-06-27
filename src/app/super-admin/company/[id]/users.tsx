@@ -68,6 +68,16 @@ const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
 
 const EMAIL_SEND_COOLDOWN_MS = 60_000;
 const EMAIL_DELIVERY_FALLBACK_MESSAGE = 'Email could not be sent. Use the manual invite link/code below.';
+const TECHOS_ACCESS_ROLES = ['technician', 'tech', 'manager', 'admin', 'owner'];
+const PERMISSION_PLACEHOLDERS = [
+    'TechOS access',
+    'Dispatch',
+    'Estimates',
+    'Pricing',
+    'Payments',
+    'Reports',
+    'Manage users',
+];
 
 export default function CompanyUsersScreen() {
     const { theme } = useTheme();
@@ -822,6 +832,7 @@ function TeamMemberRow({
     const status = normalizeStatus(member.status);
     const displayName = getMemberDisplayName(member, 'Unnamed member');
     const contactLine = getMemberContactLine(member);
+    const techOSAllowed = canAccessTechOS(member);
 
     return (
         <ThemedCard onPress={onToggle} style={compactRowStyle}>
@@ -851,46 +862,191 @@ function TeamMemberRow({
 
             {expanded && (
                 <View style={rowDetailsStyle}>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatRole(member.role)}</Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Status: {formatLabel(member.status)}</Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Created: {formatDate(member.created_at)}</Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        {member.email ? member.email : getMemberContactLine(member)}
-                    </Text>
+                    <DetailPanelSection title="Status">
+                        <DetailLine label="Role" value={formatRole(member.role)} />
+                        <DetailLine label="Status" value={formatLabel(member.status)} />
+                        <DetailLine label="Created" value={formatDate(member.created_at)} />
+                        <DetailLine label="Contact" value={contactLine} />
+                    </DetailPanelSection>
 
-                    {(status === 'active' || status === 'suspended' || status === 'inactive') && (
-                        <View style={actionRowStyle}>
-                            {status === 'active' ? (
-                                <>
-                                    <ThemedButton
-                                        title="Suspend"
-                                        variant="secondary"
-                                        onPress={() => onStatusChange(member.id, 'suspended')}
-                                        disabled={actionLoadingKey !== null}
-                                        style={actionButtonStyle}
-                                    />
-                                    <ThemedButton
-                                        title="Deactivate"
-                                        variant="danger"
-                                        onPress={() => onStatusChange(member.id, 'inactive')}
-                                        disabled={actionLoadingKey !== null}
-                                        style={actionButtonStyle}
-                                    />
-                                </>
-                            ) : (
-                                <ThemedButton
-                                    title="Reactivate"
-                                    variant="secondary"
-                                    onPress={() => onStatusChange(member.id, 'active')}
-                                    disabled={actionLoadingKey !== null}
-                                    style={actionButtonStyle}
-                                />
-                            )}
+                    <DetailPanelSection title="Billing Seat">
+                        <DetailLine label="Seat" value={billingSeatLabel(status)} />
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                            Invitations are free. Accepted users become billable only when a seat is activated. Plan pricing is not configured yet.
+                        </Text>
+                        <PlaceholderButton title="Billing confirmation will be added before paid seat activation." />
+                    </DetailPanelSection>
+
+                    <DetailPanelSection title="Role & Permissions">
+                        <DetailLine label="Role" value={formatRole(member.role)} />
+                        <View style={permissionGridStyle}>
+                            {PERMISSION_PLACEHOLDERS.map((permission) => (
+                                <View
+                                    key={permission}
+                                    style={[
+                                        permissionPillStyle,
+                                        {
+                                            backgroundColor: theme.colors.background,
+                                            borderColor: theme.colors.border,
+                                        },
+                                    ]}
+                                >
+                                    <Text style={[permissionPillTextStyle, { color: theme.colors.mutedText }]}>
+                                        {permission}: Not configured yet
+                                    </Text>
+                                </View>
+                            ))}
                         </View>
-                    )}
+                    </DetailPanelSection>
+
+                    <DetailPanelSection title="TechOS Access">
+                        <DetailLine label="Access" value={techOSAllowed ? 'Allowed' : 'Not allowed'} />
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                            Active technicians, managers, admins, and owners can currently access TechOS.
+                        </Text>
+                    </DetailPanelSection>
+
+                    <DetailPanelSection title="Jobs">
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                            Assigned job history will appear here after dispatch assignment is built.
+                        </Text>
+                    </DetailPanelSection>
+
+                    <DetailPanelSection title="Sales">
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                            Sales totals will appear here after job sale tracking is built.
+                        </Text>
+                    </DetailPanelSection>
+
+                    <DetailPanelSection title="Security">
+                        <StatusActionButtons
+                            status={status}
+                            memberId={member.id}
+                            actionLoadingKey={actionLoadingKey}
+                            onStatusChange={onStatusChange}
+                        />
+                        {status !== 'active' && <PlaceholderButton title="Remove from Company placeholder" />}
+                    </DetailPanelSection>
+
+                    <View style={actionRowStyle}>
+                        {status === 'active' && isTechnicianRole(member.role) && (
+                            <>
+                                <PlaceholderButton title="View Jobs placeholder" />
+                                <PlaceholderButton title="View Sales placeholder" />
+                            </>
+                        )}
+                        {status === 'active' && <PlaceholderButton title="Edit Permissions placeholder" />}
+                        {status === 'inactive' && <PlaceholderButton title="Activate Seat placeholder" />}
+                    </View>
                 </View>
             )}
         </ThemedCard>
+    );
+}
+
+function DetailPanelSection({ title, children }: { title: string; children: ReactNode }) {
+    const { theme } = useTheme();
+
+    return (
+        <View
+            style={[
+                detailSectionStyle,
+                {
+                    backgroundColor: theme.colors.background,
+                    borderColor: theme.colors.border,
+                },
+            ]}
+        >
+            <Text style={[detailSectionTitleStyle, { color: theme.colors.text }]}>{title}</Text>
+            {children}
+        </View>
+    );
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={detailLineStyle}>
+            <Text style={[detailLineLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
+            <Text style={[detailLineValueStyle, { color: theme.colors.text }]}>{value}</Text>
+        </View>
+    );
+}
+
+function PlaceholderButton({ title }: { title: string }) {
+    return (
+        <ThemedButton
+            title={title}
+            variant="secondary"
+            disabled
+            style={placeholderButtonStyle}
+            textStyle={placeholderButtonTextStyle}
+        />
+    );
+}
+
+function StatusActionButtons({
+    status,
+    memberId,
+    actionLoadingKey,
+    onStatusChange,
+}: {
+    status: string;
+    memberId: string;
+    actionLoadingKey: string | null;
+    onStatusChange: (memberId: string, nextStatus: MemberActionStatus) => void;
+}) {
+    if (status !== 'active' && status !== 'suspended' && status !== 'inactive') {
+        return null;
+    }
+
+    return (
+        <View style={actionRowStyle}>
+            {status === 'active' ? (
+                <>
+                    <ThemedButton
+                        title="Suspend"
+                        variant="secondary"
+                        onPress={() => onStatusChange(memberId, 'suspended')}
+                        disabled={actionLoadingKey !== null}
+                        style={actionButtonStyle}
+                    />
+                    <ThemedButton
+                        title="Deactivate"
+                        variant="danger"
+                        onPress={() => onStatusChange(memberId, 'inactive')}
+                        disabled={actionLoadingKey !== null}
+                        style={actionButtonStyle}
+                    />
+                </>
+            ) : status === 'suspended' ? (
+                <>
+                    <ThemedButton
+                        title="Reactivate"
+                        variant="secondary"
+                        onPress={() => onStatusChange(memberId, 'active')}
+                        disabled={actionLoadingKey !== null}
+                        style={actionButtonStyle}
+                    />
+                    <ThemedButton
+                        title="Deactivate"
+                        variant="danger"
+                        onPress={() => onStatusChange(memberId, 'inactive')}
+                        disabled={actionLoadingKey !== null}
+                        style={actionButtonStyle}
+                    />
+                </>
+            ) : (
+                <ThemedButton
+                    title="Reactivate"
+                    variant="secondary"
+                    onPress={() => onStatusChange(memberId, 'active')}
+                    disabled={actionLoadingKey !== null}
+                    style={actionButtonStyle}
+                />
+            )}
+        </View>
     );
 }
 
@@ -1266,6 +1422,18 @@ function isTechnicianRole(role?: string | null) {
 
 function formatRole(role?: string | null) {
     return isTechnicianRole(role) ? 'Technician' : formatLabel(role || null);
+}
+
+function canAccessTechOS(member: CompanyUser) {
+    return normalizeStatus(member.status) === 'active' && TECHOS_ACCESS_ROLES.includes(normalizeRole(member.role));
+}
+
+function billingSeatLabel(status: string) {
+    if (status === 'active') return 'Billable seat: Active';
+    if (status === 'suspended') return 'Seat suspended';
+    if (status === 'inactive' || status === 'revoked') return 'Not currently billable';
+
+    return 'Seat status not configured';
 }
 
 function getMemberDisplayName(member: CompanyUser, fallback: string) {
@@ -1687,8 +1855,83 @@ const compactDateTextStyle = {
 const rowDetailsStyle = {
     borderTopWidth: 1,
     borderColor: '#E3E8EF',
+    gap: 10,
     marginTop: 10,
     paddingTop: 10,
+};
+
+const detailSectionStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    padding: 12,
+};
+
+const detailSectionTitleStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+    marginBottom: 8,
+};
+
+const detailLineStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+    marginTop: 4,
+    minWidth: 0,
+};
+
+const detailLineLabelStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const detailLineValueStyle = {
+    flexShrink: 1,
+    fontSize: 13,
+    fontWeight: '900' as const,
+    textAlign: 'right' as const,
+};
+
+const detailBodyTextStyle = {
+    fontSize: 13,
+    fontWeight: '800' as const,
+    lineHeight: 19,
+};
+
+const permissionGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 4,
+};
+
+const permissionPillStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: '100%' as const,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+};
+
+const permissionPillTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const placeholderButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    marginTop: 10,
+    maxWidth: '100%' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const placeholderButtonTextStyle = {
+    fontSize: 12,
 };
 
 const badgeStyle = {
