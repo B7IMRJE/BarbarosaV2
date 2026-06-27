@@ -38,8 +38,10 @@ export default function CompaniesScreen() {
     const { width: viewportWidth } = useWindowDimensions();
     const isSelectingForProperties = selectFor === 'properties';
     const isPhoneLayout = viewportWidth <= 640;
+    const isTabletLayout = viewportWidth <= 980;
     const pagePadding = isPhoneLayout ? 16 : 20;
-    const logoSize = isPhoneLayout ? 56 : 70;
+    const logoSize = isPhoneLayout ? 46 : 52;
+    const companyCardWidth: '100%' | '48%' | '31.5%' = isPhoneLayout ? '100%' : isTabletLayout ? '48%' : '31.5%';
     const [companies, setCompanies] = useState<Company[]>([]);
     const [name, setName] = useState('');
     const [message, setMessage] = useState('Loading companies...');
@@ -118,7 +120,7 @@ export default function CompaniesScreen() {
                 alignItems: 'center',
             }}
         >
-            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
+            <View style={{ width: '100%', maxWidth: 1240, minWidth: 0 }}>
                 <Text
                     onPress={() => router.back()}
                     style={{
@@ -238,7 +240,15 @@ export default function CompaniesScreen() {
                     Company List
                 </Text>
 
-                <View style={{ width: '100%', gap: 14 }}>
+                <View
+                    style={{
+                        width: '100%',
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        alignItems: 'stretch',
+                        gap: 14,
+                    }}
+                >
                     {companies.map((company) => {
                         const displayName = company.public_name || company.name;
                         const dbaName = company.dba_name || company.name;
@@ -248,7 +258,8 @@ export default function CompaniesScreen() {
                         const categories = company.service_categories || [];
                         const rating = Number(company.homeos_rating || 0).toFixed(1);
                         const ratingCount = company.homeos_rating_count || 0;
-                        const experienceYears = company.combined_experience_years || 0;
+                        const visibleCategories = (categories.length ? categories : ['No categories']).slice(0, 2);
+                        const hiddenCategoryCount = Math.max(0, categories.length - visibleCategories.length);
 
                         return (
                             <TouchableOpacity
@@ -256,12 +267,15 @@ export default function CompaniesScreen() {
                                 onPress={() => openCompany(company.id)}
                                 activeOpacity={0.86}
                                 style={{
-                                    width: '100%',
+                                    width: companyCardWidth,
                                     maxWidth: '100%',
                                     minWidth: 0,
+                                    flexGrow: 1,
+                                    flexShrink: 1,
+                                    minHeight: 230,
                                     backgroundColor: '#FFFFFF',
-                                    borderRadius: 24,
-                                    padding: 18,
+                                    borderRadius: 18,
+                                    padding: 14,
                                     borderWidth: 1,
                                     borderColor: '#DFE7F1',
                                     shadowColor: '#071B33',
@@ -323,7 +337,7 @@ export default function CompaniesScreen() {
                                                 <Text
                                                     numberOfLines={2}
                                                     style={{
-                                                        fontSize: isPhoneLayout ? 19 : 21,
+                                                        fontSize: isPhoneLayout ? 18 : 19,
                                                         fontWeight: '900',
                                                         color: '#071B33',
                                                         flexShrink: 1,
@@ -361,18 +375,20 @@ export default function CompaniesScreen() {
                                             </View>
                                         </View>
 
-                                        <Text
-                                            numberOfLines={2}
-                                            style={{
-                                                color: '#64748B',
-                                                lineHeight: 20,
-                                                fontWeight: '700',
-                                                marginTop: 8,
-                                                minWidth: 0,
-                                            }}
-                                        >
-                                            {company.short_description || 'No company description added yet.'}
-                                        </Text>
+                                        {!!company.short_description && (
+                                            <Text
+                                                numberOfLines={2}
+                                                style={{
+                                                    color: '#64748B',
+                                                    lineHeight: 19,
+                                                    fontWeight: '700',
+                                                    marginTop: 8,
+                                                    minWidth: 0,
+                                                }}
+                                            >
+                                                {company.short_description}
+                                            </Text>
+                                        )}
 
                                         <View
                                             style={{
@@ -384,7 +400,7 @@ export default function CompaniesScreen() {
                                                 minWidth: 0,
                                             }}
                                         >
-                                            {(categories.length ? categories : ['No categories']).slice(0, 4).map((category) => (
+                                            {visibleCategories.map((category) => (
                                                 <View
                                                     key={category}
                                                     style={{
@@ -401,6 +417,24 @@ export default function CompaniesScreen() {
                                                     </Text>
                                                 </View>
                                             ))}
+                                            {hiddenCategoryCount > 0 && (
+                                                <View
+                                                    style={{
+                                                        maxWidth: '100%',
+                                                        flexShrink: 1,
+                                                        backgroundColor: '#F8FAFC',
+                                                        borderColor: '#E3E8EF',
+                                                        borderRadius: 999,
+                                                        borderWidth: 1,
+                                                        paddingHorizontal: 10,
+                                                        paddingVertical: 6,
+                                                    }}
+                                                >
+                                                    <Text numberOfLines={1} style={{ color: '#64748B', fontSize: 12, fontWeight: '900', flexShrink: 1 }}>
+                                                        +{hiddenCategoryCount}
+                                                    </Text>
+                                                </View>
+                                            )}
                                         </View>
 
                                         <View
@@ -418,9 +452,6 @@ export default function CompaniesScreen() {
                                             </Text>
                                             <Text style={{ color: '#64748B', fontWeight: '700', flexShrink: 1 }}>
                                                 {ratingCount} ratings
-                                            </Text>
-                                            <Text style={{ color: '#64748B', fontWeight: '700', flexShrink: 1 }}>
-                                                {experienceYears} years combined
                                             </Text>
                                             {!!company.license_number && (
                                                 <Text numberOfLines={1} style={{ color: '#64748B', fontWeight: '700', maxWidth: '100%' }}>

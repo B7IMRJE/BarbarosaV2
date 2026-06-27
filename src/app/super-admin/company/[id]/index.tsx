@@ -46,8 +46,6 @@ type CompanyBrandForm = {
 type BrandColorKey = 'primaryColor' | 'secondaryColor' | 'accentColor';
 type ConfigSectionKey = 'identity' | 'theme' | 'services';
 
-const repipeOneLogoAsset = require('../../../../../assets/company-icons/repipe-1.jpg');
-
 const defaultBrandForm: CompanyBrandForm = {
     publicName: '',
     dbaName: '',
@@ -101,7 +99,7 @@ const serviceCategoryOptions = [
 
 const brandThemePresets = [
     {
-        name: 'Repipe 1 Starter',
+        name: 'Navy / Red',
         primaryColor: '#0B2E59',
         secondaryColor: '#FFFFFF',
         accentColor: '#E11D2E',
@@ -273,18 +271,15 @@ export default function CompanyDashboardScreen() {
         }));
         setMessage('Theme colors swapped. Save to keep changes.');
     }
-    function applyRepipeOnePreset() {
+    function applyStarterBrandPreset() {
         setBrandForm((current) => ({
             ...current,
-            publicName: 'Repipe 1',
-            dbaName: 'Repipe 1',
             primaryColor: '#0B2E59',
             secondaryColor: '#FFFFFF',
             accentColor: '#E11D2E',
-            serviceCategories: current.serviceCategories || 'Repipe, Plumbing, Leak Detection',
-            shortDescription: current.shortDescription || 'Professional repipe and plumbing services.',
+            serviceCategories: current.serviceCategories || 'Plumbing, Water Heaters, Leak Detection',
         }));
-        setMessage('Repipe 1 starter branding applied. Save to keep it.');
+        setMessage('Starter brand colors applied. Save to keep them.');
     }
 
     function applyThemePreset(preset: (typeof brandThemePresets)[number]) {
@@ -391,69 +386,6 @@ export default function CompanyDashboardScreen() {
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             setMessage('Logo upload failed: ' + errorMessage);
-        } finally {
-            setSavingBrand(false);
-        }
-    }
-    async function useRepipeOneLogoAsset() {
-        if (!company) {
-            setMessage('Load a company before applying the Repipe 1 logo.');
-            return;
-        }
-
-        setSavingBrand(true);
-        setMessage('Applying Repipe 1 logo...');
-
-        try {
-            const assetSource = Image.resolveAssetSource(repipeOneLogoAsset);
-            const response = await fetch(assetSource.uri);
-            const arrayBuffer = await response.arrayBuffer();
-            const filePath = 'company-logos/' + company.id + '/repipe-1-' + Date.now() + '.jpg';
-
-            const { error: uploadError } = await supabase.storage.from('item-files').upload(filePath, arrayBuffer, {
-                contentType: 'image/jpeg',
-                upsert: true,
-            });
-
-            if (uploadError) {
-                throw uploadError;
-            }
-
-            const { data } = supabase.storage.from('item-files').getPublicUrl(filePath);
-            const publicUrl = data.publicUrl;
-
-            try {
-                const colors = await extractLogoThemeColors(publicUrl);
-                setExtractedLogoColors(colors.palette);
-                setBrandForm((current) => ({
-                    ...current,
-                    publicName: 'Repipe 1',
-                    dbaName: 'Repipe 1',
-                    logoUrl: publicUrl,
-                    primaryColor: colors.primaryColor,
-                    secondaryColor: colors.secondaryColor,
-                    accentColor: colors.accentColor,
-                    serviceCategories: current.serviceCategories || 'Repipe, Plumbing, Leak Detection',
-                    shortDescription: current.shortDescription || 'Professional repipe and plumbing services.',
-                }));
-                setMessage('Repipe 1 logo applied and colors extracted. Save to keep changes.');
-            } catch {
-                setBrandForm((current) => ({
-                    ...current,
-                    publicName: 'Repipe 1',
-                    dbaName: 'Repipe 1',
-                    logoUrl: publicUrl,
-                    primaryColor: '#0B2E59',
-                    secondaryColor: '#FFFFFF',
-                    accentColor: '#E11D2E',
-                    serviceCategories: current.serviceCategories || 'Repipe, Plumbing, Leak Detection',
-                    shortDescription: current.shortDescription || 'Professional repipe and plumbing services.',
-                }));
-                setMessage('Repipe 1 logo applied with starter colors. Save to keep changes.');
-            }
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            setMessage('Could not apply Repipe 1 logo: ' + errorMessage);
         } finally {
             setSavingBrand(false);
         }
@@ -777,6 +709,7 @@ export default function CompanyDashboardScreen() {
                                 key={card}
                                 title={card}
                                 description={getModuleDescription(card)}
+                                actionLabel={getModuleActionLabel(card)}
                                 isExpanded={
                                     (card === 'Company Profile / Identity' && expandedConfigSection === 'identity') ||
                                     (card === 'Theme & Brand Colors' && expandedConfigSection === 'theme') ||
@@ -1057,25 +990,6 @@ export default function CompanyDashboardScreen() {
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
-                                    onPress={useRepipeOneLogoAsset}
-                                    disabled={savingBrand}
-                                    style={{
-                                        maxWidth: '100%',
-                                        flexShrink: 1,
-                                        backgroundColor: '#ECFDF3',
-                                        borderColor: '#BBF7D0',
-                                        borderRadius: 999,
-                                        borderWidth: 1,
-                                        paddingHorizontal: 14,
-                                        paddingVertical: 10,
-                                    }}
-                                >
-                                    <Text style={{ color: '#047857', fontSize: 12, fontWeight: '900', textAlign: 'center' }}>
-                                        Use Repipe 1 Logo
-                                    </Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
                                     onPress={extractThemeFromLogo}
                                     disabled={savingBrand}
                                     style={{
@@ -1121,7 +1035,7 @@ export default function CompanyDashboardScreen() {
 
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, maxWidth: '100%', minWidth: 0 }}>
                                     <TouchableOpacity
-                                        onPress={applyRepipeOnePreset}
+                                        onPress={applyStarterBrandPreset}
                                         style={{
                                             maxWidth: '100%',
                                             flexShrink: 1,
@@ -1132,7 +1046,7 @@ export default function CompanyDashboardScreen() {
                                         }}
                                     >
                                         <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '900', textAlign: 'center' }}>
-                                            Apply Repipe 1 preset
+                                            Apply starter colors
                                         </Text>
                                     </TouchableOpacity>
 
@@ -1327,6 +1241,7 @@ function BrandInfoPill({ label, value, textColor }: { label: string; value: stri
 function CompanyModuleCard({
     title,
     description,
+    actionLabel,
     isExpanded,
     primaryColor,
     accentColor,
@@ -1334,6 +1249,7 @@ function CompanyModuleCard({
 }: {
     title: string;
     description: string;
+    actionLabel: string;
     isExpanded: boolean;
     primaryColor: string;
     accentColor: string;
@@ -1406,6 +1322,18 @@ function CompanyModuleCard({
                 >
                     {description}
                 </Text>
+                <Text
+                    numberOfLines={1}
+                    style={{
+                        color: isExpanded ? getReadableColor(primaryColor) : accentColor,
+                        fontSize: 12,
+                        fontWeight: '900',
+                        marginTop: 8,
+                        opacity: isExpanded ? 0.92 : 1,
+                    }}
+                >
+                    {actionLabel}
+                </Text>
             </View>
         </TouchableOpacity>
     );
@@ -1421,15 +1349,23 @@ function getModuleInitials(title: string) {
 }
 
 function getModuleDescription(title: string) {
-    if (title === 'Company Profile / Identity') return 'Names, logo, description, phone, and website.';
-    if (title === 'Theme & Brand Colors') return 'Primary, secondary, accent colors, logo extraction, and presets.';
-    if (title === 'Services & Trust Profile') return 'Service categories, license, rating, and experience details.';
-    if (title === 'Customers / Clients') return 'Homes that selected this company as a preferred provider.';
-    if (title === 'Team / Technicians') return 'Company staff, managers, technicians, and invitations.';
-    if (title === 'TechOS') return 'Technician-facing service operations workspace.';
-    if (title === 'ManagementOS') return 'Company connections and management workflow.';
+    if (title === 'Company Profile / Identity') return 'Configure names, logo, description, phone, and website below.';
+    if (title === 'Theme & Brand Colors') return 'Configure colors, logo extraction, and presets below.';
+    if (title === 'Services & Trust Profile') return 'Configure categories, license, rating, and experience below.';
+    if (title === 'Customers / Clients') return 'Open homes that selected this company as a preferred provider.';
+    if (title === 'Team / Technicians') return 'Open company staff, managers, technicians, and invitations.';
+    if (title === 'TechOS') return 'Open the technician-facing service operations workspace.';
+    if (title === 'ManagementOS') return 'Open the company connections workflow.';
 
     return `Open ${title.toLowerCase()} tools.`;
+}
+
+function getModuleActionLabel(title: string) {
+    if (title === 'Company Profile / Identity') return 'Configure below';
+    if (title === 'Theme & Brand Colors') return 'Configure below';
+    if (title === 'Services & Trust Profile') return 'Configure below';
+
+    return 'Open';
 }
 
 function getFileExtension(fileName: string) {

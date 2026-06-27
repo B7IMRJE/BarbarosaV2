@@ -55,6 +55,12 @@ const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
 ];
 
 const EMAIL_SEND_COOLDOWN_MS = 60_000;
+const MANUAL_INVITE_UNAVAILABLE_MESSAGE =
+    'Invite link/code is not available yet. The current backend does not store a safe copyable invitation code.';
+const EMAIL_DELIVERY_FALLBACK_MESSAGE =
+    'Email could not be sent. Manual invite link/code is not available yet; apply the invite-link proposal before sending manually.';
+const REVOKED_INVITE_ARCHIVE_MESSAGE =
+    'Revoked invitations are kept for audit. Delete/archive needs a dedicated RPC before it can be shown here.';
 
 export default function CompanyUsersScreen() {
     const { theme } = useTheme();
@@ -139,8 +145,15 @@ export default function CompanyUsersScreen() {
             return;
         }
 
-        if (!email.trim()) {
+        const normalizedEmail = email.trim().toLowerCase();
+
+        if (!normalizedEmail) {
             setMessage('Enter an email address.');
+            return;
+        }
+
+        if (!isValidEmail(normalizedEmail)) {
+            setMessage('Enter a valid email address. Gmail plus aliases are okay.');
             return;
         }
 
@@ -149,7 +162,7 @@ export default function CompanyUsersScreen() {
 
         const { error } = await supabase.rpc('create_company_user_invitation', {
             p_company_id: String(id),
-            p_email: email.trim(),
+            p_email: normalizedEmail,
             p_full_name: fullName.trim() || null,
             p_role: role,
         });
@@ -190,16 +203,15 @@ export default function CompanyUsersScreen() {
         setNowMs(Date.now());
 
         if (error) {
-            const errorMessage = await getFunctionErrorMessage(error);
             setDeliveryFeedbackById((current) => ({
                 ...current,
                 [invitationId]: {
                     status: 'failed',
-                    message: errorMessage,
+                    message: EMAIL_DELIVERY_FALLBACK_MESSAGE,
                 },
             }));
             await loadCompanyUsers(false);
-            setMessage(`Email delivery failed: ${errorMessage}`);
+            setMessage(EMAIL_DELIVERY_FALLBACK_MESSAGE);
             return;
         }
 
@@ -345,8 +357,10 @@ export default function CompanyUsersScreen() {
                         value={email}
                         onChangeText={setEmail}
                         autoCapitalize="none"
+                        autoComplete="email"
                         autoCorrect={false}
                         keyboardType="email-address"
+                        textContentType="emailAddress"
                         style={[
                             inputStyle,
                             {
@@ -356,6 +370,9 @@ export default function CompanyUsersScreen() {
                             },
                         ]}
                     />
+                    <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                        Use a different email for each test user. Gmail plus aliases are okay.
+                    </Text>
 
                     <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Role</Text>
                     <View style={roleGridStyle}>
@@ -657,6 +674,14 @@ function InvitationCard({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Email: {formatDeliverySummary(invitation, feedback)}
             </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                {MANUAL_INVITE_UNAVAILABLE_MESSAGE}
+            </Text>
+            {status === 'revoked' && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    {REVOKED_INVITE_ARCHIVE_MESSAGE}
+                </Text>
+            )}
 
             {status === 'pending' && (
                 <View style={actionRowStyle}>
@@ -685,22 +710,8 @@ function InvitationCard({
     );
 }
 
-async function getFunctionErrorMessage(error: unknown) {
-    const context = (error as { context?: { json?: () => Promise<unknown> } })?.context;
-
-    if (context?.json) {
-        try {
-            const data = await context.json();
-
-            if (data && typeof data === 'object' && 'message' in data && typeof data.message === 'string') {
-                return data.message;
-            }
-        } catch {
-            return 'Invitation email could not be sent.';
-        }
-    }
-
-    return 'Invitation email could not be sent.';
+function isValidEmail(value: string) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function normalizeStatus(status?: string | null) {
@@ -894,6 +905,13 @@ const bodyTextStyle = {
 const fieldLabelStyle = {
     fontSize: 15,
     fontWeight: '900' as const,
+};
+
+const helperTextStyle = {
+    fontSize: 13,
+    fontWeight: '800' as const,
+    lineHeight: 19,
+    marginTop: -6,
 };
 
 const inputStyle = {
