@@ -13,6 +13,16 @@ type CompanyAccess = {
     status: string | null;
 };
 
+type DispatchAuthDebug = {
+    userId: string;
+    email: string | null;
+    accessRole: string | null;
+    accessStatus: string | null;
+    isPlatformAdmin: boolean;
+    requestedCompanyId: string;
+    selectedCompanyId: string;
+};
+
 type DispatchRequest = {
     id: string;
     company_id: string;
@@ -62,6 +72,8 @@ export default function DispatchBoardScreen() {
     const [eventsByRequestId, setEventsByRequestId] = useState<Record<string, ServiceRequestEvent[]>>({});
     const [eventsMessage, setEventsMessage] = useState('');
     const [message, setMessage] = useState('Loading Dispatch Board...');
+    const [rpcStatusMessage, setRpcStatusMessage] = useState('');
+    const [authDebug, setAuthDebug] = useState<DispatchAuthDebug | null>(null);
     const [actionRequestId, setActionRequestId] = useState<string | null>(null);
 
     const newRequests = requests.filter((request) => isNewDispatchStatus(request.status));
@@ -80,18 +92,53 @@ export default function DispatchBoardScreen() {
         setRequests([]);
         setEventsByRequestId({});
         setEventsMessage('');
+        setRpcStatusMessage('');
+        setAuthDebug(null);
 
         const {
             data: { user },
             error: userError,
         } = await supabase.auth.getUser();
 
-        if (userError || !user) {
+        if (userError) {
+            setLoading(false);
+            setMessage(`Could not load authenticated user: ${userError.message}`);
+            return;
+        }
+
+        if (!user) {
             router.replace('/auth/login' as any);
             return;
         }
 
-        const access = await resolveDispatchCompanyAccess(user.id, requestedCompanyId);
+        let access: CompanyAccess | null = null;
+
+        try {
+            access = await resolveDispatchCompanyAccess(user.id, requestedCompanyId);
+        } catch (error: any) {
+            setLoading(false);
+            setMessage(`Could not resolve dispatch access: ${error.message || 'Unknown error'}`);
+            setAuthDebug({
+                userId: user.id,
+                email: user.email || null,
+                accessRole: null,
+                accessStatus: null,
+                isPlatformAdmin: false,
+                requestedCompanyId,
+                selectedCompanyId: '',
+            });
+            return;
+        }
+
+        setAuthDebug({
+            userId: user.id,
+            email: user.email || null,
+            accessRole: access?.role || null,
+            accessStatus: access?.status || null,
+            isPlatformAdmin: access?.role === 'platform_admin',
+            requestedCompanyId,
+            selectedCompanyId: access?.company_id || '',
+        });
 
         if (!access) {
             setLoading(false);
@@ -127,19 +174,20 @@ export default function DispatchBoardScreen() {
         });
 
         if (error) {
-            const normalized = normalizeStatus(error.message);
             setRequests([]);
-            setMessage(
-                normalized.includes('schema cache') || normalized.includes('function')
-                    ? 'Service request intake is not installed yet. Review SQL 579 before enabling Dispatch Board requests.'
-                    : `Could not load dispatch requests: ${error.message}`
-            );
+            setRpcStatusMessage(`get_company_dispatch_requests RPC error: ${error.message}`);
+            setMessage(`Could not load dispatch requests: ${error.message}`);
             return;
         }
 
         const loadedRequests = (data || []) as DispatchRequest[];
         setRequests(loadedRequests);
-        setMessage('');
+        setRpcStatusMessage(
+            loadedRequests.length === 0
+                ? 'No requests returned by dispatch RPC for this company.'
+                : `Dispatch RPC returned ${loadedRequests.length} request${loadedRequests.length === 1 ? '' : 's'}.`
+        );
+        setMessage(loadedRequests.length === 0 ? 'No requests returned by dispatch RPC for this company.' : '');
         await loadRequestEvents(loadedRequests);
     }
 
@@ -229,6 +277,7 @@ export default function DispatchBoardScreen() {
                         Selected company: {companyAccess?.company_id || requestedCompanyId || 'Not selected'}
                         {companyAccess?.role ? ` / Access: ${formatLabel(companyAccess.role)}` : ''}
                     </Text>
+                    <DispatchDebugCard debug={authDebug} rpcStatusMessage={rpcStatusMessage} />
                     <View style={buttonRowStyle}>
                         <ThemedButton title="Refresh" onPress={loadDispatchBoard} style={buttonStyle} />
                         <ThemedButton title="Back Home" variant="secondary" onPress={() => router.push('/' as any)} style={buttonStyle} />
@@ -326,6 +375,45 @@ function DispatchSection({
     );
 }
 
+function DispatchDebugCard({
+    debug,
+    rpcStatusMessage,
+}: {
+    debug: DispatchAuthDebug | null;
+    rpcStatusMessage: string;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View
+            style={{
+                borderColor: theme.colors.border,
+                borderRadius: theme.radii.card,
+                borderWidth: 1,
+                marginTop: 14,
+                padding: 12,
+            }}
+        >
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                User: {debug?.email || 'Unknown'} / Auth ID: {debug?.userId ? shortId(debug.userId) : 'Unknown'}
+            </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Requested company: {debug?.requestedCompanyId || 'None'} / Selected company: {debug?.selectedCompanyId || 'None'}
+            </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Access role: {debug?.accessRole ? formatLabel(debug.accessRole) : 'Not resolved'} / Status:{' '}
+                {debug?.accessStatus ? formatLabel(debug.accessStatus) : 'Unknown'}
+                {debug?.isPlatformAdmin ? ' / Platform admin' : ''}
+            </Text>
+            {!!rpcStatusMessage && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    RPC: {rpcStatusMessage}
+                </Text>
+            )}
+        </View>
+    );
+}
+
 function DispatchRequestCard({
     request,
     events,
@@ -406,6 +494,11 @@ async function resolveDispatchCompanyAccess(userId: string, requestedCompanyId: 
         .select('role, is_platform_admin')
         .eq('id', userId)
         .maybeSingle();
+
+    if (platformQuery.error) {
+        throw new Error(platformQuery.error.message);
+    }
+
     const profile = (platformQuery.data || {}) as { role?: string | null; is_platform_admin?: boolean | null };
     const isPlatformAdmin =
         String(profile.role || '').trim().toUpperCase() === 'SUPER_ADMIN' || profile.is_platform_admin === true;
@@ -422,17 +515,29 @@ async function resolveDispatchCompanyAccess(userId: string, requestedCompanyId: 
         .from('company_users')
         .select('company_id, role, status')
         .eq('auth_user_id', userId)
-        .eq('status', 'active')
-        .in('role', ['owner', 'admin', 'manager', 'office', 'dispatcher'])
         .order('created_at', { ascending: true })
-        .limit(1);
+        .limit(25);
 
     if (requestedCompanyId) {
         query = query.eq('company_id', requestedCompanyId);
     }
 
-    const { data } = await query;
-    const access = ((data || []) as CompanyAccess[])[0] || null;
+    const { data, error } = await query;
+
+    if (error) {
+        throw new Error(error.message);
+    }
+
+    const access =
+        ((data || []) as CompanyAccess[]).find((companyUser) => {
+            const role = normalizeStatus(companyUser.role);
+            const status = normalizeStatus(companyUser.status);
+
+            return (
+                status === 'active' &&
+                ['owner', 'admin', 'manager', 'office', 'dispatcher'].includes(role)
+            );
+        }) || null;
 
     return access;
 }
