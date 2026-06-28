@@ -47,6 +47,7 @@ type PreferredProvider = {
   companyId: string;
   companyName: string;
   propertyId: string;
+  source?: string;
 };
 
 type HomeServiceRequest = {
@@ -99,6 +100,8 @@ export default function HomeScreen() {
   const [maintenanceReminderMessage, setMaintenanceReminderMessage] = useState('');
   const [activePropertyId, setActivePropertyId] = useState('');
   const [preferredProvider, setPreferredProvider] = useState<PreferredProvider | null>(null);
+  const [availableProviders, setAvailableProviders] = useState<PreferredProvider[]>([]);
+  const [providerSelectionCompanyId, setProviderSelectionCompanyId] = useState('');
   const [serviceRequestType, setServiceRequestType] = useState<'regular' | 'emergency'>('regular');
   const [serviceIssueSummary, setServiceIssueSummary] = useState('');
   const [serviceRequestMessage, setServiceRequestMessage] = useState('');
@@ -122,6 +125,8 @@ export default function HomeScreen() {
       setMaintenanceReminderMessage('');
       setActivePropertyId('');
       setPreferredProvider(null);
+      setAvailableProviders([]);
+      setProviderSelectionCompanyId('');
       setServiceRequestMessage('');
       setHomeServiceRequests([]);
       setServiceRequestNoteById({});
@@ -272,44 +277,110 @@ export default function HomeScreen() {
       .from('property_preferred_providers')
       .select('company_id, property_id, status, selected_at')
       .eq('property_id', propertyId)
-      .eq('status', 'active')
-      .order('selected_at', { ascending: false })
-      .limit(1);
+      .order('selected_at', { ascending: false });
 
     if (preferredError) {
-      setPreferredProvider(null);
-      setServiceRequestMessage('Choose a preferred provider before requesting service.');
+      await loadConnectedProviderFallback(propertyId);
       return;
     }
 
-    const preferredRow = (preferredRows || [])[0] as { company_id?: string | null; property_id?: string | null } | undefined;
-    const providerCompanyId = String(preferredRow?.company_id || '').trim();
+    const preferredCompanyIds = uniqueCompanyIds(
+      ((preferredRows || []) as Array<{ company_id?: string | null; status?: string | null }>)
+        .filter((row) => normalizeText(row.status) === 'active')
+        .map((row) => row.company_id)
+    );
 
-    if (!providerCompanyId) {
-      setPreferredProvider(null);
-      setServiceRequestMessage('Choose a preferred provider before requesting service.');
+    if (preferredCompanyIds.length === 0) {
+      await loadConnectedProviderFallback(propertyId);
       return;
     }
+
+    const providers = await hydratePreferredProviders(propertyId, preferredCompanyIds, 'Preferred provider');
+    setAvailableProviders(providers);
+    setPreferredProvider((current) => providers.find((provider) => provider.companyId === current?.companyId) || providers[0] || null);
+    setServiceRequestMessage(providers.length > 0 ? '' : 'Choose a service provider first.');
+  }
+
+  async function loadConnectedProviderFallback(propertyId: string) {
+    const { data, error } = await supabase
+      .from('company_property_clients')
+      .select('company_id, property_id, status, connected_at, created_at')
+      .eq('property_id', propertyId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      setAvailableProviders([]);
+      setPreferredProvider(null);
+      setServiceRequestMessage(`Choose a service provider first. Provider lookup failed: ${error.message}`);
+      return;
+    }
+
+    const companyIds = uniqueCompanyIds(
+      ((data || []) as Array<{ company_id?: string | null; status?: string | null }>)
+        .filter((row) => !row.status || ['active', 'connected', 'approved'].includes(normalizeText(row.status)))
+        .map((row) => row.company_id)
+    );
+
+    const providers = await hydratePreferredProviders(propertyId, companyIds, 'Connected provider');
+    setAvailableProviders(providers);
+    setPreferredProvider((current) => providers.find((provider) => provider.companyId === current?.companyId) || providers[0] || null);
+    setServiceRequestMessage(providers.length > 0 ? '' : 'Choose a service provider first.');
+  }
+
+  async function hydratePreferredProviders(propertyId: string, companyIds: string[], source: string): Promise<PreferredProvider[]> {
+    if (companyIds.length === 0) return [];
 
     const { data: companyData } = await supabase
       .from('companies')
       .select('id, name, public_name, dba_name')
-      .eq('id', providerCompanyId)
-      .maybeSingle();
+      .in('id', companyIds);
 
-    const companyRecord = (companyData || {}) as {
-      id?: string | null;
+    const companiesById = ((companyData || []) as Array<{
+      id: string;
       name?: string | null;
       public_name?: string | null;
       dba_name?: string | null;
-    };
+    }>).reduce<Record<string, { name?: string | null; public_name?: string | null; dba_name?: string | null }>>((accumulator, company) => {
+      accumulator[company.id] = company;
+      return accumulator;
+    }, {});
 
-    setPreferredProvider({
-      companyId: providerCompanyId,
-      companyName: firstText(companyRecord.public_name, companyRecord.dba_name, companyRecord.name) || 'Selected provider',
-      propertyId,
+    return companyIds.map((companyId) => {
+      const companyRecord = companiesById[companyId] || {};
+
+      return {
+        companyId,
+        companyName: firstText(companyRecord.public_name, companyRecord.dba_name, companyRecord.name) || 'Selected provider',
+        propertyId,
+        source,
+      };
     });
-    setServiceRequestMessage('');
+  }
+
+  async function handleSelectServiceProvider(provider: PreferredProvider) {
+    if (!activePropertyId) {
+      setServiceRequestMessage('Choose a home before choosing a service provider.');
+      return;
+    }
+
+    setProviderSelectionCompanyId(provider.companyId);
+    setServiceRequestMessage(`Choosing ${provider.companyName}...`);
+
+    const { error } = await supabase.rpc('request_property_provider_connection', {
+      p_property_id: activePropertyId,
+      p_company_id: provider.companyId,
+    });
+
+    setProviderSelectionCompanyId('');
+
+    if (error) {
+      setServiceRequestMessage(`Could not save service provider: ${error.message}`);
+      return;
+    }
+
+    setPreferredProvider(provider);
+    setServiceRequestMessage(`${provider.companyName} is selected for new service requests.`);
+    await loadPreferredProvider(activePropertyId);
   }
 
   async function loadHomeServiceRequests(propertyId: string) {
@@ -334,7 +405,7 @@ export default function HomeScreen() {
     const issueSummary = serviceIssueSummary.trim();
 
     if (!activePropertyId || !preferredProvider?.companyId) {
-      setServiceRequestMessage('Choose a preferred provider before requesting service.');
+      setServiceRequestMessage('Choose a service provider first.');
       return;
     }
 
@@ -912,8 +983,41 @@ export default function HomeScreen() {
               marginBottom: scaleIcon(6),
             }}
           >
-            Provider: {preferredProvider?.companyName || 'Choose a provider in Company Connections first.'}
+            Provider: {preferredProvider?.companyName || 'Choose a service provider first.'}
+            {preferredProvider?.source ? ` / ${preferredProvider.source}` : ''}
           </Text>
+          {availableProviders.length > 1 && (
+            <View style={{ marginBottom: scaleIcon(12) }}>
+              <Text
+                style={{
+                  fontSize: scaleFont(12),
+                  color: theme.colors.mutedText,
+                  lineHeight: scaleFont(18),
+                  marginBottom: scaleIcon(8),
+                  fontWeight: '800',
+                }}
+              >
+                Service provider
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8) }}>
+                {availableProviders.map((provider) => {
+                  const selected = provider.companyId === preferredProvider?.companyId;
+
+                  return (
+                    <ThemedButton
+                      key={provider.companyId}
+                      title={providerSelectionCompanyId === provider.companyId ? 'Saving...' : provider.companyName}
+                      variant={selected ? 'primary' : 'secondary'}
+                      disabled={!!providerSelectionCompanyId}
+                      onPress={() => handleSelectServiceProvider(provider)}
+                      style={{ flexGrow: 1, flexBasis: 180, paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(12) }}
+                      textStyle={{ fontSize: scaleFont(12) }}
+                    />
+                  );
+                })}
+              </View>
+            </View>
+          )}
           <Text
             style={{
               fontSize: scaleFont(12),
@@ -1179,6 +1283,21 @@ function issueStatusLabel(item: HomeDashboardItem, status: string) {
 
 function normalizeText(value?: string | null) {
   return String(value || '').trim().toLowerCase();
+}
+
+function uniqueCompanyIds(values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+
+  return values.reduce<string[]>((ids, value) => {
+    const id = firstText(value);
+
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      ids.push(id);
+    }
+
+    return ids;
+  }, []);
 }
 
 function formatLabel(value?: string | null) {

@@ -46,6 +46,7 @@ export default function ScheduleBoardScreen() {
     const [companyName, setCompanyName] = useState('Company');
     const [slots, setSlots] = useState<ScheduleSlot[]>([]);
     const [techniciansById, setTechniciansById] = useState<Record<string, ScheduleTechnician>>({});
+    const groupedSlots = useMemo(() => groupScheduleSlotsByDate(slots), [slots]);
 
     useEffect(() => {
         loadScheduleBoard();
@@ -207,22 +208,48 @@ export default function ScheduleBoardScreen() {
                         ))}
                     </View>
                 ) : (
-                    <View style={{ gap: 12 }}>
-                        {slots.map((slot) => (
-                            <ThemedCard key={slot.id}>
-                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
-                                    {getTechnicianName(techniciansById[slot.technician_company_user_id])}
-                                </Text>
-                                <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '800' }}>
-                                    {formatDateTime(slot.start_at)} - {formatTime(slot.end_at)}
-                                </Text>
-                                <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
-                                    Status: {formatLabel(slot.status)} / Priority: {formatLabel(slot.priority)} / Duration: {slot.estimated_duration_minutes || 0} min
-                                </Text>
-                                <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
-                                    Request: {slot.service_request_id ? shortId(slot.service_request_id) : 'Not linked'} / Job: {slot.job_id ? shortId(slot.job_id) : 'Not created'}
-                                </Text>
-                            </ThemedCard>
+                    <View style={{ gap: 16 }}>
+                        {groupedSlots.map((group) => (
+                            <View key={group.dateKey} style={{ gap: 10 }}>
+                                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>{group.label}</Text>
+                                    <Text
+                                        style={{
+                                            backgroundColor: theme.colors.secondaryButton,
+                                            borderRadius: 999,
+                                            color: theme.colors.secondaryButtonText,
+                                            fontSize: 12,
+                                            fontWeight: '900',
+                                            overflow: 'hidden',
+                                            paddingHorizontal: 10,
+                                            paddingVertical: 6,
+                                        }}
+                                    >
+                                        {group.slots.length}
+                                    </Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                                    {group.slots.map((slot) => (
+                                        <ThemedCard key={slot.id} style={{ flexBasis: 260, flexGrow: 1, minHeight: 150 }}>
+                                            <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
+                                                {formatLabel(slot.priority)}
+                                            </Text>
+                                            <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }} numberOfLines={1}>
+                                                {getTechnicianName(techniciansById[slot.technician_company_user_id])}
+                                            </Text>
+                                            <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '800' }}>
+                                                {formatDateTime(slot.start_at)} - {formatTime(slot.end_at)}
+                                            </Text>
+                                            <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
+                                                {formatLabel(slot.status)} / {slot.estimated_duration_minutes || 0} min
+                                            </Text>
+                                            <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
+                                                Request {slot.service_request_id ? shortId(slot.service_request_id) : 'not linked'} / Job {slot.job_id ? shortId(slot.job_id) : 'not created'}
+                                            </Text>
+                                        </ThemedCard>
+                                    ))}
+                                </View>
+                            </View>
                         ))}
                     </View>
                 )}
@@ -311,6 +338,23 @@ function formatDateTime(value?: string | null) {
     if (!value) return 'Not available';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
+}
+
+function groupScheduleSlotsByDate(slots: ScheduleSlot[]) {
+    const groups = slots.reduce<Record<string, { dateKey: string; label: string; slots: ScheduleSlot[] }>>((accumulator, slot) => {
+        const date = slot.start_at ? new Date(slot.start_at) : null;
+        const dateKey = date && !Number.isNaN(date.getTime()) ? date.toISOString().slice(0, 10) : 'unscheduled';
+        const label = date && !Number.isNaN(date.getTime()) ? date.toLocaleDateString() : 'Unscheduled';
+
+        if (!accumulator[dateKey]) {
+            accumulator[dateKey] = { dateKey, label, slots: [] };
+        }
+
+        accumulator[dateKey].slots.push(slot);
+        return accumulator;
+    }, {});
+
+    return Object.values(groups);
 }
 
 function formatTime(value?: string | null) {
