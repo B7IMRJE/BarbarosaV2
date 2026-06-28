@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -61,6 +61,41 @@ type ServiceRequestEvent = {
     created_at: string | null;
 };
 
+type CompanyUser = {
+    id: string;
+    company_id: string;
+    auth_user_id: string | null;
+    full_name: string | null;
+    email: string | null;
+    role: string | null;
+    status: string | null;
+    created_at: string | null;
+};
+
+type ScheduleRequestForm = {
+    technicianCompanyUserId: string;
+    date: string;
+    startTime: string;
+    durationMinutes: string;
+    arrivalWindowStart: string;
+    arrivalWindowEnd: string;
+    notes: string;
+    cancelReason: string;
+    archiveReason: string;
+};
+
+const defaultScheduleForm: ScheduleRequestForm = {
+    technicianCompanyUserId: '',
+    date: '',
+    startTime: '',
+    durationMinutes: '60',
+    arrivalWindowStart: '',
+    arrivalWindowEnd: '',
+    notes: '',
+    cancelReason: '',
+    archiveReason: '',
+};
+
 export default function DispatchBoardScreen() {
     const { companyId } = useLocalSearchParams<{ companyId?: string | string[] }>();
     const { width: viewportWidth } = useWindowDimensions();
@@ -77,6 +112,9 @@ export default function DispatchBoardScreen() {
     const [authDebug, setAuthDebug] = useState<DispatchAuthDebug | null>(null);
     const [actionRequestId, setActionRequestId] = useState<string | null>(null);
     const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
+    const [activeTechnicians, setActiveTechnicians] = useState<CompanyUser[]>([]);
+    const [scheduleFormByRequestId, setScheduleFormByRequestId] = useState<Record<string, ScheduleRequestForm>>({});
+    const [requestActionMessageById, setRequestActionMessageById] = useState<Record<string, string>>({});
 
     const newRequests = requests.filter((request) => isNewDispatchStatus(request.status));
     const acknowledgedRequests = requests.filter((request) => normalizeStatus(request.status) === 'acknowledged');
@@ -99,6 +137,9 @@ export default function DispatchBoardScreen() {
         setEventsMessage('');
         setRpcStatusMessage('');
         setAuthDebug(null);
+        setActiveTechnicians([]);
+        setScheduleFormByRequestId({});
+        setRequestActionMessageById({});
 
         const {
             data: { user },
@@ -158,6 +199,7 @@ export default function DispatchBoardScreen() {
         setCompanyAccess(access);
         await Promise.all([
             loadCompany(access.company_id),
+            loadActiveTechnicians(access.company_id),
             loadDispatchRequests(access.company_id),
         ]);
         setLoading(false);
@@ -194,6 +236,20 @@ export default function DispatchBoardScreen() {
         );
         setMessage(loadedRequests.length === 0 ? 'No requests returned by dispatch RPC for this company.' : '');
         await loadRequestEvents(loadedRequests);
+    }
+
+    async function loadActiveTechnicians(companyIdToLoad: string) {
+        const result = await loadCompanyMembers(companyIdToLoad);
+
+        if (result.error) {
+            setActiveTechnicians([]);
+            setMessage(`Could not load active technicians: ${result.error.message}`);
+            return;
+        }
+
+        setActiveTechnicians(
+            result.data.filter((member) => isActiveStatus(member.status) && isTechnicianRole(member.role))
+        );
     }
 
     async function loadRequestEvents(loadedRequests: DispatchRequest[]) {
@@ -262,6 +318,119 @@ export default function DispatchBoardScreen() {
         setActionRequestId(null);
     }
 
+    function updateScheduleForm(requestId: string, updates: Partial<ScheduleRequestForm>) {
+        setScheduleFormByRequestId((current) => ({
+            ...current,
+            [requestId]: {
+                ...defaultScheduleForm,
+                ...(current[requestId] || {}),
+                ...updates,
+            },
+        }));
+    }
+
+    async function handleScheduleRequest(request: DispatchRequest) {
+        const form = scheduleFormByRequestId[request.id] || defaultScheduleForm;
+        const duration = Number.parseInt(form.durationMinutes, 10);
+        const startAt = parseLocalDateTime(form.date, form.startTime);
+
+        if (!form.technicianCompanyUserId) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Choose an active technician first.' }));
+            return;
+        }
+
+        if (!startAt) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Enter a valid date and start time.' }));
+            return;
+        }
+
+        if (!Number.isFinite(duration) || duration <= 0) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Enter a valid estimated duration.' }));
+            return;
+        }
+
+        const endAt = new Date(startAt.getTime() + duration * 60 * 1000);
+        const arrivalStart = parseOptionalLocalDateTime(form.date, form.arrivalWindowStart);
+        const arrivalEnd = parseOptionalLocalDateTime(form.date, form.arrivalWindowEnd);
+
+        setActionRequestId(request.id);
+        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Scheduling request...' }));
+
+        const { error } = await supabase.rpc('schedule_service_request_slot', {
+            p_company_id: request.company_id,
+            p_service_request_id: request.id,
+            p_technician_company_user_id: form.technicianCompanyUserId,
+            p_start_at: startAt.toISOString(),
+            p_end_at: endAt.toISOString(),
+            p_arrival_window_start: arrivalStart?.toISOString() || null,
+            p_arrival_window_end: arrivalEnd?.toISOString() || null,
+            p_estimated_duration_minutes: duration,
+            p_priority: request.priority || 'normal',
+            p_notes: form.notes.trim() || null,
+        });
+
+        setActionRequestId(null);
+
+        if (error) {
+            const normalized = normalizeStatus(error.message);
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: normalized.includes('scheduled work during this time')
+                    ? 'This technician already has a scheduled job during that time.'
+                    : `Could not schedule request: ${error.message}`,
+            }));
+            return;
+        }
+
+        setRequestActionMessageById((current) => ({
+            ...current,
+            [request.id]: `Scheduled for ${formatDateTime(startAt.toISOString())}.`,
+        }));
+        await loadDispatchRequests(request.company_id);
+    }
+
+    async function handleCancelRequest(request: DispatchRequest) {
+        const form = scheduleFormByRequestId[request.id] || defaultScheduleForm;
+        setActionRequestId(request.id);
+        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Cancelling request...' }));
+
+        const { error } = await supabase.rpc('cancel_service_request', {
+            p_service_request_id: request.id,
+            p_reason: form.cancelReason.trim() || null,
+        });
+
+        setActionRequestId(null);
+
+        if (error) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: `Could not cancel request: ${error.message}` }));
+            return;
+        }
+
+        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request cancelled.' }));
+        await loadDispatchRequests(request.company_id);
+    }
+
+    async function handleArchiveRequest(request: DispatchRequest) {
+        const form = scheduleFormByRequestId[request.id] || defaultScheduleForm;
+        setActionRequestId(request.id);
+        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Archiving request...' }));
+
+        const { error } = await supabase.rpc('archive_service_request', {
+            p_service_request_id: request.id,
+            p_reason: form.archiveReason.trim() || null,
+        });
+
+        setActionRequestId(null);
+
+        if (error) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: `Could not archive request: ${error.message}` }));
+            return;
+        }
+
+        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request archived.' }));
+        await loadDispatchRequests(request.company_id);
+    }
+
     const companyName = company?.public_name || company?.dba_name || company?.name || 'Company';
 
     return (
@@ -317,6 +486,13 @@ export default function DispatchBoardScreen() {
                             cardBasis={cardBasis}
                             onToggleRequest={setExpandedRequestId}
                             onAcknowledge={handleAcknowledge}
+                            activeTechnicians={activeTechnicians}
+                            scheduleFormByRequestId={scheduleFormByRequestId}
+                            requestActionMessageById={requestActionMessageById}
+                            onUpdateScheduleForm={updateScheduleForm}
+                            onScheduleRequest={handleScheduleRequest}
+                            onCancelRequest={handleCancelRequest}
+                            onArchiveRequest={handleArchiveRequest}
                         />
                         <DispatchSection
                             title="Acknowledged"
@@ -328,6 +504,13 @@ export default function DispatchBoardScreen() {
                             cardBasis={cardBasis}
                             onToggleRequest={setExpandedRequestId}
                             onAcknowledge={handleAcknowledge}
+                            activeTechnicians={activeTechnicians}
+                            scheduleFormByRequestId={scheduleFormByRequestId}
+                            requestActionMessageById={requestActionMessageById}
+                            onUpdateScheduleForm={updateScheduleForm}
+                            onScheduleRequest={handleScheduleRequest}
+                            onCancelRequest={handleCancelRequest}
+                            onArchiveRequest={handleArchiveRequest}
                         />
                         <DispatchSection
                             title="Scheduled"
@@ -339,6 +522,13 @@ export default function DispatchBoardScreen() {
                             cardBasis={cardBasis}
                             onToggleRequest={setExpandedRequestId}
                             onAcknowledge={handleAcknowledge}
+                            activeTechnicians={activeTechnicians}
+                            scheduleFormByRequestId={scheduleFormByRequestId}
+                            requestActionMessageById={requestActionMessageById}
+                            onUpdateScheduleForm={updateScheduleForm}
+                            onScheduleRequest={handleScheduleRequest}
+                            onCancelRequest={handleCancelRequest}
+                            onArchiveRequest={handleArchiveRequest}
                         />
                         <DispatchSection
                             title="Converted to Jobs"
@@ -350,6 +540,13 @@ export default function DispatchBoardScreen() {
                             cardBasis={cardBasis}
                             onToggleRequest={setExpandedRequestId}
                             onAcknowledge={handleAcknowledge}
+                            activeTechnicians={activeTechnicians}
+                            scheduleFormByRequestId={scheduleFormByRequestId}
+                            requestActionMessageById={requestActionMessageById}
+                            onUpdateScheduleForm={updateScheduleForm}
+                            onScheduleRequest={handleScheduleRequest}
+                            onCancelRequest={handleCancelRequest}
+                            onArchiveRequest={handleArchiveRequest}
                         />
                         <DispatchSection
                             title="Cancelled / Archived"
@@ -361,6 +558,13 @@ export default function DispatchBoardScreen() {
                             cardBasis={cardBasis}
                             onToggleRequest={setExpandedRequestId}
                             onAcknowledge={handleAcknowledge}
+                            activeTechnicians={activeTechnicians}
+                            scheduleFormByRequestId={scheduleFormByRequestId}
+                            requestActionMessageById={requestActionMessageById}
+                            onUpdateScheduleForm={updateScheduleForm}
+                            onScheduleRequest={handleScheduleRequest}
+                            onCancelRequest={handleCancelRequest}
+                            onArchiveRequest={handleArchiveRequest}
                         />
                     </>
                 )}
@@ -379,6 +583,13 @@ function DispatchSection({
     cardBasis,
     onToggleRequest,
     onAcknowledge,
+    activeTechnicians,
+    scheduleFormByRequestId,
+    requestActionMessageById,
+    onUpdateScheduleForm,
+    onScheduleRequest,
+    onCancelRequest,
+    onArchiveRequest,
 }: {
     title: string;
     requests: DispatchRequest[];
@@ -389,6 +600,13 @@ function DispatchSection({
     cardBasis: ViewStyle['flexBasis'];
     onToggleRequest: (requestId: string | null) => void;
     onAcknowledge: (request: DispatchRequest) => void;
+    activeTechnicians: CompanyUser[];
+    scheduleFormByRequestId: Record<string, ScheduleRequestForm>;
+    requestActionMessageById: Record<string, string>;
+    onUpdateScheduleForm: (requestId: string, updates: Partial<ScheduleRequestForm>) => void;
+    onScheduleRequest: (request: DispatchRequest) => void;
+    onCancelRequest: (request: DispatchRequest) => void;
+    onArchiveRequest: (request: DispatchRequest) => void;
 }) {
     const { theme } = useTheme();
 
@@ -422,6 +640,13 @@ function DispatchSection({
                             cardBasis={cardBasis}
                             onToggle={() => onToggleRequest(expandedRequestId === request.id ? null : request.id)}
                             onAcknowledge={onAcknowledge}
+                            activeTechnicians={activeTechnicians}
+                            scheduleForm={scheduleFormByRequestId[request.id] || defaultScheduleForm}
+                            actionMessage={requestActionMessageById[request.id] || ''}
+                            onUpdateScheduleForm={(updates) => onUpdateScheduleForm(request.id, updates)}
+                            onScheduleRequest={() => onScheduleRequest(request)}
+                            onCancelRequest={() => onCancelRequest(request)}
+                            onArchiveRequest={() => onArchiveRequest(request)}
                         />
                     ))}
                 </View>
@@ -477,6 +702,13 @@ function DispatchRequestCard({
     cardBasis,
     onToggle,
     onAcknowledge,
+    activeTechnicians,
+    scheduleForm,
+    actionMessage,
+    onUpdateScheduleForm,
+    onScheduleRequest,
+    onCancelRequest,
+    onArchiveRequest,
 }: {
     request: DispatchRequest;
     events: ServiceRequestEvent[];
@@ -485,6 +717,13 @@ function DispatchRequestCard({
     cardBasis: ViewStyle['flexBasis'];
     onToggle: () => void;
     onAcknowledge: (request: DispatchRequest) => void;
+    activeTechnicians: CompanyUser[];
+    scheduleForm: ScheduleRequestForm;
+    actionMessage: string;
+    onUpdateScheduleForm: (updates: Partial<ScheduleRequestForm>) => void;
+    onScheduleRequest: () => void;
+    onCancelRequest: () => void;
+    onArchiveRequest: () => void;
 }) {
     const { theme } = useTheme();
     const status = normalizeStatus(request.status);
@@ -492,7 +731,7 @@ function DispatchRequestCard({
     const displayName = request.customer_display_name || request.property_display_name || 'Homeowner';
 
     return (
-        <ThemedCard onPress={onToggle} style={[requestCardStyle, { flexBasis: cardBasis }]}>
+        <ThemedCard onPress={expanded ? undefined : onToggle} style={[requestCardStyle, { flexBasis: cardBasis }]}>
             <View style={requestTopRowStyle}>
                 <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>{formatCallType(request)}</Text>
                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
@@ -523,6 +762,13 @@ function DispatchRequestCard({
 
             {expanded && (
                 <View style={expandedDetailStyle}>
+                    <ThemedButton
+                        title="Collapse"
+                        variant="ghost"
+                        onPress={onToggle}
+                        style={{ alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12 }}
+                        textStyle={{ fontSize: 12 }}
+                    />
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={3}>
                         {request.issue_summary || 'No summary available.'}
                     </Text>
@@ -537,6 +783,69 @@ function DispatchRequestCard({
                             {formatLabel(event.event_type)}: {event.message || 'No message.'}
                         </Text>
                     ))}
+                    <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
+                        Schedule / Assign
+                    </Text>
+                    <View style={technicianPickerStyle}>
+                        {activeTechnicians.length === 0 ? (
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                No active technicians found for this company.
+                            </Text>
+                        ) : (
+                            activeTechnicians.map((technician) => {
+                                const selected = scheduleForm.technicianCompanyUserId === technician.id;
+
+                                return (
+                                    <ThemedButton
+                                        key={technician.id}
+                                        title={getMemberDisplayName(technician)}
+                                        variant={selected ? 'primary' : 'secondary'}
+                                        onPress={() => onUpdateScheduleForm({ technicianCompanyUserId: technician.id })}
+                                        style={technicianButtonStyle}
+                                        textStyle={{ fontSize: 12 }}
+                                    />
+                                );
+                            })
+                        )}
+                    </View>
+                    <View style={scheduleFieldGridStyle}>
+                        <ScheduleInput
+                            label="Date"
+                            value={scheduleForm.date}
+                            placeholder="YYYY-MM-DD"
+                            onChangeText={(date) => onUpdateScheduleForm({ date })}
+                        />
+                        <ScheduleInput
+                            label="Start"
+                            value={scheduleForm.startTime}
+                            placeholder="HH:MM"
+                            onChangeText={(startTime) => onUpdateScheduleForm({ startTime })}
+                        />
+                        <ScheduleInput
+                            label="Duration"
+                            value={scheduleForm.durationMinutes}
+                            placeholder="60"
+                            onChangeText={(durationMinutes) => onUpdateScheduleForm({ durationMinutes })}
+                        />
+                        <ScheduleInput
+                            label="Window Start"
+                            value={scheduleForm.arrivalWindowStart}
+                            placeholder="HH:MM"
+                            onChangeText={(arrivalWindowStart) => onUpdateScheduleForm({ arrivalWindowStart })}
+                        />
+                        <ScheduleInput
+                            label="Window End"
+                            value={scheduleForm.arrivalWindowEnd}
+                            placeholder="HH:MM"
+                            onChangeText={(arrivalWindowEnd) => onUpdateScheduleForm({ arrivalWindowEnd })}
+                        />
+                        <ScheduleInput
+                            label="Notes"
+                            value={scheduleForm.notes}
+                            placeholder="Optional"
+                            onChangeText={(notes) => onUpdateScheduleForm({ notes })}
+                        />
+                    </View>
                     <View style={compactActionRowStyle}>
                         {!request.converted_job_id && status === 'new' && (
                             <ThemedButton
@@ -548,14 +857,14 @@ function DispatchRequestCard({
                             />
                         )}
                         <ThemedButton
-                            title="Respond / Note Soon"
-                            disabled
-                            variant="secondary"
+                            title={acknowledging ? 'Scheduling...' : 'Schedule Request'}
+                            disabled={acknowledging || activeTechnicians.length === 0}
+                            onPress={onScheduleRequest}
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
                         />
                         <ThemedButton
-                            title="Schedule Soon"
+                            title="Respond / Note Soon"
                             disabled
                             variant="secondary"
                             style={compactActionButtonStyle}
@@ -568,17 +877,84 @@ function DispatchRequestCard({
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
                         />
+                    </View>
+                    <View style={scheduleFieldGridStyle}>
+                        <ScheduleInput
+                            label="Cancel Reason"
+                            value={scheduleForm.cancelReason}
+                            placeholder="Optional"
+                            onChangeText={(cancelReason) => onUpdateScheduleForm({ cancelReason })}
+                        />
+                        <ScheduleInput
+                            label="Archive Reason"
+                            value={scheduleForm.archiveReason}
+                            placeholder="Optional"
+                            onChangeText={(archiveReason) => onUpdateScheduleForm({ archiveReason })}
+                        />
+                    </View>
+                    <View style={compactActionRowStyle}>
                         <ThemedButton
-                            title="Cancel / Archive Soon"
-                            disabled
+                            title="Cancel Request"
                             variant="secondary"
+                            disabled={acknowledging}
+                            onPress={onCancelRequest}
+                            style={compactActionButtonStyle}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                        <ThemedButton
+                            title="Archive Request"
+                            variant="secondary"
+                            disabled={acknowledging}
+                            onPress={onArchiveRequest}
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
                         />
                     </View>
+                    {!!actionMessage && (
+                        <Text style={[eventNoticeStyle, { color: theme.colors.primary }]}>
+                            {actionMessage}
+                        </Text>
+                    )}
                 </View>
             )}
         </ThemedCard>
+    );
+}
+
+function ScheduleInput({
+    label,
+    value,
+    placeholder,
+    onChangeText,
+}: {
+    label: string;
+    value: string;
+    placeholder: string;
+    onChangeText: (value: string) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={scheduleInputWrapStyle}>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{label}</Text>
+            <TextInput
+                value={value}
+                onChangeText={onChangeText}
+                placeholder={placeholder}
+                placeholderTextColor={theme.colors.mutedText}
+                style={{
+                    borderColor: theme.colors.border,
+                    borderRadius: theme.radii.card,
+                    borderWidth: 1,
+                    color: theme.colors.text,
+                    fontSize: 13,
+                    fontWeight: '800',
+                    marginTop: 4,
+                    paddingHorizontal: 10,
+                    paddingVertical: 9,
+                }}
+            />
+        </View>
     );
 }
 
@@ -644,6 +1020,67 @@ async function loadDispatchPlatformAdminStatus(userId: string) {
     return String(fallbackQuery.data?.role || '').trim().toUpperCase() === 'SUPER_ADMIN';
 }
 
+async function loadCompanyMembers(companyId: string): Promise<{
+    data: CompanyUser[];
+    error: { message: string } | null;
+}> {
+    const rpcResult = await supabase.rpc('get_company_users_for_management', {
+        p_company_id: companyId,
+    });
+
+    if (!rpcResult.error) {
+        return {
+            data: normalizeCompanyUsers(rpcResult.data),
+            error: null,
+        };
+    }
+
+    const directResult = await supabase
+        .from('company_users')
+        .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false });
+
+    if (directResult.error) {
+        return {
+            data: [],
+            error: {
+                message: `${directResult.error.message}. Management RPC fallback also failed: ${rpcResult.error.message}`,
+            },
+        };
+    }
+
+    return {
+        data: normalizeCompanyUsers(directResult.data),
+        error: null,
+    };
+}
+
+function normalizeCompanyUsers(data: unknown): CompanyUser[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                company_id: readStringField(record, 'company_id') || '',
+                auth_user_id: readStringField(record, 'auth_user_id'),
+                full_name: readStringField(record, 'full_name'),
+                email: readStringField(record, 'email'),
+                role: readStringField(record, 'role') || 'unknown',
+                status: readStringField(record, 'status') || 'unknown',
+                created_at: readStringField(record, 'created_at'),
+            };
+        })
+        .filter((member) => member.id && member.company_id);
+}
+
+function readStringField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
 function firstParam(value?: string | string[]) {
     if (Array.isArray(value)) return value[0] || '';
     return value || '';
@@ -651,6 +1088,37 @@ function firstParam(value?: string | string[]) {
 
 function normalizeStatus(value?: string | null) {
     return String(value || '').trim().toLowerCase();
+}
+
+function isActiveStatus(status?: string | null) {
+    return normalizeStatus(status) === 'active';
+}
+
+function isTechnicianRole(role?: string | null) {
+    const normalized = normalizeStatus(role);
+
+    return normalized === 'technician' || normalized === 'tech';
+}
+
+function getMemberDisplayName(member: CompanyUser) {
+    return member.full_name || member.email || `Tech ${shortId(member.auth_user_id || member.id)}`;
+}
+
+function parseLocalDateTime(dateText: string, timeText: string) {
+    const date = dateText.trim();
+    const time = timeText.trim();
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
+        return null;
+    }
+
+    const parsed = new Date(`${date}T${time}:00`);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseOptionalLocalDateTime(dateText: string, timeText: string) {
+    return timeText.trim() ? parseLocalDateTime(dateText, timeText) : null;
 }
 
 function isNewDispatchStatus(value?: string | null) {
@@ -813,4 +1281,31 @@ const compactActionButtonStyle = {
     flexBasis: 130,
     paddingHorizontal: 10,
     paddingVertical: 10,
+};
+
+const technicianPickerStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 8,
+};
+
+const technicianButtonStyle = {
+    flexGrow: 1,
+    flexBasis: 130,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+};
+
+const scheduleFieldGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 8,
+};
+
+const scheduleInputWrapStyle = {
+    flexGrow: 1,
+    flexBasis: 120,
+    minWidth: 100,
 };

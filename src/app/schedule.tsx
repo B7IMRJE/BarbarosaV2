@@ -13,6 +13,29 @@ type ScheduleAccess = {
     status: string | null;
 };
 
+type ScheduleSlot = {
+    id: string;
+    company_id: string;
+    job_id: string | null;
+    service_request_id: string | null;
+    technician_company_user_id: string;
+    start_at: string | null;
+    end_at: string | null;
+    arrival_window_start: string | null;
+    arrival_window_end: string | null;
+    status: string | null;
+    estimated_duration_minutes: number | null;
+    priority: string | null;
+    notes: string | null;
+};
+
+type ScheduleTechnician = {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    auth_user_id: string | null;
+};
+
 export default function ScheduleBoardScreen() {
     const { companyId } = useLocalSearchParams<{ companyId?: string | string[] }>();
     const { theme } = useTheme();
@@ -21,6 +44,8 @@ export default function ScheduleBoardScreen() {
     const [access, setAccess] = useState<ScheduleAccess | null>(null);
     const [message, setMessage] = useState('Loading Schedule Board...');
     const [companyName, setCompanyName] = useState('Company');
+    const [slots, setSlots] = useState<ScheduleSlot[]>([]);
+    const [techniciansById, setTechniciansById] = useState<Record<string, ScheduleTechnician>>({});
 
     useEffect(() => {
         loadScheduleBoard();
@@ -30,6 +55,8 @@ export default function ScheduleBoardScreen() {
         setLoading(true);
         setMessage('Loading Schedule Board...');
         setAccess(null);
+        setSlots([]);
+        setTechniciansById({});
 
         const {
             data: { user },
@@ -61,8 +88,11 @@ export default function ScheduleBoardScreen() {
             }
 
             setAccess(resolvedAccess);
-            await loadCompanyName(resolvedAccess.company_id);
-            setMessage('Schedule Board setup is not installed yet. Review SQL 582 before scheduling jobs.');
+            await Promise.all([
+                loadCompanyName(resolvedAccess.company_id),
+                loadScheduleTechnicians(resolvedAccess.company_id),
+                loadScheduleSlots(resolvedAccess.company_id),
+            ]);
         } catch (error: any) {
             setMessage(`Could not resolve Schedule Board access: ${error.message || 'Unknown error'}`);
         } finally {
@@ -79,6 +109,48 @@ export default function ScheduleBoardScreen() {
         const company = (data || {}) as { name?: string | null; public_name?: string | null; dba_name?: string | null };
 
         setCompanyName(company.public_name || company.dba_name || company.name || 'Company');
+    }
+
+    async function loadScheduleTechnicians(companyIdToLoad: string) {
+        const { data } = await supabase
+            .from('company_users')
+            .select('id, full_name, email, auth_user_id, role, status')
+            .eq('company_id', companyIdToLoad);
+
+        const technicians = ((data || []) as Array<ScheduleTechnician & { role?: string | null; status?: string | null }>)
+            .filter((technician) => normalizeStatus(technician.status) === 'active')
+            .reduce<Record<string, ScheduleTechnician>>((accumulator, technician) => {
+                accumulator[technician.id] = {
+                    id: technician.id,
+                    full_name: technician.full_name || null,
+                    email: technician.email || null,
+                    auth_user_id: technician.auth_user_id || null,
+                };
+                return accumulator;
+            }, {});
+
+        setTechniciansById(technicians);
+    }
+
+    async function loadScheduleSlots(companyIdToLoad: string) {
+        const now = new Date();
+        const end = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+        const { data, error } = await supabase
+            .from('job_schedule_slots')
+            .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes')
+            .eq('company_id', companyIdToLoad)
+            .gte('start_at', now.toISOString())
+            .lte('start_at', end.toISOString())
+            .order('start_at', { ascending: true });
+
+        if (error) {
+            setSlots([]);
+            setMessage(`Schedule Board setup is not installed yet or cannot be read: ${error.message}`);
+            return;
+        }
+
+        setSlots((data || []) as ScheduleSlot[]);
+        setMessage((data || []).length === 0 ? 'No scheduled jobs in the next 14 days.' : `Loaded ${(data || []).length} scheduled slot${(data || []).length === 1 ? '' : 's'}.`);
     }
 
     return (
@@ -116,23 +188,44 @@ export default function ScheduleBoardScreen() {
 
                 <ThemedCard style={{ marginBottom: 16 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
-                        {loading ? 'Loading...' : 'Setup Needed'}
+                        {loading ? 'Loading...' : slots.length > 0 ? 'Upcoming Schedule' : 'Schedule Status'}
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: 15, fontWeight: '800', lineHeight: 22, marginTop: 8 }}>
                         {message}
                     </Text>
                 </ThemedCard>
 
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                    {['Unscheduled Requests', 'Technician Availability', 'Today', 'This Week'].map((title) => (
-                        <ThemedCard key={title} style={{ flexBasis: 250, flexGrow: 1, minHeight: 130 }}>
-                            <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>{title}</Text>
-                            <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>
-                                Scheduling data will appear after SQL 582 is reviewed and installed.
-                            </Text>
-                        </ThemedCard>
-                    ))}
-                </View>
+                {slots.length === 0 ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                        {['Unscheduled Requests', 'Technician Availability', 'Today', 'This Week'].map((title) => (
+                            <ThemedCard key={title} style={{ flexBasis: 250, flexGrow: 1, minHeight: 130 }}>
+                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>{title}</Text>
+                                <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>
+                                    Scheduled slots will appear here after Dispatch schedules service requests.
+                                </Text>
+                            </ThemedCard>
+                        ))}
+                    </View>
+                ) : (
+                    <View style={{ gap: 12 }}>
+                        {slots.map((slot) => (
+                            <ThemedCard key={slot.id}>
+                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                    {getTechnicianName(techniciansById[slot.technician_company_user_id])}
+                                </Text>
+                                <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '800' }}>
+                                    {formatDateTime(slot.start_at)} - {formatTime(slot.end_at)}
+                                </Text>
+                                <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
+                                    Status: {formatLabel(slot.status)} / Priority: {formatLabel(slot.priority)} / Duration: {slot.estimated_duration_minutes || 0} min
+                                </Text>
+                                <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
+                                    Request: {slot.service_request_id ? shortId(slot.service_request_id) : 'Not linked'} / Job: {slot.job_id ? shortId(slot.job_id) : 'Not created'}
+                                </Text>
+                            </ThemedCard>
+                        ))}
+                    </View>
+                )}
             </View>
         </ScrollView>
     );
@@ -212,4 +305,26 @@ function formatLabel(value?: string | null) {
         .filter(Boolean)
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
         .join(' ');
+}
+
+function formatDateTime(value?: string | null) {
+    if (!value) return 'Not available';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
+}
+
+function formatTime(value?: string | null) {
+    if (!value) return 'Not available';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleTimeString();
+}
+
+function shortId(value: string) {
+    return value.replace(/-/g, '').slice(0, 8).toUpperCase();
+}
+
+function getTechnicianName(technician?: ScheduleTechnician) {
+    if (!technician) return 'Unassigned technician';
+
+    return technician.full_name || technician.email || `Technician ${shortId(technician.auth_user_id || technician.id)}`;
 }
