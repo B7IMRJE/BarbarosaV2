@@ -76,6 +76,7 @@ type ScheduleRequestForm = {
     technicianCompanyUserId: string;
     technicianSearch: string;
     date: string;
+    calendarMonth: string;
     startTime: string;
     durationMinutes: string;
     arrivalWindowStart: string;
@@ -92,6 +93,7 @@ function createDefaultScheduleForm(): ScheduleRequestForm {
         technicianCompanyUserId: '',
         technicianSearch: '',
         date: formatDateInput(start),
+        calendarMonth: formatMonthInput(start),
         startTime: formatTimeInput(start),
         durationMinutes: '60',
         arrivalWindowStart: '',
@@ -342,6 +344,16 @@ export default function DispatchBoardScreen() {
 
         if (!form.technicianCompanyUserId) {
             setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Pick a technician.' }));
+            return;
+        }
+
+        if (!form.date || !/^\d{4}-\d{2}-\d{2}$/.test(form.date)) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Pick a date.' }));
+            return;
+        }
+
+        if (!form.startTime || !/^\d{2}:\d{2}$/.test(form.startTime)) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Pick a start time.' }));
             return;
         }
 
@@ -752,6 +764,8 @@ function DispatchRequestCard({
     });
     const scheduledPreview = getSchedulePreview(scheduleForm);
     const canArchive = request.converted_job_id || ['cancelled', 'canceled', 'converted_to_job', 'archived'].includes(status);
+    const selectedDateLabel = formatSelectedScheduleDate(scheduleForm.date);
+    const selectedStartLabel = formatSelectedScheduleTime(scheduleForm.startTime);
 
     return (
         <ThemedCard onPress={expanded ? undefined : onToggle} style={[requestCardStyle, { flexBasis: cardBasis }]}>
@@ -852,64 +866,59 @@ function DispatchRequestCard({
                             </View>
                         )}
                     </View>
-                    <View style={scheduleFieldGridStyle}>
-                        <ScheduleInput
-                            label="Date"
-                            value={scheduleForm.date}
-                            placeholder="YYYY-MM-DD"
-                            onChangeText={(date) => onUpdateScheduleForm({ date })}
-                        />
-                        <ScheduleInput
-                            label="Start"
-                            value={scheduleForm.startTime}
-                            placeholder="HH:MM"
-                            onChangeText={(startTime) => onUpdateScheduleForm({ startTime })}
-                        />
-                        <ScheduleInput
-                            label="Notes"
-                            value={scheduleForm.notes}
-                            placeholder="Optional"
-                            onChangeText={(notes) => onUpdateScheduleForm({ notes })}
-                        />
-                    </View>
+                    <MiniScheduleCalendar
+                        selectedDate={scheduleForm.date}
+                        calendarMonth={scheduleForm.calendarMonth}
+                        onSelectDate={(date) => onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) })}
+                        onChangeMonth={(calendarMonth) => onUpdateScheduleForm({ calendarMonth })}
+                    />
                     <View style={compactActionRowStyle}>
                         <ThemedButton
                             title="Today"
-                            variant="secondary"
-                            onPress={() => onUpdateScheduleForm({ date: formatDateInput(new Date()) })}
+                            variant={isDateOffsetSelected(scheduleForm.date, 0) ? 'primary' : 'secondary'}
+                            onPress={() => {
+                                const date = dateTextForOffset(0);
+                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
+                            }}
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
                         />
                         <ThemedButton
                             title="Tomorrow"
-                            variant="secondary"
+                            variant={isDateOffsetSelected(scheduleForm.date, 1) ? 'primary' : 'secondary'}
                             onPress={() => {
-                                const tomorrow = new Date();
-                                tomorrow.setDate(tomorrow.getDate() + 1);
-                                onUpdateScheduleForm({ date: formatDateInput(tomorrow) });
+                                const date = dateTextForOffset(1);
+                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
                             }}
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
                         />
                         <ThemedButton
                             title="+2 Days"
-                            variant="secondary"
+                            variant={isDateOffsetSelected(scheduleForm.date, 2) ? 'primary' : 'secondary'}
                             onPress={() => {
-                                const date = new Date();
-                                date.setDate(date.getDate() + 2);
-                                onUpdateScheduleForm({ date: formatDateInput(date) });
+                                const date = dateTextForOffset(2);
+                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
                             }}
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
                         />
                     </View>
+                    <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
+                        Start Time
+                    </Text>
                     <View style={compactActionRowStyle}>
                         {[
                             ['8:00 AM', '08:00'],
+                            ['9:00 AM', '09:00'],
                             ['10:00 AM', '10:00'],
+                            ['11:00 AM', '11:00'],
                             ['12:00 PM', '12:00'],
+                            ['1:00 PM', '13:00'],
                             ['2:00 PM', '14:00'],
+                            ['3:00 PM', '15:00'],
                             ['4:00 PM', '16:00'],
+                            ['5:00 PM', '17:00'],
                         ].map(([label, startTime]) => (
                             <ThemedButton
                                 key={startTime}
@@ -921,6 +930,9 @@ function DispatchRequestCard({
                             />
                         ))}
                     </View>
+                    <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
+                        Estimated Duration
+                    </Text>
                     <View style={compactActionRowStyle}>
                         {['30', '60', '90', '120'].map((durationMinutes) => (
                             <ThemedButton
@@ -933,6 +945,17 @@ function DispatchRequestCard({
                             />
                         ))}
                     </View>
+                    <View style={scheduleFieldGridStyle}>
+                        <ScheduleInput
+                            label="Notes"
+                            value={scheduleForm.notes}
+                            placeholder="Optional"
+                            onChangeText={(notes) => onUpdateScheduleForm({ notes })}
+                        />
+                    </View>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Technician: {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Pick a technician.'} / Date: {selectedDateLabel} / Start: {selectedStartLabel} / Duration: {scheduleForm.durationMinutes || '60'} min
+                    </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Scheduled window: {scheduledPreview}
                     </Text>
@@ -1045,6 +1068,84 @@ function ScheduleInput({
                     color: theme.colors.text,
                 }}
             />
+        </View>
+    );
+}
+
+function MiniScheduleCalendar({
+    selectedDate,
+    calendarMonth,
+    onSelectDate,
+    onChangeMonth,
+}: {
+    selectedDate: string;
+    calendarMonth: string;
+    onSelectDate: (date: string) => void;
+    onChangeMonth: (month: string) => void;
+}) {
+    const { theme } = useTheme();
+    const monthDate = parseMonthInput(calendarMonth) || parseDateInput(selectedDate) || new Date();
+    const days = getCalendarDays(monthDate);
+    const todayText = formatDateInput(new Date());
+    const monthTitle = monthDate.toLocaleDateString([], { month: 'long', year: 'numeric' });
+
+    return (
+        <View style={[calendarPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+            <View style={calendarHeaderStyle}>
+                <ThemedButton
+                    title="Previous"
+                    variant="secondary"
+                    onPress={() => onChangeMonth(formatMonthInput(addMonths(monthDate, -1)))}
+                    style={calendarNavButtonStyle}
+                    textStyle={{ fontSize: 12 }}
+                />
+                <Text style={[requestTypeStyle, { color: theme.colors.text, textAlign: 'center', flexGrow: 1 }]}>
+                    {monthTitle}
+                </Text>
+                <ThemedButton
+                    title="Next"
+                    variant="secondary"
+                    onPress={() => onChangeMonth(formatMonthInput(addMonths(monthDate, 1)))}
+                    style={calendarNavButtonStyle}
+                    textStyle={{ fontSize: 12 }}
+                />
+            </View>
+            <View style={calendarGridStyle}>
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+                    <Text key={day} style={[calendarWeekdayStyle, { color: theme.colors.mutedText }]}>
+                        {day}
+                    </Text>
+                ))}
+                {days.map((day) => {
+                    const selected = day.dateText === selectedDate;
+                    const isToday = day.dateText === todayText;
+
+                    return (
+                        <Text
+                            key={day.dateText}
+                            onPress={() => onSelectDate(day.dateText)}
+                            style={[
+                                calendarDayStyle,
+                                {
+                                    backgroundColor: selected
+                                        ? theme.colors.primary
+                                        : isToday
+                                            ? theme.colors.secondaryButton
+                                            : 'transparent',
+                                    borderColor: isToday || selected ? theme.colors.primary : theme.colors.border,
+                                    color: selected
+                                        ? theme.colors.primaryText
+                                        : day.inCurrentMonth
+                                            ? theme.colors.text
+                                            : theme.colors.mutedText,
+                                },
+                            ]}
+                        >
+                            {day.label}
+                        </Text>
+                    );
+                })}
+            </View>
         </View>
     );
 }
@@ -1208,6 +1309,22 @@ function parseLocalDateTime(dateText: string, timeText: string) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseDateInput(dateText: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateText)) return null;
+
+    const parsed = new Date(`${dateText}T00:00:00`);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseMonthInput(monthText: string) {
+    if (!/^\d{4}-\d{2}$/.test(monthText)) return null;
+
+    const parsed = new Date(`${monthText}-01T00:00:00`);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function parseOptionalLocalDateTime(dateText: string, timeText: string) {
     return timeText.trim() ? parseLocalDateTime(dateText, timeText) : null;
 }
@@ -1246,8 +1363,55 @@ function formatDateInput(date: Date) {
     return `${year}-${month}-${day}`;
 }
 
+function formatMonthInput(date: Date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+
+    return `${year}-${month}`;
+}
+
+function monthInputFromDateText(dateText: string) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(dateText) ? dateText.slice(0, 7) : formatMonthInput(new Date());
+}
+
 function formatTimeInput(date: Date) {
     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
+function addMonths(date: Date, months: number) {
+    const next = new Date(date);
+    next.setDate(1);
+    next.setMonth(next.getMonth() + months);
+
+    return next;
+}
+
+function dateTextForOffset(daysFromToday: number) {
+    const date = new Date();
+    date.setDate(date.getDate() + daysFromToday);
+
+    return formatDateInput(date);
+}
+
+function isDateOffsetSelected(selectedDate: string, daysFromToday: number) {
+    return selectedDate === dateTextForOffset(daysFromToday);
+}
+
+function getCalendarDays(monthDate: Date) {
+    const firstOfMonth = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+    const start = new Date(firstOfMonth);
+    start.setDate(firstOfMonth.getDate() - firstOfMonth.getDay());
+
+    return Array.from({ length: 42 }, (_, index) => {
+        const date = new Date(start);
+        date.setDate(start.getDate() + index);
+
+        return {
+            dateText: formatDateInput(date),
+            inCurrentMonth: date.getMonth() === monthDate.getMonth(),
+            label: String(date.getDate()),
+        };
+    });
 }
 
 function getSchedulePreview(form: ScheduleRequestForm) {
@@ -1260,7 +1424,29 @@ function getSchedulePreview(form: ScheduleRequestForm) {
 
     const end = new Date(start.getTime() + duration * 60 * 1000);
 
-    return `${formatDateTime(start.toISOString())} - ${formatTime(end.toISOString())}`;
+    return `${formatScheduleWindowDate(start)} - ${formatTime(end.toISOString())}`;
+}
+
+function formatSelectedScheduleDate(dateText: string) {
+    const date = parseDateInput(dateText);
+
+    return date ? date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : 'Pick a date';
+}
+
+function formatSelectedScheduleTime(timeText: string) {
+    const date = parseLocalDateTime(formatDateInput(new Date()), timeText);
+
+    return date ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Pick a start time';
+}
+
+function formatScheduleWindowDate(date: Date) {
+    return date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
 }
 
 function isNewDispatchStatus(value?: string | null) {
@@ -1450,6 +1636,55 @@ const schedulerPanelStyle = {
     borderWidth: 1,
     marginTop: 8,
     padding: 10,
+};
+
+const calendarPanelStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 10,
+    padding: 10,
+};
+
+const calendarHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+    marginBottom: 10,
+};
+
+const calendarNavButtonStyle = {
+    flexBasis: 92,
+    flexGrow: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+};
+
+const calendarGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 4,
+};
+
+const calendarWeekdayStyle = {
+    flexBasis: '13.4%' as const,
+    flexGrow: 1,
+    fontSize: 11,
+    fontWeight: '900' as const,
+    textAlign: 'center' as const,
+};
+
+const calendarDayStyle = {
+    borderRadius: 10,
+    borderWidth: 1,
+    flexBasis: '13.4%' as const,
+    flexGrow: 1,
+    fontSize: 12,
+    fontWeight: '900' as const,
+    lineHeight: 28,
+    minHeight: 30,
+    overflow: 'hidden' as const,
+    textAlign: 'center' as const,
 };
 
 const secondaryActionPanelStyle = {
