@@ -1373,6 +1373,7 @@ function getModuleDescription(title: string) {
     if (title === 'Customers / Clients') return 'Open homes that selected this company as a preferred provider.';
     if (title === 'Team / Technicians') return 'Open company staff, managers, technicians, and invitations.';
     if (title === 'Dispatch Board / Service Desk') return 'Receive homeowner service requests before jobs are created or assigned.';
+    if (title === 'Schedule Board') return 'Schedule service requests and assigned jobs by technician, date, and time window.';
     if (title === 'TechOS') return 'View TechOS workspace setup and company-level preview without impersonating a technician.';
     if (title === 'ManagementOS') return 'Open the company connections workflow.';
 
@@ -1384,6 +1385,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Theme & Brand Colors') return 'Configure below';
     if (title === 'Services & Trust Profile') return 'Configure below';
     if (title === 'Dispatch Board / Service Desk') return 'Open Dispatch Board';
+    if (title === 'Schedule Board') return 'Open Schedule Board';
     if (title === 'TechOS') return 'Open TechOS Preview';
 
     return 'Open';
