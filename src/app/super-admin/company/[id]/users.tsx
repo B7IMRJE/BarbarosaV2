@@ -906,6 +906,12 @@ function TeamMemberRow({
                         </Text>
                     </DetailPanelSection>
 
+                    <DetailPanelSection title="Technician Public Profile">
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                            Technician public profile editing will be added here later.
+                        </Text>
+                    </DetailPanelSection>
+
                     <DetailPanelSection title="Jobs">
                         <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
                             Assigned job history will appear here after dispatch assignment is built.

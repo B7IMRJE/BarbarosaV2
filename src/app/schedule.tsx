@@ -34,6 +34,8 @@ type ScheduleTechnician = {
     full_name: string | null;
     email: string | null;
     auth_user_id: string | null;
+    role: string | null;
+    status: string | null;
 };
 
 export default function ScheduleBoardScreen() {
@@ -46,7 +48,18 @@ export default function ScheduleBoardScreen() {
     const [companyName, setCompanyName] = useState('Company');
     const [slots, setSlots] = useState<ScheduleSlot[]>([]);
     const [techniciansById, setTechniciansById] = useState<Record<string, ScheduleTechnician>>({});
+    const [selectedTechnicianId, setSelectedTechnicianId] = useState('');
+    const technicians = useMemo(() => Object.values(techniciansById), [techniciansById]);
     const groupedSlots = useMemo(() => groupScheduleSlotsByDate(slots), [slots]);
+    const selectedTechnician = selectedTechnicianId ? techniciansById[selectedTechnicianId] || null : null;
+    const selectedTechnicianSlots = useMemo(
+        () => slots.filter((slot) => slot.technician_company_user_id === selectedTechnicianId),
+        [selectedTechnicianId, slots]
+    );
+    const selectedTechnicianGroupedSlots = useMemo(
+        () => groupScheduleSlotsByDate(selectedTechnicianSlots),
+        [selectedTechnicianSlots]
+    );
 
     useEffect(() => {
         loadScheduleBoard();
@@ -58,6 +71,7 @@ export default function ScheduleBoardScreen() {
         setAccess(null);
         setSlots([]);
         setTechniciansById({});
+        setSelectedTechnicianId('');
 
         const {
             data: { user },
@@ -138,12 +152,13 @@ export default function ScheduleBoardScreen() {
 
     async function loadScheduleSlots(companyIdToLoad: string) {
         const now = new Date();
+        const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
         const end = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
         const { data, error } = await supabase
             .from('job_schedule_slots')
             .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes')
             .eq('company_id', companyIdToLoad)
-            .gte('start_at', now.toISOString())
+            .gte('start_at', start.toISOString())
             .lte('start_at', end.toISOString())
             .order('start_at', { ascending: true });
 
@@ -154,7 +169,7 @@ export default function ScheduleBoardScreen() {
         }
 
         setSlots((data || []) as ScheduleSlot[]);
-        setMessage((data || []).length === 0 ? 'No scheduled jobs in the next 14 days.' : `Loaded ${(data || []).length} scheduled slot${(data || []).length === 1 ? '' : 's'}.`);
+        setMessage((data || []).length === 0 ? 'No scheduled jobs in the schedule window.' : `Loaded ${(data || []).length} scheduled slot${(data || []).length === 1 ? '' : 's'}.`);
     }
 
     return (
@@ -198,6 +213,52 @@ export default function ScheduleBoardScreen() {
                         {message}
                     </Text>
                 </ThemedCard>
+
+                <View style={{ marginBottom: 16, gap: 10 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                        <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>Technician Roster</Text>
+                        <Text
+                            style={{
+                                backgroundColor: theme.colors.secondaryButton,
+                                borderRadius: 999,
+                                color: theme.colors.secondaryButtonText,
+                                fontSize: 12,
+                                fontWeight: '900',
+                                overflow: 'hidden',
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                            }}
+                        >
+                            {technicians.length}
+                        </Text>
+                    </View>
+                    {technicians.length === 0 ? (
+                        <ThemedCard>
+                            <Text style={{ color: theme.colors.mutedText, fontWeight: '800' }}>
+                                No active technicians found for this company.
+                            </Text>
+                        </ThemedCard>
+                    ) : (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                            {technicians.map((technician) => (
+                                <TechnicianRosterCard
+                                    key={technician.id}
+                                    technician={technician}
+                                    slots={slots}
+                                    selected={selectedTechnicianId === technician.id}
+                                    onPress={() => setSelectedTechnicianId(selectedTechnicianId === technician.id ? '' : technician.id)}
+                                />
+                            ))}
+                        </View>
+                    )}
+                </View>
+
+                {!!selectedTechnician && (
+                    <TechnicianScheduleDetail
+                        technician={selectedTechnician}
+                        groupedSlots={selectedTechnicianGroupedSlots}
+                    />
+                )}
 
                 {slots.length === 0 ? (
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
@@ -277,6 +338,178 @@ export default function ScheduleBoardScreen() {
                 )}
             </View>
         </ScrollView>
+    );
+}
+
+function TechnicianRosterCard({
+    technician,
+    slots,
+    selected,
+    onPress,
+}: {
+    technician: ScheduleTechnician;
+    slots: ScheduleSlot[];
+    selected: boolean;
+    onPress: () => void;
+}) {
+    const { theme } = useTheme();
+    const technicianSlots = slots.filter((slot) => slot.technician_company_user_id === technician.id);
+    const todayJobsCount = technicianSlots.filter((slot) => isToday(slot.start_at)).length;
+    const nextSlot = getNextSlot(technicianSlots);
+
+    return (
+        <ThemedCard
+            onPress={onPress}
+            style={{
+                borderColor: selected ? theme.colors.primary : theme.colors.border,
+                flexBasis: 250,
+                flexGrow: 1,
+                minHeight: 148,
+            }}
+        >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <View
+                    style={{
+                        alignItems: 'center',
+                        backgroundColor: theme.colors.secondaryButton,
+                        borderRadius: 999,
+                        height: 48,
+                        justifyContent: 'center',
+                        width: 48,
+                    }}
+                >
+                    <Text style={{ color: theme.colors.secondaryButtonText, fontSize: 16, fontWeight: '900' }}>
+                        {getInitials(getTechnicianName(technician))}
+                    </Text>
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 17, fontWeight: '900' }} numberOfLines={1}>
+                        {getTechnicianName(technician)}
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontWeight: '800', marginTop: 2 }} numberOfLines={1}>
+                        {technician.email || 'Email not configured'}
+                    </Text>
+                </View>
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+                <Text style={chipStyle(theme.colors.background, theme.colors.border, theme.colors.mutedText)}>
+                    {formatLabel(technician.role)}
+                </Text>
+                <Text style={chipStyle(theme.colors.background, theme.colors.border, theme.colors.mutedText)}>
+                    {formatLabel(technician.status)}
+                </Text>
+            </View>
+            <Text style={{ color: theme.colors.mutedText, fontWeight: '800', marginTop: 10 }}>
+                Today: {todayJobsCount} job{todayJobsCount === 1 ? '' : 's'}
+            </Text>
+            <Text style={{ color: theme.colors.mutedText, fontWeight: '800', marginTop: 4 }} numberOfLines={1}>
+                Next: {nextSlot ? formatDateTime(nextSlot.start_at) : 'No upcoming job'}
+            </Text>
+        </ThemedCard>
+    );
+}
+
+function TechnicianScheduleDetail({
+    technician,
+    groupedSlots,
+}: {
+    technician: ScheduleTechnician;
+    groupedSlots: Array<{ dateKey: string; label: string; slots: ScheduleSlot[] }>;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={{ marginBottom: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <View
+                    style={{
+                        alignItems: 'center',
+                        backgroundColor: theme.colors.secondaryButton,
+                        borderRadius: 999,
+                        height: 56,
+                        justifyContent: 'center',
+                        width: 56,
+                    }}
+                >
+                    <Text style={{ color: theme.colors.secondaryButtonText, fontSize: 18, fontWeight: '900' }}>
+                        {getInitials(getTechnicianName(technician))}
+                    </Text>
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '900' }} numberOfLines={1}>
+                        {getTechnicianName(technician)}
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontWeight: '800', marginTop: 2 }} numberOfLines={1}>
+                        {technician.email || 'Email not configured'}
+                    </Text>
+                </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                <View style={{ flexBasis: 300, flexGrow: 1 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                        Technician Profile
+                    </Text>
+                    <ProfileLine label="Photo" value="Avatar placeholder only" />
+                    <ProfileLine label="Bio" value="Not configured yet" />
+                    <ProfileLine label="Years experience" value="Not configured yet" />
+                    <ProfileLine label="Specialties" value="Not configured yet" />
+                    <ProfileLine label="Languages" value="Not configured yet" />
+                    <ProfileLine label="Rating/reviews" value="Coming later" />
+                </View>
+
+                <View style={{ flexBasis: 360, flexGrow: 2 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                        Schedule History
+                    </Text>
+                    {groupedSlots.length === 0 ? (
+                        <Text style={{ color: theme.colors.mutedText, fontWeight: '800', marginTop: 8 }}>
+                            No scheduled work in the current schedule window.
+                        </Text>
+                    ) : (
+                        <View style={{ gap: 10, marginTop: 8 }}>
+                            {groupedSlots.map((group) => (
+                                <View key={group.dateKey} style={{ gap: 6 }}>
+                                    <Text style={{ color: theme.colors.text, fontWeight: '900' }}>
+                                        {group.label}
+                                    </Text>
+                                    {group.slots.map((slot) => (
+                                        <View
+                                            key={slot.id}
+                                            style={{
+                                                backgroundColor: theme.colors.background,
+                                                borderColor: theme.colors.border,
+                                                borderRadius: 10,
+                                                borderWidth: 1,
+                                                padding: 10,
+                                            }}
+                                        >
+                                            <Text style={{ color: theme.colors.mutedText, fontWeight: '800' }}>
+                                                {formatTime(slot.start_at)} - {formatTime(slot.end_at)} / {formatLabel(slot.status)}
+                                            </Text>
+                                            <Text style={{ color: theme.colors.mutedText, fontWeight: '800', marginTop: 2 }}>
+                                                Request {slot.service_request_id ? shortId(slot.service_request_id) : 'not linked'} / {formatLabel(slot.priority)}
+                                            </Text>
+                                        </View>
+                                    ))}
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                </View>
+            </View>
+        </ThemedCard>
+    );
+}
+
+function ProfileLine({ label, value }: { label: string; value: string }) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={{ marginTop: 8 }}>
+            <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '900' }}>{label}</Text>
+            <Text style={{ color: theme.colors.text, fontWeight: '800', marginTop: 2 }}>{value}</Text>
+        </View>
     );
 }
 
@@ -368,6 +601,8 @@ function buildTechnicianLookup(data: unknown) {
                 full_name: technician.full_name,
                 email: technician.email,
                 auth_user_id: technician.auth_user_id,
+                role: technician.role,
+                status: technician.status,
             };
             return accumulator;
         }, {});
@@ -417,6 +652,30 @@ function formatTime(value?: string | null) {
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleTimeString();
 }
 
+function isToday(value?: string | null) {
+    if (!value) return false;
+    const date = new Date(value);
+    const today = new Date();
+
+    return (
+        !Number.isNaN(date.getTime()) &&
+        date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate()
+    );
+}
+
+function getNextSlot(slots: ScheduleSlot[]) {
+    const nowMs = Date.now();
+
+    return slots
+        .filter((slot) => {
+            const startMs = slot.start_at ? new Date(slot.start_at).getTime() : Number.NaN;
+            return !Number.isNaN(startMs) && startMs >= nowMs;
+        })
+        .sort((a, b) => new Date(a.start_at || '').getTime() - new Date(b.start_at || '').getTime())[0] || null;
+}
+
 function shortId(value: string) {
     return value.replace(/-/g, '').slice(0, 8).toUpperCase();
 }
@@ -425,4 +684,30 @@ function getTechnicianName(technician?: ScheduleTechnician) {
     if (!technician) return 'No technician assigned';
 
     return technician.full_name || technician.email || `Technician ${shortId(technician.auth_user_id || technician.id)}`;
+}
+
+function getInitials(value: string) {
+    const initials = value
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part.charAt(0).toUpperCase())
+        .join('');
+
+    return initials || 'T';
+}
+
+function chipStyle(backgroundColor: string, borderColor: string, color: string) {
+    return {
+        backgroundColor,
+        borderColor,
+        borderRadius: 999,
+        borderWidth: 1,
+        color,
+        fontSize: 12,
+        fontWeight: '900' as const,
+        overflow: 'hidden' as const,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+    };
 }
