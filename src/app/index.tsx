@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import HomeIdentityCard from '../components/HomeIdentityCard';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -43,6 +43,12 @@ type HomeMaintenanceReminder = {
   reminder_status: 'active' | 'paused' | 'archived';
 };
 
+type PreferredProvider = {
+  companyId: string;
+  companyName: string;
+  propertyId: string;
+};
+
 function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   const safeError = error as {
     message?: unknown;
@@ -68,6 +74,12 @@ export default function HomeScreen() {
   const [activeEmergencies, setActiveEmergencies] = useState<HomeHealthEmergency[]>([]);
   const [maintenanceReminders, setMaintenanceReminders] = useState<HomeMaintenanceReminder[]>([]);
   const [maintenanceReminderMessage, setMaintenanceReminderMessage] = useState('');
+  const [activePropertyId, setActivePropertyId] = useState('');
+  const [preferredProvider, setPreferredProvider] = useState<PreferredProvider | null>(null);
+  const [serviceRequestType, setServiceRequestType] = useState<'regular' | 'emergency'>('regular');
+  const [serviceIssueSummary, setServiceIssueSummary] = useState('');
+  const [serviceRequestMessage, setServiceRequestMessage] = useState('');
+  const [submittingServiceRequest, setSubmittingServiceRequest] = useState(false);
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
@@ -81,6 +93,9 @@ export default function HomeScreen() {
       setActiveEmergencies([]);
       setMaintenanceReminders([]);
       setMaintenanceReminderMessage('');
+      setActivePropertyId('');
+      setPreferredProvider(null);
+      setServiceRequestMessage('');
 
       if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
         router.replace('/auth/login' as any);
@@ -92,6 +107,7 @@ export default function HomeScreen() {
     }
 
     setHomeIdentityLoading(true);
+    setActivePropertyId(activeProperty.propertyId);
 
     try {
       setHomeIdentity(await loadActiveHomeIdentity());
@@ -100,6 +116,8 @@ export default function HomeScreen() {
     } finally {
       setHomeIdentityLoading(false);
     }
+
+    await loadPreferredProvider(activeProperty.propertyId);
 
     const { data: items } = await supabase
       .from('home_items')
@@ -216,6 +234,95 @@ export default function HomeScreen() {
 
       window.history.replaceState({}, document.title, '/');
     }
+  }
+
+  async function loadPreferredProvider(propertyId: string) {
+    const { data: preferredRows, error: preferredError } = await supabase
+      .from('property_preferred_providers')
+      .select('company_id, property_id, status, selected_at')
+      .eq('property_id', propertyId)
+      .eq('status', 'active')
+      .order('selected_at', { ascending: false })
+      .limit(1);
+
+    if (preferredError) {
+      setPreferredProvider(null);
+      setServiceRequestMessage('Choose a preferred provider before requesting service.');
+      return;
+    }
+
+    const preferredRow = (preferredRows || [])[0] as { company_id?: string | null; property_id?: string | null } | undefined;
+    const providerCompanyId = String(preferredRow?.company_id || '').trim();
+
+    if (!providerCompanyId) {
+      setPreferredProvider(null);
+      setServiceRequestMessage('Choose a preferred provider before requesting service.');
+      return;
+    }
+
+    const { data: companyData } = await supabase
+      .from('companies')
+      .select('id, name, public_name, dba_name')
+      .eq('id', providerCompanyId)
+      .maybeSingle();
+
+    const companyRecord = (companyData || {}) as {
+      id?: string | null;
+      name?: string | null;
+      public_name?: string | null;
+      dba_name?: string | null;
+    };
+
+    setPreferredProvider({
+      companyId: providerCompanyId,
+      companyName: firstText(companyRecord.public_name, companyRecord.dba_name, companyRecord.name) || 'Selected provider',
+      propertyId,
+    });
+    setServiceRequestMessage('');
+  }
+
+  async function handleCreateServiceRequest() {
+    const issueSummary = serviceIssueSummary.trim();
+
+    if (!activePropertyId || !preferredProvider?.companyId) {
+      setServiceRequestMessage('Choose a preferred provider before requesting service.');
+      return;
+    }
+
+    if (!issueSummary) {
+      setServiceRequestMessage('Add a short issue summary before sending the request.');
+      return;
+    }
+
+    setSubmittingServiceRequest(true);
+    setServiceRequestMessage('Sending service request...');
+
+    const { data, error } = await supabase.rpc('create_homeowner_service_request', {
+      p_property_id: activePropertyId,
+      p_company_id: preferredProvider.companyId,
+      p_request_type: serviceRequestType,
+      p_issue_summary: issueSummary,
+      p_priority: serviceRequestType === 'emergency' ? 'emergency' : 'normal',
+    });
+
+    setSubmittingServiceRequest(false);
+
+    if (error) {
+      const normalized = String(error.message || '').toLowerCase();
+      setServiceRequestMessage(
+        normalized.includes('schema cache') || normalized.includes('function')
+          ? 'Service request intake is not installed yet. The Dispatch Board setup proposal is ready for review.'
+          : `Could not send service request: ${error.message}`
+      );
+      return;
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    const requestId = row && typeof row === 'object' ? String((row as Record<string, unknown>).service_request_id || '').slice(0, 8) : '';
+
+    setServiceIssueSummary('');
+    setServiceRequestType('regular');
+    setServiceRequestMessage(requestId ? `Service request sent. Reference ${requestId}.` : 'Service request sent.');
   }
 
   return (
@@ -666,12 +773,96 @@ export default function HomeScreen() {
 
             <ThemedButton
               title="Request Professional Help"
-              onPress={() => router.push('/contact' as any)}
+              onPress={handleCreateServiceRequest}
+              disabled={submittingServiceRequest || !preferredProvider}
               style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
               textStyle={{ fontSize: scaleFont(14) }}
             />
           </ThemedCard>
         </View>
+
+        <ThemedCard style={{ marginTop: scaleIcon(18) }}>
+          <Text
+            style={{
+              fontSize: scaleFont(20),
+              fontWeight: '900',
+              color: theme.colors.text,
+              marginBottom: scaleIcon(8),
+            }}
+          >
+            Request Service
+          </Text>
+
+          <Text
+            style={{
+              fontSize: scaleFont(14),
+              color: theme.colors.mutedText,
+              lineHeight: scaleFont(20),
+              marginBottom: scaleIcon(12),
+            }}
+          >
+            Provider: {preferredProvider?.companyName || 'Choose a provider in Company Connections first.'}
+          </Text>
+
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginBottom: scaleIcon(12) }}>
+            <ThemedButton
+              title="Regular"
+              variant={serviceRequestType === 'regular' ? 'primary' : 'secondary'}
+              onPress={() => setServiceRequestType('regular')}
+              style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(14) }}
+              textStyle={{ fontSize: scaleFont(13) }}
+            />
+            <ThemedButton
+              title="Emergency"
+              variant={serviceRequestType === 'emergency' ? 'primary' : 'secondary'}
+              onPress={() => setServiceRequestType('emergency')}
+              style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(14) }}
+              textStyle={{ fontSize: scaleFont(13) }}
+            />
+          </View>
+
+          <TextInput
+            value={serviceIssueSummary}
+            onChangeText={setServiceIssueSummary}
+            placeholder="Briefly describe the issue"
+            placeholderTextColor={theme.colors.mutedText}
+            multiline
+            style={{
+              minHeight: scaleIcon(92),
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              borderRadius: theme.radii.card,
+              padding: scaleIcon(12),
+              color: theme.colors.text,
+              fontSize: scaleFont(14),
+              fontWeight: '700',
+              textAlignVertical: 'top',
+              marginBottom: scaleIcon(12),
+            }}
+          />
+
+          <ThemedButton
+            title={submittingServiceRequest ? 'Sending...' : serviceRequestType === 'emergency' ? 'Request Emergency Service' : 'Request Service'}
+            onPress={handleCreateServiceRequest}
+            disabled={submittingServiceRequest || !preferredProvider}
+            style={{ alignSelf: 'flex-start', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(16) }}
+            textStyle={{ fontSize: scaleFont(14) }}
+          />
+
+          {!!serviceRequestMessage && (
+            <Text
+              style={{
+                fontSize: scaleFont(13),
+                color: theme.colors.mutedText,
+                lineHeight: scaleFont(19),
+                marginTop: scaleIcon(10),
+                fontWeight: '700',
+              }}
+            >
+              {serviceRequestMessage}
+            </Text>
+          )}
+        </ThemedCard>
 
         <View
           style={{

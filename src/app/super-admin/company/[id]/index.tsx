@@ -129,6 +129,7 @@ const cards = [
     'Services & Trust Profile',
     'Customers / Clients',
     'Team / Technicians',
+    'Dispatch Board / Service Desk',
     'TechOS',
     'ManagementOS',
 ];
@@ -413,6 +414,14 @@ export default function CompanyDashboardScreen() {
 
         if (card === 'Customers / Clients') {
             router.push(`/super-admin/company/${id}/clients` as any);
+            return;
+        }
+
+        if (card === 'Dispatch Board / Service Desk') {
+            router.push({
+                pathname: '/dispatch',
+                params: { companyId: String(id) },
+            } as any);
             return;
         }
 
@@ -1354,6 +1363,7 @@ function getModuleDescription(title: string) {
     if (title === 'Services & Trust Profile') return 'Configure categories, license, rating, and experience below.';
     if (title === 'Customers / Clients') return 'Open homes that selected this company as a preferred provider.';
     if (title === 'Team / Technicians') return 'Open company staff, managers, technicians, and invitations.';
+    if (title === 'Dispatch Board / Service Desk') return 'Receive homeowner service requests before jobs are created or assigned.';
     if (title === 'TechOS') return 'View TechOS workspace setup and company-level preview without impersonating a technician.';
     if (title === 'ManagementOS') return 'Open the company connections workflow.';
 
@@ -1364,6 +1374,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Company Profile / Identity') return 'Configure below';
     if (title === 'Theme & Brand Colors') return 'Configure below';
     if (title === 'Services & Trust Profile') return 'Configure below';
+    if (title === 'Dispatch Board / Service Desk') return 'Open Dispatch Board';
     if (title === 'TechOS') return 'Open TechOS Preview';
 
     return 'Open';
