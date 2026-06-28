@@ -43,6 +43,24 @@ type EmergencyRecord = {
     created_at: string;
     updated_at: string | null;
     resolved_at: string | null;
+    service_request_id?: string | null;
+    service_request_company_id?: string | null;
+    service_request_sent_at?: string | null;
+};
+
+type PreferredProvider = {
+    companyId: string;
+    companyName: string;
+};
+
+type CreatedServiceRequestReceipt = {
+    id: string;
+    companyId: string;
+    propertyId: string;
+    requestType: string;
+    status: string;
+    priority: string;
+    createdAt: string | null;
 };
 
 function formatDate(value?: string | null) {
@@ -79,22 +97,34 @@ export default function EmergencyDetailScreen() {
     const [saving, setSaving] = useState(false);
     const [note, setNote] = useState('');
     const [message, setMessage] = useState('');
+    const [noteMessage, setNoteMessage] = useState('');
+    const [serviceRequestMessage, setServiceRequestMessage] = useState('');
+    const [preferredProvider, setPreferredProvider] = useState<PreferredProvider | null>(null);
+    const [activePropertyId, setActivePropertyId] = useState('');
+    const [sentServiceRequestId, setSentServiceRequestId] = useState('');
 
     useEffect(() => {
         loadEmergency();
     }, [id]);
 
-    async function loadEmergency() {
+    async function loadEmergency(options?: { preserveMessages?: boolean }) {
         setLoading(true);
-        setMessage('');
+        if (!options?.preserveMessages) {
+            setMessage('');
+            setNoteMessage('');
+            setServiceRequestMessage('');
+        }
 
         let activeProperty;
 
         try {
             activeProperty = await requireActivePropertyMembership();
+            setActivePropertyId(activeProperty.propertyId);
         } catch (error) {
             setMessage(activePropertyErrorMessage(error));
             setEmergency(null);
+            setPreferredProvider(null);
+            setActivePropertyId('');
             setLoading(false);
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
@@ -105,6 +135,8 @@ export default function EmergencyDetailScreen() {
 
             return;
         }
+
+        await loadPreferredProvider(activeProperty.propertyId);
 
         const { data, error } = await supabase
             .from('home_emergencies')
@@ -121,9 +153,62 @@ export default function EmergencyDetailScreen() {
             setEmergency(null);
         } else {
             setEmergency(data as EmergencyRecord);
+            const linkedId = String((data as EmergencyRecord).service_request_id || '').trim();
+            if (linkedId) {
+                setSentServiceRequestId(linkedId);
+            }
         }
 
         setLoading(false);
+    }
+
+    async function loadPreferredProvider(propertyId: string) {
+        const { data: preferredRows, error: preferredError } = await supabase
+            .from('property_preferred_providers')
+            .select('company_id, property_id, status, selected_at')
+            .eq('property_id', propertyId)
+            .eq('status', 'active')
+            .order('selected_at', { ascending: false })
+            .limit(1);
+
+        if (preferredError) {
+            setPreferredProvider(null);
+            setServiceRequestMessage(`Could not load preferred provider: ${preferredError.message}`);
+            return;
+        }
+
+        const preferredRow = (preferredRows || [])[0] as { company_id?: string | null } | undefined;
+        const providerCompanyId = String(preferredRow?.company_id || '').trim();
+
+        if (!providerCompanyId) {
+            setPreferredProvider(null);
+            return;
+        }
+
+        const { data: companyData, error: companyError } = await supabase
+            .from('companies')
+            .select('id, name, public_name, dba_name')
+            .eq('id', providerCompanyId)
+            .maybeSingle();
+
+        if (companyError) {
+            setPreferredProvider({
+                companyId: providerCompanyId,
+                companyName: 'Selected provider',
+            });
+            return;
+        }
+
+        const companyRecord = (companyData || {}) as {
+            name?: string | null;
+            public_name?: string | null;
+            dba_name?: string | null;
+        };
+
+        setPreferredProvider({
+            companyId: providerCompanyId,
+            companyName: firstText(companyRecord.public_name, companyRecord.dba_name, companyRecord.name) || 'Selected provider',
+        });
     }
 
     async function uploadPhoto(userId: string, emergencyId: string, asset: ImagePicker.ImagePickerAsset) {
@@ -217,7 +302,7 @@ export default function EmergencyDetailScreen() {
             }
 
             setMessage('Photos added.');
-            await loadEmergency();
+            await loadEmergency({ preserveMessages: true });
         } catch (error: any) {
             setMessage(`Photo upload failed: ${error.message || 'Unknown error'}`);
         } finally {
@@ -227,19 +312,19 @@ export default function EmergencyDetailScreen() {
 
     async function addNote() {
         if (!emergency || !note.trim()) {
-            setMessage('Enter a note first.');
+            setNoteMessage('Enter a HomeOS issue note first.');
             return;
         }
 
         setSaving(true);
-        setMessage('Adding note...');
+        setNoteMessage('Adding HomeOS issue note...');
 
         let activeProperty;
 
         try {
             activeProperty = await requireActivePropertyMembership();
         } catch (error) {
-            setMessage(activePropertyErrorMessage(error));
+            setNoteMessage(activePropertyErrorMessage(error));
             setSaving(false);
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
@@ -268,13 +353,105 @@ export default function EmergencyDetailScreen() {
         setSaving(false);
 
         if (error) {
-            setMessage(`Note failed: ${error.message}`);
+            setNoteMessage(`HomeOS issue note failed: ${error.message}`);
             return;
         }
 
         setNote('');
-        setMessage('Note added.');
-        await loadEmergency();
+        await loadEmergency({ preserveMessages: true });
+        setNoteMessage('HomeOS issue note added.');
+    }
+
+    async function requestServiceForIssue() {
+        if (!emergency) return;
+
+        if (!activePropertyId || !preferredProvider?.companyId) {
+            setServiceRequestMessage('Choose a preferred provider before requesting service.');
+            return;
+        }
+
+        setSaving(true);
+        setServiceRequestMessage('Sending service request...');
+
+        const { data, error } = await supabase.rpc('create_homeowner_service_request', {
+            p_property_id: activePropertyId,
+            p_company_id: preferredProvider.companyId,
+            p_request_type: 'emergency',
+            p_issue_summary: buildServiceRequestSummary(emergency),
+            p_priority: 'emergency',
+        });
+
+        setSaving(false);
+
+        if (error) {
+            setServiceRequestMessage(`Could not send service request: ${error.message}`);
+            return;
+        }
+
+        const confirmedRequest = parseCreatedServiceRequest(data);
+
+        if (!confirmedRequest) {
+            setServiceRequestMessage('Could not confirm service request: Supabase did not return a service_request_id.');
+            return;
+        }
+
+        setSentServiceRequestId(confirmedRequest.id);
+        setServiceRequestMessage(`Service request sent to ${preferredProvider.companyName}. Request ID: ${shortId(confirmedRequest.id)}.`);
+
+        if (!emergencySupportsServiceRequestLink(emergency)) {
+            return;
+        }
+
+        const nextHistory = [
+            ...normalizeHistory(emergency.history),
+            makeHistoryEntry('status', `Service request ${shortId(confirmedRequest.id)} sent to ${preferredProvider.companyName}.`),
+        ];
+
+        const { error: linkError } = await supabase
+            .from('home_emergencies')
+            .update({
+                service_request_id: confirmedRequest.id,
+                service_request_company_id: confirmedRequest.companyId,
+                service_request_sent_at: confirmedRequest.createdAt || new Date().toISOString(),
+                history: nextHistory,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', emergency.id)
+            .eq('property_id', activePropertyId);
+
+        if (linkError) {
+            setServiceRequestMessage(
+                `Service request sent to ${preferredProvider.companyName}. Request ID: ${shortId(confirmedRequest.id)}. Link update failed: ${linkError.message}`
+            );
+            return;
+        }
+
+        await loadEmergency({ preserveMessages: true });
+    }
+
+    async function requestServiceUpdate() {
+        const serviceRequestId = firstText(emergency?.service_request_id, sentServiceRequestId);
+
+        if (!serviceRequestId) {
+            setServiceRequestMessage('Send this issue as a service request first.');
+            return;
+        }
+
+        setSaving(true);
+        setServiceRequestMessage('Requesting update...');
+
+        const { error } = await supabase.rpc('request_service_request_update', {
+            p_service_request_id: serviceRequestId,
+        });
+
+        setSaving(false);
+
+        if (error) {
+            setServiceRequestMessage(`Could not request update: ${error.message}`);
+            return;
+        }
+
+        setServiceRequestMessage(`Update requested for service request ${shortId(serviceRequestId)}.`);
     }
 
     async function markResolved() {
@@ -325,7 +502,7 @@ export default function EmergencyDetailScreen() {
         }
 
         setMessage('Emergency marked resolved.');
-        await loadEmergency();
+        await loadEmergency({ preserveMessages: true });
     }
 
     if (loading) {
@@ -366,6 +543,7 @@ export default function EmergencyDetailScreen() {
 
     const photos = normalizePhotos(emergency.photo_urls);
     const history = normalizeHistory(emergency.history);
+    const currentServiceRequestId = firstText(emergency.service_request_id, sentServiceRequestId);
 
     return (
         <ScrollView
@@ -389,6 +567,25 @@ export default function EmergencyDetailScreen() {
                 >
                     {emergency.area} · Created {formatDate(emergency.created_at)}
                 </Text>
+
+                {!!serviceRequestMessage && (
+                    <ThemedCard style={{ marginBottom: 14 }}>
+                        <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                            Service Request
+                        </Text>
+                        <Text style={{ color: theme.colors.mutedText, fontWeight: '900', marginTop: 8, lineHeight: 20 }}>
+                            {serviceRequestMessage}
+                        </Text>
+                    </ThemedCard>
+                )}
+
+                {!!message && (
+                    <ThemedCard style={{ marginBottom: 14 }}>
+                        <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>
+                            {message}
+                        </Text>
+                    </ThemedCard>
+                )}
 
                 <ThemedCard style={{ marginBottom: 14 }}>
                     <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>Status</Text>
@@ -428,6 +625,45 @@ export default function EmergencyDetailScreen() {
                     <Text style={{ color: theme.colors.mutedText, marginTop: 6 }}>
                         Video uploads are planned for a later phase.
                     </Text>
+                </ThemedCard>
+
+                <ThemedCard style={{ marginBottom: 14 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                        Company Service Request
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20, fontWeight: '700' }}>
+                        Provider: {preferredProvider?.companyName || 'Choose a preferred provider in Company Connections first.'}
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, marginTop: 4, lineHeight: 20 }}>
+                        This sends the issue title and description to Dispatch. HomeOS photos and private history stay private.
+                    </Text>
+                    {!!currentServiceRequestId && (
+                        <Text style={{ color: theme.colors.mutedText, marginTop: 8, fontWeight: '900' }}>
+                            Sent request: {shortId(currentServiceRequestId)}
+                        </Text>
+                    )}
+                    {!currentServiceRequestId && (
+                        <Text style={{ color: theme.colors.mutedText, marginTop: 8, fontWeight: '900' }}>
+                            Send this issue as a service request first.
+                        </Text>
+                    )}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
+                        <ThemedButton
+                            title={saving ? 'Sending...' : 'Request Emergency Service'}
+                            disabled={saving || !preferredProvider}
+                            onPress={requestServiceForIssue}
+                            style={{ flexGrow: 1, minWidth: 180 }}
+                        />
+                        {!!currentServiceRequestId && (
+                            <ThemedButton
+                                title={saving ? 'Requesting...' : 'Request Update'}
+                                disabled={saving}
+                                variant="secondary"
+                                onPress={requestServiceUpdate}
+                                style={{ flexGrow: 1, minWidth: 160 }}
+                            />
+                        )}
+                    </View>
                 </ThemedCard>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
@@ -506,6 +742,11 @@ export default function EmergencyDetailScreen() {
                         onPress={addNote}
                         style={{ marginTop: 12 }}
                     />
+                    {!!noteMessage && (
+                        <Text style={{ color: theme.colors.mutedText, fontWeight: '900', marginTop: 10 }}>
+                            {noteMessage}
+                        </Text>
+                    )}
                 </ThemedCard>
 
                 <ThemedCard>
@@ -540,14 +781,62 @@ export default function EmergencyDetailScreen() {
                     </View>
                 </ThemedCard>
 
-                {!!message && (
-                    <ThemedCard style={{ marginTop: 14 }}>
-                        <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>
-                            {message}
-                        </Text>
-                    </ThemedCard>
-                )}
             </View>
         </ScrollView>
+    );
+}
+
+function firstText(...values: Array<string | null | undefined>) {
+    for (const value of values) {
+        const text = String(value || '').trim();
+
+        if (text) return text;
+    }
+
+    return '';
+}
+
+function shortId(value?: string | null) {
+    return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
+}
+
+function buildServiceRequestSummary(emergency: EmergencyRecord) {
+    return [
+        `${emergency.emergency_type} reported for ${emergency.area}.`,
+        emergency.description,
+    ]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join('\n\n');
+}
+
+function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt | null {
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (!row || typeof row !== 'object') return null;
+
+    const record = row as Record<string, unknown>;
+    const id = String(record.service_request_id || '').trim();
+    const companyId = String(record.company_id || '').trim();
+    const propertyId = String(record.property_id || '').trim();
+
+    if (!id || !companyId || !propertyId) return null;
+
+    return {
+        id,
+        companyId,
+        propertyId,
+        requestType: String(record.request_type || ''),
+        status: String(record.status || ''),
+        priority: String(record.priority || ''),
+        createdAt: typeof record.created_at === 'string' ? record.created_at : null,
+    };
+}
+
+function emergencySupportsServiceRequestLink(emergency: EmergencyRecord) {
+    return (
+        Object.prototype.hasOwnProperty.call(emergency, 'service_request_id') &&
+        Object.prototype.hasOwnProperty.call(emergency, 'service_request_company_id') &&
+        Object.prototype.hasOwnProperty.call(emergency, 'service_request_sent_at')
     );
 }
