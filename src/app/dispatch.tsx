@@ -41,6 +41,16 @@ type CompanyBrand = {
     dba_name: string | null;
 };
 
+type ServiceRequestEvent = {
+    id: string;
+    service_request_id: string;
+    company_id: string;
+    property_id: string;
+    event_type: string | null;
+    message: string | null;
+    created_at: string | null;
+};
+
 export default function DispatchBoardScreen() {
     const { companyId } = useLocalSearchParams<{ companyId?: string | string[] }>();
     const { theme } = useTheme();
@@ -49,10 +59,12 @@ export default function DispatchBoardScreen() {
     const [companyAccess, setCompanyAccess] = useState<CompanyAccess | null>(null);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
     const [requests, setRequests] = useState<DispatchRequest[]>([]);
+    const [eventsByRequestId, setEventsByRequestId] = useState<Record<string, ServiceRequestEvent[]>>({});
+    const [eventsMessage, setEventsMessage] = useState('');
     const [message, setMessage] = useState('Loading Dispatch Board...');
     const [actionRequestId, setActionRequestId] = useState<string | null>(null);
 
-    const newRequests = requests.filter((request) => normalizeStatus(request.status) === 'new');
+    const newRequests = requests.filter((request) => isNewDispatchStatus(request.status));
     const acknowledgedRequests = requests.filter((request) => normalizeStatus(request.status) === 'acknowledged');
     const convertedRequests = requests.filter((request) => normalizeStatus(request.status) === 'converted_to_job');
 
@@ -66,6 +78,8 @@ export default function DispatchBoardScreen() {
         setCompanyAccess(null);
         setCompany(null);
         setRequests([]);
+        setEventsByRequestId({});
+        setEventsMessage('');
 
         const {
             data: { user },
@@ -123,8 +137,58 @@ export default function DispatchBoardScreen() {
             return;
         }
 
-        setRequests((data || []) as DispatchRequest[]);
+        const loadedRequests = (data || []) as DispatchRequest[];
+        setRequests(loadedRequests);
         setMessage('');
+        await loadRequestEvents(loadedRequests);
+    }
+
+    async function loadRequestEvents(loadedRequests: DispatchRequest[]) {
+        if (loadedRequests.length === 0) {
+            setEventsByRequestId({});
+            setEventsMessage('');
+            return;
+        }
+
+        const entries = await Promise.all(
+            loadedRequests.map(async (request) => {
+                const { data, error } = await supabase.rpc('get_service_request_events', {
+                    p_service_request_id: request.id,
+                });
+
+                if (error) {
+                    return {
+                        requestId: request.id,
+                        events: [] as ServiceRequestEvent[],
+                        error,
+                    };
+                }
+
+                return {
+                    requestId: request.id,
+                    events: (data || []) as ServiceRequestEvent[],
+                    error: null,
+                };
+            })
+        );
+
+        const firstError = entries.find((entry) => entry.error)?.error;
+        const normalized = normalizeStatus(firstError?.message);
+
+        setEventsByRequestId(
+            entries.reduce<Record<string, ServiceRequestEvent[]>>((accumulator, entry) => {
+                accumulator[entry.requestId] = entry.events;
+                return accumulator;
+            }, {})
+        );
+
+        setEventsMessage(
+            firstError
+                ? normalized.includes('schema cache') || normalized.includes('function')
+                    ? 'Request notes and update events are not installed yet. Review SQL 580 to enable them.'
+                    : `Could not load request events: ${firstError.message}`
+                : ''
+        );
     }
 
     async function handleAcknowledge(request: DispatchRequest) {
@@ -161,6 +225,10 @@ export default function DispatchBoardScreen() {
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                         {companyName} receives homeowner service requests here before jobs are created or technicians are assigned.
                     </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Selected company: {companyAccess?.company_id || requestedCompanyId || 'Not selected'}
+                        {companyAccess?.role ? ` / Access: ${formatLabel(companyAccess.role)}` : ''}
+                    </Text>
                     <View style={buttonRowStyle}>
                         <ThemedButton title="Refresh" onPress={loadDispatchBoard} style={buttonStyle} />
                         <ThemedButton title="Back Home" variant="secondary" onPress={() => router.push('/' as any)} style={buttonStyle} />
@@ -173,6 +241,12 @@ export default function DispatchBoardScreen() {
                     </ThemedCard>
                 )}
 
+                {!!eventsMessage && (
+                    <ThemedCard style={{ marginBottom: 16 }}>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{eventsMessage}</Text>
+                    </ThemedCard>
+                )}
+
                 {loading ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading requests...</Text>
@@ -182,18 +256,21 @@ export default function DispatchBoardScreen() {
                         <DispatchSection
                             title="New / Unassigned"
                             requests={newRequests}
+                            eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
                             onAcknowledge={handleAcknowledge}
                         />
                         <DispatchSection
                             title="Acknowledged"
                             requests={acknowledgedRequests}
+                            eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
                             onAcknowledge={handleAcknowledge}
                         />
                         <DispatchSection
                             title="Converted to Jobs"
                             requests={convertedRequests}
+                            eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
                             onAcknowledge={handleAcknowledge}
                         />
@@ -207,11 +284,13 @@ export default function DispatchBoardScreen() {
 function DispatchSection({
     title,
     requests,
+    eventsByRequestId,
     actionRequestId,
     onAcknowledge,
 }: {
     title: string;
     requests: DispatchRequest[];
+    eventsByRequestId: Record<string, ServiceRequestEvent[]>;
     actionRequestId: string | null;
     onAcknowledge: (request: DispatchRequest) => void;
 }) {
@@ -236,6 +315,7 @@ function DispatchSection({
                         <DispatchRequestCard
                             key={request.id}
                             request={request}
+                            events={eventsByRequestId[request.id] || []}
                             acknowledging={actionRequestId === request.id}
                             onAcknowledge={onAcknowledge}
                         />
@@ -248,10 +328,12 @@ function DispatchSection({
 
 function DispatchRequestCard({
     request,
+    events,
     acknowledging,
     onAcknowledge,
 }: {
     request: DispatchRequest;
+    events: ServiceRequestEvent[];
     acknowledging: boolean;
     onAcknowledge: (request: DispatchRequest) => void;
 }) {
@@ -260,6 +342,8 @@ function DispatchRequestCard({
     const address = [request.property_address, request.property_city, request.property_state, request.property_postal_code]
         .filter(Boolean)
         .join(', ');
+    const latestUpdateRequest = events.find((event) => normalizeStatus(event.event_type) === 'update_requested');
+    const latestEvent = events[0];
 
     return (
         <ThemedCard style={requestCardStyle}>
@@ -282,6 +366,19 @@ function DispatchRequestCard({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Created: {formatDate(request.created_at)}
             </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Company: {shortId(request.company_id)} / Status: {formatLabel(request.status)}
+            </Text>
+            {!!latestUpdateRequest && (
+                <Text style={[eventNoticeStyle, { color: theme.colors.primary }]}>
+                    Homeowner requested update: {formatDate(latestUpdateRequest.created_at)}
+                </Text>
+            )}
+            {!!latestEvent && !latestUpdateRequest && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    Latest note: {formatLabel(latestEvent.event_type)} / {formatDate(latestEvent.created_at)}
+                </Text>
+            )}
             {request.converted_job_id ? (
                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                     Job: {shortId(request.converted_job_id)}
@@ -347,6 +444,12 @@ function firstParam(value?: string | string[]) {
 
 function normalizeStatus(value?: string | null) {
     return String(value || '').trim().toLowerCase();
+}
+
+function isNewDispatchStatus(value?: string | null) {
+    const normalized = normalizeStatus(value);
+
+    return !['acknowledged', 'converted_to_job', 'cancelled', 'canceled'].includes(normalized);
 }
 
 function formatLabel(value?: string | null) {
@@ -459,4 +562,11 @@ const metaTextStyle = {
     fontWeight: '800' as const,
     lineHeight: 19,
     marginTop: 5,
+};
+
+const eventNoticeStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    lineHeight: 19,
+    marginTop: 8,
 };

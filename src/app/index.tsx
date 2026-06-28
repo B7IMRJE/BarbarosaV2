@@ -49,6 +49,19 @@ type PreferredProvider = {
   propertyId: string;
 };
 
+type HomeServiceRequest = {
+  id: string;
+  company_id: string;
+  property_id: string;
+  request_type: string | null;
+  status: string | null;
+  priority: string | null;
+  issue_summary: string | null;
+  created_at: string | null;
+  updated_at?: string | null;
+  converted_job_id?: string | null;
+};
+
 function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   const safeError = error as {
     message?: unknown;
@@ -80,6 +93,9 @@ export default function HomeScreen() {
   const [serviceIssueSummary, setServiceIssueSummary] = useState('');
   const [serviceRequestMessage, setServiceRequestMessage] = useState('');
   const [submittingServiceRequest, setSubmittingServiceRequest] = useState(false);
+  const [homeServiceRequests, setHomeServiceRequests] = useState<HomeServiceRequest[]>([]);
+  const [serviceRequestNoteById, setServiceRequestNoteById] = useState<Record<string, string>>({});
+  const [serviceRequestActionId, setServiceRequestActionId] = useState<string | null>(null);
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
@@ -96,6 +112,8 @@ export default function HomeScreen() {
       setActivePropertyId('');
       setPreferredProvider(null);
       setServiceRequestMessage('');
+      setHomeServiceRequests([]);
+      setServiceRequestNoteById({});
 
       if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
         router.replace('/auth/login' as any);
@@ -118,6 +136,7 @@ export default function HomeScreen() {
     }
 
     await loadPreferredProvider(activeProperty.propertyId);
+    await loadHomeServiceRequests(activeProperty.propertyId);
 
     const { data: items } = await supabase
       .from('home_items')
@@ -281,6 +300,29 @@ export default function HomeScreen() {
     setServiceRequestMessage('');
   }
 
+  async function loadHomeServiceRequests(propertyId: string) {
+    const { data, error } = await supabase
+      .from('service_requests')
+      .select('id, company_id, property_id, request_type, status, priority, issue_summary, created_at, updated_at, converted_job_id')
+      .eq('property_id', propertyId)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (error) {
+      const normalized = String(error.message || '').toLowerCase();
+      setHomeServiceRequests([]);
+
+      if (normalized.includes('service_requests') || normalized.includes('schema cache')) {
+        return;
+      }
+
+      setServiceRequestMessage(`Could not load service request status: ${error.message}`);
+      return;
+    }
+
+    setHomeServiceRequests((data || []) as HomeServiceRequest[]);
+  }
+
   async function handleCreateServiceRequest() {
     const issueSummary = serviceIssueSummary.trim();
 
@@ -323,6 +365,54 @@ export default function HomeScreen() {
     setServiceIssueSummary('');
     setServiceRequestType('regular');
     setServiceRequestMessage(requestId ? `Service request sent. Reference ${requestId}.` : 'Service request sent.');
+    await loadHomeServiceRequests(activePropertyId);
+  }
+
+  async function handleAddServiceRequestNote(request: HomeServiceRequest) {
+    const note = (serviceRequestNoteById[request.id] || '').trim();
+
+    if (!note) {
+      setServiceRequestMessage('Write a note before adding it to the request.');
+      return;
+    }
+
+    setServiceRequestActionId(request.id);
+    setServiceRequestMessage('Adding note...');
+
+    const { error } = await supabase.rpc('add_service_request_note', {
+      p_service_request_id: request.id,
+      p_message: note,
+    });
+
+    setServiceRequestActionId(null);
+
+    if (error) {
+      setServiceRequestMessage(formatServiceEventError(error.message, 'Service request notes are not installed yet. Review SQL 580 before adding notes.'));
+      return;
+    }
+
+    setServiceRequestNoteById((current) => ({ ...current, [request.id]: '' }));
+    setServiceRequestMessage('Note added to the service request.');
+    await loadHomeServiceRequests(request.property_id);
+  }
+
+  async function handleRequestServiceUpdate(request: HomeServiceRequest) {
+    setServiceRequestActionId(request.id);
+    setServiceRequestMessage('Requesting update...');
+
+    const { error } = await supabase.rpc('request_service_request_update', {
+      p_service_request_id: request.id,
+    });
+
+    setServiceRequestActionId(null);
+
+    if (error) {
+      setServiceRequestMessage(formatServiceEventError(error.message, 'Service request updates are not installed yet. Review SQL 580 before requesting updates.'));
+      return;
+    }
+
+    setServiceRequestMessage('Update requested. The company dispatch board will show this request.');
+    await loadHomeServiceRequests(request.property_id);
   }
 
   return (
@@ -862,6 +952,81 @@ export default function HomeScreen() {
               {serviceRequestMessage}
             </Text>
           )}
+
+          {homeServiceRequests.length > 0 && (
+            <View style={{ marginTop: scaleIcon(16), gap: scaleIcon(10) }}>
+              {homeServiceRequests.map((request) => {
+                const isActiveRequest = !['converted_to_job', 'cancelled', 'canceled'].includes(normalizeText(request.status));
+                const isActing = serviceRequestActionId === request.id;
+
+                return (
+                  <View
+                    key={request.id}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: theme.colors.border,
+                      borderRadius: theme.radii.card,
+                      padding: scaleIcon(12),
+                      backgroundColor: theme.colors.surface,
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900' }}>
+                      {formatLabel(request.request_type)} request / {formatLabel(request.status)}
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
+                      Provider company: {preferredProvider?.companyName || shortId(request.company_id)}
+                      {' / '}Created {formatDate(request.created_at)}
+                      {' / '}Ref {shortId(request.id)}
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
+                      {request.issue_summary || 'No summary available.'}
+                    </Text>
+
+                    {isActiveRequest && (
+                      <>
+                        <TextInput
+                          value={serviceRequestNoteById[request.id] || ''}
+                          onChangeText={(text) => setServiceRequestNoteById((current) => ({ ...current, [request.id]: text }))}
+                          placeholder="Add a note for dispatch"
+                          placeholderTextColor={theme.colors.mutedText}
+                          multiline
+                          style={{
+                            minHeight: scaleIcon(72),
+                            borderWidth: 1,
+                            borderColor: theme.colors.border,
+                            borderRadius: theme.radii.card,
+                            padding: scaleIcon(10),
+                            color: theme.colors.text,
+                            fontSize: scaleFont(13),
+                            fontWeight: '700',
+                            textAlignVertical: 'top',
+                            marginTop: scaleIcon(10),
+                          }}
+                        />
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginTop: scaleIcon(10) }}>
+                          <ThemedButton
+                            title={isActing ? 'Saving...' : 'Add Note'}
+                            variant="secondary"
+                            disabled={isActing}
+                            onPress={() => handleAddServiceRequestNote(request)}
+                            style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(14) }}
+                            textStyle={{ fontSize: scaleFont(13) }}
+                          />
+                          <ThemedButton
+                            title={isActing ? 'Requesting...' : 'Request Update'}
+                            disabled={isActing}
+                            onPress={() => handleRequestServiceUpdate(request)}
+                            style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(14) }}
+                            textStyle={{ fontSize: scaleFont(13) }}
+                          />
+                        </View>
+                      </>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </ThemedCard>
 
         <View
@@ -962,4 +1127,45 @@ function issueStatusLabel(item: HomeDashboardItem, status: string) {
     firstText(item.status, item.condition, item.install_state) ||
     (status === 'critical' ? 'Emergency' : 'Needs Attention')
   );
+}
+
+function normalizeText(value?: string | null) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function formatLabel(value?: string | null) {
+  const normalized = normalizeText(value);
+
+  if (!normalized) return 'Unknown';
+
+  return normalized
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return 'Not available';
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleDateString();
+}
+
+function shortId(value?: string | null) {
+  return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
+}
+
+function formatServiceEventError(message: string, setupMessage: string) {
+  const normalized = normalizeText(message);
+
+  if (
+    normalized.includes('schema cache') ||
+    normalized.includes('function') ||
+    normalized.includes('service_request_events')
+  ) {
+    return setupMessage;
+  }
+
+  return `Could not update service request: ${message}`;
 }
