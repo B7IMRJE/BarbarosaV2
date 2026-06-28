@@ -102,6 +102,7 @@ export default function EmergencyDetailScreen() {
     const [preferredProvider, setPreferredProvider] = useState<PreferredProvider | null>(null);
     const [activePropertyId, setActivePropertyId] = useState('');
     const [sentServiceRequestId, setSentServiceRequestId] = useState('');
+    const [sentServiceRequestStatus, setSentServiceRequestStatus] = useState('');
 
     useEffect(() => {
         loadEmergency();
@@ -113,6 +114,7 @@ export default function EmergencyDetailScreen() {
             setMessage('');
             setNoteMessage('');
             setServiceRequestMessage('');
+            setSentServiceRequestStatus('');
         }
 
         let activeProperty;
@@ -156,10 +158,26 @@ export default function EmergencyDetailScreen() {
             const linkedId = String((data as EmergencyRecord).service_request_id || '').trim();
             if (linkedId) {
                 setSentServiceRequestId(linkedId);
+                await loadLinkedServiceRequestStatus(linkedId);
             }
         }
 
         setLoading(false);
+    }
+
+    async function loadLinkedServiceRequestStatus(serviceRequestId: string) {
+        const { data, error } = await supabase
+            .from('service_requests')
+            .select('id, status')
+            .eq('id', serviceRequestId)
+            .maybeSingle();
+
+        if (error || !data) {
+            setSentServiceRequestStatus('');
+            return;
+        }
+
+        setSentServiceRequestStatus(String((data as { status?: string | null }).status || ''));
     }
 
     async function loadPreferredProvider(propertyId: string) {
@@ -396,6 +414,7 @@ export default function EmergencyDetailScreen() {
         }
 
         setSentServiceRequestId(confirmedRequest.id);
+        setSentServiceRequestStatus(confirmedRequest.status);
         setServiceRequestMessage(`Service request sent to ${preferredProvider.companyName}. Request ID: ${shortId(confirmedRequest.id)}.`);
 
         if (!emergencySupportsServiceRequestLink(emergency)) {
@@ -544,6 +563,7 @@ export default function EmergencyDetailScreen() {
     const photos = normalizePhotos(emergency.photo_urls);
     const history = normalizeHistory(emergency.history);
     const currentServiceRequestId = firstText(emergency.service_request_id, sentServiceRequestId);
+    const hasDispatchRequest = !!currentServiceRequestId;
 
     return (
         <ScrollView
@@ -567,6 +587,54 @@ export default function EmergencyDetailScreen() {
                 >
                     {emergency.area} · Created {formatDate(emergency.created_at)}
                 </Text>
+
+                <ThemedCard
+                    style={{
+                        marginBottom: 14,
+                        borderColor: hasDispatchRequest
+                            ? theme.colors.status.good.border
+                            : theme.colors.status.activeEmergency.border,
+                        backgroundColor: hasDispatchRequest
+                            ? theme.colors.status.good.background
+                            : theme.colors.status.activeEmergency.background,
+                    }}
+                >
+                    <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '900' }}>
+                        {hasDispatchRequest ? 'Sent to Dispatch' : 'Not sent to Dispatch yet'}
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20, fontWeight: '800' }}>
+                        {hasDispatchRequest
+                            ? `Request ${shortId(currentServiceRequestId)} was sent to ${preferredProvider?.companyName || 'your provider'}.`
+                            : `Send this emergency to ${preferredProvider?.companyName || 'your preferred provider'}.`}
+                    </Text>
+                    {hasDispatchRequest && (
+                        <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '900' }}>
+                            Status: {formatLabel(sentServiceRequestStatus) || 'Unknown'}
+                        </Text>
+                    )}
+                    <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>
+                        HomeOS photos, documents, and private timeline history stay private.
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
+                        {!hasDispatchRequest && (
+                            <ThemedButton
+                                title={saving ? 'Sending...' : 'Send to Dispatch / Request Emergency Service'}
+                                disabled={saving || !preferredProvider}
+                                onPress={requestServiceForIssue}
+                                style={{ flexGrow: 1, minWidth: 220 }}
+                            />
+                        )}
+                        {hasDispatchRequest && (
+                            <ThemedButton
+                                title={saving ? 'Requesting...' : 'Request Update'}
+                                disabled={saving}
+                                variant="secondary"
+                                onPress={requestServiceUpdate}
+                                style={{ flexGrow: 1, minWidth: 160 }}
+                            />
+                        )}
+                    </View>
+                </ThemedCard>
 
                 {!!serviceRequestMessage && (
                     <ThemedCard style={{ marginBottom: 14 }}>
@@ -627,45 +695,6 @@ export default function EmergencyDetailScreen() {
                     </Text>
                 </ThemedCard>
 
-                <ThemedCard style={{ marginBottom: 14 }}>
-                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
-                        Company Service Request
-                    </Text>
-                    <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20, fontWeight: '700' }}>
-                        Provider: {preferredProvider?.companyName || 'Choose a preferred provider in Company Connections first.'}
-                    </Text>
-                    <Text style={{ color: theme.colors.mutedText, marginTop: 4, lineHeight: 20 }}>
-                        This sends the issue title and description to Dispatch. HomeOS photos and private history stay private.
-                    </Text>
-                    {!!currentServiceRequestId && (
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 8, fontWeight: '900' }}>
-                            Sent request: {shortId(currentServiceRequestId)}
-                        </Text>
-                    )}
-                    {!currentServiceRequestId && (
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 8, fontWeight: '900' }}>
-                            Send this issue as a service request first.
-                        </Text>
-                    )}
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
-                        <ThemedButton
-                            title={saving ? 'Sending...' : 'Request Emergency Service'}
-                            disabled={saving || !preferredProvider}
-                            onPress={requestServiceForIssue}
-                            style={{ flexGrow: 1, minWidth: 180 }}
-                        />
-                        {!!currentServiceRequestId && (
-                            <ThemedButton
-                                title={saving ? 'Requesting...' : 'Request Update'}
-                                disabled={saving}
-                                variant="secondary"
-                                onPress={requestServiceUpdate}
-                                style={{ flexGrow: 1, minWidth: 160 }}
-                            />
-                        )}
-                    </View>
-                </ThemedCard>
-
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
                     <ThemedButton
                         title={saving ? 'Working...' : 'Add Photos'}
@@ -716,12 +745,15 @@ export default function EmergencyDetailScreen() {
 
                 <ThemedCard style={{ marginBottom: 14 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
-                        Add Note
+                        Add HomeOS Issue Note
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>
+                        This note stays on the private HomeOS issue timeline. {hasDispatchRequest ? 'Use Request Update above to notify Dispatch.' : 'Send this issue to Dispatch before requesting company updates.'}
                     </Text>
                     <TextInput
                         value={note}
                         onChangeText={setNote}
-                        placeholder="Add a homeowner update, action taken, or condition change."
+                        placeholder="Add a private HomeOS issue note, action taken, or condition change."
                         placeholderTextColor={theme.colors.mutedText}
                         multiline
                         style={{
@@ -798,6 +830,18 @@ function firstText(...values: Array<string | null | undefined>) {
 
 function shortId(value?: string | null) {
     return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
+}
+
+function formatLabel(value?: string | null) {
+    const normalized = String(value || '').trim();
+
+    if (!normalized) return 'Unknown';
+
+    return normalized
+        .split(/[\s_-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
 }
 
 function buildServiceRequestSummary(emergency: EmergencyRecord) {

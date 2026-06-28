@@ -220,7 +220,7 @@ export default function CreateEmergencyScreen() {
                 <HomeHeader />
 
                 <Text style={{ color: theme.colors.text, fontSize: 34, fontWeight: '900' }}>
-                    Report Emergency
+                    Document Emergency
                 </Text>
                 <Text
                     style={{
@@ -231,7 +231,8 @@ export default function CreateEmergencyScreen() {
                         lineHeight: 22,
                     }}
                 >
-                    Document what is happening now. This does not create a job, dispatch, estimate, thread, or notification.
+                    Step 1: Document the emergency in HomeOS. Step 2: Send it to your provider's Dispatch Board from the next screen.
+                    Creating this record saves photos and notes privately in HomeOS; it does not notify dispatch until you send it.
                 </Text>
 
                 <Text style={[labelStyle, { color: theme.colors.text }]}>Emergency Type</Text>
@@ -287,7 +288,7 @@ export default function CreateEmergencyScreen() {
                 </ThemedCard>
 
                 <ThemedButton
-                    title={saving ? 'Submitting...' : 'Submit Emergency'}
+                    title={saving ? 'Saving...' : 'Save HomeOS Emergency'}
                     disabled={saving}
                     onPress={submitEmergency}
                     style={{ marginTop: 20 }}

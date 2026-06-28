@@ -22,11 +22,16 @@ type EmergencyRecord = {
     status: EmergencyStatus;
     created_at: string;
     photo_urls?: string[] | null;
+    service_request_id?: string | null;
 };
 
 function formatDate(value?: string | null) {
     if (!value) return 'Unknown';
     return new Date(value).toLocaleString();
+}
+
+function normalizeText(value?: string | null) {
+    return String(value || '').trim().toLowerCase();
 }
 
 export default function EmergencyCenterScreen() {
@@ -61,11 +66,24 @@ export default function EmergencyCenterScreen() {
             return;
         }
 
-        const { data, error } = await supabase
+        let queryResult: {
+            data: unknown[] | null;
+            error: { message: string } | null;
+        } = await supabase
             .from('home_emergencies')
-            .select('id, emergency_type, area, description, status, created_at, photo_urls')
+            .select('id, emergency_type, area, description, status, created_at, photo_urls, service_request_id')
             .eq('property_id', activeProperty.propertyId)
             .order('created_at', { ascending: false });
+
+        if (queryResult.error && normalizeText(queryResult.error.message).includes('service_request_id')) {
+            queryResult = await supabase
+                .from('home_emergencies')
+                .select('id, emergency_type, area, description, status, created_at, photo_urls')
+                .eq('property_id', activeProperty.propertyId)
+                .order('created_at', { ascending: false });
+        }
+
+        const { data, error } = queryResult;
 
         if (error) {
             setMessage(`Could not load emergencies: ${error.message}`);
@@ -98,11 +116,11 @@ export default function EmergencyCenterScreen() {
                         marginBottom: 20,
                     }}
                 >
-                    Report urgent home issues and keep homeowner notes, photos, and status in one place.
+                    Document urgent home issues in HomeOS, then open an issue to send it to your provider's Dispatch Board.
                 </Text>
 
                 <ThemedButton
-                    title="Report Emergency"
+                    title="Document Emergency"
                     onPress={() => router.push('/emergency/create' as any)}
                     style={{ marginBottom: 18 }}
                 />
@@ -164,6 +182,15 @@ export default function EmergencyCenterScreen() {
                                         }}
                                     >
                                         {emergency.area} · {formatDate(emergency.created_at)}
+                                    </Text>
+                                    <Text
+                                        style={{
+                                            color: theme.colors.mutedText,
+                                            marginTop: 6,
+                                            fontWeight: '900',
+                                        }}
+                                    >
+                                        {emergency.service_request_id ? 'Sent to Dispatch' : 'HomeOS only'}
                                     </Text>
                                     <Text
                                         numberOfLines={2}
