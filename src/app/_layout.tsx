@@ -28,6 +28,7 @@ const ONBOARDING_INVITE_ROUTE = '/onboarding/invite';
 const COMPANY_INVITATIONS_ROUTE = '/onboarding/company-invitations';
 const ONBOARDING_COMPLETE_ROUTE = '/onboarding/complete';
 const PROFILE_CHANGE_PASSWORD_ROUTE = '/profile/change-password';
+const DISPATCH_ROUTE = '/dispatch';
 const PUBLIC_AUTH_ROUTES = new Set<string>([
   LOGIN_ROUTE,
   REGISTER_ROUTE,
@@ -234,6 +235,10 @@ function isTechOSPath(pathname: string) {
   return pathname === TECHOS_ROUTE || pathname.startsWith(`${TECHOS_ROUTE}/`);
 }
 
+function isDispatchPath(pathname: string) {
+  return pathname === DISPATCH_ROUTE || pathname.startsWith(`${DISPATCH_ROUTE}/`);
+}
+
 function resolveRedirectForPath(
   pathname: string,
   routeDecision: LoggedInUserRouteDecision
@@ -251,7 +256,12 @@ function resolveRedirectForPath(
   }
 
   if (routeDecision.reason === 'super-admin') {
-    if (isSuperAdminPath(pathname) || isTechOSPath(pathname) || pathname === PROFILE_CHANGE_PASSWORD_ROUTE) {
+    if (
+      isSuperAdminPath(pathname) ||
+      isTechOSPath(pathname) ||
+      isDispatchPath(pathname) ||
+      pathname === PROFILE_CHANGE_PASSWORD_ROUTE
+    ) {
       return null;
     }
 
@@ -261,6 +271,7 @@ function resolveRedirectForPath(
   if (routeDecision.reason === 'company-staff') {
     if (
       isTechOSPath(pathname) ||
+      isDispatchPath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {

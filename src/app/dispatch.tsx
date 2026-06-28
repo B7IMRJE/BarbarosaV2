@@ -83,7 +83,7 @@ export default function DispatchBoardScreen() {
             setLoading(false);
             setMessage(
                 requestedCompanyId
-                    ? 'Dispatch Board is available to company managers, admins, owners, and platform admins.'
+                    ? 'Dispatch Board is available to company dispatchers, office staff, managers, admins, owners, and platform admins.'
                     : 'Choose a company before opening the Dispatch Board as a platform admin.'
             );
             return;
@@ -326,7 +326,7 @@ async function resolveDispatchCompanyAccess(userId: string, requestedCompanyId: 
         .select('company_id, role, status')
         .eq('auth_user_id', userId)
         .eq('status', 'active')
-        .in('role', ['owner', 'admin', 'manager'])
+        .in('role', ['owner', 'admin', 'manager', 'office', 'dispatcher'])
         .order('created_at', { ascending: true })
         .limit(1);
 
