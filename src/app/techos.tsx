@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, ScrollView, Text, useWindowDimensions, View } from 'react-native';
+import { Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -17,6 +17,10 @@ type CompanyUserAccess = {
     role: string | null;
     status: string | null;
     created_at: string | null;
+};
+
+type CompanyUser = CompanyUserAccess & {
+    auth_user_id: string | null;
 };
 
 type CompanyBrand = {
@@ -139,6 +143,11 @@ export default function TechOSScreen() {
     const [showAssignedClients, setShowAssignedClients] = useState(false);
     const [assignmentModelReady, setAssignmentModelReady] = useState(false);
     const [techOSMode, setTechOSMode] = useState<TechOSMode>('technician');
+    const [activeTechnicians, setActiveTechnicians] = useState<CompanyUser[]>([]);
+    const [expandedAssignmentJobs, setExpandedAssignmentJobs] = useState<Record<string, boolean>>({});
+    const [selectedTechnicianByJob, setSelectedTechnicianByJob] = useState<Record<string, string>>({});
+    const [assignmentMessageByJob, setAssignmentMessageByJob] = useState<Record<string, string>>({});
+    const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const visibleClients = useMemo(
@@ -177,6 +186,11 @@ export default function TechOSScreen() {
         setJobMessage('');
         setAssignmentModelReady(false);
         setTechOSMode('technician');
+        setActiveTechnicians([]);
+        setExpandedAssignmentJobs({});
+        setSelectedTechnicianByJob({});
+        setAssignmentMessageByJob({});
+        setAssigningJobId(null);
 
         const {
             data: { user },
@@ -221,6 +235,7 @@ export default function TechOSScreen() {
             await Promise.all([
                 loadCompanyBrand(requestedCompanyId),
                 loadCompanyClients(requestedCompanyId),
+                loadActiveTechnicians(requestedCompanyId),
                 loadCompanyJobs(requestedCompanyId, 'platform-preview'),
             ]);
             setCheckingAccess(false);
@@ -251,6 +266,7 @@ export default function TechOSScreen() {
             await Promise.all([
                 loadCompanyBrand(activeMembership.company_id),
                 loadCompanyClients(activeMembership.company_id),
+                loadActiveTechnicians(activeMembership.company_id),
                 loadCompanyJobs(activeMembership.company_id, 'management-preview'),
             ]);
         }
@@ -357,18 +373,27 @@ export default function TechOSScreen() {
         }
     }
 
+    async function loadActiveTechnicians(companyIdToLoad: string) {
+        const result = await loadCompanyMembers(companyIdToLoad);
+
+        if (result.error) {
+            setActiveTechnicians([]);
+            setJobMessage(`Could not load technicians for assignment: ${result.error.message}`);
+            return;
+        }
+
+        setActiveTechnicians(
+            result.data.filter((member) => isActiveStatus(member.status) && isAssignableTechnicianRole(member.role))
+        );
+    }
+
     async function loadCompanyJobs(companyIdToLoad: string, mode: TechOSMode) {
         setJobLoading(true);
 
         try {
-            const { data, error } = await supabase
-                .from('jobs')
-                .select(
-                    'id, company_id, property_id, company_property_client_id, title, status, job_source, created_at, updated_at'
-                )
-                .eq('company_id', companyIdToLoad)
-                .order('created_at', { ascending: false })
-                .limit(20);
+            const { data, error } = await supabase.rpc('get_company_techos_overview', {
+                p_company_id: companyIdToLoad,
+            });
 
             if (error) {
                 throw error;
@@ -378,7 +403,7 @@ export default function TechOSScreen() {
             setJobMessage(
                 mode === 'technician'
                     ? ''
-                    : 'This is not a technician login. Select or assign a technician from ManagementOS to preview their workload.'
+                    : 'This is Management Preview. Assign technicians here without making this an admin workload.'
             );
         } catch (error: any) {
             console.error('Could not load TechOS jobs', {
@@ -392,6 +417,65 @@ export default function TechOSScreen() {
         } finally {
             setJobLoading(false);
         }
+    }
+
+    async function handleAssignTechnician(job: TechOSJob) {
+        const selectedCompanyId = activeCompanyId || job.company_id || '';
+        const selectedTechnicianId = selectedTechnicianByJob[job.id] || '';
+
+        if (!selectedCompanyId || !job.id) {
+            setAssignmentMessageByJob((current) => ({
+                ...current,
+                [job.id]: 'Could not assign this job because company or job context is missing.',
+            }));
+            return;
+        }
+
+        if (!selectedTechnicianId) {
+            setAssignmentMessageByJob((current) => ({
+                ...current,
+                [job.id]: 'Choose a technician before assigning this job.',
+            }));
+            return;
+        }
+
+        const selectedTechnician = activeTechnicians.find((technician) => technician.id === selectedTechnicianId);
+        setAssigningJobId(job.id);
+        setAssignmentMessageByJob((current) => ({
+            ...current,
+            [job.id]: `Assigning ${getMemberDisplayName(selectedTechnician)}...`,
+        }));
+
+        const { error } = await supabase.rpc('assign_technician_to_job', {
+            p_company_id: selectedCompanyId,
+            p_job_id: job.id,
+            p_technician_company_user_id: selectedTechnicianId,
+            p_role_on_job: 'primary',
+        });
+
+        if (error) {
+            console.error('Could not assign TechOS technician from preview', {
+                message: error.message,
+                code: error.code,
+                details: error.details,
+                hint: error.hint,
+            });
+            setAssignmentMessageByJob((current) => ({
+                ...current,
+                [job.id]: getFriendlyAssignmentMessage(error.message),
+            }));
+            setAssigningJobId(null);
+            return;
+        }
+
+        setAssignmentMessageByJob((current) => ({
+            ...current,
+            [job.id]: `${getMemberDisplayName(selectedTechnician)} assigned as primary technician.`,
+        }));
+        setExpandedAssignmentJobs((current) => ({ ...current, [job.id]: false }));
+        setSelectedTechnicianByJob((current) => ({ ...current, [job.id]: '' }));
+        await loadCompanyJobs(selectedCompanyId, techOSMode);
+        setAssigningJobId(null);
     }
 
     async function handleStartServiceJob(client: CompanyClient, property?: PropertyRecord) {
@@ -592,26 +676,39 @@ export default function TechOSScreen() {
                         <SummaryCard
                             title="Unassigned Jobs"
                             value="--"
-                            note="Assignment tracking will connect after job_assignments is installed."
+                            note="Use the job cards below to assign active technicians."
                         />
                     )}
                     {!isTechnicianWorkspace && (
                         <SummaryCard
                             title="Dispatch Assignment"
-                            value="--"
-                            note="Assign technician workflow is proposed in SQL 577."
+                            value={String(activeTechnicians.length)}
+                            note="Active technicians available for primary assignment."
                         />
                     )}
                 </View>
 
                 <TechOSJobsBoard
+                    activeTechnicians={activeTechnicians}
+                    assigningJobId={assigningJobId}
                     clients={visibleClients}
+                    canAssignTechnicians={!isTechnicianWorkspace}
                     groupedJobs={groupedJobSections}
                     jobs={visibleJobs}
                     loading={jobLoading}
                     message={jobMessage}
+                    assignmentMessageByJob={assignmentMessageByJob}
+                    expandedAssignmentJobs={expandedAssignmentJobs}
                     onOpenJob={handleOpenJob}
+                    onAssignTechnician={handleAssignTechnician}
+                    onSelectTechnician={(jobId, technicianId) =>
+                        setSelectedTechnicianByJob((current) => ({ ...current, [jobId]: technicianId }))
+                    }
+                    onToggleAssignment={(jobId) =>
+                        setExpandedAssignmentJobs((current) => ({ ...current, [jobId]: !current[jobId] }))
+                    }
                     propertiesById={propertiesById}
+                    selectedTechnicianByJob={selectedTechnicianByJob}
                     title={jobBoardTitle}
                     description={jobBoardDescription}
                     emptyMessage={
@@ -721,26 +818,44 @@ function WorkflowCard({ title, description }: { title: string; description: stri
 }
 
 function TechOSJobsBoard({
+    activeTechnicians,
+    assigningJobId,
+    assignmentMessageByJob,
+    canAssignTechnicians,
     clients,
     description,
     emptyMessage,
+    expandedAssignmentJobs,
     groupedJobs,
     jobs,
     loading,
     message,
+    onAssignTechnician,
     onOpenJob,
+    onSelectTechnician,
+    onToggleAssignment,
     propertiesById,
+    selectedTechnicianByJob,
     title,
 }: {
+    activeTechnicians: CompanyUser[];
+    assigningJobId: string | null;
+    assignmentMessageByJob: Record<string, string>;
+    canAssignTechnicians: boolean;
     clients: CompanyClient[];
     description: string;
     emptyMessage: string;
+    expandedAssignmentJobs: Record<string, boolean>;
     groupedJobs: JobDateGroup[];
     jobs: TechOSJob[];
     loading: boolean;
     message: string;
+    onAssignTechnician: (job: TechOSJob) => void;
     onOpenJob: (job: TechOSJob) => void;
+    onSelectTechnician: (jobId: string, technicianId: string) => void;
+    onToggleAssignment: (jobId: string) => void;
     propertiesById: Record<string, PropertyRecord>;
+    selectedTechnicianByJob: Record<string, string>;
     title: string;
 }) {
     const { theme } = useTheme();
@@ -790,11 +905,20 @@ function TechOSJobsBoard({
 
                                 return (
                                     <TechOSJobCard
+                                        activeTechnicians={activeTechnicians}
+                                        assigning={assigningJobId === job.id}
+                                        assignmentExpanded={!!expandedAssignmentJobs[job.id]}
+                                        assignmentMessage={assignmentMessageByJob[job.id] || ''}
+                                        canAssignTechnicians={canAssignTechnicians}
                                         key={job.id}
                                         client={linkedClient}
                                         job={job}
+                                        onAssignTechnician={onAssignTechnician}
                                         onOpenJob={onOpenJob}
+                                        onSelectTechnician={onSelectTechnician}
+                                        onToggleAssignment={onToggleAssignment}
                                         property={property}
+                                        selectedTechnicianId={selectedTechnicianByJob[job.id] || ''}
                                     />
                                 );
                             })}
@@ -807,18 +931,37 @@ function TechOSJobsBoard({
 }
 
 function TechOSJobCard({
+    activeTechnicians,
+    assigning,
+    assignmentExpanded,
+    assignmentMessage,
+    canAssignTechnicians,
     client,
     job,
+    onAssignTechnician,
     onOpenJob,
+    onSelectTechnician,
+    onToggleAssignment,
     property,
+    selectedTechnicianId,
 }: {
+    activeTechnicians: CompanyUser[];
+    assigning: boolean;
+    assignmentExpanded: boolean;
+    assignmentMessage: string;
+    canAssignTechnicians: boolean;
     client?: CompanyClient;
     job: TechOSJob;
+    onAssignTechnician: (job: TechOSJob) => void;
     onOpenJob: (job: TechOSJob) => void;
+    onSelectTechnician: (jobId: string, technicianId: string) => void;
+    onToggleAssignment: (jobId: string) => void;
     property?: PropertyRecord;
+    selectedTechnicianId: string;
 }) {
     const { theme } = useTheme();
     const displayName = client?.display_name || property?.name || 'Home';
+    const selectedTechnician = activeTechnicians.find((technician) => technician.id === selectedTechnicianId);
 
     return (
         <ThemedCard style={jobCardStyle}>
@@ -836,7 +979,80 @@ function TechOSJobCard({
                 Client: {displayName}
             </Text>
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Source: {formatSource(job.job_source)}</Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Assignments: {typeof job.assignment_count === 'number' ? job.assignment_count : 0}
+            </Text>
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Sale: Not tracked yet</Text>
+            {canAssignTechnicians && (
+                <View style={[jobAssignmentBoxStyle, { borderColor: theme.colors.border }]}>
+                    <View style={jobAssignmentHeaderStyle}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Assign Technician</Text>
+                            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Choose an active technician'}
+                            </Text>
+                        </View>
+                        <ThemedButton
+                            title={assignmentExpanded ? 'Hide' : 'Choose'}
+                            variant="secondary"
+                            onPress={() => onToggleAssignment(job.id)}
+                            style={jobAssignmentToggleStyle}
+                        />
+                    </View>
+
+                    {assignmentExpanded && (
+                        <View style={technicianPickerStyle}>
+                            {activeTechnicians.length === 0 ? (
+                                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                    No active technicians are available for this company.
+                                </Text>
+                            ) : (
+                                activeTechnicians.map((technician) => {
+                                    const selected = selectedTechnicianId === technician.id;
+
+                                    return (
+                                        <TouchableOpacity
+                                            key={technician.id}
+                                            onPress={() => onSelectTechnician(job.id, technician.id)}
+                                            style={[
+                                                technicianPickerRowStyle,
+                                                {
+                                                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                                    backgroundColor: selected ? theme.colors.secondaryButton : 'transparent',
+                                                },
+                                            ]}
+                                        >
+                                            <View style={{ flex: 1, minWidth: 0 }}>
+                                                <Text style={[technicianPickerNameStyle, { color: theme.colors.text }]}>
+                                                    {getMemberDisplayName(technician)}
+                                                </Text>
+                                                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                                    {technician.email || shortId(technician.auth_user_id || technician.id)}
+                                                </Text>
+                                            </View>
+                                            <Text style={[technicianPickerActionStyle, { color: theme.colors.primary }]}>
+                                                {selected ? 'Selected' : 'Select'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })
+                            )}
+                        </View>
+                    )}
+
+                    <ThemedButton
+                        title={assigning ? 'Assigning...' : 'Assign Technician'}
+                        disabled={assigning || activeTechnicians.length === 0 || !selectedTechnicianId}
+                        onPress={() => onAssignTechnician(job)}
+                        style={clientActionButtonStyle}
+                    />
+                    {!!assignmentMessage && (
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                            {assignmentMessage}
+                        </Text>
+                    )}
+                </View>
+            )}
             <ThemedButton
                 title="Open Job"
                 variant="secondary"
@@ -983,6 +1199,95 @@ function isTechnicianRole(role?: string | null) {
     const normalized = normalizeRole(role);
 
     return normalized === 'technician' || normalized === 'tech';
+}
+
+function isAssignableTechnicianRole(role?: string | null) {
+    return isTechnicianRole(role);
+}
+
+function isActiveStatus(status?: string | null) {
+    return normalizeStatus(status) === 'active';
+}
+
+async function loadCompanyMembers(companyId: string): Promise<{
+    data: CompanyUser[];
+    error: { message: string } | null;
+}> {
+    const rpcResult = await supabase.rpc('get_company_users_for_management', {
+        p_company_id: companyId,
+    });
+
+    if (!rpcResult.error) {
+        return {
+            data: normalizeCompanyUsers(rpcResult.data),
+            error: null,
+        };
+    }
+
+    const directResult = await supabase
+        .from('company_users')
+        .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false });
+
+    if (directResult.error) {
+        return {
+            data: [],
+            error: {
+                message: `${directResult.error.message}. Management RPC fallback also failed: ${rpcResult.error.message}`,
+            },
+        };
+    }
+
+    return {
+        data: normalizeCompanyUsers(directResult.data),
+        error: null,
+    };
+}
+
+function normalizeCompanyUsers(data: unknown): CompanyUser[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                company_id: readStringField(record, 'company_id') || '',
+                auth_user_id: readStringField(record, 'auth_user_id'),
+                full_name: readStringField(record, 'full_name'),
+                email: readStringField(record, 'email'),
+                role: readStringField(record, 'role') || 'unknown',
+                status: readStringField(record, 'status') || 'unknown',
+                created_at: readStringField(record, 'created_at'),
+            };
+        })
+        .filter((member) => member.id && member.company_id);
+}
+
+function readStringField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function getMemberDisplayName(member?: CompanyUser | null) {
+    if (!member) return 'Technician';
+
+    return member.full_name || member.email || `Technician ${shortId(member.auth_user_id || member.id)}`;
+}
+
+function getFriendlyAssignmentMessage(message?: string | null) {
+    const normalized = normalizeStatus(message);
+
+    if (normalized.includes('not authorized')) {
+        return 'You are not authorized to assign technicians for this company.';
+    }
+
+    if (normalized.includes('not found')) {
+        return 'That technician or job is no longer available for assignment.';
+    }
+
+    return message ? `Could not assign technician: ${message}` : 'Could not assign technician right now.';
 }
 
 async function loadPlatformAdminStatus(userId: string) {
@@ -1135,6 +1440,10 @@ function countOpenJobsForClient(jobs: TechOSJob[], client: CompanyClient) {
 
 function shortJobId(id: string) {
     return String(id || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'JOB';
+}
+
+function shortId(id: string) {
+    return String(id || '').replace(/-/g, '').slice(0, 8) || 'unknown';
 }
 
 function normalizeStatus(status?: string | null) {
@@ -1412,6 +1721,58 @@ const jobTitleStyle = {
     fontWeight: '900' as const,
     lineHeight: 24,
     marginBottom: 8,
+};
+
+const jobAssignmentBoxStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 10,
+};
+
+const jobAssignmentHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 10,
+    justifyContent: 'space-between' as const,
+};
+
+const jobAssignmentTitleStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const jobAssignmentToggleStyle = {
+    flexBasis: 94,
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+};
+
+const technicianPickerStyle = {
+    gap: 8,
+    marginTop: 10,
+};
+
+const technicianPickerRowStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+};
+
+const technicianPickerNameStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const technicianPickerActionStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
 };
 
 const clientSectionHeaderStyle = {

@@ -288,30 +288,21 @@ export default function TechOSJobDetailScreen() {
         setAssigningUserId(member.id);
         setAssignmentMessage(`Assigning ${getMemberDisplayName(member)}...`);
 
-        const primaryResult = await supabase.rpc('assign_technician_to_job', {
-            company_id: job.company_id,
-            job_id: job.id,
-            technician_user_id: member.id,
-            note: 'Assigned from TechOS job detail',
+        const assignResult = await supabase.rpc('assign_technician_to_job', {
+            p_company_id: job.company_id,
+            p_job_id: job.id,
+            p_technician_company_user_id: member.id,
+            p_role_on_job: 'primary',
         });
 
-        const fallbackResult = primaryResult.error && shouldTryAssignmentFallback(primaryResult.error.message)
-            ? await supabase.rpc('assign_technician_to_job', {
-                p_company_id: job.company_id,
-                p_job_id: job.id,
-                p_technician_company_user_id: member.id,
-                p_role_on_job: 'primary',
-            })
-            : primaryResult;
-
-        if (fallbackResult.error) {
+        if (assignResult.error) {
             console.error('Could not assign TechOS technician', {
-                message: fallbackResult.error.message,
-                code: fallbackResult.error.code,
-                details: fallbackResult.error.details,
-                hint: fallbackResult.error.hint,
+                message: assignResult.error.message,
+                code: assignResult.error.code,
+                details: assignResult.error.details,
+                hint: assignResult.error.hint,
             });
-            setAssignmentMessage(getFriendlyAssignmentMessage(fallbackResult.error.message));
+            setAssignmentMessage(getFriendlyAssignmentMessage(assignResult.error.message));
             setAssigningUserId(null);
             return;
         }
@@ -665,17 +656,6 @@ function getFriendlyAssignmentMessage(message?: string | null) {
     }
 
     return message ? `Could not assign technician: ${message}` : 'Could not assign technician right now.';
-}
-
-function shouldTryAssignmentFallback(message?: string | null) {
-    const normalized = normalizeStatus(message);
-
-    return (
-        normalized.includes('function') ||
-        normalized.includes('parameter') ||
-        normalized.includes('schema cache') ||
-        normalized.includes('pgrst202')
-    );
 }
 
 async function loadCompanyMembers(companyId: string): Promise<{
