@@ -62,6 +62,16 @@ type HomeServiceRequest = {
   converted_job_id?: string | null;
 };
 
+type CreatedServiceRequestReceipt = {
+  id: string;
+  companyId: string;
+  propertyId: string;
+  requestType: string;
+  status: string;
+  priority: string;
+  createdAt: string | null;
+};
+
 function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   const safeError = error as {
     message?: unknown;
@@ -96,6 +106,7 @@ export default function HomeScreen() {
   const [homeServiceRequests, setHomeServiceRequests] = useState<HomeServiceRequest[]>([]);
   const [serviceRequestNoteById, setServiceRequestNoteById] = useState<Record<string, string>>({});
   const [serviceRequestActionId, setServiceRequestActionId] = useState<string | null>(null);
+  const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
@@ -114,6 +125,7 @@ export default function HomeScreen() {
       setServiceRequestMessage('');
       setHomeServiceRequests([]);
       setServiceRequestNoteById({});
+      setLastCreatedServiceRequest(null);
 
       if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
         router.replace('/auth/login' as any);
@@ -309,18 +321,13 @@ export default function HomeScreen() {
       .limit(5);
 
     if (error) {
-      const normalized = String(error.message || '').toLowerCase();
       setHomeServiceRequests([]);
-
-      if (normalized.includes('service_requests') || normalized.includes('schema cache')) {
-        return;
-      }
-
       setServiceRequestMessage(`Could not load service request status: ${error.message}`);
-      return;
+      return false;
     }
 
     setHomeServiceRequests((data || []) as HomeServiceRequest[]);
+    return true;
   }
 
   async function handleCreateServiceRequest() {
@@ -350,22 +357,36 @@ export default function HomeScreen() {
     setSubmittingServiceRequest(false);
 
     if (error) {
-      const normalized = String(error.message || '').toLowerCase();
-      setServiceRequestMessage(
-        normalized.includes('schema cache') || normalized.includes('function')
-          ? 'Service request intake is not installed yet. The Dispatch Board setup proposal is ready for review.'
-          : `Could not send service request: ${error.message}`
-      );
+      setServiceRequestMessage(`Could not send service request: ${error.message}`);
       return;
     }
 
-    const row = Array.isArray(data) ? data[0] : data;
-    const requestId = row && typeof row === 'object' ? String((row as Record<string, unknown>).service_request_id || '').slice(0, 8) : '';
+    const confirmedRequest = parseCreatedServiceRequest(data);
 
+    if (!confirmedRequest) {
+      setServiceRequestMessage('Could not confirm service request: Supabase did not return a service_request_id.');
+      return;
+    }
+
+    setLastCreatedServiceRequest(confirmedRequest);
     setServiceIssueSummary('');
     setServiceRequestType('regular');
-    setServiceRequestMessage(requestId ? `Service request sent. Reference ${requestId}.` : 'Service request sent.');
+    setServiceRequestMessage(`Service request sent. Reference ${shortId(confirmedRequest.id)}.`);
     await loadHomeServiceRequests(activePropertyId);
+  }
+
+  async function handleRefreshHomeServiceRequests() {
+    if (!activePropertyId) {
+      setServiceRequestMessage('Choose a home before refreshing service requests.');
+      return;
+    }
+
+    setServiceRequestMessage('Refreshing service requests...');
+    const refreshed = await loadHomeServiceRequests(activePropertyId);
+
+    if (refreshed) {
+      setServiceRequestMessage('Service requests refreshed.');
+    }
   }
 
   async function handleAddServiceRequestNote(request: HomeServiceRequest) {
@@ -888,10 +909,24 @@ export default function HomeScreen() {
               fontSize: scaleFont(14),
               color: theme.colors.mutedText,
               lineHeight: scaleFont(20),
-              marginBottom: scaleIcon(12),
+              marginBottom: scaleIcon(6),
             }}
           >
             Provider: {preferredProvider?.companyName || 'Choose a provider in Company Connections first.'}
+          </Text>
+          <Text
+            style={{
+              fontSize: scaleFont(12),
+              color: theme.colors.mutedText,
+              lineHeight: scaleFont(18),
+              marginBottom: scaleIcon(12),
+              fontWeight: '700',
+            }}
+          >
+            Company ID: {preferredProvider?.companyId || 'Not selected'}
+            {lastCreatedServiceRequest
+              ? ` / Last confirmed request ${shortId(lastCreatedServiceRequest.id)} (${formatLabel(lastCreatedServiceRequest.status)})`
+              : ''}
           </Text>
 
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginBottom: scaleIcon(12) }}>
@@ -937,6 +972,19 @@ export default function HomeScreen() {
             disabled={submittingServiceRequest || !preferredProvider}
             style={{ alignSelf: 'flex-start', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(16) }}
             textStyle={{ fontSize: scaleFont(14) }}
+          />
+          <ThemedButton
+            title="Refresh Requests"
+            variant="secondary"
+            onPress={handleRefreshHomeServiceRequests}
+            disabled={!activePropertyId}
+            style={{
+              alignSelf: 'flex-start',
+              paddingVertical: scaleIcon(10),
+              paddingHorizontal: scaleIcon(14),
+              marginTop: scaleIcon(8),
+            }}
+            textStyle={{ fontSize: scaleFont(13) }}
           />
 
           {!!serviceRequestMessage && (
@@ -1154,6 +1202,29 @@ function formatDate(value?: string | null) {
 
 function shortId(value?: string | null) {
   return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
+}
+
+function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt | null {
+  const row = Array.isArray(data) ? data[0] : data;
+
+  if (!row || typeof row !== 'object') return null;
+
+  const record = row as Record<string, unknown>;
+  const id = String(record.service_request_id || '').trim();
+  const companyId = String(record.company_id || '').trim();
+  const propertyId = String(record.property_id || '').trim();
+
+  if (!id || !companyId || !propertyId) return null;
+
+  return {
+    id,
+    companyId,
+    propertyId,
+    requestType: String(record.request_type || ''),
+    status: String(record.status || ''),
+    priority: String(record.priority || ''),
+    createdAt: typeof record.created_at === 'string' ? record.created_at : null,
+  };
 }
 
 function formatServiceEventError(message: string, setupMessage: string) {
