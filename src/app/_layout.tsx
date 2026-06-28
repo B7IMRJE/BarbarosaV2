@@ -29,6 +29,7 @@ const COMPANY_INVITATIONS_ROUTE = '/onboarding/company-invitations';
 const ONBOARDING_COMPLETE_ROUTE = '/onboarding/complete';
 const PROFILE_CHANGE_PASSWORD_ROUTE = '/profile/change-password';
 const DISPATCH_ROUTE = '/dispatch';
+const SCHEDULE_ROUTE = '/schedule';
 const PUBLIC_AUTH_ROUTES = new Set<string>([
   LOGIN_ROUTE,
   REGISTER_ROUTE,
@@ -239,6 +240,10 @@ function isDispatchPath(pathname: string) {
   return pathname === DISPATCH_ROUTE || pathname.startsWith(`${DISPATCH_ROUTE}/`);
 }
 
+function isSchedulePath(pathname: string) {
+  return pathname === SCHEDULE_ROUTE || pathname.startsWith(`${SCHEDULE_ROUTE}/`);
+}
+
 function resolveRedirectForPath(
   pathname: string,
   routeDecision: LoggedInUserRouteDecision
@@ -260,6 +265,7 @@ function resolveRedirectForPath(
       isSuperAdminPath(pathname) ||
       isTechOSPath(pathname) ||
       isDispatchPath(pathname) ||
+      isSchedulePath(pathname) ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {
       return null;
@@ -272,6 +278,7 @@ function resolveRedirectForPath(
     if (
       isTechOSPath(pathname) ||
       isDispatchPath(pathname) ||
+      isSchedulePath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {

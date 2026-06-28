@@ -130,6 +130,7 @@ const cards = [
     'Customers / Clients',
     'Team / Technicians',
     'Dispatch Board / Service Desk',
+    'Schedule Board',
     'TechOS',
     'ManagementOS',
 ];
@@ -420,6 +421,14 @@ export default function CompanyDashboardScreen() {
         if (card === 'Dispatch Board / Service Desk') {
             router.push({
                 pathname: '/dispatch',
+                params: { companyId: String(id) },
+            } as any);
+            return;
+        }
+
+        if (card === 'Schedule Board') {
+            router.push({
+                pathname: '/schedule',
                 params: { companyId: String(id) },
             } as any);
             return;

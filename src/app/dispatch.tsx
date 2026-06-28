@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -63,6 +63,7 @@ type ServiceRequestEvent = {
 
 export default function DispatchBoardScreen() {
     const { companyId } = useLocalSearchParams<{ companyId?: string | string[] }>();
+    const { width: viewportWidth } = useWindowDimensions();
     const { theme } = useTheme();
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const [loading, setLoading] = useState(true);
@@ -75,10 +76,14 @@ export default function DispatchBoardScreen() {
     const [rpcStatusMessage, setRpcStatusMessage] = useState('');
     const [authDebug, setAuthDebug] = useState<DispatchAuthDebug | null>(null);
     const [actionRequestId, setActionRequestId] = useState<string | null>(null);
+    const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
 
     const newRequests = requests.filter((request) => isNewDispatchStatus(request.status));
     const acknowledgedRequests = requests.filter((request) => normalizeStatus(request.status) === 'acknowledged');
+    const scheduledRequests = requests.filter((request) => normalizeStatus(request.status) === 'scheduled');
     const convertedRequests = requests.filter((request) => normalizeStatus(request.status) === 'converted_to_job');
+    const cancelledRequests = requests.filter((request) => ['cancelled', 'canceled', 'archived'].includes(normalizeStatus(request.status)));
+    const cardBasis = viewportWidth <= 700 ? '100%' : '31.8%';
 
     useEffect(() => {
         loadDispatchBoard();
@@ -305,22 +310,56 @@ export default function DispatchBoardScreen() {
                         <DispatchSection
                             title="New / Unassigned"
                             requests={newRequests}
+                            totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
+                            expandedRequestId={expandedRequestId}
+                            cardBasis={cardBasis}
+                            onToggleRequest={setExpandedRequestId}
                             onAcknowledge={handleAcknowledge}
                         />
                         <DispatchSection
                             title="Acknowledged"
                             requests={acknowledgedRequests}
+                            totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
+                            expandedRequestId={expandedRequestId}
+                            cardBasis={cardBasis}
+                            onToggleRequest={setExpandedRequestId}
+                            onAcknowledge={handleAcknowledge}
+                        />
+                        <DispatchSection
+                            title="Scheduled"
+                            requests={scheduledRequests}
+                            totalRequests={requests.length}
+                            eventsByRequestId={eventsByRequestId}
+                            actionRequestId={actionRequestId}
+                            expandedRequestId={expandedRequestId}
+                            cardBasis={cardBasis}
+                            onToggleRequest={setExpandedRequestId}
                             onAcknowledge={handleAcknowledge}
                         />
                         <DispatchSection
                             title="Converted to Jobs"
                             requests={convertedRequests}
+                            totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
+                            expandedRequestId={expandedRequestId}
+                            cardBasis={cardBasis}
+                            onToggleRequest={setExpandedRequestId}
+                            onAcknowledge={handleAcknowledge}
+                        />
+                        <DispatchSection
+                            title="Cancelled / Archived"
+                            requests={cancelledRequests}
+                            totalRequests={requests.length}
+                            eventsByRequestId={eventsByRequestId}
+                            actionRequestId={actionRequestId}
+                            expandedRequestId={expandedRequestId}
+                            cardBasis={cardBasis}
+                            onToggleRequest={setExpandedRequestId}
                             onAcknowledge={handleAcknowledge}
                         />
                     </>
@@ -333,14 +372,22 @@ export default function DispatchBoardScreen() {
 function DispatchSection({
     title,
     requests,
+    totalRequests,
     eventsByRequestId,
     actionRequestId,
+    expandedRequestId,
+    cardBasis,
+    onToggleRequest,
     onAcknowledge,
 }: {
     title: string;
     requests: DispatchRequest[];
+    totalRequests: number;
     eventsByRequestId: Record<string, ServiceRequestEvent[]>;
     actionRequestId: string | null;
+    expandedRequestId: string | null;
+    cardBasis: ViewStyle['flexBasis'];
+    onToggleRequest: (requestId: string | null) => void;
     onAcknowledge: (request: DispatchRequest) => void;
 }) {
     const { theme } = useTheme();
@@ -349,9 +396,14 @@ function DispatchSection({
         <View style={{ marginBottom: 18 }}>
             <View style={sectionHeaderStyle}>
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>{title}</Text>
-                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {requests.length}
-                </Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                        {requests.length}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Showing {requests.length} of {totalRequests}
+                    </Text>
+                </View>
             </View>
 
             {requests.length === 0 ? (
@@ -366,6 +418,9 @@ function DispatchSection({
                             request={request}
                             events={eventsByRequestId[request.id] || []}
                             acknowledging={actionRequestId === request.id}
+                            expanded={expandedRequestId === request.id}
+                            cardBasis={cardBasis}
+                            onToggle={() => onToggleRequest(expandedRequestId === request.id ? null : request.id)}
                             onAcknowledge={onAcknowledge}
                         />
                     ))}
@@ -418,71 +473,110 @@ function DispatchRequestCard({
     request,
     events,
     acknowledging,
+    expanded,
+    cardBasis,
+    onToggle,
     onAcknowledge,
 }: {
     request: DispatchRequest;
     events: ServiceRequestEvent[];
     acknowledging: boolean;
+    expanded: boolean;
+    cardBasis: ViewStyle['flexBasis'];
+    onToggle: () => void;
     onAcknowledge: (request: DispatchRequest) => void;
 }) {
     const { theme } = useTheme();
     const status = normalizeStatus(request.status);
-    const address = [request.property_address, request.property_city, request.property_state, request.property_postal_code]
-        .filter(Boolean)
-        .join(', ');
     const latestUpdateRequest = events.find((event) => normalizeStatus(event.event_type) === 'update_requested');
-    const latestEvent = events[0];
+    const displayName = request.customer_display_name || request.property_display_name || 'Homeowner';
 
     return (
-        <ThemedCard style={requestCardStyle}>
+        <ThemedCard onPress={onToggle} style={[requestCardStyle, { flexBasis: cardBasis }]}>
             <View style={requestTopRowStyle}>
-                <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>{formatLabel(request.request_type)}</Text>
+                <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>{formatCallType(request)}</Text>
                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
                     {formatLabel(request.priority)}
                 </Text>
             </View>
 
-            <Text style={[requestTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
-                {request.issue_summary || 'Service request'}
+            <Text style={[requestTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                {displayName}
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Customer: {request.customer_display_name || request.property_display_name || 'Homeowner'}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                {address || 'Basic property details are not available.'}
+                Request #{shortId(request.id)}
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Created: {formatDate(request.created_at)}
+                Status: {formatLabel(request.status)}
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Company: {shortId(request.company_id)} / Status: {formatLabel(request.status)}
+                Created: {formatDateTime(request.created_at)}
+            </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Priority: {formatLabel(request.priority)}
             </Text>
             {!!latestUpdateRequest && (
                 <Text style={[eventNoticeStyle, { color: theme.colors.primary }]}>
-                    Homeowner requested update: {formatDate(latestUpdateRequest.created_at)}
+                    Homeowner requested update
                 </Text>
             )}
-            {!!latestEvent && !latestUpdateRequest && (
-                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                    Latest note: {formatLabel(latestEvent.event_type)} / {formatDate(latestEvent.created_at)}
-                </Text>
-            )}
-            {request.converted_job_id ? (
-                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                    Job: {shortId(request.converted_job_id)}
-                </Text>
-            ) : status === 'new' ? (
-                <ThemedButton
-                    title={acknowledging ? 'Acknowledging...' : 'Acknowledge'}
-                    disabled={acknowledging}
-                    onPress={() => onAcknowledge(request)}
-                    style={{ marginTop: 12, paddingVertical: 12, paddingHorizontal: 14 }}
-                    textStyle={{ fontSize: 13 }}
-                />
-            ) : (
-                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                    Acknowledged: {formatDate(request.acknowledged_at)}
-                </Text>
+
+            {expanded && (
+                <View style={expandedDetailStyle}>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={3}>
+                        {request.issue_summary || 'No summary available.'}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Property: {request.property_display_name || 'Not available'}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Events: {events.length}
+                    </Text>
+                    {events.slice(0, 3).map((event) => (
+                        <Text key={event.id} style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                            {formatLabel(event.event_type)}: {event.message || 'No message.'}
+                        </Text>
+                    ))}
+                    <View style={compactActionRowStyle}>
+                        {!request.converted_job_id && status === 'new' && (
+                            <ThemedButton
+                                title={acknowledging ? 'Acknowledging...' : 'Acknowledge'}
+                                disabled={acknowledging}
+                                onPress={() => onAcknowledge(request)}
+                                style={compactActionButtonStyle}
+                                textStyle={{ fontSize: 12 }}
+                            />
+                        )}
+                        <ThemedButton
+                            title="Respond / Note Soon"
+                            disabled
+                            variant="secondary"
+                            style={compactActionButtonStyle}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                        <ThemedButton
+                            title="Schedule Soon"
+                            disabled
+                            variant="secondary"
+                            style={compactActionButtonStyle}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                        <ThemedButton
+                            title="Convert Soon"
+                            disabled
+                            variant="secondary"
+                            style={compactActionButtonStyle}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                        <ThemedButton
+                            title="Cancel / Archive Soon"
+                            disabled
+                            variant="secondary"
+                            style={compactActionButtonStyle}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                    </View>
+                </View>
             )}
         </ThemedCard>
     );
@@ -562,7 +656,17 @@ function normalizeStatus(value?: string | null) {
 function isNewDispatchStatus(value?: string | null) {
     const normalized = normalizeStatus(value);
 
-    return !['acknowledged', 'converted_to_job', 'cancelled', 'canceled'].includes(normalized);
+    return !['acknowledged', 'scheduled', 'converted_to_job', 'cancelled', 'canceled', 'archived'].includes(normalized);
+}
+
+function formatCallType(request: DispatchRequest) {
+    const type = normalizeStatus(request.request_type);
+    const priority = normalizeStatus(request.priority);
+
+    if (type === 'emergency' || priority === 'emergency') return 'Emergency';
+    if (type === 'maintenance') return 'Maintenance';
+    if (type === 'regular') return 'Service Call';
+    return formatLabel(request.request_type || 'Other');
 }
 
 function formatLabel(value?: string | null) {
@@ -578,6 +682,12 @@ function formatDate(value?: string | null) {
     if (!value) return 'Not available';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleDateString();
+}
+
+function formatDateTime(value?: string | null) {
+    if (!value) return 'Not available';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
 }
 
 function shortId(value: string) {
@@ -643,10 +753,10 @@ const requestGridStyle = {
 };
 
 const requestCardStyle = {
-    flex: 1,
-    flexBasis: 280,
-    flexShrink: 1,
+    flexGrow: 0,
+    flexShrink: 0,
     maxWidth: '100%' as const,
+    minHeight: 190,
     minWidth: 0,
 };
 
@@ -682,4 +792,25 @@ const eventNoticeStyle = {
     fontWeight: '900' as const,
     lineHeight: 19,
     marginTop: 8,
+};
+
+const expandedDetailStyle = {
+    borderTopWidth: 1,
+    borderTopColor: '#D6DEE8',
+    marginTop: 12,
+    paddingTop: 10,
+};
+
+const compactActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 10,
+};
+
+const compactActionButtonStyle = {
+    flexGrow: 1,
+    flexBasis: 130,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
 };
