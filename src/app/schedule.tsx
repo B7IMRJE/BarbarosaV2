@@ -113,24 +113,27 @@ export default function ScheduleBoardScreen() {
     }
 
     async function loadScheduleTechnicians(companyIdToLoad: string) {
-        const { data } = await supabase
+        const rpcResult = await supabase.rpc('get_company_users_for_management', {
+            p_company_id: companyIdToLoad,
+        });
+
+        if (!rpcResult.error) {
+            setTechniciansById(buildTechnicianLookup(rpcResult.data));
+            return;
+        }
+
+        const { data, error } = await supabase
             .from('company_users')
             .select('id, full_name, email, auth_user_id, role, status')
             .eq('company_id', companyIdToLoad);
 
-        const technicians = ((data || []) as Array<ScheduleTechnician & { role?: string | null; status?: string | null }>)
-            .filter((technician) => normalizeStatus(technician.status) === 'active')
-            .reduce<Record<string, ScheduleTechnician>>((accumulator, technician) => {
-                accumulator[technician.id] = {
-                    id: technician.id,
-                    full_name: technician.full_name || null,
-                    email: technician.email || null,
-                    auth_user_id: technician.auth_user_id || null,
-                };
-                return accumulator;
-            }, {});
+        if (error) {
+            setTechniciansById({});
+            setMessage(`Scheduled slots loaded, but technician names could not be loaded: ${error.message}. Management RPC also failed: ${rpcResult.error.message}`);
+            return;
+        }
 
-        setTechniciansById(technicians);
+        setTechniciansById(buildTechnicianLookup(data));
     }
 
     async function loadScheduleSlots(companyIdToLoad: string) {
@@ -229,25 +232,44 @@ export default function ScheduleBoardScreen() {
                                     </Text>
                                 </View>
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                                    {group.slots.map((slot) => (
-                                        <ThemedCard key={slot.id} style={{ flexBasis: 260, flexGrow: 1, minHeight: 150 }}>
-                                            <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
-                                                {formatLabel(slot.priority)}
-                                            </Text>
-                                            <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }} numberOfLines={1}>
-                                                {getTechnicianName(techniciansById[slot.technician_company_user_id])}
-                                            </Text>
-                                            <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '800' }}>
-                                                {formatDateTime(slot.start_at)} - {formatTime(slot.end_at)}
-                                            </Text>
-                                            <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
-                                                {formatLabel(slot.status)} / {slot.estimated_duration_minutes || 0} min
-                                            </Text>
-                                            <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
-                                                Request {slot.service_request_id ? shortId(slot.service_request_id) : 'not linked'} / Job {slot.job_id ? shortId(slot.job_id) : 'not created'}
-                                            </Text>
-                                        </ThemedCard>
-                                    ))}
+                                    {group.slots.map((slot) => {
+                                        const technician = techniciansById[slot.technician_company_user_id];
+                                        const technicianLabel = technician
+                                            ? getTechnicianName(technician)
+                                            : slot.technician_company_user_id
+                                                ? 'Technician not found'
+                                                : 'No technician assigned';
+
+                                        return (
+                                            <ThemedCard key={slot.id} style={{ flexBasis: 260, flexGrow: 1, minHeight: 150 }}>
+                                                <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
+                                                    {formatLabel(slot.priority)}
+                                                </Text>
+                                                <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }} numberOfLines={1}>
+                                                    {technicianLabel}
+                                                </Text>
+                                                {!!technician?.email && (
+                                                    <Text style={{ color: theme.colors.mutedText, marginTop: 2, fontWeight: '800' }} numberOfLines={1}>
+                                                        {technician.email}
+                                                    </Text>
+                                                )}
+                                                <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '800' }}>
+                                                    {formatDateTime(slot.start_at)} - {formatTime(slot.end_at)}
+                                                </Text>
+                                                <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
+                                                    {formatLabel(slot.status)} / {slot.estimated_duration_minutes || 0} min
+                                                </Text>
+                                                <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
+                                                    Request {slot.service_request_id ? shortId(slot.service_request_id) : 'not linked'} / Job {slot.job_id ? shortId(slot.job_id) : 'not created'}
+                                                </Text>
+                                                {!technician && (
+                                                    <Text style={{ color: theme.colors.mutedText, marginTop: 4, fontWeight: '800' }}>
+                                                        Slot {shortId(slot.id)} / Tech ID {slot.technician_company_user_id ? shortId(slot.technician_company_user_id) : 'none'}
+                                                    </Text>
+                                                )}
+                                            </ThemedCard>
+                                        );
+                                    })}
                                 </View>
                             </View>
                         ))}
@@ -325,6 +347,38 @@ function normalizeStatus(value?: string | null) {
     return String(value || '').trim().toLowerCase();
 }
 
+function buildTechnicianLookup(data: unknown) {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                full_name: readStringField(record, 'full_name'),
+                email: readStringField(record, 'email'),
+                auth_user_id: readStringField(record, 'auth_user_id'),
+                role: readStringField(record, 'role'),
+                status: readStringField(record, 'status'),
+            };
+        })
+        .filter((technician) => technician.id && normalizeStatus(technician.status) === 'active')
+        .reduce<Record<string, ScheduleTechnician>>((accumulator, technician) => {
+            accumulator[technician.id] = {
+                id: technician.id,
+                full_name: technician.full_name,
+                email: technician.email,
+                auth_user_id: technician.auth_user_id,
+            };
+            return accumulator;
+        }, {});
+}
+
+function readStringField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
 function formatLabel(value?: string | null) {
     return String(value || 'unknown')
         .trim()
@@ -368,7 +422,7 @@ function shortId(value: string) {
 }
 
 function getTechnicianName(technician?: ScheduleTechnician) {
-    if (!technician) return 'Unassigned technician';
+    if (!technician) return 'No technician assigned';
 
     return technician.full_name || technician.email || `Technician ${shortId(technician.auth_user_id || technician.id)}`;
 }

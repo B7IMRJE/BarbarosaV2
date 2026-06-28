@@ -341,7 +341,7 @@ export default function DispatchBoardScreen() {
         const startAt = parseLocalDateTime(form.date, form.startTime);
 
         if (!form.technicianCompanyUserId) {
-            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Choose an active technician first.' }));
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Pick a technician.' }));
             return;
         }
 
@@ -813,6 +813,11 @@ function DispatchRequestCard({
                         <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                             Technician: {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Not selected'}
                         </Text>
+                        {!!selectedTechnician && (
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                Selected technician ID: {shortId(selectedTechnician.id)}
+                            </Text>
+                        )}
                         <TextInput
                             value={scheduleForm.technicianSearch}
                             onChangeText={(technicianSearchText) => onUpdateScheduleForm({ technicianSearch: technicianSearchText })}
@@ -831,18 +836,18 @@ function DispatchRequestCard({
                         ) : (
                             <View style={technicianPickerStyle}>
                                 {visibleTechnicians.slice(0, 6).map((technician) => {
-                                const selected = scheduleForm.technicianCompanyUserId === technician.id;
+                                    const selected = scheduleForm.technicianCompanyUserId === technician.id;
 
-                                return (
-                                    <ThemedButton
-                                        key={technician.id}
-                                        title={`${getMemberDisplayName(technician)}${technician.email ? ` / ${technician.email}` : ''}`}
-                                        variant={selected ? 'primary' : 'secondary'}
-                                        onPress={() => onUpdateScheduleForm({ technicianCompanyUserId: technician.id })}
-                                        style={technicianButtonStyle}
-                                        textStyle={{ fontSize: 12 }}
-                                    />
-                                );
+                                    return (
+                                        <ThemedButton
+                                            key={technician.id}
+                                            title={`${getMemberDisplayName(technician)}${technician.email ? ` / ${technician.email}` : ''}`}
+                                            variant={selected ? 'primary' : 'secondary'}
+                                            onPress={() => onUpdateScheduleForm({ technicianCompanyUserId: technician.id })}
+                                            style={technicianButtonStyle}
+                                            textStyle={{ fontSize: 12 }}
+                                        />
+                                    );
                                 })}
                             </View>
                         )}
@@ -859,24 +864,6 @@ function DispatchRequestCard({
                             value={scheduleForm.startTime}
                             placeholder="HH:MM"
                             onChangeText={(startTime) => onUpdateScheduleForm({ startTime })}
-                        />
-                        <ScheduleInput
-                            label="Duration"
-                            value={scheduleForm.durationMinutes}
-                            placeholder="60"
-                            onChangeText={(durationMinutes) => onUpdateScheduleForm({ durationMinutes })}
-                        />
-                        <ScheduleInput
-                            label="Window Start"
-                            value={scheduleForm.arrivalWindowStart}
-                            placeholder="HH:MM"
-                            onChangeText={(arrivalWindowStart) => onUpdateScheduleForm({ arrivalWindowStart })}
-                        />
-                        <ScheduleInput
-                            label="Window End"
-                            value={scheduleForm.arrivalWindowEnd}
-                            placeholder="HH:MM"
-                            onChangeText={(arrivalWindowEnd) => onUpdateScheduleForm({ arrivalWindowEnd })}
                         />
                         <ScheduleInput
                             label="Notes"
@@ -905,19 +892,46 @@ function DispatchRequestCard({
                             textStyle={{ fontSize: 12 }}
                         />
                         <ThemedButton
-                            title="8:00 AM"
+                            title="+2 Days"
                             variant="secondary"
-                            onPress={() => onUpdateScheduleForm({ startTime: '08:00' })}
+                            onPress={() => {
+                                const date = new Date();
+                                date.setDate(date.getDate() + 2);
+                                onUpdateScheduleForm({ date: formatDateInput(date) });
+                            }}
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
                         />
-                        <ThemedButton
-                            title="+30 Min"
-                            variant="secondary"
-                            onPress={() => onUpdateScheduleForm({ startTime: addMinutesToTime(scheduleForm.startTime, 30) })}
-                            style={compactActionButtonStyle}
-                            textStyle={{ fontSize: 12 }}
-                        />
+                    </View>
+                    <View style={compactActionRowStyle}>
+                        {[
+                            ['8:00 AM', '08:00'],
+                            ['10:00 AM', '10:00'],
+                            ['12:00 PM', '12:00'],
+                            ['2:00 PM', '14:00'],
+                            ['4:00 PM', '16:00'],
+                        ].map(([label, startTime]) => (
+                            <ThemedButton
+                                key={startTime}
+                                title={label}
+                                variant={scheduleForm.startTime === startTime ? 'primary' : 'secondary'}
+                                onPress={() => onUpdateScheduleForm({ startTime })}
+                                style={compactActionButtonStyle}
+                                textStyle={{ fontSize: 12 }}
+                            />
+                        ))}
+                    </View>
+                    <View style={compactActionRowStyle}>
+                        {['30', '60', '90', '120'].map((durationMinutes) => (
+                            <ThemedButton
+                                key={durationMinutes}
+                                title={`${durationMinutes} min`}
+                                variant={scheduleForm.durationMinutes === durationMinutes ? 'primary' : 'secondary'}
+                                onPress={() => onUpdateScheduleForm({ durationMinutes })}
+                                style={compactActionButtonStyle}
+                                textStyle={{ fontSize: 12 }}
+                            />
+                        ))}
                     </View>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Scheduled window: {scheduledPreview}
@@ -1234,16 +1248,6 @@ function formatDateInput(date: Date) {
 
 function formatTimeInput(date: Date) {
     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-
-function addMinutesToTime(timeText: string, minutesToAdd: number) {
-    const parsed = parseLocalDateTime(formatDateInput(new Date()), timeText);
-
-    if (!parsed) return formatTimeInput(getNextScheduleStart());
-
-    parsed.setMinutes(parsed.getMinutes() + minutesToAdd);
-
-    return formatTimeInput(parsed);
 }
 
 function getSchedulePreview(form: ScheduleRequestForm) {
