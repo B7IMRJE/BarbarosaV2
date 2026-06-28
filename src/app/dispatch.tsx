@@ -144,7 +144,7 @@ export default function DispatchBoardScreen() {
             setLoading(false);
             setMessage(
                 requestedCompanyId
-                    ? 'Dispatch Board is available to company dispatchers, office staff, managers, admins, owners, and platform admins.'
+                    ? 'You do not have Dispatch access for this company.'
                     : 'Choose a company before opening the Dispatch Board as a platform admin.'
             );
             return;
@@ -489,19 +489,7 @@ function DispatchRequestCard({
 }
 
 async function resolveDispatchCompanyAccess(userId: string, requestedCompanyId: string) {
-    const platformQuery = await supabase
-        .from('profiles')
-        .select('role, is_platform_admin')
-        .eq('id', userId)
-        .maybeSingle();
-
-    if (platformQuery.error) {
-        throw new Error(platformQuery.error.message);
-    }
-
-    const profile = (platformQuery.data || {}) as { role?: string | null; is_platform_admin?: boolean | null };
-    const isPlatformAdmin =
-        String(profile.role || '').trim().toUpperCase() === 'SUPER_ADMIN' || profile.is_platform_admin === true;
+    const isPlatformAdmin = await loadDispatchPlatformAdminStatus(userId);
 
     if (isPlatformAdmin && requestedCompanyId) {
         return {
@@ -540,6 +528,26 @@ async function resolveDispatchCompanyAccess(userId: string, requestedCompanyId: 
         }) || null;
 
     return access;
+}
+
+async function loadDispatchPlatformAdminStatus(userId: string) {
+    const rpcResult = await supabase.rpc('homeos_is_platform_admin');
+
+    if (!rpcResult.error) {
+        return rpcResult.data === true;
+    }
+
+    const fallbackQuery = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (fallbackQuery.error) {
+        throw new Error(fallbackQuery.error.message);
+    }
+
+    return String(fallbackQuery.data?.role || '').trim().toUpperCase() === 'SUPER_ADMIN';
 }
 
 function firstParam(value?: string | string[]) {
