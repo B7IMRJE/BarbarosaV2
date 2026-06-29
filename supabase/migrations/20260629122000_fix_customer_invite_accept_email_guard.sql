@@ -3,6 +3,7 @@
 -- Fixes:
 -- - Use the insert alias in RETURNING: property_connection.id.
 -- - Guard accepted invites by invited_email when present.
+-- - Match the live function variable conflict behavior and explicit return aliases.
 
 create or replace function public.accept_customer_invite_by_code(
     p_invite_code text,
@@ -19,7 +20,8 @@ returns table (
 language plpgsql
 security definer
 set search_path = pg_catalog, public, pg_temp
-as $$
+as $function$
+#variable_conflict use_column
 declare
     v_invitation public.company_customer_invitations%rowtype;
     v_connection_id uuid;
@@ -179,14 +181,14 @@ begin
 
     return query
     select
-        v_invitation.id,
-        v_invitation.company_id,
-        p_property_id,
-        v_client_id,
-        v_connection_id,
-        'accepted'::text;
+        v_invitation.id as invitation_id,
+        v_invitation.company_id as company_id,
+        p_property_id as property_id,
+        v_client_id as company_property_client_id,
+        v_connection_id as property_connection_id,
+        'accepted'::text as status;
 end;
-$$;
+$function$;
 
 revoke all on function public.accept_customer_invite_by_code(text, uuid) from public;
 revoke all on function public.accept_customer_invite_by_code(text, uuid) from anon;
