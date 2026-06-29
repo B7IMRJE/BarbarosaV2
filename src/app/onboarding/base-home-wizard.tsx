@@ -12,8 +12,10 @@ import {
     buildAreaRow,
     duplicateKey,
     existingDuplicateKeys,
+    makeSlug,
     type ExistingAreaItem,
     type HomeItemInsert,
+    type StarterItemCategory,
 } from '../../lib/areaTemplates';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -25,6 +27,17 @@ type YesNoNotSure = 'yes' | 'no' | 'not_sure';
 type StarterArea = {
     name: string;
     system: string;
+    starterItems: StarterCard[];
+};
+
+type StarterCard = {
+    name: string;
+    system: string;
+    category: StarterItemCategory;
+};
+
+type ExistingWizardItem = ExistingAreaItem & {
+    item_slug?: string | null;
 };
 
 const bathroomOptions: BathroomCount[] = ['1', '2', '3', '4+'];
@@ -93,7 +106,7 @@ export default function BaseHomeWizardScreen() {
 
         const { data: existingRows, error: existingError } = await supabase
             .from('home_items')
-            .select('name, system, category, location, parent_area')
+            .select('name, system, category, location, parent_area, item_slug')
             .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 
@@ -103,17 +116,41 @@ export default function BaseHomeWizardScreen() {
             return;
         }
 
-        const existingItems = (existingRows || []) as ExistingAreaItem[];
+        const existingItems = (existingRows || []) as ExistingWizardItem[];
         const existingKeys = existingDuplicateKeys(existingItems);
+        const existingSlugs = new Set(
+            existingItems
+                .map((item) => normalizeSlug(item.item_slug))
+                .filter((itemSlug) => itemSlug.length > 0)
+        );
         const rowsToInsert: HomeItemInsert[] = [];
 
         for (const area of starterAreas) {
             const areaRow = buildAreaRow(activeProperty.userId, activeProperty.propertyId, area.name, area.system);
             const areaKey = duplicateKey(areaRow.system, area.name, area.name);
+            const areaSlug = normalizeSlug(areaRow.item_slug);
 
-            if (!existingKeys.has(areaKey)) {
+            if (!existingKeys.has(areaKey) && !existingSlugs.has(areaSlug)) {
                 rowsToInsert.push(areaRow);
                 existingKeys.add(areaKey);
+                existingSlugs.add(areaSlug);
+            }
+
+            for (const starterItem of area.starterItems) {
+                const itemRow = buildStarterItemRow(
+                    activeProperty.userId,
+                    activeProperty.propertyId,
+                    area.name,
+                    starterItem
+                );
+                const itemKey = duplicateKey(itemRow.system, area.name, itemRow.name);
+                const itemSlug = normalizeSlug(itemRow.item_slug);
+
+                if (!existingKeys.has(itemKey) && !existingSlugs.has(itemSlug)) {
+                    rowsToInsert.push(itemRow);
+                    existingKeys.add(itemKey);
+                    existingSlugs.add(itemSlug);
+                }
             }
         }
 
@@ -130,8 +167,8 @@ export default function BaseHomeWizardScreen() {
         setSaving(false);
         setMessage(
             rowsToInsert.length > 0
-                ? `Created ${rowsToInsert.length} starter area${rowsToInsert.length === 1 ? '' : 's'} marked Missing Information.`
-                : 'Your starter areas already exist. Nothing new was created.'
+                ? `Created ${rowsToInsert.length} starter card${rowsToInsert.length === 1 ? '' : 's'} marked Missing Information.`
+                : 'Your starter cards already exist. Nothing new was created.'
         );
     }
 
@@ -153,7 +190,7 @@ export default function BaseHomeWizardScreen() {
                         marginBottom: scaleIcon(18),
                     }}
                 >
-                    Answer a few simple questions. HomeOS will create starter areas as Missing Information so you can confirm details later.
+                    Answer a few simple questions. HomeOS will create starter cards as Missing Information so you can confirm details later.
                 </Text>
 
                 <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
@@ -205,10 +242,10 @@ export default function BaseHomeWizardScreen() {
 
                 <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
                     <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
-                        Starter areas to create
+                        Starter cards to create
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), lineHeight: scaleFont(20) }}>
-                        These are area cards only. No photos, documents, or confirmed equipment details will be generated.
+                        These cards are not confirmed details. No photos, documents, or installed equipment confirmations will be generated.
                     </Text>
 
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginTop: scaleIcon(12) }}>
@@ -226,7 +263,7 @@ export default function BaseHomeWizardScreen() {
                                     paddingVertical: scaleIcon(8),
                                 }}
                             >
-                                {area.name}
+                                {area.name} + {area.starterItems.length} item{area.starterItems.length === 1 ? '' : 's'}
                             </Text>
                         ))}
                     </View>
@@ -356,22 +393,22 @@ function buildStarterAreaPlan({
 }) {
     const areas: StarterArea[] = [];
 
-    if (hasKitchen === 'yes') areas.push({ name: 'Kitchen', system: 'Plumbing' });
+    if (hasKitchen === 'yes') areas.push(area('Kitchen', 'Plumbing', kitchenStarterCards()));
 
     for (let index = 1; index <= bathroomCountToNumber(bathrooms); index += 1) {
-        areas.push({ name: index === 1 ? 'Bathroom 1' : `Bathroom ${index}`, system: 'Plumbing' });
+        areas.push(area(index === 1 ? 'Bathroom 1' : `Bathroom ${index}`, 'Plumbing', bathroomStarterCards()));
     }
 
-    if (hasLaundry === 'yes') areas.push({ name: 'Laundry', system: 'Plumbing' });
-    if (hasGarage === 'yes') areas.push({ name: 'Garage', system: 'Plumbing' });
+    if (hasLaundry === 'yes') areas.push(area('Laundry', 'Plumbing', laundryStarterCards()));
+    if (hasGarage === 'yes') areas.push(area('Garage', 'Plumbing', garageMechanicalStarterCards(hasWaterHeater)));
 
     if (hasWaterHeater !== 'no' || hasHvac !== 'no') {
-        areas.push({ name: 'Mechanical Area', system: hasHvac !== 'no' ? 'HVAC' : 'Plumbing' });
+        areas.push(area('Mechanical Area', hasHvac !== 'no' ? 'HVAC' : 'Plumbing', mechanicalStarterCards(hasWaterHeater, hasHvac)));
     }
 
-    if (hasFrontYard === 'yes') areas.push({ name: 'Front Yard', system: 'Exterior' });
-    if (hasBackYard === 'yes') areas.push({ name: 'Back Yard', system: 'Exterior' });
-    if (hasPool === 'yes') areas.push({ name: 'Pool Area', system: 'Pool' });
+    if (hasFrontYard === 'yes') areas.push(area('Front Yard', 'Exterior', exteriorStarterCards('front')));
+    if (hasBackYard === 'yes') areas.push(area('Back Yard', 'Exterior', exteriorStarterCards('back')));
+    if (hasPool === 'yes') areas.push(area('Pool Area', 'Pool', poolStarterCards()));
 
     return areas;
 }
@@ -379,4 +416,140 @@ function buildStarterAreaPlan({
 function bathroomCountToNumber(value: BathroomCount) {
     if (value === '4+') return 4;
     return Number(value);
+}
+
+function area(name: string, system: string, starterItems: StarterCard[]): StarterArea {
+    return { name, system, starterItems };
+}
+
+function starterItem(name: string, system: string, category: StarterItemCategory): StarterCard {
+    return { name, system, category };
+}
+
+function kitchenStarterCards(): StarterCard[] {
+    return [
+        starterItem('Kitchen Faucet', 'Plumbing', 'Fixture'),
+        starterItem('Kitchen Sink', 'Plumbing', 'Fixture'),
+        starterItem('Garbage Disposal', 'Plumbing', 'Equipment'),
+        starterItem('Dishwasher', 'Appliances', 'Equipment'),
+        starterItem('Dishwasher Supply Line', 'Plumbing', 'Component'),
+        starterItem('Dishwasher Drain Line', 'Drains / Sewer', 'Component'),
+        starterItem('Air Gap', 'Plumbing', 'Component'),
+        starterItem('Kitchen Drain / P-Trap', 'Drains / Sewer', 'Fixture'),
+        starterItem('Kitchen Angle Stops', 'Plumbing', 'Component'),
+        starterItem('Refrigerator Water Line', 'Plumbing', 'Component'),
+        starterItem('Stove / Range', 'Appliances', 'Equipment'),
+        starterItem('Kitchen GFCI / Outlets', 'Electrical', 'Fixture'),
+    ];
+}
+
+function bathroomStarterCards(): StarterCard[] {
+    return [
+        starterItem('Bathroom Sink / Faucet', 'Plumbing', 'Fixture'),
+        starterItem('Toilet', 'Plumbing', 'Fixture'),
+        starterItem('Shower / Tub', 'Plumbing', 'Fixture'),
+        starterItem('Bathroom Drain', 'Drains / Sewer', 'Fixture'),
+        starterItem('Bathroom Angle Stops', 'Plumbing', 'Component'),
+        starterItem('Bathroom GFCI / Outlets', 'Electrical', 'Fixture'),
+    ];
+}
+
+function laundryStarterCards(): StarterCard[] {
+    return [
+        starterItem('Washer Valves', 'Plumbing', 'Fixture'),
+        starterItem('Washer Drain', 'Drains / Sewer', 'Fixture'),
+        starterItem('Dryer Vent', 'Appliances', 'Component'),
+        starterItem('Laundry Sink', 'Plumbing', 'Fixture'),
+    ];
+}
+
+function garageMechanicalStarterCards(hasWaterHeater: YesNoNotSure): StarterCard[] {
+    if (hasWaterHeater === 'no') {
+        return [
+            starterItem('Main Water Shutoff', 'Plumbing', 'Equipment'),
+            starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment'),
+            starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment'),
+        ];
+    }
+
+    return [
+        starterItem('Water Heater', 'Plumbing', 'Equipment'),
+        starterItem('Expansion Tank', 'Plumbing', 'Equipment'),
+        starterItem('T&P Valve', 'Plumbing', 'Component'),
+        starterItem('Water Heater Drain Pan', 'Plumbing', 'Component'),
+        starterItem('Main Water Shutoff', 'Plumbing', 'Equipment'),
+        starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment'),
+        starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment'),
+    ];
+}
+
+function mechanicalStarterCards(hasWaterHeater: YesNoNotSure, hasHvac: YesNoNotSure): StarterCard[] {
+    const cards: StarterCard[] = [];
+
+    if (hasWaterHeater !== 'no') {
+        cards.push(
+            starterItem('Water Heater', 'Plumbing', 'Equipment'),
+            starterItem('Expansion Tank', 'Plumbing', 'Equipment'),
+            starterItem('T&P Valve', 'Plumbing', 'Component'),
+            starterItem('Water Heater Drain Pan', 'Plumbing', 'Component'),
+            starterItem('Main Water Shutoff', 'Plumbing', 'Equipment'),
+            starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment'),
+            starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment')
+        );
+    }
+
+    if (hasHvac !== 'no') {
+        cards.push(
+            starterItem('HVAC System', 'HVAC', 'Equipment'),
+            starterItem('Air Filter', 'HVAC', 'Component'),
+            starterItem('Condensate Drain', 'HVAC', 'Component'),
+            starterItem('Safety Switch / Float Switch', 'HVAC', 'Component'),
+            starterItem('Coil / Air Handler', 'HVAC', 'Equipment')
+        );
+    }
+
+    return cards;
+}
+
+function exteriorStarterCards(yard: 'front' | 'back'): StarterCard[] {
+    const yardLabel = yard === 'front' ? 'Front Yard' : 'Back Yard';
+
+    return [
+        starterItem(`${yardLabel} Hose Bibbs`, 'Exterior', 'Fixture'),
+        starterItem(`${yardLabel} Main Cleanout`, 'Exterior', 'Fixture'),
+        starterItem(`Irrigation ${yardLabel}`, 'Exterior', 'Equipment'),
+    ];
+}
+
+function poolStarterCards(): StarterCard[] {
+    return [
+        starterItem('Pool Equipment', 'Pool', 'Equipment'),
+        starterItem('Pool Pump', 'Pool', 'Equipment'),
+        starterItem('Pool Filter', 'Pool', 'Equipment'),
+    ];
+}
+
+function buildStarterItemRow(
+    userId: string,
+    propertyId: string,
+    areaName: string,
+    starterCard: StarterCard
+): HomeItemInsert {
+    return {
+        user_id: userId,
+        property_id: propertyId,
+        item_slug: makeSlug(`${areaName}-${starterCard.name}`),
+        name: starterCard.name,
+        system: starterCard.system,
+        category: starterCard.category,
+        location: areaName,
+        parent_area: '',
+        status: 'Missing Information',
+        install_state: 'Unknown',
+        archived: false,
+    };
+}
+
+function normalizeSlug(value?: string | null) {
+    return String(value || '').trim().toLowerCase();
 }
