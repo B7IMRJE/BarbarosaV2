@@ -101,6 +101,7 @@ export default function HomeScreen() {
     scaleIcon(118),
     Math.min(scaleIcon(156), (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns)
   );
+  const actionTileSize = Math.max(scaleIcon(188), Math.min(scaleIcon(210), healthTileSize + scaleIcon(54)));
   const [homeIdentity, setHomeIdentity] = useState<HomeIdentity | null>(null);
   const [homeIdentityLoading, setHomeIdentityLoading] = useState(true);
   const [homeItems, setHomeItems] = useState<HomeDashboardItem[]>([]);
@@ -119,6 +120,7 @@ export default function HomeScreen() {
   const [serviceRequestNoteById, setServiceRequestNoteById] = useState<Record<string, string>>({});
   const [serviceRequestActionId, setServiceRequestActionId] = useState<string | null>(null);
   const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
+  const [showServiceRequestForm, setShowServiceRequestForm] = useState(false);
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
@@ -743,7 +745,14 @@ export default function HomeScreen() {
               No issues reported.
             </Text>
           ) : (
-            <View style={{ gap: 12 }}>
+            <View
+              style={{
+                flexDirection: 'row',
+                flexWrap: 'wrap',
+                gap: scaleIcon(12),
+                justifyContent: 'center',
+              }}
+            >
               {issueItems.map(({ item, health }) => {
                 const itemSlug = firstText(item.item_slug);
                 const isCritical = health.status === 'critical';
@@ -752,6 +761,8 @@ export default function HomeScreen() {
                   <View
                     key={item.id || itemSlug || issueItemName(item)}
                     style={{
+                      width: healthTileSize,
+                      minHeight: healthTileSize,
                       borderWidth: 1,
                       borderColor: isCritical
                         ? theme.colors.status.activeEmergency.border
@@ -834,6 +845,7 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
+              { width: actionTileSize, minHeight: actionTileSize },
               {
                 borderColor: theme.colors.status.activeEmergency.border,
                 backgroundColor: theme.colors.status.activeEmergency.background,
@@ -870,7 +882,7 @@ export default function HomeScreen() {
             />
           </ThemedCard>
 
-          <ThemedCard style={actionCardStyle}>
+          <ThemedCard style={[actionCardStyle, { width: actionTileSize, minHeight: actionTileSize }]}>
             <Text
               style={{
                 fontSize: scaleFont(18),
@@ -902,7 +914,7 @@ export default function HomeScreen() {
             />
           </ThemedCard>
 
-          <ThemedCard style={actionCardStyle}>
+          <ThemedCard style={[actionCardStyle, { width: actionTileSize, minHeight: actionTileSize }]}>
             <Text
               style={{
                 fontSize: scaleFont(18),
@@ -934,7 +946,7 @@ export default function HomeScreen() {
             />
           </ThemedCard>
 
-          <ThemedCard style={actionCardStyle}>
+          <ThemedCard style={[actionCardStyle, { width: actionTileSize, minHeight: actionTileSize }]}>
             <Text
               style={{
                 fontSize: scaleFont(18),
@@ -943,7 +955,7 @@ export default function HomeScreen() {
                 marginBottom: scaleIcon(8),
               }}
             >
-              Request Professional Help
+              Request Service
             </Text>
 
             <Text
@@ -954,30 +966,31 @@ export default function HomeScreen() {
                 marginBottom: scaleIcon(14),
               }}
             >
-              Request support from a trusted home service professional.
+              Open a regular or emergency service request with your selected provider.
             </Text>
 
             <ThemedButton
-              title="Request Professional Help"
-              onPress={handleCreateServiceRequest}
-              disabled={submittingServiceRequest || !preferredProvider}
+              title={showServiceRequestForm ? 'Hide Request Form' : 'Open Request Form'}
+              onPress={() => setShowServiceRequestForm((current) => !current)}
+              disabled={submittingServiceRequest}
               style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
               textStyle={{ fontSize: scaleFont(14) }}
             />
           </ThemedCard>
         </View>
 
-        <ThemedCard style={{ marginTop: scaleIcon(18) }}>
-          <Text
-            style={{
-              fontSize: scaleFont(20),
-              fontWeight: '900',
-              color: theme.colors.text,
-              marginBottom: scaleIcon(8),
-            }}
-          >
-            Request Service
-          </Text>
+        {showServiceRequestForm && (
+          <ThemedCard style={{ marginTop: scaleIcon(18) }}>
+            <Text
+              style={{
+                fontSize: scaleFont(20),
+                fontWeight: '900',
+                color: theme.colors.text,
+                marginBottom: scaleIcon(8),
+              }}
+            >
+              Request Service
+            </Text>
 
           <Text
             style={{
@@ -1183,7 +1196,8 @@ export default function HomeScreen() {
               })}
             </View>
           )}
-        </ThemedCard>
+          </ThemedCard>
+        )}
 
       </View>
     </ScrollView>
@@ -1208,15 +1222,13 @@ const actionCardGridStyle = {
   flexDirection: 'row' as const,
   flexWrap: 'wrap' as const,
   alignItems: 'stretch' as const,
+  justifyContent: 'center' as const,
   gap: 12,
   marginTop: 18,
 };
 
 const actionCardStyle = {
-  flexGrow: 1,
-  flexBasis: 200,
-  minWidth: 200,
-  minHeight: 220,
+  flexShrink: 0,
 };
 
 const healthBreakdownGridStyle = {
