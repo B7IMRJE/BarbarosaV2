@@ -1,165 +1,12 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import {
-    ActivityIndicator,
-    Image,
-    Linking,
-    ScrollView,
-    Text,
-    TouchableOpacity,
-    View,
-} from 'react-native';
+import { router } from 'expo-router';
+import { ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
+import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import {
-    activePropertyErrorMessage,
-    isActivePropertyResolutionError,
-    requireActivePropertyMembership,
-} from '../../lib/activeProperty';
-import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
-
-type MaintenanceRecord = {
-    id: string;
-    user_id: string;
-    property_id: string;
-    system: string | null;
-    area: string | null;
-    item_id: string | null;
-    title: string;
-    description: string | null;
-    service_date: string | null;
-    next_service_date: string | null;
-    photo_urls: string[] | null;
-    document_urls: string[] | null;
-    created_at: string;
-    updated_at: string | null;
-};
-
-type HomeItem = {
-    id: string;
-    name: string;
-};
-
-function formatDate(value?: string | null) {
-    if (!value) return 'Not set';
-    return new Date(`${value}T00:00:00`).toLocaleDateString();
-}
-
-function normalizeUrls(value: string[] | null) {
-    return Array.isArray(value) ? value : [];
-}
 
 export default function MaintenanceDetailScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
-    const { id } = useLocalSearchParams<{ id: string }>();
-    const [record, setRecord] = useState<MaintenanceRecord | null>(null);
-    const [item, setItem] = useState<HomeItem | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [message, setMessage] = useState('');
-
-    useEffect(() => {
-        loadRecord();
-    }, [id]);
-
-    async function loadRecord() {
-        setLoading(true);
-        setMessage('');
-
-        let activeProperty;
-
-        try {
-            activeProperty = await requireActivePropertyMembership();
-        } catch (error) {
-            setMessage(activePropertyErrorMessage(error));
-            setRecord(null);
-            setLoading(false);
-
-            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
-                router.replace('/auth/login' as any);
-            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
-                router.replace('/onboarding/create-home' as any);
-            }
-
-            return;
-        }
-
-        const { data, error } = await supabase
-            .from('maintenance_records')
-            .select('*')
-            .eq('id', String(id))
-            .eq('property_id', activeProperty.propertyId)
-            .maybeSingle();
-
-        if (error) {
-            setMessage(`Could not load maintenance record: ${error.message}`);
-            setRecord(null);
-            setLoading(false);
-            return;
-        }
-
-        if (!data) {
-            setMessage('Maintenance record not found.');
-            setRecord(null);
-            setLoading(false);
-            return;
-        }
-
-        const nextRecord = data as MaintenanceRecord;
-        setRecord(nextRecord);
-
-        if (nextRecord.item_id) {
-            const { data: itemData } = await supabase
-                .from('home_items')
-                .select('id, name')
-                .eq('id', nextRecord.item_id)
-                .eq('property_id', activeProperty.propertyId)
-                .maybeSingle();
-
-            setItem((itemData as HomeItem | null) || null);
-        }
-
-        setLoading(false);
-    }
-
-    if (loading) {
-        return (
-            <View
-                style={{
-                    flex: 1,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: theme.colors.background,
-                }}
-            >
-                <ActivityIndicator size="large" />
-            </View>
-        );
-    }
-
-    if (!record) {
-        return (
-            <ScrollView
-                style={{ flex: 1, backgroundColor: theme.colors.background }}
-                contentContainerStyle={{ padding: scaleIcon(20), alignItems: 'center' }}
-            >
-                <View style={{ width: '100%', maxWidth: 900 }}>
-                    <HomeHeader />
-                    <ThemedCard>
-                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
-                            Maintenance record unavailable
-                        </Text>
-                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
-                            {message || 'This record could not be loaded.'}
-                        </Text>
-                    </ThemedCard>
-                </View>
-            </ScrollView>
-        );
-    }
-
-    const photos = normalizeUrls(record.photo_urls);
-    const documents = normalizeUrls(record.document_urls);
 
     return (
         <ScrollView
@@ -170,97 +17,33 @@ export default function MaintenanceDetailScreen() {
                 <HomeHeader />
 
                 <Text style={{ color: theme.colors.text, fontSize: scaleFont(34), fontWeight: '900' }}>
-                    {record.title}
+                    Maintenance Record Unavailable
                 </Text>
-                <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), marginBottom: scaleIcon(18), lineHeight: scaleFont(22) }}>
-                    Maintenance history for this home.
+                <Text
+                    style={{
+                        color: theme.colors.mutedText,
+                        marginTop: scaleIcon(8),
+                        marginBottom: scaleIcon(20),
+                        lineHeight: scaleFont(22),
+                    }}
+                >
+                    Historical maintenance records are not enabled yet. Maintenance reminders still work from item pages.
                 </Text>
 
                 <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
-                    <DetailRow label="System" value={record.system || 'Unknown'} />
-                    <DetailRow label="Area" value={record.area || 'Unknown'} />
-                    <DetailRow label="Item" value={item?.name || (record.item_id ? 'Linked item' : 'None')} />
-                    <DetailRow label="Service Date" value={formatDate(record.service_date)} />
-                    <DetailRow label="Next Service Date" value={formatDate(record.next_service_date)} />
-
-                    <Text style={{ color: theme.colors.mutedText, fontWeight: '900', marginTop: scaleIcon(16) }}>
-                        Description
-                    </Text>
-                    <Text style={{ color: theme.colors.text, lineHeight: scaleFont(22), marginTop: scaleIcon(6) }}>
-                        {record.description || 'No description provided.'}
-                    </Text>
-                </ThemedCard>
-
-                <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
                     <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
-                        Photos
+                        Use item reminders for now
                     </Text>
-                    {photos.length === 0 ? (
-                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
-                            No photos attached.
-                        </Text>
-                    ) : (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10), marginTop: scaleIcon(12) }}>
-                            {photos.map((photoUrl) => (
-                                <Image
-                                    key={photoUrl}
-                                    source={{ uri: photoUrl }}
-                                    style={{
-                                        width: scaleIcon(110),
-                                        height: scaleIcon(110),
-                                        borderRadius: scaleIcon(14),
-                                        backgroundColor: theme.colors.surfaceAlt,
-                                    }}
-                                />
-                            ))}
-                        </View>
-                    )}
+                    <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), lineHeight: scaleFont(20) }}>
+                        Open the Maintenance Center to view active reminders, or open an item to add presets and custom reminder schedules.
+                    </Text>
                 </ThemedCard>
 
-                <ThemedCard>
-                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
-                        Documents
-                    </Text>
-                    {documents.length === 0 ? (
-                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
-                            No documents attached.
-                        </Text>
-                    ) : (
-                        <View style={{ gap: scaleIcon(10), marginTop: scaleIcon(12) }}>
-                            {documents.map((documentUrl, index) => (
-                                <TouchableOpacity
-                                    key={documentUrl}
-                                    onPress={() => Linking.openURL(documentUrl)}
-                                    style={{
-                                        backgroundColor: theme.colors.surfaceAlt,
-                                        borderRadius: scaleIcon(14),
-                                        padding: scaleIcon(14),
-                                    }}
-                                >
-                                    <Text style={{ color: theme.colors.link, fontWeight: '900' }}>
-                                        Open Document {index + 1}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    )}
-                </ThemedCard>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
+                    <ThemedButton title="Back to Maintenance Center" onPress={() => router.replace('/maintenance')} />
+                    <ThemedButton title="Open Equipment" variant="secondary" onPress={() => router.push('/equipment')} />
+                </View>
             </View>
         </ScrollView>
-    );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
-
-    return (
-        <View style={{ marginBottom: scaleIcon(12) }}>
-            <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>
-                {label}
-            </Text>
-            <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900', marginTop: scaleIcon(4) }}>
-                {value}
-            </Text>
-        </View>
     );
 }

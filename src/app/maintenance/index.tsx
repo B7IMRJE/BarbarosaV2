@@ -19,17 +19,6 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
-type MaintenanceRecord = {
-    id: string;
-    system: string | null;
-    area: string | null;
-    title: string;
-    description: string | null;
-    service_date: string | null;
-    next_service_date: string | null;
-    created_at: string;
-};
-
 type MaintenanceReminder = {
     id: string;
     property_id: string;
@@ -56,11 +45,6 @@ type MaintenanceReminderItem = {
     item_slug: string | null;
 };
 
-function formatDate(value?: string | null) {
-    if (!value) return 'Not set';
-    return new Date(`${value}T00:00:00`).toLocaleDateString();
-}
-
 function logMaintenanceDashboardError(stage: string, error: unknown) {
     const safeError = error as {
         message?: unknown;
@@ -80,7 +64,6 @@ function logMaintenanceDashboardError(stage: string, error: unknown) {
 
 export default function MaintenanceCenterScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
-    const [records, setRecords] = useState<MaintenanceRecord[]>([]);
     const [reminders, setReminders] = useState<MaintenanceReminder[]>([]);
     const [reminderItems, setReminderItems] = useState<Record<string, MaintenanceReminderItem>>({});
     const [loading, setLoading] = useState(true);
@@ -102,7 +85,6 @@ export default function MaintenanceCenterScreen() {
             activeProperty = await requireActivePropertyMembership();
         } catch (error) {
             setMessage(activePropertyErrorMessage(error));
-            setRecords([]);
             setReminders([]);
             setReminderItems({});
             setLoading(false);
@@ -163,21 +145,6 @@ export default function MaintenanceCenterScreen() {
             }
         }
 
-        const { data, error } = await supabase
-            .from('maintenance_records')
-            .select('id, system, area, title, description, service_date, next_service_date, created_at')
-            .eq('property_id', activeProperty.propertyId)
-            .order('service_date', { ascending: false, nullsFirst: false })
-            .order('created_at', { ascending: false });
-
-        if (error) {
-            logMaintenanceDashboardError('load-records', error);
-            setRecords([]);
-            messages.push('Maintenance records could not be loaded. Please try again.');
-        } else {
-            setRecords((data || []) as MaintenanceRecord[]);
-        }
-
         setMessage(messages.join(' '));
         setLoading(false);
     }
@@ -232,12 +199,12 @@ export default function MaintenanceCenterScreen() {
                         marginBottom: scaleIcon(20),
                     }}
                 >
-                    Track homeowner maintenance history, photos, documents, and future service dates.
+                    Track upcoming maintenance reminders from your HomeOS items.
                 </Text>
 
                 <ThemedButton
-                    title="Add Maintenance Record"
-                    onPress={() => router.push('/maintenance/create' as any)}
+                    title="Add Reminder From Item"
+                    onPress={() => setMessage('Open an item, then add a maintenance reminder from that item.')}
                     style={{ marginBottom: scaleIcon(18) }}
                 />
 
@@ -354,7 +321,7 @@ export default function MaintenanceCenterScreen() {
                                                                     fontWeight: '800',
                                                                 }}
                                                             >
-                                                                {system} Â· {location}
+                                                                {system} · {location}
                                                             </Text>
                                                             <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
                                                                 {formatRecurrence(
@@ -395,54 +362,6 @@ export default function MaintenanceCenterScreen() {
                     </ThemedCard>
                 )}
 
-                {!loading && records.length === 0 && !message && (
-                    <ThemedCard>
-                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
-                            No maintenance records yet
-                        </Text>
-                        <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), lineHeight: scaleFont(20) }}>
-                            Add service visits, filter changes, repairs, inspections, and warranty documents here.
-                        </Text>
-                    </ThemedCard>
-                )}
-
-                <View style={{ gap: scaleIcon(12) }}>
-                    {records.map((record) => (
-                        <ThemedCard
-                            key={record.id}
-                            onPress={() => router.push(`/maintenance/${record.id}` as any)}
-                        >
-                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>
-                                {record.title}
-                            </Text>
-                            <Text
-                                style={{
-                                    color: theme.colors.mutedText,
-                                    marginTop: scaleIcon(6),
-                                    fontWeight: '800',
-                                }}
-                            >
-                                {record.system || 'Unknown system'} · {record.area || 'Unknown area'}
-                            </Text>
-                            <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8) }}>
-                                Service: {formatDate(record.service_date)}
-                                {record.next_service_date ? ` · Next: ${formatDate(record.next_service_date)}` : ''}
-                            </Text>
-                            {!!record.description && (
-                                <Text
-                                    numberOfLines={2}
-                                    style={{
-                                        color: theme.colors.mutedText,
-                                        marginTop: scaleIcon(8),
-                                        lineHeight: scaleFont(20),
-                                    }}
-                                >
-                                    {record.description}
-                                </Text>
-                            )}
-                        </ThemedCard>
-                    ))}
-                </View>
             </View>
         </ScrollView>
     );
