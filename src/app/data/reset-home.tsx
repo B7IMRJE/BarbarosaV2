@@ -11,7 +11,6 @@ const confirmationText = 'RESET';
 export default function ResetHomeSetupScreen() {
     const { theme } = useTheme();
     const [confirmation, setConfirmation] = useState('');
-    const [message, setMessage] = useState('');
     const canReset = confirmation.trim().toUpperCase() === confirmationText;
 
     return (
@@ -38,18 +37,11 @@ export default function ResetHomeSetupScreen() {
                     </Text>
 
                     <ThemedButton
-                        title="Start Setup Wizard Coming Soon"
-                        onPress={() =>
-                            setMessage('The safe setup wizard will be added next. For now, no home data was changed.')
-                        }
+                        title="Start Setup Wizard"
+                        onPress={() => router.push('/onboarding/base-home-wizard' as never)}
                         style={{ marginTop: 16, alignSelf: 'flex-start' }}
                     />
 
-                    {!!message && (
-                        <Text style={{ color: theme.colors.mutedText, fontSize: 14, lineHeight: 20, marginTop: 12, fontWeight: '800' }}>
-                            {message}
-                        </Text>
-                    )}
                 </ThemedCard>
 
                 <ThemedCard

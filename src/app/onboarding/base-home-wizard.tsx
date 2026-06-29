@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -64,6 +64,8 @@ export default function BaseHomeWizardScreen() {
     const [hasPool, setHasPool] = useState<YesNo>('no');
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
+    const [completed, setCompleted] = useState(false);
+    const openHomeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const starterAreas = useMemo(
         () =>
@@ -81,8 +83,16 @@ export default function BaseHomeWizardScreen() {
         [bathrooms, hasKitchen, hasLaundry, hasGarage, hasWaterHeater, hasHvac, hasFrontYard, hasBackYard, hasPool]
     );
 
+    useEffect(() => {
+        return () => {
+            if (openHomeTimeoutRef.current) {
+                clearTimeout(openHomeTimeoutRef.current);
+            }
+        };
+    }, []);
+
     async function createStarterHomeProfile() {
-        if (saving) return;
+        if (saving || completed) return;
 
         setSaving(true);
         setMessage('Creating starter home profile...');
@@ -165,11 +175,34 @@ export default function BaseHomeWizardScreen() {
         }
 
         setSaving(false);
+        setCompleted(true);
         setMessage(
             rowsToInsert.length > 0
                 ? `Created ${rowsToInsert.length} starter card${rowsToInsert.length === 1 ? '' : 's'} marked Missing Information.`
                 : 'Your starter cards already exist. Nothing new was created.'
         );
+
+        scheduleOpenHomeOS();
+    }
+
+    function openHomeOS() {
+        if (openHomeTimeoutRef.current) {
+            clearTimeout(openHomeTimeoutRef.current);
+            openHomeTimeoutRef.current = null;
+        }
+
+        router.replace('/' as never);
+    }
+
+    function scheduleOpenHomeOS() {
+        if (openHomeTimeoutRef.current) {
+            clearTimeout(openHomeTimeoutRef.current);
+        }
+
+        openHomeTimeoutRef.current = setTimeout(() => {
+            openHomeTimeoutRef.current = null;
+            router.replace('/' as never);
+        }, 1000);
     }
 
     return (
@@ -271,15 +304,22 @@ export default function BaseHomeWizardScreen() {
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10), marginBottom: scaleIcon(14) }}>
                     <ThemedButton
-                        title={saving ? 'Creating...' : 'Create Starter Home Profile'}
-                        disabled={saving}
+                        title={completed ? 'Starter Home Profile Created' : saving ? 'Creating...' : 'Create Starter Home Profile'}
+                        disabled={saving || completed}
                         onPress={createStarterHomeProfile}
                     />
+                    {completed && (
+                        <ThemedButton
+                            title="Open HomeOS"
+                            variant="secondary"
+                            onPress={openHomeOS}
+                        />
+                    )}
                     <ThemedButton
                         title="Skip for Now"
                         variant="secondary"
                         disabled={saving}
-                        onPress={() => router.replace('/' as never)}
+                        onPress={openHomeOS}
                     />
                 </View>
 
