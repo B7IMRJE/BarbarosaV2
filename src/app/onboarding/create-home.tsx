@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
     KeyboardAvoidingView,
     Platform,
@@ -27,6 +27,8 @@ type FormErrors = Partial<Record<FieldName, string>>;
 
 export default function CreateHomeOnboardingScreen() {
     const { theme } = useTheme();
+    const params = useLocalSearchParams<{ next?: string | string[] }>();
+    const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
     const [homeName, setHomeName] = useState('');
     const [propertyType, setPropertyType] = useState<PropertyType>('HOUSE');
     const [verifiedAddress, setVerifiedAddress] = useState<VerifiedAddress | null>(null);
@@ -69,7 +71,7 @@ export default function CreateHomeOnboardingScreen() {
         if (userError || !user) {
             setSubmitting(false);
             setMessage('Please log in to create your home.');
-            router.replace('/auth/login' as any);
+            router.replace('/auth/login' as never);
             return;
         }
 
@@ -80,7 +82,7 @@ export default function CreateHomeOnboardingScreen() {
                 address: verifiedAddress,
             });
 
-            router.replace('/' as any);
+            router.replace((nextRoute || '/') as never);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'We could not create your home right now. Please try again.');
         } finally {
@@ -198,6 +200,26 @@ export default function CreateHomeOnboardingScreen() {
             return nextErrors;
         });
     }
+}
+
+function firstParam(value: string | string[] | undefined) {
+    return Array.isArray(value) ? value[0] : value;
+}
+
+function resolveSafeNext(value: string | undefined) {
+    if (!value) return null;
+
+    try {
+        const parsed = new URL(value, 'https://app.local');
+
+        if (parsed.pathname === '/customer-invite') {
+            return `${parsed.pathname}${parsed.search}`;
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
 }
 
 function validateHomeForm({

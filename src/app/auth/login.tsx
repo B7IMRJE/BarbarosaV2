@@ -208,7 +208,7 @@ function resolveSafeNext(value: string | undefined) {
     try {
         const parsed = new URL(value, 'https://app.local');
 
-        if (parsed.pathname === '/company-invite') {
+        if (parsed.pathname === '/company-invite' || parsed.pathname === '/customer-invite') {
             return `${parsed.pathname}${parsed.search}`;
         }
     } catch {

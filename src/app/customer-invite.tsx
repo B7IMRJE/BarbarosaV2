@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -138,7 +138,16 @@ export default function CustomerInviteScreen() {
 
         const loadedHomes = (data || []) as HomeOption[];
         setHomes(loadedHomes);
-        setSelectedHomeId(loadedHomes[0]?.id || '');
+    }
+
+    async function switchAccount() {
+        setMessage('Signing out...');
+        await supabase.auth.signOut();
+        setUser(null);
+        setHomes([]);
+        setSelectedHomeId('');
+        setMessage('Signed out. Sign in or create an account to accept this customer invitation.');
+        router.replace(nextPath as never);
     }
 
     async function acceptInvite() {
@@ -176,21 +185,15 @@ export default function CustomerInviteScreen() {
 
         setSuccess(true);
         setMessage('Your home is connected to the company. Opening HomeOS...');
-        setTimeout(() => router.replace('/' as any), 900);
+        setTimeout(() => router.replace('/' as never), 900);
     }
 
     function goToLogin() {
-        router.push({
-            pathname: '/auth/login',
-            params: { next: nextPath },
-        } as any);
+        router.push(`/auth/login?next=${encodeURIComponent(nextPath)}` as never);
     }
 
     function goToRegister() {
-        router.push({
-            pathname: '/auth/register',
-            params: { next: nextPath },
-        } as any);
+        router.push(`/auth/register?next=${encodeURIComponent(nextPath)}` as never);
     }
 
     return (
@@ -222,6 +225,20 @@ export default function CustomerInviteScreen() {
                         )}
 
                         <ThemedCard>
+                            <View style={sessionBannerStyle}>
+                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                    Signed in as: {user?.email || 'Not signed in'}
+                                </Text>
+                                {!!user && (
+                                    <ThemedButton
+                                        title="Switch Account / Sign Out"
+                                        variant="secondary"
+                                        onPress={switchAccount}
+                                        style={{ marginTop: 10, alignSelf: 'flex-start' }}
+                                    />
+                                )}
+                            </View>
+
                             {invite ? (
                                 <>
                                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
@@ -261,24 +278,41 @@ export default function CustomerInviteScreen() {
                                     {homes.length === 0 ? (
                                         <>
                                             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                                Create a HomeOS home first, then return to this invite link to connect it.
+                                                Create your HomeOS home before accepting this company invite.
                                             </Text>
                                             <ThemedButton
                                                 title="Create Home"
                                                 variant="secondary"
-                                                onPress={() => router.push('/onboarding/create-home' as any)}
+                                                onPress={() =>
+                                                    router.push(`/onboarding/create-home?next=${encodeURIComponent(nextPath)}` as never)
+                                                }
                                                 style={{ marginTop: 12 }}
                                             />
                                         </>
                                     ) : (
                                         <View style={{ gap: 10 }}>
                                             {homes.map((home) => (
-                                                <ThemedButton
+                                                <Pressable
                                                     key={home.id}
-                                                    title={`${home.name || 'Home'}${formatAddress(home) ? ` / ${formatAddress(home)}` : ''}`}
-                                                    variant={selectedHomeId === home.id ? 'primary' : 'secondary'}
                                                     onPress={() => setSelectedHomeId(home.id)}
-                                                />
+                                                    style={{
+                                                        backgroundColor: theme.colors.background,
+                                                        borderColor: selectedHomeId === home.id ? theme.colors.primary : theme.colors.border,
+                                                        borderRadius: 14,
+                                                        borderWidth: 2,
+                                                        padding: 14,
+                                                    }}
+                                                >
+                                                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>
+                                                        {home.name || 'Home'}
+                                                    </Text>
+                                                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                                        {formatAddress(home) || 'Address not available'}
+                                                    </Text>
+                                                    <Text style={[bodyTextStyle, { color: selectedHomeId === home.id ? theme.colors.primary : theme.colors.mutedText, marginTop: 6 }]}>
+                                                        {selectedHomeId === home.id ? 'Selected' : 'Tap to select this home'}
+                                                    </Text>
+                                                </Pressable>
                                             ))}
                                         </View>
                                     )}
@@ -418,6 +452,13 @@ const detailValueStyle = {
 const actionGroupStyle = {
     marginTop: 18,
     gap: 12,
+};
+
+const sessionBannerStyle = {
+    borderBottomColor: '#D6DEE8',
+    borderBottomWidth: 1,
+    marginBottom: 16,
+    paddingBottom: 14,
 };
 
 const actionRowStyle = {
