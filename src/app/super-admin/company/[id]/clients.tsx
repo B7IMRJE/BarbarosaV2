@@ -58,6 +58,11 @@ type CustomerInvite = {
     created_at: string | null;
 };
 
+type CustomerInviteLink = {
+    url: string;
+    warning: string;
+};
+
 type CustomerInviteForm = {
     invitedName: string;
     invitedEmail: string;
@@ -260,6 +265,54 @@ export default function CompanyClientsScreen() {
         setInviteMessage(`${successMessage} Copy manually: ${value}`);
     }
 
+    async function sendCustomerInviteEmail(invite: CustomerInvite) {
+        if (!invite.invited_email) {
+            setInviteMessage('Add an email before sending an email invite.');
+            return;
+        }
+
+        if (!invite.invite_code) {
+            setInviteMessage('Create an invite code before sending an email invite.');
+            return;
+        }
+
+        setInviteActionId(invite.invitation_id);
+        setInviteMessage('Sending email invite...');
+
+        const inviteLink = buildCustomerInviteLink(invite.invite_code).url;
+        const { data, error } = await supabase.functions.invoke('send-customer-invite-email', {
+            body: {
+                invitation_id: invite.invitation_id,
+                invite_link: inviteLink,
+            },
+        });
+
+        setInviteActionId('');
+
+        if (error) {
+            setInviteMessage(`Email sending is not configured yet. Copy the invite message for now. ${error.message}`);
+            return;
+        }
+
+        const result = (data || {}) as { ok?: boolean; message?: string };
+
+        if (!result.ok) {
+            setInviteMessage(result.message || 'Email sending is not configured yet. Copy the invite message for now.');
+            return;
+        }
+
+        setInviteMessage(result.message || 'Email invite sent.');
+    }
+
+    function sendCustomerInviteText(invite: CustomerInvite) {
+        if (!invite.invited_phone) {
+            setInviteMessage('Add a phone number before sending a text invite.');
+            return;
+        }
+
+        setInviteMessage('Text sending is not configured yet. Copy the invite text for now.');
+    }
+
     async function verifyCompanyAccess(companyId: string) {
         const {
             data: { user },
@@ -393,6 +446,8 @@ export default function CompanyClientsScreen() {
                     onCreate={createCustomerInvite}
                     onRefresh={() => loadCustomerInvites(String(id))}
                     onCopy={copyInviteText}
+                    onSendEmail={sendCustomerInviteEmail}
+                    onSendText={sendCustomerInviteText}
                     onRevoke={revokeCustomerInvite}
                     onDeleteRevoked={deleteRevokedCustomerInvite}
                 />
@@ -445,6 +500,8 @@ function InviteCustomerSection({
     onCreate,
     onRefresh,
     onCopy,
+    onSendEmail,
+    onSendText,
     onRevoke,
     onDeleteRevoked,
 }: {
@@ -458,6 +515,8 @@ function InviteCustomerSection({
     onCreate: () => void;
     onRefresh: () => void;
     onCopy: (value: string, successMessage: string) => void;
+    onSendEmail: (invite: CustomerInvite) => void;
+    onSendText: (invite: CustomerInvite) => void;
     onRevoke: (invite: CustomerInvite) => void;
     onDeleteRevoked: (invite: CustomerInvite) => void;
 }) {
@@ -534,6 +593,8 @@ function InviteCustomerSection({
                             companyName={companyName}
                             actionInviteId={actionInviteId}
                             onCopy={onCopy}
+                            onSendEmail={onSendEmail}
+                            onSendText={onSendText}
                             onRevoke={onRevoke}
                             onDeleteRevoked={onDeleteRevoked}
                         />
@@ -582,6 +643,8 @@ function CustomerInviteRow({
     companyName,
     actionInviteId,
     onCopy,
+    onSendEmail,
+    onSendText,
     onRevoke,
     onDeleteRevoked,
 }: {
@@ -589,12 +652,15 @@ function CustomerInviteRow({
     companyName: string;
     actionInviteId: string;
     onCopy: (value: string, successMessage: string) => void;
+    onSendEmail: (invite: CustomerInvite) => void;
+    onSendText: (invite: CustomerInvite) => void;
     onRevoke: (invite: CustomerInvite) => void;
     onDeleteRevoked: (invite: CustomerInvite) => void;
 }) {
     const { theme } = useTheme();
-    const inviteLink = getCustomerInviteLink(invite.invite_code);
-    const textMessage = `Hi, this is ${companyName}. Please use this secure link to connect your home with us: ${inviteLink}`;
+    const inviteLink = buildCustomerInviteLink(invite.invite_code);
+    const inviteUrl = inviteLink.url;
+    const textMessage = `Hi, this is ${companyName}. Please use this secure link to connect your home with us: ${inviteUrl}`;
     const status = normalizeStatus(invite.status);
     const isPending = status === 'pending';
     const isRevoked = status === 'revoked';
@@ -618,11 +684,16 @@ function CustomerInviteRow({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
                 Contact: {[invite.invited_email, invite.invited_phone].filter(Boolean).join(' / ') || 'Not provided'}
             </Text>
+            {!!inviteLink.warning && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    {inviteLink.warning}
+                </Text>
+            )}
             <View style={buttonRowStyle}>
                 <ThemedButton
                     title="Copy Invite Link"
                     variant="secondary"
-                    onPress={() => onCopy(inviteLink, 'Invite link copied.')}
+                    onPress={() => onCopy(inviteUrl, 'Invite link copied.')}
                     disabled={!invite.invite_code}
                     style={smallButtonStyle}
                 />
@@ -638,6 +709,20 @@ function CustomerInviteRow({
                     variant="secondary"
                     onPress={() => onCopy(textMessage, 'Text message copied.')}
                     disabled={!invite.invite_code}
+                    style={smallButtonStyle}
+                />
+                <ThemedButton
+                    title={actionInviteId === invite.invitation_id ? 'Sending...' : 'Send Email Invite'}
+                    variant="secondary"
+                    onPress={() => onSendEmail(invite)}
+                    disabled={!invite.invited_email || !invite.invite_code || actionInviteId === invite.invitation_id}
+                    style={smallButtonStyle}
+                />
+                <ThemedButton
+                    title="Send Text Invite"
+                    variant="secondary"
+                    onPress={() => onSendText(invite)}
+                    disabled={!invite.invited_phone || !invite.invite_code}
                     style={smallButtonStyle}
                 />
                 {isPending && (
@@ -786,11 +871,44 @@ function firstRow<T>(data: unknown): T | null {
     return (data as T | null) || null;
 }
 
-function getCustomerInviteLink(code?: string | null) {
-    const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : '';
+function buildCustomerInviteLink(code?: string | null): CustomerInviteLink {
+    const configuredBaseUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_APP_URL);
+    const fallbackBaseUrl =
+        typeof window !== 'undefined' && window.location?.origin
+            ? normalizeBaseUrl(window.location.origin)
+            : '';
+    const baseUrl = configuredBaseUrl || fallbackBaseUrl;
     const path = `/customer-invite?code=${encodeURIComponent(code || '')}`;
+    const warning = !configuredBaseUrl && isLikelyNonPublicInviteOrigin(fallbackBaseUrl)
+        ? 'Warning: this link may not be public. Set EXPO_PUBLIC_APP_URL to your production app URL.'
+        : '';
 
-    return origin ? `${origin}${path}` : path;
+    return {
+        url: baseUrl ? `${baseUrl}${path}` : path,
+        warning,
+    };
+}
+
+function normalizeBaseUrl(value?: string | null) {
+    return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function isLikelyNonPublicInviteOrigin(origin: string) {
+    if (!origin) return true;
+
+    try {
+        const url = new URL(origin);
+        const hostname = url.hostname.toLowerCase();
+
+        return (
+            hostname === 'localhost' ||
+            hostname === '127.0.0.1' ||
+            hostname.endsWith('.local') ||
+            hostname.endsWith('.vercel.app')
+        );
+    } catch {
+        return true;
+    }
 }
 
 const backTextStyle = {
