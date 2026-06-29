@@ -52,10 +52,23 @@ export default function CustomerInviteScreen() {
     const [success, setSuccess] = useState(false);
 
     const nextPath = `${CUSTOMER_INVITE_ROUTE}?code=${encodeURIComponent(inviteCode)}`;
+    const emailMismatch =
+        !!user &&
+        !!invite?.invited_email &&
+        normalizeEmail(invite.invited_email) !== normalizeEmail(user.email);
+    const emailMismatchMessage = emailMismatch
+        ? `This invite was sent to ${invite?.invited_email}. You are signed in as ${user?.email || 'this account'}. Switch accounts to accept this invite.`
+        : '';
 
     useEffect(() => {
         loadInvite();
     }, [inviteCode]);
+
+    useEffect(() => {
+        if (emailMismatch && selectedHomeId) {
+            setSelectedHomeId('');
+        }
+    }, [emailMismatch, selectedHomeId]);
 
     async function loadInvite() {
         setLoading(true);
@@ -158,6 +171,11 @@ export default function CustomerInviteScreen() {
             return;
         }
 
+        if (emailMismatch) {
+            setMessage(emailMismatchMessage);
+            return;
+        }
+
         if (!selectedHomeId) {
             setMessage('Choose or create a HomeOS home before accepting this invite.');
             return;
@@ -239,6 +257,22 @@ export default function CustomerInviteScreen() {
                                 )}
                             </View>
 
+                            {emailMismatch && (
+                                <View
+                                    style={[
+                                        warningBoxStyle,
+                                        {
+                                            backgroundColor: theme.colors.status.needsAttention.background,
+                                            borderColor: theme.colors.status.needsAttention.border,
+                                        },
+                                    ]}
+                                >
+                                    <Text style={[bodyTextStyle, { color: theme.colors.text }]}>
+                                        {emailMismatchMessage}
+                                    </Text>
+                                </View>
+                            )}
+
                             {invite ? (
                                 <>
                                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
@@ -294,12 +328,16 @@ export default function CustomerInviteScreen() {
                                             {homes.map((home) => (
                                                 <Pressable
                                                     key={home.id}
-                                                    onPress={() => setSelectedHomeId(home.id)}
+                                                    disabled={emailMismatch}
+                                                    onPress={() => {
+                                                        if (!emailMismatch) setSelectedHomeId(home.id);
+                                                    }}
                                                     style={{
                                                         backgroundColor: theme.colors.background,
                                                         borderColor: selectedHomeId === home.id ? theme.colors.primary : theme.colors.border,
                                                         borderRadius: 14,
                                                         borderWidth: 2,
+                                                        opacity: emailMismatch ? 0.6 : 1,
                                                         padding: 14,
                                                     }}
                                                 >
@@ -310,7 +348,11 @@ export default function CustomerInviteScreen() {
                                                         {formatAddress(home) || 'Address not available'}
                                                     </Text>
                                                     <Text style={[bodyTextStyle, { color: selectedHomeId === home.id ? theme.colors.primary : theme.colors.mutedText, marginTop: 6 }]}>
-                                                        {selectedHomeId === home.id ? 'Selected' : 'Tap to select this home'}
+                                                        {emailMismatch
+                                                            ? 'Switch accounts to select a home'
+                                                            : selectedHomeId === home.id
+                                                                ? 'Selected'
+                                                                : 'Tap to select this home'}
                                                     </Text>
                                                 </Pressable>
                                             ))}
@@ -319,7 +361,7 @@ export default function CustomerInviteScreen() {
                                     <ThemedButton
                                         title={accepting ? 'Connecting...' : 'Accept Customer Invite'}
                                         onPress={acceptInvite}
-                                        disabled={accepting || !selectedHomeId || normalizeStatus(invite?.status) !== 'pending'}
+                                        disabled={accepting || emailMismatch || !selectedHomeId || normalizeStatus(invite?.status) !== 'pending'}
                                         style={{ marginTop: 14 }}
                                     />
                                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText, marginTop: 12 }]}>
@@ -357,6 +399,10 @@ function firstRow<T>(data: unknown): T | null {
 }
 
 function normalizeStatus(value?: string | null) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function normalizeEmail(value?: string | null) {
     return String(value || '').trim().toLowerCase();
 }
 
@@ -459,6 +505,13 @@ const sessionBannerStyle = {
     borderBottomWidth: 1,
     marginBottom: 16,
     paddingBottom: 14,
+};
+
+const warningBoxStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 16,
+    padding: 14,
 };
 
 const actionRowStyle = {
