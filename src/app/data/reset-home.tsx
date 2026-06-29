@@ -1,17 +1,64 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
 const confirmationText = 'RESET';
 
+type ResetHomeResult = {
+    property_id?: string | null;
+    reset_status?: string | null;
+    message?: string | null;
+};
+
 export default function ResetHomeSetupScreen() {
     const { theme } = useTheme();
     const [confirmation, setConfirmation] = useState('');
+    const [message, setMessage] = useState('');
+    const [resetting, setResetting] = useState(false);
+    const [resetComplete, setResetComplete] = useState(false);
+    const redirectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const canReset = confirmation.trim().toUpperCase() === confirmationText;
+
+    useEffect(() => {
+        return () => {
+            if (redirectTimeoutRef.current) {
+                clearTimeout(redirectTimeoutRef.current);
+            }
+        };
+    }, []);
+
+    async function resetActiveHome() {
+        if (!canReset || resetting || resetComplete) return;
+
+        setResetting(true);
+        setMessage('Resetting this active home...');
+
+        const { data, error } = await supabase.rpc('reset_active_home_for_testing', {
+            p_confirmation: confirmationText,
+        });
+
+        setResetting(false);
+
+        if (error) {
+            setMessage(error.message);
+            return;
+        }
+
+        const result = firstResetResult(data);
+        setResetComplete(true);
+        setConfirmation('');
+        setMessage(result?.message || 'Home reset. Starting fresh...');
+
+        redirectTimeoutRef.current = setTimeout(() => {
+            redirectTimeoutRef.current = null;
+            router.replace('/onboarding/create-home' as never);
+        }, 1000);
+    }
 
     return (
         <ScrollView
@@ -55,21 +102,25 @@ export default function ResetHomeSetupScreen() {
                         Reset This Home
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: 15, lineHeight: 22, marginTop: 10 }}>
-                        This is the dangerous reset option. Later, this will archive or remove starter items, photos, files, reminders, service history, and other home-owned records for this home only.
+                        This removes data for this signed-in account's single active HomeOS home only. It does not delete your account, login, or profile.
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: 15, lineHeight: 22, marginTop: 10 }}>
-                        For safety, the destructive reset is not active yet. Export or download important data before this is enabled.
+                        Use this for testing start-fresh flows. Export or download anything important first.
                     </Text>
 
                     <Text style={{ color: theme.colors.text, fontWeight: '900', marginTop: 18, marginBottom: 8 }}>
-                        Type RESET to enable the future reset button.
+                        Type RESET to enable the active home reset.
                     </Text>
                     <TextInput
                         value={confirmation}
-                        onChangeText={setConfirmation}
+                        onChangeText={(value) => {
+                            setConfirmation(value);
+                            if (!resetComplete) setMessage('');
+                        }}
                         autoCapitalize="characters"
                         placeholder={confirmationText}
                         placeholderTextColor={theme.colors.mutedText}
+                        editable={!resetting && !resetComplete}
                         style={{
                             color: theme.colors.text,
                             backgroundColor: theme.colors.surface,
@@ -83,10 +134,17 @@ export default function ResetHomeSetupScreen() {
                     />
 
                     <ThemedButton
-                        title="Reset Coming Soon"
-                        disabled={!canReset}
+                        title={resetting ? 'Resetting...' : resetComplete ? 'Home Reset' : 'Reset This Home'}
+                        disabled={!canReset || resetting || resetComplete}
                         variant="danger"
+                        onPress={resetActiveHome}
                     />
+
+                    {!!message && (
+                        <Text style={{ color: theme.colors.mutedText, fontSize: 14, lineHeight: 20, marginTop: 12, fontWeight: '800' }}>
+                            {message}
+                        </Text>
+                    )}
                 </ThemedCard>
 
                 <ThemedButton
@@ -98,4 +156,12 @@ export default function ResetHomeSetupScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function firstResetResult(data: unknown) {
+    if (Array.isArray(data)) {
+        return (data[0] || null) as ResetHomeResult | null;
+    }
+
+    return (data || null) as ResetHomeResult | null;
 }
