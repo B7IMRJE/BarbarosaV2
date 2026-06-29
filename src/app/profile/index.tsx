@@ -220,6 +220,12 @@ export default function ProfileScreen() {
                     />
 
                     <SettingsCard
+                        title="Reset / Start Fresh"
+                        body="Restart the HomeOS setup flow or prepare a safe home reset when a profile was created wrong."
+                        route="/data/reset-home"
+                    />
+
+                    <SettingsCard
                         title="Company Invitations"
                         body="Review company access invitations connected to your signed-in account."
                         route="/onboarding/company-invitations"

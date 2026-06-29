@@ -16,6 +16,11 @@ const actions = [
         route: '/data/files',
     },
     {
+        title: 'Reset / Start Fresh',
+        body: 'Restart the setup wizard or prepare a safe reset when a home profile was created wrong.',
+        route: '/data/reset-home',
+    },
+    {
         title: 'Delete My Home Data',
         body: 'Plan to remove homeowner home data while keeping the account shell available.',
         route: '/data/delete-home',
