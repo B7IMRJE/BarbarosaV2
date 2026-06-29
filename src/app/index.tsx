@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import HomeIdentityCard from '../components/HomeIdentityCard';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -92,6 +92,15 @@ function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
 
 export default function HomeScreen() {
   const { scaleFont, scaleIcon, theme } = useTheme();
+  const { width: viewportWidth } = useWindowDimensions();
+  const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 900);
+  const healthTileGap = scaleIcon(10);
+  const healthTileColumns =
+    dashboardContentWidth >= 680 ? 4 : dashboardContentWidth >= 500 ? 3 : dashboardContentWidth >= 300 ? 2 : 1;
+  const healthTileSize = Math.max(
+    scaleIcon(118),
+    Math.min(scaleIcon(156), (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns)
+  );
   const [homeIdentity, setHomeIdentity] = useState<HomeIdentity | null>(null);
   const [homeIdentityLoading, setHomeIdentityLoading] = useState(true);
   const [homeItems, setHomeItems] = useState<HomeDashboardItem[]>([]);
@@ -676,13 +685,7 @@ export default function HomeScreen() {
           Health Breakdown
         </Text>
 
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            gap: scaleIcon(12),
-          }}
-        >
+        <View style={[healthBreakdownGridStyle, { gap: healthTileGap }]}>
           {homeSystems.map((system) => (
             <SystemStatusCard
               key={system.key}
@@ -706,7 +709,8 @@ export default function HomeScreen() {
                 } as any);
               }}
               style={{
-                width: '48%',
+                width: healthTileSize,
+                height: healthTileSize,
               }}
             />
           ))}
@@ -1181,41 +1185,6 @@ export default function HomeScreen() {
           )}
         </ThemedCard>
 
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-around',
-            backgroundColor: theme.colors.surface,
-            borderRadius: 26,
-            paddingVertical: scaleIcon(16),
-            marginTop: scaleIcon(28),
-            borderWidth: 1,
-            borderColor: theme.colors.border,
-          }}
-        >
-          <Text style={{ fontWeight: '900', color: theme.colors.text }}>Home</Text>
-
-          <Text
-            onPress={() => router.push('/equipment' as any)}
-            style={{ fontWeight: '800', color: theme.colors.mutedText }}
-          >
-            Equipment
-          </Text>
-
-          <Text
-            onPress={() => router.push('/documents' as any)}
-            style={{ fontWeight: '800', color: theme.colors.mutedText }}
-          >
-            Documents
-          </Text>
-
-          <Text
-            onPress={() => router.push('/profile' as any)}
-            style={{ fontWeight: '800', color: theme.colors.mutedText }}
-          >
-            Profile
-          </Text>
-        </View>
       </View>
     </ScrollView>
   );
@@ -1248,6 +1217,13 @@ const actionCardStyle = {
   flexBasis: 200,
   minWidth: 200,
   minHeight: 220,
+};
+
+const healthBreakdownGridStyle = {
+  flexDirection: 'row' as const,
+  flexWrap: 'wrap' as const,
+  alignItems: 'flex-start' as const,
+  justifyContent: 'center' as const,
 };
 
 
