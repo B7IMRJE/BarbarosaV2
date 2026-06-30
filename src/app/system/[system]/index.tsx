@@ -26,6 +26,7 @@ export default function SystemAreasScreen() {
     const { system } = useLocalSearchParams<{ system: string }>();
     const [search, setSearch] = useState('');
     const [homeItems, setHomeItems] = useState<SystemAreaItem[]>([]);
+    const [loading, setLoading] = useState(true);
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
 
@@ -79,11 +80,14 @@ export default function SystemAreasScreen() {
     const loadAreaHealth = useCallback(async () => {
         let activeProperty;
 
+        setLoading(true);
+
         try {
             activeProperty = await requireActivePropertyMembership();
         } catch (error) {
             setHomeItems([]);
             setMessage(activePropertyErrorMessage(error));
+            setLoading(false);
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
                 router.replace('/auth/login' as any);
@@ -103,11 +107,13 @@ export default function SystemAreasScreen() {
         if (error) {
             setHomeItems([]);
             setMessage(`Could not load area status: ${error.message}`);
+            setLoading(false);
             return;
         }
 
         setHomeItems((data || []) as SystemAreaItem[]);
         setMessage('');
+        setLoading(false);
     }, []);
 
     useFocusEffect(
@@ -346,13 +352,15 @@ export default function SystemAreasScreen() {
                             title="+ Add Area / Container"
                             variant="secondary"
                             onPress={createRootArea}
-                            style={{ flexGrow: 1, minWidth: scaleIcon(220) }}
+                            style={{ minWidth: scaleIcon(170), paddingVertical: scaleIcon(12) }}
+                            textStyle={{ fontSize: scaleFont(14) }}
                         />
 
                         <ThemedButton
                             title="+ Add Item"
                             onPress={createRootItem}
-                            style={{ flexGrow: 1, minWidth: scaleIcon(180) }}
+                            style={{ minWidth: scaleIcon(140), paddingVertical: scaleIcon(12) }}
+                            textStyle={{ fontSize: scaleFont(14) }}
                         />
                     </View>
                 </ThemedCard>
@@ -387,80 +395,84 @@ export default function SystemAreasScreen() {
                     </Text>
                 )}
 
-                <Text
-                    style={{
-                        fontSize: scaleFont(20),
-                        color: theme.colors.text,
-                        fontWeight: '900',
-                        marginBottom: scaleIcon(12),
-                    }}
-                >
-                    Top-Level Areas / Containers
-                </Text>
-
-                <View
-                    style={{
-                        flexDirection: 'row',
-                        flexWrap: 'wrap',
-                        gap: scaleIcon(12),
-                    }}
-                >
-                    {filteredAreas.map((area) => {
-                        const areaSummary = scoreAreaHealth(systemItems, area);
-                        const areaRecord = topLevelAreaByName.get(normalizeText(area)) || null;
-                        const archiveKey = areaRecord?.id || areaRecord?.item_slug || area;
-
-                        return (
-                            <RootAreaCard
-                                key={area}
-                                title={area}
-                                status={statusForCard(areaSummary)}
-                                onPress={() => openArea(area)}
-                                onArchive={areaRecord ? () => confirmArchiveArea(areaRecord) : undefined}
-                                archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Area / Container'}
-                                archiveDisabled={!!archivingRecordId}
-                            />
-                        );
-                    })}
-                </View>
-
-                {filteredAreas.length === 0 && (
-                    <ThemedCard style={{ marginTop: scaleIcon(8), marginBottom: scaleIcon(18) }}>
-                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
-                            No areas or containers yet.
+                {loading ? (
+                    <ThemedCard style={loadingCardStyle}>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>
+                            Loading areas...
                         </Text>
                     </ThemedCard>
-                )}
+                ) : (
+                    <>
+                        <Text
+                            style={{
+                                fontSize: scaleFont(20),
+                                color: theme.colors.text,
+                                fontWeight: '900',
+                                marginBottom: scaleIcon(12),
+                            }}
+                        >
+                            Top-Level Areas / Containers
+                        </Text>
 
-                <View style={sectionBlockStyle}>
-                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                        Items directly in {systemLabel}
-                    </Text>
-
-                    {directSystemItems.length === 0 ? (
-                        <ThemedCard style={{ marginBottom: scaleIcon(16) }}>
-                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
-                                No direct items yet.
-                            </Text>
-                        </ThemedCard>
-                    ) : (
                         <View style={gridStyle}>
-                            {directSystemItems.map((item) => {
-                                const archiveKey = item.id || item.item_slug || item.name || '';
+                            {filteredAreas.map((area) => {
+                                const areaSummary = scoreAreaHealth(systemItems, area);
+                                const areaRecord = topLevelAreaByName.get(normalizeText(area)) || null;
+                                const archiveKey = areaRecord?.id || areaRecord?.item_slug || area;
 
                                 return (
-                                    <RootItemCard
-                                        key={archiveKey}
-                                        item={item}
-                                        onArchive={() => confirmArchiveItem(item)}
-                                        archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
+                                    <RootAreaCard
+                                        key={area}
+                                        title={area}
+                                        status={statusForCard(areaSummary)}
+                                        onPress={() => openArea(area)}
+                                        onArchive={areaRecord ? () => confirmArchiveArea(areaRecord) : undefined}
+                                        archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Area'}
                                         archiveDisabled={!!archivingRecordId}
                                     />
                                 );
                             })}
                         </View>
-                    )}
-                </View>
+
+                        {filteredAreas.length === 0 && (
+                            <ThemedCard style={[emptyStateCardStyle, { marginTop: scaleIcon(8), marginBottom: scaleIcon(18) }]}>
+                                <Text style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900', textAlign: 'center' }}>
+                                    No areas or containers yet.
+                                </Text>
+                            </ThemedCard>
+                        )}
+
+                        <View style={sectionBlockStyle}>
+                            <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                                Items directly in {systemLabel}
+                            </Text>
+
+                            {directSystemItems.length === 0 ? (
+                                <ThemedCard style={[emptyStateCardStyle, { marginBottom: scaleIcon(16) }]}>
+                                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900', textAlign: 'center' }}>
+                                        No direct items yet.
+                                    </Text>
+                                </ThemedCard>
+                            ) : (
+                                <View style={gridStyle}>
+                                    {directSystemItems.map((item) => {
+                                        const archiveKey = item.id || item.item_slug || item.name || '';
+
+                                        return (
+                                            <RootItemCard
+                                                key={archiveKey}
+                                                item={item}
+                                                onArchive={() => confirmArchiveItem(item)}
+                                                archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
+                                                archiveDisabled={!!archivingRecordId}
+                                            />
+                                        );
+                                    })}
+                                </View>
+                            )}
+                        </View>
+                    </>
+                )}
             </View>
         </ScrollView>
     );
@@ -525,9 +537,10 @@ function RootAreaCard({
             style={[
                 rootCardStyle,
                 {
-                    minWidth: scaleIcon(180),
-                    minHeight: scaleIcon(190),
-                    padding: scaleIcon(18),
+                    minWidth: scaleIcon(132),
+                    maxWidth: scaleIcon(170),
+                    minHeight: scaleIcon(166),
+                    padding: scaleIcon(12),
                     borderRadius: theme.radii.card,
                 },
                 getStatusCardStyle(status, theme),
@@ -543,21 +556,21 @@ function RootAreaCard({
                         iconCircleStyle,
                         {
                             backgroundColor: theme.colors.iconBackground,
-                            width: scaleIcon(76),
-                            height: scaleIcon(76),
-                            marginBottom: scaleIcon(12),
+                            width: scaleIcon(60),
+                            height: scaleIcon(60),
+                            marginBottom: scaleIcon(10),
                         },
                     ]}
                 >
-                    <Text style={{ fontSize: scaleIcon(36) }}>{getAreaIcon(title)}</Text>
+                    <Text style={{ fontSize: scaleIcon(30) }}>{getAreaIcon(title)}</Text>
                 </View>
 
                 <Text
                     style={{
                         color: theme.colors.text,
-                        fontSize: scaleFont(16),
+                        fontSize: scaleFont(15),
                         fontWeight: '900',
-                        lineHeight: scaleFont(20),
+                        lineHeight: scaleFont(19),
                         textAlign: 'center',
                     }}
                     numberOfLines={2}
@@ -600,9 +613,10 @@ function RootItemCard({
             style={[
                 rootCardStyle,
                 {
-                    minWidth: scaleIcon(180),
-                    minHeight: scaleIcon(190),
-                    padding: scaleIcon(18),
+                    minWidth: scaleIcon(132),
+                    maxWidth: scaleIcon(170),
+                    minHeight: scaleIcon(166),
+                    padding: scaleIcon(12),
                     borderRadius: theme.radii.card,
                 },
                 getStatusCardStyle(item.status, theme),
@@ -619,21 +633,21 @@ function RootItemCard({
                         iconCircleStyle,
                         {
                             backgroundColor: theme.colors.iconBackground,
-                            width: scaleIcon(76),
-                            height: scaleIcon(76),
-                            marginBottom: scaleIcon(12),
+                            width: scaleIcon(60),
+                            height: scaleIcon(60),
+                            marginBottom: scaleIcon(10),
                         },
                     ]}
                 >
-                    <Text style={{ fontSize: scaleIcon(36) }}>{getItemIcon(item)}</Text>
+                    <Text style={{ fontSize: scaleIcon(30) }}>{getItemIcon(item)}</Text>
                 </View>
 
                 <Text
                     style={{
                         color: theme.colors.text,
-                        fontSize: scaleFont(16),
+                        fontSize: scaleFont(15),
                         fontWeight: '900',
-                        lineHeight: scaleFont(20),
+                        lineHeight: scaleFont(19),
                         textAlign: 'center',
                     }}
                     numberOfLines={2}
@@ -727,16 +741,17 @@ const gridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 12,
+    justifyContent: 'center' as const,
 };
 
 const rootCardStyle = {
-    width: '31%' as const,
-    minWidth: 180,
-    minHeight: 190,
+    width: '47%' as const,
+    minWidth: 132,
+    maxWidth: 170,
+    minHeight: 166,
     borderWidth: 1,
     alignItems: 'center' as const,
     justifyContent: 'space-between' as const,
-    flexGrow: 1,
 };
 
 const cardOpenAreaStyle = {
@@ -753,12 +768,25 @@ const iconCircleStyle = {
 };
 
 const smallArchiveButtonStyle = {
-    marginTop: 12,
-    paddingVertical: 10,
+    alignSelf: 'center' as const,
+    marginTop: 10,
+    paddingVertical: 7,
     paddingHorizontal: 12,
-    width: '100%' as const,
+    minWidth: 92,
 };
 
 const smallArchiveButtonTextStyle = {
-    fontSize: 13,
+    fontSize: 12,
+};
+
+const loadingCardStyle = {
+    marginBottom: 18,
+};
+
+const emptyStateCardStyle = {
+    alignSelf: 'center' as const,
+    minWidth: 190,
+    maxWidth: 260,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
 };
