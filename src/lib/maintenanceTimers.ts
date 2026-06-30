@@ -71,6 +71,7 @@ export function getMaintenancePresets(item: {
     const system = normalize(item.system);
     const category = normalize(item.category);
     const itemSlug = normalize(item.item_slug);
+    const itemIdentity = normalize([name, category, itemSlug].filter(Boolean).join(' '));
     const text = normalize([name, system, category, itemSlug].filter(Boolean).join(' '));
     const presets: MaintenancePreset[] = [];
 
@@ -86,10 +87,18 @@ export function getMaintenancePresets(item: {
         'shutoff',
         'shut off',
         'valve',
-        'filter',
-        'reverse osmosis',
-        'softener',
     ]);
+    const isFaucetItem = matchesAny(itemIdentity, ['faucet', 'sink / faucet', 'sink faucet']) && !isWaterQualityItem(itemIdentity);
+    const isExpansionTankItem = matchesAny(itemIdentity, ['expansion tank']);
+    const isPrvItem = matchesAny(itemIdentity, ['prv', 'pressure regulator', 'pressure reducing valve']);
+    const isGarbageDisposalItem = matchesAny(itemIdentity, ['garbage disposal', 'disposal']);
+    const isWaterHeaterItem = matchesAny(itemIdentity, ['water heater', 'tankless water heater']);
+    const isRoItem = matchesRo(itemIdentity) || matchesAny(itemIdentity, ['reverse osmosis']);
+    const isFilterItem =
+        matchesAny(itemIdentity, ['filter', 'filtration', 'whole home filter', 'whole house filter', 'halo']) ||
+        (!isFaucetItem && system === 'water quality');
+    const isSoftenerItem = matchesAny(itemIdentity, ['softener', 'brine']);
+    const isWaterQualityReminderItem = isRoItem || isFilterItem || isSoftenerItem;
     const isGasSystem = matchesAny(text, ['gas', 'fireplace', 'bbq', 'barbecue', 'grill']);
     const isHvacSystem = matchesAny(text, ['hvac', 'furnace', 'ac', 'air conditioner', 'air handler', 'heat pump', 'condenser', 'thermostat']);
     const isElectricalSystem = matchesAny(text, ['electrical', 'breaker', 'panel', 'gfci', 'outlet']);
@@ -98,24 +107,87 @@ export function getMaintenancePresets(item: {
     const isPoolSystem = matchesAny(text, ['pool', 'spa', 'pump', 'pool filter', 'equipment pad']);
     const isApplianceSystem = matchesAny(text, ['appliance', 'dryer', 'refrigerator', 'fridge', 'dishwasher', 'washer']);
 
-    if (matchesAny(text, ['tankless water heater'])) {
-        presets.push(
+    if (isFaucetItem) {
+        return uniquePresets([
+            preset('faucet_leak_check', 'Check for leaks', 6, 'months', 'Check around the faucet, handles, and base for leaks.'),
+            preset('faucet_aerator_clean', 'Clean aerator', 6, 'months', 'Clean mineral buildup from the faucet aerator.'),
+            preset('faucet_supply_lines_check', 'Inspect supply lines', 1, 'years', 'Inspect visible faucet supply lines for kinks, corrosion, or leaks.'),
+            preset('faucet_angle_stops_check', 'Inspect angle stops', 1, 'years', 'Check accessible angle stops for leaks and smooth operation.'),
+            genericPreset,
+        ]);
+    }
+
+    if (isExpansionTankItem) {
+        return uniquePresets([
+            preset('expansion_tank_pressure_check', 'Check expansion tank pressure', 1, 'years', 'Check the expansion tank air charge and condition.'),
+            preset('expansion_tank_corrosion_leak_check', 'Inspect for corrosion/leaks', 1, 'years', 'Inspect the expansion tank and connections for corrosion or leaks.'),
+            genericPreset,
+        ]);
+    }
+
+    if (isPrvItem) {
+        return uniquePresets([
+            preset('prv_pressure_check', 'Check water pressure', 1, 'years', 'Verify home water pressure and pressure regulator behavior.'),
+            genericPreset,
+        ]);
+    }
+
+    if (isGarbageDisposalItem) {
+        return uniquePresets([
+            preset('garbage_disposal_leak_check', 'Check for leaks', 6, 'months', 'Check below and around the disposal for leaks.'),
+            preset('garbage_disposal_clean_run', 'Run/clean disposal', 1, 'months', 'Run and clean the disposal to reduce buildup and odor.'),
+            genericPreset,
+        ]);
+    }
+
+    if (matchesAny(itemIdentity, ['tankless water heater'])) {
+        return uniquePresets([
             preset('tankless_water_heater_descale', 'Descale tankless water heater', 1, 'years', 'Flush scale from the tankless water heater.'),
             preset('tankless_water_heater_inlet_filter', 'Clean inlet filter', 6, 'months', 'Clean or inspect the tankless inlet filter.'),
-            preset('water_heater_tp_valve_drain_pan', 'Check T&P valve / drain pan', 1, 'years', 'Inspect the T&P valve discharge path and drain pan.')
-        );
-    } else if (matchesAny(text, ['water heater'])) {
-        presets.push(
+            preset('water_heater_expansion_tank', 'Check expansion tank', 1, 'years', 'Check the expansion tank charge and condition.'),
+            preset('water_heater_tp_valve', 'Test T&P valve', 1, 'years', 'Test the T&P valve according to manufacturer guidance.'),
+            preset('water_heater_drain_pan', 'Inspect drain pan', 1, 'years', 'Inspect the water heater drain pan and drain path.'),
+            genericPreset,
+        ]);
+    } else if (isWaterHeaterItem) {
+        return uniquePresets([
             preset('water_heater_flush', 'Flush water heater', 1, 'years', 'Flush sediment from the water heater.'),
             preset('water_heater_anode_rod', 'Check anode rod', 3, 'years', 'Inspect the anode rod and replace if needed.'),
             preset('water_heater_expansion_tank', 'Check expansion tank', 1, 'years', 'Check the expansion tank charge and condition.'),
-            preset('water_heater_tp_valve_drain_pan', 'Check T&P valve / drain pan', 1, 'years', 'Inspect the T&P valve discharge path and drain pan.')
-        );
+            preset('water_heater_tp_valve', 'Test T&P valve', 1, 'years', 'Test the T&P valve according to manufacturer guidance.'),
+            preset('water_heater_drain_pan', 'Inspect drain pan', 1, 'years', 'Inspect the water heater drain pan and drain path.'),
+            genericPreset,
+        ]);
+    }
+
+    if (isWaterQualityReminderItem) {
+        const waterQualityPresets: MaintenancePreset[] = [];
+
+        if (isFilterItem) {
+            waterQualityPresets.push(preset('sediment_filter_replace', 'Replace sediment filter', 6, 'months', 'Replace or clean the sediment filter.'));
+        }
+
+        if (isRoItem) {
+            waterQualityPresets.push(
+                preset('replace_ro_filters', 'Replace RO filters', 1, 'years', 'Replace reverse osmosis filters.'),
+                preset('ro_membrane_check', 'Check RO membrane', 3, 'years', 'Check reverse osmosis membrane condition and performance.'),
+                preset('ro_system_sanitize', 'Sanitize RO system', 1, 'years', 'Sanitize the reverse osmosis system according to manufacturer guidance.')
+            );
+        }
+
+        if (isSoftenerItem) {
+            waterQualityPresets.push(
+                preset('softener_salt_brine_check', 'Check softener salt / brine tank', 1, 'months', 'Check salt level and brine tank condition.'),
+                preset('softener_media_service', 'Service softener / media', 1, 'years', 'Check softener media and service needs.')
+            );
+        }
+
+        return uniquePresets([...waterQualityPresets, genericPreset]);
     }
 
     if (isWaterSystem) {
         if (matchesAny(text, ['prv', 'pressure regulator', 'pressure reducing valve', 'pressure'])) {
-            presets.push(preset('prv_pressure_check', 'Check PRV / water pressure', 1, 'years', 'Verify water pressure and pressure regulator behavior.'));
+            presets.push(preset('prv_pressure_check', 'Check water pressure', 1, 'years', 'Verify home water pressure and pressure regulator behavior.'));
         }
 
         if (matchesAny(text, ['shutoff', 'shut off', 'valve', 'water service', 'water main'])) {
@@ -126,23 +198,6 @@ export function getMaintenancePresets(item: {
             presets.push(preset('water_meter_leak_check', 'Check water meter for leaks', 3, 'months', 'Check the water meter for leak indications.'));
         }
 
-        if (matchesAny(text, ['sediment filter', 'filter', 'whole house filter', 'cartridge'])) {
-            presets.push(preset('sediment_filter_replace', 'Replace sediment filter', 6, 'months', 'Replace or clean the sediment filter.'));
-        }
-
-        if (matchesAny(text, ['ro', 'reverse osmosis'])) {
-            presets.push(
-                preset('replace_ro_filters', 'Replace RO filters', 1, 'years', 'Replace reverse osmosis filters.'),
-                preset('ro_membrane_check', 'Check RO membrane', 3, 'years', 'Check reverse osmosis membrane condition and performance.')
-            );
-        }
-
-        if (matchesAny(text, ['softener', 'brine'])) {
-            presets.push(
-                preset('softener_salt_brine_check', 'Check softener salt / brine tank', 1, 'months', 'Check salt level and brine tank condition.'),
-                preset('softener_media_service', 'Service softener / media', 1, 'years', 'Check softener media and service needs.')
-            );
-        }
     }
 
     if (isGasSystem) {
@@ -335,6 +390,21 @@ function normalize(value?: string | null) {
 
 function matchesAny(value: string, terms: string[]) {
     return terms.some((term) => value.includes(normalize(term)));
+}
+
+function matchesRo(value: string) {
+    return /\bro\b/.test(value);
+}
+
+function isWaterQualityItem(value: string) {
+    return matchesRo(value) || matchesAny(value, [
+        'reverse osmosis',
+        'filter',
+        'filtration',
+        'halo',
+        'softener',
+        'brine',
+    ]);
 }
 
 function uniquePresets(presets: MaintenancePreset[]) {
