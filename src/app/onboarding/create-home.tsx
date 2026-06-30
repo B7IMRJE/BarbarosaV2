@@ -82,7 +82,7 @@ export default function CreateHomeOnboardingScreen() {
                 address: verifiedAddress,
             });
 
-            router.replace((nextRoute || '/onboarding/base-home-wizard') as never);
+            router.replace((nextRoute || '/onboarding/theme') as never);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'We could not create your home right now. Please try again.');
         } finally {

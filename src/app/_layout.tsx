@@ -28,6 +28,7 @@ const CUSTOMER_INVITE_ROUTE = '/customer-invite';
 const ONBOARDING_INVITE_ROUTE = '/onboarding/invite';
 const COMPANY_INVITATIONS_ROUTE = '/onboarding/company-invitations';
 const ONBOARDING_COMPLETE_ROUTE = '/onboarding/complete';
+const ONBOARDING_THEME_ROUTE = '/onboarding/theme';
 const PROFILE_CHANGE_PASSWORD_ROUTE = '/profile/change-password';
 const DISPATCH_ROUTE = '/dispatch';
 const SCHEDULE_ROUTE = '/schedule';
@@ -223,6 +224,7 @@ function isPublicAuthPath(pathname: string) {
 function isAllowedFirstHomeOnboardingPath(pathname: string) {
   return (
     pathname === FIRST_HOME_ONBOARDING_ROUTE ||
+    pathname === ONBOARDING_THEME_ROUTE ||
     pathname === ONBOARDING_INVITE_ROUTE ||
     pathname === COMPANY_INVITATIONS_ROUTE ||
     pathname === COMPANY_INVITE_ROUTE ||
