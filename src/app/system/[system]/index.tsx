@@ -15,22 +15,38 @@ import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
 
+type SystemAreaItem = HomeHealthItem & {
+    name?: string | null;
+};
+
 export default function SystemAreasScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const { system } = useLocalSearchParams<{ system: string }>();
     const [search, setSearch] = useState('');
-    const [homeItems, setHomeItems] = useState<HomeHealthItem[]>([]);
+    const [homeItems, setHomeItems] = useState<SystemAreaItem[]>([]);
     const [message, setMessage] = useState('');
 
     const systemName = system ? String(system) : 'System';
     const systemLabel = getSystemLabel(systemName);
     const systemDefaults = useMemo(() => getSystemDefaults(systemName), [systemName]);
 
+    const savedAreas = useMemo(
+        () => getSavedAreasForSystem(homeItems, systemName),
+        [homeItems, systemName]
+    );
+    const areaChoices = useMemo(
+        () => uniqueAreaNames([...systemDefaults.areas, ...savedAreas]),
+        [savedAreas, systemDefaults.areas]
+    );
     const filteredAreas = useMemo(() => {
-        return systemDefaults.areas.filter((area) =>
+        return areaChoices.filter((area) =>
             area.toLowerCase().includes(search.toLowerCase())
         );
-    }, [search, systemDefaults]);
+    }, [areaChoices, search]);
+    const systemItems = useMemo(
+        () => homeItems.filter((item) => sameText(item.system, systemName)),
+        [homeItems, systemName]
+    );
 
     const loadAreaHealth = useCallback(async () => {
         let activeProperty;
@@ -52,7 +68,7 @@ export default function SystemAreasScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, status, install_state, system, location, parent_area, category')
+            .select('id, name, status, install_state, system, location, parent_area, category')
             .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 
@@ -62,7 +78,7 @@ export default function SystemAreasScreen() {
             return;
         }
 
-        setHomeItems((data || []) as HomeHealthItem[]);
+        setHomeItems((data || []) as SystemAreaItem[]);
         setMessage('');
     }, []);
 
@@ -166,7 +182,7 @@ export default function SystemAreasScreen() {
                     }}
                 >
                     {filteredAreas.map((area) => {
-                        const areaSummary = scoreAreaHealth(homeItems, area);
+                        const areaSummary = scoreAreaHealth(systemItems, area);
 
                         return (
                             <SystemStatusCard
@@ -193,4 +209,32 @@ export default function SystemAreasScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function getSavedAreasForSystem(items: SystemAreaItem[], systemName: string) {
+    return items
+        .filter((item) => sameText(item.category, 'Area') && sameText(item.system, systemName))
+        .map((item) => item.name || item.location || item.parent_area || '')
+        .filter((area) => !!area.trim());
+}
+
+function uniqueAreaNames(areas: string[]) {
+    const seen = new Set<string>();
+
+    return areas.filter((area) => {
+        const normalizedArea = normalizeText(area);
+
+        if (!normalizedArea || seen.has(normalizedArea)) return false;
+
+        seen.add(normalizedArea);
+        return true;
+    });
+}
+
+function sameText(a?: string | null, b?: string | null) {
+    return normalizeText(a) === normalizeText(b);
+}
+
+function normalizeText(value?: string | null) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }

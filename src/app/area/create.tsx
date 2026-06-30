@@ -34,7 +34,7 @@ export default function CreateAreaScreen() {
     const system = firstParam(params.system);
     const parentAreaName = firstParam(params.parentArea).trim();
     const initialAreaName = firstParam(params.areaName).trim();
-    const canonicalSystem = getSystemDefinition(system)?.key || 'Plumbing';
+    const canonicalSystem = system ? getSystemDefinition(system)?.key || system : 'Plumbing';
     const systemLabel = getSystemLabel(canonicalSystem);
     const customAreaTemplate = areaTemplates.find((template) => template.id === 'custom-area') || null;
     const [selectedTemplate, setSelectedTemplate] = useState<AreaTemplate | null>(

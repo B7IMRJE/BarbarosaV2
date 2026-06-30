@@ -73,6 +73,13 @@ type CreatedServiceRequestReceipt = {
   createdAt: string | null;
 };
 
+type DashboardSystemTile = {
+  key: string;
+  label: string;
+  icon: string;
+  route: 'documents' | 'plumbing' | 'system';
+};
+
 function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   const safeError = error as {
     message?: unknown;
@@ -232,10 +239,30 @@ export default function HomeScreen() {
     () => scoreOverallHomeHealth(homeItems, activeEmergencies),
     [homeItems, activeEmergencies]
   );
+  const dashboardSystemTiles = useMemo(() => buildDashboardSystemTiles(homeItems), [homeItems]);
   const systemSummaries = useMemo(
-    () => scoreAllSystems(homeItems, homeSystems.map((system) => system.key)),
-    [homeItems]
+    () => scoreAllSystems(homeItems, dashboardSystemTiles.map((system) => system.key)),
+    [homeItems, dashboardSystemTiles]
   );
+  const fixedSystemCount = homeSystems.length;
+  const customSystemCount = Math.max(dashboardSystemTiles.length - fixedSystemCount, 0);
+
+  function openSystemTile(system: DashboardSystemTile) {
+    if (system.route === 'documents') {
+      router.push('/documents');
+      return;
+    }
+
+    if (system.route === 'plumbing') {
+      router.push('/system/plumbing');
+      return;
+    }
+
+    router.push({
+      pathname: '/system/[system]',
+      params: { system: system.key },
+    });
+  }
   const maintenanceReminderCounts = useMemo(() => {
     const counts: Record<DueStatusLabel, number> = {
       Overdue: 0,
@@ -675,41 +702,61 @@ export default function HomeScreen() {
           </ThemedCard>
         </View>
 
-        <Text
+        <View
           style={{
-            fontSize: scaleFont(20),
-            fontWeight: '900',
-            color: theme.colors.text,
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: scaleIcon(10),
             marginTop: scaleIcon(26),
             marginBottom: scaleIcon(14),
           }}
         >
-          Health Breakdown
-        </Text>
+          <View>
+            <Text
+              style={{
+                fontSize: scaleFont(20),
+                fontWeight: '900',
+                color: theme.colors.text,
+              }}
+            >
+              Health Breakdown
+            </Text>
+            {customSystemCount > 0 && (
+              <Text
+                style={{
+                  fontSize: scaleFont(13),
+                  fontWeight: '800',
+                  color: theme.colors.mutedText,
+                  marginTop: scaleIcon(4),
+                }}
+              >
+                {customSystemCount} custom service{customSystemCount === 1 ? '' : 's'} added
+              </Text>
+            )}
+          </View>
+
+          <ThemedButton
+            title="Add Service"
+            variant="secondary"
+            onPress={() => router.push('/system/create')}
+            style={{
+              paddingVertical: scaleIcon(10),
+              paddingHorizontal: scaleIcon(14),
+            }}
+            textStyle={{ fontSize: scaleFont(13) }}
+          />
+        </View>
 
         <View style={[healthBreakdownGridStyle, { gap: healthTileGap }]}>
-          {homeSystems.map((system) => (
+          {dashboardSystemTiles.map((system) => (
             <SystemStatusCard
               key={system.key}
               title={system.label}
               icon={system.icon}
               status={statusForCard(systemSummaries[system.key])}
-              onPress={() => {
-                if (system.key === 'Documents') {
-                  router.push('/documents' as any);
-                  return;
-                }
-
-                if (system.key === 'Plumbing') {
-                  router.push('/system/plumbing' as any);
-                  return;
-                }
-
-                router.push({
-                  pathname: '/system/[system]',
-                  params: { system: system.key },
-                } as any);
-              }}
+              onPress={() => openSystemTile(system)}
               style={{
                 width: healthTileSize,
                 height: healthTileSize,
@@ -1248,6 +1295,68 @@ function firstText(...values: Array<string | null | undefined>) {
   }
 
   return '';
+}
+
+function buildDashboardSystemTiles(items: HomeDashboardItem[]): DashboardSystemTile[] {
+  const knownSystemNames = getKnownSystemNames();
+  const customSystemsByKey = new Map<string, string>();
+
+  items.forEach((item) => {
+    const systemName = firstText(item.system);
+    const normalizedSystemName = normalizeText(systemName);
+
+    if (!systemName || knownSystemNames.has(normalizedSystemName)) return;
+
+    if (!customSystemsByKey.has(normalizedSystemName)) {
+      customSystemsByKey.set(normalizedSystemName, systemName);
+    }
+  });
+
+  const fixedTiles = homeSystems.map<DashboardSystemTile>((system) => ({
+    key: system.key,
+    label: system.label,
+    icon: system.icon,
+    route: system.key === 'Documents' ? 'documents' : system.key === 'Plumbing' ? 'plumbing' : 'system',
+  }));
+
+  const customTiles = Array.from(customSystemsByKey.values())
+    .sort((a, b) => a.localeCompare(b))
+    .map<DashboardSystemTile>((systemName) => ({
+      key: systemName,
+      label: systemName,
+      icon: getCustomSystemIcon(systemName),
+      route: 'system',
+    }));
+
+  return [...fixedTiles, ...customTiles];
+}
+
+function getKnownSystemNames() {
+  const names = new Set<string>();
+
+  homeSystems.forEach((system) => {
+    [system.key, system.label, ...system.aliases].forEach((name) => {
+      const normalizedName = normalizeText(name);
+
+      if (normalizedName) {
+        names.add(normalizedName);
+      }
+    });
+  });
+
+  return names;
+}
+
+function getCustomSystemIcon(systemName: string) {
+  const normalizedName = normalizeText(systemName);
+
+  if (normalizedName.includes('storage') || normalizedName.includes('inventory')) return '📦';
+  if (normalizedName.includes('roof')) return '🏠';
+  if (normalizedName.includes('paint')) return '🎨';
+  if (normalizedName.includes('siding')) return '🏡';
+  if (normalizedName.includes('landscape') || normalizedName.includes('yard')) return '🌿';
+
+  return '🏠';
 }
 
 function sameText(a?: string | null, b?: string | null) {

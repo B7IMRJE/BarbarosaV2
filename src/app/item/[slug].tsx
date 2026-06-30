@@ -739,6 +739,10 @@ export default function ItemScreen() {
         await capturePhoto('additional', normalizePhotoCategory(photoCategory));
     }
 
+    function handleLocationVideoPlaceholder() {
+        setMessage('Location video uploads are coming soon. Photos and documents are available now.');
+    }
+
     async function handleUploadDocument() {
         setShowDocumentTypePicker(true);
     }
@@ -1712,6 +1716,15 @@ export default function ItemScreen() {
                         <ThemedButton
                             title={mediaActionBusy ? mediaBusyTitle : 'Take Photo'}
                             onPress={handleTakeAdditionalPhoto}
+                            disabled={mediaActionBusy}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
+                        />
+
+                        <ThemedButton
+                            title="Location Video Coming Soon"
+                            variant="secondary"
+                            onPress={handleLocationVideoPlaceholder}
                             disabled={mediaActionBusy}
                             style={scaleStyle(buttonStyle)}
                             textStyle={scaleStyle(buttonTextStyle)}
