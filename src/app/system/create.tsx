@@ -9,12 +9,16 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
-import { getSystemDefinition } from '../../lib/homeSystems';
+import { getSystemDefinition, isCustomServiceRoot } from '../../lib/homeSystems';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
 type ExistingServiceRow = {
+    name: string | null;
     system: string | null;
+    category: string | null;
+    location: string | null;
+    parent_area: string | null;
 };
 
 const suggestedServiceNames = [
@@ -68,7 +72,7 @@ export default function CreateSystemScreen() {
 
         const { data: existingRows, error: existingError } = await supabase
             .from('home_items')
-            .select('system')
+            .select('name, system, category, location, parent_area')
             .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 
@@ -79,7 +83,7 @@ export default function CreateSystemScreen() {
         }
 
         const existingService = ((existingRows || []) as ExistingServiceRow[]).some((row) =>
-            sameText(row.system, trimmedServiceName)
+            isCustomServiceRoot(row) && sameText(row.system, trimmedServiceName)
         );
 
         if (existingService) {

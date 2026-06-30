@@ -20,6 +20,14 @@ export type HomeSystemDefinition = {
     aliases: string[];
 };
 
+export type HomeSystemRecord = {
+    name?: string | null;
+    system?: string | null;
+    category?: string | null;
+    location?: string | null;
+    parent_area?: string | null;
+};
+
 export const homeSystems: HomeSystemDefinition[] = [
     {
         key: 'Plumbing',
@@ -126,4 +134,22 @@ export function getSystemDefinition(value?: string | null) {
 
 export function getSystemLabel(value?: string | null) {
     return getSystemDefinition(value)?.label || value || 'System';
+}
+
+export function isCustomServiceRoot(row: HomeSystemRecord) {
+    const systemName = normalizeSystemText(row.system);
+
+    if (!systemName || getSystemDefinition(systemName)) return false;
+    if (!sameSystemText(row.category, 'Area')) return false;
+    if (normalizeSystemText(row.parent_area)) return false;
+
+    return sameSystemText(row.name, 'Whole Home') || sameSystemText(row.location, 'Whole Home');
+}
+
+function sameSystemText(a?: string | null, b?: string | null) {
+    return normalizeSystemText(a) === normalizeSystemText(b);
+}
+
+function normalizeSystemText(value?: string | null) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }

@@ -42,7 +42,12 @@ export function getStatusCardStyle(
         };
     }
 
-    if (normalizedStatus === 'not inspected') {
+    if (
+        normalizedStatus === 'not inspected' ||
+        normalizedStatus === 'needs review' ||
+        normalizedStatus === 'needs confirmation' ||
+        normalizedStatus === 'missing information'
+    ) {
         return {
             backgroundColor: theme.colors.status.notInspected.background,
             borderColor: theme.colors.status.notInspected.border,

@@ -10,7 +10,7 @@ import {
     requireActivePropertyMembership,
 } from '../../../lib/activeProperty';
 import { scoreAreaHealth, statusForCard, type HomeHealthItem } from '../../../lib/homeHealth';
-import { getSystemLabel } from '../../../lib/homeSystems';
+import { getSystemDefinition, getSystemLabel, isCustomServiceRoot } from '../../../lib/homeSystems';
 import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
@@ -26,8 +26,9 @@ export default function SystemAreasScreen() {
     const [homeItems, setHomeItems] = useState<SystemAreaItem[]>([]);
     const [message, setMessage] = useState('');
 
-    const systemName = system ? String(system) : 'System';
+    const systemName = decodeRouteParam(system) || 'System';
     const systemLabel = getSystemLabel(systemName);
+    const isCustomSystem = !getSystemDefinition(systemName);
     const systemDefaults = useMemo(() => getSystemDefaults(systemName), [systemName]);
 
     const savedAreas = useMemo(
@@ -35,8 +36,10 @@ export default function SystemAreasScreen() {
         [homeItems, systemName]
     );
     const areaChoices = useMemo(
-        () => uniqueAreaNames([...systemDefaults.areas, ...savedAreas]),
-        [savedAreas, systemDefaults.areas]
+        () => isCustomSystem && savedAreas.length > 0
+            ? uniqueAreaNames(savedAreas)
+            : uniqueAreaNames([...systemDefaults.areas, ...savedAreas]),
+        [isCustomSystem, savedAreas, systemDefaults.areas]
     );
     const filteredAreas = useMemo(() => {
         return areaChoices.filter((area) =>
@@ -213,7 +216,11 @@ export default function SystemAreasScreen() {
 
 function getSavedAreasForSystem(items: SystemAreaItem[], systemName: string) {
     return items
-        .filter((item) => sameText(item.category, 'Area') && sameText(item.system, systemName))
+        .filter((item) =>
+            sameText(item.category, 'Area') &&
+            sameText(item.system, systemName) &&
+            !isCustomServiceRoot(item)
+        )
         .map((item) => item.name || item.location || item.parent_area || '')
         .filter((area) => !!area.trim());
 }
@@ -237,4 +244,17 @@ function sameText(a?: string | null, b?: string | null) {
 
 function normalizeText(value?: string | null) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function decodeRouteParam(value?: string | string[] | null) {
+    const rawValue = Array.isArray(value) ? value[0] : value;
+    const text = String(rawValue || '').trim();
+
+    if (!text) return '';
+
+    try {
+        return decodeURIComponent(text);
+    } catch {
+        return text;
+    }
 }

@@ -43,6 +43,7 @@ type Choice = {
 
 type ExistingHomeItem = {
     name: string | null;
+    system: string | null;
     category: string | null;
     location: string | null;
     parent_area: string | null;
@@ -106,9 +107,9 @@ export default function CreateItemScreen() {
         category?: string;
         name?: string;
     }>();
-    const initialSystem = typeof params.system === 'string' ? params.system : 'Plumbing';
-    const initialArea = typeof params.area === 'string' ? params.area : '';
-    const initialParentArea = typeof params.parentArea === 'string' ? params.parentArea.trim() : '';
+    const initialSystem = decodeParam(params.system) || 'Plumbing';
+    const initialArea = decodeParam(params.area);
+    const initialParentArea = decodeParam(params.parentArea).trim();
     const hasAreaContext = !!initialSystem && !!initialArea;
     const initialCategoryParam = typeof params.category === 'string' ? params.category.trim() : '';
     const initialCategory = initialCategoryParam
@@ -307,7 +308,7 @@ export default function CreateItemScreen() {
 
         const { data: existingItems, error: duplicateCheckError } = await supabase
             .from('home_items')
-            .select('name, category, location, parent_area')
+            .select('name, system, category, location, parent_area')
             .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 
@@ -326,7 +327,7 @@ export default function CreateItemScreen() {
         }
 
         const matchingAreaItem = ((existingItems || []) as ExistingHomeItem[]).some((item) =>
-            isDuplicateItemInArea(item, savedLocation, savedParentArea, itemName)
+            isDuplicateItemInArea(item, canonicalSystem, savedLocation, savedParentArea, itemName)
         );
 
         if (matchingAreaItem) {
@@ -416,12 +417,17 @@ export default function CreateItemScreen() {
                                 onChange={chooseSystem}
                             />
                             {system === CUSTOM_SYSTEM_CHOICE && (
-                                <ThemedInput
-                                    label="Custom System Name"
-                                    placeholder="Home Storage"
-                                    value={customSystem}
-                                    onChangeText={setCustomSystem}
-                                />
+                                <>
+                                    <ThemedInput
+                                        label="Custom System Name"
+                                        placeholder="Home Storage"
+                                        value={customSystem}
+                                        onChangeText={setCustomSystem}
+                                    />
+                                    <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
+                                        Use Add Service first if this should appear on Home. Custom item systems stay inside the item unless a service exists.
+                                    </Text>
+                                </>
                             )}
                         </>
                     )}
@@ -560,8 +566,20 @@ function sameItemText(a?: string | null, b?: string | null) {
     return normalizeAreaName(a) === normalizeAreaName(b);
 }
 
-function isDuplicateItemInArea(item: ExistingHomeItem, areaName: string, parentArea: string, itemName: string) {
-    if (sameItemText(item.category, 'Area') || !sameItemText(item.name, itemName)) return false;
+function isDuplicateItemInArea(
+    item: ExistingHomeItem,
+    systemName: string,
+    areaName: string,
+    parentArea: string,
+    itemName: string
+) {
+    if (
+        sameItemText(item.category, 'Area') ||
+        !sameItemText(item.system, systemName) ||
+        !sameItemText(item.name, itemName)
+    ) {
+        return false;
+    }
 
     if (parentArea) {
         return sameItemText(item.location, areaName) && sameItemText(item.parent_area, parentArea);
@@ -583,6 +601,19 @@ function getCreateItemErrorMessage(error: unknown, itemName: string) {
     }
 
     return 'Save failed. Please try again.';
+}
+
+function decodeParam(value?: string | string[] | null) {
+    const rawValue = Array.isArray(value) ? value[0] : value;
+    const text = String(rawValue || '').trim();
+
+    if (!text) return '';
+
+    try {
+        return decodeURIComponent(text);
+    } catch {
+        return text;
+    }
 }
 
 function getPostgresErrorCode(error: unknown) {

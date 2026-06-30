@@ -39,10 +39,10 @@ export default function AreaScreen() {
         refresh?: string;
     }>();
 
-    const systemName = system ? String(system) : 'System';
+    const systemName = decodeRouteParam(system) || 'System';
     const systemLabel = getSystemLabel(systemName);
-    const areaName = area ? String(area) : 'Area';
-    const parentAreaName = firstParam(parentArea).trim();
+    const areaName = decodeRouteParam(area) || 'Area';
+    const parentAreaName = decodeRouteParam(parentArea).trim();
     const refreshKey = String(refresh || '');
     const [items, setItems] = useState<AreaHomeItem[]>([]);
     const [childAreas, setChildAreas] = useState<AreaHomeItem[]>([]);
@@ -89,10 +89,10 @@ export default function AreaScreen() {
         }
 
         const rows = (data || []) as AreaHomeItem[];
-        const savedChildAreas = rows.filter(
+        const systemRows = rows.filter((item) => sameText(item.system, systemName));
+        const savedChildAreas = systemRows.filter(
             (item) =>
                 sameText(item.category, 'Area') &&
-                sameText(item.system, systemName) &&
                 sameText(item.parent_area, areaName)
         );
         const broadZoneDefinition = getBroadZoneDefinition(areaName);
@@ -101,7 +101,7 @@ export default function AreaScreen() {
         const nextSuggestedChildAreas = nextBroadZoneMode
             ? getSuggestedChildAreas(areaName).filter((childArea) => !savedChildNames.has(normalizeAreaName(childArea)))
             : [];
-        const nextItems = rows.filter((item) => {
+        const nextItems = systemRows.filter((item) => {
             if (sameText(item.category, 'Area')) return false;
 
             if (parentAreaName) {
@@ -334,13 +334,21 @@ export default function AreaScreen() {
     );
 }
 
-function firstParam(value?: string | string[]) {
-    if (Array.isArray(value)) return value[0] || '';
-    return value || '';
-}
-
 function sameText(a?: string | null, b?: string | null) {
     return normalizeAreaName(a) === normalizeAreaName(b);
+}
+
+function decodeRouteParam(value?: string | string[] | null) {
+    const rawValue = Array.isArray(value) ? value[0] : value;
+    const text = String(rawValue || '').trim();
+
+    if (!text) return '';
+
+    try {
+        return decodeURIComponent(text);
+    } catch {
+        return text;
+    }
 }
 
 function isDirectItemInBroadZone(item: AreaHomeItem, areaName: string) {

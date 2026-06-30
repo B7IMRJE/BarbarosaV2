@@ -17,7 +17,7 @@ import {
   type HomeHealthEmergency,
   type HomeHealthItem,
 } from '../lib/homeHealth';
-import { homeSystems } from '../lib/homeSystems';
+import { homeSystems, isCustomServiceRoot } from '../lib/homeSystems';
 import { loadActiveHomeIdentity, type HomeIdentity } from '../lib/homeIdentity';
 import { labelDueStatus, type DueStatusLabel } from '../lib/maintenanceTimers';
 import { supabase } from '../lib/supabase';
@@ -31,7 +31,6 @@ type HomeDashboardItem = HomeHealthItem & {
   location?: string | null;
   parent_area?: string | null;
   status?: string | null;
-  condition?: string | null;
   install_state?: string | null;
   category?: string | null;
 };
@@ -128,6 +127,7 @@ export default function HomeScreen() {
   const [serviceRequestActionId, setServiceRequestActionId] = useState<string | null>(null);
   const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
   const [showServiceRequestForm, setShowServiceRequestForm] = useState(false);
+  const [showHealthLegend, setShowHealthLegend] = useState(false);
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
@@ -246,6 +246,28 @@ export default function HomeScreen() {
   );
   const fixedSystemCount = homeSystems.length;
   const customSystemCount = Math.max(dashboardSystemTiles.length - fixedSystemCount, 0);
+  const healthLegendItems = [
+    {
+      label: 'White / Empty',
+      description: 'Area or service exists, but no items have been added yet.',
+      colors: theme.colors.status.unknown,
+    },
+    {
+      label: 'Green / Good',
+      description: 'Items are added and currently OK.',
+      colors: theme.colors.status.good,
+    },
+    {
+      label: 'Yellow / Needs Review',
+      description: 'Missing information, needs confirmation, unknown, or not inspected.',
+      colors: theme.colors.status.notInspected,
+    },
+    {
+      label: 'Red / Critical',
+      description: 'Urgent, emergency, active leak, flood, gas smell, or problem.',
+      colors: theme.colors.status.emergency,
+    },
+  ];
 
   function openSystemTile(system: DashboardSystemTile) {
     if (system.route === 'documents') {
@@ -737,17 +759,82 @@ export default function HomeScreen() {
             )}
           </View>
 
-          <ThemedButton
-            title="Add Service"
-            variant="secondary"
-            onPress={() => router.push('/system/create')}
-            style={{
-              paddingVertical: scaleIcon(10),
-              paddingHorizontal: scaleIcon(14),
-            }}
-            textStyle={{ fontSize: scaleFont(13) }}
-          />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), justifyContent: 'flex-end' }}>
+            <ThemedButton
+              title="Legend"
+              variant="secondary"
+              onPress={() => setShowHealthLegend((current) => !current)}
+              style={{
+                paddingVertical: scaleIcon(10),
+                paddingHorizontal: scaleIcon(14),
+              }}
+              textStyle={{ fontSize: scaleFont(13) }}
+            />
+
+            <ThemedButton
+              title="Add Service"
+              variant="secondary"
+              onPress={() => router.push('/system/create')}
+              style={{
+                paddingVertical: scaleIcon(10),
+                paddingHorizontal: scaleIcon(14),
+              }}
+              textStyle={{ fontSize: scaleFont(13) }}
+            />
+          </View>
         </View>
+
+        {showHealthLegend && (
+          <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
+            <Text
+              style={{
+                color: theme.colors.text,
+                fontSize: scaleFont(17),
+                fontWeight: '900',
+                marginBottom: scaleIcon(10),
+              }}
+            >
+              Status Legend
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
+              {healthLegendItems.map((item) => (
+                <View
+                  key={item.label}
+                  style={{
+                    flexGrow: 1,
+                    flexBasis: 180,
+                    borderWidth: 1,
+                    borderColor: item.colors.border,
+                    backgroundColor: item.colors.background,
+                    borderRadius: theme.radii.card,
+                    padding: scaleIcon(12),
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: theme.colors.text,
+                      fontSize: scaleFont(14),
+                      fontWeight: '900',
+                      marginBottom: scaleIcon(4),
+                    }}
+                  >
+                    {item.label}
+                  </Text>
+                  <Text
+                    style={{
+                      color: theme.colors.mutedText,
+                      fontSize: scaleFont(12),
+                      fontWeight: '700',
+                      lineHeight: scaleFont(17),
+                    }}
+                  >
+                    {item.description}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </ThemedCard>
+        )}
 
         <View style={[healthBreakdownGridStyle, { gap: healthTileGap }]}>
           {dashboardSystemTiles.map((system) => (
@@ -1298,14 +1385,15 @@ function firstText(...values: Array<string | null | undefined>) {
 }
 
 function buildDashboardSystemTiles(items: HomeDashboardItem[]): DashboardSystemTile[] {
-  const knownSystemNames = getKnownSystemNames();
   const customSystemsByKey = new Map<string, string>();
 
   items.forEach((item) => {
+    if (!isCustomServiceRoot(item)) return;
+
     const systemName = firstText(item.system);
     const normalizedSystemName = normalizeText(systemName);
 
-    if (!systemName || knownSystemNames.has(normalizedSystemName)) return;
+    if (!systemName) return;
 
     if (!customSystemsByKey.has(normalizedSystemName)) {
       customSystemsByKey.set(normalizedSystemName, systemName);
@@ -1329,22 +1417,6 @@ function buildDashboardSystemTiles(items: HomeDashboardItem[]): DashboardSystemT
     }));
 
   return [...fixedTiles, ...customTiles];
-}
-
-function getKnownSystemNames() {
-  const names = new Set<string>();
-
-  homeSystems.forEach((system) => {
-    [system.key, system.label, ...system.aliases].forEach((name) => {
-      const normalizedName = normalizeText(name);
-
-      if (normalizedName) {
-        names.add(normalizedName);
-      }
-    });
-  });
-
-  return names;
 }
 
 function getCustomSystemIcon(systemName: string) {
@@ -1373,7 +1445,7 @@ function issueItemName(item: HomeDashboardItem) {
 
 function issueStatusLabel(item: HomeDashboardItem, status: string) {
   return (
-    firstText(item.status, item.condition, item.install_state) ||
+    firstText(item.status, item.install_state) ||
     (status === 'critical' ? 'Emergency' : 'Needs Attention')
   );
 }

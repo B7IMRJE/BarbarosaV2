@@ -17,7 +17,6 @@ export type HealthLabel =
 export type HomeHealthItem = {
     id?: string;
     status?: string | null;
-    condition?: string | null;
     install_state?: string | null;
     system?: string | null;
     area?: string | null;
@@ -66,6 +65,8 @@ export function normalizeHealthStatus(value?: string | null): HealthStatus {
     if (
         normalized.includes('emergency') ||
         normalized.includes('critical') ||
+        normalized.includes('urgent') ||
+        normalized.includes('problem') ||
         normalized.includes('active leak') ||
         normalized.includes('flood') ||
         normalized.includes('gas smell')
@@ -76,8 +77,7 @@ export function normalizeHealthStatus(value?: string | null): HealthStatus {
     if (
         normalized.includes('needs attention') ||
         normalized.includes('maintenance recommended') ||
-        normalized.includes('repair') ||
-        normalized.includes('problem')
+        normalized.includes('repair')
     ) {
         return 'needs_attention';
     }
@@ -86,7 +86,13 @@ export function normalizeHealthStatus(value?: string | null): HealthStatus {
         return 'not_inspected';
     }
 
-    if (normalized.includes('missing information') || normalized === 'missing') {
+    if (
+        normalized.includes('missing information') ||
+        normalized.includes('needs confirmation') ||
+        normalized.includes('needs review') ||
+        normalized.includes('confirm') ||
+        normalized === 'missing'
+    ) {
         return 'missing_information';
     }
 
@@ -96,6 +102,8 @@ export function normalizeHealthStatus(value?: string | null): HealthStatus {
 
     if (
         normalized.includes('good') ||
+        normalized === 'ok' ||
+        normalized === 'okay' ||
         normalized.includes('installed') ||
         normalized.includes('not applicable')
     ) {
@@ -106,7 +114,7 @@ export function normalizeHealthStatus(value?: string | null): HealthStatus {
 }
 
 export function scoreHomeItem(item: HomeHealthItem): ItemHealth {
-    const candidates = [item.status, item.condition, item.install_state].filter((value) =>
+    const candidates = [item.status, item.install_state].filter((value) =>
         String(value || '').trim()
     );
     const statuses = candidates.map(normalizeHealthStatus);
@@ -131,11 +139,15 @@ export function scoreHomeItem(item: HomeHealthItem): ItemHealth {
         return { status: 'not_inspected', score: scoreByStatus.not_inspected };
     }
 
+    if (statuses.includes('good')) {
+        return { status: 'good', score: scoreByStatus.good };
+    }
+
     if (statuses.includes('unknown')) {
         return { status: 'unknown', score: scoreByStatus.unknown };
     }
 
-    return { status: 'good', score: scoreByStatus.good };
+    return { status: 'unknown', score: scoreByStatus.unknown };
 }
 
 export function healthLabelFromScore(score: number | null): HealthLabel {
@@ -181,7 +193,9 @@ export function scoreItems(items: HomeHealthItem[]): HealthSummary {
 }
 
 export function scoreSystemHealth(items: HomeHealthItem[], system: string): HealthSummary {
-    return scoreItems(items.filter((item) => sameText(item.system, system)));
+    return scoreItems(
+        items.filter((item) => sameText(item.system, system) && !sameText(item.category, 'Area'))
+    );
 }
 
 export function scoreCategoryHealth(items: HomeHealthItem[], category: string): HealthSummary {
@@ -251,7 +265,7 @@ export function statusForCard(summary: HealthSummary): string | null {
         summary.status === 'missing_information' ||
         summary.status === 'not_inspected'
     ) {
-        return 'Not Inspected';
+        return 'Needs Review';
     }
     return 'Good';
 }

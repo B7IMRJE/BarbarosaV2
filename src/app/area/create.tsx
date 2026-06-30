@@ -31,9 +31,9 @@ export default function CreateAreaScreen() {
         parentArea?: string;
         areaName?: string;
     }>();
-    const system = firstParam(params.system);
-    const parentAreaName = firstParam(params.parentArea).trim();
-    const initialAreaName = firstParam(params.areaName).trim();
+    const system = decodeParam(params.system);
+    const parentAreaName = decodeParam(params.parentArea).trim();
+    const initialAreaName = decodeParam(params.areaName).trim();
     const canonicalSystem = system ? getSystemDefinition(system)?.key || system : 'Plumbing';
     const systemLabel = getSystemLabel(canonicalSystem);
     const customAreaTemplate = areaTemplates.find((template) => template.id === 'custom-area') || null;
@@ -272,15 +272,23 @@ export default function CreateAreaScreen() {
     );
 }
 
-function firstParam(value?: string | string[]) {
-    if (Array.isArray(value)) return value[0] || '';
-    return value || '';
-}
-
 function normalizeAreaText(value?: string | null) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function sameAreaText(a?: string | null, b?: string | null) {
     return normalizeAreaText(a) === normalizeAreaText(b);
+}
+
+function decodeParam(value?: string | string[] | null) {
+    const rawValue = Array.isArray(value) ? value[0] : value;
+    const text = String(rawValue || '').trim();
+
+    if (!text) return '';
+
+    try {
+        return decodeURIComponent(text);
+    } catch {
+        return text;
+    }
 }
