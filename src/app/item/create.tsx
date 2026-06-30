@@ -26,6 +26,11 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
 const categories = createItemCategories;
+const OTHER_HOME_SYSTEM = 'Other / Home';
+const CUSTOM_SYSTEM_CHOICE = '__custom_system__';
+const CUSTOM_CATEGORY_LABEL = 'Other / Custom';
+const CUSTOM_CATEGORY_CHOICE = '__custom_category__';
+const extraCategories = ['Storage', 'Safety'];
 const installStates = ['Unknown', 'Installed', 'Missing', 'Not Applicable'];
 const statuses = ['Missing Information', 'Not Inspected', 'Good', 'Needs Attention', 'Emergency'];
 
@@ -42,6 +47,8 @@ type ExistingHomeItem = {
     location: string | null;
     parent_area: string | null;
 };
+
+const categoryOptionValues = uniqueOptions([...categories, ...extraCategories], CUSTOM_CATEGORY_LABEL);
 
 function makeSlug(value: string) {
     return value
@@ -103,16 +110,26 @@ export default function CreateItemScreen() {
     const initialArea = typeof params.area === 'string' ? params.area : '';
     const initialParentArea = typeof params.parentArea === 'string' ? params.parentArea.trim() : '';
     const hasAreaContext = !!initialSystem && !!initialArea;
-    const initialCategory = typeof params.category === 'string' && categories.includes(params.category)
-        ? params.category
+    const initialCategoryParam = typeof params.category === 'string' ? params.category.trim() : '';
+    const initialCategory = initialCategoryParam
+        ? categoryOptionValues.includes(initialCategoryParam)
+            ? initialCategoryParam === CUSTOM_CATEGORY_LABEL
+                ? CUSTOM_CATEGORY_CHOICE
+                : initialCategoryParam
+            : CUSTOM_CATEGORY_CHOICE
         : 'Equipment';
+    const initialCustomCategory = initialCategory === CUSTOM_CATEGORY_CHOICE && initialCategoryParam !== CUSTOM_CATEGORY_LABEL
+        ? initialCategoryParam
+        : '';
     const initialName = typeof params.name === 'string' ? params.name : '';
     const hasInitialSystemSelection = typeof params.system === 'string' && !!params.system;
-    const hasInitialCategorySelection = typeof params.category === 'string' && categories.includes(params.category);
+    const hasInitialCategorySelection = !!initialCategoryParam;
 
     const [name, setName] = useState(initialName);
     const [system, setSystem] = useState(initialSystem);
     const [category, setCategory] = useState(initialCategory);
+    const [customSystem, setCustomSystem] = useState('');
+    const [customCategory, setCustomCategory] = useState(initialCustomCategory);
     const [isSystemSelected, setIsSystemSelected] = useState(hasInitialSystemSelection || hasAreaContext);
     const [isCategorySelected, setIsCategorySelected] = useState(hasInitialCategorySelection);
     const [isSystemOpen, setIsSystemOpen] = useState(!hasInitialSystemSelection && !hasAreaContext);
@@ -128,24 +145,42 @@ export default function CreateItemScreen() {
     const [about, setAbout] = useState('');
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
-    const systemDefaults = useMemo(() => getSystemDefaults(system), [system]);
+    const selectedSystemValue = system === CUSTOM_SYSTEM_CHOICE
+        ? customSystem.trim() || OTHER_HOME_SYSTEM
+        : system;
+    const selectedCategoryValue = category === CUSTOM_CATEGORY_CHOICE
+        ? customCategory.trim() || CUSTOM_CATEGORY_LABEL
+        : category;
+    const systemDefaults = useMemo(() => getSystemDefaults(selectedSystemValue), [selectedSystemValue]);
     const areaOptions = useMemo(
         () => uniqueOptions([...systemDefaults.areas, initialArea].filter(Boolean), 'Custom'),
         [systemDefaults.areas, initialArea]
     );
-    const genericItemSuggestions = getGenericItemSuggestions(systemDefaults, category);
+    const genericItemSuggestions = getGenericItemSuggestions(systemDefaults, selectedCategoryValue);
     const itemSuggestions = getItemSuggestions({
         area: initialArea || locationChoice,
-        system,
-        category,
+        system: selectedSystemValue,
+        category: selectedCategoryValue,
         fallbackSuggestions: genericItemSuggestions,
     });
-    const selectedSystemLabel = getSystemLabel(system);
-    const systemChoices = homeSystemOptions.map((option) => ({
-        value: option.key,
-        label: option.label,
+    const selectedSystemLabel = system === CUSTOM_SYSTEM_CHOICE
+        ? customSystem.trim() || 'Custom'
+        : getSystemLabel(system);
+    const selectedCategoryLabel = category === CUSTOM_CATEGORY_CHOICE
+        ? customCategory.trim() || CUSTOM_CATEGORY_LABEL
+        : category;
+    const systemChoices = uniqueChoiceOptions([
+        ...homeSystemOptions.map((option) => ({
+            value: option.key,
+            label: option.label,
+        })),
+        { value: OTHER_HOME_SYSTEM, label: OTHER_HOME_SYSTEM },
+        { value: CUSTOM_SYSTEM_CHOICE, label: 'Custom' },
+    ]);
+    const categoryChoices = categoryOptionValues.map((option) => ({
+        value: option === CUSTOM_CATEGORY_LABEL ? CUSTOM_CATEGORY_CHOICE : option,
+        label: option,
     }));
-    const categoryChoices = categories.map((option) => ({ value: option, label: option }));
     const locationChoices = areaOptions.map((option) => ({ value: option, label: option }));
     const suggestionChoices = itemSuggestions.map((option) => ({ value: option, label: option }));
     const installStateChoices = installStates.map((option) => ({ value: option, label: option }));
@@ -155,22 +190,39 @@ export default function CreateItemScreen() {
     const showOptionalDetails = showItemSections && !!name.trim();
 
     function chooseSystem(nextSystem: string) {
-        const nextDefaults = getSystemDefaults(nextSystem);
+        const isCustomSystem = nextSystem === CUSTOM_SYSTEM_CHOICE;
+        const nextDefaults = getSystemDefaults(isCustomSystem ? OTHER_HOME_SYSTEM : nextSystem);
         const nextArea = nextDefaults.areas[0] || 'Custom';
 
         setSystem(nextSystem);
         setLocationChoice(nextArea);
         setCustomLocation('');
+        if (!isCustomSystem) {
+            setCustomSystem('');
+        }
         setIsSystemSelected(true);
-        setIsSystemOpen(false);
+        setIsSystemOpen(isCustomSystem);
         setIsCategorySelected(false);
         setIsCategoryOpen(true);
     }
 
     function chooseCategory(nextCategory: string) {
+        if (nextCategory !== CUSTOM_CATEGORY_CHOICE) {
+            setCustomCategory('');
+        }
         setCategory(nextCategory);
         setIsCategorySelected(true);
-        setIsCategoryOpen(false);
+        setIsCategoryOpen(nextCategory === CUSTOM_CATEGORY_CHOICE);
+    }
+
+    function finalSystem() {
+        if (system === CUSTOM_SYSTEM_CHOICE) return customSystem.trim();
+        return system.trim();
+    }
+
+    function finalCategory() {
+        if (category === CUSTOM_CATEGORY_CHOICE) return customCategory.trim();
+        return category.trim();
     }
 
     function finalLocation() {
@@ -191,6 +243,16 @@ export default function CreateItemScreen() {
     async function saveItem() {
         if (!name.trim()) {
             setMessage('Enter item name.');
+            return;
+        }
+
+        if (!finalSystem()) {
+            setMessage('Enter a custom system name or choose a system.');
+            return;
+        }
+
+        if (!finalCategory()) {
+            setMessage('Enter a custom category name or choose a category.');
             return;
         }
 
@@ -218,7 +280,9 @@ export default function CreateItemScreen() {
         const itemName = name.trim();
         const savedLocation = finalAreaLocation();
         const savedParentArea = finalParentArea();
-        const canonicalSystem = getSystemDefinition(system)?.key || system;
+        const savedSystem = finalSystem();
+        const savedCategory = finalCategory();
+        const canonicalSystem = getSystemDefinition(savedSystem)?.key || savedSystem;
         const slug = makeManualItemSlug(savedLocation, canonicalSystem, itemName);
         const insertPayload = {
             user_id: activeProperty.userId,
@@ -226,7 +290,7 @@ export default function CreateItemScreen() {
             item_slug: slug,
             name: itemName,
             system: canonicalSystem,
-            category,
+            category: savedCategory,
             parent_area: savedParentArea,
             install_state: installState,
             status,
@@ -351,6 +415,14 @@ export default function CreateItemScreen() {
                                 value={isSystemSelected ? system : ''}
                                 onChange={chooseSystem}
                             />
+                            {system === CUSTOM_SYSTEM_CHOICE && (
+                                <ThemedInput
+                                    label="Custom System Name"
+                                    placeholder="Home Storage"
+                                    value={customSystem}
+                                    onChangeText={setCustomSystem}
+                                />
+                            )}
                         </>
                     )}
                 </StepCard>
@@ -359,7 +431,7 @@ export default function CreateItemScreen() {
                     <StepCard
                         step="2"
                         title="Category"
-                        summary={isCategorySelected && !isCategoryOpen ? category : undefined}
+                        summary={isCategorySelected && !isCategoryOpen ? selectedCategoryLabel : undefined}
                         onEdit={() => setIsCategoryOpen(true)}
                     >
                         {isCategoryOpen && (
@@ -372,6 +444,14 @@ export default function CreateItemScreen() {
                                     value={isCategorySelected ? category : ''}
                                     onChange={chooseCategory}
                                 />
+                                {category === CUSTOM_CATEGORY_CHOICE && (
+                                    <ThemedInput
+                                        label="Custom Category Name"
+                                        placeholder="Storage"
+                                        value={customCategory}
+                                        onChangeText={setCustomCategory}
+                                    />
+                                )}
                             </>
                         )}
                     </StepCard>
@@ -379,7 +459,7 @@ export default function CreateItemScreen() {
 
                 {showItemSections && itemSuggestions.length > 0 && (
                     <ThemedCard style={scaleStyle(formCardStyle)}>
-                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Suggested {category}</Text>
+                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Suggested {selectedCategoryLabel}</Text>
                         <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Common items</Text>
                         <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
                             Tap one to fill the item name, or type your own below.
@@ -531,6 +611,19 @@ function uniqueOptions(options: string[], finalOption: string) {
     const unique = options.filter((option, index, self) => option && self.indexOf(option) === index);
 
     return unique.includes(finalOption) ? unique : [...unique, finalOption];
+}
+
+function uniqueChoiceOptions(options: Choice[]) {
+    const seen = new Set<string>();
+
+    return options.filter((option) => {
+        const key = option.value.trim().toLowerCase();
+
+        if (!key || seen.has(key)) return false;
+
+        seen.add(key);
+        return true;
+    });
 }
 
 function ThemedInput({
