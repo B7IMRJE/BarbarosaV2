@@ -106,10 +106,12 @@ export default function CreateItemScreen() {
         parentArea?: string;
         category?: string;
         name?: string;
+        rootItem?: string;
     }>();
     const initialSystem = decodeParam(params.system) || 'Plumbing';
     const initialArea = decodeParam(params.area);
     const initialParentArea = decodeParam(params.parentArea).trim();
+    const isRootSystemItem = sameItemText(decodeParam(params.rootItem), 'true');
     const hasAreaContext = !!initialSystem && !!initialArea;
     const initialCategoryParam = typeof params.category === 'string' ? params.category.trim() : '';
     const initialCategory = initialCategoryParam
@@ -284,7 +286,7 @@ export default function CreateItemScreen() {
         const savedSystem = finalSystem();
         const savedCategory = finalCategory();
         const canonicalSystem = getSystemDefinition(savedSystem)?.key || savedSystem;
-        const slug = makeManualItemSlug(savedLocation, canonicalSystem, itemName);
+        const slug = makeManualItemSlug(savedLocation, canonicalSystem, itemName, savedParentArea);
         const insertPayload = {
             user_id: activeProperty.userId,
             property_id: activeProperty.propertyId,
@@ -353,6 +355,16 @@ export default function CreateItemScreen() {
 
         if (error) {
             setMessage(getCreateItemErrorMessage(error, itemName));
+            return;
+        }
+
+        if (isRootSystemItem) {
+            router.replace({
+                pathname: '/system/[system]',
+                params: {
+                    system: initialSystem,
+                },
+            } as any);
             return;
         }
 
@@ -558,8 +570,8 @@ function logCreateItemDebug(label: string, details: unknown) {
     }
 }
 
-function makeManualItemSlug(area: string, system: string, itemName: string) {
-    return makeSlug([area, system, itemName].map((part) => part.trim()).filter(Boolean).join('-'));
+function makeManualItemSlug(area: string, system: string, itemName: string, parentArea = '') {
+    return makeSlug([parentArea, area, system, itemName].map((part) => part.trim()).filter(Boolean).join('-'));
 }
 
 function sameItemText(a?: string | null, b?: string | null) {

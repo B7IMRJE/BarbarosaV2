@@ -449,16 +449,16 @@ export function makeSlug(value: string) {
         .replace(/(^-|-$)/g, '');
 }
 
-export function makeAreaSlug(areaName: string, system: string) {
-    return makeSlug(`${areaName}-${system}-area`);
+export function makeAreaSlug(areaName: string, system: string, parentArea = '') {
+    return makeSlug([parentArea, areaName, system, 'area'].filter(Boolean).join('-'));
 }
 
-export function makeStarterItemSlug(areaName: string, item: AreaStarterItem) {
-    return makeSlug(`${areaName}-${item.system}-${item.name}`);
+export function makeStarterItemSlug(areaName: string, item: AreaStarterItem, parentArea = '') {
+    return makeSlug([parentArea, areaName, item.system, item.name].filter(Boolean).join('-'));
 }
 
-export function duplicateKey(system: string, areaName: string, itemName: string) {
-    return [system, areaName, itemName].map(normalize).join('|');
+export function duplicateKey(system: string, areaName: string, itemName: string, parentArea = '') {
+    return [system, parentArea, areaName, itemName].map(normalize).join('|');
 }
 
 export function existingDuplicateKeys(items: ExistingAreaItem[]) {
@@ -467,7 +467,8 @@ export function existingDuplicateKeys(items: ExistingAreaItem[]) {
             duplicateKey(
                 item.system || '',
                 item.location || item.parent_area || '',
-                item.name || ''
+                item.name || '',
+                item.location ? item.parent_area || '' : ''
             )
         )
     );
@@ -483,7 +484,7 @@ export function buildAreaRow(
     return {
         user_id: userId,
         property_id: propertyId,
-        item_slug: makeAreaSlug(areaName, system),
+        item_slug: makeAreaSlug(areaName, system, parentArea),
         name: areaName,
         system,
         category: 'Area',
@@ -505,7 +506,7 @@ export function buildStarterRows(
     return getStarterItems(template).map((starterItem) => ({
         user_id: userId,
         property_id: propertyId,
-        item_slug: makeStarterItemSlug(areaName, starterItem),
+        item_slug: makeStarterItemSlug(areaName, starterItem, parentArea),
         name: starterItem.name,
         system: starterItem.system,
         category: starterItem.category,

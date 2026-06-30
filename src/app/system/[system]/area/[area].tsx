@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { getStatusCardStyle } from '../../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
@@ -46,8 +46,9 @@ export default function AreaScreen() {
     const refreshKey = String(refresh || '');
     const [items, setItems] = useState<AreaHomeItem[]>([]);
     const [childAreas, setChildAreas] = useState<AreaHomeItem[]>([]);
+    const [currentAreaRecord, setCurrentAreaRecord] = useState<AreaHomeItem | null>(null);
     const [suggestedChildAreas, setSuggestedChildAreas] = useState<string[]>([]);
-    const [isBroadZoneMode, setIsBroadZoneMode] = useState(false);
+    const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
     const itemSections = groupItemsBySystem(items);
 
@@ -63,6 +64,7 @@ export default function AreaScreen() {
         } catch (error) {
             setItems([]);
             setChildAreas([]);
+            setCurrentAreaRecord(null);
             setSuggestedChildAreas([]);
             setMessage(activePropertyErrorMessage(error));
 
@@ -90,6 +92,7 @@ export default function AreaScreen() {
 
         const rows = (data || []) as AreaHomeItem[];
         const systemRows = rows.filter((item) => sameText(item.system, systemName));
+        const nextCurrentAreaRecord = systemRows.find((item) => isCurrentAreaRecord(item, areaName, parentAreaName)) || null;
         const savedChildAreas = systemRows.filter(
             (item) =>
                 sameText(item.category, 'Area') &&
@@ -108,16 +111,12 @@ export default function AreaScreen() {
                 return sameText(item.location, areaName) && sameText(item.parent_area, parentAreaName);
             }
 
-            if (nextBroadZoneMode) {
-                return isDirectItemInBroadZone(item, areaName);
-            }
-
-            return sameText(item.location, areaName) || sameText(item.parent_area, areaName);
+            return isDirectItemInArea(item, areaName);
         });
 
         setChildAreas(sortAreaRecords(savedChildAreas));
+        setCurrentAreaRecord(nextCurrentAreaRecord);
         setSuggestedChildAreas(nextSuggestedChildAreas);
-        setIsBroadZoneMode(nextBroadZoneMode);
         setItems(
             sortAreaItems(
                 areaName,
@@ -160,6 +159,169 @@ export default function AreaScreen() {
                 ...(childAreaName ? { areaName: childAreaName } : {}),
             },
         } as any);
+    }
+
+    function confirmArchiveArea(areaRecord: AreaHomeItem, isCurrentArea = false) {
+        const title = areaRecord.name || areaRecord.location || areaName;
+
+        Alert.alert(
+            `Archive ${title}?`,
+            'This hides the area/container from HomeOS without deleting your account or home.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Archive',
+                    style: 'destructive',
+                    onPress: () => {
+                        void archiveArea(areaRecord, isCurrentArea);
+                    },
+                },
+            ]
+        );
+    }
+
+    async function archiveArea(areaRecord: AreaHomeItem, isCurrentArea = false) {
+        const targetId = areaRecord.id;
+        const targetName = areaRecord.name || areaRecord.location || '';
+        const targetParentArea = areaRecord.parent_area || '';
+
+        if (!targetId || !targetName) {
+            setMessage('This area/container cannot be archived yet.');
+            return;
+        }
+
+        setArchivingRecordId(targetId);
+        setMessage('Checking area/container before archiving...');
+
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
+            setArchivingRecordId(null);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('home_items')
+            .select('id, name, system, item_slug, category, status, location, parent_area')
+            .eq('property_id', activeProperty.propertyId)
+            .eq('system', systemName)
+            .or('archived.eq.false,archived.is.null');
+
+        if (error) {
+            setMessage(`Could not check area/container: ${error.message}`);
+            setArchivingRecordId(null);
+            return;
+        }
+
+        const rows = (data || []) as AreaHomeItem[];
+        const childCount = rows.filter((row) =>
+            row.id !== targetId && isChildOfAreaRecord(row, targetName, targetParentArea)
+        ).length;
+
+        if (childCount > 0) {
+            setMessage('Move or archive the items inside this area before archiving it.');
+            setArchivingRecordId(null);
+            return;
+        }
+
+        const { error: archiveError } = await supabase
+            .from('home_items')
+            .update({ archived: true })
+            .eq('id', targetId)
+            .eq('property_id', activeProperty.propertyId);
+
+        if (archiveError) {
+            setMessage(`Archive failed: ${archiveError.message}`);
+            setArchivingRecordId(null);
+            return;
+        }
+
+        setMessage(`${targetName} archived.`);
+        setArchivingRecordId(null);
+
+        if (isCurrentArea) {
+            setTimeout(() => {
+                router.back();
+            }, 700);
+            return;
+        }
+
+        await loadAreaItems();
+    }
+
+    function confirmArchiveItem(item: AreaHomeItem) {
+        const title = item.name || 'this item';
+
+        Alert.alert(
+            `Archive ${title}?`,
+            'This hides the item from HomeOS. It does not delete your home or account.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Archive',
+                    style: 'destructive',
+                    onPress: () => {
+                        void archiveItem(item);
+                    },
+                },
+            ]
+        );
+    }
+
+    async function archiveItem(item: AreaHomeItem) {
+        const itemKey = item.id || item.item_slug || '';
+
+        if (!itemKey) {
+            setMessage('This item cannot be archived yet.');
+            return;
+        }
+
+        setArchivingRecordId(itemKey);
+        setMessage('Archiving item...');
+
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
+            setArchivingRecordId(null);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
+
+        const updateQuery = supabase
+            .from('home_items')
+            .update({ archived: true })
+            .eq('property_id', activeProperty.propertyId);
+        const scopedUpdateQuery = item.id ? updateQuery.eq('id', item.id) : updateQuery.eq('item_slug', item.item_slug || '');
+        const { error } = await scopedUpdateQuery;
+
+        if (error) {
+            setMessage(`Archive failed: ${error.message}`);
+            setArchivingRecordId(null);
+            return;
+        }
+
+        setMessage(`${item.name || 'Item'} archived.`);
+        setArchivingRecordId(null);
+        await loadAreaItems();
     }
 
     return (
@@ -214,115 +376,126 @@ export default function AreaScreen() {
                     {parentAreaName ? `${systemLabel} / ${parentAreaName}` : systemLabel}
                 </Text>
 
-                {isBroadZoneMode ? (
-                    <>
+                <ThemedCard style={actionCardStyle}>
+                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                        Add to this area / container
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800' }}>
+                        Add a nested container like a closet, or add a real item inside {areaName}.
+                    </Text>
+
+                    <View style={actionRowStyle}>
                         <ThemedButton
-                            title="+ Add Area"
+                            title="+ Add Area / Container"
+                            variant="secondary"
                             onPress={() => createChildArea()}
-                            style={{ marginBottom: 24 }}
+                            style={{ flexGrow: 1, minWidth: scaleIcon(220) }}
                         />
 
-                        <View style={sectionBlockStyle}>
-                            <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                                Areas inside {areaName}
-                            </Text>
-
-                            <View style={gridStyle}>
-                                {childAreas.map((childArea) => (
-                                    <ChildAreaCard
-                                        key={childArea.id || childArea.item_slug || childArea.name}
-                                        title={childArea.name || 'Unnamed Area'}
-                                        subtitle="Open area"
-                                        onPress={() => openChildArea(childArea.name || '')}
-                                    />
-                                ))}
-
-                                {suggestedChildAreas.map((childArea) => (
-                                    <ChildAreaCard
-                                        key={childArea}
-                                        title={childArea}
-                                        subtitle="Suggested area"
-                                        onPress={() => createChildArea(childArea)}
-                                    />
-                                ))}
-                            </View>
-
-                            {childAreas.length === 0 && suggestedChildAreas.length === 0 && (
-                                <ThemedCard style={{ marginBottom: 16 }}>
-                                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
-                                        No child areas yet.
-                                    </Text>
-                                </ThemedCard>
-                            )}
-                        </View>
-
-                        {items.length > 0 && (
-                            <View style={[sectionListStyle, directItemsSectionStyle]}>
-                                <View style={sectionBlockStyle}>
-                                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                                        Items directly in {areaName}
-                                    </Text>
-
-                                    {itemSections.map((section) => (
-                                        <View key={section.title} style={sectionBlockStyle}>
-                                            {itemSections.length > 1 && (
-                                                <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
-                                                    {getItemGroupHeading(section.title)}
-                                                </Text>
-                                            )}
-
-                                            <View style={gridStyle}>
-                                                {section.items.map((item) => (
-                                                    <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
-                                                ))}
-                                            </View>
-                                        </View>
-                                    ))}
-                                </View>
-                            </View>
-                        )}
-                    </>
-                ) : (
-                    <>
                         <ThemedButton
                             title="+ Add Item"
                             onPress={() => createSuggestedItem('Equipment')}
-                            style={{ marginBottom: 24 }}
+                            style={{ flexGrow: 1, minWidth: scaleIcon(180) }}
                         />
+
+                        {currentAreaRecord?.id && (
+                            <ThemedButton
+                                title={archivingRecordId === currentAreaRecord.id ? 'Archiving...' : 'Archive This Area / Container'}
+                                variant="danger"
+                                disabled={!!archivingRecordId}
+                                onPress={() => confirmArchiveArea(currentAreaRecord, true)}
+                                style={{ flexGrow: 1, minWidth: scaleIcon(230) }}
+                            />
+                        )}
+                    </View>
+                </ThemedCard>
+
+                <View style={sectionBlockStyle}>
+                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                        Areas / Containers inside {areaName}
+                    </Text>
+
+                    <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800' }}>
+                        Examples: Closet, Cabinet, Garage Shelf, Bathroom Vanity.
+                    </Text>
+
+                    <View style={gridStyle}>
+                        {childAreas.map((childArea) => {
+                            const archiveKey = childArea.id || childArea.item_slug || childArea.name || '';
+
+                            return (
+                                <ChildAreaCard
+                                    key={archiveKey}
+                                    title={childArea.name || 'Unnamed Area'}
+                                    subtitle="Area / Container"
+                                    onPress={() => openChildArea(childArea.name || '')}
+                                    onArchive={() => confirmArchiveArea(childArea)}
+                                    archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Area / Container'}
+                                    archiveDisabled={!!archivingRecordId}
+                                />
+                            );
+                        })}
+
+                        {suggestedChildAreas.map((childArea) => (
+                            <ChildAreaCard
+                                key={childArea}
+                                title={childArea}
+                                subtitle="Suggested area"
+                                onPress={() => createChildArea(childArea)}
+                            />
+                        ))}
+                    </View>
+
+                    {childAreas.length === 0 && suggestedChildAreas.length === 0 && (
+                        <ThemedCard style={{ marginBottom: 16 }}>
+                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
+                                No areas or containers yet.
+                            </Text>
+                        </ThemedCard>
+                    )}
+                </View>
+
+                <View style={[sectionListStyle, directItemsSectionStyle]}>
+                    <View style={sectionBlockStyle}>
+                        <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                            Items directly in {areaName}
+                        </Text>
 
                         {items.length === 0 ? (
                             <ThemedCard style={{ marginBottom: 16 }}>
                                 <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
-                                    No items added yet.
+                                    No direct items yet.
                                 </Text>
                             </ThemedCard>
                         ) : (
-                            <View style={sectionListStyle}>
-                                <View style={sectionBlockStyle}>
-                                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                                        {getAreaItemsHeading(areaName)}
-                                    </Text>
+                            itemSections.map((section) => (
+                                <View key={section.title} style={sectionBlockStyle}>
+                                    {itemSections.length > 1 && (
+                                        <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
+                                            {getItemGroupHeading(section.title)}
+                                        </Text>
+                                    )}
 
-                                    {itemSections.map((section) => (
-                                        <View key={section.title} style={sectionBlockStyle}>
-                                            {itemSections.length > 1 && (
-                                                <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
-                                                    {getItemGroupHeading(section.title)}
-                                                </Text>
-                                            )}
+                                    <View style={gridStyle}>
+                                        {section.items.map((item) => {
+                                            const archiveKey = item.id || item.item_slug || item.name || '';
 
-                                            <View style={gridStyle}>
-                                                {section.items.map((item) => (
-                                                    <AreaItemCard key={item.id || item.item_slug || item.name} item={item} />
-                                                ))}
-                                            </View>
-                                        </View>
-                                    ))}
+                                            return (
+                                                <AreaItemCard
+                                                    key={archiveKey}
+                                                    item={item}
+                                                    onArchive={() => confirmArchiveItem(item)}
+                                                    archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
+                                                    archiveDisabled={!!archivingRecordId}
+                                                />
+                                            );
+                                        })}
+                                    </View>
                                 </View>
-                            </View>
+                            ))
                         )}
-                    </>
-                )}
+                    </View>
+                </View>
 
                 {!!message && (
                     <ThemedCard style={{ marginBottom: 16 }}>
@@ -338,6 +511,17 @@ function sameText(a?: string | null, b?: string | null) {
     return normalizeAreaName(a) === normalizeAreaName(b);
 }
 
+function isCurrentAreaRecord(item: AreaHomeItem, areaName: string, parentAreaName: string) {
+    if (!sameText(item.category, 'Area')) return false;
+    if (!sameText(item.name || item.location, areaName)) return false;
+
+    if (parentAreaName) {
+        return sameText(item.parent_area, parentAreaName);
+    }
+
+    return !String(item.parent_area || '').trim();
+}
+
 function decodeRouteParam(value?: string | string[] | null) {
     const rawValue = Array.isArray(value) ? value[0] : value;
     const text = String(rawValue || '').trim();
@@ -351,8 +535,24 @@ function decodeRouteParam(value?: string | string[] | null) {
     }
 }
 
-function isDirectItemInBroadZone(item: AreaHomeItem, areaName: string) {
+function isDirectItemInArea(item: AreaHomeItem, areaName: string) {
     if (sameText(item.location, areaName)) return true;
+    return !String(item.location || '').trim() && sameText(item.parent_area, areaName);
+}
+
+function isChildOfAreaRecord(item: AreaHomeItem, areaName: string, parentAreaName: string) {
+    if (sameText(item.category, 'Area')) {
+        return sameText(item.parent_area, areaName);
+    }
+
+    if (sameText(item.location, areaName) && sameText(item.parent_area, parentAreaName)) {
+        return true;
+    }
+
+    if (!parentAreaName && sameText(item.location, areaName) && !String(item.parent_area || '').trim()) {
+        return true;
+    }
+
     return !String(item.location || '').trim() && sameText(item.parent_area, areaName);
 }
 
@@ -364,17 +564,21 @@ function ChildAreaCard({
     title,
     subtitle,
     onPress,
+    onArchive,
+    archiveTitle = 'Archive',
+    archiveDisabled = false,
 }: {
     title: string;
     subtitle: string;
     onPress: () => void;
+    onArchive?: () => void;
+    archiveTitle?: string;
+    archiveDisabled?: boolean;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <TouchableOpacity
-            onPress={onPress}
-            activeOpacity={0.82}
+        <View
             style={[
                 childAreaCardStyle,
                 {
@@ -389,105 +593,41 @@ function ChildAreaCard({
                 },
             ]}
         >
-            <View
-                style={[
-                    iconCircleStyle,
-                    {
-                        backgroundColor: theme.colors.iconBackground,
-                        width: scaleIcon(76),
-                        height: scaleIcon(76),
-                        marginBottom: scaleIcon(12),
-                    },
-                ]}
+            <TouchableOpacity
+                onPress={onPress}
+                activeOpacity={0.82}
+                style={cardOpenAreaStyle}
             >
-                <Text style={[iconTextStyle, { fontSize: scaleIcon(36) }]}>{getAreaIcon(title)}</Text>
-            </View>
+                <View
+                    style={[
+                        iconCircleStyle,
+                        {
+                            backgroundColor: theme.colors.iconBackground,
+                            width: scaleIcon(76),
+                            height: scaleIcon(76),
+                            marginBottom: scaleIcon(12),
+                        },
+                    ]}
+                >
+                    <Text style={[iconTextStyle, { fontSize: scaleIcon(36) }]}>{getAreaIcon(title)}</Text>
+                </View>
 
-            <Text
-                style={[
-                    itemTitleStyle,
-                    {
-                        color: theme.colors.text,
-                        fontSize: scaleFont(16),
-                        lineHeight: scaleFont(20),
-                    },
-                ]}
-                numberOfLines={2}
-            >
-                {title}
-            </Text>
-            <Text
-                style={[
-                    childAreaSubtitleStyle,
-                    {
-                        color: theme.colors.mutedText,
-                        marginTop: scaleIcon(8),
-                        fontSize: scaleFont(12),
-                    },
-                ]}
-                numberOfLines={1}
-            >
-                {subtitle}
-            </Text>
-        </TouchableOpacity>
-    );
-}
-
-function AreaItemCard({ item }: { item: AreaHomeItem }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
-    const itemName = item.name || 'Unnamed Item';
-    const systemLabel = item.system ? getSystemLabel(item.system) : '';
-    const itemSlug = item.item_slug || '';
-
-    return (
-        <TouchableOpacity
-            onPress={() => itemSlug && router.push(`/item/${itemSlug}` as any)}
-            activeOpacity={0.82}
-            disabled={!itemSlug}
-            style={[
-                itemCardStyle,
-                {
-                    minWidth: scaleIcon(160),
-                    minHeight: scaleIcon(170),
-                    padding: scaleIcon(18),
-                },
-                { borderRadius: theme.radii.card },
-                getStatusCardStyle(item.status, theme),
-            ]}
-        >
-            <View
-                style={[
-                    iconCircleStyle,
-                    {
-                        backgroundColor: theme.colors.iconBackground,
-                        width: scaleIcon(76),
-                        height: scaleIcon(76),
-                        marginBottom: scaleIcon(12),
-                    },
-                ]}
-            >
-                <Text style={[iconTextStyle, { fontSize: scaleIcon(36) }]}>{getItemIcon(item)}</Text>
-            </View>
-
-            <Text
-                style={[
-                    itemTitleStyle,
-                    {
-                        color: theme.colors.text,
-                        fontSize: scaleFont(16),
-                        lineHeight: scaleFont(20),
-                    },
-                ]}
-                numberOfLines={2}
-                ellipsizeMode="tail"
-            >
-                {itemName}
-            </Text>
-
-            {!!systemLabel && (
                 <Text
                     style={[
-                        systemLabelStyle,
+                        itemTitleStyle,
+                        {
+                            color: theme.colors.text,
+                            fontSize: scaleFont(16),
+                            lineHeight: scaleFont(20),
+                        },
+                    ]}
+                    numberOfLines={2}
+                >
+                    {title}
+                </Text>
+                <Text
+                    style={[
+                        childAreaSubtitleStyle,
                         {
                             color: theme.colors.mutedText,
                             marginTop: scaleIcon(8),
@@ -496,10 +636,114 @@ function AreaItemCard({ item }: { item: AreaHomeItem }) {
                     ]}
                     numberOfLines={1}
                 >
-                    {systemLabel}
+                    {subtitle}
                 </Text>
+            </TouchableOpacity>
+
+            {onArchive && (
+                <ThemedButton
+                    title={archiveTitle}
+                    variant="danger"
+                    disabled={archiveDisabled}
+                    onPress={onArchive}
+                    style={smallArchiveButtonStyle}
+                    textStyle={smallArchiveButtonTextStyle}
+                />
             )}
-        </TouchableOpacity>
+        </View>
+    );
+}
+
+function AreaItemCard({
+    item,
+    onArchive,
+    archiveTitle = 'Archive',
+    archiveDisabled = false,
+}: {
+    item: AreaHomeItem;
+    onArchive: () => void;
+    archiveTitle?: string;
+    archiveDisabled?: boolean;
+}) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const itemName = item.name || 'Unnamed Item';
+    const systemLabel = item.system ? getSystemLabel(item.system) : '';
+    const itemSlug = item.item_slug || '';
+
+    return (
+        <View
+            style={[
+                itemCardStyle,
+                {
+                    minWidth: scaleIcon(160),
+                    minHeight: scaleIcon(190),
+                    padding: scaleIcon(18),
+                },
+                { borderRadius: theme.radii.card },
+                getStatusCardStyle(item.status, theme),
+            ]}
+        >
+            <TouchableOpacity
+                onPress={() => itemSlug && router.push(`/item/${itemSlug}` as any)}
+                activeOpacity={0.82}
+                disabled={!itemSlug}
+                style={cardOpenAreaStyle}
+            >
+                <View
+                    style={[
+                        iconCircleStyle,
+                        {
+                            backgroundColor: theme.colors.iconBackground,
+                            width: scaleIcon(76),
+                            height: scaleIcon(76),
+                            marginBottom: scaleIcon(12),
+                        },
+                    ]}
+                >
+                    <Text style={[iconTextStyle, { fontSize: scaleIcon(36) }]}>{getItemIcon(item)}</Text>
+                </View>
+
+                <Text
+                    style={[
+                        itemTitleStyle,
+                        {
+                            color: theme.colors.text,
+                            fontSize: scaleFont(16),
+                            lineHeight: scaleFont(20),
+                        },
+                    ]}
+                    numberOfLines={2}
+                    ellipsizeMode="tail"
+                >
+                    {itemName}
+                </Text>
+
+                {!!systemLabel && (
+                    <Text
+                        style={[
+                            systemLabelStyle,
+                            {
+                                color: theme.colors.mutedText,
+                                marginTop: scaleIcon(8),
+                                fontSize: scaleFont(12),
+                            },
+                        ]}
+                        numberOfLines={1}
+                    >
+                        {systemLabel}
+                    </Text>
+                )}
+            </TouchableOpacity>
+
+            <ThemedButton
+                title={archiveTitle}
+                variant="danger"
+                disabled={archiveDisabled}
+                onPress={onArchive}
+                style={smallArchiveButtonStyle}
+                textStyle={smallArchiveButtonTextStyle}
+            />
+        </View>
     );
 }
 
@@ -567,10 +811,6 @@ function groupItemsBySystem(items: AreaHomeItem[]) {
     return [...sortedSections, ...remainingSections];
 }
 
-function getAreaItemsHeading(areaName: string) {
-    return `${areaName} items`;
-}
-
 function getItemGroupHeading(sectionTitle: string) {
     return `${sectionTitle} items`;
 }
@@ -619,6 +859,14 @@ function getItemIcon(item: AreaHomeItem) {
     return '🏠';
 }
 
+/*
+ * The current schema stores one immediate parent name on home_items.parent_area.
+ * That supports Service -> Area -> Container -> Item. Repeating the same
+ * container name under two different parents in the same service is safe for
+ * direct items, but deeper grandchildren with the same container name can still
+ * be ambiguous until containers get stable parent ids.
+ */
+
 const areaItemSectionOrder = [
     'Water Service',
     'Electrical System',
@@ -630,6 +878,17 @@ const areaItemSectionOrder = [
     'Documents',
     'Work History',
 ];
+
+const actionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginTop: 16,
+};
+
+const actionCardStyle = {
+    marginBottom: 24,
+};
 
 const sectionListStyle = {
     gap: 28,
@@ -662,12 +921,30 @@ const directItemsSectionStyle = {
 const childAreaCardStyle = {
     width: '18.8%' as const,
     minWidth: 160,
-    minHeight: 170,
+    minHeight: 190,
     padding: 18,
     borderWidth: 1,
     alignItems: 'center' as const,
-    justifyContent: 'center' as const,
+    justifyContent: 'space-between' as const,
     flexGrow: 1,
+};
+
+const cardOpenAreaStyle = {
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    width: '100%' as const,
+    flex: 1,
+};
+
+const smallArchiveButtonStyle = {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    width: '100%' as const,
+};
+
+const smallArchiveButtonTextStyle = {
+    fontSize: 13,
 };
 
 const childAreaSubtitleStyle = {
@@ -680,11 +957,11 @@ const childAreaSubtitleStyle = {
 const itemCardStyle = {
     width: '18.8%' as const,
     minWidth: 160,
-    minHeight: 170,
+    minHeight: 190,
     padding: 18,
     borderWidth: 1,
     alignItems: 'center' as const,
-    justifyContent: 'center' as const,
+    justifyContent: 'space-between' as const,
     flexGrow: 1,
 };
 

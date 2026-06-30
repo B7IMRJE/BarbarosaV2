@@ -1,9 +1,10 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
-import SystemStatusCard from '../../../components/cards/SystemStatusCard';
+import { getStatusCardStyle } from '../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../components/theme/ThemedButton';
+import ThemedCard from '../../../components/theme/ThemedCard';
 import {
     activePropertyErrorMessage,
     isActivePropertyResolutionError,
@@ -17,6 +18,7 @@ import { useTheme } from '../../../theme/useTheme';
 
 type SystemAreaItem = HomeHealthItem & {
     name?: string | null;
+    item_slug?: string | null;
 };
 
 export default function SystemAreasScreen() {
@@ -24,6 +26,7 @@ export default function SystemAreasScreen() {
     const { system } = useLocalSearchParams<{ system: string }>();
     const [search, setSearch] = useState('');
     const [homeItems, setHomeItems] = useState<SystemAreaItem[]>([]);
+    const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
 
     const systemName = decodeRouteParam(system) || 'System';
@@ -50,6 +53,28 @@ export default function SystemAreasScreen() {
         () => homeItems.filter((item) => sameText(item.system, systemName)),
         [homeItems, systemName]
     );
+    const topLevelAreaRecords = useMemo(
+        () => getTopLevelAreaRecords(systemItems, systemName),
+        [systemItems, systemName]
+    );
+    const topLevelAreaByName = useMemo(() => {
+        const recordsByName = new Map<string, SystemAreaItem>();
+
+        topLevelAreaRecords.forEach((item) => {
+            const key = normalizeText(item.name || item.location || '');
+            if (key && !recordsByName.has(key)) {
+                recordsByName.set(key, item);
+            }
+        });
+
+        return recordsByName;
+    }, [topLevelAreaRecords]);
+    const directSystemItems = useMemo(
+        () => systemItems
+            .filter((item) => !sameText(item.category, 'Area') && isDirectSystemItem(item))
+            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
+        [systemItems]
+    );
 
     const loadAreaHealth = useCallback(async () => {
         let activeProperty;
@@ -71,7 +96,7 @@ export default function SystemAreasScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, name, status, install_state, system, location, parent_area, category')
+            .select('id, name, item_slug, status, install_state, system, location, parent_area, category')
             .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 
@@ -90,6 +115,189 @@ export default function SystemAreasScreen() {
             loadAreaHealth();
         }, [loadAreaHealth])
     );
+
+    function createRootArea() {
+        router.push({
+            pathname: '/area/create',
+            params: { system: systemName },
+        } as any);
+    }
+
+    function createRootItem() {
+        router.push({
+            pathname: '/item/create',
+            params: {
+                system: systemName,
+                area: 'Whole Home',
+                category: 'Equipment',
+                rootItem: 'true',
+            },
+        } as any);
+    }
+
+    function openArea(areaName: string) {
+        router.push({
+            pathname: '/system/[system]/area/[area]',
+            params: {
+                system: systemName,
+                area: areaName,
+            },
+        } as any);
+    }
+
+    function confirmArchiveArea(areaRecord: SystemAreaItem) {
+        const title = areaRecord.name || areaRecord.location || 'this area';
+
+        Alert.alert(
+            `Archive ${title}?`,
+            'This hides the area/container from HomeOS without deleting your account or home.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Archive',
+                    style: 'destructive',
+                    onPress: () => {
+                        void archiveArea(areaRecord);
+                    },
+                },
+            ]
+        );
+    }
+
+    async function archiveArea(areaRecord: SystemAreaItem) {
+        const targetId = areaRecord.id || '';
+        const targetName = areaRecord.name || areaRecord.location || '';
+
+        if (!targetId || !targetName) {
+            setMessage('This area/container cannot be archived yet.');
+            return;
+        }
+
+        setArchivingRecordId(targetId);
+        setMessage('Checking area/container before archiving...');
+
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
+            setArchivingRecordId(null);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('home_items')
+            .select('id, name, item_slug, status, install_state, system, location, parent_area, category')
+            .eq('property_id', activeProperty.propertyId)
+            .eq('system', systemName)
+            .or('archived.eq.false,archived.is.null');
+
+        if (error) {
+            setMessage(`Could not check area/container: ${error.message}`);
+            setArchivingRecordId(null);
+            return;
+        }
+
+        const rows = (data || []) as SystemAreaItem[];
+        const childCount = rows.filter((row) =>
+            row.id !== targetId && isChildOfRootArea(row, targetName)
+        ).length;
+
+        if (childCount > 0) {
+            setMessage('Move or archive the items inside this area before archiving it.');
+            setArchivingRecordId(null);
+            return;
+        }
+
+        const { error: archiveError } = await supabase
+            .from('home_items')
+            .update({ archived: true })
+            .eq('id', targetId)
+            .eq('property_id', activeProperty.propertyId);
+
+        if (archiveError) {
+            setMessage(`Archive failed: ${archiveError.message}`);
+            setArchivingRecordId(null);
+            return;
+        }
+
+        setMessage(`${targetName} archived.`);
+        setArchivingRecordId(null);
+        await loadAreaHealth();
+    }
+
+    function confirmArchiveItem(item: SystemAreaItem) {
+        const title = item.name || 'this item';
+
+        Alert.alert(
+            `Archive ${title}?`,
+            'This hides the item from HomeOS. It does not delete your home or account.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Archive',
+                    style: 'destructive',
+                    onPress: () => {
+                        void archiveItem(item);
+                    },
+                },
+            ]
+        );
+    }
+
+    async function archiveItem(item: SystemAreaItem) {
+        const itemKey = item.id || item.item_slug || '';
+
+        if (!itemKey) {
+            setMessage('This item cannot be archived yet.');
+            return;
+        }
+
+        setArchivingRecordId(itemKey);
+        setMessage('Archiving item...');
+
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
+            setArchivingRecordId(null);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
+
+        const updateQuery = supabase
+            .from('home_items')
+            .update({ archived: true })
+            .eq('property_id', activeProperty.propertyId);
+        const scopedUpdateQuery = item.id ? updateQuery.eq('id', item.id) : updateQuery.eq('item_slug', item.item_slug || '');
+        const { error } = await scopedUpdateQuery;
+
+        if (error) {
+            setMessage(`Archive failed: ${error.message}`);
+            setArchivingRecordId(null);
+            return;
+        }
+
+        setMessage(`${item.name || 'Item'} archived.`);
+        setArchivingRecordId(null);
+        await loadAreaHealth();
+    }
 
     return (
         <ScrollView
@@ -122,19 +330,32 @@ export default function SystemAreasScreen() {
                         lineHeight: scaleFont(22),
                     }}
                 >
-                    Choose or add an area. Items are added inside the area you open.
+                    Add areas, containers, or direct service items for this HomeOS service.
                 </Text>
 
-                <ThemedButton
-                    title="Add Area"
-                    onPress={() =>
-                        router.push({
-                            pathname: '/area/create',
-                            params: { system: systemName },
-                        } as any)
-                    }
-                    style={{ marginBottom: 20 }}
-                />
+                <ThemedCard style={actionCardStyle}>
+                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                        Add to this service
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800' }}>
+                        Add a top-level area/container, or add an item directly under {systemLabel}.
+                    </Text>
+
+                    <View style={actionRowStyle}>
+                        <ThemedButton
+                            title="+ Add Area / Container"
+                            variant="secondary"
+                            onPress={createRootArea}
+                            style={{ flexGrow: 1, minWidth: scaleIcon(220) }}
+                        />
+
+                        <ThemedButton
+                            title="+ Add Item"
+                            onPress={createRootItem}
+                            style={{ flexGrow: 1, minWidth: scaleIcon(180) }}
+                        />
+                    </View>
+                </ThemedCard>
 
                 <TextInput
                     value={search}
@@ -174,7 +395,7 @@ export default function SystemAreasScreen() {
                         marginBottom: scaleIcon(12),
                     }}
                 >
-                    Areas
+                    Top-Level Areas / Containers
                 </Text>
 
                 <View
@@ -186,28 +407,59 @@ export default function SystemAreasScreen() {
                 >
                     {filteredAreas.map((area) => {
                         const areaSummary = scoreAreaHealth(systemItems, area);
+                        const areaRecord = topLevelAreaByName.get(normalizeText(area)) || null;
+                        const archiveKey = areaRecord?.id || areaRecord?.item_slug || area;
 
                         return (
-                            <SystemStatusCard
+                            <RootAreaCard
                                 key={area}
                                 title={area}
-                                icon={getAreaIcon(area)}
                                 status={statusForCard(areaSummary)}
-                                onPress={() =>
-                                    router.push({
-                                        pathname: '/system/[system]/area/[area]',
-                                        params: {
-                                            system: systemName,
-                                            area,
-                                        },
-                                    } as any)
-                                }
-                                style={{
-                                    width: '48%',
-                                }}
+                                onPress={() => openArea(area)}
+                                onArchive={areaRecord ? () => confirmArchiveArea(areaRecord) : undefined}
+                                archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Area / Container'}
+                                archiveDisabled={!!archivingRecordId}
                             />
                         );
                     })}
+                </View>
+
+                {filteredAreas.length === 0 && (
+                    <ThemedCard style={{ marginTop: scaleIcon(8), marginBottom: scaleIcon(18) }}>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
+                            No areas or containers yet.
+                        </Text>
+                    </ThemedCard>
+                )}
+
+                <View style={sectionBlockStyle}>
+                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                        Items directly in {systemLabel}
+                    </Text>
+
+                    {directSystemItems.length === 0 ? (
+                        <ThemedCard style={{ marginBottom: scaleIcon(16) }}>
+                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
+                                No direct items yet.
+                            </Text>
+                        </ThemedCard>
+                    ) : (
+                        <View style={gridStyle}>
+                            {directSystemItems.map((item) => {
+                                const archiveKey = item.id || item.item_slug || item.name || '';
+
+                                return (
+                                    <RootItemCard
+                                        key={archiveKey}
+                                        item={item}
+                                        onArchive={() => confirmArchiveItem(item)}
+                                        archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
+                                        archiveDisabled={!!archivingRecordId}
+                                    />
+                                );
+                            })}
+                        </View>
+                    )}
                 </View>
             </View>
         </ScrollView>
@@ -219,10 +471,201 @@ function getSavedAreasForSystem(items: SystemAreaItem[], systemName: string) {
         .filter((item) =>
             sameText(item.category, 'Area') &&
             sameText(item.system, systemName) &&
+            !String(item.parent_area || '').trim() &&
             !isCustomServiceRoot(item)
         )
         .map((item) => item.name || item.location || item.parent_area || '')
         .filter((area) => !!area.trim());
+}
+
+function getTopLevelAreaRecords(items: SystemAreaItem[], systemName: string) {
+    return items.filter((item) =>
+        sameText(item.category, 'Area') &&
+        sameText(item.system, systemName) &&
+        !String(item.parent_area || '').trim() &&
+        !isCustomServiceRoot(item)
+    );
+}
+
+function isDirectSystemItem(item: SystemAreaItem) {
+    if (String(item.parent_area || '').trim()) return false;
+
+    const location = String(item.location || '').trim();
+    return !location || sameText(location, 'Whole Home');
+}
+
+function isChildOfRootArea(item: SystemAreaItem, areaName: string) {
+    if (sameText(item.category, 'Area')) {
+        return sameText(item.parent_area, areaName);
+    }
+
+    return sameText(item.parent_area, areaName) ||
+        (sameText(item.location, areaName) && !String(item.parent_area || '').trim());
+}
+
+function RootAreaCard({
+    title,
+    status,
+    onPress,
+    onArchive,
+    archiveTitle,
+    archiveDisabled,
+}: {
+    title: string;
+    status?: string | null;
+    onPress: () => void;
+    onArchive?: () => void;
+    archiveTitle: string;
+    archiveDisabled: boolean;
+}) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+
+    return (
+        <View
+            style={[
+                rootCardStyle,
+                {
+                    minWidth: scaleIcon(180),
+                    minHeight: scaleIcon(190),
+                    padding: scaleIcon(18),
+                    borderRadius: theme.radii.card,
+                },
+                getStatusCardStyle(status, theme),
+            ]}
+        >
+            <TouchableOpacity
+                onPress={onPress}
+                activeOpacity={0.82}
+                style={cardOpenAreaStyle}
+            >
+                <View
+                    style={[
+                        iconCircleStyle,
+                        {
+                            backgroundColor: theme.colors.iconBackground,
+                            width: scaleIcon(76),
+                            height: scaleIcon(76),
+                            marginBottom: scaleIcon(12),
+                        },
+                    ]}
+                >
+                    <Text style={{ fontSize: scaleIcon(36) }}>{getAreaIcon(title)}</Text>
+                </View>
+
+                <Text
+                    style={{
+                        color: theme.colors.text,
+                        fontSize: scaleFont(16),
+                        fontWeight: '900',
+                        lineHeight: scaleFont(20),
+                        textAlign: 'center',
+                    }}
+                    numberOfLines={2}
+                >
+                    {title}
+                </Text>
+            </TouchableOpacity>
+
+            {onArchive && (
+                <ThemedButton
+                    title={archiveTitle}
+                    variant="danger"
+                    disabled={archiveDisabled}
+                    onPress={onArchive}
+                    style={smallArchiveButtonStyle}
+                    textStyle={smallArchiveButtonTextStyle}
+                />
+            )}
+        </View>
+    );
+}
+
+function RootItemCard({
+    item,
+    onArchive,
+    archiveTitle,
+    archiveDisabled,
+}: {
+    item: SystemAreaItem;
+    onArchive: () => void;
+    archiveTitle: string;
+    archiveDisabled: boolean;
+}) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const itemName = item.name || 'Unnamed Item';
+    const itemSlug = item.item_slug || '';
+
+    return (
+        <View
+            style={[
+                rootCardStyle,
+                {
+                    minWidth: scaleIcon(180),
+                    minHeight: scaleIcon(190),
+                    padding: scaleIcon(18),
+                    borderRadius: theme.radii.card,
+                },
+                getStatusCardStyle(item.status, theme),
+            ]}
+        >
+            <TouchableOpacity
+                onPress={() => itemSlug && router.push(`/item/${itemSlug}` as any)}
+                activeOpacity={0.82}
+                disabled={!itemSlug}
+                style={cardOpenAreaStyle}
+            >
+                <View
+                    style={[
+                        iconCircleStyle,
+                        {
+                            backgroundColor: theme.colors.iconBackground,
+                            width: scaleIcon(76),
+                            height: scaleIcon(76),
+                            marginBottom: scaleIcon(12),
+                        },
+                    ]}
+                >
+                    <Text style={{ fontSize: scaleIcon(36) }}>{getItemIcon(item)}</Text>
+                </View>
+
+                <Text
+                    style={{
+                        color: theme.colors.text,
+                        fontSize: scaleFont(16),
+                        fontWeight: '900',
+                        lineHeight: scaleFont(20),
+                        textAlign: 'center',
+                    }}
+                    numberOfLines={2}
+                    ellipsizeMode="tail"
+                >
+                    {itemName}
+                </Text>
+            </TouchableOpacity>
+
+            <ThemedButton
+                title={archiveTitle}
+                variant="danger"
+                disabled={archiveDisabled}
+                onPress={onArchive}
+                style={smallArchiveButtonStyle}
+                textStyle={smallArchiveButtonTextStyle}
+            />
+        </View>
+    );
+}
+
+function getItemIcon(item: SystemAreaItem) {
+    const name = normalizeText(item.name || '');
+    const category = normalizeText(item.category || '');
+
+    if (name.includes('cabinet') || name.includes('closet') || category.includes('storage')) return '📦';
+    if (name.includes('faucet')) return '🚰';
+    if (name.includes('outlet') || name.includes('switch')) return '⚡';
+    if (name.includes('filter') || name.includes('water')) return '💧';
+    if (name.includes('heater') || name.includes('gas')) return '🔥';
+
+    return '🏠';
 }
 
 function uniqueAreaNames(areas: string[]) {
@@ -258,3 +701,64 @@ function decodeRouteParam(value?: string | string[] | null) {
         return text;
     }
 }
+
+const actionCardStyle = {
+    marginBottom: 20,
+};
+
+const actionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginTop: 16,
+};
+
+const sectionBlockStyle = {
+    gap: 14,
+    marginTop: 28,
+};
+
+const sectionHeaderStyle = {
+    fontSize: 22,
+    fontWeight: '900' as const,
+};
+
+const gridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const rootCardStyle = {
+    width: '31%' as const,
+    minWidth: 180,
+    minHeight: 190,
+    borderWidth: 1,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    flexGrow: 1,
+};
+
+const cardOpenAreaStyle = {
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    width: '100%' as const,
+    flex: 1,
+};
+
+const iconCircleStyle = {
+    borderRadius: 999,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+};
+
+const smallArchiveButtonStyle = {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    width: '100%' as const,
+};
+
+const smallArchiveButtonTextStyle = {
+    fontSize: 13,
+};

@@ -37,6 +37,7 @@ export default function CreateAreaScreen() {
     const canonicalSystem = system ? getSystemDefinition(system)?.key || system : 'Plumbing';
     const systemLabel = getSystemLabel(canonicalSystem);
     const customAreaTemplate = areaTemplates.find((template) => template.id === 'custom-area') || null;
+    const availableAreaTemplates = parentAreaName && customAreaTemplate ? [customAreaTemplate] : areaTemplates;
     const [selectedTemplate, setSelectedTemplate] = useState<AreaTemplate | null>(
         initialAreaName ? customAreaTemplate : null
     );
@@ -101,6 +102,7 @@ export default function CreateAreaScreen() {
             (row) =>
                 sameAreaText(row.category, 'Area') &&
                 sameAreaText(row.system, canonicalSystem) &&
+                sameAreaText(row.parent_area, parentAreaName) &&
                 sameAreaText(row.name, areaName)
         );
 
@@ -111,7 +113,7 @@ export default function CreateAreaScreen() {
         }
 
         const areaRow = buildAreaRow(activeProperty.userId, activeProperty.propertyId, areaName, canonicalSystem, parentAreaName);
-        const areaKey = duplicateKey(areaRow.system, areaName, areaName);
+        const areaKey = duplicateKey(areaRow.system, areaName, areaName, parentAreaName);
 
         if (!existingKeys.has(areaKey)) {
             rowsToInsert.push(areaRow);
@@ -120,7 +122,7 @@ export default function CreateAreaScreen() {
 
         if (includeStarterItems && selectedTemplate.id !== 'custom-area') {
             for (const row of buildStarterRows(activeProperty.userId, activeProperty.propertyId, areaName, selectedTemplate, parentAreaName)) {
-                const key = duplicateKey(row.system, areaName, row.name);
+                const key = duplicateKey(row.system, areaName, row.name, parentAreaName);
 
                 if (!existingKeys.has(key)) {
                     rowsToInsert.push(row);
@@ -160,7 +162,7 @@ export default function CreateAreaScreen() {
                 <HomeHeader />
 
                 <Text style={{ color: theme.colors.text, fontSize: scaleFont(34), fontWeight: '900' }}>
-                    Add Area
+                    Add Area / Container
                 </Text>
                 <Text
                     style={{
@@ -172,12 +174,12 @@ export default function CreateAreaScreen() {
                     }}
                 >
                     {parentAreaName
-                        ? `Create a child area inside ${parentAreaName} for ${systemLabel}.`
+                        ? `Create an area or container inside ${parentAreaName} for ${systemLabel}. Examples: Closet, Cabinet, Shelf, Vanity.`
                         : `Create a shared home area for ${systemLabel}. You can add starter items across multiple systems.`}
                 </Text>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12) }}>
-                    {areaTemplates.map((template) => {
+                    {availableAreaTemplates.map((template) => {
                         const selected = selectedTemplate?.id === template.id;
                         const count = getStarterItems(template).length;
 
@@ -211,18 +213,20 @@ export default function CreateAreaScreen() {
                     <ThemedCard style={{ marginTop: scaleIcon(18) }}>
                         <Text style={{ color: theme.colors.text, fontSize: scaleFont(22), fontWeight: '900' }}>
                             {selectedTemplate.id === 'custom-area'
-                                ? 'Create Custom Area'
+                                ? 'Create Custom Area / Container'
                                 : `Create ${selectedTemplate.name} with starter items?`}
                         </Text>
                         <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(8), lineHeight: scaleFont(22) }}>
-                            Area-only creates one area record. Starter items create suggested records across systems and skip duplicates.
+                            {parentAreaName
+                                ? 'This creates one container record under the current area. Add items after opening it.'
+                                : 'Area-only creates one area record. Starter items create suggested records across systems and skip duplicates.'}
                         </Text>
 
                         {selectedTemplate.id === 'custom-area' && (
                             <TextInput
                                 value={customAreaName}
                                 onChangeText={setCustomAreaName}
-                                placeholder="Custom area name"
+                                placeholder="Closet, Cabinet, Shelf..."
                                 placeholderTextColor={theme.colors.mutedText}
                                 style={{
                                     backgroundColor: theme.colors.surface,
@@ -245,19 +249,21 @@ export default function CreateAreaScreen() {
 
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10), marginTop: scaleIcon(18) }}>
                             <ThemedButton
-                                title={saving ? 'Creating...' : 'Create Area Only'}
+                                title={saving ? 'Creating...' : parentAreaName ? 'Create Area / Container' : 'Create Area Only'}
                                 variant="secondary"
                                 disabled={saving}
                                 onPress={() => createArea(false)}
                                 style={{ flexGrow: 1, minWidth: scaleIcon(190) }}
                             />
 
-                            <ThemedButton
-                                title={saving ? 'Creating...' : 'Create Area + Starter Items'}
-                                disabled={saving || selectedTemplate.id === 'custom-area'}
-                                onPress={() => createArea(true)}
-                                style={{ flexGrow: 1, minWidth: scaleIcon(220) }}
-                            />
+                            {!parentAreaName && (
+                                <ThemedButton
+                                    title={saving ? 'Creating...' : 'Create Area + Starter Items'}
+                                    disabled={saving || selectedTemplate.id === 'custom-area'}
+                                    onPress={() => createArea(true)}
+                                    style={{ flexGrow: 1, minWidth: scaleIcon(220) }}
+                                />
+                            )}
                         </View>
                     </ThemedCard>
                 )}

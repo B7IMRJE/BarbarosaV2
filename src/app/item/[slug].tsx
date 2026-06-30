@@ -1144,7 +1144,24 @@ export default function ItemScreen() {
         }
     }
 
-    async function handleRemoveItem() {
+    function confirmArchiveItem() {
+        Alert.alert(
+            'Archive item?',
+            'This hides the item from HomeOS. It does not delete your home or account.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Archive',
+                    style: 'destructive',
+                    onPress: () => {
+                        void handleArchiveItem();
+                    },
+                },
+            ]
+        );
+    }
+
+    async function handleArchiveItem() {
         setMessage('Archiving item...');
 
         let activeProperty;
@@ -1769,9 +1786,9 @@ export default function ItemScreen() {
                         />
 
                         <ThemedButton
-                            title="Remove Item"
+                            title="Archive Item"
                             variant="danger"
-                            onPress={handleRemoveItem}
+                            onPress={confirmArchiveItem}
                             style={scaleStyle(removeButtonStyle)}
                             textStyle={scaleStyle(removeButtonTextStyle)}
                         />
