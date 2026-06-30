@@ -4,9 +4,11 @@ import {
     createElement,
     useEffect,
     useMemo,
+    useRef,
     useState,
     type ReactNode,
 } from 'react';
+import { supabase } from '../lib/supabase';
 import {
     DEFAULT_THEME_NAME,
     homeOSThemes,
@@ -15,8 +17,10 @@ import {
     type HomeOSThemeName,
 } from './themes';
 
-const THEME_STORAGE_KEY = 'homeos:selected-theme';
-const APPEARANCE_STORAGE_KEY = 'homeos:appearance-preferences';
+const LEGACY_THEME_STORAGE_KEY = 'homeos:selected-theme';
+const LEGACY_APPEARANCE_STORAGE_KEY = 'homeos:appearance-preferences';
+const THEME_STORAGE_KEY_PREFIX = 'homeos_theme_';
+const APPEARANCE_STORAGE_KEY_PREFIX = 'homeos_appearance_';
 
 export type AppearanceSizeName = 'compact' | 'standard' | 'large' | 'extraLarge';
 
@@ -87,6 +91,31 @@ function scaleForSize(sizeName: AppearanceSizeName) {
     return appearanceSizeOptions.find((option) => option.name === sizeName)?.scale || 1;
 }
 
+function getThemeStorageKey(userId: string) {
+    return `${THEME_STORAGE_KEY_PREFIX}${userId}`;
+}
+
+function getAppearanceStorageKey(userId: string) {
+    return `${APPEARANCE_STORAGE_KEY_PREFIX}${userId}`;
+}
+
+function parseStoredAppearance(storedAppearance: string | null) {
+    if (!storedAppearance) return DEFAULT_APPEARANCE_PREFERENCES;
+
+    try {
+        return sanitizeAppearancePreferences(JSON.parse(storedAppearance));
+    } catch {
+        return DEFAULT_APPEARANCE_PREFERENCES;
+    }
+}
+
+async function clearLegacyGlobalAppearance() {
+    await Promise.all([
+        AsyncStorage.removeItem(LEGACY_THEME_STORAGE_KEY),
+        AsyncStorage.removeItem(LEGACY_APPEARANCE_STORAGE_KEY),
+    ]);
+}
+
 export const ThemeContext = createContext<ThemeContextValue>({
     themeName: DEFAULT_THEME_NAME,
     theme: homeOSThemes[DEFAULT_THEME_NAME],
@@ -110,44 +139,88 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         DEFAULT_APPEARANCE_PREFERENCES
     );
     const [isThemeLoaded, setIsThemeLoaded] = useState(false);
+    const activeUserIdRef = useRef<string | null>(null);
+    const loadRunRef = useRef(0);
 
     useEffect(() => {
-        loadStoredAppearance();
+        let mounted = true;
+
+        loadCurrentUserAppearance();
+
+        const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (!mounted) return;
+
+            void applyUserScopedAppearance(session?.user?.id || null);
+        });
+
+        return () => {
+            mounted = false;
+            listener.subscription.unsubscribe();
+        };
     }, []);
 
-    async function loadStoredAppearance() {
+    async function loadCurrentUserAppearance() {
         try {
+            const { data } = await supabase.auth.getSession();
+            await applyUserScopedAppearance(data.session?.user?.id || null);
+        } catch {
+            await applyUserScopedAppearance(null);
+        }
+    }
+
+    async function applyUserScopedAppearance(userId: string | null) {
+        const runId = loadRunRef.current + 1;
+        loadRunRef.current = runId;
+        activeUserIdRef.current = userId;
+        setIsThemeLoaded(false);
+
+        try {
+            await clearLegacyGlobalAppearance();
+
+            if (!userId) {
+                setThemeNameState(DEFAULT_THEME_NAME);
+                setAppearanceState(DEFAULT_APPEARANCE_PREFERENCES);
+                return;
+            }
+
             const [storedTheme, storedAppearance] = await Promise.all([
-                AsyncStorage.getItem(THEME_STORAGE_KEY),
-                AsyncStorage.getItem(APPEARANCE_STORAGE_KEY),
+                AsyncStorage.getItem(getThemeStorageKey(userId)),
+                AsyncStorage.getItem(getAppearanceStorageKey(userId)),
             ]);
 
-            if (isHomeOSThemeName(storedTheme)) {
-                setThemeNameState(storedTheme);
-            }
+            if (runId !== loadRunRef.current || activeUserIdRef.current !== userId) return;
 
-            if (storedAppearance) {
-                setAppearanceState(
-                    sanitizeAppearancePreferences(JSON.parse(storedAppearance))
-                );
-            }
+            setThemeNameState(isHomeOSThemeName(storedTheme) ? storedTheme : DEFAULT_THEME_NAME);
+            setAppearanceState(parseStoredAppearance(storedAppearance));
         } finally {
-            setIsThemeLoaded(true);
+            if (runId === loadRunRef.current) {
+                setIsThemeLoaded(true);
+            }
         }
     }
 
     async function setThemeName(nextThemeName: HomeOSThemeName) {
         setThemeNameState(nextThemeName);
-        await AsyncStorage.setItem(THEME_STORAGE_KEY, nextThemeName);
+
+        const userId = activeUserIdRef.current;
+
+        if (userId) {
+            await AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName);
+        }
     }
 
     async function setAppearance(nextAppearance: AppearancePreferences) {
         const sanitizedAppearance = sanitizeAppearancePreferences(nextAppearance);
         setAppearanceState(sanitizedAppearance);
-        await AsyncStorage.setItem(
-            APPEARANCE_STORAGE_KEY,
-            JSON.stringify(sanitizedAppearance)
-        );
+
+        const userId = activeUserIdRef.current;
+
+        if (userId) {
+            await AsyncStorage.setItem(
+                getAppearanceStorageKey(userId),
+                JSON.stringify(sanitizedAppearance)
+            );
+        }
     }
 
     async function setFontSize(fontSize: AppearanceSizeName) {
@@ -160,7 +233,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     async function resetAppearance() {
         setAppearanceState(DEFAULT_APPEARANCE_PREFERENCES);
-        await AsyncStorage.removeItem(APPEARANCE_STORAGE_KEY);
+
+        const userId = activeUserIdRef.current;
+
+        if (userId) {
+            await AsyncStorage.removeItem(getAppearanceStorageKey(userId));
+        }
     }
 
     const fontScale = scaleForSize(appearance.fontSize);

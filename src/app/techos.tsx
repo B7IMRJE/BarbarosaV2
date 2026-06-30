@@ -4,10 +4,15 @@ import { Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } 
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import {
+    canAccessTechOS,
+    isActiveCompanyStatus,
+    isTechnicianCompanyRole,
+    normalizeCompanyRole,
+    normalizeCompanyStatus,
+} from '../lib/companyPermissions';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
-
-type CompanyRole = 'technician' | 'manager' | 'admin' | 'owner';
 
 type CompanyUserAccess = {
     id: string;
@@ -99,8 +104,6 @@ type PlatformProfile = {
 };
 
 type TechOSMode = 'technician' | 'management-preview' | 'platform-preview';
-
-const TECHOS_ROLES: CompanyRole[] = ['technician', 'manager', 'admin', 'owner'];
 
 const secondaryWorkflowCards = [
     {
@@ -208,10 +211,8 @@ export default function TechOSScreen() {
             .from('company_users')
             .select('id, company_id, full_name, email, role, status, created_at')
             .eq('auth_user_id', user.id)
-            .eq('status', 'active')
-            .in('role', TECHOS_ROLES)
             .order('created_at', { ascending: true })
-            .limit(1);
+            .limit(20);
 
         if (requestedCompanyId) {
             membershipQuery = membershipQuery.eq('company_id', requestedCompanyId);
@@ -225,7 +226,9 @@ export default function TechOSScreen() {
             return;
         }
 
-        const activeMembership = ((membershipData || []) as CompanyUserAccess[])[0] || null;
+        const activeMembership = ((membershipData || []) as CompanyUserAccess[]).find((companyUser) =>
+            canAccessTechOS(companyUser)
+        ) || null;
 
         if (platformAdminCheck.isPlatformAdmin && requestedCompanyId) {
             setMembership(activeMembership);
@@ -243,7 +246,7 @@ export default function TechOSScreen() {
             return;
         }
 
-        if (!activeMembership || !isTechOSRole(activeMembership.role)) {
+        if (!activeMembership || !canAccessTechOS(activeMembership)) {
             setCheckingAccess(false);
             setMessage(
                 platformAdminCheck.isPlatformAdmin
@@ -1191,14 +1194,8 @@ function ClientRow({
     );
 }
 
-function isTechOSRole(role?: string | null) {
-    return TECHOS_ROLES.includes(normalizeRole(role) as CompanyRole);
-}
-
 function isTechnicianRole(role?: string | null) {
-    const normalized = normalizeRole(role);
-
-    return normalized === 'technician' || normalized === 'tech';
+    return isTechnicianCompanyRole(role);
 }
 
 function isAssignableTechnicianRole(role?: string | null) {
@@ -1206,7 +1203,7 @@ function isAssignableTechnicianRole(role?: string | null) {
 }
 
 function isActiveStatus(status?: string | null) {
-    return normalizeStatus(status) === 'active';
+    return isActiveCompanyStatus(status);
 }
 
 async function loadCompanyMembers(companyId: string): Promise<{
@@ -1322,7 +1319,7 @@ function isPlatformAdminProfile(profile?: PlatformProfile | null) {
 }
 
 function normalizeRole(role?: string | null) {
-    return String(role || '').trim().toLowerCase();
+    return normalizeCompanyRole(role);
 }
 
 function formatLabel(value?: string | null) {
@@ -1447,7 +1444,7 @@ function shortId(id: string) {
 }
 
 function normalizeStatus(status?: string | null) {
-    return String(status || '').trim().toLowerCase();
+    return normalizeCompanyStatus(status);
 }
 
 function firstParam(value?: string | string[]) {

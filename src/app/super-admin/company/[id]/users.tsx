@@ -10,6 +10,16 @@ import {
 } from 'react-native';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
+import {
+    COMPANY_PERMISSION_LABELS,
+    canAccessTechOS as canAccessCompanyTechOS,
+    isTechnicianCompanyRole,
+    normalizeCompanyRole,
+    normalizeCompanyStatus,
+    resolveCompanyPermissions,
+    type CompanyPermissionKey,
+    type CompanyPermissionSet,
+} from '../../../../lib/companyPermissions';
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -25,6 +35,7 @@ type CompanyUser = {
     role: string;
     status: string;
     created_at: string | null;
+    permissions?: Partial<CompanyPermissionSet> | null;
 };
 
 type CompanyInvitation = {
@@ -68,15 +79,12 @@ const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
 
 const EMAIL_SEND_COOLDOWN_MS = 60_000;
 const EMAIL_DELIVERY_FALLBACK_MESSAGE = 'Email could not be sent. Use the manual invite link/code below.';
-const TECHOS_ACCESS_ROLES = ['technician', 'tech', 'manager', 'admin', 'owner'];
-const PERMISSION_PLACEHOLDERS = [
-    'TechOS access',
-    'Dispatch',
-    'Estimates',
-    'Pricing',
-    'Payments',
-    'Reports',
-    'Manage users',
+const COMPANY_PERMISSION_KEYS: CompanyPermissionKey[] = [
+    'can_view_techos',
+    'can_create_estimates',
+    'can_add_item_to_estimate',
+    'can_view_customers',
+    'can_view_jobs',
 ];
 
 export default function CompanyUsersScreen() {
@@ -832,7 +840,8 @@ function TeamMemberRow({
     const status = normalizeStatus(member.status);
     const displayName = getMemberDisplayName(member, 'Unnamed member');
     const contactLine = getMemberContactLine(member);
-    const techOSAllowed = canAccessTechOS(member);
+    const permissions = resolveCompanyPermissions(member);
+    const techOSAllowed = canAccessCompanyTechOS(member);
 
     return (
         <ThemedCard onPress={onToggle} style={compactRowStyle}>
@@ -880,23 +889,35 @@ function TeamMemberRow({
                     <DetailPanelSection title="Role & Permissions">
                         <DetailLine label="Role" value={formatRole(member.role)} />
                         <View style={permissionGridStyle}>
-                            {PERMISSION_PLACEHOLDERS.map((permission) => (
-                                <View
-                                    key={permission}
-                                    style={[
-                                        permissionPillStyle,
-                                        {
-                                            backgroundColor: theme.colors.background,
-                                            borderColor: theme.colors.border,
-                                        },
-                                    ]}
-                                >
-                                    <Text style={[permissionPillTextStyle, { color: theme.colors.mutedText }]}>
-                                        {permission}: Not configured yet
-                                    </Text>
-                                </View>
-                            ))}
+                            {COMPANY_PERMISSION_KEYS.map((permissionKey) => {
+                                const allowed = permissions[permissionKey];
+
+                                return (
+                                    <View
+                                        key={permissionKey}
+                                        style={[
+                                            permissionPillStyle,
+                                            {
+                                                backgroundColor: allowed ? theme.colors.secondaryButton : theme.colors.background,
+                                                borderColor: allowed ? theme.colors.primary : theme.colors.border,
+                                            },
+                                        ]}
+                                    >
+                                        <Text
+                                            style={[
+                                                permissionPillTextStyle,
+                                                { color: allowed ? theme.colors.primary : theme.colors.mutedText },
+                                            ]}
+                                        >
+                                            {COMPANY_PERMISSION_LABELS[permissionKey]}: {allowed ? 'Allowed' : 'Not allowed'}
+                                        </Text>
+                                    </View>
+                                );
+                            })}
                         </View>
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                            Permissions currently come from role and active status. Explicit permission overrides will be saved after the database foundation is applied.
+                        </Text>
                     </DetailPanelSection>
 
                     <DetailPanelSection title="TechOS Access">
@@ -1340,6 +1361,7 @@ function normalizeCompanyUsers(data: unknown): CompanyUser[] {
                 role: readStringField(record, 'role') || 'unknown',
                 status: readStringField(record, 'status') || 'unknown',
                 created_at: readStringField(record, 'created_at'),
+                permissions: readPermissionOverrides(record, 'permissions'),
             };
         })
         .filter((member) => member.id && member.company_id);
@@ -1349,6 +1371,25 @@ function readStringField(record: Record<string, unknown>, key: string) {
     const value = record[key];
 
     return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readPermissionOverrides(record: Record<string, unknown>, key: string): Partial<CompanyPermissionSet> | null {
+    const value = record[key];
+
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+    const source = value as Record<string, unknown>;
+    const permissions: Partial<CompanyPermissionSet> = {};
+
+    COMPANY_PERMISSION_KEYS.forEach((permissionKey) => {
+        const permissionValue = source[permissionKey];
+
+        if (typeof permissionValue === 'boolean') {
+            permissions[permissionKey] = permissionValue;
+        }
+    });
+
+    return Object.keys(permissions).length > 0 ? permissions : null;
 }
 
 function getAppBaseUrl() {
@@ -1383,11 +1424,11 @@ function isValidEmail(value: string) {
 }
 
 function normalizeStatus(status?: string | null) {
-    return String(status || '').trim().toLowerCase();
+    return normalizeCompanyStatus(status);
 }
 
 function normalizeRole(role?: string | null) {
-    return String(role || '').trim().toLowerCase();
+    return normalizeCompanyRole(role);
 }
 
 function normalizeSearch(value: string) {
@@ -1421,17 +1462,11 @@ function matchesInvitationSearch(invitation: CompanyInvitation, search: string, 
 }
 
 function isTechnicianRole(role?: string | null) {
-    const normalized = normalizeRole(role);
-
-    return normalized === 'technician' || normalized === 'tech';
+    return isTechnicianCompanyRole(role);
 }
 
 function formatRole(role?: string | null) {
     return isTechnicianRole(role) ? 'Technician' : formatLabel(role || null);
-}
-
-function canAccessTechOS(member: CompanyUser) {
-    return normalizeStatus(member.status) === 'active' && TECHOS_ACCESS_ROLES.includes(normalizeRole(member.role));
 }
 
 function billingSeatLabel(status: string) {
