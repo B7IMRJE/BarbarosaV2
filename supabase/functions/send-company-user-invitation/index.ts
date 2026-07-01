@@ -28,24 +28,21 @@ type RpcErrorBody = {
 type FunctionEnv = {
     supabaseUrl: string;
     publishableKey: string;
-    redirectTo: string;
+    publicAppUrl: string;
+    fromEmail: string;
+    resendApiKey: string;
+    sendgridApiKey: string;
 };
 
-const INVITATION_ROUTE = '/onboarding/company-invitations';
+type SendResult = {
+    ok: boolean;
+    status: number;
+    message: string;
+};
+
+const COMPANY_INVITE_ROUTE = '/company-invite';
 const UUID_PATTERN =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const FORBIDDEN_BODY_FIELDS = new Set([
-    'email',
-    'redirectTo',
-    'redirect_to',
-    'redirectUrl',
-    'redirect_url',
-    'companyId',
-    'company_id',
-    'role',
-    'userId',
-    'user_id',
-]);
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 
 export default {
     async fetch(req: Request): Promise<Response> {
@@ -54,7 +51,7 @@ export default {
         }
 
         if (req.method !== 'POST') {
-            return json(req, { ok: false, code: 'method_not_allowed' }, 405);
+            return json(req, { ok: false, code: 'method_not_allowed', message: 'Method not allowed.' }, 405);
         }
 
         try {
@@ -62,43 +59,86 @@ export default {
             const authToken = getBearerToken(req);
 
             if (!authToken) {
-                return json(req, { ok: false, code: 'not_authenticated' }, 401);
+                return json(req, { ok: false, code: 'not_authenticated', message: 'Not authenticated.' }, 401);
+            }
+
+            if (!env.resendApiKey && !env.sendgridApiKey) {
+                return json(
+                    req,
+                    {
+                        ok: false,
+                        code: 'email_provider_not_configured',
+                        message: 'Email provider is not configured. Set RESEND_API_KEY or SENDGRID_API_KEY in Supabase Edge Function secrets.',
+                    },
+                    501
+                );
             }
 
             const body = await readJsonBody(req);
-            const invalidField = Object.keys(body).find((key) => FORBIDDEN_BODY_FIELDS.has(key));
-
-            if (invalidField) {
-                return json(req, { ok: false, code: 'invalid_request' }, 400);
-            }
-
             const invitationId = normalizeInvitationId(body.invitation_id ?? body.invitationId);
 
             if (!invitationId) {
-                return json(req, { ok: false, code: 'invalid_invitation' }, 400);
+                return json(req, { ok: false, code: 'invalid_invitation', message: 'Invitation id is required.' }, 400);
             }
 
             const userVerified = await verifyCaller(env, authToken);
 
             if (!userVerified) {
-                return json(req, { ok: false, code: 'not_authenticated' }, 401);
+                return json(req, { ok: false, code: 'not_authenticated', message: 'Not authenticated.' }, 401);
             }
 
             const invitation = await prepareInvitationDelivery(env, authToken, invitationId);
-            const sendResult = await sendSupabaseAuthEmail(env, invitation.email);
+            const clientEmail = readStringField(body, 'email');
 
-            if (!sendResult.ok) {
-                await recordDelivery(env, authToken, invitationId, 'failed', sendResult.trackingMessage);
+            if (clientEmail && normalizeEmail(clientEmail) !== normalizeEmail(invitation.email)) {
+                return json(req, { ok: false, code: 'email_mismatch', message: 'Invite email does not match this invitation.' }, 400);
+            }
 
+            const inviteCode = readStringField(body, 'invite_code') || readStringField(body, 'inviteCode');
+            const inviteLink = resolveInviteLink(env, body, inviteCode);
+
+            if (!inviteLink) {
                 return json(
                     req,
                     {
                         ok: false,
-                        code: sendResult.responseCode,
-                        message: sendResult.responseMessage,
+                        code: 'invite_link_missing',
+                        message: 'Company invite link/code is missing. Create a manual invite link before sending email.',
                     },
-                    sendResult.status
+                    400
                 );
+            }
+
+            if (isLikelyLocalInviteLink(inviteLink)) {
+                return json(
+                    req,
+                    {
+                        ok: false,
+                        code: 'invite_link_not_public',
+                        message: 'Company invite email link is not public. Set EXPO_PUBLIC_APP_URL in the app and PUBLIC_APP_URL in Supabase Edge Function secrets.',
+                    },
+                    400
+                );
+            }
+
+            const inviteName = readStringField(body, 'invite_name') || readStringField(body, 'inviteName') || invitation.full_name;
+            const companyName = invitation.company_name || readStringField(body, 'company_name') || readStringField(body, 'companyName') || 'Your company';
+            const role = invitation.invited_role || readStringField(body, 'role') || 'team member';
+            const { subject, text, html } = buildCompanyInviteEmail({
+                companyName,
+                inviteName,
+                role,
+                inviteCode,
+                inviteLink,
+            });
+
+            const sendResult = env.resendApiKey
+                ? await sendWithResend(env, invitation.email, subject, text, html)
+                : await sendWithSendGrid(env, invitation.email, subject, text, html);
+
+            if (!sendResult.ok) {
+                await recordDelivery(env, authToken, invitationId, 'failed', sendResult.message);
+                return json(req, { ok: false, code: 'email_send_failed', message: sendResult.message }, sendResult.status);
             }
 
             try {
@@ -115,11 +155,7 @@ export default {
                 );
             }
 
-            return json(req, {
-                ok: true,
-                code: 'sent',
-                message: 'Invitation email sent.',
-            });
+            return json(req, { ok: true, code: 'sent', message: 'Invitation email sent.' });
         } catch (error) {
             if (error instanceof RequestError) {
                 return json(
@@ -133,7 +169,8 @@ export default {
                 );
             }
 
-            return json(req, { ok: false, code: 'unexpected_error' }, 500);
+            const message = error instanceof Error ? error.message : 'Unexpected invitation email error.';
+            return json(req, { ok: false, code: 'unexpected_error', message }, 500);
         }
     },
 };
@@ -181,21 +218,19 @@ function resolveAllowedCorsOrigin(origin: string) {
     if (!origin) return '';
 
     const allowedOrigins = new Set<string>();
-    const appBaseUrl = Deno.env.get('COMPANY_INVITATION_APP_BASE_URL') ?? Deno.env.get('APP_BASE_URL');
 
-    if (appBaseUrl) {
-        try {
-            allowedOrigins.add(new URL(appBaseUrl).origin);
-        } catch {
-            // Invalid app URL is handled during POST configuration validation.
-        }
-    }
+    for (const configuredOrigin of [
+        Deno.env.get('PUBLIC_APP_URL'),
+        Deno.env.get('COMPANY_INVITATION_APP_BASE_URL'),
+        Deno.env.get('APP_BASE_URL'),
+        ...parseCsv(Deno.env.get('COMPANY_INVITATION_CORS_ORIGINS')),
+    ]) {
+        if (!configuredOrigin) continue;
 
-    for (const configuredOrigin of parseCsv(Deno.env.get('COMPANY_INVITATION_CORS_ORIGINS'))) {
         try {
             allowedOrigins.add(new URL(configuredOrigin).origin);
         } catch {
-            // Ignore malformed CORS entries instead of widening access.
+            // Invalid app URL is reported during POST env validation.
         }
     }
 
@@ -203,88 +238,54 @@ function resolveAllowedCorsOrigin(origin: string) {
 }
 
 function loadFunctionEnv(): FunctionEnv {
-    const supabaseUrl = normalizeUrl(requireEnv('SUPABASE_URL'), 'SUPABASE_URL');
-    const publishableKey = getPublishableKey();
-    const redirectTo = buildRedirectUrl();
-
     return {
-        supabaseUrl,
-        publishableKey,
-        redirectTo,
+        supabaseUrl: normalizeUrl(requireEnv('SUPABASE_URL', 'SUPABASE_URL')),
+        publishableKey: getPublishableKey(),
+        publicAppUrl: normalizeOptionalUrl(
+            Deno.env.get('PUBLIC_APP_URL') ||
+            Deno.env.get('COMPANY_INVITATION_APP_BASE_URL') ||
+            Deno.env.get('APP_BASE_URL')
+        ),
+        fromEmail: requireEnv('INVITE_FROM_EMAIL', 'INVITE_FROM_EMAIL'),
+        resendApiKey: Deno.env.get('RESEND_API_KEY') || '',
+        sendgridApiKey: Deno.env.get('SENDGRID_API_KEY') || '',
     };
 }
 
-function buildRedirectUrl() {
-    const rawBaseUrl = Deno.env.get('COMPANY_INVITATION_APP_BASE_URL') ?? Deno.env.get('APP_BASE_URL');
-
-    if (!rawBaseUrl) {
-        throw new RequestError(500, 'missing_app_base_url', 'Invitation email delivery is not configured.');
-    }
-
-    const baseUrl = parseHttpUrl(rawBaseUrl, 'APP_BASE_URL');
-    const redirectUrl = new URL(INVITATION_ROUTE, baseUrl);
-
-    if (!redirectUrl.pathname.endsWith(INVITATION_ROUTE)) {
-        throw new RequestError(500, 'invalid_redirect_url', 'Invitation email delivery is not configured.');
-    }
-
-    const allowedRedirectOrigins = parseCsv(Deno.env.get('COMPANY_INVITATION_REDIRECT_ORIGINS'));
-
-    if (allowedRedirectOrigins.length > 0) {
-        const allowed = allowedRedirectOrigins.some((origin) => {
-            try {
-                return new URL(origin).origin === redirectUrl.origin;
-            } catch {
-                return false;
-            }
-        });
-
-        if (!allowed) {
-            throw new RequestError(500, 'redirect_origin_not_allowed', 'Invitation email delivery is not configured.');
-        }
-    }
-
-    return redirectUrl.toString();
-}
-
-function normalizeUrl(value: string, name: string) {
-    const url = parseHttpUrl(value, name);
-
-    return url.toString().replace(/\/+$/, '');
-}
-
-function parseHttpUrl(value: string, name: string) {
-    try {
-        const url = new URL(value);
-
-        if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-            throw new Error('Invalid protocol');
-        }
-
-        url.hash = '';
-        url.search = '';
-        return url;
-    } catch {
-        throw new RequestError(500, `invalid_${name.toLowerCase()}`, 'Invitation email delivery is not configured.');
-    }
-}
-
-function requireEnv(name: string) {
+function requireEnv(name: string, secretName: string) {
     const value = Deno.env.get(name);
 
     if (!value) {
-        throw new RequestError(500, `missing_${name.toLowerCase()}`, 'Invitation email delivery is not configured.');
+        throw new RequestError(
+            500,
+            `missing_${name.toLowerCase()}`,
+            `Email provider is not configured. Set ${secretName} in Supabase Edge Function secrets.`
+        );
     }
 
     return value;
 }
 
+function normalizeUrl(value: string) {
+    const url = new URL(value);
+
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+        throw new Error('Invalid URL protocol.');
+    }
+
+    return url.toString().replace(/\/+$/, '');
+}
+
+function normalizeOptionalUrl(value?: string) {
+    if (!value) return '';
+
+    return normalizeUrl(value);
+}
+
 function getPublishableKey() {
     const directKey = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY');
 
-    if (directKey) {
-        return directKey;
-    }
+    if (directKey) return directKey;
 
     const publishableKeysJson = Deno.env.get('SUPABASE_PUBLISHABLE_KEYS');
 
@@ -293,21 +294,25 @@ function getPublishableKey() {
             const parsed = JSON.parse(publishableKeysJson) as Record<string, unknown>;
             const defaultKey = parsed.default;
 
-            if (typeof defaultKey === 'string' && defaultKey) {
-                return defaultKey;
-            }
+            if (typeof defaultKey === 'string' && defaultKey) return defaultKey;
 
             const firstKey = Object.values(parsed).find((value) => typeof value === 'string' && value);
 
-            if (typeof firstKey === 'string') {
-                return firstKey;
-            }
+            if (typeof firstKey === 'string') return firstKey;
         } catch {
-            throw new RequestError(500, 'invalid_supabase_publishable_keys', 'Invitation email delivery is not configured.');
+            throw new RequestError(
+                500,
+                'invalid_supabase_publishable_keys',
+                'Email provider is not configured. Set SUPABASE_PUBLISHABLE_KEYS or SUPABASE_ANON_KEY in Supabase Edge Function secrets.'
+            );
         }
     }
 
-    throw new RequestError(500, 'missing_supabase_publishable_key', 'Invitation email delivery is not configured.');
+    throw new RequestError(
+        500,
+        'missing_supabase_publishable_key',
+        'Email provider is not configured. Set SUPABASE_PUBLISHABLE_KEYS or SUPABASE_ANON_KEY in Supabase Edge Function secrets.'
+    );
 }
 
 function getBearerToken(req: Request) {
@@ -321,9 +326,7 @@ async function readJsonBody(req: Request): Promise<Record<string, unknown>> {
     try {
         const body = await req.json();
 
-        if (!body || typeof body !== 'object' || Array.isArray(body)) {
-            return {};
-        }
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return {};
 
         return body as Record<string, unknown>;
     } catch {
@@ -348,9 +351,7 @@ async function verifyCaller(env: FunctionEnv, authToken: string) {
         },
     });
 
-    if (!response.ok) {
-        return false;
-    }
+    if (!response.ok) return false;
 
     const data = (await response.json().catch(() => null)) as { id?: unknown } | null;
 
@@ -419,60 +420,125 @@ async function invokeRpc<T>(
     return body as T;
 }
 
-async function sendSupabaseAuthEmail(env: FunctionEnv, email: string) {
-    const otpUrl = new URL(`${env.supabaseUrl}/auth/v1/otp`);
-    otpUrl.searchParams.set('redirect_to', env.redirectTo);
+function resolveInviteLink(env: FunctionEnv, body: Record<string, unknown>, inviteCode: string | null) {
+    const explicitLink = readStringField(body, 'invite_link') || readStringField(body, 'inviteLink');
 
-    const response = await fetch(otpUrl.toString(), {
+    if (explicitLink && isHttpUrl(explicitLink)) {
+        return explicitLink;
+    }
+
+    if (!inviteCode || !env.publicAppUrl) return null;
+
+    const url = new URL(COMPANY_INVITE_ROUTE, env.publicAppUrl);
+    url.searchParams.set('code', inviteCode);
+
+    return url.toString();
+}
+
+function isHttpUrl(value: string) {
+    try {
+        const url = new URL(value);
+
+        return url.protocol === 'https:' || url.protocol === 'http:';
+    } catch {
+        return false;
+    }
+}
+
+function isLikelyLocalInviteLink(value: string) {
+    try {
+        const url = new URL(value);
+        const hostname = url.hostname.toLowerCase();
+
+        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local');
+    } catch {
+        return true;
+    }
+}
+
+function buildCompanyInviteEmail({
+    companyName,
+    inviteName,
+    role,
+    inviteCode,
+    inviteLink,
+}: {
+    companyName: string;
+    inviteName: string | null;
+    role: string;
+    inviteCode: string | null;
+    inviteLink: string;
+}) {
+    const subject = `${companyName} invited you to join their HomeOS company team`;
+    const text = [
+        `Hi${inviteName ? ` ${inviteName}` : ''},`,
+        '',
+        `${companyName} invited you to join their HomeOS company team as ${formatRole(role)}.`,
+        '',
+        `Open this secure invite link: ${inviteLink}`,
+        inviteCode ? `Invite code: ${inviteCode}` : '',
+        '',
+        'Sign in or create a normal HomeOS account with this email address, then accept the company invitation.',
+        'This invitation does not expose private HomeOS homeowner data.',
+    ].filter((line) => line !== '').join('\n');
+    const html = text
+        .split('\n')
+        .map((line) => (line ? `<p>${escapeHtml(line)}</p>` : '<br />'))
+        .join('');
+
+    return { subject, text, html };
+}
+
+async function sendWithResend(env: FunctionEnv, to: string, subject: string, text: string, html: string): Promise<SendResult> {
+    const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
-            apikey: env.publishableKey,
+            Authorization: `Bearer ${env.resendApiKey}`,
             'Content-Type': 'application/json',
-            Accept: 'application/json',
-            'X-Client-Info': 'barbarosa-company-invitations-edge',
         },
         body: JSON.stringify({
-            email,
-            data: {},
-            create_user: true,
-            gotrue_meta_security: {},
+            from: env.fromEmail,
+            to,
+            subject,
+            text,
+            html,
         }),
     });
 
-    if (response.ok) {
-        return { ok: true as const };
-    }
-
-    const responseBody = parseJson<RpcErrorBody>(await response.text());
-    const message = String(responseBody?.message ?? '').toLowerCase();
-
-    if (response.status === 429 || message.includes('rate limit')) {
-        return {
-            ok: false as const,
-            status: 429,
-            responseCode: 'auth_rate_limited',
-            responseMessage: 'Please wait before sending another invitation email.',
-            trackingMessage: 'Supabase Auth rate limit exceeded',
+    return response.ok
+        ? { ok: true, status: 200, message: 'Invitation email sent.' }
+        : {
+            ok: false,
+            status: response.status,
+            message: `Email sending failed through Resend. Check RESEND_API_KEY and INVITE_FROM_EMAIL. Status ${response.status}.`,
         };
-    }
+}
 
-    if (response.status >= 500) {
-        return {
-            ok: false as const,
-            status: 502,
-            responseCode: 'auth_unavailable',
-            responseMessage: 'Invitation email could not be sent right now.',
-            trackingMessage: 'Supabase Auth email service unavailable',
+async function sendWithSendGrid(env: FunctionEnv, to: string, subject: string, text: string, html: string): Promise<SendResult> {
+    const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${env.sendgridApiKey}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            personalizations: [{ to: [{ email: to }] }],
+            from: { email: env.fromEmail },
+            subject,
+            content: [
+                { type: 'text/plain', value: text },
+                { type: 'text/html', value: html },
+            ],
+        }),
+    });
+
+    return response.ok
+        ? { ok: true, status: 200, message: 'Invitation email sent.' }
+        : {
+            ok: false,
+            status: response.status,
+            message: `Email sending failed through SendGrid. Check SENDGRID_API_KEY and INVITE_FROM_EMAIL. Status ${response.status}.`,
         };
-    }
-
-    return {
-        ok: false as const,
-        status: 400,
-        responseCode: 'auth_delivery_rejected',
-        responseMessage: 'Invitation email could not be sent.',
-        trackingMessage: 'Supabase Auth email delivery rejected',
-    };
 }
 
 function mapRpcError(status: number, message: string) {
@@ -487,11 +553,7 @@ function mapRpcError(status: number, message: string) {
     }
 
     if (normalized.includes('wait before sending')) {
-        return {
-            status: 429,
-            code: 'cooldown',
-            message: 'Please wait before sending another invitation email.',
-        };
+        return { status: 429, code: 'cooldown', message: 'Please wait before sending another invitation email.' };
     }
 
     if (
@@ -510,8 +572,27 @@ function mapRpcError(status: number, message: string) {
     return {
         status: status >= 400 && status < 600 ? status : 400,
         code: 'delivery_not_ready',
-        message: 'Invitation email cannot be sent.',
+        message: message || 'Invitation email cannot be sent.',
     };
+}
+
+function readStringField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function normalizeEmail(value: string | null) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function formatRole(value: string) {
+    return String(value || 'team member')
+        .trim()
+        .split(/[\s_-]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+        .join(' ');
 }
 
 function parseJson<T>(value: string): T | null {
@@ -529,6 +610,15 @@ function parseCsv(value: string | undefined) {
         .split(',')
         .map((item) => item.trim())
         .filter(Boolean);
+}
+
+function escapeHtml(value: string) {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
 }
 
 class RequestError extends Error {

@@ -1,6 +1,7 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
+import AdminNavBar from '../../../../components/AdminNavBar';
 import HomeHeader from '../../../../components/HomeHeader';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
@@ -409,12 +410,10 @@ export default function CompanyClientsScreen() {
             <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                 <HomeHeader />
 
-                <Text
-                    onPress={() => router.push(`/super-admin/company/${id}` as any)}
-                    style={[backTextStyle, { color: theme.colors.text }]}
-                >
-                    Back
-                </Text>
+                <AdminNavBar
+                    companyId={String(id || '')}
+                    backFallback={`/super-admin/company/${id}` as Href}
+                />
 
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Company Clients</Text>
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>

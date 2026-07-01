@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import AdminNavBar from '../../components/AdminNavBar';
 import { supabase } from '../../lib/supabase';
 
 function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin?: boolean | null } | null) {
@@ -217,6 +218,8 @@ export default function SuperAdminDashboard() {
             contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
+                <AdminNavBar showBack={false} />
+
                 <Text style={{ marginTop: 20, fontSize: 16, color: '#637083', fontWeight: '700' }}>
                     Welcome, {name}
                 </Text>

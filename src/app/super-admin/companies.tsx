@@ -9,6 +9,7 @@ import {
     useWindowDimensions,
     View,
 } from 'react-native';
+import AdminNavBar from '../../components/AdminNavBar';
 import { supabase } from '../../lib/supabase';
 
 type Company = {
@@ -121,18 +122,7 @@ export default function CompaniesScreen() {
             }}
         >
             <View style={{ width: '100%', maxWidth: 1240, minWidth: 0 }}>
-                <Text
-                    onPress={() => router.back()}
-                    style={{
-                        marginTop: 20,
-                        marginBottom: 20,
-                        fontSize: 18,
-                        color: '#071B33',
-                        fontWeight: '900',
-                    }}
-                >
-                    ← Back
-                </Text>
+                <AdminNavBar backFallback="/super-admin" />
 
                 <Text
                     style={{

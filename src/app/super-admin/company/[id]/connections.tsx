@@ -1,6 +1,7 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
+import AdminNavBar from '../../../../components/AdminNavBar';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
 import { supabase } from '../../../../lib/supabase';
@@ -119,12 +120,10 @@ export default function CompanyConnectionsScreen() {
             contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
-                <Text
-                    onPress={() => router.push(`/super-admin/company/${id}` as any)}
-                    style={[backTextStyle, { color: theme.colors.text }]}
-                >
-                    Back
-                </Text>
+                <AdminNavBar
+                    companyId={String(id || '')}
+                    backFallback={`/super-admin/company/${id}` as Href}
+                />
 
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Company Connections</Text>
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>

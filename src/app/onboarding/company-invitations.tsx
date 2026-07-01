@@ -24,6 +24,7 @@ export default function CompanyInvitationsScreen() {
     const [invitations, setInvitations] = useState<CompanyInvitation[]>([]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const [signedInEmail, setSignedInEmail] = useState('');
     const [acceptedCompanyName, setAcceptedCompanyName] = useState('');
     const [acceptingInvitationId, setAcceptingInvitationId] = useState<string | null>(null);
     const [continuing, setContinuing] = useState(false);
@@ -40,6 +41,21 @@ export default function CompanyInvitationsScreen() {
     async function loadInvitations() {
         setLoading(true);
         setMessage('');
+
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setSignedInEmail('');
+            setLoading(false);
+            setInvitations([]);
+            setMessage('Sign in with the email address that was invited to review company invitations.');
+            return;
+        }
+
+        setSignedInEmail(user.email || '');
 
         const { data, error } = await supabase.rpc('get_my_company_user_invitations');
 
@@ -109,8 +125,13 @@ export default function CompanyInvitationsScreen() {
 
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Company Invitations</Text>
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                    Accept pending company access for your signed-in account.
+                    Accept pending company access for your signed-in HomeOS account.
                 </Text>
+                <ThemedCard style={messageCardStyle}>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        Checking invitations for: {signedInEmail || 'No signed-in email'}
+                    </Text>
+                </ThemedCard>
 
                 {!!message && (
                     <ThemedCard style={messageCardStyle}>

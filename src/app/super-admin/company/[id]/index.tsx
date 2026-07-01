@@ -2,6 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import AdminNavBar from '../../../../components/AdminNavBar';
 import { supabase } from '../../../../lib/supabase';
 
 type Company = {
@@ -473,6 +474,12 @@ export default function CompanyDashboardScreen() {
             }}
         >
             <View style={{ width: '100%', maxWidth: 1180, minWidth: 0 }}>
+                <AdminNavBar
+                    companyId={String(id || '')}
+                    backFallback="/super-admin/companies"
+                    showBack={false}
+                />
+
                 <View
                     style={{
                         width: '100%',

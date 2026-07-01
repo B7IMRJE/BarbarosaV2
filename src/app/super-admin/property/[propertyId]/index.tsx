@@ -1,5 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import AdminNavBar from '../../../../components/AdminNavBar';
 
 const cards = [
     'Equipment',
@@ -28,18 +29,7 @@ export default function PropertyDashboardScreen() {
             }}
         >
             <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
-                <Text
-                    onPress={() => router.back()}
-                    style={{
-                        marginTop: 20,
-                        marginBottom: 20,
-                        fontSize: 18,
-                        fontWeight: '900',
-                        color: '#071B33',
-                    }}
-                >
-                    ← Back
-                </Text>
+                <AdminNavBar backFallback="/super-admin/companies" />
 
                 <Text
                     style={{

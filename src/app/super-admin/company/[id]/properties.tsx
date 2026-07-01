@@ -1,4 +1,4 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ScrollView,
@@ -7,6 +7,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import AdminNavBar from '../../../../components/AdminNavBar';
 import { supabase } from '../../../../lib/supabase';
 
 type Property = {
@@ -107,20 +108,10 @@ export default function PropertiesScreen() {
             }}
         >
             <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
-                <Text
-                    onPress={() =>
-                        router.push(`/super-admin/company/${id}` as any)
-                    }
-                    style={{
-                        marginTop: 20,
-                        marginBottom: 20,
-                        fontSize: 18,
-                        fontWeight: '900',
-                        color: '#071B33',
-                    }}
-                >
-                    ← Back
-                </Text>
+                <AdminNavBar
+                    companyId={String(id || '')}
+                    backFallback={`/super-admin/company/${id}` as Href}
+                />
 
                 <Text
                     style={{
