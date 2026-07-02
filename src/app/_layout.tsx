@@ -1,6 +1,6 @@
 import { Slot, router, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import {
   clearSessionActivity,
   hasSessionTimedOut,
@@ -32,6 +32,8 @@ const ONBOARDING_THEME_ROUTE = '/onboarding/theme';
 const PROFILE_CHANGE_PASSWORD_ROUTE = '/profile/change-password';
 const DISPATCH_ROUTE = '/dispatch';
 const SCHEDULE_ROUTE = '/schedule';
+const ESTIMATE_ROUTE = '/estimate';
+const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 const PUBLIC_AUTH_ROUTES = new Set<string>([
   LOGIN_ROUTE,
   REGISTER_ROUTE,
@@ -47,6 +49,7 @@ export default function Layout() {
   const initialCheckCompleteRef = useRef(false);
   const pendingRedirectRef = useRef<string | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [routeGuardError, setRouteGuardError] = useState('');
 
   useEffect(() => {
     pathnameRef.current = pathname;
@@ -116,59 +119,83 @@ export default function Layout() {
       setInitializing(true);
     }
 
-    const { data } = await supabase.auth.getSession();
+    setRouteGuardError('');
 
-    if (runId !== checkRunRef.current) return;
-
-    const currentPath = normalizePath(currentPathname);
-    const isPublicAuthPage = isPublicAuthPath(currentPath);
-    const isLoggedIn = !!data.session;
-
-    if (isPublicAuthPage || currentPath === COMPANY_INVITE_ROUTE || currentPath === CUSTOMER_INVITE_ROUTE) {
-      finishCheck(runId);
-      return;
-    }
-
-    if (isLoggedIn) {
-      const timedOut = await hasSessionTimedOut();
-
+    try {
+      const sessionResult = await supabase.auth.getSession();
       if (runId !== checkRunRef.current) return;
 
-      if (timedOut) {
-        await supabase.auth.signOut();
-        await clearSessionActivity();
+      if (sessionResult.error) {
+        showRouteGuardServiceError(runId, sessionResult.error.message);
+        return;
+      }
+
+      const currentPath = normalizePath(currentPathname);
+      const isPublicAuthPage = isPublicAuthPath(currentPath);
+      const isLoggedIn = !!sessionResult.data.session;
+
+      if (isPublicAuthPage || currentPath === COMPANY_INVITE_ROUTE || currentPath === CUSTOMER_INVITE_ROUTE) {
+        finishCheck(runId);
+        return;
+      }
+
+      if (isLoggedIn) {
+        const timedOut = await hasSessionTimedOut();
+
+        if (runId !== checkRunRef.current) return;
+
+        if (timedOut) {
+          await supabase.auth.signOut();
+          await clearSessionActivity();
+          replaceIfNeeded(LOGIN_ROUTE, currentPath);
+          finishCheck(runId);
+          return;
+        }
+
+        if (!isAuthPath(currentPath)) {
+          await recordSessionActivity();
+        }
+      }
+
+      if (!isLoggedIn) {
         replaceIfNeeded(LOGIN_ROUTE, currentPath);
         finishCheck(runId);
         return;
       }
 
-      if (!isAuthPath(currentPath)) {
-        await recordSessionActivity();
+      const sessionUserId = sessionResult.data.session?.user.id || '';
+      const routeDecision = await resolveLoggedInUserRoute(sessionUserId);
+
+      if (runId !== checkRunRef.current) return;
+
+      if (routeDecision.reason === 'service-unavailable') {
+        showRouteGuardServiceError(runId, routeDecision.message);
+        return;
       }
-    }
 
-    if (!isLoggedIn) {
-      replaceIfNeeded(LOGIN_ROUTE, currentPath);
+      const redirectRoute = resolveRedirectForPath(currentPath, routeDecision);
+
+      if (redirectRoute) {
+        replaceIfNeeded(redirectRoute, currentPath);
+      }
+
       finishCheck(runId);
-      return;
+    } catch (error) {
+      showRouteGuardServiceError(runId, getServiceErrorMessage(error));
     }
-
-    const routeDecision = await resolveLoggedInUserRoute(data.session.user.id);
-
-    if (runId !== checkRunRef.current) return;
-
-    const redirectRoute = resolveRedirectForPath(currentPath, routeDecision);
-
-    if (redirectRoute) {
-      replaceIfNeeded(redirectRoute, currentPath);
-    }
-
-    finishCheck(runId);
   }
 
   return (
     <ThemeProvider>
-      {initializing ? (
+      {routeGuardError ? (
+        <View style={serviceErrorWrapStyle}>
+          <Text style={serviceErrorTitleStyle}>HomeOS services unavailable</Text>
+          <Text style={serviceErrorBodyStyle}>{routeGuardError}</Text>
+          <TouchableOpacity activeOpacity={0.82} onPress={retryRouteGuard} style={retryButtonStyle}>
+            <Text style={retryButtonTextStyle}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : initializing ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator size="large" />
         </View>
@@ -184,7 +211,22 @@ export default function Layout() {
     if (runId !== checkRunRef.current) return;
 
     initialCheckCompleteRef.current = true;
+    setRouteGuardError('');
     setInitializing(false);
+  }
+
+  function showRouteGuardServiceError(runId: number, message?: string | null) {
+    if (runId !== checkRunRef.current) return;
+
+    initialCheckCompleteRef.current = true;
+    pendingRedirectRef.current = null;
+    setRouteGuardError(normalizeServiceMessage(message));
+    setInitializing(false);
+  }
+
+  function retryRouteGuard() {
+    setRouteGuardError('');
+    checkLogin(pathnameRef.current, { showLoading: true });
   }
 
   function replaceIfNeeded(route: string, pathname: string) {
@@ -205,6 +247,35 @@ export default function Layout() {
     pendingRedirectRef.current = route;
     router.replace(route as any);
   }
+}
+
+function getServiceErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+
+  return HOMEOS_SERVICE_ERROR_MESSAGE;
+}
+
+function normalizeServiceMessage(message?: string | null) {
+  const cleanMessage = String(message || '').trim();
+
+  if (!cleanMessage || isFetchFailureMessage(cleanMessage)) {
+    return HOMEOS_SERVICE_ERROR_MESSAGE;
+  }
+
+  return cleanMessage;
+}
+
+function isFetchFailureMessage(message: string) {
+  const normalizedMessage = message.toLowerCase();
+
+  return (
+    normalizedMessage.includes('failed to fetch') ||
+    normalizedMessage.includes('network request failed') ||
+    normalizedMessage.includes('fetch failed') ||
+    normalizedMessage.includes('load failed') ||
+    normalizedMessage.includes('networkerror')
+  );
 }
 
 function normalizePath(pathname: string) {
@@ -236,6 +307,22 @@ function isSuperAdminPath(pathname: string) {
   return pathname === SUPER_ADMIN_ROUTE || pathname.startsWith(`${SUPER_ADMIN_ROUTE}/`);
 }
 
+function isCompanyManagementPath(pathname: string) {
+  return pathname.startsWith(`${SUPER_ADMIN_ROUTE}/company/`);
+}
+
+function isAllowedCompanyManagementPath(
+  pathname: string,
+  allowedCompanyIds: string[] | undefined
+) {
+  if (!isCompanyManagementPath(pathname)) return false;
+
+  const companyId = extractCompanyIdFromManagementPath(pathname);
+  if (!companyId) return false;
+
+  return (allowedCompanyIds || []).includes(companyId);
+}
+
 function isTechOSPath(pathname: string) {
   return pathname === TECHOS_ROUTE || pathname.startsWith(`${TECHOS_ROUTE}/`);
 }
@@ -246,6 +333,10 @@ function isDispatchPath(pathname: string) {
 
 function isSchedulePath(pathname: string) {
   return pathname === SCHEDULE_ROUTE || pathname.startsWith(`${SCHEDULE_ROUTE}/`);
+}
+
+function isEstimatePath(pathname: string) {
+  return pathname === ESTIMATE_ROUTE || pathname.startsWith(`${ESTIMATE_ROUTE}/`);
 }
 
 function resolveRedirectForPath(
@@ -278,18 +369,33 @@ function resolveRedirectForPath(
     return SUPER_ADMIN_ROUTE;
   }
 
-  if (routeDecision.reason === 'company-staff') {
+  if (routeDecision.reason === 'company-management') {
     if (
+      isAllowedCompanyManagementPath(pathname, routeDecision.allowedCompanyIds) ||
       isTechOSPath(pathname) ||
       isDispatchPath(pathname) ||
       isSchedulePath(pathname) ||
+      isEstimatePath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {
       return null;
     }
 
-    return TECHOS_ROUTE;
+    return routeDecision.route;
+  }
+
+  if (routeDecision.reason === 'company-technician') {
+    if (
+      isTechOSPath(pathname) ||
+      isEstimatePath(pathname) ||
+      pathname === COMPANY_INVITATIONS_ROUTE ||
+      pathname === PROFILE_CHANGE_PASSWORD_ROUTE
+    ) {
+      return null;
+    }
+
+    return routeDecision.route;
   }
 
   if (routeDecision.reason === 'homeowner-needs-first-home') {
@@ -313,3 +419,47 @@ function resolveRedirectForPath(
 
   return null;
 }
+
+function extractCompanyIdFromManagementPath(pathname: string) {
+  const match = pathname.match(/^\/super-admin\/company\/([^/]+)/);
+
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+const serviceErrorWrapStyle = {
+  flex: 1,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+  padding: 24,
+  backgroundColor: '#F8FAFC',
+};
+
+const serviceErrorTitleStyle = {
+  color: '#0F172A',
+  fontSize: 24,
+  fontWeight: '900' as const,
+  textAlign: 'center' as const,
+  marginBottom: 10,
+};
+
+const serviceErrorBodyStyle = {
+  color: '#475569',
+  fontSize: 16,
+  lineHeight: 23,
+  textAlign: 'center' as const,
+  maxWidth: 420,
+};
+
+const retryButtonStyle = {
+  marginTop: 18,
+  backgroundColor: '#0B5FFF',
+  borderRadius: 14,
+  paddingHorizontal: 22,
+  paddingVertical: 12,
+};
+
+const retryButtonTextStyle = {
+  color: '#FFFFFF',
+  fontSize: 15,
+  fontWeight: '900' as const,
+};

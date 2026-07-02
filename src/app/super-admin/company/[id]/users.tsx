@@ -76,10 +76,10 @@ type ManualInviteResult = {
     warning: string | null;
 };
 
-type SectionKey = 'technicians' | 'members' | 'invitations';
+type SectionKey = 'owners' | 'adminsManagers' | 'technicians' | 'members' | 'invitations';
 
 const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
-    { label: 'Owner', value: 'owner' },
+    { label: 'Company Owner', value: 'owner' },
     { label: 'Admin', value: 'admin' },
     { label: 'Manager', value: 'manager' },
     { label: 'Office', value: 'office' },
@@ -94,6 +94,8 @@ const COMPANY_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_add_item_to_estimate',
     'can_view_customers',
     'can_view_jobs',
+    'can_manage_company_users',
+    'can_manage_company_profile',
 ];
 
 export default function CompanyUsersScreen() {
@@ -114,6 +116,8 @@ export default function CompanyUsersScreen() {
     const [deliveryFeedbackById, setDeliveryFeedbackById] = useState<Record<string, DeliveryFeedback>>({});
     const [manualInvitesById, setManualInvitesById] = useState<Record<string, ManualInviteDetails>>({});
     const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
+        owners: false,
+        adminsManagers: false,
         technicians: false,
         members: true,
         invitations: true,
@@ -135,15 +139,20 @@ export default function CompanyUsersScreen() {
     }, []);
 
     useEffect(() => {
+        const hasOwners = members.some((member) => isCompanyOwnerRole(member.role));
+        const hasAdminsManagers = members.some((member) => isAdminManagerRole(member.role));
         const hasTechnicians = members.some((member) => isTechnicianRole(member.role));
         const hasMembers = members.length > 0;
         const hasPendingInvitations = invitations.some(
             (invitation) => normalizeStatus(invitation.status) === 'pending' && !isInvitationExpired(invitation, nowMs)
         );
+        const hasCategorizedMembers = hasOwners || hasAdminsManagers || hasTechnicians;
 
         setCollapsedSections((current) => ({
+            owners: touchedSections.owners ? current.owners : false,
+            adminsManagers: touchedSections.adminsManagers ? current.adminsManagers : !hasAdminsManagers,
             technicians: touchedSections.technicians ? current.technicians : false,
-            members: touchedSections.members ? current.members : hasTechnicians && hasMembers,
+            members: touchedSections.members ? current.members : hasCategorizedMembers && hasMembers,
             invitations: touchedSections.invitations ? current.invitations : !hasPendingInvitations,
         }));
     }, [members, invitations, touchedSections, nowMs]);
@@ -532,6 +541,11 @@ export default function CompanyUsersScreen() {
         setMessage('Invitation deleted.');
     }
 
+    function prepareOwnerInvite() {
+        setRole('owner');
+        setMessage('Company owner invite selected. Enter the owner name and email, then create the invitation.');
+    }
+
     function prepareTechnicianInvite() {
         setRole('technician');
         setMessage('Technician invite selected. Enter the technician name and email, then create the invitation.');
@@ -564,10 +578,20 @@ export default function CompanyUsersScreen() {
         () => invitations.filter((invitation) => matchesInvitationSearch(invitation, normalizedSearch, nowMs)),
         [invitations, normalizedSearch, nowMs]
     );
+    const allOwnerMembers = members.filter((member) => isCompanyOwnerRole(member.role));
+    const ownerMembers = filteredMembers.filter((member) => isCompanyOwnerRole(member.role));
+    const adminManagerMembers = filteredMembers.filter((member) => isAdminManagerRole(member.role));
     const allTechnicianMembers = members.filter((member) => isTechnicianRole(member.role));
     const technicianMembers = filteredMembers.filter((member) => isTechnicianRole(member.role));
+    const activeOwners = allOwnerMembers.filter((member) => normalizeStatus(member.status) === 'active');
     const activeTechnicians = allTechnicianMembers.filter((member) => normalizeStatus(member.status) === 'active');
     const activeMembers = members.filter((member) => normalizeStatus(member.status) === 'active');
+    const pendingOwnerInvitations = invitations.filter(
+        (invitation) =>
+            isCompanyOwnerRole(invitation.role) &&
+            normalizeStatus(invitation.status) === 'pending' &&
+            !isInvitationExpired(invitation, nowMs)
+    );
     const pendingTechnicianInvitations = invitations.filter(
         (invitation) =>
             isTechnicianRole(invitation.role) &&
@@ -597,22 +621,35 @@ export default function CompanyUsersScreen() {
                 </Text>
 
                 <ThemedCard style={heroCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>TechOS Access Foundation</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Company Ownership & TechOS Access</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Technicians are company users with the Technician role. Invite the first test technician here;
-                        they will become active only after accepting the invitation with their own Supabase Auth account.
+                        Invite the real company owner first, then add admins, managers, office staff, and technicians.
+                        Invited users become active only after accepting with their own HomeOS account.
+                    </Text>
+                    <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                        Owner transfer/removal coming soon. Invite and activate the new owner first.
                     </Text>
                     <View style={metricGridStyle}>
+                        <MetricCard label="Active Company Owners" value={activeOwners.length.toString()} />
+                        <MetricCard label="Pending Owner Invites" value={pendingOwnerInvitations.length.toString()} />
                         <MetricCard label="Active Technicians" value={activeTechnicians.length.toString()} />
                         <MetricCard label="Pending Technician Invites" value={pendingTechnicianInvitations.length.toString()} />
                         <MetricCard label="Active Team Members" value={activeMembers.length.toString()} />
                     </View>
-                    <ThemedButton
-                        title="Invite First Test Technician"
-                        onPress={prepareTechnicianInvite}
-                        variant="secondary"
-                        style={{ marginTop: 14 }}
-                    />
+                    <View style={[actionRowStyle, { marginTop: 14 }]}>
+                        <ThemedButton
+                            title="Invite Company Owner"
+                            onPress={prepareOwnerInvite}
+                            variant="secondary"
+                            style={actionButtonStyle}
+                        />
+                        <ThemedButton
+                            title="Invite First Test Technician"
+                            onPress={prepareTechnicianInvite}
+                            variant="secondary"
+                            style={actionButtonStyle}
+                        />
+                    </View>
                 </ThemedCard>
 
                 <ThemedCard style={searchCardStyle}>
@@ -733,6 +770,50 @@ export default function CompanyUsersScreen() {
                 ) : (
                     <>
                         <CompactSection
+                            title="Company Owners"
+                            count={ownerMembers.length}
+                            collapsed={collapsedSections.owners}
+                            onToggle={() => toggleSection('owners')}
+                        >
+                            {ownerMembers.length === 0 ? (
+                                <EmptyListMessage message="No company owners match this view. Invite and activate the real company owner before removing any temporary admin access." />
+                            ) : (
+                                ownerMembers.map((member) => (
+                                    <TeamMemberRow
+                                        key={member.id}
+                                        member={member}
+                                        expanded={!!expandedRows[`member:${member.id}`]}
+                                        actionLoadingKey={actionLoadingKey}
+                                        onToggle={() => toggleRow(`member:${member.id}`)}
+                                        onStatusChange={updateMemberStatus}
+                                    />
+                                ))
+                            )}
+                        </CompactSection>
+
+                        <CompactSection
+                            title="Admins / Managers"
+                            count={adminManagerMembers.length}
+                            collapsed={collapsedSections.adminsManagers}
+                            onToggle={() => toggleSection('adminsManagers')}
+                        >
+                            {adminManagerMembers.length === 0 ? (
+                                <EmptyListMessage message="No admins, managers, or office staff match this view." />
+                            ) : (
+                                adminManagerMembers.map((member) => (
+                                    <TeamMemberRow
+                                        key={member.id}
+                                        member={member}
+                                        expanded={!!expandedRows[`member:${member.id}`]}
+                                        actionLoadingKey={actionLoadingKey}
+                                        onToggle={() => toggleRow(`member:${member.id}`)}
+                                        onStatusChange={updateMemberStatus}
+                                    />
+                                ))
+                            )}
+                        </CompactSection>
+
+                        <CompactSection
                             title="Technicians"
                             count={technicianMembers.length}
                             collapsed={collapsedSections.technicians}
@@ -777,7 +858,7 @@ export default function CompanyUsersScreen() {
                         </CompactSection>
 
                         <CompactSection
-                            title="Invitations"
+                            title="Pending Invitations & History"
                             count={filteredInvitations.length}
                             collapsed={collapsedSections.invitations}
                             onToggle={() => toggleSection('invitations')}
@@ -905,6 +986,7 @@ function TeamMemberRow({
     const contactLine = getMemberContactLine(member);
     const permissions = resolveCompanyPermissions(member);
     const techOSAllowed = canAccessCompanyTechOS(member);
+    const companyOwner = isCompanyOwnerRole(member.role);
 
     return (
         <ThemedCard onPress={onToggle} style={compactRowStyle}>
@@ -1015,6 +1097,9 @@ function TeamMemberRow({
                             actionLoadingKey={actionLoadingKey}
                             onStatusChange={onStatusChange}
                         />
+                        {companyOwner && (
+                            <PlaceholderButton title="Owner transfer/removal coming soon. Invite and activate the new owner first." />
+                        )}
                         {status !== 'active' && <PlaceholderButton title="Remove from Company placeholder" />}
                     </DetailPanelSection>
 
@@ -1676,8 +1761,26 @@ function isTechnicianRole(role?: string | null) {
     return isTechnicianCompanyRole(role);
 }
 
+function isCompanyOwnerRole(role?: string | null) {
+    return normalizeRole(role) === 'owner';
+}
+
+function isAdminManagerRole(role?: string | null) {
+    const normalizedRole = normalizeRole(role);
+
+    return normalizedRole === 'admin' || normalizedRole === 'manager' || normalizedRole === 'office';
+}
+
 function formatRole(role?: string | null) {
-    return isTechnicianRole(role) ? 'Technician' : formatLabel(role || null);
+    const normalizedRole = normalizeRole(role);
+
+    if (normalizedRole === 'owner') return 'Company Owner';
+    if (normalizedRole === 'admin') return 'Admin';
+    if (normalizedRole === 'manager') return 'Manager';
+    if (normalizedRole === 'office') return 'Office';
+    if (normalizedRole === 'technician') return 'Technician';
+
+    return formatLabel(role || null);
 }
 
 function billingSeatLabel(status: string) {

@@ -11,6 +11,7 @@ import { resolveLoggedInUserRoute } from '../../lib/onboarding';
 import { supabase } from '../../lib/supabase';
 
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
+const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
 export default function LoginScreen() {
     const params = useLocalSearchParams<{ next?: string | string[] }>();
@@ -33,10 +34,21 @@ export default function LoginScreen() {
         const cleanEmail = email.trim().toLowerCase();
         setUnconfirmedEmail('');
 
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email: cleanEmail,
-            password,
-        });
+        let data: { user: { id: string } | null } = { user: null };
+        let error: unknown = null;
+
+        try {
+            const result = await supabase.auth.signInWithPassword({
+                email: cleanEmail,
+                password,
+            });
+            data = { user: result.data.user ? { id: result.data.user.id } : null };
+            error = result.error;
+        } catch (authError) {
+            setLoading(false);
+            setMessage(normalizeServiceErrorMessage(getErrorMessage(authError)));
+            return;
+        }
 
         if (error) {
             setLoading(false);
@@ -67,6 +79,11 @@ export default function LoginScreen() {
         const nextRoute = resolveSafeNext(firstParam(params.next));
 
         setLoading(false);
+
+        if (routeDecision.reason === 'service-unavailable') {
+            setMessage(routeDecision.message || HOMEOS_SERVICE_ERROR_MESSAGE);
+            return;
+        }
 
         if (routeDecision.message) {
             setMessage(routeDecision.message);
@@ -260,6 +277,35 @@ function classifyAuthError(error: unknown) {
     }
 
     return 'other';
+}
+
+function normalizeServiceErrorMessage(message?: string | null) {
+    const cleanMessage = String(message || '').trim();
+
+    if (!cleanMessage || isFetchFailureMessage(cleanMessage)) {
+        return HOMEOS_SERVICE_ERROR_MESSAGE;
+    }
+
+    return cleanMessage;
+}
+
+function isFetchFailureMessage(message?: string | null) {
+    const normalizedMessage = String(message || '').toLowerCase();
+
+    return (
+        normalizedMessage.includes('failed to fetch') ||
+        normalizedMessage.includes('network request failed') ||
+        normalizedMessage.includes('fetch failed') ||
+        normalizedMessage.includes('load failed') ||
+        normalizedMessage.includes('networkerror')
+    );
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return HOMEOS_SERVICE_ERROR_MESSAGE;
 }
 
 const inputStyle = {

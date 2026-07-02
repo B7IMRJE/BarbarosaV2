@@ -5,29 +5,32 @@ export const HOME_ROUTE = '/' as const;
 export const SUPER_ADMIN_ROUTE = '/super-admin' as const;
 export const FIRST_HOME_ONBOARDING_ROUTE = '/onboarding/create-home' as const;
 export const TECHOS_ROUTE = '/techos' as const;
+export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
-const TECHOS_COMPANY_ROLES = ['technician', 'manager', 'admin', 'owner'];
+const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher'];
+const TECHOS_COMPANY_ROLES = ['technician'];
 
-export type LoggedInUserRoute =
-    | typeof HOME_ROUTE
-    | typeof SUPER_ADMIN_ROUTE
-    | typeof FIRST_HOME_ONBOARDING_ROUTE
-    | typeof TECHOS_ROUTE;
+export type LoggedInUserRoute = string;
 
 export type LoggedInUserRouteReason =
     | 'super-admin'
-    | 'company-staff'
+    | 'company-management'
+    | 'company-technician'
     | 'staff'
     | 'homeowner-active-membership'
     | 'homeowner-needs-first-home'
     | 'profile-missing'
     | 'profile-query-error'
     | 'membership-query-error'
+    | 'service-unavailable'
     | 'unexpected-error';
 
 export type LoggedInUserRouteDecision = {
     route: LoggedInUserRoute;
     reason: LoggedInUserRouteReason;
+    companyId?: string | null;
+    companyRole?: string | null;
+    allowedCompanyIds?: string[];
     message?: string;
 };
 
@@ -43,16 +46,21 @@ export function isSuperAdminProfile(profile?: ProfileRouteFields | null) {
     );
 }
 
-export async function resolveLoggedInUserRoute(userId: string): Promise<LoggedInUserRouteDecision> {
+export async function resolveLoggedInUserRoute(
+    userId: string,
+    options: { preferredCompanyId?: string | null } = {}
+): Promise<LoggedInUserRouteDecision> {
     try {
         const profileQuery = await loadRouteProfile(userId);
 
         if (profileQuery.error) {
-            return {
-                route: HOME_ROUTE,
-                reason: 'profile-query-error',
-                message: 'Login succeeded, but HomeOS could not confirm your account profile. Opening HomeOS.',
-            };
+            return isServiceUnavailableError(profileQuery.error)
+                ? serviceUnavailableRouteDecision(profileQuery.error.message)
+                : {
+                    route: HOME_ROUTE,
+                    reason: 'profile-query-error',
+                    message: 'Login succeeded, but HomeOS could not confirm your account profile. Opening HomeOS.',
+                };
         }
 
         const profile = profileQuery.data;
@@ -75,16 +83,50 @@ export async function resolveLoggedInUserRoute(userId: string): Promise<LoggedIn
         const role = normalizeRole(profile.role);
         const companyAccessQuery = await supabase
             .from('company_users')
-            .select('id')
+            .select('id, company_id, role, status, created_at')
             .eq('auth_user_id', userId)
-            .eq('status', 'active')
-            .in('role', TECHOS_COMPANY_ROLES)
-            .limit(1);
+            .order('created_at', { ascending: true })
+            .limit(50);
 
-        if (!companyAccessQuery.error && (companyAccessQuery.data || []).length > 0) {
+        if (companyAccessQuery.error) {
+            return serviceUnavailableRouteDecision(companyAccessQuery.error.message);
+        }
+
+        const activeCompanyAccess = normalizeCompanyAccessRows(companyAccessQuery.data)
+            .filter((companyUser) => normalizeCompanyUserStatus(companyUser.status) === 'active');
+        const managementAccess = pickCompanyAccessForRoles(
+            activeCompanyAccess,
+            MANAGEMENT_COMPANY_ROLES,
+            options.preferredCompanyId
+        );
+
+        if (managementAccess) {
+            const allowedCompanyIds = activeCompanyAccess
+                .filter((companyUser) => MANAGEMENT_COMPANY_ROLES.includes(normalizeCompanyUserRole(companyUser.role)))
+                .map((companyUser) => companyUser.company_id);
+
             return {
-                route: TECHOS_ROUTE,
-                reason: 'company-staff',
+                route: companyManagementRoute(managementAccess.company_id),
+                reason: 'company-management',
+                companyId: managementAccess.company_id,
+                companyRole: normalizeCompanyUserRole(managementAccess.role),
+                allowedCompanyIds,
+            };
+        }
+
+        const technicianAccess = pickCompanyAccessForRoles(
+            activeCompanyAccess,
+            TECHOS_COMPANY_ROLES,
+            options.preferredCompanyId
+        );
+
+        if (technicianAccess) {
+            return {
+                route: techOSRoute(technicianAccess.company_id),
+                reason: 'company-technician',
+                companyId: technicianAccess.company_id,
+                companyRole: normalizeCompanyUserRole(technicianAccess.role),
+                allowedCompanyIds: [technicianAccess.company_id],
             };
         }
 
@@ -103,11 +145,13 @@ export async function resolveLoggedInUserRoute(userId: string): Promise<LoggedIn
             .limit(1);
 
         if (membershipQuery.error) {
-            return {
-                route: HOME_ROUTE,
-                reason: 'membership-query-error',
-                message: 'Login succeeded, but HomeOS could not confirm your home setup. Opening HomeOS.',
-            };
+            return isServiceUnavailableError(membershipQuery.error)
+                ? serviceUnavailableRouteDecision(membershipQuery.error.message)
+                : {
+                    route: HOME_ROUTE,
+                    reason: 'membership-query-error',
+                    message: 'Login succeeded, but HomeOS could not confirm your home setup. Opening HomeOS.',
+                };
         }
 
         if ((membershipQuery.data || []).length > 0) {
@@ -121,34 +165,142 @@ export async function resolveLoggedInUserRoute(userId: string): Promise<LoggedIn
             route: FIRST_HOME_ONBOARDING_ROUTE,
             reason: 'homeowner-needs-first-home',
         };
-    } catch {
+    } catch (error) {
+        return serviceUnavailableRouteDecision(getErrorMessage(error));
+    }
+}
+
+type CompanyRouteAccessRow = {
+    company_id: string;
+    role: string | null;
+    status: string | null;
+};
+
+function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+            const companyId = readStringField(record, 'company_id');
+
+            return {
+                company_id: companyId || '',
+                role: readStringField(record, 'role'),
+                status: readStringField(record, 'status'),
+            };
+        })
+        .filter((row) => row.company_id);
+}
+
+function pickCompanyAccessForRoles(
+    rows: CompanyRouteAccessRow[],
+    roles: string[],
+    preferredCompanyId?: string | null
+) {
+    const preferredId = String(preferredCompanyId || '').trim();
+    const matchingRows = rows.filter((row) => roles.includes(normalizeCompanyUserRole(row.role)));
+
+    if (preferredId) {
+        const preferredRow = matchingRows.find((row) => row.company_id === preferredId);
+        if (preferredRow) return preferredRow;
+    }
+
+    return matchingRows[0] || null;
+}
+
+function normalizeCompanyUserRole(role?: string | null) {
+    const normalizedRole = String(role || '').trim().toLowerCase();
+
+    if (normalizedRole === 'tech') return 'technician';
+    return normalizedRole;
+}
+
+function normalizeCompanyUserStatus(status?: string | null) {
+    return String(status || '').trim().toLowerCase();
+}
+
+function companyManagementRoute(companyId: string) {
+    return `/super-admin/company/${companyId}`;
+}
+
+function techOSRoute(companyId: string) {
+    return `${TECHOS_ROUTE}?companyId=${encodeURIComponent(companyId)}`;
+}
+
+function readStringField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
+async function loadRouteProfile(userId: string) {
+    try {
+        const primaryQuery = await supabase
+            .from('profiles')
+            .select('role, is_platform_admin')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (!primaryQuery.error) {
+            return primaryQuery;
+        }
+
+        if (isServiceUnavailableError(primaryQuery.error)) {
+            return primaryQuery;
+        }
+
+        const fallbackQuery = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', userId)
+            .maybeSingle();
+
         return {
-            route: HOME_ROUTE,
-            reason: 'unexpected-error',
-            message: 'Login succeeded, but HomeOS could not resolve your startup route. Opening HomeOS.',
+            data: fallbackQuery.data ? { ...fallbackQuery.data, is_platform_admin: null } : null,
+            error: fallbackQuery.error,
+        };
+    } catch (error) {
+        return {
+            data: null,
+            error: { message: getErrorMessage(error) },
         };
     }
 }
 
-async function loadRouteProfile(userId: string) {
-    const primaryQuery = await supabase
-        .from('profiles')
-        .select('role, is_platform_admin')
-        .eq('id', userId)
-        .maybeSingle();
-
-    if (!primaryQuery.error) {
-        return primaryQuery;
-    }
-
-    const fallbackQuery = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .maybeSingle();
-
+function serviceUnavailableRouteDecision(message?: string | null): LoggedInUserRouteDecision {
     return {
-        data: fallbackQuery.data ? { ...fallbackQuery.data, is_platform_admin: null } : null,
-        error: fallbackQuery.error,
+        route: HOME_ROUTE,
+        reason: 'service-unavailable',
+        message: normalizeServiceUnavailableMessage(message),
     };
+}
+
+function isServiceUnavailableError(error?: { message?: string | null } | null) {
+    return isServiceUnavailableMessage(error?.message);
+}
+
+function isServiceUnavailableMessage(message?: string | null) {
+    const normalizedMessage = String(message || '').toLowerCase();
+
+    return (
+        normalizedMessage.includes('failed to fetch') ||
+        normalizedMessage.includes('network request failed') ||
+        normalizedMessage.includes('fetch failed') ||
+        normalizedMessage.includes('load failed') ||
+        normalizedMessage.includes('networkerror')
+    );
+}
+
+function normalizeServiceUnavailableMessage(message?: string | null) {
+    const cleanMessage = String(message || '').trim();
+
+    return isServiceUnavailableMessage(cleanMessage) || !cleanMessage
+        ? HOMEOS_SERVICE_ERROR_MESSAGE
+        : cleanMessage;
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return HOMEOS_SERVICE_ERROR_MESSAGE;
 }

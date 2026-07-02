@@ -47,6 +47,8 @@ type CompanyBrandForm = {
 type BrandColorKey = 'primaryColor' | 'secondaryColor' | 'accentColor';
 type ConfigSectionKey = 'identity' | 'theme' | 'services';
 
+const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
+
 const defaultBrandForm: CompanyBrandForm = {
     publicName: '',
     dbaName: '',
@@ -126,14 +128,14 @@ const brandThemePresets = [
 ];
 const cards = [
     'Company Profile / Identity',
-    'Theme & Brand Colors',
-    'Services & Trust Profile',
     'Customers / Clients',
+    'Leads / Requests',
+    'Opportunities',
+    'Estimates / Proposals',
+    'Jobs / Dispatch',
     'Team / Technicians',
-    'Dispatch Board / Service Desk',
-    'Schedule Board',
-    'TechOS',
-    'ManagementOS',
+    'Price Book',
+    'Settings / Permissions',
 ];
 
 export default function CompanyDashboardScreen() {
@@ -160,34 +162,43 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
-        const { data, error } = await supabase
-            .from('companies')
-            .select(`
-                id,
-                name,
-                slug,
-                status,
-                theme_color,
-                public_name,
-                dba_name,
-                logo_url,
-                primary_color,
-                secondary_color,
-                accent_color,
-                service_categories,
-                homeos_rating,
-                homeos_rating_count,
-                combined_experience_years,
-                license_number,
-                phone,
-                website,
-                short_description
-            `)
-            .eq('id', String(id))
-            .single();
+        let data: unknown = null;
+        let errorMessage = '';
 
-        if (error) {
-            setMessage(`Error loading company: ${error.message}`);
+        try {
+            const result = await supabase
+                .from('companies')
+                .select(`
+                    id,
+                    name,
+                    slug,
+                    status,
+                    theme_color,
+                    public_name,
+                    dba_name,
+                    logo_url,
+                    primary_color,
+                    secondary_color,
+                    accent_color,
+                    service_categories,
+                    homeos_rating,
+                    homeos_rating_count,
+                    combined_experience_years,
+                    license_number,
+                    phone,
+                    website,
+                    short_description
+                `)
+                .eq('id', String(id))
+                .single();
+            data = result.data || null;
+            errorMessage = result.error?.message || '';
+        } catch (error) {
+            errorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
+
+        if (errorMessage) {
+            setMessage(`Error loading company: ${normalizeServiceErrorMessage(errorMessage)}`);
             return;
         }
 
@@ -207,28 +218,37 @@ export default function CompanyDashboardScreen() {
         setSavingBrand(true);
         setMessage('Saving company configuration...');
 
-        const { data, error } = await supabase.rpc('update_company_brand_profile', {
-            p_company_id: company.id,
-            p_public_name: brandForm.publicName.trim(),
-            p_dba_name: brandForm.dbaName.trim(),
-            p_logo_url: brandForm.logoUrl.trim(),
-            p_primary_color: brandForm.primaryColor.trim(),
-            p_secondary_color: brandForm.secondaryColor.trim(),
-            p_accent_color: brandForm.accentColor.trim(),
-            p_service_categories: parseCategories(brandForm.serviceCategories),
-            p_homeos_rating: parseNumber(brandForm.homeosRating),
-            p_homeos_rating_count: parseInteger(brandForm.homeosRatingCount),
-            p_combined_experience_years: parseInteger(brandForm.combinedExperienceYears),
-            p_license_number: brandForm.licenseNumber.trim(),
-            p_phone: brandForm.phone.trim(),
-            p_website: brandForm.website.trim(),
-            p_short_description: brandForm.shortDescription.trim(),
-        });
+        let data: unknown = null;
+        let errorMessage = '';
+
+        try {
+            const result = await supabase.rpc('update_company_brand_profile', {
+                p_company_id: company.id,
+                p_public_name: brandForm.publicName.trim(),
+                p_dba_name: brandForm.dbaName.trim(),
+                p_logo_url: brandForm.logoUrl.trim(),
+                p_primary_color: brandForm.primaryColor.trim(),
+                p_secondary_color: brandForm.secondaryColor.trim(),
+                p_accent_color: brandForm.accentColor.trim(),
+                p_service_categories: parseCategories(brandForm.serviceCategories),
+                p_homeos_rating: parseNumber(brandForm.homeosRating),
+                p_homeos_rating_count: parseInteger(brandForm.homeosRatingCount),
+                p_combined_experience_years: parseInteger(brandForm.combinedExperienceYears),
+                p_license_number: brandForm.licenseNumber.trim(),
+                p_phone: brandForm.phone.trim(),
+                p_website: brandForm.website.trim(),
+                p_short_description: brandForm.shortDescription.trim(),
+            });
+            data = result.data || null;
+            errorMessage = result.error?.message || '';
+        } catch (error) {
+            errorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
 
         setSavingBrand(false);
 
-        if (error) {
-            setMessage(`Save failed: ${error.message}`);
+        if (errorMessage) {
+            setMessage(`Save failed: ${normalizeServiceErrorMessage(errorMessage)}`);
             return;
         }
 
@@ -399,17 +419,12 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
-        if (card === 'Theme & Brand Colors') {
-            toggleConfigSection('theme');
-            return;
-        }
-
-        if (card === 'Services & Trust Profile') {
-            toggleConfigSection('services');
-            return;
-        }
-
         if (card === 'Team / Technicians') {
+            router.push(`/super-admin/company/${id}/users` as any);
+            return;
+        }
+
+        if (card === 'Settings / Permissions') {
             router.push(`/super-admin/company/${id}/users` as any);
             return;
         }
@@ -419,7 +434,7 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
-        if (card === 'Dispatch Board / Service Desk') {
+        if (card === 'Leads / Requests' || card === 'Jobs / Dispatch') {
             router.push({
                 pathname: '/dispatch',
                 params: { companyId: String(id) },
@@ -427,28 +442,12 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
-        if (card === 'Schedule Board') {
-            router.push({
-                pathname: '/schedule',
-                params: { companyId: String(id) },
-            } as any);
+        if (card === 'Estimates / Proposals') {
+            router.push('/estimate' as any);
             return;
         }
 
-        if (card === 'ManagementOS') {
-            router.push(`/super-admin/company/${id}/connections` as any);
-            return;
-        }
-
-        if (card === 'TechOS') {
-            router.push({
-                pathname: '/techos',
-                params: { companyId: String(id) },
-            } as any);
-            return;
-        }
-
-        alert(`${card} module comes next.`);
+        alert(`${card} foundation comes next.`);
     }
 
     function toggleConfigSection(section: ConfigSectionKey) {
@@ -515,7 +514,7 @@ export default function CompanyDashboardScreen() {
                                     opacity: 0.78,
                                 }}
                             >
-                                Company Management Home
+                                ManagementOS
                             </Text>
 
                             <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 16, minWidth: 0 }}>
@@ -589,7 +588,7 @@ export default function CompanyDashboardScreen() {
                                             opacity: 0.84,
                                         }}
                                     >
-                                        {brandForm.shortDescription || 'Company profile details and customer-facing brand settings.'}
+                                        {brandForm.shortDescription || 'Company workspace for customers, requests, estimates, jobs, team, and permissions.'}
                                     </Text>
                                 </View>
                             </View>
@@ -700,7 +699,7 @@ export default function CompanyDashboardScreen() {
                                     marginTop: 6,
                                 }}
                             >
-                                Manage the company profile, customers, team, and operating workspaces from one place.
+                                Company workspace modules for customer work, requests, estimates, jobs, team, and permissions.
                             </Text>
                         </View>
 
@@ -1378,11 +1377,13 @@ function getModuleDescription(title: string) {
     if (title === 'Theme & Brand Colors') return 'Configure colors, logo extraction, and presets below.';
     if (title === 'Services & Trust Profile') return 'Configure categories, license, rating, and experience below.';
     if (title === 'Customers / Clients') return 'Open homes that selected this company as a preferred provider.';
-    if (title === 'Team / Technicians') return 'Open company staff, managers, technicians, and invitations.';
-    if (title === 'Dispatch Board / Service Desk') return 'Receive homeowner service requests before jobs are created or assigned.';
-    if (title === 'Schedule Board') return 'Schedule service requests and assigned jobs by technician, date, and time window.';
-    if (title === 'TechOS') return 'View TechOS workspace setup and company-level preview without impersonating a technician.';
-    if (title === 'ManagementOS') return 'Open the company connections workflow.';
+    if (title === 'Leads / Requests') return 'Review incoming homeowner service requests before they become jobs.';
+    if (title === 'Opportunities') return 'Track sales opportunities after request triage is built.';
+    if (title === 'Estimates / Proposals') return 'Open estimate drafts and proposal foundations without fake pricing.';
+    if (title === 'Jobs / Dispatch') return 'Open the dispatch queue for jobs, requests, and technician workflow setup.';
+    if (title === 'Team / Technicians') return 'Open company owners, admins, managers, technicians, and invitations.';
+    if (title === 'Price Book') return 'Price book setup will live here before estimate pricing is turned on.';
+    if (title === 'Settings / Permissions') return 'Manage company access, owner/admin permissions, and team safety.';
 
     return `Open ${title.toLowerCase()} tools.`;
 }
@@ -1391,11 +1392,43 @@ function getModuleActionLabel(title: string) {
     if (title === 'Company Profile / Identity') return 'Configure below';
     if (title === 'Theme & Brand Colors') return 'Configure below';
     if (title === 'Services & Trust Profile') return 'Configure below';
-    if (title === 'Dispatch Board / Service Desk') return 'Open Dispatch Board';
-    if (title === 'Schedule Board') return 'Open Schedule Board';
-    if (title === 'TechOS') return 'Open TechOS Preview';
+    if (title === 'Leads / Requests') return 'Open Requests';
+    if (title === 'Jobs / Dispatch') return 'Open Dispatch';
+    if (title === 'Estimates / Proposals') return 'Open Estimates';
+    if (title === 'Price Book') return 'Coming Soon';
+    if (title === 'Opportunities') return 'Coming Soon';
+    if (title === 'Settings / Permissions') return 'Open Settings';
 
     return 'Open';
+}
+
+function normalizeServiceErrorMessage(message?: string | null) {
+    const cleanMessage = String(message || '').trim();
+
+    if (!cleanMessage || isFetchFailureMessage(cleanMessage)) {
+        return HOMEOS_SERVICE_ERROR_MESSAGE;
+    }
+
+    return cleanMessage;
+}
+
+function isFetchFailureMessage(message?: string | null) {
+    const normalizedMessage = String(message || '').toLowerCase();
+
+    return (
+        normalizedMessage.includes('failed to fetch') ||
+        normalizedMessage.includes('network request failed') ||
+        normalizedMessage.includes('fetch failed') ||
+        normalizedMessage.includes('load failed') ||
+        normalizedMessage.includes('networkerror')
+    );
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return HOMEOS_SERVICE_ERROR_MESSAGE;
 }
 
 function getFileExtension(fileName: string) {

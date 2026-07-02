@@ -19,6 +19,8 @@ type CompanyInvitation = {
     created_at: string | null;
 };
 
+const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
+
 export default function CompanyInvitationsScreen() {
     const { theme } = useTheme();
     const [invitations, setInvitations] = useState<CompanyInvitation[]>([]);
@@ -26,6 +28,7 @@ export default function CompanyInvitationsScreen() {
     const [message, setMessage] = useState('');
     const [signedInEmail, setSignedInEmail] = useState('');
     const [acceptedCompanyName, setAcceptedCompanyName] = useState('');
+    const [acceptedRoute, setAcceptedRoute] = useState('');
     const [acceptingInvitationId, setAcceptingInvitationId] = useState<string | null>(null);
     const [continuing, setContinuing] = useState(false);
 
@@ -42,28 +45,49 @@ export default function CompanyInvitationsScreen() {
         setLoading(true);
         setMessage('');
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let userEmail = '';
 
-        if (userError || !user) {
+        try {
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                setSignedInEmail('');
+                setLoading(false);
+                setInvitations([]);
+                setMessage('Sign in with the email address that was invited to review company invitations.');
+                return;
+            }
+
+            userEmail = user.email || '';
+        } catch (error) {
             setSignedInEmail('');
             setLoading(false);
             setInvitations([]);
-            setMessage('Sign in with the email address that was invited to review company invitations.');
+            setMessage(normalizeServiceErrorMessage(getErrorMessage(error)));
             return;
         }
 
-        setSignedInEmail(user.email || '');
+        setSignedInEmail(userEmail);
 
-        const { data, error } = await supabase.rpc('get_my_company_user_invitations');
+        let data: unknown = [];
+        let errorMessage = '';
+
+        try {
+            const result = await supabase.rpc('get_my_company_user_invitations');
+            data = result.data || [];
+            errorMessage = result.error?.message || '';
+        } catch (error) {
+            errorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
 
         setLoading(false);
 
-        if (error) {
+        if (errorMessage) {
             setInvitations([]);
-            setMessage(`Could not load invitations: ${error.message}`);
+            setMessage(`Could not load invitations: ${normalizeServiceErrorMessage(errorMessage)}`);
             return;
         }
 
@@ -75,23 +99,67 @@ export default function CompanyInvitationsScreen() {
 
         setAcceptingInvitationId(invitation.invitation_id);
         setAcceptedCompanyName('');
+        setAcceptedRoute('');
         setMessage('Accepting invitation...');
 
-        const { error } = await supabase.rpc('accept_company_user_invitation', {
-            p_invitation_id: invitation.invitation_id,
-        });
+        let userId = '';
+
+        try {
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
+
+            userId = user?.id || '';
+        } catch (error) {
+            setAcceptingInvitationId(null);
+            setMessage(normalizeServiceErrorMessage(getErrorMessage(error)));
+            return;
+        }
+
+        let acceptErrorMessage = '';
+
+        try {
+            const { error } = await supabase.rpc('accept_company_user_invitation', {
+                p_invitation_id: invitation.invitation_id,
+            });
+
+            acceptErrorMessage = error?.message || '';
+        } catch (error) {
+            acceptErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
 
         setAcceptingInvitationId(null);
 
-        if (error) {
-            setMessage(`Accept invitation failed: ${error.message}`);
+        if (acceptErrorMessage) {
+            setMessage(`Accept invitation failed: ${normalizeServiceErrorMessage(acceptErrorMessage)}`);
             return;
         }
 
         const companyName = invitation.company_name || 'your company';
+        const routeDecision = userId
+            ? await resolveLoggedInUserRoute(userId, {
+                preferredCompanyId: invitation.company_id,
+            })
+            : null;
+
+        if (routeDecision?.reason === 'service-unavailable') {
+            setAcceptedCompanyName(companyName);
+            setAcceptedRoute('');
+            await loadInvitations();
+            setMessage(routeDecision.message || HOMEOS_SERVICE_ERROR_MESSAGE);
+            return;
+        }
+
         setAcceptedCompanyName(companyName);
+        setAcceptedRoute(routeDecision?.route || '');
         await loadInvitations();
-        setMessage(`Invitation accepted for ${companyName}.`);
+        setMessage(`Invitation accepted for ${companyName}. Opening your company workspace...`);
+
+        if (routeDecision) {
+            setTimeout(() => {
+                router.replace(routeDecision.route as any);
+            }, 900);
+        }
     }
 
     async function continueInApp() {
@@ -99,20 +167,39 @@ export default function CompanyInvitationsScreen() {
 
         setContinuing(true);
 
-        const {
-            data: { user },
-            error,
-        } = await supabase.auth.getUser();
+        let userId = '';
 
-        if (error || !user) {
+        try {
+            const {
+                data: { user },
+                error,
+            } = await supabase.auth.getUser();
+
+            if (error || !user) {
+                setContinuing(false);
+                router.replace('/auth/login' as any);
+                return;
+            }
+
+            userId = user.id;
+        } catch (error) {
             setContinuing(false);
-            router.replace('/auth/login' as any);
+            setMessage(normalizeServiceErrorMessage(getErrorMessage(error)));
             return;
         }
 
-        const routeDecision = await resolveLoggedInUserRoute(user.id);
+        const routeDecision = acceptedRoute
+            ? null
+            : await resolveLoggedInUserRoute(userId);
+
+        if (routeDecision?.reason === 'service-unavailable') {
+            setContinuing(false);
+            setMessage(routeDecision.message || HOMEOS_SERVICE_ERROR_MESSAGE);
+            return;
+        }
+
         setContinuing(false);
-        router.replace(routeDecision.route as any);
+        router.replace((acceptedRoute || routeDecision?.route || '/') as any);
     }
 
     return (
@@ -240,6 +327,35 @@ function formatDate(value: string | null) {
     if (Number.isNaN(date.getTime())) return 'Unknown';
 
     return date.toLocaleDateString();
+}
+
+function normalizeServiceErrorMessage(message?: string | null) {
+    const cleanMessage = String(message || '').trim();
+
+    if (!cleanMessage || isFetchFailureMessage(cleanMessage)) {
+        return HOMEOS_SERVICE_ERROR_MESSAGE;
+    }
+
+    return cleanMessage;
+}
+
+function isFetchFailureMessage(message?: string | null) {
+    const normalizedMessage = String(message || '').toLowerCase();
+
+    return (
+        normalizedMessage.includes('failed to fetch') ||
+        normalizedMessage.includes('network request failed') ||
+        normalizedMessage.includes('fetch failed') ||
+        normalizedMessage.includes('load failed') ||
+        normalizedMessage.includes('networkerror')
+    );
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return HOMEOS_SERVICE_ERROR_MESSAGE;
 }
 
 const titleStyle = {

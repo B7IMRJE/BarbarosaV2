@@ -105,6 +105,8 @@ type PlatformProfile = {
 
 type TechOSMode = 'technician' | 'management-preview' | 'platform-preview';
 
+const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
+
 const secondaryWorkflowCards = [
     {
         title: 'Start Assessment',
@@ -195,34 +197,59 @@ export default function TechOSScreen() {
         setAssignmentMessageByJob({});
         setAssigningJobId(null);
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        let userId = '';
 
-        if (userError || !user) {
-            router.replace('/auth/login' as any);
+        try {
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError) {
+                setCheckingAccess(false);
+                setMessage(normalizeServiceErrorMessage(userError.message));
+                return;
+            }
+
+            if (!user) {
+                router.replace('/auth/login' as any);
+                return;
+            }
+
+            userId = user.id;
+        } catch (error) {
+            setCheckingAccess(false);
+            setMessage(normalizeServiceErrorMessage(getErrorMessage(error)));
             return;
         }
 
-        const platformAdminCheck = await loadPlatformAdminStatus(user.id);
+        const platformAdminCheck = await loadPlatformAdminStatus(userId);
 
-        let membershipQuery = supabase
-            .from('company_users')
-            .select('id, company_id, full_name, email, role, status, created_at')
-            .eq('auth_user_id', user.id)
-            .order('created_at', { ascending: true })
-            .limit(20);
+        let membershipData: unknown[] = [];
+        let membershipErrorMessage = '';
 
-        if (requestedCompanyId) {
-            membershipQuery = membershipQuery.eq('company_id', requestedCompanyId);
+        try {
+            let membershipQuery = supabase
+                .from('company_users')
+                .select('id, company_id, full_name, email, role, status, created_at')
+                .eq('auth_user_id', userId)
+                .order('created_at', { ascending: true })
+                .limit(20);
+
+            if (requestedCompanyId) {
+                membershipQuery = membershipQuery.eq('company_id', requestedCompanyId);
+            }
+
+            const { data, error } = await membershipQuery;
+            membershipData = data || [];
+            membershipErrorMessage = error?.message || '';
+        } catch (error) {
+            membershipErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
         }
 
-        const { data: membershipData, error: membershipError } = await membershipQuery;
-
-        if (membershipError) {
+        if (membershipErrorMessage) {
             setCheckingAccess(false);
-            setMessage(`Could not verify TechOS access: ${membershipError.message}`);
+            setMessage(`Could not verify TechOS access: ${normalizeServiceErrorMessage(membershipErrorMessage)}`);
             return;
         }
 
@@ -278,16 +305,25 @@ export default function TechOSScreen() {
     }
 
     async function loadCompanyBrand(companyIdToLoad: string) {
-        const { data, error } = await supabase
-            .from('companies')
-            .select(
-                'id, name, status, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, license_number, short_description'
-            )
-            .eq('id', companyIdToLoad)
-            .maybeSingle();
+        let data: unknown = null;
+        let errorMessage = '';
 
-        if (error) {
-            setMessage(`TechOS loaded, but company branding could not be loaded: ${error.message}`);
+        try {
+            const result = await supabase
+                .from('companies')
+                .select(
+                    'id, name, status, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, license_number, short_description'
+                )
+                .eq('id', companyIdToLoad)
+                .maybeSingle();
+            data = result.data || null;
+            errorMessage = result.error?.message || '';
+        } catch (error) {
+            errorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
+
+        if (errorMessage) {
+            setMessage(`TechOS loaded, but company branding could not be loaded: ${normalizeServiceErrorMessage(errorMessage)}`);
             setCompany(null);
             return;
         }
@@ -298,18 +334,27 @@ export default function TechOSScreen() {
     async function loadCompanyClients(companyIdToLoad: string) {
         setClientMessage('');
 
-        const { data, error } = await supabase
-            .from('company_property_clients')
-            .select(
-                'id, company_id, property_id, property_connection_id, display_name, status, source, first_requested_at, last_requested_at, connected_at, created_at'
-            )
-            .eq('company_id', companyIdToLoad)
-            .order('created_at', { ascending: false });
+        let data: unknown[] = [];
+        let errorMessage = '';
 
-        if (error) {
+        try {
+            const result = await supabase
+                .from('company_property_clients')
+                .select(
+                    'id, company_id, property_id, property_connection_id, display_name, status, source, first_requested_at, last_requested_at, connected_at, created_at'
+                )
+                .eq('company_id', companyIdToLoad)
+                .order('created_at', { ascending: false });
+            data = result.data || [];
+            errorMessage = result.error?.message || '';
+        } catch (error) {
+            errorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
+
+        if (errorMessage) {
             setClients([]);
             setPropertiesById({});
-            setClientMessage(`Could not load assigned clients: ${error.message}`);
+            setClientMessage(`Could not load assigned clients: ${normalizeServiceErrorMessage(errorMessage)}`);
             return;
         }
 
@@ -326,14 +371,23 @@ export default function TechOSScreen() {
             return;
         }
 
-        const { data, error } = await supabase
-            .from('properties')
-            .select('id, name, address, address_line_1, city, state, zip, postal_code')
-            .in('id', propertyIds);
+        let data: unknown[] = [];
+        let errorMessage = '';
 
-        if (error) {
+        try {
+            const result = await supabase
+                .from('properties')
+                .select('id, name, address, address_line_1, city, state, zip, postal_code')
+                .in('id', propertyIds);
+            data = result.data || [];
+            errorMessage = result.error?.message || '';
+        } catch (error) {
+            errorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
+
+        if (errorMessage) {
             setPropertiesById({});
-            setClientMessage(`Clients loaded, but basic home details could not be loaded: ${error.message}`);
+            setClientMessage(`Clients loaded, but basic home details could not be loaded: ${normalizeServiceErrorMessage(errorMessage)}`);
             return;
         }
 
@@ -362,15 +416,14 @@ export default function TechOSScreen() {
             setAssignmentModelReady(true);
             setJobs((data || []) as TechOSJob[]);
             setJobMessage('');
-        } catch (error: any) {
-            console.error('Could not load assigned TechOS jobs', {
-                message: error?.message,
-                code: error?.code,
-                details: error?.details,
-                hint: error?.hint,
-            });
+        } catch (error) {
             setJobs([]);
-            setJobMessage('Job assignment is not configured yet. Jobs will appear here after dispatch assigns them.');
+            const message = normalizeServiceErrorMessage(getErrorMessage(error));
+            setJobMessage(
+                message === HOMEOS_SERVICE_ERROR_MESSAGE
+                    ? message
+                    : 'Job assignment is not configured yet. Jobs will appear here after dispatch assigns them.'
+            );
         } finally {
             setJobLoading(false);
         }
@@ -408,15 +461,9 @@ export default function TechOSScreen() {
                     ? ''
                     : 'This is Management Preview. Assign technicians here without making this an admin workload.'
             );
-        } catch (error: any) {
-            console.error('Could not load TechOS jobs', {
-                message: error?.message,
-                code: error?.code,
-                details: error?.details,
-                hint: error?.hint,
-            });
+        } catch (error) {
             setJobs([]);
-            setJobMessage(error?.message ? `Could not load company jobs preview: ${error.message}` : 'Could not load company jobs preview right now.');
+            setJobMessage(`Could not load company jobs preview: ${normalizeServiceErrorMessage(getErrorMessage(error))}`);
         } finally {
             setJobLoading(false);
         }
@@ -449,23 +496,24 @@ export default function TechOSScreen() {
             [job.id]: `Assigning ${getMemberDisplayName(selectedTechnician)}...`,
         }));
 
-        const { error } = await supabase.rpc('assign_technician_to_job', {
-            p_company_id: selectedCompanyId,
-            p_job_id: job.id,
-            p_technician_company_user_id: selectedTechnicianId,
-            p_role_on_job: 'primary',
-        });
+        let assignErrorMessage = '';
 
-        if (error) {
-            console.error('Could not assign TechOS technician from preview', {
-                message: error.message,
-                code: error.code,
-                details: error.details,
-                hint: error.hint,
+        try {
+            const { error } = await supabase.rpc('assign_technician_to_job', {
+                p_company_id: selectedCompanyId,
+                p_job_id: job.id,
+                p_technician_company_user_id: selectedTechnicianId,
+                p_role_on_job: 'primary',
             });
+            assignErrorMessage = error?.message || '';
+        } catch (error) {
+            assignErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
+
+        if (assignErrorMessage) {
             setAssignmentMessageByJob((current) => ({
                 ...current,
-                [job.id]: getFriendlyAssignmentMessage(error.message),
+                [job.id]: getFriendlyAssignmentMessage(assignErrorMessage),
             }));
             setAssigningJobId(null);
             return;
@@ -518,16 +566,8 @@ export default function TechOSScreen() {
             setJobMessage(successMessage);
             setMessage(successMessage);
             await loadCompanyJobs(selectedCompanyId, techOSMode);
-        } catch (error: any) {
-            console.error('Could not create TechOS service job', {
-                message: error?.message,
-                code: error?.code,
-                details: error?.details,
-                hint: error?.hint,
-            });
-            const errorMessage = error?.message
-                ? `Could not create service job for ${clientName}: ${error.message}`
-                : `Could not create service job for ${clientName}.`;
+        } catch (error) {
+            const errorMessage = `Could not create service job for ${clientName}: ${normalizeServiceErrorMessage(getErrorMessage(error))}`;
             setJobMessage(errorMessage);
             setMessage(errorMessage);
         } finally {
@@ -1210,34 +1250,52 @@ async function loadCompanyMembers(companyId: string): Promise<{
     data: CompanyUser[];
     error: { message: string } | null;
 }> {
-    const rpcResult = await supabase.rpc('get_company_users_for_management', {
-        p_company_id: companyId,
-    });
+    let rpcData: unknown = [];
+    let rpcErrorMessage = '';
 
-    if (!rpcResult.error) {
+    try {
+        const rpcResult = await supabase.rpc('get_company_users_for_management', {
+            p_company_id: companyId,
+        });
+        rpcData = rpcResult.data || [];
+        rpcErrorMessage = rpcResult.error?.message || '';
+    } catch (error) {
+        rpcErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+    }
+
+    if (!rpcErrorMessage) {
         return {
-            data: normalizeCompanyUsers(rpcResult.data),
+            data: normalizeCompanyUsers(rpcData),
             error: null,
         };
     }
 
-    const directResult = await supabase
-        .from('company_users')
-        .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false });
+    let directData: unknown = [];
+    let directErrorMessage = '';
 
-    if (directResult.error) {
+    try {
+        const directResult = await supabase
+            .from('company_users')
+            .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
+            .eq('company_id', companyId)
+            .order('created_at', { ascending: false });
+        directData = directResult.data || [];
+        directErrorMessage = directResult.error?.message || '';
+    } catch (error) {
+        directErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+    }
+
+    if (directErrorMessage) {
         return {
             data: [],
             error: {
-                message: `${directResult.error.message}. Management RPC fallback also failed: ${rpcResult.error.message}`,
+                message: `${normalizeServiceErrorMessage(directErrorMessage)}. Management RPC fallback also failed: ${normalizeServiceErrorMessage(rpcErrorMessage)}`,
             },
         };
     }
 
     return {
-        data: normalizeCompanyUsers(directResult.data),
+        data: normalizeCompanyUsers(directData),
         error: null,
     };
 }
@@ -1274,6 +1332,10 @@ function getMemberDisplayName(member?: CompanyUser | null) {
 }
 
 function getFriendlyAssignmentMessage(message?: string | null) {
+    if (message === HOMEOS_SERVICE_ERROR_MESSAGE || isFetchFailureMessage(message)) {
+        return HOMEOS_SERVICE_ERROR_MESSAGE;
+    }
+
     const normalized = normalizeStatus(message);
 
     if (normalized.includes('not authorized')) {
@@ -1287,27 +1349,72 @@ function getFriendlyAssignmentMessage(message?: string | null) {
     return message ? `Could not assign technician: ${message}` : 'Could not assign technician right now.';
 }
 
-async function loadPlatformAdminStatus(userId: string) {
-    const primaryQuery = await supabase
-        .from('profiles')
-        .select('role, is_platform_admin')
-        .eq('id', userId)
-        .limit(1);
+function normalizeServiceErrorMessage(message?: string | null) {
+    const cleanMessage = String(message || '').trim();
 
-    if (!primaryQuery.error) {
+    if (!cleanMessage || isFetchFailureMessage(cleanMessage)) {
+        return HOMEOS_SERVICE_ERROR_MESSAGE;
+    }
+
+    return cleanMessage;
+}
+
+function isFetchFailureMessage(message?: string | null) {
+    const normalizedMessage = String(message || '').toLowerCase();
+
+    return (
+        normalizedMessage.includes('failed to fetch') ||
+        normalizedMessage.includes('network request failed') ||
+        normalizedMessage.includes('fetch failed') ||
+        normalizedMessage.includes('load failed') ||
+        normalizedMessage.includes('networkerror')
+    );
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return HOMEOS_SERVICE_ERROR_MESSAGE;
+}
+
+async function loadPlatformAdminStatus(userId: string) {
+    let primaryData: unknown[] = [];
+    let primaryErrorMessage = '';
+
+    try {
+        const primaryQuery = await supabase
+            .from('profiles')
+            .select('role, is_platform_admin')
+            .eq('id', userId)
+            .limit(1);
+        primaryData = primaryQuery.data || [];
+        primaryErrorMessage = primaryQuery.error?.message || '';
+    } catch (error) {
+        primaryErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+    }
+
+    if (!primaryErrorMessage) {
         return {
-            isPlatformAdmin: isPlatformAdminProfile((primaryQuery.data || [])[0] as PlatformProfile | undefined),
+            isPlatformAdmin: isPlatformAdminProfile(primaryData[0] as PlatformProfile | undefined),
         };
     }
 
-    const fallbackQuery = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .limit(1);
+    let fallbackData: unknown[] = [];
+
+    try {
+        const fallbackQuery = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', userId)
+            .limit(1);
+        fallbackData = fallbackQuery.data || [];
+    } catch {
+        fallbackData = [];
+    }
 
     return {
-        isPlatformAdmin: isPlatformAdminProfile((fallbackQuery.data || [])[0] as PlatformProfile | undefined),
+        isPlatformAdmin: isPlatformAdminProfile(fallbackData[0] as PlatformProfile | undefined),
     };
 }
 

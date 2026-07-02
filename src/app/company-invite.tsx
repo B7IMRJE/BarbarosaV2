@@ -32,6 +32,7 @@ type ParsedInviteCode = {
 };
 
 const COMPANY_INVITE_ROUTE = '/company-invite';
+const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
 export default function CompanyInviteScreen() {
     const { theme } = useTheme();
@@ -60,11 +61,18 @@ export default function CompanyInviteScreen() {
         setInvitation(null);
         setSuccess(false);
 
-        const {
-            data: { user: currentUser },
-        } = await supabase.auth.getUser();
+        try {
+            const {
+                data: { user: currentUser },
+            } = await supabase.auth.getUser();
 
-        setUser(currentUser ? { id: currentUser.id, email: currentUser.email } : null);
+            setUser(currentUser ? { id: currentUser.id, email: currentUser.email } : null);
+        } catch (error) {
+            setUser(null);
+            setLoading(false);
+            setMessage(normalizeServiceErrorMessage(getErrorMessage(error)));
+            return;
+        }
 
         if (!parsedCode) {
             setLoading(false);
@@ -117,15 +125,31 @@ export default function CompanyInviteScreen() {
         setAccepting(true);
         setMessage('Accepting invitation...');
 
-        const { error } = await supabase.rpc('accept_company_user_invitation_by_code', {
-            p_invitation_id: invitation.invitation_id,
-            p_invite_code: parsedCode.inviteCode,
-        });
+        let acceptErrorMessage = '';
 
-        if (!error) {
+        try {
+            const { error } = await supabase.rpc('accept_company_user_invitation_by_code', {
+                p_invitation_id: invitation.invitation_id,
+                p_invite_code: parsedCode.inviteCode,
+            });
+
+            acceptErrorMessage = error?.message || '';
+        } catch (error) {
+            acceptErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+        }
+
+        if (!acceptErrorMessage) {
             setSuccess(true);
             setMessage('Invitation accepted. Opening your company workspace...');
-            const routeDecision = await resolveLoggedInUserRoute(user.id);
+            const routeDecision = await resolveLoggedInUserRoute(user.id, {
+                preferredCompanyId: invitation.company_id,
+            });
+            if (routeDecision.reason === 'service-unavailable') {
+                setSuccess(false);
+                setAccepting(false);
+                setMessage(routeDecision.message || HOMEOS_SERVICE_ERROR_MESSAGE);
+                return;
+            }
             setAccepting(false);
             setTimeout(() => {
                 router.replace(routeDecision.route as any);
@@ -134,7 +158,7 @@ export default function CompanyInviteScreen() {
         }
 
         setAccepting(false);
-        setMessage(`Accept invitation failed: ${formatAcceptError(error.message)}`);
+        setMessage(`Accept invitation failed: ${formatAcceptError(acceptErrorMessage)}`);
     }
 
     function goToLogin() {
@@ -263,14 +287,23 @@ async function loadInvitationByCode(inviteCode: string): Promise<{
     invitation: CompanyInvitation | null;
     errorMessage: string;
 }> {
-    const { data, error } = await supabase.rpc('get_company_user_invitation_by_code', {
-        p_invite_code: inviteCode,
-    });
+    let data: unknown = null;
+    let errorMessage = '';
 
-    if (error) {
+    try {
+        const result = await supabase.rpc('get_company_user_invitation_by_code', {
+            p_invite_code: inviteCode,
+        });
+        data = result.data;
+        errorMessage = result.error?.message || '';
+    } catch (error) {
+        errorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
+    }
+
+    if (errorMessage) {
         return {
             invitation: null,
-            errorMessage: `Could not load this invite link: ${formatInviteLookupError(error.message)}`,
+            errorMessage: `Could not load this invite link: ${formatInviteLookupError(errorMessage)}`,
         };
     }
 
@@ -395,6 +428,10 @@ function statusMessage(status: string | null) {
 }
 
 function formatInviteLookupError(message: string) {
+    if (isFetchFailureMessage(message) || message === HOMEOS_SERVICE_ERROR_MESSAGE) {
+        return HOMEOS_SERVICE_ERROR_MESSAGE;
+    }
+
     if (message.toLowerCase().includes('invite code is required')) {
         return 'The invite code is missing. Ask your company admin for a fresh invitation link.';
     }
@@ -403,6 +440,10 @@ function formatInviteLookupError(message: string) {
 }
 
 function formatAcceptError(message: string) {
+    if (isFetchFailureMessage(message) || message === HOMEOS_SERVICE_ERROR_MESSAGE) {
+        return HOMEOS_SERVICE_ERROR_MESSAGE;
+    }
+
     const normalized = message.toLowerCase();
 
     if (
@@ -426,6 +467,35 @@ function formatAcceptError(message: string) {
     }
 
     return message || 'The invite code could not be accepted.';
+}
+
+function normalizeServiceErrorMessage(message?: string | null) {
+    const cleanMessage = String(message || '').trim();
+
+    if (!cleanMessage || isFetchFailureMessage(cleanMessage)) {
+        return HOMEOS_SERVICE_ERROR_MESSAGE;
+    }
+
+    return cleanMessage;
+}
+
+function isFetchFailureMessage(message?: string | null) {
+    const normalizedMessage = String(message || '').toLowerCase();
+
+    return (
+        normalizedMessage.includes('failed to fetch') ||
+        normalizedMessage.includes('network request failed') ||
+        normalizedMessage.includes('fetch failed') ||
+        normalizedMessage.includes('load failed') ||
+        normalizedMessage.includes('networkerror')
+    );
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return HOMEOS_SERVICE_ERROR_MESSAGE;
 }
 
 function formatDate(value: string | null) {
