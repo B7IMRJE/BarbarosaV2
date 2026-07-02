@@ -68,9 +68,21 @@ export default {
                     {
                         ok: false,
                         code: 'email_provider_not_configured',
-                        message: 'Email provider is not configured. Set RESEND_API_KEY or SENDGRID_API_KEY in Supabase Edge Function secrets.',
+                        message: 'Email provider is not configured. Set RESEND_API_KEY or SENDGRID_API_KEY.',
                     },
                     501
+                );
+            }
+
+            if (!env.fromEmail) {
+                return json(
+                    req,
+                    {
+                        ok: false,
+                        code: 'missing_invite_from_email',
+                        message: 'Invite sender email is not configured. Set INVITE_FROM_EMAIL.',
+                    },
+                    500
                 );
             }
 
@@ -176,11 +188,9 @@ export default {
 };
 
 function handleOptions(req: Request) {
-    const { allowed, headers } = corsHeaders(req);
-
-    return new Response(allowed ? 'ok' : 'forbidden', {
-        status: allowed ? 200 : 403,
-        headers,
+    return new Response('ok', {
+        status: 200,
+        headers: corsHeaders(req),
     });
 }
 
@@ -188,7 +198,7 @@ function json(req: Request, body: Record<string, unknown>, status = 200) {
     return new Response(JSON.stringify(body), {
         status,
         headers: {
-            ...corsHeaders(req).headers,
+            ...corsHeaders(req),
             'Content-Type': 'application/json; charset=utf-8',
         },
     });
@@ -196,22 +206,16 @@ function json(req: Request, body: Record<string, unknown>, status = 200) {
 
 function corsHeaders(req: Request) {
     const origin = req.headers.get('Origin') ?? '';
-    const allowedOrigin = resolveAllowedCorsOrigin(origin);
+    const allowedOrigin = resolveAllowedCorsOrigin(origin) || origin || '*';
     const headers: Record<string, string> = {
+        'Access-Control-Allow-Origin': allowedOrigin,
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-api-version',
         'Access-Control-Max-Age': '86400',
         Vary: 'Origin',
     };
 
-    if (allowedOrigin) {
-        headers['Access-Control-Allow-Origin'] = allowedOrigin;
-    }
-
-    return {
-        allowed: !origin || !!allowedOrigin,
-        headers,
-    };
+    return headers;
 }
 
 function resolveAllowedCorsOrigin(origin: string) {
@@ -246,7 +250,7 @@ function loadFunctionEnv(): FunctionEnv {
             Deno.env.get('COMPANY_INVITATION_APP_BASE_URL') ||
             Deno.env.get('APP_BASE_URL')
         ),
-        fromEmail: requireEnv('INVITE_FROM_EMAIL', 'INVITE_FROM_EMAIL'),
+        fromEmail: Deno.env.get('INVITE_FROM_EMAIL') || '',
         resendApiKey: Deno.env.get('RESEND_API_KEY') || '',
         sendgridApiKey: Deno.env.get('SENDGRID_API_KEY') || '',
     };
