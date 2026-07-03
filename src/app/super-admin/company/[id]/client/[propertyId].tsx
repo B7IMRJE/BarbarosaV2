@@ -291,6 +291,16 @@ export default function CompanyClientDetailScreen() {
 
                         <View style={actionGridStyle}>
                             <ActionCard
+                                title="Open Client HomeOS"
+                                body="Open the customer's HomeOS structure with company tools and staged updates."
+                                onPress={() => router.push(`/super-admin/company/${companyId}/client/${clientPropertyId}/homeos` as never)}
+                            />
+                            <ActionCard
+                                title="View Home Items"
+                                body="Open safe HomeOS item basics for estimates and company service context."
+                                onPress={() => router.push(`/super-admin/company/${companyId}/client/${clientPropertyId}/items` as never)}
+                            />
+                            <ActionCard
                                 title="Request / Job History"
                                 body={connection?.can_view_service_history ? 'Shared history can be opened here later.' : 'Private - request access.'}
                                 locked={!connection?.can_view_service_history}

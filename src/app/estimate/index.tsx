@@ -1,59 +1,127 @@
 import HomeHeader from '../../components/HomeHeader';
 
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import {
+    loadCurrentCompanyPermissionAccess,
+    type CompanyPermissionAccess,
+} from '../../lib/companyPermissions';
 import {
     EstimateDraftItem,
     loadEstimateDraft,
     removeItemFromEstimateDraft,
 } from '../../lib/estimateDraft';
-import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
+
+const estimateFoundationSections = [
+    {
+        title: 'Findings',
+        description: 'Field findings from the selected HomeOS item will be captured here.',
+    },
+    {
+        title: 'Recommended Work',
+        description: 'Recommended repairs or replacements will be written here before customer review.',
+    },
+    {
+        title: 'Price Book Coming Soon',
+        description: 'Pricing is not configured yet. No fake prices are generated.',
+    },
+    {
+        title: 'Photos / Notes Later',
+        description: 'Photos, notes, and approvals will connect after the estimate schema is installed.',
+    },
+];
 
 export default function EstimateScreen() {
+    const { companyId, propertyId, mode } = useLocalSearchParams<{
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        mode?: string | string[];
+    }>();
+    const requestedCompanyId = firstParam(companyId);
+    const requestedPropertyId = firstParam(propertyId);
+    const requestedMode = firstParam(mode);
     const [items, setItems] = useState<EstimateDraftItem[]>([]);
     const [message, setMessage] = useState('Loading estimate draft...');
     const [checkingAccess, setCheckingAccess] = useState(true);
-    const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+    const [estimateAccess, setEstimateAccess] = useState<CompanyPermissionAccess | null>(null);
 
     useEffect(() => {
-        checkAccess();
-    }, []);
+        void checkAccess();
+    }, [requestedCompanyId]);
 
     async function checkAccess() {
-        const role = await loadCurrentUserRole();
-        const canAccess = isStaffRole(role);
+        setCheckingAccess(true);
+        setEstimateAccess(null);
+        setItems([]);
+        setMessage('Loading estimate draft...');
 
-        setCanUseStaffTools(canAccess);
+        const permission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', {
+            companyId: requestedCompanyId,
+        });
+
+        setEstimateAccess(permission.access);
         setCheckingAccess(false);
 
-        if (canAccess) {
-            await loadDraft();
-        } else {
-            setMessage('');
+        if (!permission.access) {
+            setMessage(permission.error || '');
+            return;
         }
+
+        await loadDraft(permission.access);
     }
 
-    async function loadDraft() {
-        const draftItems = await loadEstimateDraft();
+    async function loadDraft(access: CompanyPermissionAccess) {
+        const draftItems = await loadEstimateDraft({
+            userId: access.userId,
+            companyId: access.companyId,
+        });
 
         setItems(draftItems);
         setMessage('');
     }
 
     async function removeItem(id: string) {
-        const nextItems = await removeItemFromEstimateDraft(id);
+        if (!estimateAccess) return;
+
+        const nextItems = await removeItemFromEstimateDraft(id, {
+            userId: estimateAccess.userId,
+            companyId: estimateAccess.companyId,
+        });
 
         setItems(nextItems);
         setMessage('Item removed from estimate.');
+    }
+
+    function openDraftItem(item: EstimateDraftItem) {
+        const itemSlug = encodeURIComponent(item.item_slug);
+        const routeCompanyId = item.company_id || estimateAccess?.companyId || requestedCompanyId || '';
+        const routePropertyId = item.property_id || requestedPropertyId || '';
+        const queryParams = new URLSearchParams();
+
+        if (routeCompanyId) queryParams.set('companyId', routeCompanyId);
+        if (routePropertyId) queryParams.set('propertyId', routePropertyId);
+        if (requestedMode === 'management' || (routeCompanyId && routePropertyId)) {
+            queryParams.set('mode', 'management');
+        }
+
+        const queryString = queryParams.toString();
+        const itemRoute = `/item/${itemSlug}${queryString ? `?${queryString}` : ''}`;
+
+        router.push(itemRoute as never);
     }
 
     if (checkingAccess) {
         return <StaffOnlyMessage message="Checking access..." />;
     }
 
-    if (!canUseStaffTools) {
-        return <StaffOnlyMessage message="This area is for the HomeOS service team." />;
+    if (!estimateAccess) {
+        return (
+            <StaffOnlyMessage
+                message="Estimate tools are available to active company users with estimate permission."
+                detail={message}
+            />
+        );
     }
 
     return (
@@ -82,7 +150,7 @@ export default function EstimateScreen() {
 
                 <TouchableOpacity disabled style={disabledButtonStyle}>
                     <Text style={disabledButtonTextStyle}>
-                        Generate AI Options Coming Soon
+                        Estimate pricing and customer approval are coming soon.
                     </Text>
                 </TouchableOpacity>
 
@@ -91,6 +159,15 @@ export default function EstimateScreen() {
                         <Text style={messageTextStyle}>{message}</Text>
                     </View>
                 )}
+
+                <View style={foundationGridStyle}>
+                    {estimateFoundationSections.map((section) => (
+                        <View key={section.title} style={foundationCardStyle}>
+                            <Text style={foundationTitleStyle}>{section.title}</Text>
+                            <Text style={foundationTextStyle}>{section.description}</Text>
+                        </View>
+                    ))}
+                </View>
 
                 {items.length === 0 ? (
                     <View style={emptyBoxStyle}>
@@ -109,6 +186,17 @@ export default function EstimateScreen() {
                                         {item.system} / {item.category}
                                     </Text>
                                     <Text style={itemMetaStyle}>
+                                        Area: {item.location || item.parent_area || 'Whole Home'}
+                                    </Text>
+                                    <Text style={itemMetaStyle}>
+                                        Property: {shortId(item.property_id)}
+                                    </Text>
+                                    {!!item.customer_home_name && (
+                                        <Text style={itemMetaStyle}>
+                                            Customer Home: {item.customer_home_name}
+                                        </Text>
+                                    )}
+                                    <Text style={itemMetaStyle}>
                                         Status: {item.status || 'Missing Information'}
                                     </Text>
                                     <Text style={itemMetaStyle}>
@@ -118,7 +206,7 @@ export default function EstimateScreen() {
 
                                 <View style={itemActionStyle}>
                                     <TouchableOpacity
-                                        onPress={() => router.push(`/item/${item.item_slug}` as any)}
+                                        onPress={() => openDraftItem(item)}
                                         style={openButtonStyle}
                                     >
                                         <Text style={openButtonTextStyle}>Open</Text>
@@ -140,7 +228,7 @@ export default function EstimateScreen() {
     );
 }
 
-function StaffOnlyMessage({ message }: { message: string }) {
+function StaffOnlyMessage({ message, detail }: { message: string; detail?: string }) {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
@@ -151,6 +239,7 @@ function StaffOnlyMessage({ message }: { message: string }) {
 
                 <View style={emptyBoxStyle}>
                     <Text style={emptyTitleStyle}>{message}</Text>
+                    {!!detail && <Text style={emptyTextStyle}>{detail}</Text>}
 
                     <TouchableOpacity
                         onPress={() => router.replace('/' as any)}
@@ -162,6 +251,16 @@ function StaffOnlyMessage({ message }: { message: string }) {
             </View>
         </ScrollView>
     );
+}
+
+function firstParam(value?: string | string[]) {
+    return Array.isArray(value) ? value[0] || null : value || null;
+}
+
+function shortId(value?: string | null) {
+    if (!value) return 'Unavailable';
+
+    return value.slice(0, 8).toUpperCase();
 }
 
 const headerRowStyle = {
@@ -226,6 +325,36 @@ const messageBoxStyle = {
 const messageTextStyle = {
     color: '#637083',
     fontSize: 14,
+};
+
+const foundationGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginBottom: 18,
+};
+
+const foundationCardStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+    minWidth: 220,
+    flex: 1,
+};
+
+const foundationTitleStyle = {
+    color: '#071B33',
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginBottom: 6,
+};
+
+const foundationTextStyle = {
+    color: '#637083',
+    fontSize: 14,
+    lineHeight: 20,
 };
 
 const emptyBoxStyle = {

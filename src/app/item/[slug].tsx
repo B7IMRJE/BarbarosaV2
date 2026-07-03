@@ -22,6 +22,10 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
+import {
+    loadCurrentCompanyPermissionAccess,
+    type CompanyPermissionAccess,
+} from '../../lib/companyPermissions';
 import { addItemToEstimateDraft } from '../../lib/estimateDraft';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import {
@@ -38,7 +42,6 @@ import {
     type MaintenanceTask,
     type RecurrenceUnit,
 } from '../../lib/maintenanceTimers';
-import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -61,6 +64,11 @@ type ItemFile = {
 
 type GalleryPhoto = ItemFile & {
     isMainPhoto?: boolean;
+};
+
+type PlatformProfile = {
+    role?: string | null;
+    is_platform_admin?: boolean | null;
 };
 
 const photoCategories = [
@@ -283,7 +291,16 @@ export default function ItemScreen() {
         return scaledStyle as T;
     }
     const [showDocumentTypePicker, setShowDocumentTypePicker] = useState(false);
-    const { slug } = useLocalSearchParams();
+    const routeParams = useLocalSearchParams<{
+        slug?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        mode?: string | string[];
+    }>();
+    const slug = firstParam(routeParams.slug);
+    const managementCompanyId = firstParam(routeParams.companyId);
+    const managementPropertyId = firstParam(routeParams.propertyId);
+    const isManagementMode = firstParam(routeParams.mode) === 'management' && !!managementCompanyId && !!managementPropertyId;
     const [item, setItem] = useState<any>(null);
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
@@ -295,7 +312,7 @@ export default function ItemScreen() {
     const [showDocuments, setShowDocuments] = useState(false);
     const [photoCategory, setPhotoCategory] = useState('equipment_photo');
     const [selectedDocumentType, setSelectedDocumentType] = useState<string | null>(null);
-    const [currentUserRole, setCurrentUserRole] = useState('HOMEOWNER');
+    const [estimateAccess, setEstimateAccess] = useState<CompanyPermissionAccess | null>(null);
     const [removingFileId, setRemovingFileId] = useState<string | null>(null);
     const [addingMaintenanceKey, setAddingMaintenanceKey] = useState<string | null>(null);
     const [completingMaintenanceId, setCompletingMaintenanceId] = useState<string | null>(null);
@@ -313,7 +330,7 @@ export default function ItemScreen() {
 
     useEffect(() => {
         void loadItem();
-    }, [slug]);
+    }, [slug, isManagementMode, managementCompanyId, managementPropertyId]);
 
     useEffect(() => {
         if (!showCustomMaintenanceForm) return;
@@ -330,6 +347,14 @@ export default function ItemScreen() {
 
     async function loadItem() {
         setLoading(true);
+        setEstimateAccess(null);
+        setFiles([]);
+        setMaintenanceTasks([]);
+
+        if (isManagementMode && managementCompanyId && managementPropertyId) {
+            await loadManagementItem(managementCompanyId, managementPropertyId);
+            return;
+        }
 
         let activeProperty;
 
@@ -351,7 +376,8 @@ export default function ItemScreen() {
             return;
         }
 
-        setCurrentUserRole(await loadCurrentUserRole());
+        const estimatePermission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate');
+        setEstimateAccess(estimatePermission.access);
 
         const { data, error } = await supabase
             .from('home_items')
@@ -382,6 +408,86 @@ export default function ItemScreen() {
                 propertyId: activeProperty.propertyId,
                 homeItemId: String(data.id || ''),
             });
+        }
+
+        setLoading(false);
+    }
+
+    async function loadManagementItem(targetCompanyId: string, targetPropertyId: string) {
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            setMessage('Sign in to view this customer item.');
+            setItem(null);
+            setLoading(false);
+            router.replace('/auth/login' as never);
+            return;
+        }
+
+        const [viewLookup, estimateLookup, platformAdmin] = await Promise.all([
+            loadCurrentCompanyPermissionAccess('can_view_customers', { companyId: targetCompanyId }),
+            loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', { companyId: targetCompanyId }),
+            isPlatformAdmin(user.id),
+        ]);
+
+        if (!platformAdmin && !viewLookup.access && !estimateLookup.access) {
+            setMessage(viewLookup.error || estimateLookup.error || 'You do not have access to this customer item.');
+            setItem(null);
+            setLoading(false);
+            return;
+        }
+
+        setEstimateAccess(estimateLookup.access);
+
+        const { data: clientData, error: clientError } = await supabase
+            .from('company_property_clients')
+            .select('id, status')
+            .eq('company_id', targetCompanyId)
+            .eq('property_id', targetPropertyId)
+            .maybeSingle();
+
+        if (clientError) {
+            setMessage(`Could not confirm customer relationship: ${clientError.message}`);
+            setItem(null);
+            setLoading(false);
+            return;
+        }
+
+        if (!clientData) {
+            setMessage('This home is not connected to this company as a customer.');
+            setItem(null);
+            setLoading(false);
+            return;
+        }
+
+        const clientStatus = normalizeText(String(clientData.status || ''));
+
+        if (['archived', 'cancelled', 'canceled', 'declined', 'inactive', 'revoked'].includes(clientStatus)) {
+            setMessage('This customer relationship is not active.');
+            setItem(null);
+            setLoading(false);
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('home_items')
+            .select('id, property_id, name, item_slug, system, location, parent_area, category, status, install_state, created_at')
+            .eq('item_slug', slug)
+            .eq('property_id', targetPropertyId)
+            .maybeSingle();
+
+        if (error) {
+            setMessage(`Item load failed: ${error.message}`);
+            setItem(null);
+        } else if (!data) {
+            setMessage('Item not found for this customer home.');
+            setItem(null);
+        } else {
+            setItem(data);
+            setMessage('');
         }
 
         setLoading(false);
@@ -834,17 +940,39 @@ export default function ItemScreen() {
     }
 
     async function handleAddToEstimate() {
+        if (!estimateAccess) {
+            setMessage('You need an active company role with estimate permission to add this item.');
+            return;
+        }
+
         await addItemToEstimateDraft({
             id: String(item.id || item.item_slug || slug),
+            property_id: item.property_id || null,
             name: item.name || 'Unknown Item',
             item_slug: item.item_slug || String(slug),
             system: item.system || 'Unknown',
             category: item.category || 'Unknown',
+            location: item.location || null,
+            parent_area: item.parent_area || null,
             status: item.status || null,
             install_state: item.install_state || null,
+            company_id: estimateAccess.companyId,
+            company_user_id: estimateAccess.companyUserId,
+            created_at: new Date().toISOString(),
+        }, {
+            userId: estimateAccess.userId,
+            companyId: estimateAccess.companyId,
         });
 
-        setMessage(`${item.name || 'Item'} added to estimate.`);
+        router.push({
+            pathname: '/estimate',
+            params: {
+                companyId: estimateAccess.companyId,
+                propertyId: item.property_id || managementPropertyId || '',
+                itemSlug: item.item_slug || String(slug),
+                mode: isManagementMode ? 'management' : '',
+            },
+        } as any);
     }
 
     async function handleStartJobThread() {
@@ -1307,6 +1435,100 @@ export default function ItemScreen() {
         );
     }
 
+    const canAddItemToEstimate = Boolean(estimateAccess);
+
+    if (isManagementMode) {
+        const managementBackRoute = `/super-admin/company/${managementCompanyId}/client/${managementPropertyId}/items`;
+        const location = item.location || item.parent_area || 'Not specified';
+        const managementDetailCards = [
+            { label: 'Status', value: item.status || 'Missing Information' },
+            { label: 'Condition', value: item.install_state || 'Unknown' },
+            { label: 'System', value: item.system || 'Unknown' },
+            { label: 'Category', value: item.category || 'Unknown' },
+            { label: 'Area / Location', value: location },
+            { label: 'Home', value: shortId(item.property_id || managementPropertyId) },
+        ];
+
+        return (
+            <ScrollView
+                style={{ flex: 1, backgroundColor: theme.colors.background }}
+                contentContainerStyle={{ padding: scaleIcon(20), paddingBottom: scaleIcon(40), alignItems: 'center' }}
+            >
+                <View style={{ width: '100%', maxWidth: 980 }}>
+                    <HomeHeader />
+
+                    <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>{item.name || 'Customer Item'}</Text>
+                    <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
+                        ManagementOS customer item view. Photos, documents, and private HomeOS history stay locked here.
+                    </Text>
+
+                    <View style={scaleStyle(infoGridStyle)}>
+                        {managementDetailCards.map((detail) => (
+                            <ThemedCard
+                                key={detail.label}
+                                style={scaleStyle(miniCardStyle)}
+                            >
+                                <Text style={[scaleStyle(miniLabelStyle), { color: theme.colors.mutedText }]}>{detail.label}</Text>
+                                <Text style={[scaleStyle(miniValueStyle), { color: theme.colors.text }]} numberOfLines={2}>
+                                    {detail.value}
+                                </Text>
+                            </ThemedCard>
+                        ))}
+                    </View>
+
+                    <ThemedCard style={scaleStyle(messageCardStyle)}>
+                        <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Privacy</Text>
+                        <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                            Basic item identity is visible because this is an active company customer relationship. Media, documents, maintenance history, and private HomeOS notes are not shown in this company view.
+                        </Text>
+                    </ThemedCard>
+
+                    <View style={scaleStyle(actionGridStyle)}>
+                        {canAddItemToEstimate && (
+                            <>
+                                <ThemedButton
+                                    title="Add to Estimate"
+                                    onPress={handleAddToEstimate}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+
+                                <ThemedButton
+                                    title="View Estimate"
+                                    onPress={() => router.push({
+                                        pathname: '/estimate',
+                                        params: {
+                                            companyId: estimateAccess?.companyId || managementCompanyId || '',
+                                            propertyId: item.property_id || managementPropertyId || '',
+                                            mode: 'management',
+                                        },
+                                    } as never)}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                            </>
+                        )}
+
+                        <ThemedButton
+                            title="Back to Customer Items"
+                            variant="secondary"
+                            onPress={() => router.replace(managementBackRoute as never)}
+                            style={scaleStyle(buttonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
+                        />
+                    </View>
+
+                    {!!message && (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Message</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>{message}</Text>
+                        </ThemedCard>
+                    )}
+                </View>
+            </ScrollView>
+        );
+    }
+
     const photos = files.filter((file) => file.file_type === 'photo');
     const galleryPhotos = buildGalleryPhotos(item.photo_url, photos);
     const documents = files.filter((file) => file.file_type === 'document');
@@ -1318,7 +1540,6 @@ export default function ItemScreen() {
         documents: documents.filter((doc) => doc.category === category),
     }));
 
-    const canUseStaffTools = isStaffRole(currentUserRole);
     const activeMaintenanceTasks = maintenanceTasks.filter((task) => task.reminder_status !== 'archived');
     const recommendedMaintenancePresets = getMaintenancePresets({
         name: item.name,
@@ -1673,10 +1894,10 @@ export default function ItemScreen() {
                     />
 
                     <View style={scaleStyle(actionGridStyle)}>
-                        {canUseStaffTools && (
+                        {canAddItemToEstimate && (
                             <>
                                 <ThemedButton
-                                    title="Add To Estimate"
+                                    title="Add to Estimate"
                                     onPress={handleAddToEstimate}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
@@ -1684,7 +1905,14 @@ export default function ItemScreen() {
 
                                 <ThemedButton
                                     title="View Estimate"
-                                    onPress={() => router.push('/estimate' as any)}
+                                    onPress={() => router.push({
+                                        pathname: '/estimate',
+                                        params: {
+                                            companyId: estimateAccess?.companyId || managementCompanyId || '',
+                                            propertyId: item.property_id || managementPropertyId || '',
+                                            mode: isManagementMode ? 'management' : '',
+                                        },
+                                    } as never)}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
@@ -2124,6 +2352,47 @@ function OptionRow({
             ))}
         </View>
     );
+}
+
+async function isPlatformAdmin(userId: string) {
+    const primaryQuery = await supabase
+        .from('profiles')
+        .select('role, is_platform_admin')
+        .eq('id', userId)
+        .limit(1);
+
+    if (!primaryQuery.error) {
+        return isPlatformAdminProfile((primaryQuery.data || [])[0] as PlatformProfile | undefined);
+    }
+
+    const fallbackQuery = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .limit(1);
+
+    return isPlatformAdminProfile((fallbackQuery.data || [])[0] as PlatformProfile | undefined);
+}
+
+function isPlatformAdminProfile(profile?: PlatformProfile | null) {
+    return (
+        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
+        profile?.is_platform_admin === true
+    );
+}
+
+function firstParam(value?: string | string[]) {
+    return Array.isArray(value) ? value[0] || '' : value || '';
+}
+
+function normalizeText(value?: string | null) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function shortId(value?: string | null) {
+    if (!value) return 'Unavailable';
+
+    return value.slice(0, 8).toUpperCase();
 }
 
 const centerStyle = {
