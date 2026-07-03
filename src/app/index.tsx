@@ -337,6 +337,7 @@ export default function HomeScreen() {
       .from('property_preferred_providers')
       .select('company_id, property_id, status, selected_at')
       .eq('property_id', propertyId)
+      .eq('status', 'active')
       .order('selected_at', { ascending: false });
 
     if (preferredError) {
@@ -344,21 +345,20 @@ export default function HomeScreen() {
       return;
     }
 
-    const preferredCompanyIds = uniqueCompanyIds(
-      ((preferredRows || []) as Array<{ company_id?: string | null; status?: string | null }>)
-        .filter((row) => normalizeText(row.status) === 'active')
-        .map((row) => row.company_id)
+    const preferredCompanyId = firstText(
+      ...((preferredRows || []) as Array<{ company_id?: string | null }>).map((row) => row.company_id)
     );
 
-    if (preferredCompanyIds.length === 0) {
+    if (!preferredCompanyId) {
       await loadConnectedProviderFallback(propertyId);
       return;
     }
 
-    const providers = await hydratePreferredProviders(propertyId, preferredCompanyIds, 'Preferred provider');
-    setAvailableProviders(providers);
-    setPreferredProvider((current) => providers.find((provider) => provider.companyId === current?.companyId) || providers[0] || null);
-    setServiceRequestMessage(providers.length > 0 ? '' : 'Choose a service provider first.');
+    const providers = await hydratePreferredProviders(propertyId, [preferredCompanyId], 'Active provider');
+    const currentProvider = providers[0] || null;
+    setAvailableProviders(currentProvider ? [currentProvider] : []);
+    setPreferredProvider(currentProvider);
+    setServiceRequestMessage(currentProvider ? '' : 'Choose a service provider first.');
   }
 
   async function loadConnectedProviderFallback(propertyId: string) {
@@ -381,10 +381,14 @@ export default function HomeScreen() {
         .map((row) => row.company_id)
     );
 
-    const providers = await hydratePreferredProviders(propertyId, companyIds, 'Connected provider');
-    setAvailableProviders(providers);
-    setPreferredProvider((current) => providers.find((provider) => provider.companyId === current?.companyId) || providers[0] || null);
-    setServiceRequestMessage(providers.length > 0 ? '' : 'Choose a service provider first.');
+    const fallbackCompanyId = companyIds[0] || '';
+    const providers = fallbackCompanyId
+      ? await hydratePreferredProviders(propertyId, [fallbackCompanyId], 'Connected provider')
+      : [];
+    const currentProvider = providers[0] || null;
+    setAvailableProviders(currentProvider ? [currentProvider] : []);
+    setPreferredProvider(currentProvider);
+    setServiceRequestMessage(currentProvider ? '' : 'Choose a service provider first.');
   }
 
   async function hydratePreferredProviders(propertyId: string, companyIds: string[], source: string): Promise<PreferredProvider[]> {
@@ -438,6 +442,7 @@ export default function HomeScreen() {
       return;
     }
 
+    setAvailableProviders([provider]);
     setPreferredProvider(provider);
     setServiceRequestMessage(`${provider.companyName} is selected for new service requests.`);
     await loadPreferredProvider(activePropertyId);

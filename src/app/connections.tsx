@@ -25,6 +25,16 @@ type PropertyConnection = {
     expires_at: string | null;
 };
 
+type PreferredProviderRow = {
+    id: string | null;
+    property_id: string;
+    company_id: string;
+    property_connection_id: string | null;
+    status: string | null;
+    source: string | null;
+    selected_at: string | null;
+};
+
 type CompanyRecord = {
     id: string;
     name: string | null;
@@ -55,6 +65,13 @@ type ProviderConnectionRequestResult = {
     status: string;
 };
 
+type RelationshipHistorySection = {
+    title: string;
+    connections: PropertyConnection[];
+    emptyText: string;
+    showActions?: boolean;
+};
+
 type LoadConnectionsOptions = {
     preserveMessage?: boolean;
 };
@@ -65,6 +82,7 @@ const companyProfileSelect =
 export default function ConnectionsScreen() {
     const { theme } = useTheme();
     const [connections, setConnections] = useState<PropertyConnection[]>([]);
+    const [preferredProviders, setPreferredProviders] = useState<PreferredProviderRow[]>([]);
     const [companiesById, setCompaniesById] = useState<Record<string, CompanyRecord>>({});
     const [approvedCompanies, setApprovedCompanies] = useState<CompanyRecord[]>([]);
     const [approvedCompaniesLoading, setApprovedCompaniesLoading] = useState(true);
@@ -81,38 +99,98 @@ export default function ConnectionsScreen() {
         loadConnections();
     }, []);
 
+    const allCompaniesById = useMemo(() => {
+        return approvedCompanies.reduce<Record<string, CompanyRecord>>(
+            (accumulator, company) => {
+                accumulator[company.id] = company;
+                return accumulator;
+            },
+            { ...companiesById }
+        );
+    }, [approvedCompanies, companiesById]);
+    const currentProviderCompanyIds = useMemo(() => {
+        const activePreferredProviderIds = preferredProviders
+            .filter((provider) => normalizeStatus(provider.status) === 'active')
+            .map((provider) => provider.company_id);
+        const fallbackProviderIds = connections
+            .filter((connection) => isChosenProviderConnection(connection))
+            .map((connection) => connection.company_id);
+
+        return Array.from(new Set([...activePreferredProviderIds, ...fallbackProviderIds]));
+    }, [connections, preferredProviders]);
+    const currentProviderConnections = useMemo(() => {
+        const existingConnectionKeys = new Set<string>();
+        const preferredProviderConnections = preferredProviders
+            .filter((provider) => normalizeStatus(provider.status) === 'active')
+            .map((provider) => {
+                const matchingConnection = connections.find(
+                    (connection) =>
+                        connection.company_id === provider.company_id &&
+                        connection.property_id === provider.property_id
+                );
+
+                if (matchingConnection) {
+                    existingConnectionKeys.add(matchingConnection.id);
+                    return {
+                        ...matchingConnection,
+                        status: 'connected',
+                        created_at: provider.selected_at || matchingConnection.created_at,
+                    };
+                }
+
+                return preferredProviderToConnection(provider);
+            });
+        const fallbackConnections = connections.filter(
+            (connection) => isChosenProviderConnection(connection) && !existingConnectionKeys.has(connection.id)
+        );
+
+        return [...preferredProviderConnections, ...fallbackConnections];
+    }, [connections, preferredProviders]);
+    const selectedProviderCategoryKeys = useMemo(() => {
+        const keys = currentProviderCompanyIds.flatMap((companyId) =>
+            getCompanyCategoryKeys(allCompaniesById[companyId])
+        );
+
+        return Array.from(new Set(keys));
+    }, [allCompaniesById, currentProviderCompanyIds]);
+    const availableProviderCompanies = useMemo(() => {
+        return approvedCompanies.filter((company) => {
+            if (currentProviderCompanyIds.includes(company.id)) return false;
+
+            const companyCategoryKeys = getCompanyCategoryKeys(company);
+
+            if (selectedProviderCategoryKeys.length === 0 || companyCategoryKeys.length === 0) {
+                return true;
+            }
+
+            return !hasCategoryOverlap(companyCategoryKeys, selectedProviderCategoryKeys);
+        });
+    }, [approvedCompanies, currentProviderCompanyIds, selectedProviderCategoryKeys]);
+    const hiddenAvailableProviderCount = approvedCompanies.length - availableProviderCompanies.length;
     const connectedConnections = useMemo(
         () =>
             connections.filter(
                 (connection) =>
-                    normalizeStatus(connection.status) === 'connected' && !isChosenProviderConnection(connection)
+                    normalizeStatus(connection.status) === 'connected' &&
+                    !currentProviderCompanyIds.includes(connection.company_id)
             ),
-        [connections]
+        [connections, currentProviderCompanyIds]
     );
     const pendingConnections = useMemo(
         () =>
             connections.filter(
                 (connection) =>
-                    normalizeStatus(connection.status) === 'pending' && !isChosenProviderConnection(connection)
+                    normalizeStatus(connection.status) === 'pending' &&
+                    !currentProviderCompanyIds.includes(connection.company_id)
             ),
-        [connections]
-    );
-    const selectedProviderConnections = useMemo(
-        () => connections.filter((connection) => isChosenProviderConnection(connection)),
-        [connections]
+        [connections, currentProviderCompanyIds]
     );
     const providerStatusByCompanyId = useMemo(() => {
-        return connections.reduce<Record<string, string>>((statuses, connection) => {
-            const status = normalizeStatus(connection.status);
-
-            if (isChosenProviderConnection(connection)) {
-                statuses[connection.company_id] = 'preferred';
-                return statuses;
-            }
-
+        return currentProviderCompanyIds.reduce<Record<string, string>>((statuses, companyId) => {
+            statuses[companyId] = 'preferred';
             return statuses;
         }, {});
-    }, [connections]);
+    }, [currentProviderCompanyIds]);
     const revokedConnections = useMemo(
         () => connections.filter((connection) => normalizeStatus(connection.status) === 'revoked'),
         [connections]
@@ -165,6 +243,7 @@ export default function ConnectionsScreen() {
 
         if (propertyIds.length === 0) {
             setConnections([]);
+            setPreferredProviders([]);
             setCompaniesById({});
             setProviderRequestPropertyId('');
             setProviderRequestUnavailableReason('Create your first home before choosing a provider.');
@@ -197,14 +276,38 @@ export default function ConnectionsScreen() {
         }
 
         const loadedConnections = (data || []) as PropertyConnection[];
+        const { data: preferredData, error: preferredError } = await supabase
+            .from('property_preferred_providers')
+            .select('id, property_id, company_id, property_connection_id, status, source, selected_at')
+            .in('property_id', propertyIds)
+            .eq('status', 'active')
+            .order('selected_at', { ascending: false });
+
+        const loadedPreferredProviders = preferredError
+            ? []
+            : ((preferredData || []) as PreferredProviderRow[]);
+
+        if (preferredError) {
+            setMessage(`Could not load current providers: ${preferredError.message}`);
+        }
+
         setConnections(loadedConnections);
-        await loadCompanies(loadedConnections);
+        setPreferredProviders(loadedPreferredProviders);
+        await loadCompanies(loadedConnections, loadedPreferredProviders);
         setLoading(false);
     }
 
-    async function loadCompanies(loadedConnections: PropertyConnection[]) {
+    async function loadCompanies(
+        loadedConnections: PropertyConnection[],
+        loadedPreferredProviders: PreferredProviderRow[] = []
+    ) {
         const companyIds = Array.from(
-            new Set(loadedConnections.map((connection) => connection.company_id).filter(Boolean))
+            new Set(
+                [
+                    ...loadedConnections.map((connection) => connection.company_id),
+                    ...loadedPreferredProviders.map((provider) => provider.company_id),
+                ].filter(Boolean)
+            )
         );
 
         if (companyIds.length === 0) {
@@ -249,7 +352,7 @@ export default function ConnectionsScreen() {
 
         if (error) {
             setApprovedCompanies([]);
-            setApprovedCompaniesError(`Could not load approved providers: ${error.message}`);
+            setApprovedCompaniesError(`Could not load available providers: ${error.message}`);
             return;
         }
 
@@ -328,8 +431,10 @@ export default function ConnectionsScreen() {
         const status = normalizeStatus(result?.status || 'pending');
 
         mergeProviderRequestResult(result, company, status);
+        mergePreferredProviderResult(result, company);
         await loadConnections({ preserveMessage: true });
         mergeProviderRequestResult(result, company, status);
+        mergePreferredProviderResult(result, company);
         setProviderActionCompanyId('');
 
         setMessage(
@@ -394,6 +499,44 @@ export default function ConnectionsScreen() {
         }));
     }
 
+    function mergePreferredProviderResult(
+        result: ProviderConnectionRequestResult | null,
+        company: CompanyRecord
+    ) {
+        const propertyId = result?.property_id || providerRequestPropertyId;
+
+        if (!propertyId) return;
+
+        const selectedCompanyId = result?.company_id || company.id;
+        const selectedCategoryKeys = getCompanyCategoryKeys(company);
+        const nextProvider: PreferredProviderRow = {
+            id: result?.preferred_provider_id || `local-${propertyId}-${selectedCompanyId}`,
+            property_id: propertyId,
+            company_id: selectedCompanyId,
+            property_connection_id: result?.connection_id || null,
+            status: 'active',
+            source: 'homeowner_provider_request',
+            selected_at: new Date().toISOString(),
+        };
+
+        setPreferredProviders((currentProviders) => {
+            const filteredProviders = currentProviders.filter((provider) => {
+                if (provider.property_id !== propertyId) return true;
+                if (provider.company_id === selectedCompanyId) return false;
+
+                const providerCompany =
+                    companiesById[provider.company_id] ||
+                    approvedCompanies.find((approvedCompany) => approvedCompany.id === provider.company_id);
+
+                if (selectedCategoryKeys.length === 0) return true;
+
+                return !hasCategoryOverlap(getCompanyCategoryKeys(providerCompany), selectedCategoryKeys);
+            });
+
+            return [nextProvider, ...filteredProviders];
+        });
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -424,10 +567,31 @@ export default function ConnectionsScreen() {
                     />
                 </ThemedCard>
 
-                <ApprovedServiceProvidersSection
-                    companies={approvedCompanies}
+                {loading ? (
+                    <View style={sectionStyle}>
+                        <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Current Providers</Text>
+                        <ThemedCard>
+                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                Loading current providers...
+                            </Text>
+                        </ThemedCard>
+                    </View>
+                ) : (
+                    <ConnectionSection
+                        title="Current Providers"
+                        connections={currentProviderConnections}
+                        companiesById={allCompaniesById}
+                        emptyText="No current providers selected yet."
+                        statusLabelOverride="Preferred"
+                        dateLabelOverride="Selected Date"
+                    />
+                )}
+
+                <AvailableProvidersSection
+                    companies={availableProviderCompanies}
                     loading={approvedCompaniesLoading}
                     error={approvedCompaniesError}
+                    hiddenProviderCount={hiddenAvailableProviderCount}
                     requestingCompanyId={providerActionCompanyId}
                     providerStatusByCompanyId={providerStatusByCompanyId}
                     onRequestConnection={handleProviderSelection}
@@ -437,57 +601,37 @@ export default function ConnectionsScreen() {
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading connections...</Text>
                     </ThemedCard>
-                ) : connections.length === 0 ? (
-                    <ThemedCard>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>No Connections</Text>
-                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                            Selected providers and company access requests will appear here.
-                        </Text>
-                    </ThemedCard>
                 ) : (
-                    <>
-                        <ConnectionSection
-                            title="Selected Providers"
-                            connections={selectedProviderConnections}
-                            companiesById={companiesById}
-                            emptyText="No selected providers yet."
-                            statusLabelOverride="Preferred"
-                            dateLabelOverride="Selected Date"
-                        />
-
-                        <ConnectionSection
-                            title="Pending Requests"
-                            connections={pendingConnections}
-                            companiesById={companiesById}
-                            emptyText="No pending requests."
-                            showActions
-                            actionConnectionId={actionConnectionId}
-                            actionType={actionType}
-                            onApprove={(connectionId) => handleConnectionDecision(connectionId, 'approve')}
-                            onDecline={(connectionId) => handleConnectionDecision(connectionId, 'decline')}
-                        />
-
-                        <ConnectionSection
-                            title="Connected Companies"
-                            connections={connectedConnections}
-                            companiesById={companiesById}
-                            emptyText="No connected companies yet."
-                        />
-
-                        <ConnectionSection
-                            title="Revoked Connections"
-                            connections={revokedConnections}
-                            companiesById={companiesById}
-                            emptyText="No revoked connections."
-                        />
-
-                        <ConnectionSection
-                            title="Declined Requests"
-                            connections={declinedConnections}
-                            companiesById={companiesById}
-                            emptyText="No declined requests."
-                        />
-                    </>
+                    <RelationshipHistoryGrid
+                        sections={[
+                            {
+                                title: 'Pending Requests',
+                                connections: pendingConnections,
+                                emptyText: 'No pending requests.',
+                                showActions: true,
+                            },
+                            {
+                                title: 'Connected Companies',
+                                connections: connectedConnections,
+                                emptyText: 'No connected companies yet.',
+                            },
+                            {
+                                title: 'Revoked Connections',
+                                connections: revokedConnections,
+                                emptyText: 'No revoked connections.',
+                            },
+                            {
+                                title: 'Declined Requests',
+                                connections: declinedConnections,
+                                emptyText: 'No declined requests.',
+                            },
+                        ]}
+                        companiesById={allCompaniesById}
+                        actionConnectionId={actionConnectionId}
+                        actionType={actionType}
+                        onApprove={(connectionId) => handleConnectionDecision(connectionId, 'approve')}
+                        onDecline={(connectionId) => handleConnectionDecision(connectionId, 'decline')}
+                    />
                 )}
 
                 {!!message && (
@@ -500,10 +644,11 @@ export default function ConnectionsScreen() {
     );
 }
 
-function ApprovedServiceProvidersSection({
+function AvailableProvidersSection({
     companies,
     loading,
     error,
+    hiddenProviderCount,
     requestingCompanyId,
     providerStatusByCompanyId,
     onRequestConnection,
@@ -511,6 +656,7 @@ function ApprovedServiceProvidersSection({
     companies: CompanyRecord[];
     loading: boolean;
     error: string;
+    hiddenProviderCount: number;
     requestingCompanyId: string;
     providerStatusByCompanyId: Record<string, string>;
     onRequestConnection: (company: CompanyRecord) => void | Promise<void>;
@@ -519,12 +665,31 @@ function ApprovedServiceProvidersSection({
 
     return (
         <View style={sectionStyle}>
-            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Approved Service Providers</Text>
+            <View style={sectionTitleRowStyle}>
+                <Text style={[sectionHeadingStyle, { color: theme.colors.text, marginBottom: 0 }]}>
+                    Available Providers
+                </Text>
+                {hiddenProviderCount > 0 && (
+                    <View
+                        style={[
+                            countBadgeStyle,
+                            {
+                                backgroundColor: theme.colors.surfaceAlt,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                    >
+                        <Text style={[countBadgeTextStyle, { color: theme.colors.mutedText }]}>
+                            {hiddenProviderCount} hidden by category
+                        </Text>
+                    </View>
+                )}
+            </View>
             <View style={listStyle}>
                 {loading ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                            Loading approved providers...
+                            Loading available providers...
                         </Text>
                     </ThemedCard>
                 ) : error ? (
@@ -534,7 +699,9 @@ function ApprovedServiceProvidersSection({
                 ) : companies.length === 0 ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                            No approved service providers are available yet.
+                            {hiddenProviderCount > 0
+                                ? 'Your current provider already covers the available service category.'
+                                : 'No available providers are listed yet.'}
                         </Text>
                     </ThemedCard>
                 ) : (
@@ -549,6 +716,159 @@ function ApprovedServiceProvidersSection({
                     ))
                 )}
             </View>
+        </View>
+    );
+}
+
+function RelationshipHistoryGrid({
+    sections,
+    companiesById,
+    actionConnectionId,
+    actionType,
+    onApprove,
+    onDecline,
+}: {
+    sections: RelationshipHistorySection[];
+    companiesById: Record<string, CompanyRecord>;
+    actionConnectionId: string;
+    actionType: ConnectionAction | '';
+    onApprove: (connectionId: string) => void;
+    onDecline: (connectionId: string) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={sectionStyle}>
+            <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Connection History</Text>
+            <View style={historyGridStyle}>
+                {sections.map((section) => (
+                    <ThemedCard key={section.title} style={historyCardStyle}>
+                        <View style={historyCardHeaderStyle}>
+                            <Text style={[historyCardTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                                {section.title}
+                            </Text>
+                            <View
+                                style={[
+                                    countBadgeStyle,
+                                    {
+                                        backgroundColor: theme.colors.surfaceAlt,
+                                        borderColor: theme.colors.border,
+                                    },
+                                ]}
+                            >
+                                <Text style={[countBadgeTextStyle, { color: theme.colors.text }]}>
+                                    {section.connections.length}
+                                </Text>
+                            </View>
+                        </View>
+
+                        {section.connections.length === 0 ? (
+                            <Text style={[compactEmptyTextStyle, { color: theme.colors.mutedText }]}>
+                                {section.emptyText}
+                            </Text>
+                        ) : (
+                            <View style={compactConnectionListStyle}>
+                                {section.connections.slice(0, 3).map((connection) => (
+                                    <CompactConnectionRow
+                                        key={connection.id}
+                                        connection={connection}
+                                        company={companiesById[connection.company_id]}
+                                        showActions={!!section.showActions}
+                                        actionConnectionId={actionConnectionId}
+                                        actionType={actionType}
+                                        onApprove={onApprove}
+                                        onDecline={onDecline}
+                                    />
+                                ))}
+                                {section.connections.length > 3 && (
+                                    <Text style={[compactMoreTextStyle, { color: theme.colors.mutedText }]}>
+                                        +{section.connections.length - 3} more
+                                    </Text>
+                                )}
+                            </View>
+                        )}
+                    </ThemedCard>
+                ))}
+            </View>
+        </View>
+    );
+}
+
+function CompactConnectionRow({
+    connection,
+    company,
+    showActions,
+    actionConnectionId,
+    actionType,
+    onApprove,
+    onDecline,
+}: {
+    connection: PropertyConnection;
+    company?: CompanyRecord;
+    showActions: boolean;
+    actionConnectionId: string;
+    actionType: ConnectionAction | '';
+    onApprove: (connectionId: string) => void;
+    onDecline: (connectionId: string) => void;
+}) {
+    const { theme } = useTheme();
+    const status = normalizeStatus(connection.status);
+    const displayName = getCompanyDisplayName(company);
+    const showPendingActions = showActions && status === 'pending';
+
+    return (
+        <View style={[compactConnectionRowStyle, { borderColor: theme.colors.border }]}>
+            <View style={compactConnectionHeaderStyle}>
+                <Text style={[compactCompanyNameStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                    {displayName}
+                </Text>
+                <View
+                    style={[
+                        compactStatusBadgeStyle,
+                        {
+                            backgroundColor:
+                                status === 'connected'
+                                    ? theme.colors.status.good.background
+                                    : status === 'declined' || status === 'revoked'
+                                      ? theme.colors.dangerBackground
+                                      : theme.colors.status.notInspected.background,
+                            borderColor:
+                                status === 'connected'
+                                    ? theme.colors.status.good.border
+                                    : status === 'declined' || status === 'revoked'
+                                      ? theme.colors.danger
+                                      : theme.colors.status.notInspected.border,
+                        },
+                    ]}
+                >
+                    <Text style={[compactStatusTextStyle, { color: theme.colors.text }]}>
+                        {formatStatusLabel(status)}
+                    </Text>
+                </View>
+            </View>
+            <Text style={[compactDateTextStyle, { color: theme.colors.mutedText }]}>
+                {formatDateTime(connection.created_at)}
+            </Text>
+
+            {showPendingActions && (
+                <View style={compactActionRowStyle}>
+                    <ThemedButton
+                        title={actionConnectionId === connection.id && actionType === 'approve' ? '...' : 'Approve'}
+                        onPress={() => onApprove(connection.id)}
+                        disabled={actionConnectionId === connection.id}
+                        style={compactActionButtonStyle}
+                        textStyle={compactActionButtonTextStyle}
+                    />
+                    <ThemedButton
+                        title={actionConnectionId === connection.id && actionType === 'decline' ? '...' : 'Decline'}
+                        onPress={() => onDecline(connection.id)}
+                        disabled={actionConnectionId === connection.id}
+                        variant="danger"
+                        style={compactActionButtonStyle}
+                        textStyle={compactActionButtonTextStyle}
+                    />
+                </View>
+            )}
         </View>
     );
 }
@@ -973,6 +1293,22 @@ function isChosenProviderConnection(connection: PropertyConnection) {
     );
 }
 
+function preferredProviderToConnection(provider: PreferredProviderRow): PropertyConnection {
+    return {
+        id: provider.property_connection_id || `preferred-${provider.property_id}-${provider.company_id}`,
+        property_id: provider.property_id,
+        company_id: provider.company_id,
+        status: 'connected',
+        request_source: provider.source || 'preferred_provider',
+        can_view_documents: false,
+        can_view_photos: false,
+        can_view_service_history: false,
+        can_view_quotes: false,
+        created_at: provider.selected_at,
+        expires_at: null,
+    };
+}
+
 function formatPermissionItems(connection: PropertyConnection) {
     return [
         {
@@ -1036,6 +1372,65 @@ function getCompanyCategories(company?: CompanyRecord) {
         .filter(Boolean);
 
     return categories.length > 0 ? categories : ['No categories listed'];
+}
+
+function getCompanyCategoryKeys(company?: CompanyRecord) {
+    const keys = (company?.service_categories || [])
+        .map((category) => normalizeProviderCategory(category))
+        .filter((categoryKey) => categoryKey.length > 0);
+
+    return Array.from(new Set(keys));
+}
+
+function normalizeProviderCategory(category: string) {
+    const text = category.trim().toLowerCase();
+    const compactText = text.replace(/[^a-z0-9]+/g, ' ');
+
+    if (!compactText) return '';
+
+    if (
+        compactText.includes('plumb') ||
+        compactText.includes('water heater') ||
+        compactText.includes('waterheater') ||
+        compactText.includes('drain') ||
+        compactText.includes('sewer') ||
+        compactText.includes('repipe') ||
+        compactText.includes('pipe') ||
+        compactText.includes('leak') ||
+        compactText.includes('gas') ||
+        compactText.includes('water treatment') ||
+        compactText.includes('water quality')
+    ) {
+        return 'plumbing';
+    }
+
+    if (/\b(hvac|heating|cooling|air conditioning|air conditioner|furnace)\b/.test(compactText)) {
+        return 'hvac';
+    }
+
+    if (/\b(electric|electrical|outlet|breaker|panel)\b/.test(compactText)) {
+        return 'electrical';
+    }
+
+    if (/\b(roof|roofing|gutter)\b/.test(compactText)) {
+        return 'roofing';
+    }
+
+    if (/\b(paint|painting|drywall)\b/.test(compactText)) {
+        return 'painting';
+    }
+
+    if (/\b(siding|stucco|exterior)\b/.test(compactText)) {
+        return 'exterior';
+    }
+
+    return compactText.replace(/\s+/g, '-');
+}
+
+function hasCategoryOverlap(firstCategoryKeys: string[], secondCategoryKeys: string[]) {
+    if (firstCategoryKeys.length === 0 || secondCategoryKeys.length === 0) return false;
+
+    return firstCategoryKeys.some((categoryKey) => secondCategoryKeys.includes(categoryKey));
 }
 
 function getFallbackInitial(displayName: string) {
@@ -1122,6 +1517,15 @@ const sectionStyle = {
     marginTop: 24,
 };
 
+const sectionTitleRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    marginBottom: 14,
+};
+
 const sectionHeadingStyle = {
     fontSize: 22,
     fontWeight: '900' as const,
@@ -1142,6 +1546,117 @@ const bodyTextStyle = {
 
 const listStyle = {
     gap: 12,
+};
+
+const historyGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const historyCardStyle = {
+    flexGrow: 1,
+    flexBasis: 160,
+    minWidth: 150,
+    maxWidth: 430,
+};
+
+const historyCardHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+};
+
+const historyCardTitleStyle = {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '900' as const,
+    lineHeight: 20,
+};
+
+const countBadgeStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+};
+
+const countBadgeTextStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const compactEmptyTextStyle = {
+    fontSize: 13,
+    fontWeight: '800' as const,
+    lineHeight: 18,
+    marginTop: 12,
+};
+
+const compactConnectionListStyle = {
+    gap: 8,
+    marginTop: 12,
+};
+
+const compactConnectionRowStyle = {
+    borderTopWidth: 1,
+    paddingTop: 9,
+};
+
+const compactConnectionHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+};
+
+const compactCompanyNameStyle = {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '900' as const,
+    lineHeight: 18,
+};
+
+const compactStatusBadgeStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+};
+
+const compactStatusTextStyle = {
+    fontSize: 10,
+    fontWeight: '900' as const,
+};
+
+const compactDateTextStyle = {
+    fontSize: 11,
+    fontWeight: '800' as const,
+    lineHeight: 16,
+    marginTop: 4,
+};
+
+const compactActionRowStyle = {
+    flexDirection: 'row' as const,
+    gap: 6,
+    marginTop: 8,
+};
+
+const compactActionButtonStyle = {
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+};
+
+const compactActionButtonTextStyle = {
+    fontSize: 11,
+};
+
+const compactMoreTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+    marginTop: 2,
 };
 
 const companyCardStyle = {

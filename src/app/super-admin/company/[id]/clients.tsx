@@ -96,8 +96,13 @@ export default function CompanyClientsScreen() {
     }, [id]);
 
     const visibleClients = useMemo(
-        () => clients.filter((client) => normalizeStatus(client.status) !== 'archived'),
-        [clients]
+        () =>
+            clients.filter(
+                (client) =>
+                    normalizeStatus(client.status) === 'active' &&
+                    normalizeStatus(preferredByPropertyId[client.property_id]) === 'active'
+            ),
+        [clients, preferredByPropertyId]
     );
 
     async function loadClients() {
@@ -369,6 +374,7 @@ export default function CompanyClientsScreen() {
                 .from('property_preferred_providers')
                 .select('property_id, company_id, status')
                 .eq('company_id', companyId)
+                .eq('status', 'active')
                 .in('property_id', propertyIds),
         ]);
 

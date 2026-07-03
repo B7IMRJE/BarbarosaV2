@@ -36,6 +36,15 @@ type SessionUser = {
     email?: string | null;
 };
 
+type AcceptedCustomerInvite = {
+    invitation_id?: string | null;
+    company_id?: string | null;
+    property_id?: string | null;
+    company_property_client_id?: string | null;
+    property_connection_id?: string | null;
+    status?: string | null;
+};
+
 const CUSTOMER_INVITE_ROUTE = '/customer-invite';
 
 export default function CustomerInviteScreen() {
@@ -189,7 +198,7 @@ export default function CustomerInviteScreen() {
         setAccepting(true);
         setMessage('Connecting your home...');
 
-        const { error } = await supabase.rpc('accept_customer_invite_by_code', {
+        const { data, error } = await supabase.rpc('accept_customer_invite_by_code', {
             p_invite_code: inviteCode,
             p_property_id: selectedHomeId,
         });
@@ -201,8 +210,15 @@ export default function CustomerInviteScreen() {
             return;
         }
 
+        const acceptedInvite = firstRow<AcceptedCustomerInvite>(data);
+
+        if (!acceptedInvite?.company_id || !acceptedInvite.property_id) {
+            setMessage('Customer invite accepted, but HomeOS could not confirm the active provider link. Refresh HomeOS and try again.');
+            return;
+        }
+
         setSuccess(true);
-        setMessage('Your home is connected to the company. Opening HomeOS...');
+        setMessage(`${invite?.company_name || 'The company'} is now the active provider for this home. Opening HomeOS...`);
         setTimeout(() => router.replace('/' as never), 900);
     }
 
