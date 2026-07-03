@@ -302,10 +302,22 @@ async function rejectProviderStagedWorkEntryInBackend(
     });
 
     if (!rejectRpc.error) {
-        return;
+        const rows = Array.isArray(rejectRpc.data)
+            ? rejectRpc.data
+            : rejectRpc.data
+                ? [rejectRpc.data]
+                : [];
+
+        if (rows.length > 0) {
+            return;
+        }
+
+        throw new Error('Provider photo remove did not return a removed staged entry.');
     }
 
-    if (!isMissingRejectProviderStagedWorkEntryRpc(rejectRpc.error)) {
+    const missingRejectRpc = isMissingRejectProviderStagedWorkEntryRpc(rejectRpc.error);
+
+    if (!missingRejectRpc) {
         throw new Error(`Could not remove provider staged entry: ${getSupabaseErrorText(rejectRpc.error)}`);
     }
 
@@ -320,11 +332,11 @@ async function rejectProviderStagedWorkEntryInBackend(
         .maybeSingle();
 
     if (error) {
-        throw new Error(`Could not remove provider staged entry: ${getSupabaseErrorText(error)}`);
+        throw new Error(`Provider photo remove needs backend remove RPC installed. Direct staged-work fallback failed: ${getSupabaseErrorText(error)}`);
     }
 
     if (!data) {
-        throw new Error('Could not remove provider staged entry: no removable staged entry was found.');
+        throw new Error('Provider photo remove needs backend remove RPC installed. Direct staged-work fallback found no removable staged entry.');
     }
 }
 

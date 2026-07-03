@@ -433,6 +433,7 @@ export default function ItemScreen() {
     const [expandedProviderPhotoId, setExpandedProviderPhotoId] = useState<string | null>(null);
     const [expandedProviderDocumentId, setExpandedProviderDocumentId] = useState<string | null>(null);
     const [selectedProviderPhotoId, setSelectedProviderPhotoId] = useState<string | null>(null);
+    const [pendingProviderPhotoRemoveId, setPendingProviderPhotoRemoveId] = useState<string | null>(null);
     const [removingProviderPhotoId, setRemovingProviderPhotoId] = useState<string | null>(null);
     const [providerPanel, setProviderPanel] = useState<ProviderStagedPanel>('none');
     const [savingProviderWork, setSavingProviderWork] = useState(false);
@@ -469,6 +470,7 @@ export default function ItemScreen() {
             setExpandedProviderPhotoId(null);
             setExpandedProviderDocumentId(null);
             setSelectedProviderPhotoId(null);
+            setPendingProviderPhotoRemoveId(null);
             setRemovingProviderPhotoId(null);
             setProviderPanel('none');
             return;
@@ -960,20 +962,7 @@ export default function ItemScreen() {
     function confirmRemoveProviderPhoto(entry: ProviderStagedWorkEntry) {
         if (!providerModeContext || entry.type !== 'photo') return;
 
-        Alert.alert(
-            'Remove this staged provider photo?',
-            'This removes the company-side staged photo only. It does not delete homeowner permanent HomeOS photos.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Remove',
-                    style: 'destructive',
-                    onPress: () => {
-                        void removeProviderPhoto(entry);
-                    },
-                },
-            ]
-        );
+        setPendingProviderPhotoRemoveId(entry.id);
     }
 
     async function removeProviderPhoto(entry: ProviderStagedWorkEntry) {
@@ -991,9 +980,10 @@ export default function ItemScreen() {
             const bucket = providerStagedPhotoBucket(entry.payload);
             const storagePath = payloadString(entry.payload, 'storage_path');
             const removeResult = await removeProviderStagedWorkEntry(entry, scope);
+            const remainingEntries = removeResult.remainingEntries.filter((currentEntry) => currentEntry.id !== entry.id);
             let storageWarning = '';
 
-            setProviderStagedEntries(removeResult.remainingEntries);
+            setProviderStagedEntries(remainingEntries);
             setProviderStagingBackendStatus(removeResult.source === 'provider_staging'
                 ? {
                     status: 'connected',
@@ -1006,6 +996,7 @@ export default function ItemScreen() {
             );
             setExpandedProviderPhotoId((currentId) => currentId === entry.id ? null : currentId);
             setSelectedProviderPhotoId((currentId) => currentId === entry.id ? null : currentId);
+            setPendingProviderPhotoRemoveId((currentId) => currentId === entry.id ? null : currentId);
 
             if (storagePath) {
                 if (isSafeProviderStagedPhotoPath(storagePath)) {
@@ -1032,7 +1023,7 @@ export default function ItemScreen() {
                 status: 'error',
                 message: `Provider staging backend error: ${errorMessage}`,
             });
-            setMessage(`Staged provider photo could not be removed: ${errorMessage}`);
+            setMessage(`Remove failed: ${errorMessage}`);
         } finally {
             setRemovingProviderPhotoId(null);
         }
@@ -2476,6 +2467,9 @@ export default function ItemScreen() {
     const selectedProviderPhotoEntry = selectedProviderPhotoId
         ? stagedPhotoEntries.find((entry) => entry.id === selectedProviderPhotoId) || null
         : null;
+    const pendingProviderPhotoRemoveEntry = pendingProviderPhotoRemoveId
+        ? stagedPhotoEntries.find((entry) => entry.id === pendingProviderPhotoRemoveId) || null
+        : null;
 
     const groupedDocuments = documentCategories.map((category) => ({
         category,
@@ -3342,6 +3336,70 @@ export default function ItemScreen() {
         );
     }
 
+    function renderProviderPhotoRemoveConfirmModal() {
+        if (!pendingProviderPhotoRemoveEntry) return null;
+
+        const payload = pendingProviderPhotoRemoveEntry.payload;
+        const photoType = payloadString(payload, 'photo_type') || 'other_photo';
+        const source = payloadString(payload, 'action_source') || payloadString(payload, 'source_action') || 'Provider Photo';
+        const isRemoving = removingProviderPhotoId === pendingProviderPhotoRemoveEntry.id;
+
+        return (
+            <Modal
+                visible
+                transparent
+                animationType="fade"
+                onRequestClose={() => {
+                    if (!isRemoving) {
+                        setPendingProviderPhotoRemoveId(null);
+                    }
+                }}
+            >
+                <View style={[scaleStyle(providerPhotoViewerOverlayStyle), { backgroundColor: theme.colors.overlay }]}>
+                    <View
+                        style={[
+                            providerPhotoRemoveConfirmCardStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                                borderRadius: theme.radii.card,
+                            },
+                        ]}
+                    >
+                        <Text style={[scaleStyle(providerPhotoViewerTitleStyle), { color: theme.colors.text }]}>
+                            Remove this staged provider photo?
+                        </Text>
+                        <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText, marginTop: 10 }]}>
+                            This removes the company-side staged photo only. It does not delete homeowner permanent HomeOS photos.
+                        </Text>
+                        <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText, marginTop: 12 }]}>
+                            {photoLabel(photoType)} - {source}
+                        </Text>
+
+                        <View style={scaleStyle(providerPhotoViewerActionsStyle)}>
+                            <ThemedButton
+                                title="Cancel"
+                                variant="secondary"
+                                disabled={isRemoving}
+                                onPress={() => setPendingProviderPhotoRemoveId(null)}
+                                style={scaleStyle(providerPhotoViewerActionButtonStyle)}
+                                textStyle={scaleStyle(fileActionButtonTextStyle)}
+                            />
+                            <ThemedButton
+                                title={isRemoving ? 'Removing...' : 'Remove'}
+                                variant="danger"
+                                disabled={isRemoving}
+                                onPress={() => removeProviderPhoto(pendingProviderPhotoRemoveEntry)}
+                                style={scaleStyle(providerPhotoViewerActionButtonStyle)}
+                                textStyle={scaleStyle(fileActionButtonTextStyle)}
+                            />
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+        );
+    }
+
     return (
         <>
             <ScrollView
@@ -4031,6 +4089,7 @@ export default function ItemScreen() {
             </Modal>
 
             {renderProviderPhotoViewerModal()}
+            {renderProviderPhotoRemoveConfirmModal()}
 
             <Modal visible={showDocuments} transparent={false} animationType="slide">
                 <ScrollView
@@ -5089,6 +5148,13 @@ const providerPhotoViewerCardStyle = {
     maxHeight: '92%' as const,
     borderWidth: 1,
     padding: 16,
+};
+
+const providerPhotoRemoveConfirmCardStyle = {
+    width: '92%' as const,
+    maxWidth: 480,
+    borderWidth: 1,
+    padding: 18,
 };
 
 const providerPhotoViewerHeaderStyle = {
