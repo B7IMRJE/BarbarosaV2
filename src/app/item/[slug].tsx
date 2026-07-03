@@ -42,6 +42,10 @@ import {
     type MaintenanceTask,
     type RecurrenceUnit,
 } from '../../lib/maintenanceTimers';
+import {
+    providerModeQueryParams,
+    readProviderModeParams,
+} from '../../lib/providerMode';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -296,11 +300,14 @@ export default function ItemScreen() {
         companyId?: string | string[];
         propertyId?: string | string[];
         mode?: string | string[];
+        providerMode?: string | string[];
+        returnTo?: string | string[];
     }>();
     const slug = firstParam(routeParams.slug);
     const managementCompanyId = firstParam(routeParams.companyId);
     const managementPropertyId = firstParam(routeParams.propertyId);
     const isManagementMode = firstParam(routeParams.mode) === 'management' && !!managementCompanyId && !!managementPropertyId;
+    const providerModeContext = readProviderModeParams(routeParams);
     const [item, setItem] = useState<any>(null);
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
@@ -330,7 +337,7 @@ export default function ItemScreen() {
 
     useEffect(() => {
         void loadItem();
-    }, [slug, isManagementMode, managementCompanyId, managementPropertyId]);
+    }, [slug, isManagementMode, managementCompanyId, managementPropertyId, providerModeContext?.companyId, providerModeContext?.propertyId]);
 
     useEffect(() => {
         if (!showCustomMaintenanceForm) return;
@@ -359,7 +366,10 @@ export default function ItemScreen() {
         let activeProperty;
 
         try {
-            activeProperty = await requireActivePropertyMembership();
+            activeProperty = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext?.propertyId,
+                companyId: providerModeContext?.companyId,
+            });
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
             setItem(null);
@@ -376,7 +386,9 @@ export default function ItemScreen() {
             return;
         }
 
-        const estimatePermission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate');
+        const estimatePermission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', {
+            companyId: providerModeContext?.companyId,
+        });
         setEstimateAccess(estimatePermission.access);
 
         const { data, error } = await supabase
@@ -399,11 +411,15 @@ export default function ItemScreen() {
         } else {
             setItem(data);
             setMessage('');
-            await loadFiles({
-                propertyId: activeProperty.propertyId,
-                homeItemId: String(data.id || ''),
-                itemSlug: data.item_slug || String(slug),
-            });
+            if (providerModeContext) {
+                setFiles([]);
+            } else {
+                await loadFiles({
+                    propertyId: activeProperty.propertyId,
+                    homeItemId: String(data.id || ''),
+                    itemSlug: data.item_slug || String(slug),
+                });
+            }
             await loadMaintenanceTasks({
                 propertyId: activeProperty.propertyId,
                 homeItemId: String(data.id || ''),
@@ -793,6 +809,11 @@ export default function ItemScreen() {
     }
 
     async function handleUploadMainPhoto() {
+        if (providerModeContext) {
+            setMessage('Provider mode job photos are staged company-side. Upload publishing is coming next.');
+            return;
+        }
+
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
         if (!permission.granted) {
@@ -811,10 +832,20 @@ export default function ItemScreen() {
     }
 
     async function handleTakeMainPhoto() {
+        if (providerModeContext) {
+            setMessage('Provider mode job photos are staged company-side. Camera publishing is coming next.');
+            return;
+        }
+
         await capturePhoto('main');
     }
 
     async function handleUploadAdditionalPhoto() {
+        if (providerModeContext) {
+            setMessage('Provider mode job photos are staged company-side. Upload publishing is coming next.');
+            return;
+        }
+
         const selectedCategory = normalizePhotoCategory(photoCategory);
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
@@ -842,18 +873,39 @@ export default function ItemScreen() {
     }
 
     async function handleTakeAdditionalPhoto() {
+        if (providerModeContext) {
+            setMessage('Provider mode job photos are staged company-side. Camera publishing is coming next.');
+            return;
+        }
+
         await capturePhoto('additional', normalizePhotoCategory(photoCategory));
     }
 
     function handleLocationVideoPlaceholder() {
+        if (providerModeContext) {
+            setMessage('Provider mode location videos are staged company-side. Publishing is coming next.');
+            return;
+        }
+
         setMessage('Location video uploads are coming soon. Photos and documents are available now.');
     }
 
     async function handleUploadDocument() {
+        if (providerModeContext) {
+            setMessage('Provider mode documents are company-side/staged only. Upload publishing is coming next.');
+            return;
+        }
+
         setShowDocumentTypePicker(true);
     }
 
     async function finishDocumentUpload(selectedType: string) {
+        if (providerModeContext) {
+            setShowDocumentTypePicker(false);
+            setMessage('Provider mode documents are company-side/staged only. Nothing was written to the customer HomeOS.');
+            return;
+        }
+
         setShowDocumentTypePicker(false);
 
         const result = await DocumentPicker.getDocumentAsync({
@@ -921,6 +973,11 @@ export default function ItemScreen() {
     }
 
     function handleEditInformation() {
+        if (providerModeContext) {
+            setMessage('Provider mode edits are company-side/staged only. Update Client HomeOS publishing is coming next.');
+            return;
+        }
+
         router.push({
             pathname: '/item/edit',
             params: { slug: String(slug) },
@@ -928,6 +985,11 @@ export default function ItemScreen() {
     }
 
     function handleAddRelatedItem() {
+        if (providerModeContext) {
+            setMessage('Provider mode related items are staged only. Update Client HomeOS publishing is coming next.');
+            return;
+        }
+
         router.push({
             pathname: '/item/create',
             params: {
@@ -948,6 +1010,7 @@ export default function ItemScreen() {
         await addItemToEstimateDraft({
             id: String(item.id || item.item_slug || slug),
             property_id: item.property_id || null,
+            customer_home_name: providerModeContext ? 'Client HomeOS' : null,
             name: item.name || 'Unknown Item',
             item_slug: item.item_slug || String(slug),
             system: item.system || 'Unknown',
@@ -968,14 +1031,19 @@ export default function ItemScreen() {
             pathname: '/estimate',
             params: {
                 companyId: estimateAccess.companyId,
-                propertyId: item.property_id || managementPropertyId || '',
+                propertyId: item.property_id || managementPropertyId || providerModeContext?.propertyId || '',
                 itemSlug: item.item_slug || String(slug),
-                mode: isManagementMode ? 'management' : '',
+                mode: isManagementMode || providerModeContext ? 'management' : '',
             },
         } as any);
     }
 
     async function handleStartJobThread() {
+        if (providerModeContext) {
+            setMessage('Job thread creation from provider mode is coming next. Add to Estimate is available now.');
+            return;
+        }
+
         try {
             setMessage('Starting job thread...');
 
@@ -1025,6 +1093,11 @@ export default function ItemScreen() {
     }
 
     function handleShowCustomMaintenanceForm() {
+        if (providerModeContext) {
+            setMessage('Provider mode reminder changes are staged only. Nothing was written to the customer HomeOS.');
+            return;
+        }
+
         resetCustomMaintenanceForm();
         setShowCustomMaintenanceForm(true);
         setMessage('');
@@ -1036,6 +1109,11 @@ export default function ItemScreen() {
     }
 
     async function handleSaveCustomMaintenanceReminder() {
+        if (providerModeContext) {
+            setMessage('Provider mode reminder changes are staged only. Nothing was written to the customer HomeOS.');
+            return;
+        }
+
         if (!item?.id) {
             setMessage('Item must be loaded before adding reminders.');
             return;
@@ -1131,6 +1209,11 @@ export default function ItemScreen() {
     }
 
     async function handleAddMaintenancePreset(preset: MaintenancePreset) {
+        if (providerModeContext) {
+            setMessage('Provider mode reminder changes are staged only. Nothing was written to the customer HomeOS.');
+            return;
+        }
+
         if (!item?.id) {
             setMessage('Item must be loaded before adding reminders.');
             return;
@@ -1202,6 +1285,11 @@ export default function ItemScreen() {
     }
 
     async function handleCompleteMaintenanceTask(task: MaintenanceTask) {
+        if (providerModeContext) {
+            setMessage('Provider mode reminder completion is staged only. Nothing was written to the customer HomeOS.');
+            return;
+        }
+
         if (!item?.id) {
             setMessage('Item must be loaded before completing reminders.');
             return;
@@ -1273,6 +1361,11 @@ export default function ItemScreen() {
     }
 
     function confirmArchiveItem() {
+        if (providerModeContext) {
+            setMessage('Provider mode archive is staged only. Nothing was changed in the customer HomeOS.');
+            return;
+        }
+
         Alert.alert(
             'Archive item?',
             'This hides the item from HomeOS. It does not delete your home or account.',
@@ -1327,6 +1420,11 @@ export default function ItemScreen() {
     }
 
     function handleRemoveFile(file: ItemFile) {
+        if (providerModeContext) {
+            setMessage('Provider mode file removal is staged only. Nothing was changed in the customer HomeOS.');
+            return;
+        }
+
         Alert.alert(
             'Remove file?',
             'This will delete the uploaded file from this item.',
@@ -1534,6 +1632,7 @@ export default function ItemScreen() {
     const documents = files.filter((file) => file.file_type === 'document');
     const mediaActionBusy = uploading || capturingPhoto;
     const mediaBusyTitle = uploading ? 'Uploading...' : 'Opening...';
+    const providerMediaLocked = Boolean(providerModeContext);
 
     const groupedDocuments = documentCategories.map((category) => ({
         category,
@@ -1581,10 +1680,34 @@ export default function ItemScreen() {
                         {item.about || 'This item has not been fully documented yet.'}
                     </Text>
 
+                    {providerModeContext ? (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Provider Mode</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                Viewing client HomeOS for company {shortId(providerModeContext.companyId)}. Company notes, photos, findings, and edits are staged by default.
+                            </Text>
+                            <View style={scaleStyle(providerModeButtonRowStyle)}>
+                                <ThemedButton
+                                    title="Company Dashboard"
+                                    variant="secondary"
+                                    onPress={() => router.replace(`/super-admin/company/${providerModeContext.companyId}` as any)}
+                                    style={scaleStyle(providerModeButtonStyle)}
+                                    textStyle={scaleStyle(providerModeButtonTextStyle)}
+                                />
+                                <ThemedButton
+                                    title="Customer Detail"
+                                    onPress={() => router.replace((providerModeContext.returnTo || `/super-admin/company/${providerModeContext.companyId}/client/${providerModeContext.propertyId}`) as any)}
+                                    style={scaleStyle(providerModeButtonStyle)}
+                                    textStyle={scaleStyle(providerModeButtonTextStyle)}
+                                />
+                            </View>
+                        </ThemedCard>
+                    ) : null}
+
                     <ThemedCard style={scaleStyle(photoCardStyle)}>
                         <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Main Item Photo</Text>
 
-                        {item.photo_url ? (
+                        {item.photo_url && !providerMediaLocked ? (
                             <>
                                 <Image
                                     source={{ uri: item.photo_url }}
@@ -1603,7 +1726,9 @@ export default function ItemScreen() {
                         ) : (
                             <View style={[scaleStyle(photoPlaceholderStyle), { backgroundColor: theme.colors.surfaceAlt }]}>
                                 <Text style={scaleStyle(photoIconStyle)}>📷</Text>
-                                <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>No main photo uploaded</Text>
+                                <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>
+                                    {providerMediaLocked ? 'Private HomeOS photos are locked in provider mode' : 'No main photo uploaded'}
+                                </Text>
                             </View>
                         )}
                     </ThemedCard>
@@ -1910,7 +2035,7 @@ export default function ItemScreen() {
                                         params: {
                                             companyId: estimateAccess?.companyId || managementCompanyId || '',
                                             propertyId: item.property_id || managementPropertyId || '',
-                                            mode: isManagementMode ? 'management' : '',
+                                            mode: isManagementMode || providerModeContext ? 'management' : '',
                                         },
                                     } as never)}
                                     style={scaleStyle(buttonStyle)}
@@ -1925,6 +2050,46 @@ export default function ItemScreen() {
                                 />
                             </>
                         )}
+
+                        {providerModeContext ? (
+                            <>
+                                <ThemedButton
+                                    title="Add Details / Notes"
+                                    variant="secondary"
+                                    onPress={() => setMessage('Company note/details staged locally. Publishing to Client HomeOS is coming next.')}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                                <ThemedButton
+                                    title="Add Job Photo"
+                                    variant="secondary"
+                                    onPress={() => setMessage('Job photo staged company-side. Upload/publish workflow is coming next.')}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                                <ThemedButton
+                                    title="Add Finding"
+                                    variant="secondary"
+                                    onPress={() => setMessage('Finding staged locally. Publishing to Client HomeOS is coming next.')}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                                <ThemedButton
+                                    title="Mark for Client Update"
+                                    variant="secondary"
+                                    onPress={() => setMessage('Marked for a future Client HomeOS update. Nothing was written yet.')}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                                <ThemedButton
+                                    title="Update Client's HomeOS"
+                                    variant="secondary"
+                                    onPress={() => setMessage('Update Client HomeOS publishing is coming next. Staged details are not written yet.')}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                            </>
+                        ) : null}
 
                         <ThemedButton
                             title={mediaActionBusy ? mediaBusyTitle : 'Upload Main Photo'}
@@ -2701,6 +2866,22 @@ const actionGridStyle = {
     flexWrap: 'wrap' as const,
     gap: 10,
     marginTop: 6,
+};
+
+const providerModeButtonRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 14,
+};
+
+const providerModeButtonStyle = {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+};
+
+const providerModeButtonTextStyle = {
+    fontSize: 12,
 };
 
 const buttonStyle = {

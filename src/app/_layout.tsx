@@ -1,4 +1,4 @@
-import { Slot, router, usePathname } from 'expo-router';
+import { Slot, router, useGlobalSearchParams, usePathname } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import {
@@ -42,9 +42,21 @@ const PUBLIC_AUTH_ROUTES = new Set<string>([
   RESET_PASSWORD_ROUTE,
 ]);
 
+type ProviderModeRouteParams = {
+  providerMode?: string | string[];
+  companyId?: string | string[];
+  propertyId?: string | string[];
+};
+
 export default function Layout() {
   const pathname = usePathname();
+  const routeParams = useGlobalSearchParams<{
+    providerMode?: string | string[];
+    companyId?: string | string[];
+    propertyId?: string | string[];
+  }>();
   const pathnameRef = useRef(pathname);
+  const routeParamsRef = useRef(routeParams);
   const checkRunRef = useRef(0);
   const initialCheckCompleteRef = useRef(false);
   const pendingRedirectRef = useRef<string | null>(null);
@@ -53,6 +65,7 @@ export default function Layout() {
 
   useEffect(() => {
     pathnameRef.current = pathname;
+    routeParamsRef.current = routeParams;
     const currentPath = normalizePath(pathname);
 
     if (pendingRedirectRef.current === currentPath) {
@@ -61,8 +74,9 @@ export default function Layout() {
 
     checkLogin(pathname, {
       showLoading: !initialCheckCompleteRef.current,
+      routeParams,
     });
-  }, [pathname]);
+  }, [pathname, routeParams.providerMode, routeParams.companyId, routeParams.propertyId]);
 
   useEffect(() => {
     let pendingCheck: ReturnType<typeof setTimeout> | null = null;
@@ -80,6 +94,7 @@ export default function Layout() {
         pendingCheck = null;
         checkLogin(pathnameRef.current, {
           showLoading: !initialCheckCompleteRef.current,
+          routeParams: routeParamsRef.current,
         });
       }, 0);
     }
@@ -110,7 +125,7 @@ export default function Layout() {
 
   async function checkLogin(
     currentPathname = pathnameRef.current,
-    options: { showLoading?: boolean } = {}
+    options: { showLoading?: boolean; routeParams?: ProviderModeRouteParams } = {}
   ) {
     const runId = checkRunRef.current + 1;
     checkRunRef.current = runId;
@@ -173,7 +188,7 @@ export default function Layout() {
         return;
       }
 
-      const redirectRoute = resolveRedirectForPath(currentPath, routeDecision);
+      const redirectRoute = resolveRedirectForPath(currentPath, routeDecision, options.routeParams || routeParamsRef.current);
 
       if (redirectRoute) {
         replaceIfNeeded(redirectRoute, currentPath);
@@ -226,7 +241,7 @@ export default function Layout() {
 
   function retryRouteGuard() {
     setRouteGuardError('');
-    checkLogin(pathnameRef.current, { showLoading: true });
+    checkLogin(pathnameRef.current, { showLoading: true, routeParams: routeParamsRef.current });
   }
 
   function replaceIfNeeded(route: string, pathname: string) {
@@ -323,6 +338,18 @@ function isAllowedCompanyManagementPath(
   return (allowedCompanyIds || []).includes(companyId);
 }
 
+function isAllowedCompanyClientPath(
+  pathname: string,
+  allowedCompanyIds: string[] | undefined
+) {
+  if (!pathname.match(/^\/super-admin\/company\/[^/]+\/client\//)) return false;
+
+  const companyId = extractCompanyIdFromManagementPath(pathname);
+  if (!companyId) return false;
+
+  return (allowedCompanyIds || []).includes(companyId);
+}
+
 function isTechOSPath(pathname: string) {
   return pathname === TECHOS_ROUTE || pathname.startsWith(`${TECHOS_ROUTE}/`);
 }
@@ -339,9 +366,36 @@ function isEstimatePath(pathname: string) {
   return pathname === ESTIMATE_ROUTE || pathname.startsWith(`${ESTIMATE_ROUTE}/`);
 }
 
+function isProviderModeHomeOsPath(
+  pathname: string,
+  routeParams: ProviderModeRouteParams,
+  allowedCompanyIds?: string[]
+) {
+  if (!isProviderModeValue(firstRouteParam(routeParams.providerMode))) return false;
+
+  const companyId = firstRouteParam(routeParams.companyId);
+  const propertyId = firstRouteParam(routeParams.propertyId);
+
+  if (!companyId || !propertyId) return false;
+
+  if (allowedCompanyIds && !allowedCompanyIds.includes(companyId)) {
+    return false;
+  }
+
+  return (
+    pathname === HOME_ROUTE ||
+    pathname === '/area/create' ||
+    pathname === '/item/create' ||
+    pathname === '/item/edit' ||
+    pathname.startsWith('/item/') ||
+    pathname.startsWith('/system/')
+  );
+}
+
 function resolveRedirectForPath(
   pathname: string,
-  routeDecision: LoggedInUserRouteDecision
+  routeDecision: LoggedInUserRouteDecision,
+  routeParams: ProviderModeRouteParams
 ) {
   if (isPublicAuthPath(pathname)) {
     return null;
@@ -358,6 +412,7 @@ function resolveRedirectForPath(
   if (routeDecision.reason === 'super-admin') {
     if (
       isSuperAdminPath(pathname) ||
+      isProviderModeHomeOsPath(pathname, routeParams) ||
       isTechOSPath(pathname) ||
       isDispatchPath(pathname) ||
       isSchedulePath(pathname) ||
@@ -372,6 +427,7 @@ function resolveRedirectForPath(
   if (routeDecision.reason === 'company-management') {
     if (
       isAllowedCompanyManagementPath(pathname, routeDecision.allowedCompanyIds) ||
+      isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
       isTechOSPath(pathname) ||
       isDispatchPath(pathname) ||
       isSchedulePath(pathname) ||
@@ -387,6 +443,8 @@ function resolveRedirectForPath(
 
   if (routeDecision.reason === 'company-technician') {
     if (
+      isAllowedCompanyClientPath(pathname, routeDecision.allowedCompanyIds) ||
+      isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
       isTechOSPath(pathname) ||
       isEstimatePath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
@@ -418,6 +476,16 @@ function resolveRedirectForPath(
   }
 
   return null;
+}
+
+function firstRouteParam(value?: string | string[]) {
+  return Array.isArray(value) ? value[0] || '' : value || '';
+}
+
+function isProviderModeValue(value: string) {
+  const normalizedValue = value.trim().toLowerCase();
+
+  return normalizedValue === '1' || normalizedValue === 'true' || normalizedValue === 'yes';
 }
 
 function extractCompanyIdFromManagementPath(pathname: string) {

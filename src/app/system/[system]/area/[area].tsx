@@ -11,6 +11,11 @@ import {
 } from '../../../../lib/activeProperty';
 import { getSystemLabel } from '../../../../lib/homeSystems';
 import {
+    providerModeItemPath,
+    providerModeQueryParams,
+    readProviderModeParams,
+} from '../../../../lib/providerMode';
+import {
     getAreaIcon,
     getBroadZoneDefinition,
     getSuggestedChildAreas,
@@ -32,12 +37,18 @@ type AreaHomeItem = {
 
 export default function AreaScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
-    const { system, area, parentArea, refresh } = useLocalSearchParams<{
+    const routeParams = useLocalSearchParams<{
         system: string;
         area: string;
         parentArea?: string;
         refresh?: string;
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
     }>();
+    const { system, area, parentArea, refresh } = routeParams;
+    const providerModeContext = readProviderModeParams(routeParams);
 
     const systemName = decodeRouteParam(system) || 'System';
     const systemLabel = getSystemLabel(systemName);
@@ -55,7 +66,7 @@ export default function AreaScreen() {
 
     useEffect(() => {
         loadAreaItems();
-    }, [systemName, areaName, parentAreaName, refreshKey]);
+    }, [systemName, areaName, parentAreaName, refreshKey, providerModeContext?.companyId, providerModeContext?.propertyId]);
 
     async function loadAreaItems() {
         let activeProperty;
@@ -63,7 +74,10 @@ export default function AreaScreen() {
         setLoading(true);
 
         try {
-            activeProperty = await requireActivePropertyMembership();
+            activeProperty = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext?.propertyId,
+                companyId: providerModeContext?.companyId,
+            });
         } catch (error) {
             setItems([]);
             setChildAreas([]);
@@ -137,6 +151,11 @@ export default function AreaScreen() {
     }
 
     function createSuggestedItem(category: string, name?: string) {
+        if (providerModeContext) {
+            setMessage('Provider mode changes are staged only. Add Item publishing is coming next.');
+            return;
+        }
+
         router.push({
             pathname: '/item/create',
             params: {
@@ -156,11 +175,17 @@ export default function AreaScreen() {
                 system: systemName,
                 area: childAreaName,
                 parentArea: areaName,
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
     }
 
     function createChildArea(childAreaName?: string) {
+        if (providerModeContext) {
+            setMessage('Provider mode changes are staged only. Add Area / Container publishing is coming next.');
+            return;
+        }
+
         router.push({
             pathname: '/area/create',
             params: {
@@ -172,6 +197,11 @@ export default function AreaScreen() {
     }
 
     function confirmArchiveArea(areaRecord: AreaHomeItem, isCurrentArea = false) {
+        if (providerModeContext) {
+            setMessage('Provider mode archive is staged only. Nothing was changed in the customer HomeOS.');
+            return;
+        }
+
         const title = areaRecord.name || areaRecord.location || areaName;
 
         Alert.alert(
@@ -270,6 +300,11 @@ export default function AreaScreen() {
     }
 
     function confirmArchiveItem(item: AreaHomeItem) {
+        if (providerModeContext) {
+            setMessage('Provider mode archive is staged only. Nothing was changed in the customer HomeOS.');
+            return;
+        }
+
         const title = item.name || 'this item';
 
         Alert.alert(
@@ -505,6 +540,13 @@ export default function AreaScreen() {
                                                         <AreaItemCard
                                                             key={archiveKey}
                                                             item={item}
+                                                            onOpen={() => {
+                                                                const itemSlug = item.item_slug || '';
+
+                                                                if (itemSlug) {
+                                                                    router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
+                                                                }
+                                                            }}
                                                             onArchive={() => confirmArchiveItem(item)}
                                                             archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
                                                             archiveDisabled={!!archivingRecordId}
@@ -680,11 +722,13 @@ function ChildAreaCard({
 
 function AreaItemCard({
     item,
+    onOpen,
     onArchive,
     archiveTitle = 'Archive',
     archiveDisabled = false,
 }: {
     item: AreaHomeItem;
+    onOpen: () => void;
     onArchive: () => void;
     archiveTitle?: string;
     archiveDisabled?: boolean;
@@ -709,7 +753,7 @@ function AreaItemCard({
             ]}
         >
             <TouchableOpacity
-                onPress={() => itemSlug && router.push(`/item/${itemSlug}` as any)}
+                onPress={onOpen}
                 activeOpacity={0.82}
                 disabled={!itemSlug}
                 style={cardOpenAreaStyle}

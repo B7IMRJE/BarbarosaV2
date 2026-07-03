@@ -12,6 +12,11 @@ import {
 } from '../../../lib/activeProperty';
 import { scoreAreaHealth, statusForCard, type HomeHealthItem } from '../../../lib/homeHealth';
 import { getSystemDefinition, getSystemLabel, isCustomServiceRoot } from '../../../lib/homeSystems';
+import {
+    providerModeItemPath,
+    providerModeQueryParams,
+    readProviderModeParams,
+} from '../../../lib/providerMode';
 import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
@@ -23,7 +28,20 @@ type SystemAreaItem = HomeHealthItem & {
 
 export default function SystemAreasScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
-    const { system } = useLocalSearchParams<{ system: string }>();
+    const routeParams = useLocalSearchParams<{
+        system: string;
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
+    }>();
+    const { system } = routeParams;
+    const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
+        routeParams.providerMode,
+        routeParams.companyId,
+        routeParams.propertyId,
+        routeParams.returnTo,
+    ]);
     const [search, setSearch] = useState('');
     const [homeItems, setHomeItems] = useState<SystemAreaItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -83,7 +101,10 @@ export default function SystemAreasScreen() {
         setLoading(true);
 
         try {
-            activeProperty = await requireActivePropertyMembership();
+            activeProperty = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext?.propertyId,
+                companyId: providerModeContext?.companyId,
+            });
         } catch (error) {
             setHomeItems([]);
             setMessage(activePropertyErrorMessage(error));
@@ -114,7 +135,7 @@ export default function SystemAreasScreen() {
         setHomeItems((data || []) as SystemAreaItem[]);
         setMessage('');
         setLoading(false);
-    }, []);
+    }, [providerModeContext]);
 
     useFocusEffect(
         useCallback(() => {
@@ -123,6 +144,11 @@ export default function SystemAreasScreen() {
     );
 
     function createRootArea() {
+        if (providerModeContext) {
+            setMessage('Provider mode changes are staged only. Add Area / Container publishing is coming next.');
+            return;
+        }
+
         router.push({
             pathname: '/area/create',
             params: { system: systemName },
@@ -130,6 +156,11 @@ export default function SystemAreasScreen() {
     }
 
     function createRootItem() {
+        if (providerModeContext) {
+            setMessage('Provider mode changes are staged only. Add Item publishing is coming next.');
+            return;
+        }
+
         router.push({
             pathname: '/item/create',
             params: {
@@ -147,11 +178,17 @@ export default function SystemAreasScreen() {
             params: {
                 system: systemName,
                 area: areaName,
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
     }
 
     function confirmArchiveArea(areaRecord: SystemAreaItem) {
+        if (providerModeContext) {
+            setMessage('Provider mode archive is staged only. Nothing was changed in the customer HomeOS.');
+            return;
+        }
+
         const title = areaRecord.name || areaRecord.location || 'this area';
 
         Alert.alert(
@@ -241,6 +278,11 @@ export default function SystemAreasScreen() {
     }
 
     function confirmArchiveItem(item: SystemAreaItem) {
+        if (providerModeContext) {
+            setMessage('Provider mode archive is staged only. Nothing was changed in the customer HomeOS.');
+            return;
+        }
+
         const title = item.name || 'this item';
 
         Alert.alert(
@@ -462,6 +504,13 @@ export default function SystemAreasScreen() {
                                             <RootItemCard
                                                 key={archiveKey}
                                                 item={item}
+                                                onOpen={() => {
+                                                    const itemSlug = item.item_slug || '';
+
+                                                    if (itemSlug) {
+                                                        router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
+                                                    }
+                                                }}
                                                 onArchive={() => confirmArchiveItem(item)}
                                                 archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
                                                 archiveDisabled={!!archivingRecordId}
@@ -595,11 +644,13 @@ function RootAreaCard({
 
 function RootItemCard({
     item,
+    onOpen,
     onArchive,
     archiveTitle,
     archiveDisabled,
 }: {
     item: SystemAreaItem;
+    onOpen: () => void;
     onArchive: () => void;
     archiveTitle: string;
     archiveDisabled: boolean;
@@ -623,7 +674,7 @@ function RootItemCard({
             ]}
         >
             <TouchableOpacity
-                onPress={() => itemSlug && router.push(`/item/${itemSlug}` as any)}
+                onPress={onOpen}
                 activeOpacity={0.82}
                 disabled={!itemSlug}
                 style={cardOpenAreaStyle}

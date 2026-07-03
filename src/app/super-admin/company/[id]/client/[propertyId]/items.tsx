@@ -301,7 +301,14 @@ export default function CompanyClientItemsScreen() {
             return;
         }
 
-        const itemPath = `/item/${encodeURIComponent(item.item_slug)}?companyId=${encodeURIComponent(companyId)}&propertyId=${encodeURIComponent(clientPropertyId)}&mode=management`;
+        const returnTo = `/super-admin/company/${companyId}/client/${clientPropertyId}`;
+        const query = new URLSearchParams({
+            providerMode: '1',
+            companyId,
+            propertyId: clientPropertyId,
+            returnTo,
+        });
+        const itemPath = `/item/${encodeURIComponent(item.item_slug)}?${query.toString()}`;
 
         router.push(itemPath as never);
     }
@@ -315,6 +322,7 @@ export default function CompanyClientItemsScreen() {
         await addItemToEstimateDraft({
             id: item.id,
             property_id: item.property_id || clientPropertyId,
+            customer_home_name: homeName,
             name: item.name || 'Unknown Item',
             item_slug: item.item_slug || item.id,
             system: item.system || 'Unknown',

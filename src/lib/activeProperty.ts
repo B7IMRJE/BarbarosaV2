@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { validateProviderModeAccess } from './providerMode';
 
 export type ActivePropertyMembership = {
     userId: string;
@@ -28,7 +29,10 @@ export class ActivePropertyResolutionError extends Error {
     }
 }
 
-export async function requireActivePropertyMembership(): Promise<ActivePropertyMembership> {
+export async function requireActivePropertyMembership(options: {
+    propertyIdOverride?: string | null;
+    companyId?: string | null;
+} = {}): Promise<ActivePropertyMembership> {
     const {
         data: { user },
         error: userError,
@@ -36,6 +40,29 @@ export async function requireActivePropertyMembership(): Promise<ActivePropertyM
 
     if (userError || !user) {
         throw new ActivePropertyResolutionError('not_authenticated', 'You must be logged in.');
+    }
+
+    const propertyIdOverride = String(options.propertyIdOverride || '').trim();
+    const companyId = String(options.companyId || '').trim();
+
+    if (propertyIdOverride && companyId) {
+        const providerAccess = await validateProviderModeAccess(companyId, propertyIdOverride);
+
+        if (!providerAccess.access) {
+            throw new ActivePropertyResolutionError(
+                'lookup_failed',
+                providerAccess.error || 'You do not have provider access for this client HomeOS.'
+            );
+        }
+
+        return {
+            userId: user.id,
+            propertyId: propertyIdOverride,
+            membershipRole: providerAccess.access.isPlatformAdmin
+                ? 'provider_platform_admin'
+                : `provider_${providerAccess.access.role || 'company_user'}`,
+            membershipStatus: 'active',
+        };
     }
 
     const { data, error } = await supabase

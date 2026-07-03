@@ -84,6 +84,34 @@ export async function loadActiveHomeIdentity() {
     return row ? normalizeHomeIdentity(row) : null;
 }
 
+export async function loadHomeIdentityForProperty(propertyId: string, options: {
+    ownerDisplayName?: string;
+    canEdit?: boolean;
+} = {}) {
+    const cleanPropertyId = propertyId.trim();
+
+    if (!cleanPropertyId) return null;
+
+    const { data, error } = await supabase
+        .from('properties')
+        .select('id, name, property_type, address_line_1, address_line_2, city, state, postal_code, country_code, formatted_address, latitude, longitude, google_place_id, address_validation_status, address_validated_at')
+        .eq('id', cleanPropertyId)
+        .maybeSingle();
+
+    if (error) {
+        throw new Error(`Could not load home information: ${error.message}`);
+    }
+
+    if (!data) return null;
+
+    return normalizeHomeIdentity({
+        ...(data as Record<string, unknown>),
+        property_id: cleanPropertyId,
+        owner_display_name: options.ownerDisplayName || 'Customer',
+        membership_role: options.canEdit ? 'OWNER' : 'PROVIDER',
+    } as HomeIdentityRow);
+}
+
 export async function createFirstHomeIdentity(input: HomeIdentityInput) {
     const { data, error } = await supabase.rpc('create_homeowner_first_property', buildHomeIdentityRpcPayload(input));
 

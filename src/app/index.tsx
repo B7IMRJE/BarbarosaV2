@@ -1,47 +1,27 @@
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
-import HomeIdentityCard from '../components/HomeIdentityCard';
 import PendingCustomerInvitesCard from '../components/PendingCustomerInvitesCard';
-import SystemStatusCard from '../components/cards/SystemStatusCard';
+import HomeDashboardView, {
+  type DashboardSystemTile,
+  type HomeDashboardItem,
+  type HomeDashboardMaintenanceReminder,
+} from '../components/homeos/HomeDashboardView';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import {
   isActivePropertyResolutionError,
   requireActivePropertyMembership,
 } from '../lib/activeProperty';
+import type { HomeHealthEmergency } from '../lib/homeHealth';
+import { loadActiveHomeIdentity, loadHomeIdentityForProperty, type HomeIdentity } from '../lib/homeIdentity';
 import {
-  scoreAllSystems,
-  scoreHomeItem,
-  scoreOverallHomeHealth,
-  statusForCard,
-  type HomeHealthEmergency,
-  type HomeHealthItem,
-} from '../lib/homeHealth';
-import { homeSystems, isCustomServiceRoot } from '../lib/homeSystems';
-import { loadActiveHomeIdentity, type HomeIdentity } from '../lib/homeIdentity';
-import { labelDueStatus, type DueStatusLabel } from '../lib/maintenanceTimers';
+  providerModeItemPath,
+  providerModeQueryParams,
+  readProviderModeParams,
+} from '../lib/providerMode';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
-
-type HomeDashboardItem = HomeHealthItem & {
-  name?: string | null;
-  item_slug?: string | null;
-  system?: string | null;
-  area?: string | null;
-  location?: string | null;
-  parent_area?: string | null;
-  status?: string | null;
-  install_state?: string | null;
-  category?: string | null;
-};
-
-type HomeMaintenanceReminder = {
-  id: string;
-  title: string;
-  next_due_date: string;
-  reminder_status: 'active' | 'paused' | 'archived';
-};
 
 type PreferredProvider = {
   companyId: string;
@@ -73,13 +53,6 @@ type CreatedServiceRequestReceipt = {
   createdAt: string | null;
 };
 
-type DashboardSystemTile = {
-  key: string;
-  label: string;
-  icon: string;
-  route: 'documents' | 'plumbing' | 'system';
-};
-
 function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   const safeError = error as {
     message?: unknown;
@@ -99,6 +72,18 @@ function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
 
 export default function HomeScreen() {
   const { scaleFont, scaleIcon, theme } = useTheme();
+  const routeParams = useLocalSearchParams<{
+    providerMode?: string | string[];
+    companyId?: string | string[];
+    propertyId?: string | string[];
+    returnTo?: string | string[];
+  }>();
+  const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
+    routeParams.providerMode,
+    routeParams.companyId,
+    routeParams.propertyId,
+    routeParams.returnTo,
+  ]);
   const { width: viewportWidth } = useWindowDimensions();
   const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 900);
   const healthTileGap = scaleIcon(10);
@@ -113,7 +98,7 @@ export default function HomeScreen() {
   const [homeIdentityLoading, setHomeIdentityLoading] = useState(true);
   const [homeItems, setHomeItems] = useState<HomeDashboardItem[]>([]);
   const [activeEmergencies, setActiveEmergencies] = useState<HomeHealthEmergency[]>([]);
-  const [maintenanceReminders, setMaintenanceReminders] = useState<HomeMaintenanceReminder[]>([]);
+  const [maintenanceReminders, setMaintenanceReminders] = useState<HomeDashboardMaintenanceReminder[]>([]);
   const [maintenanceReminderMessage, setMaintenanceReminderMessage] = useState('');
   const [activePropertyId, setActivePropertyId] = useState('');
   const [preferredProvider, setPreferredProvider] = useState<PreferredProvider | null>(null);
@@ -129,12 +114,16 @@ export default function HomeScreen() {
   const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
   const [showServiceRequestForm, setShowServiceRequestForm] = useState(false);
   const [showHealthLegend, setShowHealthLegend] = useState(false);
+  const [providerCompanyName, setProviderCompanyName] = useState('');
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
 
     try {
-      activeProperty = await requireActivePropertyMembership();
+      activeProperty = await requireActivePropertyMembership({
+        propertyIdOverride: providerModeContext?.propertyId,
+        companyId: providerModeContext?.companyId,
+      });
     } catch (error) {
       setHomeIdentity(null);
       setHomeIdentityLoading(false);
@@ -164,15 +153,32 @@ export default function HomeScreen() {
     setActivePropertyId(activeProperty.propertyId);
 
     try {
-      setHomeIdentity(await loadActiveHomeIdentity());
+      setHomeIdentity(providerModeContext
+        ? await loadHomeIdentityForProperty(providerModeContext.propertyId, {
+          ownerDisplayName: 'Customer',
+          canEdit: false,
+        })
+        : await loadActiveHomeIdentity());
     } catch {
       setHomeIdentity(null);
     } finally {
       setHomeIdentityLoading(false);
     }
 
-    await loadPreferredProvider(activeProperty.propertyId);
-    await loadHomeServiceRequests(activeProperty.propertyId);
+    if (providerModeContext) {
+      await loadProviderCompanyName(providerModeContext.companyId);
+      setPreferredProvider(null);
+      setAvailableProviders([]);
+      setProviderSelectionCompanyId('');
+      setServiceRequestMessage('');
+      setHomeServiceRequests([]);
+      setServiceRequestNoteById({});
+      setLastCreatedServiceRequest(null);
+    } else {
+      setProviderCompanyName('');
+      await loadPreferredProvider(activeProperty.propertyId);
+      await loadHomeServiceRequests(activeProperty.propertyId);
+    }
 
     const { data: items } = await supabase
       .from('home_items')
@@ -197,13 +203,13 @@ export default function HomeScreen() {
       setMaintenanceReminders([]);
       setMaintenanceReminderMessage('Maintenance reminder summary could not be loaded.');
     } else {
-      setMaintenanceReminders((reminders || []) as HomeMaintenanceReminder[]);
+      setMaintenanceReminders((reminders || []) as HomeDashboardMaintenanceReminder[]);
       setMaintenanceReminderMessage('');
     }
 
     setHomeItems((items || []) as HomeDashboardItem[]);
     setActiveEmergencies((emergencies || []) as HomeHealthEmergency[]);
-  }, []);
+  }, [providerModeContext]);
 
   useEffect(() => {
     saveRecoverySession();
@@ -215,62 +221,23 @@ export default function HomeScreen() {
     }, [loadHomeHealthData])
   );
 
-  const issueItems = useMemo(() => {
-    return homeItems
-      .map((item) => ({
-        item,
-        health: scoreHomeItem(item),
-      }))
-      .filter(
-        ({ item, health }) =>
-          !sameText(item.category, 'Area') &&
-          (health.status === 'critical' || health.status === 'needs_attention')
-      )
-      .sort((a, b) => {
-        const severityDifference =
-          issueSeverity(a.health.status) - issueSeverity(b.health.status);
-
-        if (severityDifference !== 0) return severityDifference;
-
-        return issueItemName(a.item).localeCompare(issueItemName(b.item));
-      });
-  }, [homeItems]);
-
-  const healthSummary = useMemo(
-    () => scoreOverallHomeHealth(homeItems, activeEmergencies),
-    [homeItems, activeEmergencies]
-  );
-  const dashboardSystemTiles = useMemo(() => buildDashboardSystemTiles(homeItems), [homeItems]);
-  const systemSummaries = useMemo(
-    () => scoreAllSystems(homeItems, dashboardSystemTiles.map((system) => system.key)),
-    [homeItems, dashboardSystemTiles]
-  );
-  const fixedSystemCount = homeSystems.length;
-  const customSystemCount = Math.max(dashboardSystemTiles.length - fixedSystemCount, 0);
-  const healthLegendItems = [
-    {
-      label: 'White / Empty',
-      description: 'Area or service exists, but no items have been added yet.',
-      colors: theme.colors.status.unknown,
-    },
-    {
-      label: 'Green / Good',
-      description: 'Items are added and currently OK.',
-      colors: theme.colors.status.good,
-    },
-    {
-      label: 'Yellow / Needs Review',
-      description: 'Missing information, needs confirmation, unknown, or not inspected.',
-      colors: theme.colors.status.notInspected,
-    },
-    {
-      label: 'Red / Critical',
-      description: 'Urgent, emergency, active leak, flood, gas smell, or problem.',
-      colors: theme.colors.status.emergency,
-    },
-  ];
-
   function openSystemTile(system: DashboardSystemTile) {
+    if (providerModeContext) {
+      if (system.route === 'documents') {
+        setServiceRequestMessage('Shared documents stay locked until the provider sharing workflow is enabled.');
+        return;
+      }
+
+      router.push({
+        pathname: '/system/[system]',
+        params: {
+          system: system.key,
+          ...providerModeQueryParams(providerModeContext),
+        },
+      } as any);
+      return;
+    }
+
     if (system.route === 'documents') {
       router.push('/documents');
       return;
@@ -286,28 +253,17 @@ export default function HomeScreen() {
       params: { system: system.key },
     });
   }
-  const maintenanceReminderCounts = useMemo(() => {
-    const counts: Record<DueStatusLabel, number> = {
-      Overdue: 0,
-      'Due Soon': 0,
-      Upcoming: 0,
-      Paused: 0,
-    };
 
-    maintenanceReminders.forEach((reminder) => {
-      counts[labelDueStatus(reminder)] += 1;
-    });
+  async function loadProviderCompanyName(companyId: string) {
+    const { data } = await supabase
+      .from('companies')
+      .select('id, name, public_name, dba_name')
+      .eq('id', companyId)
+      .maybeSingle();
 
-    return counts;
-  }, [maintenanceReminders]);
-  const maintenanceReminderSummary = [
-    { label: 'overdue', count: maintenanceReminderCounts.Overdue },
-    { label: 'due soon', count: maintenanceReminderCounts['Due Soon'] },
-    { label: 'upcoming', count: maintenanceReminderCounts.Upcoming },
-    { label: 'paused', count: maintenanceReminderCounts.Paused },
-  ].filter((summary) => summary.count > 0);
-  const progressWidth = `${healthSummary.score ?? 0}%` as `${number}%`;
-
+    const company = (data || null) as { name?: string | null; public_name?: string | null; dba_name?: string | null } | null;
+    setProviderCompanyName(firstText(company?.public_name, company?.dba_name, company?.name) || 'Company');
+  }
   async function saveRecoverySession() {
     if (typeof window === 'undefined') return;
 
@@ -583,410 +539,99 @@ export default function HomeScreen() {
       }}
     >
       <View style={{ width: '100%', maxWidth: 900 }}>
-        <HomeIdentityCard
+        <HomeDashboardView
           identity={homeIdentity}
-          loading={homeIdentityLoading}
-          onEdit={() => router.push('/home/edit' as any)}
-        />
+          identityLoading={homeIdentityLoading}
+          onEditIdentity={() => {
+            if (providerModeContext) {
+              setServiceRequestMessage('Provider mode edits are staged only. Update Client HomeOS publishing is coming next.');
+              return;
+            }
 
-        <PendingCustomerInvitesCard
-          compact
-          onAccepted={loadHomeHealthData}
-        />
-
-        <View style={summaryGridStyle}>
-          <ThemedCard style={summaryCardStyle}>
-            <Text
-              style={{
-                fontSize: scaleFont(15),
-                color: theme.colors.mutedText,
-                fontWeight: '700',
-                marginBottom: scaleIcon(10),
-              }}
-            >
-              Home Health Status
-            </Text>
-
-            <Text
-              style={{
-                fontSize: scaleFont(26),
-                fontWeight: '900',
-                color: theme.colors.text,
-                marginBottom: scaleIcon(14),
-              }}
-            >
-              {healthSummary.label}
-            </Text>
-
-            <View
-              style={{
-                height: scaleIcon(16),
-                backgroundColor: theme.colors.progressTrack,
-                borderRadius: 999,
-                overflow: 'hidden',
-              }}
-            >
-              <View
-                style={{
-                  width: progressWidth,
-                  height: '100%',
-                  backgroundColor: theme.colors.progressFill,
-                }}
-              />
-            </View>
-
-            <Text
-              style={{
-                marginTop: scaleIcon(12),
-                fontSize: scaleFont(14),
-                color: theme.colors.mutedText,
-                lineHeight: scaleFont(20),
-              }}
-            >
-              {healthSummary.score === null
-                ? 'Start by adding real equipment, fixtures, documents, and photos from your home.'
-                : `${healthSummary.score}/100 based on ${healthSummary.itemCount} home item${healthSummary.itemCount === 1 ? '' : 's'}.`}
-            </Text>
-          </ThemedCard>
-
-          <ThemedCard style={summaryCardStyle}>
-            <Text
-              style={{
-                fontSize: scaleFont(20),
-                fontWeight: '900',
-                color: theme.colors.text,
-                marginBottom: scaleIcon(8),
-              }}
-            >
-              Maintenance Reminders
-            </Text>
-
-            {maintenanceReminderMessage ? (
-              <Text
-                style={{
-                  fontSize: scaleFont(15),
-                  color: theme.colors.mutedText,
-                  lineHeight: scaleFont(22),
-                  marginBottom: scaleIcon(14),
-                }}
-              >
-                {maintenanceReminderMessage}
-              </Text>
-            ) : maintenanceReminders.length === 0 ? (
-              <Text
-                style={{
-                  fontSize: scaleFont(15),
-                  color: theme.colors.mutedText,
-                  lineHeight: scaleFont(22),
-                  marginBottom: scaleIcon(14),
-                }}
-              >
-                No maintenance reminders yet.
-              </Text>
-            ) : (
-              <View
-                style={{
-                  flexDirection: 'row',
-                  flexWrap: 'wrap',
-                  gap: scaleIcon(10),
-                  marginBottom: scaleIcon(14),
-                }}
-              >
-                {maintenanceReminderSummary.map((summary) => (
-                  <View
-                    key={summary.label}
-                    style={{
-                      backgroundColor: theme.colors.surfaceAlt,
-                      borderColor: theme.colors.border,
-                      borderWidth: 1,
-                      borderRadius: theme.radii.card,
-                      paddingVertical: scaleIcon(10),
-                      paddingHorizontal: scaleIcon(12),
-                    }}
-                  >
-                    <Text
-                      style={{
-                        color: theme.colors.text,
-                        fontSize: scaleFont(16),
-                        fontWeight: '900',
-                      }}
-                    >
-                      {summary.count} {summary.label}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <ThemedButton
-              title="Open Maintenance"
-              variant="secondary"
-              onPress={() => router.push('/maintenance' as any)}
-              style={{
-                alignSelf: 'flex-start',
-                paddingVertical: scaleIcon(12),
-                paddingHorizontal: scaleIcon(18),
-                marginTop: 'auto',
-              }}
-              textStyle={{
-                fontSize: scaleFont(14),
-              }}
-            />
-          </ThemedCard>
-        </View>
-
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: scaleIcon(10),
-            marginTop: scaleIcon(26),
-            marginBottom: scaleIcon(14),
+            router.push('/home/edit' as any);
           }}
-        >
-          <View>
-            <Text
-              style={{
-                fontSize: scaleFont(20),
-                fontWeight: '900',
-                color: theme.colors.text,
-              }}
-            >
-              Health Breakdown
-            </Text>
-            {customSystemCount > 0 && (
-              <Text
-                style={{
-                  fontSize: scaleFont(13),
-                  fontWeight: '800',
-                  color: theme.colors.mutedText,
-                  marginTop: scaleIcon(4),
-                }}
-              >
-                {customSystemCount} custom service{customSystemCount === 1 ? '' : 's'} added
-              </Text>
-            )}
-          </View>
-
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), justifyContent: 'flex-end' }}>
-            <ThemedButton
-              title="Legend"
-              variant="secondary"
-              onPress={() => setShowHealthLegend((current) => !current)}
-              style={{
-                paddingVertical: scaleIcon(10),
-                paddingHorizontal: scaleIcon(14),
-              }}
-              textStyle={{ fontSize: scaleFont(13) }}
+          items={homeItems}
+          emergencies={activeEmergencies}
+          maintenanceReminders={maintenanceReminders}
+          maintenanceReminderMessage={maintenanceReminderMessage}
+          afterIdentity={providerModeContext ? undefined : (
+            <PendingCustomerInvitesCard
+              compact
+              onAccepted={loadHomeHealthData}
             />
-
-            <ThemedButton
-              title="Add Service"
-              variant="secondary"
-              onPress={() => router.push('/system/create')}
-              style={{
-                paddingVertical: scaleIcon(10),
-                paddingHorizontal: scaleIcon(14),
-              }}
-              textStyle={{ fontSize: scaleFont(13) }}
-            />
-          </View>
-        </View>
-
-        {showHealthLegend && (
-          <ThemedCard style={{ marginBottom: scaleIcon(14) }}>
-            <Text
-              style={{
-                color: theme.colors.text,
-                fontSize: scaleFont(17),
-                fontWeight: '900',
-                marginBottom: scaleIcon(10),
-              }}
-            >
-              Status Legend
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
-              {healthLegendItems.map((item) => (
-                <View
-                  key={item.label}
-                  style={{
-                    flexGrow: 1,
-                    flexBasis: 180,
-                    borderWidth: 1,
-                    borderColor: item.colors.border,
-                    backgroundColor: item.colors.background,
-                    borderRadius: theme.radii.card,
-                    padding: scaleIcon(12),
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: theme.colors.text,
-                      fontSize: scaleFont(14),
-                      fontWeight: '900',
-                      marginBottom: scaleIcon(4),
-                    }}
-                  >
-                    {item.label}
+          )}
+          beforeSummary={providerModeContext ? (
+            <ThemedCard style={{ marginTop: scaleIcon(14), marginBottom: scaleIcon(16) }}>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12), justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1, minWidth: 220 }}>
+                  <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '900', textTransform: 'uppercase' }}>
+                    Provider Mode
                   </Text>
-                  <Text
-                    style={{
-                      color: theme.colors.mutedText,
-                      fontSize: scaleFont(12),
-                      fontWeight: '700',
-                      lineHeight: scaleFont(17),
-                    }}
-                  >
-                    {item.description}
+                  <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900', marginTop: scaleIcon(4) }}>
+                    Viewing client HomeOS
+                  </Text>
+                  <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800', lineHeight: scaleFont(20), marginTop: scaleIcon(6) }}>
+                    Company: {providerCompanyName || 'Company'} / client property {shortId(providerModeContext.propertyId)}
                   </Text>
                 </View>
-              ))}
-            </View>
-          </ThemedCard>
-        )}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), justifyContent: 'flex-end' }}>
+                  <ThemedButton
+                    title="Company Dashboard"
+                    variant="secondary"
+                    onPress={() => router.replace(`/super-admin/company/${providerModeContext.companyId}` as any)}
+                    style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(12) }}
+                    textStyle={{ fontSize: scaleFont(12) }}
+                  />
+                  <ThemedButton
+                    title="Customer Detail"
+                    onPress={() => router.replace((providerModeContext.returnTo || `/super-admin/company/${providerModeContext.companyId}/client/${providerModeContext.propertyId}`) as any)}
+                    style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(12) }}
+                    textStyle={{ fontSize: scaleFont(12) }}
+                  />
+                </View>
+              </View>
+            </ThemedCard>
+          ) : undefined}
+          showHealthLegend={showHealthLegend}
+          onToggleHealthLegend={() => setShowHealthLegend((current) => !current)}
+          onAddService={() => {
+            if (providerModeContext) {
+              setServiceRequestMessage('Provider mode changes are staged only. Add Service publishing is coming next.');
+              return;
+            }
 
-        <View style={[healthBreakdownGridStyle, { gap: healthTileGap }]}>
-          {dashboardSystemTiles.map((system) => (
-            <SystemStatusCard
-              key={system.key}
-              title={system.label}
-              icon={system.icon}
-              status={statusForCard(systemSummaries[system.key])}
-              onPress={() => openSystemTile(system)}
-              style={{
-                width: healthTileSize,
-                height: healthTileSize,
-              }}
-            />
-          ))}
-        </View>
-
-        <ThemedCard
-          style={{
-            marginTop: scaleIcon(26),
+            router.push('/system/create' as any);
           }}
-        >
-          <Text
-            style={{
-              fontSize: scaleFont(20),
-              fontWeight: '900',
-              color: theme.colors.text,
-              marginBottom: scaleIcon(8),
-            }}
-          >
-            Needs Attention
-          </Text>
+          onOpenMaintenance={() => {
+            if (providerModeContext) {
+              setServiceRequestMessage('Provider mode maintenance editing is staged only. Client publishing is coming next.');
+              return;
+            }
 
-          {issueItems.length === 0 ? (
-            <Text
-              style={{
-                fontSize: scaleFont(15),
-                color: theme.colors.mutedText,
-                lineHeight: scaleFont(22),
-              }}
-            >
-              No issues reported.
+            router.push('/maintenance' as any);
+          }}
+          onOpenSystemTile={openSystemTile}
+          onOpenIssueItem={(item) => {
+            const itemSlug = firstText(item.item_slug);
+
+            if (itemSlug) {
+              router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
+            }
+          }}
+        />
+
+        {providerModeContext ? (
+          <ThemedCard style={{ marginTop: scaleIcon(18) }}>
+            <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900', marginBottom: scaleIcon(8) }}>
+              Company Tools
             </Text>
-          ) : (
-            <View
-              style={{
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                gap: scaleIcon(12),
-                justifyContent: 'center',
-              }}
-            >
-              {issueItems.map(({ item, health }) => {
-                const itemSlug = firstText(item.item_slug);
-                const isCritical = health.status === 'critical';
-
-                return (
-                  <View
-                    key={item.id || itemSlug || issueItemName(item)}
-                    style={{
-                      width: healthTileSize,
-                      minHeight: healthTileSize,
-                      borderWidth: 1,
-                      borderColor: isCritical
-                        ? theme.colors.status.activeEmergency.border
-                        : theme.colors.border,
-                      backgroundColor: isCritical
-                        ? theme.colors.status.activeEmergency.background
-                        : theme.colors.surface,
-                      borderRadius: theme.radii.card,
-                      padding: scaleIcon(14),
-                      gap: scaleIcon(10),
-                    }}
-                  >
-                    <View style={{ gap: 5 }}>
-                      <Text
-                        style={{
-                          fontSize: scaleFont(17),
-                          fontWeight: '900',
-                          color: theme.colors.text,
-                        }}
-                      >
-                        {issueItemName(item)}
-                      </Text>
-
-                      <Text
-                        style={{
-                          fontSize: scaleFont(14),
-                          color: theme.colors.mutedText,
-                          lineHeight: scaleFont(20),
-                        }}
-                      >
-                        System: {firstText(item.system) || 'System not set'}
-                      </Text>
-
-                      <Text
-                        style={{
-                          fontSize: scaleFont(14),
-                          color: theme.colors.mutedText,
-                          lineHeight: scaleFont(20),
-                        }}
-                      >
-                        Location:{' '}
-                        {firstText(item.area, item.location, item.parent_area) ||
-                          'Location not set'}
-                      </Text>
-
-                      <Text
-                        style={{
-                          fontSize: scaleFont(14),
-                          color: theme.colors.mutedText,
-                          lineHeight: scaleFont(20),
-                        }}
-                      >
-                        Status: {issueStatusLabel(item, health.status)}
-                      </Text>
-                    </View>
-
-                    {!!itemSlug && (
-                      <ThemedButton
-                        title="Open Item"
-                        variant="secondary"
-                        onPress={() => router.push(`/item/${itemSlug}` as any)}
-                        style={{
-                          alignSelf: 'flex-start',
-                          paddingVertical: scaleIcon(12),
-                          paddingHorizontal: scaleIcon(16),
-                        }}
-                        textStyle={{
-                          fontSize: scaleFont(14),
-                        }}
-                      />
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </ThemedCard>
-
-        <View style={actionCardGridStyle}>
+            <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800', lineHeight: scaleFont(20) }}>
+              Open an item to add estimates, company notes, findings, job photos, or staged client updates. Homeowner service requests and provider selection are hidden in provider mode.
+            </Text>
+          </ThemedCard>
+        ) : (
+        <>
+          <View style={actionCardGridStyle}>
           <ThemedCard
             style={[
               actionCardStyle,
@@ -1342,26 +987,14 @@ export default function HomeScreen() {
             </View>
           )}
           </ThemedCard>
+          )}
+        </>
         )}
 
       </View>
     </ScrollView>
   );
 }
-
-const summaryGridStyle = {
-  flexDirection: 'row' as const,
-  flexWrap: 'wrap' as const,
-  alignItems: 'stretch' as const,
-  gap: 14,
-  marginTop: 22,
-};
-
-const summaryCardStyle = {
-  flexGrow: 1,
-  flexBasis: 360,
-  minWidth: 280,
-};
 
 const actionCardGridStyle = {
   flexDirection: 'row' as const,
@@ -1376,15 +1009,6 @@ const actionCardStyle = {
   flexShrink: 0,
 };
 
-const healthBreakdownGridStyle = {
-  flexDirection: 'row' as const,
-  flexWrap: 'wrap' as const,
-  alignItems: 'flex-start' as const,
-  justifyContent: 'center' as const,
-};
-
-
-
 function firstText(...values: Array<string | null | undefined>) {
   for (const value of values) {
     const text = String(value || '').trim();
@@ -1393,72 +1017,6 @@ function firstText(...values: Array<string | null | undefined>) {
   }
 
   return '';
-}
-
-function buildDashboardSystemTiles(items: HomeDashboardItem[]): DashboardSystemTile[] {
-  const customSystemsByKey = new Map<string, string>();
-
-  items.forEach((item) => {
-    if (!isCustomServiceRoot(item)) return;
-
-    const systemName = firstText(item.system);
-    const normalizedSystemName = normalizeText(systemName);
-
-    if (!systemName) return;
-
-    if (!customSystemsByKey.has(normalizedSystemName)) {
-      customSystemsByKey.set(normalizedSystemName, systemName);
-    }
-  });
-
-  const fixedTiles = homeSystems.map<DashboardSystemTile>((system) => ({
-    key: system.key,
-    label: system.label,
-    icon: system.icon,
-    route: system.key === 'Documents' ? 'documents' : system.key === 'Plumbing' ? 'plumbing' : 'system',
-  }));
-
-  const customTiles = Array.from(customSystemsByKey.values())
-    .sort((a, b) => a.localeCompare(b))
-    .map<DashboardSystemTile>((systemName) => ({
-      key: systemName,
-      label: systemName,
-      icon: getCustomSystemIcon(systemName),
-      route: 'system',
-    }));
-
-  return [...fixedTiles, ...customTiles];
-}
-
-function getCustomSystemIcon(systemName: string) {
-  const normalizedName = normalizeText(systemName);
-
-  if (normalizedName.includes('storage') || normalizedName.includes('inventory')) return '📦';
-  if (normalizedName.includes('roof')) return '🏠';
-  if (normalizedName.includes('paint')) return '🎨';
-  if (normalizedName.includes('siding')) return '🏡';
-  if (normalizedName.includes('landscape') || normalizedName.includes('yard')) return '🌿';
-
-  return '🏠';
-}
-
-function sameText(a?: string | null, b?: string | null) {
-  return firstText(a).toLowerCase() === firstText(b).toLowerCase();
-}
-
-function issueSeverity(status: string) {
-  return status === 'critical' ? 0 : 1;
-}
-
-function issueItemName(item: HomeDashboardItem) {
-  return firstText(item.name) || 'Unnamed Item';
-}
-
-function issueStatusLabel(item: HomeDashboardItem, status: string) {
-  return (
-    firstText(item.status, item.install_state) ||
-    (status === 'critical' ? 'Emergency' : 'Needs Attention')
-  );
 }
 
 function normalizeText(value?: string | null) {

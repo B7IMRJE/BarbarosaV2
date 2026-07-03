@@ -292,8 +292,16 @@ export default function CompanyClientDetailScreen() {
                         <View style={actionGridStyle}>
                             <ActionCard
                                 title="Open Client HomeOS"
-                                body="Open the customer's HomeOS structure with company tools and staged updates."
-                                onPress={() => router.push(`/super-admin/company/${companyId}/client/${clientPropertyId}/homeos` as never)}
+                                body="Open the customer's real HomeOS dashboard in provider mode with company tools."
+                                onPress={() => router.push({
+                                    pathname: '/',
+                                    params: {
+                                        providerMode: '1',
+                                        companyId,
+                                        propertyId: clientPropertyId,
+                                        returnTo: `/super-admin/company/${companyId}/client/${clientPropertyId}`,
+                                    },
+                                } as never)}
                             />
                             <ActionCard
                                 title="View Home Items"
