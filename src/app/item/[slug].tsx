@@ -126,6 +126,28 @@ const providerFindingSeverities: ProviderFindingSeverity[] = ['low', 'medium', '
 
 const PROVIDER_STAGED_PHOTO_BUCKET = 'item-files';
 
+const providerStagedWorkTypes: ProviderStagedWorkType[] = [
+    'photo',
+    'document',
+    'note',
+    'finding',
+    'edit',
+    'related_item',
+    'archive_request',
+    'client_update_mark',
+];
+
+const providerStagedCountLabels: Record<ProviderStagedWorkType, { singular: string; plural: string }> = {
+    photo: { singular: 'photo', plural: 'photos' },
+    document: { singular: 'document', plural: 'documents' },
+    note: { singular: 'note', plural: 'notes' },
+    finding: { singular: 'finding', plural: 'findings' },
+    edit: { singular: 'edit', plural: 'edits' },
+    related_item: { singular: 'related item', plural: 'related items' },
+    archive_request: { singular: 'archive request', plural: 'archive requests' },
+    client_update_mark: { singular: 'client update mark', plural: 'client update marks' },
+};
+
 const documentCategoryLabels: Record<string, { singular: string; plural: string }> = {
     manual: { singular: 'Manual', plural: 'Manuals' },
     warranty: { singular: 'Warranty', plural: 'Warranties' },
@@ -406,6 +428,9 @@ export default function ItemScreen() {
     const [message, setMessage] = useState('');
     const [providerStagedEntries, setProviderStagedEntries] = useState<ProviderStagedWorkEntry[]>([]);
     const [providerStagingBackendStatus, setProviderStagingBackendStatus] = useState<ProviderStagingBackendStatus | null>(null);
+    const [providerReviewExpanded, setProviderReviewExpanded] = useState(false);
+    const [expandedProviderPhotoId, setExpandedProviderPhotoId] = useState<string | null>(null);
+    const [expandedProviderDocumentId, setExpandedProviderDocumentId] = useState<string | null>(null);
     const [providerPanel, setProviderPanel] = useState<ProviderStagedPanel>('none');
     const [savingProviderWork, setSavingProviderWork] = useState(false);
     const [providerNoteText, setProviderNoteText] = useState('');
@@ -437,6 +462,9 @@ export default function ItemScreen() {
         if (!providerModeContext || !item) {
             setProviderStagedEntries([]);
             setProviderStagingBackendStatus(null);
+            setProviderReviewExpanded(false);
+            setExpandedProviderPhotoId(null);
+            setExpandedProviderDocumentId(null);
             setProviderPanel('none');
             return;
         }
@@ -820,8 +848,12 @@ export default function ItemScreen() {
         }
     }
 
-    async function chooseProviderStagedPhoto(sourceAction: string, photoType: string) {
-        if (uploading || capturingPhoto) return;
+    async function chooseProviderStagedPhoto(
+        sourceAction: string,
+        photoType: string,
+        options: { skipBusyCheck?: boolean } = {}
+    ) {
+        if (!options.skipBusyCheck && (uploading || capturingPhoto)) return;
 
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
 
@@ -854,6 +886,8 @@ export default function ItemScreen() {
 
             const result = await ImagePicker.launchCameraAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                cameraType: ImagePicker.CameraType.back,
+                presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
                 quality: 0.8,
             });
 
@@ -863,6 +897,8 @@ export default function ItemScreen() {
         } catch (error) {
             logMediaDebug('provider-camera-capture', error);
             setMessage('Camera capture is not available on this device/browser. Choose Photo instead.');
+            setCapturingPhoto(false);
+            await chooseProviderStagedPhoto(sourceAction, photoType, { skipBusyCheck: true });
         } finally {
             setCapturingPhoto(false);
         }
@@ -901,8 +937,8 @@ export default function ItemScreen() {
         if (!providerModeContext || !item || providerStagedEntries.length === 0) return;
 
         Alert.alert(
-            'Clear local staged entries?',
-            'This only clears staged provider work saved on this device for this item. It does not change the client HomeOS.',
+            'Clear staged entries?',
+            'This clears staged provider work for this item in the current staging source. It does not change the client HomeOS.',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -939,6 +975,9 @@ export default function ItemScreen() {
                 }
             );
             setProviderPanel('none');
+            setProviderReviewExpanded(false);
+            setExpandedProviderPhotoId(null);
+            setExpandedProviderDocumentId(null);
             setMessage(clearResult.source === 'provider_staging'
                 ? 'Provider staging entries cleared for this item. Local staged entries were not changed.'
                 : 'Local staged entries cleared for this item.'
@@ -2775,7 +2814,11 @@ export default function ItemScreen() {
         );
     }
 
-    function renderProviderStagedEntry(entry: ProviderStagedWorkEntry) {
+    function renderProviderStagedEntry(
+        entry: ProviderStagedWorkEntry,
+        options: { compact?: boolean } = {}
+    ) {
+        const compact = options.compact === true;
         const photoPreviewUrl = entry.type === 'photo' ? providerStagedPhotoPreviewUrl(entry.payload) : '';
         const photoFileName = entry.type === 'photo' ? payloadString(entry.payload, 'file_name') : '';
         const photoStoragePath = entry.type === 'photo' ? payloadString(entry.payload, 'storage_path') : '';
@@ -2805,7 +2848,7 @@ export default function ItemScreen() {
                 <Text style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText }]}>
                     {summarizeProviderStagedEntry(entry)}
                 </Text>
-                {entry.type === 'photo' ? (
+                {entry.type === 'photo' && !compact ? (
                     <View style={scaleStyle(providerStagedPhotoBlockStyle)}>
                         {photoPreviewUrl ? (
                             <TouchableOpacity
@@ -2829,8 +2872,157 @@ export default function ItemScreen() {
         );
     }
 
+    function renderProviderPhotoTile(entry: ProviderStagedWorkEntry) {
+        const payload = entry.payload;
+        const previewUrl = providerStagedPhotoPreviewUrl(payload);
+        const photoType = payloadString(payload, 'photo_type') || 'other_photo';
+        const source = payloadString(payload, 'action_source') || payloadString(payload, 'source_action') || 'Provider Photo';
+        const fileName = payloadString(payload, 'file_name');
+        const bucket = payloadString(payload, 'bucket') || payloadString(payload, 'storage_bucket');
+        const storagePath = payloadString(payload, 'storage_path');
+        const detailsOpen = expandedProviderPhotoId === entry.id;
+
+        return (
+            <View
+                key={entry.id}
+                style={[
+                    providerPhotoTileStyle,
+                    {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: theme.colors.border,
+                        borderRadius: theme.radii.card,
+                    },
+                ]}
+            >
+                {previewUrl ? (
+                    <TouchableOpacity
+                        onPress={() => Linking.openURL(previewUrl)}
+                        activeOpacity={0.82}
+                        style={scaleStyle(providerPhotoThumbWrapStyle)}
+                    >
+                        <Image
+                            source={{ uri: previewUrl }}
+                            style={[scaleStyle(providerPhotoThumbStyle), { backgroundColor: theme.colors.surfaceAlt }]}
+                            resizeMode="cover"
+                        />
+                    </TouchableOpacity>
+                ) : (
+                    <View style={[scaleStyle(providerPhotoThumbWrapStyle), { backgroundColor: theme.colors.surfaceAlt }]}>
+                        <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>Photo staged</Text>
+                    </View>
+                )}
+
+                <Text style={[scaleStyle(providerMediaTitleStyle), { color: theme.colors.text }]}>
+                    {photoLabel(photoType)}
+                </Text>
+                <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                    {formatCompactDateTime(entry.created_at)}
+                </Text>
+                <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                    {source}
+                </Text>
+
+                <TouchableOpacity
+                    onPress={() => setExpandedProviderPhotoId(detailsOpen ? null : entry.id)}
+                    activeOpacity={0.82}
+                    style={[
+                        providerDetailsButtonStyle,
+                        {
+                            backgroundColor: theme.colors.surfaceAlt,
+                            borderColor: theme.colors.border,
+                            borderRadius: theme.radii.pill,
+                        },
+                    ]}
+                >
+                    <Text style={[scaleStyle(providerDetailsButtonTextStyle), { color: theme.colors.text }]}>
+                        {detailsOpen ? 'Hide Details' : 'Details'}
+                    </Text>
+                </TouchableOpacity>
+
+                {detailsOpen ? (
+                    <View style={scaleStyle(providerMediaDetailsStyle)}>
+                        <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                            {providerStagedSourceLabel(entry)} - {entry.status}
+                        </Text>
+                        <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                            File: {fileName || 'Unavailable'}
+                        </Text>
+                        <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                            Bucket: {bucket || 'Unavailable'}
+                        </Text>
+                        <Text style={[scaleStyle(providerMediaPathStyle), { color: theme.colors.mutedText }]}>
+                            Path: {storagePath || 'Unavailable'}
+                        </Text>
+                    </View>
+                ) : null}
+            </View>
+        );
+    }
+
+    function renderProviderDocumentRow(entry: ProviderStagedWorkEntry) {
+        const payload = entry.payload;
+        const documentType = payloadString(payload, 'document_type') || 'other';
+        const source = payloadString(payload, 'action_source') || payloadString(payload, 'source_action') || 'Provider Document';
+        const detailsOpen = expandedProviderDocumentId === entry.id;
+
+        return (
+            <View
+                key={entry.id}
+                style={[
+                    providerDocumentRowStyle,
+                    {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: theme.colors.border,
+                        borderRadius: theme.radii.card,
+                    },
+                ]}
+            >
+                <View style={{ flex: 1 }}>
+                    <Text style={[scaleStyle(providerMediaTitleStyle), { color: theme.colors.text }]}>
+                        {documentLabel(documentType)}
+                    </Text>
+                    <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                        {formatCompactDateTime(entry.created_at)} - {source}
+                    </Text>
+                </View>
+
+                <TouchableOpacity
+                    onPress={() => setExpandedProviderDocumentId(detailsOpen ? null : entry.id)}
+                    activeOpacity={0.82}
+                    style={[
+                        providerDetailsButtonStyle,
+                        {
+                            backgroundColor: theme.colors.surfaceAlt,
+                            borderColor: theme.colors.border,
+                            borderRadius: theme.radii.pill,
+                        },
+                    ]}
+                >
+                    <Text style={[scaleStyle(providerDetailsButtonTextStyle), { color: theme.colors.text }]}>
+                        {detailsOpen ? 'Hide' : 'Details'}
+                    </Text>
+                </TouchableOpacity>
+
+                {detailsOpen ? (
+                    <View style={scaleStyle(providerDocumentDetailsStyle)}>
+                        <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                            {providerStagedSourceLabel(entry)} - {entry.status}
+                        </Text>
+                        <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                            {summarizeProviderStagedEntry(entry)}
+                        </Text>
+                    </View>
+                ) : null}
+            </View>
+        );
+    }
+
     function renderProviderStagedUpdatesPanel() {
         if (!providerModeContext) return null;
+
+        const previewEntries = providerReviewExpanded
+            ? providerStagedEntries
+            : providerStagedEntries.slice(0, 2);
 
         return (
             <ThemedCard style={scaleStyle(providerStagedCardStyle)}>
@@ -2838,14 +3030,14 @@ export default function ItemScreen() {
                     <View>
                         <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Staged Updates</Text>
                         <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
-                            {providerStagedEntries.length} staged {providerStagedEntries.length === 1 ? 'entry' : 'entries'}
+                            {formatProviderStagedSummary(providerStagedEntries)}
                         </Text>
                     </View>
                     {providerStagedEntries.length > 0 ? (
                         <ThemedButton
-                            title="Review"
+                            title={providerReviewExpanded ? 'Hide' : 'Review'}
                             variant="secondary"
-                            onPress={() => openProviderPanel('review')}
+                            onPress={() => setProviderReviewExpanded((current) => !current)}
                             style={scaleStyle(providerStagedHeaderButtonStyle)}
                             textStyle={scaleStyle(fileActionButtonTextStyle)}
                         />
@@ -2875,17 +3067,17 @@ export default function ItemScreen() {
                             No staged provider work yet.
                         </Text>
                     ) : (
-                        providerStagedEntries.slice(0, 4).map((entry) => renderProviderStagedEntry(entry))
+                        previewEntries.map((entry) => renderProviderStagedEntry(entry, { compact: !providerReviewExpanded }))
                     )}
                 </View>
-                {providerStagedEntries.length > 4 ? (
+                {!providerReviewExpanded && providerStagedEntries.length > 2 ? (
                     <Text style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText }]}>
-                        {providerStagedEntries.length - 4} more staged entries in review.
+                        {providerStagedEntries.length - 2} more staged {providerStagedEntries.length - 2 === 1 ? 'entry' : 'entries'} hidden. Tap Review to expand.
                     </Text>
                 ) : null}
                 {providerStagedEntries.length > 0 ? (
                     <ThemedButton
-                        title="Clear Staged Entries"
+                        title="Clear"
                         variant="danger"
                         onPress={confirmClearProviderStagedEntries}
                         style={scaleStyle(providerClearButtonStyle)}
@@ -3331,7 +3523,7 @@ export default function ItemScreen() {
                                 <ThemedButton
                                     title={mediaActionBusy ? mediaBusyTitle : 'Add Job Photo'}
                                     variant="secondary"
-                                    onPress={() => chooseProviderStagedPhoto('Add Job Photo', 'job_photo')}
+                                    onPress={() => captureProviderStagedPhoto('Add Job Photo', 'job_photo')}
                                     disabled={mediaActionBusy}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
@@ -3504,13 +3696,13 @@ export default function ItemScreen() {
                             <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
                                 Homeowner photos are locked unless shared. Provider-staged photos for this item are shown here.
                             </Text>
-                            <View style={scaleStyle(providerStagedListStyle)}>
+                            <View style={scaleStyle(providerPhotoGalleryGridStyle)}>
                                 {stagedPhotoEntries.length === 0 ? (
                                     <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
                                         No staged provider photos yet.
                                     </Text>
                                 ) : (
-                                    stagedPhotoEntries.map((entry) => renderProviderStagedEntry(entry))
+                                    stagedPhotoEntries.map((entry) => renderProviderPhotoTile(entry))
                                 )}
                             </View>
                         </ThemedCard>
@@ -3576,15 +3768,15 @@ export default function ItemScreen() {
                         <ThemedCard style={scaleStyle(providerFormCardStyle)}>
                             <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Provider Documents</Text>
                             <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                                Homeowner documents are locked unless shared. Staged provider document intents for this item are shown here.
+                                Homeowner documents are locked unless shared. Staged provider documents for this item are shown here.
                             </Text>
-                            <View style={scaleStyle(providerStagedListStyle)}>
+                            <View style={scaleStyle(providerDocumentListStyle)}>
                                 {stagedDocumentEntries.length === 0 ? (
                                     <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
                                         No staged provider documents yet.
                                     </Text>
                                 ) : (
-                                    stagedDocumentEntries.map((entry) => renderProviderStagedEntry(entry))
+                                    stagedDocumentEntries.map((entry) => renderProviderDocumentRow(entry))
                                 )}
                             </View>
                         </ThemedCard>
@@ -3885,6 +4077,43 @@ function formatCompactDateTime(value?: string | null) {
         hour: 'numeric',
         minute: '2-digit',
     });
+}
+
+function countProviderStagedEntries(entries: ProviderStagedWorkEntry[]) {
+    const counts: Record<ProviderStagedWorkType, number> = {
+        photo: 0,
+        document: 0,
+        note: 0,
+        finding: 0,
+        edit: 0,
+        related_item: 0,
+        archive_request: 0,
+        client_update_mark: 0,
+    };
+
+    entries.forEach((entry) => {
+        counts[entry.type] += 1;
+    });
+
+    return counts;
+}
+
+function formatProviderStagedSummary(entries: ProviderStagedWorkEntry[]) {
+    const counts = countProviderStagedEntries(entries);
+    const parts = providerStagedWorkTypes
+        .map((type) => {
+            const count = counts[type];
+            if (count <= 0) return '';
+
+            const label = count === 1
+                ? providerStagedCountLabels[type].singular
+                : providerStagedCountLabels[type].plural;
+
+            return `${count} ${label}`;
+        })
+        .filter(Boolean);
+
+    return parts.length > 0 ? parts.join(' · ') : 'No staged updates yet.';
 }
 
 function summarizeProviderStagedEntry(entry: ProviderStagedWorkEntry) {
@@ -4456,11 +4685,95 @@ const providerStagedPhotoPreviewStyle = {
     height: '100%' as const,
 };
 
+const providerPhotoGalleryGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 12,
+};
+
+const providerPhotoTileStyle = {
+    width: 156,
+    borderWidth: 1,
+    padding: 10,
+};
+
+const providerPhotoThumbWrapStyle = {
+    width: '100%' as const,
+    height: 116,
+    borderRadius: 14,
+    overflow: 'hidden' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    marginBottom: 8,
+};
+
+const providerPhotoThumbStyle = {
+    width: '100%' as const,
+    height: '100%' as const,
+};
+
+const providerMediaTitleStyle = {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900' as const,
+};
+
+const providerMediaMetaStyle = {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800' as const,
+    marginTop: 3,
+};
+
+const providerDetailsButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    borderWidth: 1,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    marginTop: 9,
+};
+
+const providerDetailsButtonTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const providerMediaDetailsStyle = {
+    marginTop: 8,
+    gap: 3,
+};
+
+const providerMediaPathStyle = {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800' as const,
+};
+
+const providerDocumentListStyle = {
+    gap: 8,
+    marginTop: 12,
+};
+
+const providerDocumentRowStyle = {
+    borderWidth: 1,
+    padding: 12,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'flex-start' as const,
+    gap: 10,
+};
+
+const providerDocumentDetailsStyle = {
+    width: '100%' as const,
+    marginTop: 4,
+};
+
 const providerClearButtonStyle = {
     alignSelf: 'flex-start' as const,
     marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
 };
 
 const buttonStyle = {
