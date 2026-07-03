@@ -49,8 +49,9 @@ import {
 import {
     addProviderStagedWork,
     clearProviderStagedWorkForItem,
-    loadProviderStagedWork,
+    loadProviderStagedWorkWithStatus,
     providerStagedWorkTypeLabel,
+    type ProviderStagingBackendStatus,
     type ProviderStagedWorkEntry,
     type ProviderStagedWorkPayload,
     type ProviderStagedWorkType,
@@ -354,6 +355,7 @@ export default function ItemScreen() {
     );
     const [message, setMessage] = useState('');
     const [providerStagedEntries, setProviderStagedEntries] = useState<ProviderStagedWorkEntry[]>([]);
+    const [providerStagingBackendStatus, setProviderStagingBackendStatus] = useState<ProviderStagingBackendStatus | null>(null);
     const [providerPanel, setProviderPanel] = useState<ProviderStagedPanel>('none');
     const [savingProviderWork, setSavingProviderWork] = useState(false);
     const [providerNoteText, setProviderNoteText] = useState('');
@@ -384,6 +386,7 @@ export default function ItemScreen() {
     useEffect(() => {
         if (!providerModeContext || !item) {
             setProviderStagedEntries([]);
+            setProviderStagingBackendStatus(null);
             setProviderPanel('none');
             return;
         }
@@ -407,17 +410,28 @@ export default function ItemScreen() {
     async function refreshProviderStagedEntries() {
         if (!providerModeContext || !item) {
             setProviderStagedEntries([]);
+            setProviderStagingBackendStatus(null);
             return;
         }
 
-        const entries = await loadProviderStagedWork({
-            companyId: providerModeContext.companyId,
-            propertyId: providerModeContext.propertyId,
-            itemId: item.id ? String(item.id) : null,
-            itemSlug: item.item_slug || String(slug),
-        });
+        try {
+            const result = await loadProviderStagedWorkWithStatus({
+                companyId: providerModeContext.companyId,
+                propertyId: providerModeContext.propertyId,
+                itemId: item.id ? String(item.id) : null,
+                itemSlug: item.item_slug || String(slug),
+            });
 
-        setProviderStagedEntries(entries);
+            setProviderStagedEntries(result.entries);
+            setProviderStagingBackendStatus(result.backendStatus);
+        } catch (error) {
+            const errorMessage = providerStagingErrorMessage(error);
+            setProviderStagingBackendStatus({
+                status: 'error',
+                message: `Provider staging backend error: ${errorMessage}`,
+            });
+            setMessage(`Provider staging backend error: ${errorMessage}`);
+        }
     }
 
     function openProviderPanel(panel: ProviderStagedPanel) {
@@ -471,7 +485,7 @@ export default function ItemScreen() {
                 }
             }
 
-            await addProviderStagedWork({
+            const savedEntry = await addProviderStagedWork({
                 type,
                 company_id: providerModeContext.companyId,
                 property_id: providerModeContext.propertyId,
@@ -486,10 +500,29 @@ export default function ItemScreen() {
             });
 
             await refreshProviderStagedEntries();
-            setMessage(successMessage);
+            const sourceMessage = savedEntry.source === 'provider_staging'
+                ? 'Saved to provider staging.'
+                : 'Local staged entry saved.';
+
+            setProviderStagingBackendStatus(savedEntry.source === 'provider_staging'
+                ? {
+                    status: 'connected',
+                    message: 'Provider staging backend: connected',
+                }
+                : {
+                    status: 'fallback',
+                    message: 'Provider staging backend unavailable: using local fallback',
+                }
+            );
+            setMessage(`${sourceMessage} ${successMessage}`);
             return true;
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'Could not stage provider work.');
+            const errorMessage = providerStagingErrorMessage(error);
+            setProviderStagingBackendStatus({
+                status: 'error',
+                message: `Provider staging backend error: ${errorMessage}`,
+            });
+            setMessage(`Provider staging backend error: ${errorMessage}`);
             return false;
         } finally {
             setSavingProviderWork(false);
@@ -513,7 +546,7 @@ export default function ItemScreen() {
             },
             providerNoteDestination === 'client_update'
                 ? 'Note staged for a future Client HomeOS update.'
-                : 'Company-only note staged locally.'
+                : 'Company-only note staged.'
         );
 
         if (saved) {
@@ -542,7 +575,7 @@ export default function ItemScreen() {
                 stage_for_client_update: providerFindingStageForUpdate,
                 stage_for_estimate: providerFindingStageForEstimate,
             },
-            'Finding staged locally for provider review.'
+            'Finding staged for provider review.'
         );
 
         if (saved) {
@@ -569,7 +602,7 @@ export default function ItemScreen() {
                 location: providerEditLocation.trim(),
                 notes: providerEditNotes.trim(),
             },
-            'Information edit staged locally. The client HomeOS record was not changed.'
+            'Information edit staged. The client HomeOS record was not changed.'
         );
 
         if (saved) {
@@ -593,7 +626,7 @@ export default function ItemScreen() {
                 location: providerRelatedLocation.trim(),
                 notes: providerRelatedNotes.trim(),
             },
-            'Related item staged locally. It was not added to the client HomeOS yet.'
+            'Related item staged. It was not added to the client HomeOS yet.'
         );
 
         if (saved) {
@@ -635,7 +668,7 @@ export default function ItemScreen() {
                 photo_type: photoType,
                 permanent_upload_ready: false,
             },
-            'Photo is staged locally for provider workflow. Permanent publishing comes later.'
+            'Photo is staged for provider workflow. Permanent publishing comes later.'
         );
     }
 
@@ -647,7 +680,7 @@ export default function ItemScreen() {
                 document_type: documentType,
                 permanent_upload_ready: false,
             },
-            'Document is staged locally for provider workflow. Permanent publishing comes later.'
+            'Document is staged for provider workflow. Permanent publishing comes later.'
         );
     }
 
@@ -690,16 +723,38 @@ export default function ItemScreen() {
     async function clearCurrentProviderStagedEntries() {
         if (!providerModeContext || !item) return;
 
-        await clearProviderStagedWorkForItem({
-            companyId: providerModeContext.companyId,
-            propertyId: providerModeContext.propertyId,
-            itemId: item.id ? String(item.id) : null,
-            itemSlug: item.item_slug || String(slug),
-        });
+        try {
+            const clearResult = await clearProviderStagedWorkForItem({
+                companyId: providerModeContext.companyId,
+                propertyId: providerModeContext.propertyId,
+                itemId: item.id ? String(item.id) : null,
+                itemSlug: item.item_slug || String(slug),
+            });
 
-        setProviderStagedEntries([]);
-        setProviderPanel('none');
-        setMessage('Local staged entries cleared for this item.');
+            setProviderStagedEntries(clearResult.remainingEntries);
+            setProviderStagingBackendStatus(clearResult.source === 'provider_staging'
+                ? {
+                    status: 'connected',
+                    message: 'Provider staging backend: connected',
+                }
+                : {
+                    status: 'fallback',
+                    message: 'Provider staging backend unavailable: using local fallback',
+                }
+            );
+            setProviderPanel('none');
+            setMessage(clearResult.source === 'provider_staging'
+                ? 'Provider staging entries cleared for this item. Local staged entries were not changed.'
+                : 'Local staged entries cleared for this item.'
+            );
+        } catch (error) {
+            const errorMessage = providerStagingErrorMessage(error);
+            setProviderStagingBackendStatus({
+                status: 'error',
+                message: `Provider staging backend error: ${errorMessage}`,
+            });
+            setMessage(`Provider staging backend error: ${errorMessage}`);
+        }
     }
 
     async function loadItem() {
@@ -2437,6 +2492,9 @@ export default function ItemScreen() {
                         {formatCompactDateTime(entry.created_at)}
                     </Text>
                 </View>
+                <Text style={[scaleStyle(providerStagedEntrySourceStyle), { color: theme.colors.mutedText }]}>
+                    {providerStagedSourceLabel(entry)} - {entry.status}
+                </Text>
                 <Text style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText }]}>
                     {summarizeProviderStagedEntry(entry)}
                 </Text>
@@ -2453,7 +2511,7 @@ export default function ItemScreen() {
                     <View>
                         <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Staged Updates</Text>
                         <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
-                            {providerStagedEntries.length} local {providerStagedEntries.length === 1 ? 'entry' : 'entries'}
+                            {providerStagedEntries.length} staged {providerStagedEntries.length === 1 ? 'entry' : 'entries'}
                         </Text>
                     </View>
                     {providerStagedEntries.length > 0 ? (
@@ -2467,7 +2525,22 @@ export default function ItemScreen() {
                     ) : null}
                 </View>
                 <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                    Provider work is staged locally for this company/client item. Publishing to the client HomeOS comes later.
+                    Provider work is saved to provider staging when available. Local fallback entries are labeled below. Publishing to the client HomeOS comes later.
+                </Text>
+                <Text
+                    style={[
+                        scaleStyle(providerStagingStatusTextStyle),
+                        {
+                            color: providerStagingStatusColor(
+                                providerStagingBackendStatus,
+                                theme.colors.mutedText,
+                                theme.colors.danger,
+                                theme.colors.primary
+                            ),
+                        },
+                    ]}
+                >
+                    {providerStagingStatusText(providerStagingBackendStatus)}
                 </Text>
                 <View style={scaleStyle(providerStagedListStyle)}>
                     {providerStagedEntries.length === 0 ? (
@@ -2485,7 +2558,7 @@ export default function ItemScreen() {
                 ) : null}
                 {providerStagedEntries.length > 0 ? (
                     <ThemedButton
-                        title="Clear Local Staged Entries"
+                        title="Clear Staged Entries"
                         variant="danger"
                         onPress={confirmClearProviderStagedEntries}
                         style={scaleStyle(providerClearButtonStyle)}
@@ -2516,6 +2589,21 @@ export default function ItemScreen() {
                             <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Provider Mode</Text>
                             <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
                                 Viewing client HomeOS for company {shortId(providerModeContext.companyId)}. Company notes, photos, findings, and edits are staged by default.
+                            </Text>
+                            <Text
+                                style={[
+                                    scaleStyle(providerStagingStatusTextStyle),
+                                    {
+                                        color: providerStagingStatusColor(
+                                            providerStagingBackendStatus,
+                                            theme.colors.mutedText,
+                                            theme.colors.danger,
+                                            theme.colors.primary
+                                        ),
+                                    },
+                                ]}
+                            >
+                                {providerStagingStatusText(providerStagingBackendStatus)}
                             </Text>
                             <View style={scaleStyle(providerModeButtonRowStyle)}>
                                 <ThemedButton
@@ -3503,6 +3591,42 @@ function summarizeProviderStagedEntry(entry: ProviderStagedWorkEntry) {
     return 'Marked for a future Client HomeOS update.';
 }
 
+function providerStagedSourceLabel(entry: ProviderStagedWorkEntry) {
+    return entry.source === 'provider_staging'
+        ? 'Saved to provider staging'
+        : 'Local staged entry';
+}
+
+function providerStagingStatusText(status: ProviderStagingBackendStatus | null) {
+    return status?.message || 'Provider staging backend: checking...';
+}
+
+function providerStagingStatusColor(
+    status: ProviderStagingBackendStatus | null,
+    fallbackColor: string,
+    errorColor: string,
+    connectedColor: string
+) {
+    if (status?.status === 'connected') return connectedColor;
+    if (status?.status === 'error') return errorColor;
+
+    return fallbackColor;
+}
+
+function providerStagingErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+
+    if (error && typeof error === 'object') {
+        const candidate = error as { message?: unknown; details?: unknown; hint?: unknown };
+        const parts = [candidate.message, candidate.details, candidate.hint]
+            .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+
+        if (parts.length > 0) return parts.join(' ');
+    }
+
+    return 'Unknown provider staging error.';
+}
+
 function payloadString(payload: ProviderStagedWorkPayload, key: string) {
     const value = payload[key];
 
@@ -3833,6 +3957,13 @@ const providerModeButtonTextStyle = {
     fontSize: 12,
 };
 
+const providerStagingStatusTextStyle = {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900' as const,
+};
+
 const providerFormCardStyle = {
     borderRadius: 20,
     padding: 18,
@@ -3930,6 +4061,12 @@ const providerStagedEntryTypeStyle = {
 const providerStagedEntryDateStyle = {
     fontSize: 12,
     fontWeight: '800' as const,
+};
+
+const providerStagedEntrySourceStyle = {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '900' as const,
 };
 
 const providerStagedEntrySummaryStyle = {
