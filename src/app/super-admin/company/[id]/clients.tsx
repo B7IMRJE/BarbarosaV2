@@ -475,6 +475,7 @@ export default function CompanyClientsScreen() {
                             {visibleClients.map((client) => (
                                 <ClientCard
                                     key={client.id}
+                                    companyId={String(id || '')}
                                     client={client}
                                     property={propertiesById[client.property_id]}
                                     preferredStatus={preferredByPropertyId[client.property_id]}
@@ -754,10 +755,12 @@ function CustomerInviteRow({
 }
 
 function ClientCard({
+    companyId,
     client,
     property,
     preferredStatus,
 }: {
+    companyId: string;
     client: CompanyClient;
     property?: PropertyRecord;
     preferredStatus?: string;
@@ -765,9 +768,10 @@ function ClientCard({
     const { theme } = useTheme();
     const displayName = client.display_name || property?.name || 'Home';
     const linkedAt = client.connected_at || client.first_requested_at || client.created_at;
+    const clientRoute = `/super-admin/company/${companyId}/client/${client.property_id}` as Href;
 
     return (
-        <ThemedCard>
+        <ThemedCard onPress={() => router.push(clientRoute)}>
             <Text style={[cardTitleStyle, { color: theme.colors.text }]}>{displayName}</Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Status: {formatStatus(client.status)}
@@ -784,6 +788,12 @@ function ClientCard({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Linked: {formatDate(linkedAt)}
             </Text>
+            <ThemedButton
+                title="Open Customer Home"
+                variant="secondary"
+                onPress={() => router.push(clientRoute)}
+                style={{ marginTop: 12 }}
+            />
         </ThemedCard>
     );
 }

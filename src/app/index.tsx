@@ -2,6 +2,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import HomeIdentityCard from '../components/HomeIdentityCard';
+import PendingCustomerInvitesCard from '../components/PendingCustomerInvitesCard';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -586,6 +587,11 @@ export default function HomeScreen() {
           identity={homeIdentity}
           loading={homeIdentityLoading}
           onEdit={() => router.push('/home/edit' as any)}
+        />
+
+        <PendingCustomerInvitesCard
+          compact
+          onAccepted={loadHomeHealthData}
         />
 
         <View style={summaryGridStyle}>

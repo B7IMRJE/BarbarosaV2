@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import PendingCustomerInvitesCard from '../../components/PendingCustomerInvitesCard';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { supabase } from '../../lib/supabase';
 import { themeOptions } from '../../theme';
@@ -193,6 +194,8 @@ export default function ProfileScreen() {
                         </View>
                     </View>
                 </ThemedCard>
+
+                <PendingCustomerInvitesCard compact />
 
                 <Text
                     style={{
