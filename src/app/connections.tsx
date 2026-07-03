@@ -54,6 +54,12 @@ type CompanyRecord = {
     short_description: string | null;
 };
 
+type CompanyCategoryOption = {
+    key: string;
+    label: string;
+    inferred: boolean;
+};
+
 type ConnectionAction = 'approve' | 'decline';
 
 type ProviderConnectionRequestResult = {
@@ -153,20 +159,38 @@ export default function ConnectionsScreen() {
 
         return Array.from(new Set(keys));
     }, [allCompaniesById, currentProviderCompanyIds]);
-    const availableProviderCompanies = useMemo(() => {
-        return approvedCompanies.filter((company) => {
-            if (currentProviderCompanyIds.includes(company.id)) return false;
+    const selectedProviderCategoryLabels = useMemo(() => {
+        return selectedProviderCategoryKeys.map((categoryKey) => formatProviderCategoryLabel(categoryKey));
+    }, [selectedProviderCategoryKeys]);
+    const availableProviderFilterResult = useMemo(() => {
+        return approvedCompanies.reduce<{
+            companies: CompanyRecord[];
+            categoryHiddenCount: number;
+        }>(
+            (result, company) => {
+                if (currentProviderCompanyIds.includes(company.id)) {
+                    return result;
+                }
 
-            const companyCategoryKeys = getCompanyCategoryKeys(company);
+                const companyCategoryKeys = getCompanyCategoryKeys(company);
 
-            if (selectedProviderCategoryKeys.length === 0 || companyCategoryKeys.length === 0) {
-                return true;
-            }
+                if (
+                    selectedProviderCategoryKeys.length > 0 &&
+                    companyCategoryKeys.length > 0 &&
+                    hasCategoryOverlap(companyCategoryKeys, selectedProviderCategoryKeys)
+                ) {
+                    result.categoryHiddenCount += 1;
+                    return result;
+                }
 
-            return !hasCategoryOverlap(companyCategoryKeys, selectedProviderCategoryKeys);
-        });
+                result.companies.push(company);
+                return result;
+            },
+            { companies: [], categoryHiddenCount: 0 }
+        );
     }, [approvedCompanies, currentProviderCompanyIds, selectedProviderCategoryKeys]);
-    const hiddenAvailableProviderCount = approvedCompanies.length - availableProviderCompanies.length;
+    const availableProviderCompanies = availableProviderFilterResult.companies;
+    const hiddenAvailableProviderCount = availableProviderFilterResult.categoryHiddenCount;
     const connectedConnections = useMemo(
         () =>
             connections.filter(
@@ -592,6 +616,7 @@ export default function ConnectionsScreen() {
                     loading={approvedCompaniesLoading}
                     error={approvedCompaniesError}
                     hiddenProviderCount={hiddenAvailableProviderCount}
+                    selectedCategoryLabels={selectedProviderCategoryLabels}
                     requestingCompanyId={providerActionCompanyId}
                     providerStatusByCompanyId={providerStatusByCompanyId}
                     onRequestConnection={handleProviderSelection}
@@ -649,6 +674,7 @@ function AvailableProvidersSection({
     loading,
     error,
     hiddenProviderCount,
+    selectedCategoryLabels,
     requestingCompanyId,
     providerStatusByCompanyId,
     onRequestConnection,
@@ -657,6 +683,7 @@ function AvailableProvidersSection({
     loading: boolean;
     error: string;
     hiddenProviderCount: number;
+    selectedCategoryLabels: string[];
     requestingCompanyId: string;
     providerStatusByCompanyId: Record<string, string>;
     onRequestConnection: (company: CompanyRecord) => void | Promise<void>;
@@ -700,7 +727,7 @@ function AvailableProvidersSection({
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                             {hiddenProviderCount > 0
-                                ? 'Your current provider already covers the available service category.'
+                                ? formatAvailableProviderEmptyText(selectedCategoryLabels)
                                 : 'No available providers are listed yet.'}
                         </Text>
                     </ThemedCard>
@@ -1367,64 +1394,157 @@ function getCompanyDbaName(company: CompanyRecord | undefined, displayName: stri
 }
 
 function getCompanyCategories(company?: CompanyRecord) {
-    const categories = (company?.service_categories || [])
-        .map((category) => category.trim())
-        .filter(Boolean);
+    const categories = getCompanyCategoryOptions(company).map((category) => category.label);
 
     return categories.length > 0 ? categories : ['No categories listed'];
 }
 
 function getCompanyCategoryKeys(company?: CompanyRecord) {
-    const keys = (company?.service_categories || [])
-        .map((category) => normalizeProviderCategory(category))
-        .filter((categoryKey) => categoryKey.length > 0);
+    const keys = getCompanyCategoryOptions(company).map((category) => category.key);
 
     return Array.from(new Set(keys));
 }
 
-function normalizeProviderCategory(category: string) {
-    const text = category.trim().toLowerCase();
-    const compactText = text.replace(/[^a-z0-9]+/g, ' ');
+function getCompanyCategoryOptions(company?: CompanyRecord) {
+    const categoriesByKey = new Map<string, CompanyCategoryOption>();
 
-    if (!compactText) return '';
+    (company?.service_categories || []).forEach((category) => {
+        const label = category.trim();
+
+        if (!label) return;
+
+        const categoryKeys = inferProviderCategoryKeysFromText(label);
+        const keys = categoryKeys.length > 0 ? categoryKeys : [slugifyProviderCategory(label)];
+
+        keys.forEach((categoryKey) => {
+            addCompanyCategoryOption(categoriesByKey, {
+                key: categoryKey,
+                label,
+                inferred: false,
+            });
+        });
+    });
+
+    inferProviderCategoryKeysFromText(getCompanyCategoryInferenceText(company)).forEach((categoryKey) => {
+        addCompanyCategoryOption(categoriesByKey, {
+            key: categoryKey,
+            label: formatProviderCategoryLabel(categoryKey),
+            inferred: true,
+        });
+    });
+
+    return Array.from(categoriesByKey.values());
+}
+
+function addCompanyCategoryOption(
+    categoriesByKey: Map<string, CompanyCategoryOption>,
+    category: CompanyCategoryOption
+) {
+    const existingCategory = categoriesByKey.get(category.key);
+
+    if (existingCategory && !existingCategory.inferred) return;
+
+    categoriesByKey.set(category.key, category);
+}
+
+function getCompanyCategoryInferenceText(company?: CompanyRecord) {
+    return [
+        company?.public_name,
+        company?.name,
+        company?.dba_name,
+        company?.short_description,
+        company?.website,
+    ]
+        .map((value) => value?.trim() || '')
+        .filter(Boolean)
+        .join(' ');
+}
+
+function inferProviderCategoryKeysFromText(value: string) {
+    const compactText = normalizeProviderCategoryText(value);
+    const categoryKeys: string[] = [];
+
+    if (!compactText) return [];
 
     if (
         compactText.includes('plumb') ||
+        compactText.includes('plumber') ||
         compactText.includes('water heater') ||
         compactText.includes('waterheater') ||
+        compactText.includes('tankless') ||
         compactText.includes('drain') ||
         compactText.includes('sewer') ||
         compactText.includes('repipe') ||
-        compactText.includes('pipe') ||
+        compactText.includes('slab leak') ||
         compactText.includes('leak') ||
-        compactText.includes('gas') ||
+        compactText.includes('gas line') ||
+        compactText.includes('gasline') ||
+        compactText.includes('water line') ||
+        compactText.includes('waterline') ||
         compactText.includes('water treatment') ||
         compactText.includes('water quality')
     ) {
-        return 'plumbing';
+        categoryKeys.push('plumbing');
     }
 
     if (/\b(hvac|heating|cooling|air conditioning|air conditioner|furnace)\b/.test(compactText)) {
-        return 'hvac';
+        categoryKeys.push('hvac');
     }
 
     if (/\b(electric|electrical|outlet|breaker|panel)\b/.test(compactText)) {
-        return 'electrical';
+        categoryKeys.push('electrical');
     }
 
     if (/\b(roof|roofing|gutter)\b/.test(compactText)) {
-        return 'roofing';
+        categoryKeys.push('roofing');
     }
 
     if (/\b(paint|painting|drywall)\b/.test(compactText)) {
-        return 'painting';
+        categoryKeys.push('painting');
     }
 
     if (/\b(siding|stucco|exterior)\b/.test(compactText)) {
-        return 'exterior';
+        categoryKeys.push('exterior');
     }
 
-    return compactText.replace(/\s+/g, '-');
+    return Array.from(new Set(categoryKeys));
+}
+
+function normalizeProviderCategoryText(value: string) {
+    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+}
+
+function slugifyProviderCategory(value: string) {
+    return normalizeProviderCategoryText(value).replace(/\s+/g, '-');
+}
+
+function formatProviderCategoryLabel(categoryKey: string) {
+    const labels: Record<string, string> = {
+        plumbing: 'Plumbing',
+        hvac: 'HVAC',
+        electrical: 'Electrical',
+        roofing: 'Roofing',
+        painting: 'Painting',
+        exterior: 'Exterior',
+    };
+
+    if (labels[categoryKey]) return labels[categoryKey];
+
+    return categoryKey
+        .split('-')
+        .filter(Boolean)
+        .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
+        .join(' ');
+}
+
+function formatAvailableProviderEmptyText(selectedCategoryLabels: string[]) {
+    if (selectedCategoryLabels.length === 0) return 'No other provider categories available right now.';
+
+    if (selectedCategoryLabels.length === 1) {
+        return `You already have a ${selectedCategoryLabels[0]} provider selected.`;
+    }
+
+    return `You already have providers selected for ${selectedCategoryLabels.join(', ')}.`;
 }
 
 function hasCategoryOverlap(firstCategoryKeys: string[], secondCategoryKeys: string[]) {
