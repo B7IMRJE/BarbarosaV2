@@ -5,7 +5,10 @@ const ESTIMATE_DRAFT_KEY = 'homeos_estimate_draft_v1';
 export type EstimateDraftScope = {
     userId: string;
     companyId: string;
+    propertyId?: string | null;
 };
+
+export type EstimateDraftSource = 'provider_mode' | 'management' | 'homeos';
 
 export type EstimateDraftItem = {
     id: string;
@@ -21,6 +24,7 @@ export type EstimateDraftItem = {
     install_state: string | null;
     company_id: string | null;
     company_user_id: string | null;
+    source?: EstimateDraftSource | null;
     created_at: string | null;
 };
 
@@ -41,7 +45,9 @@ function isEstimateDraftItem(value: unknown): value is EstimateDraftItem {
 function draftStorageKey(scope?: EstimateDraftScope | null) {
     if (!scope) return ESTIMATE_DRAFT_KEY;
 
-    return `${ESTIMATE_DRAFT_KEY}_${scope.userId}_${scope.companyId}`;
+    const propertyKey = scope.propertyId ? String(scope.propertyId).trim() : 'company';
+
+    return `${ESTIMATE_DRAFT_KEY}_${scope.userId}_${scope.companyId}_${propertyKey}`;
 }
 
 function normalizeDraftItem(item: EstimateDraftItem): EstimateDraftItem {
@@ -59,6 +65,7 @@ function normalizeDraftItem(item: EstimateDraftItem): EstimateDraftItem {
         install_state: item.install_state || null,
         company_id: item.company_id || null,
         company_user_id: item.company_user_id || null,
+        source: item.source || null,
         created_at: item.created_at || null,
     };
 }

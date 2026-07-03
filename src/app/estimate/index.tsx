@@ -12,6 +12,10 @@ import {
     loadEstimateDraft,
     removeItemFromEstimateDraft,
 } from '../../lib/estimateDraft';
+import {
+    readProviderModeParams,
+    validateProviderModeAccess,
+} from '../../lib/providerMode';
 
 const estimateFoundationSections = [
     {
@@ -33,14 +37,18 @@ const estimateFoundationSections = [
 ];
 
 export default function EstimateScreen() {
-    const { companyId, propertyId, mode } = useLocalSearchParams<{
+    const { companyId, propertyId, mode, providerMode, returnTo } = useLocalSearchParams<{
         companyId?: string | string[];
         propertyId?: string | string[];
         mode?: string | string[];
+        providerMode?: string | string[];
+        returnTo?: string | string[];
     }>();
     const requestedCompanyId = firstParam(companyId);
     const requestedPropertyId = firstParam(propertyId);
     const requestedMode = firstParam(mode);
+    const requestedReturnTo = firstParam(returnTo);
+    const providerModeContext = readProviderModeParams({ providerMode, companyId, propertyId, returnTo });
     const [items, setItems] = useState<EstimateDraftItem[]>([]);
     const [message, setMessage] = useState('Loading estimate draft...');
     const [checkingAccess, setCheckingAccess] = useState(true);
@@ -48,7 +56,7 @@ export default function EstimateScreen() {
 
     useEffect(() => {
         void checkAccess();
-    }, [requestedCompanyId]);
+    }, [requestedCompanyId, requestedPropertyId, providerModeContext?.providerMode]);
 
     async function checkAccess() {
         setCheckingAccess(true);
@@ -56,18 +64,53 @@ export default function EstimateScreen() {
         setItems([]);
         setMessage('Loading estimate draft...');
 
+        if (providerModeContext) {
+            const providerAccess = await validateProviderModeAccess(
+                providerModeContext.companyId,
+                providerModeContext.propertyId
+            );
+
+            if (!providerAccess.access) {
+                setCheckingAccess(false);
+                setMessage(`Estimate permission unavailable: ${providerAccess.error || 'Provider mode access could not be confirmed.'}`);
+                return;
+            }
+
+            const access: CompanyPermissionAccess = {
+                userId: providerAccess.access.userId,
+                companyUserId: providerAccess.access.companyUserId,
+                companyId: providerAccess.access.companyId,
+                role: providerAccess.access.role,
+                status: providerAccess.access.status,
+                permissions: providerAccess.access.permissions,
+            };
+
+            if (!access.permissions.can_add_item_to_estimate) {
+                setEstimateAccess(null);
+                setCheckingAccess(false);
+                setMessage('Estimate access unavailable: You do not have permission to add estimates.');
+                return;
+            }
+
+            setEstimateAccess(access);
+            setCheckingAccess(false);
+            await loadDraft(access);
+            return;
+        }
+
         const permission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', {
             companyId: requestedCompanyId,
         });
 
-        setEstimateAccess(permission.access);
-        setCheckingAccess(false);
-
         if (!permission.access) {
+            setEstimateAccess(null);
+            setCheckingAccess(false);
             setMessage(permission.error || '');
             return;
         }
 
+        setEstimateAccess(permission.access);
+        setCheckingAccess(false);
         await loadDraft(permission.access);
     }
 
@@ -75,10 +118,14 @@ export default function EstimateScreen() {
         const draftItems = await loadEstimateDraft({
             userId: access.userId,
             companyId: access.companyId,
+            propertyId: requestedPropertyId,
         });
 
         setItems(draftItems);
-        setMessage('');
+        setMessage(providerModeContext && draftItems.length === 0
+            ? 'No provider estimate draft found.'
+            : ''
+        );
     }
 
     async function removeItem(id: string) {
@@ -87,10 +134,45 @@ export default function EstimateScreen() {
         const nextItems = await removeItemFromEstimateDraft(id, {
             userId: estimateAccess.userId,
             companyId: estimateAccess.companyId,
+            propertyId: requestedPropertyId,
         });
 
         setItems(nextItems);
         setMessage('Item removed from estimate.');
+    }
+
+    function providerClientHomeOsPath() {
+        if (!providerModeContext) return '/';
+
+        return `/super-admin/company/${encodeURIComponent(providerModeContext.companyId)}/client/${encodeURIComponent(providerModeContext.propertyId)}/homeos`;
+    }
+
+    function providerCompanyDashboardPath() {
+        if (!providerModeContext) return '/super-admin';
+
+        return `/super-admin/company/${encodeURIComponent(providerModeContext.companyId)}`;
+    }
+
+    function goBackToItem() {
+        if (requestedReturnTo) {
+            router.push(requestedReturnTo as never);
+            return;
+        }
+
+        if (items[0]) {
+            openDraftItem(items[0]);
+            return;
+        }
+
+        router.push(providerClientHomeOsPath() as never);
+    }
+
+    function goBackToClientHomeOs() {
+        router.push(providerClientHomeOsPath() as never);
+    }
+
+    function goToCompanyDashboard() {
+        router.push(providerCompanyDashboardPath() as never);
     }
 
     function openDraftItem(item: EstimateDraftItem) {
@@ -101,7 +183,10 @@ export default function EstimateScreen() {
 
         if (routeCompanyId) queryParams.set('companyId', routeCompanyId);
         if (routePropertyId) queryParams.set('propertyId', routePropertyId);
-        if (requestedMode === 'management' || (routeCompanyId && routePropertyId)) {
+        if (providerModeContext) {
+            queryParams.set('providerMode', '1');
+            queryParams.set('returnTo', providerClientHomeOsPath());
+        } else if (requestedMode === 'management' || (routeCompanyId && routePropertyId)) {
             queryParams.set('mode', 'management');
         }
 
@@ -134,18 +219,47 @@ export default function EstimateScreen() {
 
                 <View style={headerRowStyle}>
                     <View>
-                        <Text style={titleStyle}>Estimate Draft</Text>
+                        <Text style={titleStyle}>
+                            {providerModeContext ? 'Provider Estimate Draft' : 'Estimate Draft'}
+                        </Text>
                         <Text style={subtitleStyle}>
-                            Selected home items for a future estimate.
+                            {providerModeContext
+                                ? 'Provider estimate draft for this client HomeOS.'
+                                : 'Selected home items for a future estimate.'}
                         </Text>
                     </View>
 
-                    <TouchableOpacity
-                        onPress={() => router.back()}
-                        style={secondaryButtonStyle}
-                    >
-                        <Text style={secondaryButtonTextStyle}>Back</Text>
-                    </TouchableOpacity>
+                    {providerModeContext ? (
+                        <View style={providerNavStyle}>
+                            <TouchableOpacity
+                                onPress={goBackToItem}
+                                style={secondaryButtonStyle}
+                            >
+                                <Text style={secondaryButtonTextStyle}>Back to Item</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={goBackToClientHomeOs}
+                                style={secondaryButtonStyle}
+                            >
+                                <Text style={secondaryButtonTextStyle}>Back to Client HomeOS</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={goToCompanyDashboard}
+                                style={secondaryButtonStyle}
+                            >
+                                <Text style={secondaryButtonTextStyle}>Company Dashboard</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <TouchableOpacity
+                            onPress={() => router.back()}
+                            style={secondaryButtonStyle}
+                        >
+                            <Text style={secondaryButtonTextStyle}>Back</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 <TouchableOpacity disabled style={disabledButtonStyle}>
@@ -153,6 +267,18 @@ export default function EstimateScreen() {
                         Estimate pricing and customer approval are coming soon.
                     </Text>
                 </TouchableOpacity>
+
+                <View style={messageBoxStyle}>
+                    <Text style={messageTextStyle}>
+                        Company: {shortId(estimateAccess.companyId)}
+                    </Text>
+                    <Text style={messageTextStyle}>
+                        Customer/Home Property: {shortId(requestedPropertyId)}
+                    </Text>
+                    <Text style={messageTextStyle}>
+                        Context: {providerModeContext ? 'Provider Mode' : requestedMode || 'ManagementOS'}
+                    </Text>
+                </View>
 
                 {!!message && (
                     <View style={messageBoxStyle}>
@@ -173,7 +299,9 @@ export default function EstimateScreen() {
                     <View style={emptyBoxStyle}>
                         <Text style={emptyTitleStyle}>No estimate items yet.</Text>
                         <Text style={emptyTextStyle}>
-                            Add equipment or fixtures to start building an estimate.
+                            {providerModeContext
+                                ? 'No provider estimate draft found.'
+                                : 'Add equipment or fixtures to start building an estimate.'}
                         </Text>
                     </View>
                 ) : (
@@ -269,6 +397,14 @@ const headerRowStyle = {
     alignItems: 'flex-start' as const,
     gap: 16,
     marginBottom: 24,
+};
+
+const providerNavStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'flex-end' as const,
+    gap: 8,
+    maxWidth: 520,
 };
 
 const titleStyle = {

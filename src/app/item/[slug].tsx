@@ -43,8 +43,10 @@ import {
     type RecurrenceUnit,
 } from '../../lib/maintenanceTimers';
 import {
+    providerModeItemPath,
     providerModeQueryParams,
     readProviderModeParams,
+    validateProviderModeAccess,
 } from '../../lib/providerMode';
 import {
     addProviderStagedWork,
@@ -340,6 +342,8 @@ export default function ItemScreen() {
     const [photoCategory, setPhotoCategory] = useState('equipment_photo');
     const [selectedDocumentType, setSelectedDocumentType] = useState<string | null>(null);
     const [estimateAccess, setEstimateAccess] = useState<CompanyPermissionAccess | null>(null);
+    const [checkingEstimateAccess, setCheckingEstimateAccess] = useState(false);
+    const [estimatePermissionMessage, setEstimatePermissionMessage] = useState('');
     const [removingFileId, setRemovingFileId] = useState<string | null>(null);
     const [addingMaintenanceKey, setAddingMaintenanceKey] = useState<string | null>(null);
     const [completingMaintenanceId, setCompletingMaintenanceId] = useState<string | null>(null);
@@ -757,9 +761,61 @@ export default function ItemScreen() {
         }
     }
 
+    async function loadEstimateAccessForCurrentContext(companyId?: string | null) {
+        setCheckingEstimateAccess(true);
+        setEstimateAccess(null);
+        setEstimatePermissionMessage('Checking estimate permission...');
+
+        try {
+            if (providerModeContext) {
+                const providerAccess = await validateProviderModeAccess(
+                    providerModeContext.companyId,
+                    providerModeContext.propertyId
+                );
+
+                if (!providerAccess.access) {
+                    setEstimatePermissionMessage(
+                        `Estimate permission unavailable: ${providerAccess.error || 'Provider mode access could not be confirmed.'}`
+                    );
+                    return;
+                }
+
+                setEstimateAccess({
+                    userId: providerAccess.access.userId,
+                    companyUserId: providerAccess.access.companyUserId,
+                    companyId: providerAccess.access.companyId,
+                    role: providerAccess.access.role,
+                    status: providerAccess.access.status,
+                    permissions: providerAccess.access.permissions,
+                });
+
+                setEstimatePermissionMessage(
+                    providerAccess.access.permissions.can_add_item_to_estimate
+                        ? ''
+                        : 'Estimate permission unavailable: can_add_item_to_estimate is not enabled for this role. Provider mode company access is active, so provider estimate drafts are still available.'
+                );
+                return;
+            }
+
+            const estimatePermission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', {
+                companyId,
+            });
+
+            setEstimateAccess(estimatePermission.access);
+            setEstimatePermissionMessage(estimatePermission.access
+                ? ''
+                : `Estimate permission unavailable: ${estimatePermission.error || 'You do not have permission to add estimates.'}`
+            );
+        } finally {
+            setCheckingEstimateAccess(false);
+        }
+    }
+
     async function loadItem() {
         setLoading(true);
         setEstimateAccess(null);
+        setEstimatePermissionMessage('');
+        setCheckingEstimateAccess(false);
         setFiles([]);
         setMaintenanceTasks([]);
 
@@ -791,10 +847,7 @@ export default function ItemScreen() {
             return;
         }
 
-        const estimatePermission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', {
-            companyId: providerModeContext?.companyId,
-        });
-        setEstimateAccess(estimatePermission.access);
+        await loadEstimateAccessForCurrentContext(providerModeContext?.companyId);
 
         const { data, error } = await supabase
             .from('home_items')
@@ -862,6 +915,10 @@ export default function ItemScreen() {
         }
 
         setEstimateAccess(estimateLookup.access);
+        setEstimatePermissionMessage(estimateLookup.access
+            ? ''
+            : `Estimate permission unavailable: ${estimateLookup.error || 'You do not have permission to add estimates.'}`
+        );
 
         const { data: clientData, error: clientError } = await supabase
             .from('company_property_clients')
@@ -1411,14 +1468,20 @@ export default function ItemScreen() {
 
     async function handleAddToEstimate() {
         if (!estimateAccess) {
-            setMessage('You need an active company role with estimate permission to add this item.');
+            setMessage(estimatePermissionMessage || 'You do not have permission to add estimates.');
             return;
         }
 
+        const estimateCompanyId = providerModeContext?.companyId || estimateAccess.companyId;
+        const estimatePropertyId = providerModeContext?.propertyId || item.property_id || managementPropertyId || '';
+        const estimateSource = providerModeContext ? 'provider_mode' : isManagementMode ? 'management' : 'homeos';
+
         await addItemToEstimateDraft({
             id: String(item.id || item.item_slug || slug),
-            property_id: item.property_id || null,
-            customer_home_name: providerModeContext ? 'Client HomeOS' : null,
+            property_id: estimatePropertyId || item.property_id || null,
+            customer_home_name: providerModeContext
+                ? `Client HomeOS ${shortId(estimatePropertyId)}`
+                : null,
             name: item.name || 'Unknown Item',
             item_slug: item.item_slug || String(slug),
             system: item.system || 'Unknown',
@@ -1427,21 +1490,42 @@ export default function ItemScreen() {
             parent_area: item.parent_area || null,
             status: item.status || null,
             install_state: item.install_state || null,
-            company_id: estimateAccess.companyId,
+            company_id: estimateCompanyId,
             company_user_id: estimateAccess.companyUserId,
+            source: estimateSource,
             created_at: new Date().toISOString(),
         }, {
             userId: estimateAccess.userId,
-            companyId: estimateAccess.companyId,
+            companyId: estimateCompanyId,
+            propertyId: estimatePropertyId || null,
         });
+
+        if (providerModeContext) {
+            const providerItemReturnTo = String(providerModeItemPath(
+                item.item_slug || String(slug),
+                providerModeContext
+            ));
+
+            router.push({
+                pathname: '/estimate',
+                params: {
+                    providerMode: '1',
+                    companyId: estimateCompanyId,
+                    propertyId: estimatePropertyId,
+                    itemSlug: item.item_slug || String(slug),
+                    returnTo: providerItemReturnTo,
+                },
+            } as any);
+            return;
+        }
 
         router.push({
             pathname: '/estimate',
             params: {
-                companyId: estimateAccess.companyId,
-                propertyId: item.property_id || managementPropertyId || providerModeContext?.propertyId || '',
+                companyId: estimateCompanyId,
+                propertyId: estimatePropertyId,
                 itemSlug: item.item_slug || String(slug),
-                mode: isManagementMode || providerModeContext ? 'management' : '',
+                mode: isManagementMode ? 'management' : '',
             },
         } as any);
     }
@@ -1942,6 +2026,11 @@ export default function ItemScreen() {
     }
 
     const canAddItemToEstimate = Boolean(estimateAccess);
+    const showEstimateUnavailableMessage = Boolean(
+        !checkingEstimateAccess &&
+        estimatePermissionMessage &&
+        (!estimateAccess || providerModeContext)
+    );
 
     if (isManagementMode) {
         const managementBackRoute = `/super-admin/company/${managementCompanyId}/client/${managementPropertyId}/items`;
@@ -1989,6 +2078,24 @@ export default function ItemScreen() {
                         </Text>
                     </ThemedCard>
 
+                    {checkingEstimateAccess && (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Estimate</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                Checking estimate permission...
+                            </Text>
+                        </ThemedCard>
+                    )}
+
+                    {showEstimateUnavailableMessage && (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Estimate</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                {estimatePermissionMessage}
+                            </Text>
+                        </ThemedCard>
+                    )}
+
                     <View style={scaleStyle(actionGridStyle)}>
                         {canAddItemToEstimate && (
                             <>
@@ -2004,9 +2111,13 @@ export default function ItemScreen() {
                                     onPress={() => router.push({
                                         pathname: '/estimate',
                                         params: {
-                                            companyId: estimateAccess?.companyId || managementCompanyId || '',
-                                            propertyId: item.property_id || managementPropertyId || '',
-                                            mode: 'management',
+                                            companyId: estimateAccess?.companyId || managementCompanyId || providerModeContext?.companyId || '',
+                                            propertyId: item.property_id || managementPropertyId || providerModeContext?.propertyId || '',
+                                            mode: isManagementMode ? 'management' : '',
+                                            providerMode: providerModeContext ? '1' : '',
+                                            returnTo: providerModeContext
+                                                ? String(providerModeItemPath(item.item_slug || String(slug), providerModeContext))
+                                                : '',
                                         },
                                     } as never)}
                                     style={scaleStyle(buttonStyle)}
@@ -2937,6 +3048,24 @@ export default function ItemScreen() {
                         labelForOption={photoLabel}
                     />
 
+                    {checkingEstimateAccess && (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Estimate</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                Checking estimate permission...
+                            </Text>
+                        </ThemedCard>
+                    )}
+
+                    {showEstimateUnavailableMessage && (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Estimate</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                {estimatePermissionMessage}
+                            </Text>
+                        </ThemedCard>
+                    )}
+
                     <View style={scaleStyle(actionGridStyle)}>
                         {canAddItemToEstimate && (
                             <>
@@ -2952,9 +3081,13 @@ export default function ItemScreen() {
                                     onPress={() => router.push({
                                         pathname: '/estimate',
                                         params: {
-                                            companyId: estimateAccess?.companyId || managementCompanyId || '',
-                                            propertyId: item.property_id || managementPropertyId || '',
-                                            mode: isManagementMode || providerModeContext ? 'management' : '',
+                                            companyId: estimateAccess?.companyId || managementCompanyId || providerModeContext?.companyId || '',
+                                            propertyId: providerModeContext?.propertyId || item.property_id || managementPropertyId || '',
+                                            mode: isManagementMode ? 'management' : '',
+                                            providerMode: providerModeContext ? '1' : '',
+                                            returnTo: providerModeContext
+                                                ? String(providerModeItemPath(item.item_slug || String(slug), providerModeContext))
+                                                : '',
                                         },
                                     } as never)}
                                     style={scaleStyle(buttonStyle)}

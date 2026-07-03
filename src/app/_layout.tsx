@@ -366,8 +366,7 @@ function isEstimatePath(pathname: string) {
   return pathname === ESTIMATE_ROUTE || pathname.startsWith(`${ESTIMATE_ROUTE}/`);
 }
 
-function isProviderModeHomeOsPath(
-  pathname: string,
+function hasValidProviderModeRouteParams(
   routeParams: ProviderModeRouteParams,
   allowedCompanyIds?: string[]
 ) {
@@ -382,6 +381,16 @@ function isProviderModeHomeOsPath(
     return false;
   }
 
+  return true;
+}
+
+function isProviderModeHomeOsPath(
+  pathname: string,
+  routeParams: ProviderModeRouteParams,
+  allowedCompanyIds?: string[]
+) {
+  if (!hasValidProviderModeRouteParams(routeParams, allowedCompanyIds)) return false;
+
   return (
     pathname === HOME_ROUTE ||
     pathname === '/area/create' ||
@@ -390,6 +399,14 @@ function isProviderModeHomeOsPath(
     pathname.startsWith('/item/') ||
     pathname.startsWith('/system/')
   );
+}
+
+function isProviderModeEstimatePath(
+  pathname: string,
+  routeParams: ProviderModeRouteParams,
+  allowedCompanyIds?: string[]
+) {
+  return isEstimatePath(pathname) && hasValidProviderModeRouteParams(routeParams, allowedCompanyIds);
 }
 
 function resolveRedirectForPath(
@@ -413,6 +430,7 @@ function resolveRedirectForPath(
     if (
       isSuperAdminPath(pathname) ||
       isProviderModeHomeOsPath(pathname, routeParams) ||
+      isProviderModeEstimatePath(pathname, routeParams) ||
       isTechOSPath(pathname) ||
       isDispatchPath(pathname) ||
       isSchedulePath(pathname) ||

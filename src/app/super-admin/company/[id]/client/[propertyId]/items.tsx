@@ -333,10 +333,12 @@ export default function CompanyClientItemsScreen() {
             install_state: item.install_state || null,
             company_id: estimateAccess.companyId,
             company_user_id: estimateAccess.companyUserId,
+            source: 'management',
             created_at: new Date().toISOString(),
         }, {
             userId: estimateAccess.userId,
             companyId: estimateAccess.companyId,
+            propertyId: item.property_id || clientPropertyId,
         });
 
         router.push({
