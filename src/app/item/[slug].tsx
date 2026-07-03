@@ -26,7 +26,7 @@ import {
     loadCurrentCompanyPermissionAccess,
     type CompanyPermissionAccess,
 } from '../../lib/companyPermissions';
-import { addItemToEstimateDraft } from '../../lib/estimateDraft';
+import { addItemToEstimateDraft, loadEstimateDraft } from '../../lib/estimateDraft';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import {
     calculateNextDueDate,
@@ -1706,9 +1706,25 @@ export default function ItemScreen() {
         const estimateCompanyId = providerModeContext?.companyId || estimateAccess.companyId;
         const estimatePropertyId = providerModeContext?.propertyId || item.property_id || managementPropertyId || '';
         const estimateSource = providerModeContext ? 'provider_mode' : isManagementMode ? 'management' : 'homeos';
+        const draftItemId = String(item.id || item.item_slug || slug);
+        const draftScope = {
+            userId: estimateAccess.userId,
+            companyId: estimateCompanyId,
+            propertyId: estimatePropertyId || null,
+        };
+
+        if (providerModeContext) {
+            const existingDraft = await loadEstimateDraft(draftScope);
+            const alreadyInDraft = existingDraft.some((draftItem) => draftItem.id === draftItemId);
+
+            if (alreadyInDraft) {
+                setMessage('Item is already in estimate.');
+                return;
+            }
+        }
 
         await addItemToEstimateDraft({
-            id: String(item.id || item.item_slug || slug),
+            id: draftItemId,
             property_id: estimatePropertyId || item.property_id || null,
             customer_home_name: providerModeContext
                 ? `Client HomeOS ${shortId(estimatePropertyId)}`
@@ -1725,28 +1741,10 @@ export default function ItemScreen() {
             company_user_id: estimateAccess.companyUserId,
             source: estimateSource,
             created_at: new Date().toISOString(),
-        }, {
-            userId: estimateAccess.userId,
-            companyId: estimateCompanyId,
-            propertyId: estimatePropertyId || null,
-        });
+        }, draftScope);
 
         if (providerModeContext) {
-            const providerItemReturnTo = String(providerModeItemPath(
-                item.item_slug || String(slug),
-                providerModeContext
-            ));
-
-            router.push({
-                pathname: '/estimate',
-                params: {
-                    providerMode: '1',
-                    companyId: estimateCompanyId,
-                    propertyId: estimatePropertyId,
-                    itemSlug: item.item_slug || String(slug),
-                    returnTo: providerItemReturnTo,
-                },
-            } as any);
+            setMessage('Item added to estimate.');
             return;
         }
 
@@ -2385,6 +2383,10 @@ export default function ItemScreen() {
     const mediaBusyTitle = uploading ? 'Uploading...' : 'Opening...';
     const stagedPhotoEntries = providerStagedEntries.filter((entry) => entry.type === 'photo');
     const stagedDocumentEntries = providerStagedEntries.filter((entry) => entry.type === 'document');
+    const stagedMainPhotoEntry = stagedPhotoEntries.find(isProviderStagedMainPhotoEntry);
+    const stagedMainPhotoUrl = stagedMainPhotoEntry
+        ? providerStagedPhotoPreviewUrl(stagedMainPhotoEntry.payload)
+        : '';
 
     const groupedDocuments = documentCategories.map((category) => ({
         category,
@@ -3145,7 +3147,26 @@ export default function ItemScreen() {
                     <ThemedCard style={scaleStyle(photoCardStyle)}>
                         <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Main Item Photo</Text>
 
-                        {item.photo_url && !providerMediaLocked ? (
+                        {providerModeContext && stagedMainPhotoUrl ? (
+                            <>
+                                <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>
+                                    Provider staged main photo. Not published to the client HomeOS yet.
+                                </Text>
+                                <Image
+                                    source={{ uri: stagedMainPhotoUrl }}
+                                    style={scaleStyle(photoStyle)}
+                                    resizeMode="contain"
+                                />
+
+                                <ThemedButton
+                                    title="View Full Photo"
+                                    variant="secondary"
+                                    onPress={() => Linking.openURL(stagedMainPhotoUrl)}
+                                    style={scaleStyle(secondaryButtonStyle)}
+                                    textStyle={scaleStyle(secondaryButtonTextStyle)}
+                                />
+                            </>
+                        ) : item.photo_url && !providerMediaLocked ? (
                             <>
                                 <Image
                                     source={{ uri: item.photo_url }}
@@ -4186,6 +4207,25 @@ function providerStagedPhotoPreviewUrl(payload: ProviderStagedWorkPayload) {
         payloadString(payload, 'public_or_signed_url') ||
         payloadString(payload, 'public_url') ||
         payloadString(payload, 'signed_url')
+    );
+}
+
+function isProviderStagedMainPhotoEntry(entry: ProviderStagedWorkEntry) {
+    if (entry.type !== 'photo') return false;
+
+    const payload = entry.payload;
+    const photoType = payloadString(payload, 'photo_type').toLowerCase();
+    const actionSource = (
+        payloadString(payload, 'action_source') ||
+        payloadString(payload, 'source_action')
+    ).toLowerCase();
+    const fileStatus = payloadString(payload, 'provider_file_status').toLowerCase();
+
+    return (
+        photoType === 'main_photo' &&
+        fileStatus === 'uploaded' &&
+        Boolean(providerStagedPhotoPreviewUrl(payload)) &&
+        (actionSource.includes('upload main photo') || actionSource.includes('take main photo'))
     );
 }
 
