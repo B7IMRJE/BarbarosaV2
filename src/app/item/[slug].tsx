@@ -432,6 +432,7 @@ export default function ItemScreen() {
     const [providerReviewExpanded, setProviderReviewExpanded] = useState(false);
     const [expandedProviderPhotoId, setExpandedProviderPhotoId] = useState<string | null>(null);
     const [expandedProviderDocumentId, setExpandedProviderDocumentId] = useState<string | null>(null);
+    const [selectedProviderPhotoId, setSelectedProviderPhotoId] = useState<string | null>(null);
     const [removingProviderPhotoId, setRemovingProviderPhotoId] = useState<string | null>(null);
     const [providerPanel, setProviderPanel] = useState<ProviderStagedPanel>('none');
     const [savingProviderWork, setSavingProviderWork] = useState(false);
@@ -467,6 +468,7 @@ export default function ItemScreen() {
             setProviderReviewExpanded(false);
             setExpandedProviderPhotoId(null);
             setExpandedProviderDocumentId(null);
+            setSelectedProviderPhotoId(null);
             setRemovingProviderPhotoId(null);
             setProviderPanel('none');
             return;
@@ -832,7 +834,7 @@ export default function ItemScreen() {
                     permanent_upload_ready: false,
                     permanent_publish_ready: false,
                 },
-                'Provider photo uploaded and staged. Publishing to the client HomeOS comes later.'
+                'Photo saved to provider staging. It is not published to the client’s HomeOS yet.'
             );
 
             if (!saved) {
@@ -1003,6 +1005,7 @@ export default function ItemScreen() {
                 }
             );
             setExpandedProviderPhotoId((currentId) => currentId === entry.id ? null : currentId);
+            setSelectedProviderPhotoId((currentId) => currentId === entry.id ? null : currentId);
 
             if (storagePath) {
                 if (isSafeProviderStagedPhotoPath(storagePath)) {
@@ -2470,6 +2473,9 @@ export default function ItemScreen() {
     const stagedMainPhotoUrl = stagedMainPhotoEntry
         ? providerStagedPhotoPreviewUrl(stagedMainPhotoEntry.payload)
         : '';
+    const selectedProviderPhotoEntry = selectedProviderPhotoId
+        ? stagedPhotoEntries.find((entry) => entry.id === selectedProviderPhotoId) || null
+        : null;
 
     const groupedDocuments = documentCategories.map((category) => ({
         category,
@@ -2875,7 +2881,7 @@ export default function ItemScreen() {
                     Update Client's HomeOS
                 </Text>
                 <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                    Publishing workflow is not installed yet. These staged updates are not written to the client's permanent HomeOS.
+                    Publishing is not installed yet. These staged photos/notes are saved for the provider but have not been copied to the client’s permanent HomeOS.
                 </Text>
                 <View style={scaleStyle(providerStagedListStyle)}>
                     {providerStagedEntries.length === 0 ? (
@@ -2937,7 +2943,7 @@ export default function ItemScreen() {
                     <View style={scaleStyle(providerStagedPhotoBlockStyle)}>
                         {photoPreviewUrl ? (
                             <TouchableOpacity
-                                onPress={() => Linking.openURL(photoPreviewUrl)}
+                                onPress={() => setSelectedProviderPhotoId(entry.id)}
                                 activeOpacity={0.82}
                                 style={scaleStyle(providerStagedPhotoPreviewWrapStyle)}
                             >
@@ -2982,7 +2988,7 @@ export default function ItemScreen() {
             >
                 {previewUrl ? (
                     <TouchableOpacity
-                        onPress={() => Linking.openURL(previewUrl)}
+                        onPress={() => setSelectedProviderPhotoId(entry.id)}
                         activeOpacity={0.82}
                         style={scaleStyle(providerPhotoThumbWrapStyle)}
                     >
@@ -3001,6 +3007,9 @@ export default function ItemScreen() {
                 <Text style={[scaleStyle(providerMediaTitleStyle), { color: theme.colors.text }]}>
                     {photoLabel(photoType)}
                 </Text>
+                <Text style={[scaleStyle(providerMediaStatusStyle), { color: theme.colors.primary }]}>
+                    Provider staged photo
+                </Text>
                 <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
                     {formatCompactDateTime(entry.created_at)}
                 </Text>
@@ -3011,7 +3020,7 @@ export default function ItemScreen() {
                 <View style={scaleStyle(providerPhotoActionRowStyle)}>
                     {previewUrl ? (
                         <TouchableOpacity
-                            onPress={() => Linking.openURL(previewUrl)}
+                            onPress={() => setSelectedProviderPhotoId(entry.id)}
                             activeOpacity={0.82}
                             style={[
                                 providerDetailsButtonStyle,
@@ -3170,7 +3179,7 @@ export default function ItemScreen() {
                     ) : null}
                 </View>
                 <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                    Provider work is saved to provider staging when available. Local fallback entries are labeled below. Publishing to the client HomeOS comes later.
+                    Provider work is saved to provider staging when available. Local fallback entries are labeled below. Publishing is not installed yet, so these updates have not been copied to the client’s permanent HomeOS.
                 </Text>
                 <Text
                     style={[
@@ -3211,6 +3220,125 @@ export default function ItemScreen() {
                     />
                 ) : null}
             </ThemedCard>
+        );
+    }
+
+    function renderProviderPhotoViewerModal() {
+        if (!selectedProviderPhotoEntry) return null;
+
+        const payload = selectedProviderPhotoEntry.payload;
+        const previewUrl = providerStagedPhotoPreviewUrl(payload);
+        const photoType = payloadString(payload, 'photo_type') || 'other_photo';
+        const source = payloadString(payload, 'action_source') || payloadString(payload, 'source_action') || 'Provider Photo';
+        const fileName = payloadString(payload, 'file_name');
+        const storagePath = payloadString(payload, 'storage_path');
+        const isRemoving = removingProviderPhotoId === selectedProviderPhotoEntry.id;
+
+        return (
+            <Modal
+                visible
+                transparent
+                animationType="fade"
+                onRequestClose={() => setSelectedProviderPhotoId(null)}
+            >
+                <View style={[scaleStyle(providerPhotoViewerOverlayStyle), { backgroundColor: theme.colors.overlay }]}>
+                    <View
+                        style={[
+                            providerPhotoViewerCardStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                                borderRadius: theme.radii.card,
+                            },
+                        ]}
+                    >
+                        <View style={scaleStyle(providerPhotoViewerHeaderStyle)}>
+                            <View style={scaleStyle(providerPhotoViewerTitleWrapStyle)}>
+                                <Text style={[scaleStyle(providerPhotoViewerTitleStyle), { color: theme.colors.text }]}>
+                                    {photoLabel(photoType)}
+                                </Text>
+                                <Text style={[scaleStyle(providerMediaStatusStyle), { color: theme.colors.primary }]}>
+                                    Provider staged photo - not published to client HomeOS yet
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => setSelectedProviderPhotoId(null)}
+                                style={[
+                                    providerPhotoViewerCloseButtonStyle,
+                                    {
+                                        backgroundColor: theme.colors.surfaceAlt,
+                                        borderColor: theme.colors.border,
+                                        borderRadius: theme.radii.pill,
+                                    },
+                                ]}
+                                activeOpacity={0.82}
+                            >
+                                <Text style={[scaleStyle(providerDetailsButtonTextStyle), { color: theme.colors.text }]}>
+                                    Close
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        {previewUrl ? (
+                            <Image
+                                source={{ uri: previewUrl }}
+                                style={[scaleStyle(providerPhotoViewerImageStyle), { backgroundColor: theme.colors.surfaceAlt }]}
+                                resizeMode="contain"
+                            />
+                        ) : (
+                            <View style={[scaleStyle(providerPhotoViewerImageStyle), { backgroundColor: theme.colors.surfaceAlt }]}>
+                                <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>
+                                    Photo preview unavailable
+                                </Text>
+                            </View>
+                        )}
+
+                        <View style={scaleStyle(providerPhotoViewerMetaStyle)}>
+                            <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                                Source: {source}
+                            </Text>
+                            <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                                Status: {providerStagedSourceLabel(selectedProviderPhotoEntry)} - {selectedProviderPhotoEntry.status}
+                            </Text>
+                            <Text style={[scaleStyle(providerMediaMetaStyle), { color: theme.colors.mutedText }]}>
+                                File: {fileName || 'Unavailable'}
+                            </Text>
+                            {!!storagePath && (
+                                <Text style={[scaleStyle(providerMediaPathStyle), { color: theme.colors.mutedText }]}>
+                                    Path: {storagePath}
+                                </Text>
+                            )}
+                        </View>
+
+                        <View style={scaleStyle(providerPhotoViewerActionsStyle)}>
+                            <ThemedButton
+                                title="Close"
+                                variant="secondary"
+                                onPress={() => setSelectedProviderPhotoId(null)}
+                                style={scaleStyle(providerPhotoViewerActionButtonStyle)}
+                                textStyle={scaleStyle(fileActionButtonTextStyle)}
+                            />
+                            {previewUrl ? (
+                                <ThemedButton
+                                    title="Open Original"
+                                    variant="secondary"
+                                    onPress={() => Linking.openURL(previewUrl)}
+                                    style={scaleStyle(providerPhotoViewerActionButtonStyle)}
+                                    textStyle={scaleStyle(fileActionButtonTextStyle)}
+                                />
+                            ) : null}
+                            <ThemedButton
+                                title={isRemoving ? 'Removing...' : 'Remove'}
+                                variant="danger"
+                                disabled={isRemoving}
+                                onPress={() => confirmRemoveProviderPhoto(selectedProviderPhotoEntry)}
+                                style={scaleStyle(providerPhotoViewerActionButtonStyle)}
+                                textStyle={scaleStyle(fileActionButtonTextStyle)}
+                            />
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         );
     }
 
@@ -3274,7 +3402,7 @@ export default function ItemScreen() {
                         {providerModeContext && stagedMainPhotoUrl ? (
                             <>
                                 <Text style={[scaleStyle(photoTextStyle), { color: theme.colors.mutedText }]}>
-                                    Provider staged main photo. Not published to the client HomeOS yet.
+                                    Provider staged main photo — not published to client HomeOS yet.
                                 </Text>
                                 <Image
                                     source={{ uri: stagedMainPhotoUrl }}
@@ -3285,7 +3413,11 @@ export default function ItemScreen() {
                                 <ThemedButton
                                     title="View Full Photo"
                                     variant="secondary"
-                                    onPress={() => Linking.openURL(stagedMainPhotoUrl)}
+                                    onPress={() => {
+                                        if (stagedMainPhotoEntry) {
+                                            setSelectedProviderPhotoId(stagedMainPhotoEntry.id);
+                                        }
+                                    }}
                                     style={scaleStyle(secondaryButtonStyle)}
                                     textStyle={scaleStyle(secondaryButtonTextStyle)}
                                 />
@@ -3897,6 +4029,8 @@ export default function ItemScreen() {
                     )}
                 </ScrollView>
             </Modal>
+
+            {renderProviderPhotoViewerModal()}
 
             <Modal visible={showDocuments} transparent={false} animationType="slide">
                 <ScrollView
@@ -4904,6 +5038,13 @@ const providerMediaMetaStyle = {
     marginTop: 3,
 };
 
+const providerMediaStatusStyle = {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900' as const,
+    marginTop: 3,
+};
+
 const providerDetailsButtonStyle = {
     alignSelf: 'flex-start' as const,
     borderWidth: 1,
@@ -4933,6 +5074,72 @@ const providerMediaPathStyle = {
     fontSize: 11,
     lineHeight: 15,
     fontWeight: '800' as const,
+};
+
+const providerPhotoViewerOverlayStyle = {
+    flex: 1,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    padding: 16,
+};
+
+const providerPhotoViewerCardStyle = {
+    width: '94%' as const,
+    maxWidth: 900,
+    maxHeight: '92%' as const,
+    borderWidth: 1,
+    padding: 16,
+};
+
+const providerPhotoViewerHeaderStyle = {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'flex-start' as const,
+    gap: 12,
+    marginBottom: 12,
+};
+
+const providerPhotoViewerTitleWrapStyle = {
+    flex: 1,
+    minWidth: 0,
+};
+
+const providerPhotoViewerTitleStyle = {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '900' as const,
+};
+
+const providerPhotoViewerCloseButtonStyle = {
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+};
+
+const providerPhotoViewerImageStyle = {
+    width: '100%' as const,
+    height: 440,
+    borderRadius: 16,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+};
+
+const providerPhotoViewerMetaStyle = {
+    marginTop: 12,
+    gap: 2,
+};
+
+const providerPhotoViewerActionsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 14,
+};
+
+const providerPhotoViewerActionButtonStyle = {
+    minWidth: 130,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
 };
 
 const providerDocumentListStyle = {
