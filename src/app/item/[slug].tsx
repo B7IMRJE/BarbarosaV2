@@ -46,6 +46,15 @@ import {
     providerModeQueryParams,
     readProviderModeParams,
 } from '../../lib/providerMode';
+import {
+    addProviderStagedWork,
+    clearProviderStagedWorkForItem,
+    loadProviderStagedWork,
+    providerStagedWorkTypeLabel,
+    type ProviderStagedWorkEntry,
+    type ProviderStagedWorkPayload,
+    type ProviderStagedWorkType,
+} from '../../lib/providerStagedWork';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -75,6 +84,12 @@ type PlatformProfile = {
     is_platform_admin?: boolean | null;
 };
 
+type ProviderStagedPanel = 'none' | 'note' | 'finding' | 'edit' | 'related_item' | 'review';
+
+type ProviderNoteDestination = 'company_only' | 'client_update';
+
+type ProviderFindingSeverity = 'low' | 'medium' | 'high' | 'urgent';
+
 const photoCategories = [
     'equipment_photo',
     'serial_photo',
@@ -101,6 +116,10 @@ const documentCategories = [
 
     'other',
 ];
+
+const providerNoteDestinations: ProviderNoteDestination[] = ['company_only', 'client_update'];
+
+const providerFindingSeverities: ProviderFindingSeverity[] = ['low', 'medium', 'high', 'urgent'];
 
 const documentCategoryLabels: Record<string, { singular: string; plural: string }> = {
     manual: { singular: 'Manual', plural: 'Manuals' },
@@ -334,10 +353,43 @@ export default function ItemScreen() {
         calculateNextDueDate(new Date(), 1, 'years')
     );
     const [message, setMessage] = useState('');
+    const [providerStagedEntries, setProviderStagedEntries] = useState<ProviderStagedWorkEntry[]>([]);
+    const [providerPanel, setProviderPanel] = useState<ProviderStagedPanel>('none');
+    const [savingProviderWork, setSavingProviderWork] = useState(false);
+    const [providerNoteText, setProviderNoteText] = useState('');
+    const [providerNoteDestination, setProviderNoteDestination] = useState<ProviderNoteDestination>('company_only');
+    const [providerFindingTitle, setProviderFindingTitle] = useState('');
+    const [providerFindingSeverity, setProviderFindingSeverity] = useState<ProviderFindingSeverity>('medium');
+    const [providerFindingDescription, setProviderFindingDescription] = useState('');
+    const [providerFindingAction, setProviderFindingAction] = useState('');
+    const [providerFindingStageForUpdate, setProviderFindingStageForUpdate] = useState(true);
+    const [providerFindingStageForEstimate, setProviderFindingStageForEstimate] = useState(false);
+    const [providerEditName, setProviderEditName] = useState('');
+    const [providerEditCondition, setProviderEditCondition] = useState('');
+    const [providerEditStatus, setProviderEditStatus] = useState('');
+    const [providerEditBrand, setProviderEditBrand] = useState('');
+    const [providerEditModel, setProviderEditModel] = useState('');
+    const [providerEditSerial, setProviderEditSerial] = useState('');
+    const [providerEditLocation, setProviderEditLocation] = useState('');
+    const [providerEditNotes, setProviderEditNotes] = useState('');
+    const [providerRelatedName, setProviderRelatedName] = useState('');
+    const [providerRelatedCategory, setProviderRelatedCategory] = useState('');
+    const [providerRelatedLocation, setProviderRelatedLocation] = useState('');
+    const [providerRelatedNotes, setProviderRelatedNotes] = useState('');
 
     useEffect(() => {
         void loadItem();
     }, [slug, isManagementMode, managementCompanyId, managementPropertyId, providerModeContext?.companyId, providerModeContext?.propertyId]);
+
+    useEffect(() => {
+        if (!providerModeContext || !item) {
+            setProviderStagedEntries([]);
+            setProviderPanel('none');
+            return;
+        }
+
+        void refreshProviderStagedEntries();
+    }, [providerModeContext?.companyId, providerModeContext?.propertyId, item?.id, item?.item_slug]);
 
     useEffect(() => {
         if (!showCustomMaintenanceForm) return;
@@ -351,6 +403,304 @@ export default function ItemScreen() {
 
         setCustomReminderNextDueDate(calculateNextDueDate(startDate, interval, customReminderUnit));
     }, [customReminderInterval, customReminderStartDate, customReminderUnit, showCustomMaintenanceForm]);
+
+    async function refreshProviderStagedEntries() {
+        if (!providerModeContext || !item) {
+            setProviderStagedEntries([]);
+            return;
+        }
+
+        const entries = await loadProviderStagedWork({
+            companyId: providerModeContext.companyId,
+            propertyId: providerModeContext.propertyId,
+            itemId: item.id ? String(item.id) : null,
+            itemSlug: item.item_slug || String(slug),
+        });
+
+        setProviderStagedEntries(entries);
+    }
+
+    function openProviderPanel(panel: ProviderStagedPanel) {
+        if (!providerModeContext) return;
+
+        if (panel === 'edit') {
+            setProviderEditName(item?.name || '');
+            setProviderEditCondition(item?.install_state || '');
+            setProviderEditStatus(item?.status || '');
+            setProviderEditBrand(item?.brand || '');
+            setProviderEditModel(item?.model || '');
+            setProviderEditSerial(item?.serial || '');
+            setProviderEditLocation(item?.location || item?.parent_area || '');
+            setProviderEditNotes(item?.about || '');
+        }
+
+        if (panel === 'related_item') {
+            setProviderRelatedName('');
+            setProviderRelatedCategory(item?.category || '');
+            setProviderRelatedLocation(item?.location || item?.parent_area || '');
+            setProviderRelatedNotes('');
+        }
+
+        setProviderPanel(panel);
+        setMessage('');
+    }
+
+    async function saveProviderStagedEntry(
+        type: ProviderStagedWorkType,
+        payload: ProviderStagedWorkPayload,
+        successMessage: string
+    ) {
+        if (!providerModeContext || !item) {
+            setMessage('Provider mode item context is not available.');
+            return false;
+        }
+
+        setSavingProviderWork(true);
+
+        try {
+            let createdBy = estimateAccess?.userId || null;
+
+            if (!createdBy) {
+                try {
+                    const {
+                        data: { user },
+                    } = await supabase.auth.getUser();
+                    createdBy = user?.id || null;
+                } catch {
+                    createdBy = null;
+                }
+            }
+
+            await addProviderStagedWork({
+                type,
+                company_id: providerModeContext.companyId,
+                property_id: providerModeContext.propertyId,
+                item_id: item.id ? String(item.id) : null,
+                item_slug: item.item_slug || String(slug),
+                item_name: item.name || 'Unknown Item',
+                system: item.system || null,
+                location: item.location || item.parent_area || null,
+                category: item.category || null,
+                created_by: createdBy,
+                payload,
+            });
+
+            await refreshProviderStagedEntries();
+            setMessage(successMessage);
+            return true;
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Could not stage provider work.');
+            return false;
+        } finally {
+            setSavingProviderWork(false);
+        }
+    }
+
+    async function handleSaveProviderNote() {
+        const details = providerNoteText.trim();
+
+        if (!details) {
+            setMessage('Add note details first.');
+            return;
+        }
+
+        const saved = await saveProviderStagedEntry(
+            'note',
+            {
+                details,
+                destination: providerNoteDestination,
+                homeowner_visible_when_published: providerNoteDestination === 'client_update',
+            },
+            providerNoteDestination === 'client_update'
+                ? 'Note staged for a future Client HomeOS update.'
+                : 'Company-only note staged locally.'
+        );
+
+        if (saved) {
+            setProviderNoteText('');
+            setProviderNoteDestination('company_only');
+            setProviderPanel('none');
+        }
+    }
+
+    async function handleSaveProviderFinding() {
+        const title = providerFindingTitle.trim();
+        const description = providerFindingDescription.trim();
+
+        if (!title && !description) {
+            setMessage('Add a finding title or description first.');
+            return;
+        }
+
+        const saved = await saveProviderStagedEntry(
+            'finding',
+            {
+                title,
+                severity: providerFindingSeverity,
+                description,
+                recommended_action: providerFindingAction.trim(),
+                stage_for_client_update: providerFindingStageForUpdate,
+                stage_for_estimate: providerFindingStageForEstimate,
+            },
+            'Finding staged locally for provider review.'
+        );
+
+        if (saved) {
+            setProviderFindingTitle('');
+            setProviderFindingSeverity('medium');
+            setProviderFindingDescription('');
+            setProviderFindingAction('');
+            setProviderFindingStageForUpdate(true);
+            setProviderFindingStageForEstimate(false);
+            setProviderPanel('none');
+        }
+    }
+
+    async function handleSaveProviderEdit() {
+        const saved = await saveProviderStagedEntry(
+            'edit',
+            {
+                name: providerEditName.trim(),
+                condition: providerEditCondition.trim(),
+                status: providerEditStatus.trim(),
+                brand: providerEditBrand.trim(),
+                model: providerEditModel.trim(),
+                serial: providerEditSerial.trim(),
+                location: providerEditLocation.trim(),
+                notes: providerEditNotes.trim(),
+            },
+            'Information edit staged locally. The client HomeOS record was not changed.'
+        );
+
+        if (saved) {
+            setProviderPanel('none');
+        }
+    }
+
+    async function handleSaveProviderRelatedItem() {
+        const itemName = providerRelatedName.trim();
+
+        if (!itemName) {
+            setMessage('Related item name is required.');
+            return;
+        }
+
+        const saved = await saveProviderStagedEntry(
+            'related_item',
+            {
+                name: itemName,
+                category: providerRelatedCategory.trim(),
+                location: providerRelatedLocation.trim(),
+                notes: providerRelatedNotes.trim(),
+            },
+            'Related item staged locally. It was not added to the client HomeOS yet.'
+        );
+
+        if (saved) {
+            setProviderRelatedName('');
+            setProviderRelatedCategory('');
+            setProviderRelatedLocation('');
+            setProviderRelatedNotes('');
+            setProviderPanel('none');
+        }
+    }
+
+    async function handleStageClientUpdateMark() {
+        await saveProviderStagedEntry(
+            'client_update_mark',
+            {
+                reason: 'Marked from provider mode item page',
+                publishing_status: 'publishing_not_installed',
+            },
+            'Marked for a future Client HomeOS update.'
+        );
+    }
+
+    async function handleStageArchiveRequest() {
+        await saveProviderStagedEntry(
+            'archive_request',
+            {
+                reason: 'Provider requested item archive',
+                permanent_archive_ready: false,
+            },
+            'Archive request staged locally. The client item was not archived.'
+        );
+    }
+
+    async function handleStageProviderPhotoIntent(sourceAction: string, photoType: string) {
+        await saveProviderStagedEntry(
+            'photo',
+            {
+                source_action: sourceAction,
+                photo_type: photoType,
+                permanent_upload_ready: false,
+            },
+            'Photo is staged locally for provider workflow. Permanent publishing comes later.'
+        );
+    }
+
+    async function handleStageProviderDocumentIntent(sourceAction: string, documentType: string) {
+        await saveProviderStagedEntry(
+            'document',
+            {
+                source_action: sourceAction,
+                document_type: documentType,
+                permanent_upload_ready: false,
+            },
+            'Document is staged locally for provider workflow. Permanent publishing comes later.'
+        );
+    }
+
+    function confirmProviderArchiveRequest() {
+        Alert.alert(
+            'Stage archive request?',
+            'Stage archive request for this client item?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Stage Request',
+                    style: 'destructive',
+                    onPress: () => {
+                        void handleStageArchiveRequest();
+                    },
+                },
+            ]
+        );
+    }
+
+    function confirmClearProviderStagedEntries() {
+        if (!providerModeContext || !item || providerStagedEntries.length === 0) return;
+
+        Alert.alert(
+            'Clear local staged entries?',
+            'This only clears staged provider work saved on this device for this item. It does not change the client HomeOS.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Clear',
+                    style: 'destructive',
+                    onPress: () => {
+                        void clearCurrentProviderStagedEntries();
+                    },
+                },
+            ]
+        );
+    }
+
+    async function clearCurrentProviderStagedEntries() {
+        if (!providerModeContext || !item) return;
+
+        await clearProviderStagedWorkForItem({
+            companyId: providerModeContext.companyId,
+            propertyId: providerModeContext.propertyId,
+            itemId: item.id ? String(item.id) : null,
+            itemSlug: item.item_slug || String(slug),
+        });
+
+        setProviderStagedEntries([]);
+        setProviderPanel('none');
+        setMessage('Local staged entries cleared for this item.');
+    }
 
     async function loadItem() {
         setLoading(true);
@@ -810,7 +1160,7 @@ export default function ItemScreen() {
 
     async function handleUploadMainPhoto() {
         if (providerModeContext) {
-            setMessage('Provider mode job photos are staged company-side. Upload publishing is coming next.');
+            await handleStageProviderPhotoIntent('Upload Main Photo', 'main_photo');
             return;
         }
 
@@ -833,7 +1183,7 @@ export default function ItemScreen() {
 
     async function handleTakeMainPhoto() {
         if (providerModeContext) {
-            setMessage('Provider mode job photos are staged company-side. Camera publishing is coming next.');
+            await handleStageProviderPhotoIntent('Take Main Photo', 'main_photo');
             return;
         }
 
@@ -842,7 +1192,7 @@ export default function ItemScreen() {
 
     async function handleUploadAdditionalPhoto() {
         if (providerModeContext) {
-            setMessage('Provider mode job photos are staged company-side. Upload publishing is coming next.');
+            await handleStageProviderPhotoIntent('Choose Photo', normalizePhotoCategory(photoCategory));
             return;
         }
 
@@ -874,7 +1224,7 @@ export default function ItemScreen() {
 
     async function handleTakeAdditionalPhoto() {
         if (providerModeContext) {
-            setMessage('Provider mode job photos are staged company-side. Camera publishing is coming next.');
+            await handleStageProviderPhotoIntent('Take Photo', normalizePhotoCategory(photoCategory));
             return;
         }
 
@@ -883,7 +1233,7 @@ export default function ItemScreen() {
 
     function handleLocationVideoPlaceholder() {
         if (providerModeContext) {
-            setMessage('Provider mode location videos are staged company-side. Publishing is coming next.');
+            void handleStageProviderPhotoIntent('Location Video Coming Soon', 'location_video');
             return;
         }
 
@@ -892,7 +1242,8 @@ export default function ItemScreen() {
 
     async function handleUploadDocument() {
         if (providerModeContext) {
-            setMessage('Provider mode documents are company-side/staged only. Upload publishing is coming next.');
+            setShowDocumentTypePicker(true);
+            setMessage('Choose a document type to stage for provider workflow.');
             return;
         }
 
@@ -902,7 +1253,9 @@ export default function ItemScreen() {
     async function finishDocumentUpload(selectedType: string) {
         if (providerModeContext) {
             setShowDocumentTypePicker(false);
-            setMessage('Provider mode documents are company-side/staged only. Nothing was written to the customer HomeOS.');
+            setSelectedDocumentType(selectedType);
+            await handleStageProviderDocumentIntent('Upload Document', selectedType);
+            setShowDocuments(true);
             return;
         }
 
@@ -974,7 +1327,7 @@ export default function ItemScreen() {
 
     function handleEditInformation() {
         if (providerModeContext) {
-            setMessage('Provider mode edits are company-side/staged only. Update Client HomeOS publishing is coming next.');
+            openProviderPanel('edit');
             return;
         }
 
@@ -986,7 +1339,7 @@ export default function ItemScreen() {
 
     function handleAddRelatedItem() {
         if (providerModeContext) {
-            setMessage('Provider mode related items are staged only. Update Client HomeOS publishing is coming next.');
+            openProviderPanel('related_item');
             return;
         }
 
@@ -1362,7 +1715,7 @@ export default function ItemScreen() {
 
     function confirmArchiveItem() {
         if (providerModeContext) {
-            setMessage('Provider mode archive is staged only. Nothing was changed in the customer HomeOS.');
+            confirmProviderArchiveRequest();
             return;
         }
 
@@ -1633,6 +1986,8 @@ export default function ItemScreen() {
     const mediaActionBusy = uploading || capturingPhoto;
     const mediaBusyTitle = uploading ? 'Uploading...' : 'Opening...';
     const providerMediaLocked = Boolean(providerModeContext);
+    const stagedPhotoEntries = providerStagedEntries.filter((entry) => entry.type === 'photo');
+    const stagedDocumentEntries = providerStagedEntries.filter((entry) => entry.type === 'document');
 
     const groupedDocuments = documentCategories.map((category) => ({
         category,
@@ -1664,6 +2019,482 @@ export default function ItemScreen() {
         { label: 'Model', value: item.model || 'Unknown' },
         { label: 'Serial', value: item.serial || 'Unknown' },
     ];
+
+    function renderProviderWorkPanel() {
+        if (!providerModeContext || providerPanel === 'none') return null;
+
+        if (providerPanel === 'note') {
+            return (
+                <ThemedCard style={scaleStyle(providerFormCardStyle)}>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
+                        Add Details / Notes
+                    </Text>
+                    <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                        Save provider notes company-side. Client publishing is a later workflow.
+                    </Text>
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
+                        Destination
+                    </Text>
+                    <OptionRow
+                        options={providerNoteDestinations}
+                        value={providerNoteDestination}
+                        onChange={(value) => setProviderNoteDestination(value as ProviderNoteDestination)}
+                        labelForOption={(value) => value === 'company_only' ? 'Company Only' : 'Stage for Client HomeOS Update'}
+                    />
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
+                        Details
+                    </Text>
+                    <TextInput
+                        value={providerNoteText}
+                        onChangeText={setProviderNoteText}
+                        placeholder="Add company note or client update details"
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        textAlignVertical="top"
+                        style={[
+                            maintenanceTextAreaStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                                color: theme.colors.text,
+                            },
+                        ]}
+                    />
+                    <View style={scaleStyle(providerFormActionRowStyle)}>
+                        <ThemedButton
+                            title={savingProviderWork ? 'Saving...' : 'Save Staged Note'}
+                            onPress={handleSaveProviderNote}
+                            disabled={savingProviderWork}
+                            style={scaleStyle(providerFormButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                        <ThemedButton
+                            title="Cancel"
+                            variant="ghost"
+                            onPress={() => setProviderPanel('none')}
+                            disabled={savingProviderWork}
+                            style={scaleStyle(providerFormButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                    </View>
+                </ThemedCard>
+            );
+        }
+
+        if (providerPanel === 'finding') {
+            return (
+                <ThemedCard style={scaleStyle(providerFormCardStyle)}>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
+                        Add Finding
+                    </Text>
+                    <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                        Findings are staged for provider review and estimate/update workflows.
+                    </Text>
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
+                        Finding title
+                    </Text>
+                    <TextInput
+                        value={providerFindingTitle}
+                        onChangeText={setProviderFindingTitle}
+                        placeholder="Example: Supply line is corroded"
+                        placeholderTextColor={theme.colors.mutedText}
+                        style={[
+                            maintenanceTextInputStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                                color: theme.colors.text,
+                            },
+                        ]}
+                    />
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
+                        Severity
+                    </Text>
+                    <OptionRow
+                        options={providerFindingSeverities}
+                        value={providerFindingSeverity}
+                        onChange={(value) => setProviderFindingSeverity(value as ProviderFindingSeverity)}
+                        labelForOption={(value) => value}
+                    />
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
+                        Description
+                    </Text>
+                    <TextInput
+                        value={providerFindingDescription}
+                        onChangeText={setProviderFindingDescription}
+                        placeholder="What did the technician observe?"
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        textAlignVertical="top"
+                        style={[
+                            maintenanceTextAreaStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                                color: theme.colors.text,
+                            },
+                        ]}
+                    />
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
+                        Recommended action
+                    </Text>
+                    <TextInput
+                        value={providerFindingAction}
+                        onChangeText={setProviderFindingAction}
+                        placeholder="Optional next step"
+                        placeholderTextColor={theme.colors.mutedText}
+                        style={[
+                            maintenanceTextInputStyle,
+                            {
+                                backgroundColor: theme.colors.surface,
+                                borderColor: theme.colors.border,
+                                color: theme.colors.text,
+                            },
+                        ]}
+                    />
+                    <View style={scaleStyle(providerToggleRowStyle)}>
+                        <TouchableOpacity
+                            onPress={() => setProviderFindingStageForUpdate(!providerFindingStageForUpdate)}
+                            style={[
+                                providerToggleButtonStyle,
+                                {
+                                    borderColor: providerFindingStageForUpdate ? theme.colors.primary : theme.colors.border,
+                                    backgroundColor: providerFindingStageForUpdate ? theme.colors.primary : theme.colors.surface,
+                                },
+                            ]}
+                        >
+                            <Text
+                                style={[
+                                    providerToggleTextStyle,
+                                    { color: providerFindingStageForUpdate ? theme.colors.primaryText : theme.colors.mutedText },
+                                ]}
+                            >
+                                Stage for Client Update
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => setProviderFindingStageForEstimate(!providerFindingStageForEstimate)}
+                            style={[
+                                providerToggleButtonStyle,
+                                {
+                                    borderColor: providerFindingStageForEstimate ? theme.colors.primary : theme.colors.border,
+                                    backgroundColor: providerFindingStageForEstimate ? theme.colors.primary : theme.colors.surface,
+                                },
+                            ]}
+                        >
+                            <Text
+                                style={[
+                                    providerToggleTextStyle,
+                                    { color: providerFindingStageForEstimate ? theme.colors.primaryText : theme.colors.mutedText },
+                                ]}
+                            >
+                                Stage for Estimate
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                    <View style={scaleStyle(providerFormActionRowStyle)}>
+                        <ThemedButton
+                            title={savingProviderWork ? 'Saving...' : 'Save Finding'}
+                            onPress={handleSaveProviderFinding}
+                            disabled={savingProviderWork}
+                            style={scaleStyle(providerFormButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                        <ThemedButton
+                            title="Cancel"
+                            variant="ghost"
+                            onPress={() => setProviderPanel('none')}
+                            disabled={savingProviderWork}
+                            style={scaleStyle(providerFormButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                    </View>
+                </ThemedCard>
+            );
+        }
+
+        if (providerPanel === 'edit') {
+            return (
+                <ThemedCard style={scaleStyle(providerFormCardStyle)}>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
+                        Edit Information
+                    </Text>
+                    <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                        This saves a staged edit only. The client item is not changed until publishing exists.
+                    </Text>
+                    <View style={scaleStyle(providerTwoColumnRowStyle)}>
+                        <View style={scaleStyle(providerFieldWrapStyle)}>
+                            <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Name</Text>
+                            <TextInput
+                                value={providerEditName}
+                                onChangeText={setProviderEditName}
+                                placeholder="Item name"
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                        </View>
+                        <View style={scaleStyle(providerFieldWrapStyle)}>
+                            <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Condition</Text>
+                            <TextInput
+                                value={providerEditCondition}
+                                onChangeText={setProviderEditCondition}
+                                placeholder="Condition"
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                        </View>
+                        <View style={scaleStyle(providerFieldWrapStyle)}>
+                            <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Status</Text>
+                            <TextInput
+                                value={providerEditStatus}
+                                onChangeText={setProviderEditStatus}
+                                placeholder="Status"
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                        </View>
+                        <View style={scaleStyle(providerFieldWrapStyle)}>
+                            <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Brand</Text>
+                            <TextInput
+                                value={providerEditBrand}
+                                onChangeText={setProviderEditBrand}
+                                placeholder="Brand"
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                        </View>
+                        <View style={scaleStyle(providerFieldWrapStyle)}>
+                            <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Model</Text>
+                            <TextInput
+                                value={providerEditModel}
+                                onChangeText={setProviderEditModel}
+                                placeholder="Model"
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                        </View>
+                        <View style={scaleStyle(providerFieldWrapStyle)}>
+                            <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Serial</Text>
+                            <TextInput
+                                value={providerEditSerial}
+                                onChangeText={setProviderEditSerial}
+                                placeholder="Serial"
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                        </View>
+                    </View>
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Location</Text>
+                    <TextInput
+                        value={providerEditLocation}
+                        onChangeText={setProviderEditLocation}
+                        placeholder="Location"
+                        placeholderTextColor={theme.colors.mutedText}
+                        style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Notes / details</Text>
+                    <TextInput
+                        value={providerEditNotes}
+                        onChangeText={setProviderEditNotes}
+                        placeholder="Optional staged edit notes"
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        textAlignVertical="top"
+                        style={[maintenanceTextAreaStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <View style={scaleStyle(providerFormActionRowStyle)}>
+                        <ThemedButton
+                            title={savingProviderWork ? 'Saving...' : 'Save Staged Edit'}
+                            onPress={handleSaveProviderEdit}
+                            disabled={savingProviderWork}
+                            style={scaleStyle(providerFormButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                        <ThemedButton
+                            title="Cancel"
+                            variant="ghost"
+                            onPress={() => setProviderPanel('none')}
+                            disabled={savingProviderWork}
+                            style={scaleStyle(providerFormButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                    </View>
+                </ThemedCard>
+            );
+        }
+
+        if (providerPanel === 'related_item') {
+            return (
+                <ThemedCard style={scaleStyle(providerFormCardStyle)}>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
+                        Add Related Item
+                    </Text>
+                    <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                        Related items are staged locally and are not added to the client HomeOS yet.
+                    </Text>
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Item name</Text>
+                    <TextInput
+                        value={providerRelatedName}
+                        onChangeText={setProviderRelatedName}
+                        placeholder="Example: Shutoff valve"
+                        placeholderTextColor={theme.colors.mutedText}
+                        style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Category</Text>
+                    <TextInput
+                        value={providerRelatedCategory}
+                        onChangeText={setProviderRelatedCategory}
+                        placeholder="Category"
+                        placeholderTextColor={theme.colors.mutedText}
+                        style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Location</Text>
+                    <TextInput
+                        value={providerRelatedLocation}
+                        onChangeText={setProviderRelatedLocation}
+                        placeholder="Location"
+                        placeholderTextColor={theme.colors.mutedText}
+                        style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Notes</Text>
+                    <TextInput
+                        value={providerRelatedNotes}
+                        onChangeText={setProviderRelatedNotes}
+                        placeholder="Optional"
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        textAlignVertical="top"
+                        style={[maintenanceTextAreaStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <View style={scaleStyle(providerFormActionRowStyle)}>
+                        <ThemedButton
+                            title={savingProviderWork ? 'Saving...' : 'Save Related Item'}
+                            onPress={handleSaveProviderRelatedItem}
+                            disabled={savingProviderWork}
+                            style={scaleStyle(providerFormButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                        <ThemedButton
+                            title="Cancel"
+                            variant="ghost"
+                            onPress={() => setProviderPanel('none')}
+                            disabled={savingProviderWork}
+                            style={scaleStyle(providerFormButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                    </View>
+                </ThemedCard>
+            );
+        }
+
+        return (
+            <ThemedCard style={scaleStyle(providerFormCardStyle)}>
+                <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
+                    Update Client's HomeOS
+                </Text>
+                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                    Publishing workflow is not installed yet. These staged updates are not written to the client's permanent HomeOS.
+                </Text>
+                <View style={scaleStyle(providerStagedListStyle)}>
+                    {providerStagedEntries.length === 0 ? (
+                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                            No staged updates for this item yet.
+                        </Text>
+                    ) : (
+                        providerStagedEntries.map((entry) => renderProviderStagedEntry(entry))
+                    )}
+                </View>
+                <View style={scaleStyle(providerFormActionRowStyle)}>
+                    <ThemedButton
+                        title="Close Review"
+                        variant="secondary"
+                        onPress={() => setProviderPanel('none')}
+                        style={scaleStyle(providerFormButtonStyle)}
+                        textStyle={scaleStyle(fileActionButtonTextStyle)}
+                    />
+                </View>
+            </ThemedCard>
+        );
+    }
+
+    function renderProviderStagedEntry(entry: ProviderStagedWorkEntry) {
+        return (
+            <View
+                key={entry.id}
+                style={[
+                    providerStagedEntryStyle,
+                    {
+                        backgroundColor: theme.colors.surfaceAlt,
+                        borderColor: theme.colors.border,
+                    },
+                ]}
+            >
+                <View style={scaleStyle(providerStagedEntryHeaderStyle)}>
+                    <Text style={[scaleStyle(providerStagedEntryTypeStyle), { color: theme.colors.text }]}>
+                        {providerStagedWorkTypeLabel(entry.type)}
+                    </Text>
+                    <Text style={[scaleStyle(providerStagedEntryDateStyle), { color: theme.colors.mutedText }]}>
+                        {formatCompactDateTime(entry.created_at)}
+                    </Text>
+                </View>
+                <Text style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText }]}>
+                    {summarizeProviderStagedEntry(entry)}
+                </Text>
+            </View>
+        );
+    }
+
+    function renderProviderStagedUpdatesPanel() {
+        if (!providerModeContext) return null;
+
+        return (
+            <ThemedCard style={scaleStyle(providerStagedCardStyle)}>
+                <View style={scaleStyle(providerStagedHeaderStyle)}>
+                    <View>
+                        <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Staged Updates</Text>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
+                            {providerStagedEntries.length} local {providerStagedEntries.length === 1 ? 'entry' : 'entries'}
+                        </Text>
+                    </View>
+                    {providerStagedEntries.length > 0 ? (
+                        <ThemedButton
+                            title="Review"
+                            variant="secondary"
+                            onPress={() => openProviderPanel('review')}
+                            style={scaleStyle(providerStagedHeaderButtonStyle)}
+                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                        />
+                    ) : null}
+                </View>
+                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                    Provider work is staged locally for this company/client item. Publishing to the client HomeOS comes later.
+                </Text>
+                <View style={scaleStyle(providerStagedListStyle)}>
+                    {providerStagedEntries.length === 0 ? (
+                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                            No staged provider work yet.
+                        </Text>
+                    ) : (
+                        providerStagedEntries.slice(0, 4).map((entry) => renderProviderStagedEntry(entry))
+                    )}
+                </View>
+                {providerStagedEntries.length > 4 ? (
+                    <Text style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText }]}>
+                        {providerStagedEntries.length - 4} more staged entries in review.
+                    </Text>
+                ) : null}
+                {providerStagedEntries.length > 0 ? (
+                    <ThemedButton
+                        title="Clear Local Staged Entries"
+                        variant="danger"
+                        onPress={confirmClearProviderStagedEntries}
+                        style={scaleStyle(providerClearButtonStyle)}
+                        textStyle={scaleStyle(fileActionButtonTextStyle)}
+                    />
+                ) : null}
+            </ThemedCard>
+        );
+    }
 
     return (
         <>
@@ -2056,35 +2887,35 @@ export default function ItemScreen() {
                                 <ThemedButton
                                     title="Add Details / Notes"
                                     variant="secondary"
-                                    onPress={() => setMessage('Company note/details staged locally. Publishing to Client HomeOS is coming next.')}
+                                    onPress={() => openProviderPanel('note')}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
                                 <ThemedButton
                                     title="Add Job Photo"
                                     variant="secondary"
-                                    onPress={() => setMessage('Job photo staged company-side. Upload/publish workflow is coming next.')}
+                                    onPress={() => handleStageProviderPhotoIntent('Add Job Photo', 'job_photo')}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
                                 <ThemedButton
                                     title="Add Finding"
                                     variant="secondary"
-                                    onPress={() => setMessage('Finding staged locally. Publishing to Client HomeOS is coming next.')}
+                                    onPress={() => openProviderPanel('finding')}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
                                 <ThemedButton
                                     title="Mark for Client Update"
                                     variant="secondary"
-                                    onPress={() => setMessage('Marked for a future Client HomeOS update. Nothing was written yet.')}
+                                    onPress={handleStageClientUpdateMark}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
                                 <ThemedButton
                                     title="Update Client's HomeOS"
                                     variant="secondary"
-                                    onPress={() => setMessage('Update Client HomeOS publishing is coming next. Staged details are not written yet.')}
+                                    onPress={() => openProviderPanel('review')}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
@@ -2187,6 +3018,9 @@ export default function ItemScreen() {
                         />
                     </View>
 
+                    {renderProviderWorkPanel()}
+                    {renderProviderStagedUpdatesPanel()}
+
                     {!!message && (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>
                             <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Message</Text>
@@ -2226,6 +3060,24 @@ export default function ItemScreen() {
 
                     <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>Photos</Text>
 
+                    {providerModeContext ? (
+                        <ThemedCard style={scaleStyle(providerFormCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Provider Photos</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                Homeowner photos are locked unless shared. Staged provider photo intents for this item are shown here.
+                            </Text>
+                            <View style={scaleStyle(providerStagedListStyle)}>
+                                {stagedPhotoEntries.length === 0 ? (
+                                    <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                                        No staged provider photos yet.
+                                    </Text>
+                                ) : (
+                                    stagedPhotoEntries.map((entry) => renderProviderStagedEntry(entry))
+                                )}
+                            </View>
+                        </ThemedCard>
+                    ) : null}
+
                     <View style={scaleStyle(galleryGridStyle)}>
                         {galleryPhotos.map((photo) => (
                             <View
@@ -2264,7 +3116,9 @@ export default function ItemScreen() {
                     </View>
 
                     {galleryPhotos.length === 0 && (
-                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>No photos yet.</Text>
+                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                            {providerModeContext ? 'No shared homeowner photos are available in provider mode.' : 'No photos yet.'}
+                        </Text>
                     )}
                 </ScrollView>
             </Modal>
@@ -2279,6 +3133,24 @@ export default function ItemScreen() {
                     </TouchableOpacity>
 
                     <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>Documents</Text>
+
+                    {providerModeContext ? (
+                        <ThemedCard style={scaleStyle(providerFormCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Provider Documents</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                Homeowner documents are locked unless shared. Staged provider document intents for this item are shown here.
+                            </Text>
+                            <View style={scaleStyle(providerStagedListStyle)}>
+                                {stagedDocumentEntries.length === 0 ? (
+                                    <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                                        No staged provider documents yet.
+                                    </Text>
+                                ) : (
+                                    stagedDocumentEntries.map((entry) => renderProviderStagedEntry(entry))
+                                )}
+                            </View>
+                        </ThemedCard>
+                    ) : null}
 
                     {!selectedDocumentType ? (
                         <>
@@ -2384,7 +3256,9 @@ export default function ItemScreen() {
                     )}
 
                     {documents.length === 0 && (
-                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>No documents yet.</Text>
+                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                            {providerModeContext ? 'No shared homeowner documents are available in provider mode.' : 'No documents yet.'}
+                        </Text>
                     )}
                 </ScrollView>
             </Modal>
@@ -2558,6 +3432,81 @@ function shortId(value?: string | null) {
     if (!value) return 'Unavailable';
 
     return value.slice(0, 8).toUpperCase();
+}
+
+function formatCompactDateTime(value?: string | null) {
+    if (!value) return 'Just now';
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return 'Just now';
+
+    return date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
+function summarizeProviderStagedEntry(entry: ProviderStagedWorkEntry) {
+    const payload = entry.payload;
+
+    if (entry.type === 'note') {
+        return payloadString(payload, 'details') || payloadString(payload, 'destination') || 'Provider note staged.';
+    }
+
+    if (entry.type === 'finding') {
+        const title = payloadString(payload, 'title') || 'Finding';
+        const severity = payloadString(payload, 'severity');
+        const action = payloadString(payload, 'recommended_action');
+
+        return [title, severity ? `Severity: ${severity}` : '', action ? `Action: ${action}` : '']
+            .filter(Boolean)
+            .join(' - ');
+    }
+
+    if (entry.type === 'photo') {
+        const source = payloadString(payload, 'source_action') || 'Photo action';
+        const photoType = payloadString(payload, 'photo_type');
+
+        return photoType ? `${source} - ${photoLabel(photoType)}` : source;
+    }
+
+    if (entry.type === 'document') {
+        const source = payloadString(payload, 'source_action') || 'Document action';
+        const documentType = payloadString(payload, 'document_type');
+
+        return documentType ? `${source} - ${documentLabel(documentType)}` : source;
+    }
+
+    if (entry.type === 'edit') {
+        const changedFields = ['name', 'condition', 'status', 'brand', 'model', 'serial', 'location']
+            .filter((field) => Boolean(payloadString(payload, field)));
+
+        return changedFields.length > 0
+            ? `Staged fields: ${changedFields.join(', ')}`
+            : 'Provider information edit staged.';
+    }
+
+    if (entry.type === 'related_item') {
+        const name = payloadString(payload, 'name') || 'Related item';
+        const category = payloadString(payload, 'category');
+
+        return category ? `${name} - ${category}` : name;
+    }
+
+    if (entry.type === 'archive_request') {
+        return 'Archive request staged. The client item was not changed.';
+    }
+
+    return 'Marked for a future Client HomeOS update.';
+}
+
+function payloadString(payload: ProviderStagedWorkPayload, key: string) {
+    const value = payload[key];
+
+    return typeof value === 'string' ? value.trim() : '';
 }
 
 const centerStyle = {
@@ -2882,6 +3831,119 @@ const providerModeButtonStyle = {
 
 const providerModeButtonTextStyle = {
     fontSize: 12,
+};
+
+const providerFormCardStyle = {
+    borderRadius: 20,
+    padding: 18,
+    marginTop: 12,
+    borderWidth: 1,
+};
+
+const providerFormActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 14,
+};
+
+const providerFormButtonStyle = {
+    minWidth: 160,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+};
+
+const providerTwoColumnRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    columnGap: 12,
+    rowGap: 10,
+};
+
+const providerFieldWrapStyle = {
+    flex: 1,
+    minWidth: 210,
+};
+
+const providerToggleRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 12,
+};
+
+const providerToggleButtonStyle = {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+};
+
+const providerToggleTextStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const providerStagedCardStyle = {
+    borderRadius: 20,
+    padding: 18,
+    marginTop: 12,
+    borderWidth: 1,
+};
+
+const providerStagedHeaderStyle = {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'flex-start' as const,
+    gap: 12,
+};
+
+const providerStagedHeaderButtonStyle = {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+};
+
+const providerStagedListStyle = {
+    gap: 10,
+    marginTop: 12,
+};
+
+const providerStagedEntryStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+};
+
+const providerStagedEntryHeaderStyle = {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'flex-start' as const,
+    gap: 12,
+};
+
+const providerStagedEntryTypeStyle = {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const providerStagedEntryDateStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+};
+
+const providerStagedEntrySummaryStyle = {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800' as const,
+};
+
+const providerClearButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
 };
 
 const buttonStyle = {
