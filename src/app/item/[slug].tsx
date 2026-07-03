@@ -53,6 +53,7 @@ import {
     clearProviderStagedWorkForItem,
     loadProviderStagedWorkWithStatus,
     providerStagedWorkTypeLabel,
+    removeProviderStagedWorkEntry,
     type ProviderStagingBackendStatus,
     type ProviderStagedWorkEntry,
     type ProviderStagedWorkPayload,
@@ -431,6 +432,7 @@ export default function ItemScreen() {
     const [providerReviewExpanded, setProviderReviewExpanded] = useState(false);
     const [expandedProviderPhotoId, setExpandedProviderPhotoId] = useState<string | null>(null);
     const [expandedProviderDocumentId, setExpandedProviderDocumentId] = useState<string | null>(null);
+    const [removingProviderPhotoId, setRemovingProviderPhotoId] = useState<string | null>(null);
     const [providerPanel, setProviderPanel] = useState<ProviderStagedPanel>('none');
     const [savingProviderWork, setSavingProviderWork] = useState(false);
     const [providerNoteText, setProviderNoteText] = useState('');
@@ -465,6 +467,7 @@ export default function ItemScreen() {
             setProviderReviewExpanded(false);
             setExpandedProviderPhotoId(null);
             setExpandedProviderDocumentId(null);
+            setRemovingProviderPhotoId(null);
             setProviderPanel('none');
             return;
         }
@@ -950,6 +953,86 @@ export default function ItemScreen() {
                 },
             ]
         );
+    }
+
+    function confirmRemoveProviderPhoto(entry: ProviderStagedWorkEntry) {
+        if (!providerModeContext || entry.type !== 'photo') return;
+
+        Alert.alert(
+            'Remove this staged provider photo?',
+            'This removes the company-side staged photo only. It does not delete homeowner permanent HomeOS photos.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Remove',
+                    style: 'destructive',
+                    onPress: () => {
+                        void removeProviderPhoto(entry);
+                    },
+                },
+            ]
+        );
+    }
+
+    async function removeProviderPhoto(entry: ProviderStagedWorkEntry) {
+        if (!providerModeContext || !item || entry.type !== 'photo') return;
+
+        setRemovingProviderPhotoId(entry.id);
+
+        try {
+            const scope = {
+                companyId: providerModeContext.companyId,
+                propertyId: providerModeContext.propertyId,
+                itemId: item.id ? String(item.id) : null,
+                itemSlug: item.item_slug || String(slug),
+            };
+            const bucket = providerStagedPhotoBucket(entry.payload);
+            const storagePath = payloadString(entry.payload, 'storage_path');
+            const removeResult = await removeProviderStagedWorkEntry(entry, scope);
+            let storageWarning = '';
+
+            setProviderStagedEntries(removeResult.remainingEntries);
+            setProviderStagingBackendStatus(removeResult.source === 'provider_staging'
+                ? {
+                    status: 'connected',
+                    message: 'Provider staging backend: connected',
+                }
+                : {
+                    status: 'fallback',
+                    message: 'Provider staging backend unavailable: using local fallback',
+                }
+            );
+            setExpandedProviderPhotoId((currentId) => currentId === entry.id ? null : currentId);
+
+            if (storagePath) {
+                if (isSafeProviderStagedPhotoPath(storagePath)) {
+                    const { error: storageError } = await supabase.storage
+                        .from(bucket)
+                        .remove([storagePath]);
+
+                    if (storageError) {
+                        logMediaDebug('provider-photo-storage-remove', storageError);
+                        storageWarning = `storage file could not be deleted: ${storageError.message}`;
+                    }
+                } else {
+                    storageWarning = 'storage file was not deleted because the path is not a provider-staged photo path.';
+                }
+            }
+
+            setMessage(storageWarning
+                ? `Staged provider photo removed, but ${storageWarning}`
+                : 'Staged provider photo removed. Homeowner photos were not changed.'
+            );
+        } catch (error) {
+            const errorMessage = providerStagingErrorMessage(error);
+            setProviderStagingBackendStatus({
+                status: 'error',
+                message: `Provider staging backend error: ${errorMessage}`,
+            });
+            setMessage(`Staged provider photo could not be removed: ${errorMessage}`);
+        } finally {
+            setRemovingProviderPhotoId(null);
+        }
     }
 
     async function clearCurrentProviderStagedEntries() {
@@ -2883,6 +2966,7 @@ export default function ItemScreen() {
         const bucket = payloadString(payload, 'bucket') || payloadString(payload, 'storage_bucket');
         const storagePath = payloadString(payload, 'storage_path');
         const detailsOpen = expandedProviderPhotoId === entry.id;
+        const isRemoving = removingProviderPhotoId === entry.id;
 
         return (
             <View
@@ -2924,22 +3008,62 @@ export default function ItemScreen() {
                     {source}
                 </Text>
 
-                <TouchableOpacity
-                    onPress={() => setExpandedProviderPhotoId(detailsOpen ? null : entry.id)}
-                    activeOpacity={0.82}
-                    style={[
-                        providerDetailsButtonStyle,
-                        {
-                            backgroundColor: theme.colors.surfaceAlt,
-                            borderColor: theme.colors.border,
-                            borderRadius: theme.radii.pill,
-                        },
-                    ]}
-                >
-                    <Text style={[scaleStyle(providerDetailsButtonTextStyle), { color: theme.colors.text }]}>
-                        {detailsOpen ? 'Hide Details' : 'Details'}
-                    </Text>
-                </TouchableOpacity>
+                <View style={scaleStyle(providerPhotoActionRowStyle)}>
+                    {previewUrl ? (
+                        <TouchableOpacity
+                            onPress={() => Linking.openURL(previewUrl)}
+                            activeOpacity={0.82}
+                            style={[
+                                providerDetailsButtonStyle,
+                                {
+                                    backgroundColor: theme.colors.surfaceAlt,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.pill,
+                                },
+                            ]}
+                        >
+                            <Text style={[scaleStyle(providerDetailsButtonTextStyle), { color: theme.colors.text }]}>
+                                View
+                            </Text>
+                        </TouchableOpacity>
+                    ) : null}
+
+                    <TouchableOpacity
+                        onPress={() => setExpandedProviderPhotoId(detailsOpen ? null : entry.id)}
+                        activeOpacity={0.82}
+                        style={[
+                            providerDetailsButtonStyle,
+                            {
+                                backgroundColor: theme.colors.surfaceAlt,
+                                borderColor: theme.colors.border,
+                                borderRadius: theme.radii.pill,
+                            },
+                        ]}
+                    >
+                        <Text style={[scaleStyle(providerDetailsButtonTextStyle), { color: theme.colors.text }]}>
+                            {detailsOpen ? 'Hide' : 'Details'}
+                        </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        disabled={isRemoving}
+                        onPress={() => confirmRemoveProviderPhoto(entry)}
+                        activeOpacity={0.82}
+                        style={[
+                            providerDetailsButtonStyle,
+                            {
+                                backgroundColor: theme.colors.dangerBackground,
+                                borderColor: theme.colors.dangerBackground,
+                                borderRadius: theme.radii.pill,
+                                opacity: isRemoving ? 0.55 : 1,
+                            },
+                        ]}
+                    >
+                        <Text style={[scaleStyle(providerDetailsButtonTextStyle), { color: theme.colors.danger }]}>
+                            {isRemoving ? 'Removing...' : 'Remove'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
 
                 {detailsOpen ? (
                     <View style={scaleStyle(providerMediaDetailsStyle)}>
@@ -4210,6 +4334,20 @@ function providerStagedPhotoPreviewUrl(payload: ProviderStagedWorkPayload) {
     );
 }
 
+function providerStagedPhotoBucket(payload: ProviderStagedWorkPayload) {
+    const bucket = (
+        payloadString(payload, 'bucket') ||
+        payloadString(payload, 'storage_bucket') ||
+        PROVIDER_STAGED_PHOTO_BUCKET
+    );
+
+    return bucket === PROVIDER_STAGED_PHOTO_BUCKET ? bucket : PROVIDER_STAGED_PHOTO_BUCKET;
+}
+
+function isSafeProviderStagedPhotoPath(path: string) {
+    return path.startsWith('users/') && path.includes('/provider-staged-work/');
+}
+
 function isProviderStagedMainPhotoEntry(entry: ProviderStagedWorkEntry) {
     if (entry.type !== 'photo') return false;
 
@@ -4777,6 +4915,13 @@ const providerDetailsButtonStyle = {
 const providerDetailsButtonTextStyle = {
     fontSize: 12,
     fontWeight: '900' as const,
+};
+
+const providerPhotoActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+    marginTop: 9,
 };
 
 const providerMediaDetailsStyle = {

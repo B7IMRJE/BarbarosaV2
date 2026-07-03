@@ -50,7 +50,7 @@ export type ProviderStagedWorkEntry = {
     payload: ProviderStagedWorkPayload;
 };
 
-type ProviderStagedWorkScope = {
+export type ProviderStagedWorkScope = {
     companyId: string;
     propertyId: string;
     itemId?: string | null;
@@ -64,6 +64,11 @@ type ProviderStagedWorkInput = Omit<ProviderStagedWorkEntry, 'id' | 'created_at'
 };
 
 export type ProviderStagedWorkClearResult = {
+    source: ProviderStagedWorkSource;
+    remainingEntries: ProviderStagedWorkEntry[];
+};
+
+export type ProviderStagedWorkRemoveResult = {
     source: ProviderStagedWorkSource;
     remainingEntries: ProviderStagedWorkEntry[];
 };
@@ -156,6 +161,28 @@ export async function clearProviderStagedWorkForItem(
     }
 
     const remainingEntries = await clearProviderStagedWorkInLocal(scope);
+
+    return {
+        source: 'local',
+        remainingEntries,
+    };
+}
+
+export async function removeProviderStagedWorkEntry(
+    entry: ProviderStagedWorkEntry,
+    scope: ProviderStagedWorkScope
+): Promise<ProviderStagedWorkRemoveResult> {
+    if (entry.source === 'provider_staging') {
+        await rejectProviderStagedWorkEntryInBackend(entry, scope);
+        const result = await loadProviderStagedWorkWithStatus(scope);
+
+        return {
+            source: 'provider_staging',
+            remainingEntries: result.entries,
+        };
+    }
+
+    const remainingEntries = await removeProviderStagedWorkEntryInLocal(entry, scope);
 
     return {
         source: 'local',
@@ -264,6 +291,61 @@ async function clearProviderStagedWorkInBackend(scope: ProviderStagedWorkScope) 
     }
 }
 
+async function rejectProviderStagedWorkEntryInBackend(
+    entry: ProviderStagedWorkEntry,
+    scope: ProviderStagedWorkScope
+) {
+    const rejectRpc = await supabase.rpc('reject_provider_staged_work_entry', {
+        p_staged_work_id: entry.id,
+        p_company_id: scope.companyId,
+        p_property_id: scope.propertyId,
+    });
+
+    if (!rejectRpc.error) {
+        return;
+    }
+
+    if (!isMissingRejectProviderStagedWorkEntryRpc(rejectRpc.error)) {
+        throw new Error(`Could not remove provider staged entry: ${getSupabaseErrorText(rejectRpc.error)}`);
+    }
+
+    const { data, error } = await supabase
+        .from('company_provider_staged_work')
+        .update({ status: 'rejected' })
+        .eq('id', entry.id)
+        .eq('company_id', scope.companyId)
+        .eq('property_id', scope.propertyId)
+        .in('status', ['draft', 'staged'])
+        .select('id')
+        .maybeSingle();
+
+    if (error) {
+        throw new Error(`Could not remove provider staged entry: ${getSupabaseErrorText(error)}`);
+    }
+
+    if (!data) {
+        throw new Error('Could not remove provider staged entry: no removable staged entry was found.');
+    }
+}
+
+function isMissingRejectProviderStagedWorkEntryRpc(error: unknown) {
+    const text = getSupabaseErrorText(error).toLowerCase();
+    const code = getSupabaseErrorCode(error);
+
+    return (
+        code === 'PGRST202' ||
+        text.includes('schema cache') ||
+        (
+            text.includes('reject_provider_staged_work_entry') &&
+            (
+                text.includes('could not find') ||
+                text.includes('function') ||
+                text.includes('does not exist')
+            )
+        )
+    );
+}
+
 async function addProviderStagedWorkToLocal(input: ProviderStagedWorkInput) {
     const nextEntry: ProviderStagedWorkEntry = {
         ...input,
@@ -287,6 +369,18 @@ async function clearProviderStagedWorkInLocal(scope: ProviderStagedWorkScope) {
     await writeLocalProviderStagedWork(scope.companyId, scope.propertyId, nextEntries);
 
     return nextEntries;
+}
+
+async function removeProviderStagedWorkEntryInLocal(
+    entry: ProviderStagedWorkEntry,
+    scope: ProviderStagedWorkScope
+) {
+    const currentEntries = await readLocalProviderStagedWork(entry.company_id, entry.property_id);
+    const nextEntries = currentEntries.filter((currentEntry) => currentEntry.id !== entry.id);
+
+    await writeLocalProviderStagedWork(entry.company_id, entry.property_id, nextEntries);
+
+    return loadLocalEntriesForScope(scope);
 }
 
 async function loadLocalEntriesForScope(scope: ProviderStagedWorkScope) {
