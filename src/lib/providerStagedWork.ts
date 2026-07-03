@@ -91,7 +91,7 @@ export function providerStagedWorkTypeLabel(type: ProviderStagedWorkType) {
     const labels: Record<ProviderStagedWorkType, string> = {
         note: 'Note',
         finding: 'Finding',
-        photo: 'Photo Intent',
+        photo: 'Photo',
         document: 'Document Intent',
         edit: 'Edit Draft',
         related_item: 'Related Item',

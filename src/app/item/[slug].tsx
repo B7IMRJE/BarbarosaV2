@@ -124,6 +124,8 @@ const providerNoteDestinations: ProviderNoteDestination[] = ['company_only', 'cl
 
 const providerFindingSeverities: ProviderFindingSeverity[] = ['low', 'medium', 'high', 'urgent'];
 
+const PROVIDER_STAGED_PHOTO_BUCKET = 'item-files';
+
 const documentCategoryLabels: Record<string, { singular: string; plural: string }> = {
     manual: { singular: 'Manual', plural: 'Manuals' },
     warranty: { singular: 'Warranty', plural: 'Warranties' },
@@ -161,6 +163,50 @@ function photoLabel(category: string) {
 
 function normalizePhotoCategory(category: string) {
     return category === 'other' ? 'other_photo' : category;
+}
+
+function sanitizeStorageSegment(value?: string | null) {
+    const sanitized = String(value || '')
+        .trim()
+        .replace(/[^a-zA-Z0-9._=-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 96);
+
+    return sanitized || 'unknown';
+}
+
+function sanitizeFileName(value?: string | null) {
+    const sanitized = String(value || '')
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+    return sanitized || `photo-${Date.now()}.jpg`;
+}
+
+function extensionFromMimeType(mimeType?: string | null) {
+    const normalized = String(mimeType || '').trim().toLowerCase();
+
+    if (normalized === 'image/png') return 'png';
+    if (normalized === 'image/webp') return 'webp';
+    if (normalized === 'image/heic') return 'heic';
+    if (normalized === 'image/heif') return 'heif';
+
+    return 'jpg';
+}
+
+function fileNameFromImageAsset(asset: ImagePicker.ImagePickerAsset, fallbackName: string) {
+    const assetFileName = sanitizeFileName(asset.fileName);
+
+    if (asset.fileName && assetFileName.includes('.')) return assetFileName;
+
+    const uriName = sanitizeFileName(asset.uri.split('/').pop()?.split('?')[0]);
+
+    if (uriName && uriName.includes('.')) return uriName;
+
+    return sanitizeFileName(`${fallbackName}.${extensionFromMimeType(asset.mimeType)}`);
 }
 
 function isImageFile(fileName?: string | null) {
@@ -669,11 +715,157 @@ export default function ItemScreen() {
             'photo',
             {
                 source_action: sourceAction,
+                action_source: sourceAction,
                 photo_type: photoType,
+                provider_file_status: 'intent_only',
                 permanent_upload_ready: false,
             },
             'Photo is staged for provider workflow. Permanent publishing comes later.'
         );
+    }
+
+    async function uploadProviderStagedPhotoFromAsset(
+        asset: ImagePicker.ImagePickerAsset,
+        sourceAction: string,
+        photoType: string
+    ) {
+        if (!providerModeContext || !item) {
+            setMessage('Provider mode item context is not available.');
+            return;
+        }
+
+        try {
+            setUploading(true);
+            setMessage('Uploading provider photo...');
+
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                setMessage('Provider photo upload failed: sign in to upload provider photos.');
+                return;
+            }
+
+            const response = await fetch(asset.uri);
+            const arrayBuffer = await response.arrayBuffer();
+            const resolvedItemSlug = item.item_slug || String(slug);
+            const itemKey = sanitizeStorageSegment(item.id ? String(item.id) : resolvedItemSlug);
+            const cleanFileName = fileNameFromImageAsset(
+                asset,
+                `${sanitizeStorageSegment(resolvedItemSlug)}-${normalizePhotoCategory(photoType)}-${Date.now()}`
+            );
+            const storagePath = [
+                'users',
+                sanitizeStorageSegment(user.id),
+                'provider-staged-work',
+                sanitizeStorageSegment(providerModeContext.companyId),
+                sanitizeStorageSegment(providerModeContext.propertyId),
+                itemKey,
+                `${Date.now()}-${cleanFileName}`,
+            ].join('/');
+
+            const { error: uploadError } = await supabase.storage
+                .from(PROVIDER_STAGED_PHOTO_BUCKET)
+                .upload(storagePath, arrayBuffer, {
+                    contentType: asset.mimeType || 'image/jpeg',
+                    upsert: true,
+                });
+
+            if (uploadError) {
+                logMediaDebug('provider-photo-storage-upload', uploadError);
+                setMessage(`Provider photo upload failed: ${uploadError.message}`);
+                return;
+            }
+
+            const { data: publicUrlData } = supabase.storage
+                .from(PROVIDER_STAGED_PHOTO_BUCKET)
+                .getPublicUrl(storagePath);
+            const previewUrl = publicUrlData.publicUrl || '';
+
+            const saved = await saveProviderStagedEntry(
+                'photo',
+                {
+                    bucket: PROVIDER_STAGED_PHOTO_BUCKET,
+                    storage_bucket: PROVIDER_STAGED_PHOTO_BUCKET,
+                    storage_path: storagePath,
+                    file_name: cleanFileName,
+                    mime_type: asset.mimeType || 'image/jpeg',
+                    photo_type: normalizePhotoCategory(photoType),
+                    action_source: sourceAction,
+                    source_action: sourceAction,
+                    public_or_signed_url: previewUrl || null,
+                    preview_url: previewUrl || null,
+                    provider_file_status: 'uploaded',
+                    permanent_upload_ready: false,
+                    permanent_publish_ready: false,
+                },
+                'Provider photo uploaded and staged. Publishing to the client HomeOS comes later.'
+            );
+
+            if (!saved) {
+                await cleanupUploadedFile(PROVIDER_STAGED_PHOTO_BUCKET, storagePath, 'provider-photo-staging-cleanup');
+                setMessage('Provider photo upload failed: staged photo metadata could not be saved.');
+                return;
+            }
+
+            setShowPhotos(true);
+        } catch (error) {
+            const errorMessage = providerStagingErrorMessage(error);
+            logMediaDebug('provider-photo-upload', error);
+            setMessage(`Provider photo upload failed: ${errorMessage}`);
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    async function chooseProviderStagedPhoto(sourceAction: string, photoType: string) {
+        if (uploading || capturingPhoto) return;
+
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+            setMessage('Photo library permission is required.');
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            quality: 0.8,
+        });
+
+        if (result.canceled) return;
+
+        await uploadProviderStagedPhotoFromAsset(result.assets[0], sourceAction, photoType);
+    }
+
+    async function captureProviderStagedPhoto(sourceAction: string, photoType: string) {
+        if (capturingPhoto || uploading) return;
+
+        try {
+            setCapturingPhoto(true);
+            const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+            if (!permission.granted) {
+                setMessage('Camera capture is not available on this device/browser. Choose Photo instead.');
+                return;
+            }
+
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.8,
+            });
+
+            if (result.canceled) return;
+
+            await uploadProviderStagedPhotoFromAsset(result.assets[0], sourceAction, photoType);
+        } catch (error) {
+            logMediaDebug('provider-camera-capture', error);
+            setMessage('Camera capture is not available on this device/browser. Choose Photo instead.');
+        } finally {
+            setCapturingPhoto(false);
+        }
     }
 
     async function handleStageProviderDocumentIntent(sourceAction: string, documentType: string) {
@@ -1272,7 +1464,7 @@ export default function ItemScreen() {
 
     async function handleUploadMainPhoto() {
         if (providerModeContext) {
-            await handleStageProviderPhotoIntent('Upload Main Photo', 'main_photo');
+            await chooseProviderStagedPhoto('Upload Main Photo', 'main_photo');
             return;
         }
 
@@ -1295,7 +1487,7 @@ export default function ItemScreen() {
 
     async function handleTakeMainPhoto() {
         if (providerModeContext) {
-            await handleStageProviderPhotoIntent('Take Main Photo', 'main_photo');
+            await captureProviderStagedPhoto('Take Main Photo', 'main_photo');
             return;
         }
 
@@ -1304,7 +1496,7 @@ export default function ItemScreen() {
 
     async function handleUploadAdditionalPhoto() {
         if (providerModeContext) {
-            await handleStageProviderPhotoIntent('Choose Photo', normalizePhotoCategory(photoCategory));
+            await chooseProviderStagedPhoto('Choose Photo', normalizePhotoCategory(photoCategory));
             return;
         }
 
@@ -1336,7 +1528,7 @@ export default function ItemScreen() {
 
     async function handleTakeAdditionalPhoto() {
         if (providerModeContext) {
-            await handleStageProviderPhotoIntent('Take Photo', normalizePhotoCategory(photoCategory));
+            await captureProviderStagedPhoto('Take Photo', normalizePhotoCategory(photoCategory));
             return;
         }
 
@@ -2146,12 +2338,12 @@ export default function ItemScreen() {
         );
     }
 
+    const providerMediaLocked = Boolean(providerModeContext);
     const photos = files.filter((file) => file.file_type === 'photo');
-    const galleryPhotos = buildGalleryPhotos(item.photo_url, photos);
+    const galleryPhotos = providerMediaLocked ? [] : buildGalleryPhotos(item.photo_url, photos);
     const documents = files.filter((file) => file.file_type === 'document');
     const mediaActionBusy = uploading || capturingPhoto;
     const mediaBusyTitle = uploading ? 'Uploading...' : 'Opening...';
-    const providerMediaLocked = Boolean(providerModeContext);
     const stagedPhotoEntries = providerStagedEntries.filter((entry) => entry.type === 'photo');
     const stagedDocumentEntries = providerStagedEntries.filter((entry) => entry.type === 'document');
 
@@ -2584,6 +2776,10 @@ export default function ItemScreen() {
     }
 
     function renderProviderStagedEntry(entry: ProviderStagedWorkEntry) {
+        const photoPreviewUrl = entry.type === 'photo' ? providerStagedPhotoPreviewUrl(entry.payload) : '';
+        const photoFileName = entry.type === 'photo' ? payloadString(entry.payload, 'file_name') : '';
+        const photoStoragePath = entry.type === 'photo' ? payloadString(entry.payload, 'storage_path') : '';
+
         return (
             <View
                 key={entry.id}
@@ -2609,6 +2805,26 @@ export default function ItemScreen() {
                 <Text style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText }]}>
                     {summarizeProviderStagedEntry(entry)}
                 </Text>
+                {entry.type === 'photo' ? (
+                    <View style={scaleStyle(providerStagedPhotoBlockStyle)}>
+                        {photoPreviewUrl ? (
+                            <TouchableOpacity
+                                onPress={() => Linking.openURL(photoPreviewUrl)}
+                                activeOpacity={0.82}
+                                style={scaleStyle(providerStagedPhotoPreviewWrapStyle)}
+                            >
+                                <Image
+                                    source={{ uri: photoPreviewUrl }}
+                                    style={[scaleStyle(providerStagedPhotoPreviewStyle), { backgroundColor: theme.colors.surface }]}
+                                    resizeMode="cover"
+                                />
+                            </TouchableOpacity>
+                        ) : null}
+                        <Text style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText }]}>
+                            {photoFileName || photoStoragePath || 'Provider photo metadata staged.'}
+                        </Text>
+                    </View>
+                ) : null}
             </View>
         );
     }
@@ -3113,9 +3329,10 @@ export default function ItemScreen() {
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
                                 <ThemedButton
-                                    title="Add Job Photo"
+                                    title={mediaActionBusy ? mediaBusyTitle : 'Add Job Photo'}
                                     variant="secondary"
-                                    onPress={() => handleStageProviderPhotoIntent('Add Job Photo', 'job_photo')}
+                                    onPress={() => chooseProviderStagedPhoto('Add Job Photo', 'job_photo')}
+                                    disabled={mediaActionBusy}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
@@ -3285,7 +3502,7 @@ export default function ItemScreen() {
                         <ThemedCard style={scaleStyle(providerFormCardStyle)}>
                             <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Provider Photos</Text>
                             <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                                Homeowner photos are locked unless shared. Staged provider photo intents for this item are shown here.
+                                Homeowner photos are locked unless shared. Provider-staged photos for this item are shown here.
                             </Text>
                             <View style={scaleStyle(providerStagedListStyle)}>
                                 {stagedPhotoEntries.length === 0 ? (
@@ -3690,8 +3907,12 @@ function summarizeProviderStagedEntry(entry: ProviderStagedWorkEntry) {
     if (entry.type === 'photo') {
         const source = payloadString(payload, 'source_action') || 'Photo action';
         const photoType = payloadString(payload, 'photo_type');
+        const fileName = payloadString(payload, 'file_name');
+        const storagePath = payloadString(payload, 'storage_path');
+        const fileLabel = fileName || storagePath;
+        const summary = photoType ? `${source} - ${photoLabel(photoType)}` : source;
 
-        return photoType ? `${source} - ${photoLabel(photoType)}` : source;
+        return fileLabel ? `${summary} - ${fileLabel}` : summary;
     }
 
     if (entry.type === 'document') {
@@ -3728,6 +3949,15 @@ function providerStagedSourceLabel(entry: ProviderStagedWorkEntry) {
     return entry.source === 'provider_staging'
         ? 'Saved to provider staging'
         : 'Local staged entry';
+}
+
+function providerStagedPhotoPreviewUrl(payload: ProviderStagedWorkPayload) {
+    return (
+        payloadString(payload, 'preview_url') ||
+        payloadString(payload, 'public_or_signed_url') ||
+        payloadString(payload, 'public_url') ||
+        payloadString(payload, 'signed_url')
+    );
 }
 
 function providerStagingStatusText(status: ProviderStagingBackendStatus | null) {
@@ -4207,6 +4437,23 @@ const providerStagedEntrySummaryStyle = {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '800' as const,
+};
+
+const providerStagedPhotoBlockStyle = {
+    marginTop: 10,
+    gap: 8,
+};
+
+const providerStagedPhotoPreviewWrapStyle = {
+    width: 150,
+    height: 112,
+    borderRadius: 14,
+    overflow: 'hidden' as const,
+};
+
+const providerStagedPhotoPreviewStyle = {
+    width: '100%' as const,
+    height: '100%' as const,
 };
 
 const providerClearButtonStyle = {
