@@ -1,10 +1,16 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import AdminNavBar from '../../../../../components/AdminNavBar';
 import ThemedButton from '../../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../../components/theme/ThemedCard';
-import { loadCurrentCompanyPermissionAccess } from '../../../../../lib/companyPermissions';
+import { verifyCustomerWorkspaceAccess } from '../../../../../lib/customerWorkspaceAccess';
+import {
+    addProviderStagedWork,
+    loadProviderStagedWorkWithStatus,
+    providerStagedWorkTypeLabel,
+    type ProviderStagedWorkEntry,
+} from '../../../../../lib/providerStagedWork';
 import { supabase } from '../../../../../lib/supabase';
 import { useTheme } from '../../../../../theme/useTheme';
 
@@ -60,22 +66,23 @@ type CustomerInvite = {
     accepted_at: string | null;
 };
 
-type PlatformProfile = {
-    role?: string | null;
-    is_platform_admin?: boolean | null;
-};
-
 export default function CompanyClientDetailScreen() {
     const { theme } = useTheme();
     const { id, propertyId } = useLocalSearchParams<{ id: string; propertyId: string }>();
     const companyId = String(id || '');
     const clientPropertyId = String(propertyId || '');
     const clientsRoute = `/super-admin/company/${companyId}/clients` as Href;
+    const clientRoute = `/super-admin/company/${companyId}/client/${clientPropertyId}`;
     const [company, setCompany] = useState<CompanyRecord | null>(null);
     const [client, setClient] = useState<CompanyClient | null>(null);
     const [property, setProperty] = useState<PropertyRecord | null>(null);
     const [connection, setConnection] = useState<PropertyConnection | null>(null);
     const [invite, setInvite] = useState<CustomerInvite | null>(null);
+    const [stagedEntries, setStagedEntries] = useState<ProviderStagedWorkEntry[]>([]);
+    const [stagingStatusMessage, setStagingStatusMessage] = useState('');
+    const [showNoteForm, setShowNoteForm] = useState(false);
+    const [noteText, setNoteText] = useState('');
+    const [savingAction, setSavingAction] = useState('');
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
 
@@ -162,30 +169,22 @@ export default function CompanyClientDetailScreen() {
         await Promise.all([
             loadConnection(loadedClient),
             loadAcceptedInvite(),
+            loadCustomerStagedEntries(),
         ]);
         setLoading(false);
     }
 
     async function verifyClientDetailAccess(targetCompanyId: string) {
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        const access = await verifyCustomerWorkspaceAccess(targetCompanyId);
 
-        if (userError || !user) {
+        if (!access.userId) {
             router.replace('/auth/login' as never);
             return false;
         }
 
-        if (await isPlatformAdmin(user.id)) return true;
+        if (access.allowed) return true;
 
-        const permissionLookup = await loadCurrentCompanyPermissionAccess('can_view_customers', {
-            companyId: targetCompanyId,
-        });
-
-        if (permissionLookup.access) return true;
-
-        setMessage(permissionLookup.error || 'You do not have customer access for this company.');
+        setMessage(access.error || 'You do not have customer access for this company.');
         return false;
     }
 
@@ -213,6 +212,136 @@ export default function CompanyClientDetailScreen() {
             .limit(1);
 
         setInvite(((data || []) as CustomerInvite[])[0] || null);
+    }
+
+    async function loadCustomerStagedEntries() {
+        try {
+            const result = await loadProviderStagedWorkWithStatus({
+                companyId,
+                propertyId: clientPropertyId,
+            });
+
+            setStagedEntries(result.entries.filter(isCustomerWorkspaceEntry));
+            setStagingStatusMessage(result.backendStatus.message);
+        } catch (error) {
+            setStagedEntries([]);
+            setStagingStatusMessage(`Provider staging unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    function openEstimateDraft() {
+        router.push({
+            pathname: '/estimate',
+            params: {
+                providerMode: '1',
+                companyId,
+                propertyId: clientPropertyId,
+                returnTo: clientRoute,
+            },
+        } as never);
+    }
+
+    async function saveCustomerNote() {
+        const cleanNote = noteText.trim();
+
+        if (!cleanNote) {
+            setMessage('Add a note before saving.');
+            return;
+        }
+
+        await saveCustomerStagedEntry({
+            type: 'note',
+            actionKey: 'note',
+            successMessage: 'Company note saved for this customer.',
+            payload: {
+                source: 'customer_detail_note',
+                visibility: 'company_only',
+                note: cleanNote,
+                details: cleanNote,
+                customer_home_name: homeName,
+            },
+        });
+
+        setNoteText('');
+        setShowNoteForm(false);
+    }
+
+    async function requestJobHistoryAccess() {
+        await saveCustomerStagedEntry({
+            type: 'client_update_mark',
+            actionKey: 'history',
+            successMessage: 'Job/history access request logged. Homeowner approval workflow comes next.',
+            payload: {
+                source: 'request_job_history_access',
+                visibility: 'company_only',
+                requested_access: ['service_history'],
+                message: 'Company requested service and job history access.',
+            },
+        });
+    }
+
+    async function requestServiceAccess() {
+        await saveCustomerStagedEntry({
+            type: 'client_update_mark',
+            actionKey: 'access',
+            successMessage: 'Service access request logged for this client.',
+            payload: {
+                source: 'service_access_request',
+                visibility: 'company_only',
+                requested_access: ['photos', 'documents', 'service_history', 'quotes'],
+                message: 'Company requested expanded service access.',
+            },
+        });
+    }
+
+    async function saveCustomerStagedEntry({
+        type,
+        actionKey,
+        successMessage,
+        payload,
+    }: {
+        type: 'note' | 'client_update_mark';
+        actionKey: string;
+        successMessage: string;
+        payload: Record<string, string | string[]>;
+    }) {
+        setSavingAction(actionKey);
+        setMessage('');
+
+        try {
+            const access = await verifyCustomerWorkspaceAccess(companyId);
+
+            if (!access.allowed || !access.userId) {
+                setMessage(access.error || 'You do not have customer access for this company.');
+                return;
+            }
+
+            await addProviderStagedWork({
+                type,
+                company_id: companyId,
+                property_id: clientPropertyId,
+                item_id: null,
+                item_slug: null,
+                item_name: homeName,
+                system: 'Customer Home',
+                location: formatAddress(property) || null,
+                category: type === 'note' ? 'Customer Note' : 'Access Request',
+                created_by: access.userId,
+                payload: {
+                    ...payload,
+                    company_id: companyId,
+                    property_id: clientPropertyId,
+                },
+                status: 'draft',
+            });
+
+            await loadCustomerStagedEntries();
+            setMessage(successMessage);
+        } catch (error) {
+            setMessage(`Could not save customer workspace action: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setSavingAction('');
+        }
     }
 
     return (
@@ -310,37 +439,106 @@ export default function CompanyClientDetailScreen() {
                             />
                             <ActionCard
                                 title="Request / Job History"
-                                body={connection?.can_view_service_history ? 'Shared history can be opened here later.' : 'Private - request access.'}
-                                locked={!connection?.can_view_service_history}
+                                body={connection?.can_view_service_history ? 'Shared history workflow can open here later.' : 'Log a service history access request for homeowner approval.'}
+                                onPress={requestJobHistoryAccess}
                             />
                             <ActionCard
                                 title="Estimates / Proposals"
-                                body={connection?.can_view_quotes ? 'Shared quotes and proposals can appear here later.' : 'Private - request access.'}
-                                locked={!connection?.can_view_quotes}
+                                body="Open this company’s provider estimate draft for this customer."
+                                onPress={openEstimateDraft}
                             />
-                            <ActionCard title="Add Note" body="Company-side customer notes are coming soon." />
-                            <ActionCard title="Service Access Request" body="Request deeper HomeOS access from the homeowner later." />
+                            <ActionCard
+                                title="Add Note"
+                                body="Save a company-side customer note. It will not change the homeowner’s HomeOS."
+                                onPress={() => setShowNoteForm((current) => !current)}
+                            />
+                            <ActionCard
+                                title="Service Access Request"
+                                body="Log an access request for photos, documents, history, and quotes."
+                                onPress={requestServiceAccess}
+                            />
                             <ActionCard
                                 title="Open Shared Documents"
-                                body={connection?.can_view_documents ? 'Open documents shared with this company.' : 'Private - request access.'}
-                                locked={!connection?.can_view_documents}
-                                onPress={
-                                    connection?.can_view_documents
-                                        ? () => router.push(`/super-admin/property/${clientPropertyId}/documents` as never)
-                                        : undefined
-                                }
+                                body={connection?.can_view_documents ? 'Open documents shared with this company plus staged document intents.' : 'Open staged documents and request access to private homeowner documents.'}
+                                onPress={() => router.push(`/super-admin/company/${companyId}/client/${clientPropertyId}/documents` as never)}
                             />
                             <ActionCard
                                 title="Open Shared Photos"
-                                body={connection?.can_view_photos ? 'Open photos shared with this company.' : 'Private - request access.'}
-                                locked={!connection?.can_view_photos}
-                                onPress={
-                                    connection?.can_view_photos
-                                        ? () => router.push(`/super-admin/property/${clientPropertyId}/photos` as never)
-                                        : undefined
-                                }
+                                body={connection?.can_view_photos ? 'Open photos shared with this company plus provider staged photos.' : 'Open provider staged photos and request access to private homeowner photos.'}
+                                onPress={() => router.push(`/super-admin/company/${companyId}/client/${clientPropertyId}/photos` as never)}
                             />
                         </View>
+
+                        {showNoteForm && (
+                            <ThemedCard style={sectionCardStyle}>
+                                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Add Company Note</Text>
+                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                    This note is company-side only. It is not written to the homeowner’s permanent HomeOS.
+                                </Text>
+                                <TextInput
+                                    value={noteText}
+                                    onChangeText={setNoteText}
+                                    placeholder="Add customer context, call notes, or follow-up details..."
+                                    multiline
+                                    style={[
+                                        noteInputStyle,
+                                        {
+                                            borderColor: theme.colors.border,
+                                            color: theme.colors.text,
+                                            backgroundColor: theme.colors.surfaceAlt,
+                                        },
+                                    ]}
+                                    placeholderTextColor={theme.colors.mutedText}
+                                />
+                                <View style={noteButtonRowStyle}>
+                                    <ThemedButton
+                                        title={savingAction === 'note' ? 'Saving...' : 'Save Note'}
+                                        disabled={savingAction === 'note'}
+                                        onPress={saveCustomerNote}
+                                        style={smallButtonStyle}
+                                        textStyle={smallButtonTextStyle}
+                                    />
+                                    <ThemedButton
+                                        title="Cancel"
+                                        variant="secondary"
+                                        onPress={() => {
+                                            setShowNoteForm(false);
+                                            setNoteText('');
+                                        }}
+                                        style={smallButtonStyle}
+                                        textStyle={smallButtonTextStyle}
+                                    />
+                                </View>
+                            </ThemedCard>
+                        )}
+
+                        <ThemedCard style={sectionCardStyle}>
+                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Customer Notes & Requests</Text>
+                            {!!stagingStatusMessage && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{stagingStatusMessage}</Text>
+                            )}
+                            {stagedEntries.length === 0 ? (
+                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                    No company-side customer notes or access requests yet.
+                                </Text>
+                            ) : (
+                                <View style={stagedListStyle}>
+                                    {stagedEntries.slice(0, 6).map((entry) => (
+                                        <View key={entry.id} style={[stagedEntryStyle, { borderColor: theme.colors.border }]}>
+                                            <Text style={[stagedEntryTitleStyle, { color: theme.colors.text }]}>
+                                                {customerWorkspaceEntryLabel(entry)}
+                                            </Text>
+                                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                                {customerWorkspaceEntrySummary(entry)}
+                                            </Text>
+                                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                                {providerStagedWorkTypeLabel(entry.type)} / {entry.source === 'provider_staging' ? 'Saved to provider staging' : 'Local staged entry'} / {formatDateTime(entry.created_at)}
+                                            </Text>
+                                        </View>
+                                    ))}
+                                </View>
+                            )}
+                        </ThemedCard>
 
                         <ThemedButton
                             title="Back to Clients"
@@ -390,35 +588,59 @@ function ActionCard({
     );
 }
 
-async function isPlatformAdmin(userId: string) {
-    const primaryQuery = await supabase
-        .from('profiles')
-        .select('role, is_platform_admin')
-        .eq('id', userId)
-        .limit(1);
-
-    if (!primaryQuery.error) {
-        return isPlatformAdminProfile((primaryQuery.data || [])[0] as PlatformProfile | undefined);
-    }
-
-    const fallbackQuery = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .limit(1);
-
-    return isPlatformAdminProfile((fallbackQuery.data || [])[0] as PlatformProfile | undefined);
+function getCompanyDisplayName(company?: CompanyRecord | null) {
+    return company?.public_name?.trim() || company?.dba_name?.trim() || company?.name?.trim() || 'Company';
 }
 
-function isPlatformAdminProfile(profile?: PlatformProfile | null) {
+function isCustomerWorkspaceEntry(entry: ProviderStagedWorkEntry) {
+    const source = payloadString(entry, 'source');
+
     return (
-        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
-        profile?.is_platform_admin === true
+        source === 'customer_detail_note' ||
+        source === 'request_job_history_access' ||
+        source === 'service_access_request'
     );
 }
 
-function getCompanyDisplayName(company?: CompanyRecord | null) {
-    return company?.public_name?.trim() || company?.dba_name?.trim() || company?.name?.trim() || 'Company';
+function customerWorkspaceEntryLabel(entry: ProviderStagedWorkEntry) {
+    const source = payloadString(entry, 'source');
+
+    if (source === 'customer_detail_note') return 'Company Note';
+    if (source === 'request_job_history_access') return 'Job/History Access Request';
+    if (source === 'service_access_request') return 'Service Access Request';
+
+    return providerStagedWorkTypeLabel(entry.type);
+}
+
+function customerWorkspaceEntrySummary(entry: ProviderStagedWorkEntry) {
+    const source = payloadString(entry, 'source');
+
+    if (source === 'customer_detail_note') {
+        return payloadString(entry, 'note') || payloadString(entry, 'details') || 'Company-side note saved.';
+    }
+
+    if (source === 'request_job_history_access') {
+        return 'Job/history access request logged. Homeowner approval workflow comes next.';
+    }
+
+    if (source === 'service_access_request') {
+        const requestedAccess = entry.payload.requested_access;
+        const accessText = Array.isArray(requestedAccess)
+            ? requestedAccess.filter((value): value is string => typeof value === 'string').join(', ')
+            : '';
+
+        return accessText
+            ? `Requested access: ${accessText}. Homeowner approval workflow comes next.`
+            : 'Service access request logged for this client.';
+    }
+
+    return 'Company-side staged update.';
+}
+
+function payloadString(entry: ProviderStagedWorkEntry, key: string) {
+    const value = entry.payload[key];
+
+    return typeof value === 'string' ? value.trim() : '';
 }
 
 function formatAddress(property?: PropertyRecord | null) {
@@ -452,6 +674,13 @@ function formatDate(value?: string | null) {
 
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleDateString();
+}
+
+function formatDateTime(value?: string | null) {
+    if (!value) return 'Not available';
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
 }
 
 function normalizeText(value?: string | null) {
@@ -562,6 +791,50 @@ const actionCardStyle = {
     flexBasis: 250,
     flexGrow: 1,
     minHeight: 150,
+};
+
+const noteInputStyle = {
+    borderWidth: 1,
+    borderRadius: 14,
+    fontSize: 15,
+    fontWeight: '800' as const,
+    lineHeight: 21,
+    marginTop: 14,
+    minHeight: 110,
+    padding: 14,
+    textAlignVertical: 'top' as const,
+};
+
+const noteButtonRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 12,
+};
+
+const smallButtonStyle = {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+};
+
+const smallButtonTextStyle = {
+    fontSize: 13,
+};
+
+const stagedListStyle = {
+    gap: 10,
+    marginTop: 12,
+};
+
+const stagedEntryStyle = {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+};
+
+const stagedEntryTitleStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
 };
 
 const cardTitleStyle = {
