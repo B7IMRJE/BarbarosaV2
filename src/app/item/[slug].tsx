@@ -43,6 +43,7 @@ import {
     type RecurrenceUnit,
 } from '../../lib/maintenanceTimers';
 import {
+    providerModePath,
     providerModeItemPath,
     providerModeQueryParams,
     readProviderModeParams,
@@ -1891,14 +1892,12 @@ export default function ItemScreen() {
     }
 
     function handleShowCustomMaintenanceForm() {
-        if (providerModeContext) {
-            setMessage('Provider mode reminder changes are staged only. Nothing was written to the customer HomeOS.');
-            return;
-        }
-
         resetCustomMaintenanceForm();
         setShowCustomMaintenanceForm(true);
-        setMessage('');
+        setMessage(providerModeContext
+            ? 'Custom reminders are staged for provider review in provider mode.'
+            : ''
+        );
     }
 
     function handleCancelCustomMaintenanceForm() {
@@ -1907,16 +1906,6 @@ export default function ItemScreen() {
     }
 
     async function handleSaveCustomMaintenanceReminder() {
-        if (providerModeContext) {
-            setMessage('Provider mode reminder changes are staged only. Nothing was written to the customer HomeOS.');
-            return;
-        }
-
-        if (!item?.id) {
-            setMessage('Item must be loaded before adding reminders.');
-            return;
-        }
-
         const title = customReminderTitle.trim();
         if (!title) {
             setMessage('Reminder title is required.');
@@ -1948,6 +1937,54 @@ export default function ItemScreen() {
             return;
         }
 
+        const description = customReminderDescription.trim() || null;
+
+        if (providerModeContext) {
+            setSavingCustomMaintenance(true);
+
+            try {
+                const saved = await saveProviderStagedEntry(
+                    'note',
+                    {
+                        source: 'custom_reminder',
+                        destination: 'provider_staged',
+                        details: `Custom reminder requested: ${title}`,
+                        reminder_title: title,
+                        reminder_text: title,
+                        reminder_description: description,
+                        recurrence_interval: recurrenceInterval,
+                        recurrence_unit: customReminderUnit,
+                        start_date: startDateText,
+                        next_due_date: nextDueDateText,
+                        item_id: item?.id ? String(item.id) : null,
+                        item_slug: item?.item_slug || String(slug),
+                        item_name: item?.name || 'Unknown Item',
+                        system: item?.system || null,
+                        location: item?.location || item?.parent_area || null,
+                        category: item?.category || null,
+                        homeowner_visible_when_published: true,
+                    },
+                    'Custom reminder staged for provider review. It is not published to the client HomeOS yet.'
+                );
+
+                if (saved) {
+                    setMessage('Custom reminder staged for provider review. It is not published to the client HomeOS yet.');
+                    setShowCustomMaintenanceForm(false);
+                    setProviderReviewExpanded(true);
+                    resetCustomMaintenanceForm();
+                }
+            } finally {
+                setSavingCustomMaintenance(false);
+            }
+
+            return;
+        }
+
+        if (!item?.id) {
+            setMessage('Item must be loaded before adding reminders.');
+            return;
+        }
+
         const hasMatchingTitle = maintenanceTasks.some(
             (task) => task.reminder_status !== 'archived' && task.title.trim().toLowerCase() === title.toLowerCase()
         );
@@ -1957,7 +1994,6 @@ export default function ItemScreen() {
 
         try {
             const activeProperty = await requireActivePropertyMembership();
-            const description = customReminderDescription.trim() || null;
 
             const { error } = await supabase
                 .from('home_item_maintenance_tasks')
@@ -3437,6 +3473,13 @@ export default function ItemScreen() {
                                 {providerStagingStatusText(providerStagingBackendStatus)}
                             </Text>
                             <View style={scaleStyle(providerModeButtonRowStyle)}>
+                                <ThemedButton
+                                    title="Client Home"
+                                    variant="secondary"
+                                    onPress={() => router.replace(providerModePath('/', providerModeContext) as any)}
+                                    style={scaleStyle(providerModeButtonStyle)}
+                                    textStyle={scaleStyle(providerModeButtonTextStyle)}
+                                />
                                 <ThemedButton
                                     title="Company Dashboard"
                                     variant="secondary"

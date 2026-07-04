@@ -13,6 +13,7 @@ import {
     removeItemFromEstimateDraft,
 } from '../../lib/estimateDraft';
 import {
+    providerModePath,
     readProviderModeParams,
     validateProviderModeAccess,
 } from '../../lib/providerMode';
@@ -144,7 +145,7 @@ export default function EstimateScreen() {
     function providerClientHomeOsPath() {
         if (!providerModeContext) return '/';
 
-        return `/super-admin/company/${encodeURIComponent(providerModeContext.companyId)}/client/${encodeURIComponent(providerModeContext.propertyId)}/homeos`;
+        return String(providerModePath('/', providerModeContext));
     }
 
     function providerCompanyDashboardPath() {
@@ -197,7 +198,12 @@ export default function EstimateScreen() {
     }
 
     if (checkingAccess) {
-        return <StaffOnlyMessage message="Checking access..." />;
+        return (
+            <StaffOnlyMessage
+                message="Checking access..."
+                homeRoute={providerModeContext ? providerClientHomeOsPath() : undefined}
+            />
+        );
     }
 
     if (!estimateAccess) {
@@ -205,6 +211,7 @@ export default function EstimateScreen() {
             <StaffOnlyMessage
                 message="Estimate tools are available to active company users with estimate permission."
                 detail={message}
+                homeRoute={providerModeContext ? providerClientHomeOsPath() : undefined}
             />
         );
     }
@@ -356,7 +363,7 @@ export default function EstimateScreen() {
     );
 }
 
-function StaffOnlyMessage({ message, detail }: { message: string; detail?: string }) {
+function StaffOnlyMessage({ message, detail, homeRoute = '/' }: { message: string; detail?: string; homeRoute?: string }) {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
@@ -370,7 +377,7 @@ function StaffOnlyMessage({ message, detail }: { message: string; detail?: strin
                     {!!detail && <Text style={emptyTextStyle}>{detail}</Text>}
 
                     <TouchableOpacity
-                        onPress={() => router.replace('/' as any)}
+                        onPress={() => router.replace(homeRoute as any)}
                         style={openButtonStyle}
                     >
                         <Text style={openButtonTextStyle}>Back Home</Text>

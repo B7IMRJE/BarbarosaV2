@@ -16,6 +16,7 @@ import {
 import type { HomeHealthEmergency } from '../lib/homeHealth';
 import { loadActiveHomeIdentity, loadHomeIdentityForProperty, type HomeIdentity } from '../lib/homeIdentity';
 import {
+  providerModePath,
   providerModeItemPath,
   providerModeQueryParams,
   readProviderModeParams,
@@ -575,6 +576,13 @@ export default function HomeScreen() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), justifyContent: 'flex-end' }}>
+                  <ThemedButton
+                    title="Client Home"
+                    variant="secondary"
+                    onPress={() => router.replace(providerModePath('/', providerModeContext) as any)}
+                    style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(12) }}
+                    textStyle={{ fontSize: scaleFont(12) }}
+                  />
                   <ThemedButton
                     title="Company Dashboard"
                     variant="secondary"

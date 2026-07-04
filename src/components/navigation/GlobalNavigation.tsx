@@ -1,8 +1,9 @@
-import { router, usePathname } from 'expo-router';
+import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import type { ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { providerModePath, readProviderModeParams } from '../../lib/providerMode';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 
@@ -33,6 +34,13 @@ const drawerLinks = [
 
 export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const pathname = usePathname();
+    const routeParams = useGlobalSearchParams<{
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
+    }>();
+    const providerModeContext = readProviderModeParams(routeParams);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const { scaleFont, scaleIcon, theme } = useTheme();
@@ -59,11 +67,15 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     function goTo(route: string) {
         setDrawerOpen(false);
 
-        if (normalizePath(route) === currentPath) {
+        const nextRoute = providerModeContext && normalizePath(route) === '/'
+            ? String(providerModePath('/', providerModeContext))
+            : route;
+
+        if (normalizePath(nextRoute) === currentPath) {
             return;
         }
 
-        router.push(route as any);
+        router.push(nextRoute as any);
     }
 
     const visibleDrawerLinks = drawerLinks.filter((link) => !link.staffOnly || canUseStaffTools);
@@ -160,7 +172,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             textAlign: 'right',
                         }}
                     >
-                        HomeOS
+                        {providerModeContext ? 'Client HomeOS' : 'HomeOS'}
                     </Text>
                 </View>
             </View>
@@ -349,7 +361,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
 }
 
 function normalizePath(pathname: string) {
-    const withoutTrailingSlash = pathname.replace(/\/+$/, '');
+    const pathOnly = pathname.split('?')[0] || '/';
+    const withoutTrailingSlash = pathOnly.replace(/\/+$/, '');
 
     return withoutTrailingSlash || '/';
 }
