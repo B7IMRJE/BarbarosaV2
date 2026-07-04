@@ -31,6 +31,10 @@ type CompanyRecord = {
 };
 
 type PriceBookView = 'systems' | 'items' | 'custom';
+type PriceTool = 'ai' | 'bulk' | 'calculator' | 'import' | null;
+type BulkScope = 'active' | 'filtered' | 'system' | 'category' | 'selected';
+type PricingMode = 'markup' | 'margin';
+type Positioning = 'budget' | 'market average' | 'premium';
 
 type PriceBookTemplate = Omit<CompanyPriceBookItem, 'id' | 'company_id' | 'created_at' | 'updated_at' | 'source'>;
 
@@ -47,6 +51,63 @@ type EditorForm = {
     customerDescription: string;
     internalNotes: string;
     active: boolean;
+};
+
+type CalculatorForm = {
+    materialCost: string;
+    laborHours: string;
+    laborRate: string;
+    markupPercent: string;
+    marginPercent: string;
+    overheadPercent: string;
+    minimumPrice: string;
+    mode: PricingMode;
+};
+
+type CalculatorResult = {
+    materialCost: number;
+    laborCost: number;
+    overheadCost: number;
+    totalCost: number;
+    suggestedPrice: number;
+    grossProfit: number;
+    grossMargin: number;
+    markup: number;
+    valid: boolean;
+    error: string;
+};
+
+type BulkPreviewRow = {
+    item: CompanyPriceBookItem;
+    oldPrice: number;
+    newPrice: number;
+    difference: number;
+    percentChange: number;
+};
+
+type PriceSuggestion = {
+    id: string;
+    priceKey: string;
+    itemName: string;
+    currentPrice: number | null;
+    suggestedPrice: number;
+    lowPrice: number | null;
+    averagePrice: number | null;
+    highPrice: number | null;
+    confidence: 'low' | 'medium' | 'high';
+    sourceCount: number;
+    notes: string;
+    createdAt: string;
+};
+
+type ResearchForm = {
+    scope: 'one_item' | 'current_system' | 'filtered_list' | 'all_unpriced';
+    itemKey: string;
+    serviceArea: string;
+    trade: string;
+    positioning: Positioning;
+    targetMargin: string;
+    notes: string;
 };
 
 const starterPriceTemplates: PriceBookTemplate[] = [
@@ -88,6 +149,16 @@ export default function CompanyPriceBookScreen() {
     const [message, setMessage] = useState('');
     const [editorOpen, setEditorOpen] = useState(false);
     const [editorForm, setEditorForm] = useState<EditorForm>(emptyEditorForm());
+    const [activeTool, setActiveTool] = useState<PriceTool>(null);
+    const [bulkScope, setBulkScope] = useState<BulkScope>('filtered');
+    const [bulkPercent, setBulkPercent] = useState('8');
+    const [bulkSystem, setBulkSystem] = useState('');
+    const [bulkCategory, setBulkCategory] = useState('');
+    const [selectedPriceKeys, setSelectedPriceKeys] = useState<string[]>([]);
+    const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
+    const [calculatorForm, setCalculatorForm] = useState<CalculatorForm>(emptyCalculatorForm());
+    const [researchForm, setResearchForm] = useState<ResearchForm>(emptyResearchForm());
+    const [suggestions, setSuggestions] = useState<PriceSuggestion[]>([]);
 
     useEffect(() => {
         void loadPriceBook();
@@ -101,6 +172,22 @@ export default function CompanyPriceBookScreen() {
     );
     const pricedCount = displayItems.filter((item) => item.base_price !== null).length;
     const activeCount = displayItems.filter((item) => item.active).length;
+    const systems = useMemo(() => uniqueStrings(displayItems.map((item) => item.system)), [displayItems]);
+    const categories = useMemo(() => uniqueStrings(displayItems.map((item) => item.category)), [displayItems]);
+    const bulkPreviewRows = useMemo(
+        () => buildBulkPreviewRows(
+            displayItems,
+            filteredItems,
+            bulkScope,
+            selectedPriceKeys,
+            bulkSystem,
+            bulkCategory,
+            parseOptionalNumber(bulkPercent)
+        ),
+        [displayItems, filteredItems, bulkScope, selectedPriceKeys, bulkSystem, bulkCategory, bulkPercent]
+    );
+    const calculatorResult = useMemo(() => calculatePrice(calculatorForm), [calculatorForm]);
+    const currentEditorSuggestion = suggestions.find((suggestion) => suggestion.priceKey === editorForm.priceKey);
 
     async function loadPriceBook() {
         if (!companyId) {
@@ -255,6 +342,219 @@ export default function CompanyPriceBookScreen() {
         }
     }
 
+    function toggleTool(tool: PriceTool) {
+        setActiveTool((current) => current === tool ? null : tool);
+        setMessage('');
+    }
+
+    function toggleSelectedItem(priceKey: string) {
+        setSelectedPriceKeys((current) =>
+            current.includes(priceKey)
+                ? current.filter((key) => key !== priceKey)
+                : [...current, priceKey]
+        );
+        setBulkPreviewOpen(false);
+    }
+
+    function previewBulkUpdate() {
+        if (!manageAccess) {
+            setMessage('Only company owners, admins, managers, or platform admins can apply bulk price updates.');
+            return;
+        }
+
+        if (parseOptionalNumber(bulkPercent) === null) {
+            setMessage('Enter a valid percentage before previewing a bulk update.');
+            return;
+        }
+
+        if (bulkPreviewRows.length === 0) {
+            setMessage('No priced items match this bulk update scope.');
+            setBulkPreviewOpen(false);
+            return;
+        }
+
+        setBulkPreviewOpen(true);
+        setMessage(`Previewing ${bulkPreviewRows.length} price changes. Review before applying.`);
+    }
+
+    async function applyBulkUpdate() {
+        if (!manageAccess) {
+            setMessage('Only company owners, admins, managers, or platform admins can apply bulk price updates.');
+            return;
+        }
+
+        if (!bulkPreviewOpen || bulkPreviewRows.length === 0) {
+            setMessage('Preview the bulk price changes before applying them.');
+            return;
+        }
+
+        setSaving(true);
+        setMessage('Applying bulk price update...');
+
+        try {
+            for (const row of bulkPreviewRows) {
+                await upsertCompanyPriceBookItem(companyId, {
+                    id: row.item.source === 'template' ? undefined : row.item.id,
+                    price_key: row.item.price_key,
+                    name: row.item.name,
+                    system: row.item.system,
+                    category: row.item.category,
+                    unit: row.item.unit,
+                    base_price: row.newPrice,
+                    labor_hours: row.item.labor_hours,
+                    material_cost: row.item.material_cost,
+                    customer_description: row.item.customer_description,
+                    internal_notes: row.item.internal_notes,
+                    active: row.item.active,
+                });
+            }
+
+            const refreshed = await loadCompanyPriceBook(companyId);
+
+            setItems(refreshed.items);
+            setBackendStatusMessage(refreshed.backendStatus.message);
+            setBulkPreviewOpen(false);
+            setMessage(`Applied bulk price update to ${bulkPreviewRows.length} items.`);
+        } catch (error) {
+            setMessage(`Bulk price update failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    function applyCalculatorToEditor() {
+        if (!calculatorResult.valid) {
+            setMessage(calculatorResult.error || 'Calculator needs valid cost and pricing inputs.');
+            return;
+        }
+
+        setEditorForm((current) => ({
+            ...current,
+            basePrice: calculatorResult.suggestedPrice.toFixed(2),
+            materialCost: calculatorForm.materialCost.trim() || current.materialCost,
+            laborHours: calculatorForm.laborHours.trim() || current.laborHours,
+        }));
+        setEditorOpen(true);
+        setView('custom');
+        setMessage('Calculator price applied to the current item editor.');
+    }
+
+    async function applyCalculatorToSelectedItems() {
+        if (!manageAccess) {
+            setMessage('Only company owners, admins, managers, or platform admins can apply calculator pricing.');
+            return;
+        }
+
+        if (!calculatorResult.valid) {
+            setMessage(calculatorResult.error || 'Calculator needs valid cost and pricing inputs.');
+            return;
+        }
+
+        const selectedItems = displayItems.filter((item) => selectedPriceKeys.includes(item.price_key));
+
+        if (selectedItems.length === 0) {
+            setMessage('Select one or more price book items before applying calculator pricing.');
+            return;
+        }
+
+        setSaving(true);
+        setMessage('Applying calculator price to selected items...');
+
+        try {
+            for (const item of selectedItems) {
+                await upsertCompanyPriceBookItem(companyId, {
+                    id: item.source === 'template' ? undefined : item.id,
+                    price_key: item.price_key,
+                    name: item.name,
+                    system: item.system,
+                    category: item.category,
+                    unit: item.unit,
+                    base_price: calculatorResult.suggestedPrice,
+                    labor_hours: parseOptionalNumber(calculatorForm.laborHours) ?? item.labor_hours,
+                    material_cost: parseOptionalNumber(calculatorForm.materialCost) ?? item.material_cost,
+                    customer_description: item.customer_description,
+                    internal_notes: item.internal_notes,
+                    active: item.active,
+                });
+            }
+
+            const refreshed = await loadCompanyPriceBook(companyId);
+
+            setItems(refreshed.items);
+            setBackendStatusMessage(refreshed.backendStatus.message);
+            setMessage(`Applied calculator price to ${selectedItems.length} selected items.`);
+        } catch (error) {
+            setMessage(`Calculator pricing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    function openAiResearchForItem(item: CompanyPriceBookItem) {
+        setActiveTool('ai');
+        setResearchForm((current) => ({
+            ...current,
+            scope: 'one_item',
+            itemKey: item.price_key,
+            trade: item.system || current.trade,
+        }));
+        setMessage('AI price research is not connected yet. Add the server-side AI relay configuration in SQL/doc 598 to enable live pricing research.');
+    }
+
+    function requestAiResearch() {
+        setMessage('AI price research is not connected yet. Add AI relay/API configuration to enable live pricing research. No fake market prices were generated.');
+    }
+
+    async function applySuggestion(suggestion: PriceSuggestion) {
+        if (!manageAccess) {
+            setMessage('Only company owners, admins, managers, or platform admins can apply suggested pricing.');
+            return;
+        }
+
+        const item = displayItems.find((candidate) => candidate.price_key === suggestion.priceKey);
+
+        if (!item) {
+            setMessage('Suggested item is no longer visible in this price book.');
+            return;
+        }
+
+        setSaving(true);
+        setMessage('Applying suggested price...');
+
+        try {
+            await upsertCompanyPriceBookItem(companyId, {
+                id: item.source === 'template' ? undefined : item.id,
+                price_key: item.price_key,
+                name: item.name,
+                system: item.system,
+                category: item.category,
+                unit: item.unit,
+                base_price: suggestion.suggestedPrice,
+                labor_hours: item.labor_hours,
+                material_cost: item.material_cost,
+                customer_description: item.customer_description,
+                internal_notes: item.internal_notes,
+                active: item.active,
+            });
+
+            const refreshed = await loadCompanyPriceBook(companyId);
+
+            setItems(refreshed.items);
+            setSuggestions((current) => current.filter((entry) => entry.id !== suggestion.id));
+            setBackendStatusMessage(refreshed.backendStatus.message);
+            setMessage('Suggested price applied after review.');
+        } catch (error) {
+            setMessage(`Suggested price could not be applied: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    function dismissSuggestion(suggestionId: string) {
+        setSuggestions((current) => current.filter((suggestion) => suggestion.id !== suggestionId));
+        setMessage('Price suggestion dismissed.');
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -301,6 +601,112 @@ export default function CompanyPriceBookScreen() {
                                 <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
                             </ThemedCard>
                         )}
+
+                        <ThemedCard style={sectionCardStyle}>
+                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Pricing Tools</Text>
+                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                Review every change before applying. AI suggestions never overwrite prices automatically.
+                            </Text>
+                            <View style={toolGridStyle}>
+                                <ToolCard
+                                    title="AI Price Research"
+                                    description="Request server-side market research suggestions."
+                                    active={activeTool === 'ai'}
+                                    onPress={() => toggleTool('ai')}
+                                />
+                                <ToolCard
+                                    title="Bulk Price Increase"
+                                    description="Preview percent changes before saving."
+                                    active={activeTool === 'bulk'}
+                                    onPress={() => toggleTool('bulk')}
+                                />
+                                <ToolCard
+                                    title="Margin / Markup Calculator"
+                                    description="Markup and margin are different."
+                                    active={activeTool === 'calculator'}
+                                    onPress={() => toggleTool('calculator')}
+                                />
+                                <ToolCard
+                                    title="Import / Export"
+                                    description="CSV import/export foundation coming soon."
+                                    active={activeTool === 'import'}
+                                    onPress={() => toggleTool('import')}
+                                />
+                            </View>
+
+                            {activeTool === 'bulk' && (
+                                <BulkPriceTool
+                                    scope={bulkScope}
+                                    percent={bulkPercent}
+                                    system={bulkSystem}
+                                    category={bulkCategory}
+                                    systems={systems}
+                                    categories={categories}
+                                    selectedCount={selectedPriceKeys.length}
+                                    previewRows={bulkPreviewRows}
+                                    previewOpen={bulkPreviewOpen}
+                                    saving={saving}
+                                    canManage={!!manageAccess}
+                                    onChangeScope={(nextScope) => {
+                                        setBulkScope(nextScope);
+                                        setBulkPreviewOpen(false);
+                                    }}
+                                    onChangePercent={(value) => {
+                                        setBulkPercent(value);
+                                        setBulkPreviewOpen(false);
+                                    }}
+                                    onChangeSystem={(value) => {
+                                        setBulkSystem(value);
+                                        setBulkPreviewOpen(false);
+                                    }}
+                                    onChangeCategory={(value) => {
+                                        setBulkCategory(value);
+                                        setBulkPreviewOpen(false);
+                                    }}
+                                    onPreview={previewBulkUpdate}
+                                    onApply={applyBulkUpdate}
+                                />
+                            )}
+
+                            {activeTool === 'calculator' && (
+                                <MarginCalculatorTool
+                                    form={calculatorForm}
+                                    result={calculatorResult}
+                                    selectedCount={selectedPriceKeys.length}
+                                    saving={saving}
+                                    canManage={!!manageAccess}
+                                    onChange={(patch) => setCalculatorForm((current) => ({ ...current, ...patch }))}
+                                    onApplyToEditor={applyCalculatorToEditor}
+                                    onApplyToSelected={applyCalculatorToSelectedItems}
+                                />
+                            )}
+
+                            {activeTool === 'ai' && (
+                                <AiResearchTool
+                                    form={researchForm}
+                                    items={filteredItems}
+                                    canManage={!!manageAccess}
+                                    onChange={(patch) => setResearchForm((current) => ({ ...current, ...patch }))}
+                                    onResearch={requestAiResearch}
+                                />
+                            )}
+
+                            {activeTool === 'import' && (
+                                <View style={toolPanelStyle}>
+                                    <Text style={[bodyTextStyle, { color: theme.colors.text }]}>Import / Export Coming Soon</Text>
+                                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                        CSV import/export will be added after the shared backend price book table is installed and reviewed.
+                                    </Text>
+                                </View>
+                            )}
+                        </ThemedCard>
+
+                        <SuggestionReviewSection
+                            suggestions={suggestions}
+                            onApply={applySuggestion}
+                            onDismiss={dismissSuggestion}
+                            canManage={!!manageAccess}
+                        />
 
                         <View style={tabRowStyle}>
                             <TabButton active={view === 'systems'} label="Systems" onPress={() => setView('systems')} />
@@ -365,8 +771,12 @@ export default function CompanyPriceBookScreen() {
                                                 key={item.price_key}
                                                 item={item}
                                                 canManage={!!manageAccess}
+                                                selectable={activeTool === 'bulk' || activeTool === 'calculator'}
+                                                selected={selectedPriceKeys.includes(item.price_key)}
                                                 onEdit={() => editItem(item)}
                                                 onArchive={() => archiveItem(item)}
+                                                onToggleSelected={() => toggleSelectedItem(item.price_key)}
+                                                onResearch={() => openAiResearchForItem(item)}
                                             />
                                         ))}
                                     </View>
@@ -380,6 +790,47 @@ export default function CompanyPriceBookScreen() {
                                 <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                                     Save company-owned pricing. This does not edit homeowner HomeOS records.
                                 </Text>
+
+                                <View style={editorToolRowStyle}>
+                                    <EditorPercentTool
+                                        currentPrice={editorForm.basePrice}
+                                        onApply={(nextPrice) => {
+                                            setEditorForm((current) => ({ ...current, basePrice: nextPrice }));
+                                            setMessage('Percent adjustment applied to the editor. Save to update the price book.');
+                                        }}
+                                    />
+                                    <ThemedButton
+                                        title="Calculate from Margin"
+                                        variant="secondary"
+                                        onPress={() => setActiveTool('calculator')}
+                                        style={compactButtonStyle}
+                                        textStyle={compactButtonTextStyle}
+                                    />
+                                    <ThemedButton
+                                        title="Research This Item with AI"
+                                        variant="secondary"
+                                        onPress={() => {
+                                            setActiveTool('ai');
+                                            setResearchForm((current) => ({
+                                                ...current,
+                                                scope: 'one_item',
+                                                itemKey: editorForm.priceKey,
+                                                trade: editorForm.system || current.trade,
+                                            }));
+                                        }}
+                                        style={compactButtonStyle}
+                                        textStyle={compactButtonTextStyle}
+                                    />
+                                    {currentEditorSuggestion && (
+                                        <ThemedButton
+                                            title="Apply Suggested Price"
+                                            variant="secondary"
+                                            onPress={() => void applySuggestion(currentEditorSuggestion)}
+                                            style={compactButtonStyle}
+                                            textStyle={compactButtonTextStyle}
+                                        />
+                                    )}
+                                </View>
 
                                 <View style={editorGridStyle}>
                                     <EditorField label="Item / Service Name" value={editorForm.name} onChangeText={(value) => updateEditor('name', value)} />
@@ -457,13 +908,21 @@ export default function CompanyPriceBookScreen() {
 function PriceBookItemCard({
     item,
     canManage,
+    selectable,
+    selected,
     onEdit,
     onArchive,
+    onToggleSelected,
+    onResearch,
 }: {
     item: CompanyPriceBookItem;
     canManage: boolean;
+    selectable: boolean;
+    selected: boolean;
     onEdit: () => void;
     onArchive: () => void;
+    onToggleSelected: () => void;
+    onResearch: () => void;
 }) {
     const { theme } = useTheme();
     const priced = item.base_price !== null;
@@ -490,8 +949,20 @@ function PriceBookItemCard({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 {item.source === 'local' ? 'Local price book draft' : item.source === 'backend' ? 'Saved to company price book' : 'Starter template'}
             </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Last changed: {formatDateTime(item.updated_at)}
+            </Text>
 
             <View style={itemActionRowStyle}>
+                {selectable && (
+                    <ThemedButton
+                        title={selected ? 'Selected' : 'Select'}
+                        variant={selected ? 'primary' : 'secondary'}
+                        onPress={onToggleSelected}
+                        style={compactButtonStyle}
+                        textStyle={compactButtonTextStyle}
+                    />
+                )}
                 <ThemedButton
                     title={canManage ? 'Edit Price' : 'View Details'}
                     variant={canManage ? 'primary' : 'secondary'}
@@ -499,6 +970,15 @@ function PriceBookItemCard({
                     style={compactButtonStyle}
                     textStyle={compactButtonTextStyle}
                 />
+                {canManage && (
+                    <ThemedButton
+                        title="AI Research"
+                        variant="secondary"
+                        onPress={onResearch}
+                        style={compactButtonStyle}
+                        textStyle={compactButtonTextStyle}
+                    />
+                )}
                 {canManage && item.source !== 'template' && (
                     <ThemedButton
                         title="Set Inactive"
@@ -510,6 +990,430 @@ function PriceBookItemCard({
                 )}
             </View>
         </ThemedCard>
+    );
+}
+
+function ToolCard({
+    title,
+    description,
+    active,
+    onPress,
+}: {
+    title: string;
+    description: string;
+    active: boolean;
+    onPress: () => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <TouchableOpacity
+            activeOpacity={0.82}
+            onPress={onPress}
+            style={[
+                toolCardStyle,
+                {
+                    borderColor: active ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: active ? theme.colors.secondaryButton : theme.colors.surfaceAlt,
+                },
+            ]}
+        >
+            <Text style={[toolTitleStyle, { color: theme.colors.text }]}>{title}</Text>
+            <Text style={[toolDescriptionStyle, { color: theme.colors.mutedText }]}>{description}</Text>
+        </TouchableOpacity>
+    );
+}
+
+function BulkPriceTool({
+    scope,
+    percent,
+    system,
+    category,
+    systems,
+    categories,
+    selectedCount,
+    previewRows,
+    previewOpen,
+    saving,
+    canManage,
+    onChangeScope,
+    onChangePercent,
+    onChangeSystem,
+    onChangeCategory,
+    onPreview,
+    onApply,
+}: {
+    scope: BulkScope;
+    percent: string;
+    system: string;
+    category: string;
+    systems: string[];
+    categories: string[];
+    selectedCount: number;
+    previewRows: BulkPreviewRow[];
+    previewOpen: boolean;
+    saving: boolean;
+    canManage: boolean;
+    onChangeScope: (scope: BulkScope) => void;
+    onChangePercent: (value: string) => void;
+    onChangeSystem: (value: string) => void;
+    onChangeCategory: (value: string) => void;
+    onPreview: () => void;
+    onApply: () => void;
+}) {
+    const { theme } = useTheme();
+    const hiddenCount = Math.max(previewRows.length - 8, 0);
+
+    return (
+        <View style={toolPanelStyle}>
+            <Text style={[toolPanelTitleStyle, { color: theme.colors.text }]}>Bulk Price Increase</Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Positive numbers increase prices. Negative numbers decrease prices. Inactive items are skipped unless individually selected.
+            </Text>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Scope</Text>
+            <View style={unitRowStyle}>
+                <FilterButton label="All Active" active={scope === 'active'} onPress={() => onChangeScope('active')} />
+                <FilterButton label="Current Filter" active={scope === 'filtered'} onPress={() => onChangeScope('filtered')} />
+                <FilterButton label="Selected System" active={scope === 'system'} onPress={() => onChangeScope('system')} />
+                <FilterButton label="Selected Category" active={scope === 'category'} onPress={() => onChangeScope('category')} />
+                <FilterButton label={`Selected Items (${selectedCount})`} active={scope === 'selected'} onPress={() => onChangeScope('selected')} />
+            </View>
+
+            {scope === 'system' && (
+                <>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>System</Text>
+                    <View style={unitRowStyle}>
+                        {systems.map((systemName) => (
+                            <FilterButton key={systemName} label={systemName} active={system === systemName} onPress={() => onChangeSystem(systemName)} />
+                        ))}
+                    </View>
+                </>
+            )}
+
+            {scope === 'category' && (
+                <>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Category</Text>
+                    <View style={unitRowStyle}>
+                        {categories.map((categoryName) => (
+                            <FilterButton key={categoryName} label={categoryName} active={category === categoryName} onPress={() => onChangeCategory(categoryName)} />
+                        ))}
+                    </View>
+                </>
+            )}
+
+            <View style={editorGridStyle}>
+                <EditorField
+                    label="Percentage Change"
+                    value={percent}
+                    onChangeText={onChangePercent}
+                    keyboardType="decimal-pad"
+                />
+            </View>
+
+            <View style={editorActionRowStyle}>
+                <ThemedButton
+                    title="Preview Changes"
+                    disabled={!canManage || saving}
+                    onPress={onPreview}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                {previewOpen && (
+                    <ThemedButton
+                        title={saving ? 'Applying...' : 'Apply Bulk Update'}
+                        disabled={!canManage || saving || previewRows.length === 0}
+                        onPress={onApply}
+                        style={compactButtonStyle}
+                        textStyle={compactButtonTextStyle}
+                    />
+                )}
+            </View>
+
+            {previewOpen && (
+                <View style={previewListStyle}>
+                    {previewRows.slice(0, 8).map((row) => (
+                        <View key={row.item.price_key} style={[previewRowStyle, { borderColor: theme.colors.border }]}>
+                            <Text style={[previewNameStyle, { color: theme.colors.text }]} numberOfLines={1}>{row.item.name}</Text>
+                            <Text style={[previewPriceStyle, { color: theme.colors.mutedText }]}>
+                                {formatPrice(row.oldPrice)} to {formatPrice(row.newPrice)}
+                            </Text>
+                            <Text style={[previewDeltaStyle, { color: row.difference >= 0 ? '#0A7A3D' : '#B42318' }]}>
+                                {row.difference >= 0 ? '+' : ''}{formatPrice(row.difference)} / {row.percentChange.toFixed(1)}%
+                            </Text>
+                        </View>
+                    ))}
+                    {hiddenCount > 0 && (
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            +{hiddenCount} more preview rows.
+                        </Text>
+                    )}
+                </View>
+            )}
+        </View>
+    );
+}
+
+function MarginCalculatorTool({
+    form,
+    result,
+    selectedCount,
+    saving,
+    canManage,
+    onChange,
+    onApplyToEditor,
+    onApplyToSelected,
+}: {
+    form: CalculatorForm;
+    result: CalculatorResult;
+    selectedCount: number;
+    saving: boolean;
+    canManage: boolean;
+    onChange: (patch: Partial<CalculatorForm>) => void;
+    onApplyToEditor: () => void;
+    onApplyToSelected: () => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={toolPanelStyle}>
+            <Text style={[toolPanelTitleStyle, { color: theme.colors.text }]}>Margin / Markup Calculator</Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Markup adds a percentage to cost. Margin sets gross profit as a percentage of selling price.
+            </Text>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Mode</Text>
+            <View style={unitRowStyle}>
+                <FilterButton label="Markup Mode" active={form.mode === 'markup'} onPress={() => onChange({ mode: 'markup' })} />
+                <FilterButton label="Margin Mode" active={form.mode === 'margin'} onPress={() => onChange({ mode: 'margin' })} />
+            </View>
+
+            <View style={editorGridStyle}>
+                <EditorField label="Material Cost" value={form.materialCost} onChangeText={(value) => onChange({ materialCost: value })} keyboardType="decimal-pad" />
+                <EditorField label="Labor Hours" value={form.laborHours} onChangeText={(value) => onChange({ laborHours: value })} keyboardType="decimal-pad" />
+                <EditorField label="Labor Rate" value={form.laborRate} onChangeText={(value) => onChange({ laborRate: value })} keyboardType="decimal-pad" />
+                <EditorField label="Markup %" value={form.markupPercent} onChangeText={(value) => onChange({ markupPercent: value })} keyboardType="decimal-pad" />
+                <EditorField label="Profit Margin %" value={form.marginPercent} onChangeText={(value) => onChange({ marginPercent: value })} keyboardType="decimal-pad" />
+                <EditorField label="Overhead %" value={form.overheadPercent} onChangeText={(value) => onChange({ overheadPercent: value })} keyboardType="decimal-pad" />
+                <EditorField label="Minimum Price" value={form.minimumPrice} onChangeText={(value) => onChange({ minimumPrice: value })} keyboardType="decimal-pad" />
+            </View>
+
+            <View style={calculatorGridStyle}>
+                <MiniMetric label="Total Cost" value={result.valid ? formatPrice(result.totalCost) : 'Needs input'} />
+                <MiniMetric label="Suggested Price" value={result.valid ? formatPrice(result.suggestedPrice) : 'Needs input'} />
+                <MiniMetric label="Gross Profit" value={result.valid ? formatPrice(result.grossProfit) : 'Needs input'} />
+                <MiniMetric label="Gross Margin" value={result.valid ? `${result.grossMargin.toFixed(1)}%` : 'Needs input'} />
+                <MiniMetric label="Markup" value={result.valid ? `${result.markup.toFixed(1)}%` : 'Needs input'} />
+            </View>
+
+            {!result.valid && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{result.error}</Text>
+            )}
+
+            <View style={editorActionRowStyle}>
+                <ThemedButton
+                    title="Apply to Current Item"
+                    disabled={!canManage || saving || !result.valid}
+                    onPress={onApplyToEditor}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title={`Apply to Selected (${selectedCount})`}
+                    variant="secondary"
+                    disabled={!canManage || saving || !result.valid || selectedCount === 0}
+                    onPress={onApplyToSelected}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+            </View>
+        </View>
+    );
+}
+
+function AiResearchTool({
+    form,
+    items,
+    canManage,
+    onChange,
+    onResearch,
+}: {
+    form: ResearchForm;
+    items: CompanyPriceBookItem[];
+    canManage: boolean;
+    onChange: (patch: Partial<ResearchForm>) => void;
+    onResearch: () => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={toolPanelStyle}>
+            <Text style={[toolPanelTitleStyle, { color: theme.colors.text }]}>AI Price Research</Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                AI research must run server-side. This app will not put OpenAI or paid API keys in the frontend.
+            </Text>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Research Scope</Text>
+            <View style={unitRowStyle}>
+                <FilterButton label="One Item" active={form.scope === 'one_item'} onPress={() => onChange({ scope: 'one_item' })} />
+                <FilterButton label="Current System" active={form.scope === 'current_system'} onPress={() => onChange({ scope: 'current_system' })} />
+                <FilterButton label="Filtered List" active={form.scope === 'filtered_list'} onPress={() => onChange({ scope: 'filtered_list' })} />
+                <FilterButton label="All Unpriced" active={form.scope === 'all_unpriced'} onPress={() => onChange({ scope: 'all_unpriced' })} />
+            </View>
+
+            {form.scope === 'one_item' && (
+                <>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Item</Text>
+                    <View style={unitRowStyle}>
+                        {items.slice(0, 10).map((item) => (
+                            <FilterButton
+                                key={item.price_key}
+                                label={item.name}
+                                active={form.itemKey === item.price_key}
+                                onPress={() => onChange({ itemKey: item.price_key, trade: item.system })}
+                            />
+                        ))}
+                    </View>
+                </>
+            )}
+
+            <View style={editorGridStyle}>
+                <EditorField label="Service Area / ZIP Code" value={form.serviceArea} onChangeText={(value) => onChange({ serviceArea: value })} />
+                <EditorField label="Trade / Category" value={form.trade} onChangeText={(value) => onChange({ trade: value })} />
+                <EditorField label="Target Margin %" value={form.targetMargin} onChangeText={(value) => onChange({ targetMargin: value })} keyboardType="decimal-pad" />
+                <EditorField label="Notes" value={form.notes} onChangeText={(value) => onChange({ notes: value })} multiline />
+            </View>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Positioning</Text>
+            <View style={unitRowStyle}>
+                <FilterButton label="Budget" active={form.positioning === 'budget'} onPress={() => onChange({ positioning: 'budget' })} />
+                <FilterButton label="Market Average" active={form.positioning === 'market average'} onPress={() => onChange({ positioning: 'market average' })} />
+                <FilterButton label="Premium" active={form.positioning === 'premium'} onPress={() => onChange({ positioning: 'premium' })} />
+            </View>
+
+            <View style={editorActionRowStyle}>
+                <ThemedButton
+                    title="Research Pricing with AI"
+                    disabled={!canManage}
+                    onPress={onResearch}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+            </View>
+        </View>
+    );
+}
+
+function SuggestionReviewSection({
+    suggestions,
+    onApply,
+    onDismiss,
+    canManage,
+}: {
+    suggestions: PriceSuggestion[];
+    onApply: (suggestion: PriceSuggestion) => void;
+    onDismiss: (suggestionId: string) => void;
+    canManage: boolean;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={sectionCardStyle}>
+            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Suggested Price Review</Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                AI or calculator suggestions appear here for manual review. Applying a suggestion updates one price item.
+            </Text>
+
+            {suggestions.length === 0 ? (
+                <View style={[emptySuggestionStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        No price suggestions yet. AI research is waiting for a server-side relay.
+                    </Text>
+                </View>
+            ) : (
+                <View style={suggestionGridStyle}>
+                    {suggestions.map((suggestion) => (
+                        <View key={suggestion.id} style={[suggestionCardStyle, { borderColor: theme.colors.border }]}>
+                            <Text style={[itemTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                                {suggestion.itemName}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                Current: {formatPrice(suggestion.currentPrice)} / Suggested: {formatPrice(suggestion.suggestedPrice)}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                Low/Average/High: {formatPrice(suggestion.lowPrice)} / {formatPrice(suggestion.averagePrice)} / {formatPrice(suggestion.highPrice)}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                Confidence: {suggestion.confidence} / Sources: {suggestion.sourceCount}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{suggestion.notes}</Text>
+                            <View style={itemActionRowStyle}>
+                                <ThemedButton
+                                    title="Apply"
+                                    disabled={!canManage}
+                                    onPress={() => onApply(suggestion)}
+                                    style={compactButtonStyle}
+                                    textStyle={compactButtonTextStyle}
+                                />
+                                <ThemedButton
+                                    title="Dismiss"
+                                    variant="secondary"
+                                    onPress={() => onDismiss(suggestion.id)}
+                                    style={compactButtonStyle}
+                                    textStyle={compactButtonTextStyle}
+                                />
+                            </View>
+                        </View>
+                    ))}
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
+function EditorPercentTool({
+    currentPrice,
+    onApply,
+}: {
+    currentPrice: string;
+    onApply: (nextPrice: string) => void;
+}) {
+    const [percent, setPercent] = useState('8');
+    const parsedPrice = parseOptionalNumber(currentPrice);
+    const parsedPercent = parseOptionalNumber(percent);
+    const canApply = parsedPrice !== null && parsedPercent !== null;
+    const nextPrice = canApply ? Math.max(0, parsedPrice * (1 + parsedPercent / 100)) : null;
+
+    return (
+        <View style={editorPercentWrapStyle}>
+            <EditorField
+                label="Apply % Increase"
+                value={percent}
+                onChangeText={setPercent}
+                keyboardType="decimal-pad"
+            />
+            <ThemedButton
+                title={nextPrice === null ? 'Apply %' : `Apply ${formatPrice(nextPrice)}`}
+                variant="secondary"
+                disabled={!canApply}
+                onPress={() => {
+                    if (nextPrice !== null) onApply(nextPrice.toFixed(2));
+                }}
+                style={compactButtonStyle}
+                textStyle={compactButtonTextStyle}
+            />
+        </View>
+    );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={[miniMetricStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+            <Text style={[summaryLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
+            <Text style={[miniMetricValueStyle, { color: theme.colors.text }]} numberOfLines={1}>{value}</Text>
+        </View>
     );
 }
 
@@ -731,8 +1635,160 @@ function filterPriceBookItems(
     });
 }
 
+function buildBulkPreviewRows(
+    displayItems: CompanyPriceBookItem[],
+    filteredItems: CompanyPriceBookItem[],
+    scope: BulkScope,
+    selectedPriceKeys: string[],
+    selectedSystem: string,
+    selectedCategory: string,
+    percentValue: number | null
+): BulkPreviewRow[] {
+    if (percentValue === null) return [];
+
+    const scopedItems = getBulkScopedItems(
+        displayItems,
+        filteredItems,
+        scope,
+        selectedPriceKeys,
+        selectedSystem,
+        selectedCategory
+    );
+
+    return scopedItems
+        .filter((item) => item.base_price !== null)
+        .map((item) => {
+            const oldPrice = item.base_price || 0;
+            const newPrice = roundCurrency(Math.max(0, oldPrice * (1 + percentValue / 100)));
+
+            return {
+                item,
+                oldPrice,
+                newPrice,
+                difference: roundCurrency(newPrice - oldPrice),
+                percentChange: oldPrice === 0 ? 0 : ((newPrice - oldPrice) / oldPrice) * 100,
+            };
+        });
+}
+
+function getBulkScopedItems(
+    displayItems: CompanyPriceBookItem[],
+    filteredItems: CompanyPriceBookItem[],
+    scope: BulkScope,
+    selectedPriceKeys: string[],
+    selectedSystem: string,
+    selectedCategory: string
+) {
+    if (scope === 'selected') {
+        return displayItems.filter((item) => selectedPriceKeys.includes(item.price_key));
+    }
+
+    if (scope === 'filtered') {
+        return filteredItems.filter((item) => item.active);
+    }
+
+    if (scope === 'system') {
+        return displayItems.filter((item) => item.active && item.system === selectedSystem);
+    }
+
+    if (scope === 'category') {
+        return displayItems.filter((item) => item.active && item.category === selectedCategory);
+    }
+
+    return displayItems.filter((item) => item.active);
+}
+
+function calculatePrice(form: CalculatorForm): CalculatorResult {
+    const materialCost = parseOptionalNumber(form.materialCost) || 0;
+    const laborHours = parseOptionalNumber(form.laborHours) || 0;
+    const laborRate = parseOptionalNumber(form.laborRate) || 0;
+    const overheadPercent = parseOptionalNumber(form.overheadPercent) || 0;
+    const minimumPrice = parseOptionalNumber(form.minimumPrice) || 0;
+    const laborCost = laborHours * laborRate;
+    const baseCost = materialCost + laborCost;
+    const overheadCost = baseCost * (overheadPercent / 100);
+    const totalCost = baseCost + overheadCost;
+
+    if (totalCost <= 0) {
+        return invalidCalculatorResult('Add material cost, labor hours, or labor rate to calculate price.');
+    }
+
+    let suggestedPrice = 0;
+
+    if (form.mode === 'markup') {
+        const markupPercent = parseOptionalNumber(form.markupPercent);
+
+        if (markupPercent === null) return invalidCalculatorResult('Enter a markup percent.');
+        suggestedPrice = totalCost * (1 + markupPercent / 100);
+    } else {
+        const marginPercent = parseOptionalNumber(form.marginPercent);
+
+        if (marginPercent === null) return invalidCalculatorResult('Enter a desired margin percent.');
+        if (marginPercent >= 100) return invalidCalculatorResult('Margin must be less than 100%.');
+        suggestedPrice = totalCost / (1 - marginPercent / 100);
+    }
+
+    suggestedPrice = roundCurrency(Math.max(suggestedPrice, minimumPrice));
+    const grossProfit = roundCurrency(suggestedPrice - totalCost);
+    const grossMargin = suggestedPrice <= 0 ? 0 : (grossProfit / suggestedPrice) * 100;
+    const markup = totalCost <= 0 ? 0 : (grossProfit / totalCost) * 100;
+
+    return {
+        materialCost: roundCurrency(materialCost),
+        laborCost: roundCurrency(laborCost),
+        overheadCost: roundCurrency(overheadCost),
+        totalCost: roundCurrency(totalCost),
+        suggestedPrice,
+        grossProfit,
+        grossMargin,
+        markup,
+        valid: true,
+        error: '',
+    };
+}
+
+function invalidCalculatorResult(error: string): CalculatorResult {
+    return {
+        materialCost: 0,
+        laborCost: 0,
+        overheadCost: 0,
+        totalCost: 0,
+        suggestedPrice: 0,
+        grossProfit: 0,
+        grossMargin: 0,
+        markup: 0,
+        valid: false,
+        error,
+    };
+}
+
 function systemHasPricedItems(items: CompanyPriceBookItem[], system: string) {
     return items.some((item) => item.system === system && item.base_price !== null && item.active);
+}
+
+function emptyCalculatorForm(): CalculatorForm {
+    return {
+        materialCost: '',
+        laborHours: '',
+        laborRate: '125',
+        markupPercent: '35',
+        marginPercent: '45',
+        overheadPercent: '10',
+        minimumPrice: '',
+        mode: 'markup',
+    };
+}
+
+function emptyResearchForm(): ResearchForm {
+    return {
+        scope: 'all_unpriced',
+        itemKey: '',
+        serviceArea: '',
+        trade: 'Plumbing',
+        positioning: 'market average',
+        targetMargin: '',
+        notes: '',
+    };
 }
 
 function emptyEditorForm(seed: Partial<EditorForm> = {}): EditorForm {
@@ -801,8 +1857,25 @@ function parseOptionalNumber(value: string) {
 
 function formatPrice(value: number | null) {
     if (value === null) return 'Not priced';
+    if (value < 0) return `-$${Math.abs(value).toFixed(2)}`;
 
     return `$${value.toFixed(2)}`;
+}
+
+function formatDateTime(value: string | null) {
+    if (!value) return 'Not available';
+
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
+}
+
+function roundCurrency(value: number) {
+    return Math.round(value * 100) / 100;
+}
+
+function uniqueStrings(values: string[]) {
+    return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
 const eyebrowStyle = {
@@ -943,6 +2016,121 @@ const itemGridStyle = {
     gap: 12,
 };
 
+const toolGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 14,
+};
+
+const toolCardStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+    width: 180,
+    minHeight: 118,
+};
+
+const toolTitleStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+    lineHeight: 20,
+};
+
+const toolDescriptionStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 17,
+    marginTop: 8,
+};
+
+const toolPanelStyle = {
+    borderRadius: 16,
+    marginTop: 14,
+    paddingTop: 4,
+};
+
+const toolPanelTitleStyle = {
+    fontSize: 17,
+    fontWeight: '900' as const,
+    marginTop: 8,
+};
+
+const previewListStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 12,
+};
+
+const previewRowStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 10,
+    width: 220,
+};
+
+const previewNameStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const previewPriceStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    marginTop: 5,
+};
+
+const previewDeltaStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+    marginTop: 5,
+};
+
+const calculatorGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 12,
+};
+
+const miniMetricStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 10,
+    width: 142,
+    minHeight: 76,
+};
+
+const miniMetricValueStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginTop: 6,
+};
+
+const emptySuggestionStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 12,
+    alignSelf: 'flex-start' as const,
+    maxWidth: 520,
+};
+
+const suggestionGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginTop: 12,
+};
+
+const suggestionCardStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 12,
+    width: 260,
+};
+
 const priceItemCardStyle = {
     width: 240,
     minHeight: 230,
@@ -990,6 +2178,21 @@ const editorGridStyle = {
     flexWrap: 'wrap' as const,
     gap: 12,
     marginTop: 14,
+};
+
+const editorToolRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'flex-end' as const,
+    gap: 10,
+    marginTop: 8,
+};
+
+const editorPercentWrapStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-end' as const,
+    gap: 8,
+    flexWrap: 'wrap' as const,
 };
 
 const fieldWrapStyle = {
