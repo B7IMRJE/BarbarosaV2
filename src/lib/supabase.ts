@@ -2,9 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import 'react-native-url-polyfill/auto';
 
-const supabaseUrl = 'https://rkdjbztxkjflchktggaj.supabase.co';
+export const supabaseUrl = 'https://rkdjbztxkjflchktggaj.supabase.co';
 
-const supabaseAnonKey =
+export const supabaseAnonKey =
     'sb_publishable_srvdagAVHGi0NsJviVU53w_NMulNPQW';
 
 const memoryStorage = {

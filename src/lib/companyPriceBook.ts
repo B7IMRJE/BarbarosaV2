@@ -9,6 +9,11 @@ export type CompanyPriceBookUnit =
     | 'linear foot'
     | 'package'
     | 'inspection'
+    | 'diagnostic'
+    | 'install'
+    | 'repair'
+    | 'replacement'
+    | 'service call'
     | 'other';
 
 export type CompanyPriceBookItem = {
@@ -63,6 +68,11 @@ export const priceBookUnits: CompanyPriceBookUnit[] = [
     'linear foot',
     'package',
     'inspection',
+    'diagnostic',
+    'install',
+    'repair',
+    'replacement',
+    'service call',
     'other',
 ];
 
@@ -109,7 +119,7 @@ export async function upsertCompanyPriceBookItem(companyId: string, draft: Compa
         item,
         backendStatus: {
             status: 'fallback',
-            message: 'Local price book draft saved. Install SQL 597 for shared company pricing.',
+            message: 'Price book backend unavailable: using local price book draft',
         } as CompanyPriceBookBackendStatus,
     };
 }

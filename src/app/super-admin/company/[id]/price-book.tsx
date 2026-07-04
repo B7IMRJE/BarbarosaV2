@@ -18,8 +18,14 @@ import {
     type CompanyPriceBookItem,
     type CompanyPriceBookUnit,
 } from '../../../../lib/companyPriceBook';
-import { homeSystemOptions } from '../../../../lib/homeSystems';
-import { supabase } from '../../../../lib/supabase';
+import {
+    plumbingPriceBookAreaNames,
+    plumbingPriceBookCatalog,
+    plumbingPriceBookCatalogItems,
+    plumbingPriceBookCategories,
+    type PlumbingPriceBookCatalogItem,
+} from '../../../../lib/plumbingPriceBookCatalog';
+import { supabase, supabaseAnonKey, supabaseUrl } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
 type CompanyRecord = {
@@ -30,24 +36,50 @@ type CompanyRecord = {
     service_categories: string[] | null;
 };
 
-type PriceBookView = 'systems' | 'items' | 'custom';
+type PriceBookView = 'systems' | 'system' | 'area' | 'detail' | 'items' | 'advanced' | 'custom';
 type PriceTool = 'ai' | 'bulk' | 'calculator' | 'import' | null;
 type BulkScope = 'active' | 'filtered' | 'system' | 'category' | 'selected';
+type ActiveFilter = 'all' | 'active' | 'inactive';
 type PricingMode = 'markup' | 'margin';
 type Positioning = 'budget' | 'market average' | 'premium';
-
-type PriceBookTemplate = Omit<CompanyPriceBookItem, 'id' | 'company_id' | 'created_at' | 'updated_at' | 'source'>;
+type AiResearchStatusKind = 'idle' | 'loading' | 'success' | 'function_error' | 'network_error' | 'auth_error' | 'warning';
+type ResearchServiceType =
+    | 'diagnostic'
+    | 'repair'
+    | 'maintenance'
+    | 'installation'
+    | 'replacement'
+    | 'inspection'
+    | 'emergency'
+    | 'code upgrade'
+    | 'other';
+type ResearchTradeCategory =
+    | 'Plumbing'
+    | 'Drain/Sewer'
+    | 'Water Heater'
+    | 'Gas'
+    | 'HVAC'
+    | 'Electrical'
+    | 'Appliance'
+    | 'Water Quality'
+    | 'Exterior'
+    | 'Other';
+type ResearchYesNo = 'unspecified' | 'yes' | 'no';
 
 type EditorForm = {
     id?: string;
     priceKey: string;
     name: string;
     system: string;
+    area: string;
     category: string;
     unit: CompanyPriceBookUnit;
     basePrice: string;
     laborHours: string;
     materialCost: string;
+    linearFootPrice: string;
+    packageDiscountPercent: string;
+    packageDiscountNote: string;
     customerDescription: string;
     internalNotes: string;
     active: boolean;
@@ -102,7 +134,36 @@ type PriceSuggestion = {
     cautionNotes: string[];
     sourceNotes: string[];
     applyAllowed: boolean;
+    missingInfoQuestions: string[];
+    belowCompanyMinimum: boolean;
+    adjustedRecommendation: number | null;
+    companyMinimumPrice: number | null;
+    customDraft?: CompanyPriceBookDraft;
     createdAt: string;
+};
+
+type AiResearchStatus = {
+    kind: AiResearchStatusKind;
+    message: string;
+    debugSummary: string;
+};
+
+type AiSuggestionReadResult =
+    | { ok: true; suggestions: PriceSuggestion[] }
+    | { ok: false; message: string; debugSummary: string };
+
+type AiResearchFunctionError = {
+    ok: false;
+    code: string;
+    stage: string;
+    message: string;
+    detail: string;
+};
+
+type CompanyIdResolution = {
+    routeCompanyId: string;
+    loadedCompanyId: string;
+    finalCompanyId: string;
 };
 
 type AiResearchSuggestionRecord = {
@@ -118,49 +179,185 @@ type AiResearchSuggestionRecord = {
     caution_notes?: unknown;
     source_notes?: unknown;
     apply_allowed?: unknown;
+    missing_info_questions?: unknown;
+    below_company_minimum?: unknown;
+    adjusted_recommendation?: unknown;
+    company_minimum_price?: unknown;
+};
+
+type PriceBookPricingDetails = {
+    linearFootPrice: string;
+    packageDiscountPercent: string;
+    packageDiscountNote: string;
+};
+
+type PriceResearchImportColumn =
+    | 'price_key'
+    | 'service_name'
+    | 'name'
+    | 'system'
+    | 'area'
+    | 'category'
+    | 'unit'
+    | 'market_low'
+    | 'market_average'
+    | 'market_high'
+    | 'recommended_price'
+    | 'base_price'
+    | 'material_cost'
+    | 'labor_hours'
+    | 'linear_foot_price'
+    | 'package_discount_percent'
+    | 'package_discount_note'
+    | 'customer_description'
+    | 'internal_notes'
+    | 'source_notes';
+
+type PriceResearchImportValues = Partial<Record<PriceResearchImportColumn, string>>;
+type PriceResearchImportStatus = 'matched' | 'new_item' | 'needs_review';
+
+type PriceResearchImportRow = {
+    id: string;
+    rowNumber: number;
+    values: PriceResearchImportValues;
+    matchedItem: CompanyPriceBookItem | null;
+    draft: CompanyPriceBookDraft;
+    status: PriceResearchImportStatus;
+    marketLow: number | null;
+    marketAverage: number | null;
+    marketHigh: number | null;
+    importedPrice: number | null;
+    sourceNotes: string;
+    matchSummary: string;
+};
+
+type ParsedPriceResearchImportRow = {
+    rowNumber: number;
+    values: PriceResearchImportValues;
+};
+
+type PriceResearchImportMatch = {
+    item: CompanyPriceBookItem;
+    reason: string;
 };
 
 type ResearchForm = {
-    scope: 'one_item' | 'current_system' | 'filtered_list' | 'all_unpriced';
+    scope: 'one_item' | 'custom_item' | 'current_system' | 'filtered_list' | 'all_unpriced';
     itemKey: string;
+    itemSearch: string;
+    customName: string;
+    customSystem: string;
+    customCategory: string;
+    customServiceType: ResearchServiceType;
+    customUnit: CompanyPriceBookUnit;
+    customNotes: string;
+    waterHeaterKind: string;
+    waterHeaterGallons: string;
+    waterHeaterInstallScope: string;
+    permitIncluded: ResearchYesNo;
+    haulAwayIncluded: ResearchYesNo;
+    expansionTankIncluded: ResearchYesNo;
+    codeUpgradesIncluded: ResearchYesNo;
+    accessDifficulty: string;
     serviceArea: string;
-    trade: string;
+    trade: ResearchTradeCategory;
     positioning: Positioning;
     targetMargin: string;
+    minimumPrice: string;
+    laborRate: string;
+    estimatedLaborHours: string;
+    materialCost: string;
+    overheadPercent: string;
     notes: string;
 };
 
-const starterPriceTemplates: PriceBookTemplate[] = [
-    template('water-service-faucet-repair', 'Faucet Repair / Replacement', 'Plumbing', 'Fixture Service', 'each'),
-    template('water-service-angle-stop', 'Angle Stop Replacement', 'Plumbing', 'Fixture Service', 'each'),
-    template('water-service-main-shutoff', 'Main Water Shutoff Service', 'Plumbing', 'Water Service', 'each'),
-    template('water-service-prv', 'Pressure Regulator / PRV Service', 'Plumbing', 'Water Service', 'each'),
-    template('water-heater-standard-service', 'Water Heater Service', 'Plumbing', 'Water Heater', 'each'),
-    template('water-heater-tankless-service', 'Tankless Water Heater Service', 'Plumbing', 'Water Heater', 'each'),
-    template('drain-sewer-cleanout', 'Drain Cleaning', 'Drains / Sewer', 'Drain Service', 'each'),
-    template('drain-sewer-camera-inspection', 'Sewer Camera Inspection', 'Drains / Sewer', 'Inspection', 'inspection'),
-    template('gas-line-service', 'Gas Line Service', 'Gas', 'Gas Service', 'hour'),
-    template('water-quality-filter-service', 'Whole Home Filter Service', 'Water Quality', 'Filter Service', 'each'),
-    template('hvac-service-call', 'HVAC Service Call', 'HVAC', 'Service Call', 'each'),
-    template('electrical-outlet-service', 'Outlet / GFCI Service', 'Electrical', 'Electrical Service', 'each'),
-    template('safety-inspection', 'Safety Inspection', 'Safety', 'Inspection', 'inspection'),
-    template('appliance-connection', 'Appliance Connection Service', 'Appliances', 'Appliance Service', 'each'),
-    template('exterior-hose-bibb', 'Hose Bibb Service', 'Exterior', 'Exterior Plumbing', 'each'),
-    template('irrigation-zone-service', 'Irrigation Zone Service', 'Irrigation', 'Irrigation Service', 'hour'),
-    template('pool-equipment-service', 'Pool Equipment Service', 'Pool', 'Pool Service', 'hour'),
+const PLUMBING_SYSTEM = 'Plumbing';
+
+const UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const UUID_SUBSTRING_PATTERN =
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+const researchSystemOptions = [
+    { label: 'Water Service', value: 'Water Service' },
+    { label: 'Drain / Sewer', value: 'Drain / Sewer' },
+    { label: 'Gas Service', value: 'Gas Service' },
+    { label: 'Water Quality', value: 'Water Quality' },
+    { label: 'Diagnostics / Inspections', value: 'Diagnostics / Inspections' },
+    { label: 'Emergency / After Hours', value: 'Emergency / After Hours' },
 ];
+
+const researchTradeOptions: ResearchTradeCategory[] = [
+    'Plumbing',
+    'Drain/Sewer',
+    'Water Heater',
+    'Gas',
+    'Water Quality',
+    'Other',
+];
+
+const researchServiceTypeOptions: ResearchServiceType[] = [
+    'diagnostic',
+    'repair',
+    'maintenance',
+    'installation',
+    'replacement',
+    'inspection',
+    'emergency',
+    'code upgrade',
+    'other',
+];
+
+const yesNoOptions: Array<{ label: string; value: ResearchYesNo }> = [
+    { label: 'Not Set', value: 'unspecified' },
+    { label: 'Yes', value: 'yes' },
+    { label: 'No', value: 'no' },
+];
+
+const areaNotePattern = /\[area:\s*([^\]]+)\]/i;
+const linearFootPriceNotePattern = /\[linear foot price:\s*([^\]]+)\]/i;
+const packageDiscountPercentNotePattern = /\[package discount percent:\s*([^\]]+)\]/i;
+const packageDiscountNotePattern = /\[package discount note:\s*([^\]]+)\]/i;
+const priceResearchImportColumns: PriceResearchImportColumn[] = [
+    'price_key',
+    'service_name',
+    'name',
+    'system',
+    'area',
+    'category',
+    'unit',
+    'market_low',
+    'market_average',
+    'market_high',
+    'recommended_price',
+    'base_price',
+    'material_cost',
+    'labor_hours',
+    'linear_foot_price',
+    'package_discount_percent',
+    'package_discount_note',
+    'customer_description',
+    'internal_notes',
+    'source_notes',
+];
+const priceResearchImportColumnSet = new Set<string>(priceResearchImportColumns);
 
 export default function CompanyPriceBookScreen() {
     const { theme } = useTheme();
-    const { id } = useLocalSearchParams<{ id: string }>();
-    const companyId = String(id || '');
+    const { id } = useLocalSearchParams<{ id: string | string[] }>();
+    const companyId = normalizeCompanyIdInput(id);
     const companyRoute = `/super-admin/company/${encodeURIComponent(companyId)}`;
     const [company, setCompany] = useState<CompanyRecord | null>(null);
     const [items, setItems] = useState<CompanyPriceBookItem[]>([]);
     const [view, setView] = useState<PriceBookView>('systems');
     const [selectedSystem, setSelectedSystem] = useState('');
+    const [selectedArea, setSelectedArea] = useState('');
+    const [selectedPriceKey, setSelectedPriceKey] = useState('');
     const [search, setSearch] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('');
     const [pricedFilter, setPricedFilter] = useState<'all' | 'priced' | 'not_priced'>('all');
+    const [activeFilter, setActiveFilter] = useState<ActiveFilter>('active');
     const [manageAccess, setManageAccess] = useState<CompanyPermissionAccess | null>(null);
     const [canView, setCanView] = useState(false);
     const [backendStatusMessage, setBackendStatusMessage] = useState('');
@@ -179,7 +376,11 @@ export default function CompanyPriceBookScreen() {
     const [calculatorForm, setCalculatorForm] = useState<CalculatorForm>(emptyCalculatorForm());
     const [researchForm, setResearchForm] = useState<ResearchForm>(emptyResearchForm());
     const [suggestions, setSuggestions] = useState<PriceSuggestion[]>([]);
+    const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
     const [researching, setResearching] = useState(false);
+    const [researchStatus, setResearchStatus] = useState<AiResearchStatus>(emptyAiResearchStatus());
+    const [priceImportText, setPriceImportText] = useState('');
+    const [priceImportRows, setPriceImportRows] = useState<PriceResearchImportRow[]>([]);
 
     useEffect(() => {
         void loadPriceBook();
@@ -187,14 +388,37 @@ export default function CompanyPriceBookScreen() {
 
     const companyName = getCompanyDisplayName(company);
     const displayItems = useMemo(() => buildDisplayItems(companyId, items), [companyId, items]);
-    const filteredItems = useMemo(
-        () => filterPriceBookItems(displayItems, search, selectedSystem, pricedFilter),
-        [displayItems, search, selectedSystem, pricedFilter]
+    const selectedSystemNode = useMemo(
+        () => plumbingPriceBookCatalog.find((system) => system.key === selectedSystem) || null,
+        [selectedSystem]
     );
+    const selectedSystemItems = useMemo(
+        () => selectedSystemNode ? displayItems.filter((item) => item.system === selectedSystemNode.label) : [],
+        [displayItems, selectedSystemNode]
+    );
+    const areaCards = useMemo(() => buildPriceBookAreaCards(selectedSystemItems), [selectedSystemItems]);
+    const selectedAreaItems = useMemo(
+        () => filterPriceBookItemsByArea(selectedSystemItems, selectedArea),
+        [selectedSystemItems, selectedArea]
+    );
+    const selectedItem = useMemo(
+        () => displayItems.find((item) => item.price_key === selectedPriceKey) || null,
+        [displayItems, selectedPriceKey]
+    );
+    const editorPreviewItem = useMemo(
+        () => buildEditorPreviewItem(companyId, editorForm),
+        [companyId, editorForm]
+    );
+    const allFilteredItems = useMemo(
+        () => filterPriceBookItems(displayItems, search, categoryFilter, pricedFilter, activeFilter),
+        [displayItems, search, categoryFilter, pricedFilter, activeFilter]
+    );
+    const filteredItems = allFilteredItems;
+    const visibleItems = filteredItems;
     const pricedCount = displayItems.filter((item) => item.base_price !== null).length;
     const activeCount = displayItems.filter((item) => item.active).length;
     const systems = useMemo(() => uniqueStrings(displayItems.map((item) => item.system)), [displayItems]);
-    const categories = useMemo(() => uniqueStrings(displayItems.map((item) => item.category)), [displayItems]);
+    const categories = useMemo(() => uniqueStrings([...plumbingPriceBookCategories, ...displayItems.map((item) => item.category)]), [displayItems]);
     const bulkPreviewRows = useMemo(
         () => buildBulkPreviewRows(
             displayItems,
@@ -208,8 +432,6 @@ export default function CompanyPriceBookScreen() {
         [displayItems, filteredItems, bulkScope, selectedPriceKeys, bulkSystem, bulkCategory, bulkPercent]
     );
     const calculatorResult = useMemo(() => calculatePrice(calculatorForm), [calculatorForm]);
-    const currentEditorSuggestion = suggestions.find((suggestion) => suggestion.priceKey === editorForm.priceKey);
-
     async function loadPriceBook() {
         if (!companyId) {
             setMessage('Missing company id.');
@@ -259,34 +481,107 @@ export default function CompanyPriceBookScreen() {
         setLoading(false);
     }
 
-    function openSystem(systemName: string) {
-        setSelectedSystem(systemName);
+    function openAllItems() {
+        setSelectedSystem('');
+        setSelectedArea('');
+        setSelectedPriceKey('');
+        setCategoryFilter('');
+        setActiveFilter('active');
         setView('items');
+        setEditorOpen(false);
         setSearch('');
     }
 
+    function openSystems() {
+        setSelectedSystem('');
+        setSelectedArea('');
+        setSelectedPriceKey('');
+        setView('systems');
+        setEditorOpen(false);
+        setSearch('');
+    }
+
+    function openSystem(systemKey: string) {
+        setSelectedSystem(systemKey);
+        setSelectedArea('');
+        setSelectedPriceKey('');
+        setView('system');
+        setEditorOpen(false);
+        setSearch('');
+    }
+
+    function openArea(areaName: string) {
+        setSelectedArea(areaName);
+        setSelectedPriceKey('');
+        setView('area');
+        setEditorOpen(false);
+        setSearch('');
+    }
+
+    function openPriceBookItem(item: CompanyPriceBookItem) {
+        const systemKey = getCatalogSystemKeyForItem(item);
+
+        if (systemKey) {
+            setSelectedSystem(systemKey);
+        }
+
+        setSelectedArea(getPriceBookItemArea(item));
+        setSelectedPriceKey(item.price_key);
+        setView('detail');
+        setEditorOpen(false);
+        setMessage('');
+    }
+
     function editItem(item: CompanyPriceBookItem) {
+        const pricingDetails = getPriceBookPricingDetails(item);
+        const systemKey = getCatalogSystemKeyForItem(item);
+
+        if (systemKey) {
+            setSelectedSystem(systemKey);
+        }
+
+        setSelectedArea(getPriceBookItemArea(item));
+        setSelectedPriceKey(item.price_key);
+        setView('detail');
+
         setEditorForm({
             id: item.source === 'backend' || item.source === 'local' ? item.id : undefined,
             priceKey: item.price_key,
             name: item.name,
             system: item.system,
+            area: getPriceBookItemArea(item),
             category: item.category,
             unit: item.unit,
             basePrice: item.base_price === null ? '' : String(item.base_price),
             laborHours: item.labor_hours === null ? '' : String(item.labor_hours),
             materialCost: item.material_cost === null ? '' : String(item.material_cost),
+            linearFootPrice: pricingDetails.linearFootPrice,
+            packageDiscountPercent: pricingDetails.packageDiscountPercent,
+            packageDiscountNote: pricingDetails.packageDiscountNote,
             customerDescription: item.customer_description || '',
-            internalNotes: item.internal_notes || '',
+            internalNotes: removePriceBookMetadataFromNotes(item.internal_notes || ''),
             active: item.active,
         });
         setEditorOpen(true);
-        setMessage('');
+        setMessage(`Editing: ${item.name}`);
     }
 
     function addCustomItem() {
         setEditorForm(emptyEditorForm({
-            system: selectedSystem || company?.service_categories?.[0] || 'Plumbing',
+            system: PLUMBING_SYSTEM,
+            category: categoryFilter || 'Other Plumbing',
+            area: '',
+        }));
+        setView('custom');
+        setEditorOpen(true);
+        setMessage('');
+    }
+
+    function addCustomSystemItem() {
+        setEditorForm(emptyEditorForm({
+            system: PLUMBING_SYSTEM,
+            category: categoryFilter || 'Other Plumbing',
+            area: '',
         }));
         setView('custom');
         setEditorOpen(true);
@@ -319,22 +614,23 @@ export default function CompanyPriceBookScreen() {
                 labor_hours: parseOptionalNumber(editorForm.laborHours),
                 material_cost: parseOptionalNumber(editorForm.materialCost),
                 customer_description: editorForm.customerDescription,
-                internal_notes: editorForm.internalNotes,
+                internal_notes: mergePriceBookMetadataIntoNotes(editorForm.internalNotes, editorForm),
                 active: editorForm.active,
             };
             const result = await upsertCompanyPriceBookItem(companyId, draft);
             const refreshed = await loadCompanyPriceBook(companyId);
 
             setItems(refreshed.items);
-            setBackendStatusMessage(result.backendStatus.message);
+            setBackendStatusMessage(refreshed.backendStatus.message || result.backendStatus.message);
             setMessage(result.backendStatus.status === 'connected'
                 ? 'Price book item saved.'
-                : 'Local price book draft saved. Install SQL 597 for shared company pricing.'
+                : 'Price book backend unavailable: using local price book draft'
             );
             setEditorOpen(false);
-            setView('items');
+            setSelectedPriceKey(draft.price_key);
+            setView('detail');
         } catch (error) {
-            setMessage(`Price book save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            setMessage(`Save price failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             setSaving(false);
         }
@@ -511,69 +807,354 @@ export default function CompanyPriceBookScreen() {
         }
     }
 
+    function previewPriceResearchImport() {
+        try {
+            const importRows = buildPriceResearchImportRows(companyId, priceImportText, displayItems);
+            const matchedCount = importRows.filter((row) => row.status === 'matched').length;
+            const newItemCount = importRows.filter((row) => row.status === 'new_item').length;
+            const needsReviewCount = importRows.filter((row) => row.status === 'needs_review').length;
+
+            setPriceImportRows(importRows);
+            setMessage(`Imported ${importRows.length} price rows for review. Matched: ${matchedCount}. New: ${newItemCount}. Needs review: ${needsReviewCount}.`);
+        } catch (error) {
+            setPriceImportRows([]);
+            setMessage(`Price sheet import failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    async function applyPriceImportRow(row: PriceResearchImportRow) {
+        if (!manageAccess) {
+            setMessage('Only company owners, admins, managers, or platform admins can apply imported pricing.');
+            return;
+        }
+
+        if (row.status === 'needs_review') {
+            setMessage('Review or edit this imported row before saving it.');
+            return;
+        }
+
+        setSaving(true);
+        setMessage(row.status === 'new_item' ? 'Creating imported price item...' : 'Applying imported price...');
+
+        try {
+            const result = await upsertCompanyPriceBookItem(companyId, row.draft);
+            const refreshed = await loadCompanyPriceBook(companyId);
+
+            setItems(refreshed.items);
+            setBackendStatusMessage(refreshed.backendStatus.message || result.backendStatus.message);
+            setPriceImportRows((current) => current.filter((candidate) => candidate.id !== row.id));
+            setSelectedPriceKey(row.draft.price_key);
+            setMessage(result.backendStatus.status === 'connected'
+                ? row.status === 'new_item' ? 'Imported price item created.' : 'Imported price applied.'
+                : 'Price book backend unavailable: using local price book draft'
+            );
+        } catch (error) {
+            setMessage(`Import save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    async function applyAllMatchedPriceImportRows() {
+        if (!manageAccess) {
+            setMessage('Only company owners, admins, managers, or platform admins can apply imported pricing.');
+            return;
+        }
+
+        const matchedRows = priceImportRows.filter((row) => row.status === 'matched');
+
+        if (matchedRows.length === 0) {
+            setMessage('No matched imported rows are ready to apply.');
+            return;
+        }
+
+        setSaving(true);
+        setMessage(`Applying ${matchedRows.length} matched imported price rows...`);
+
+        try {
+            for (const row of matchedRows) {
+                await upsertCompanyPriceBookItem(companyId, row.draft);
+            }
+
+            const refreshed = await loadCompanyPriceBook(companyId);
+            const matchedIds = new Set(matchedRows.map((row) => row.id));
+
+            setItems(refreshed.items);
+            setBackendStatusMessage(refreshed.backendStatus.message);
+            setPriceImportRows((current) => current.filter((row) => !matchedIds.has(row.id)));
+            setMessage(refreshed.backendStatus.status === 'connected'
+                ? `Applied ${matchedRows.length} matched imported price rows.`
+                : 'Price book backend unavailable: using local price book draft'
+            );
+        } catch (error) {
+            setMessage(`Import save failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    function editPriceImportRowBeforeSave(row: PriceResearchImportRow) {
+        const form = buildEditorFormFromImportRow(row);
+
+        setEditorForm(form);
+        setSelectedPriceKey(form.priceKey);
+
+        if (row.matchedItem) {
+            const systemKey = getCatalogSystemKeyForItem(row.matchedItem);
+
+            if (systemKey) {
+                setSelectedSystem(systemKey);
+            }
+
+            setSelectedArea(form.area || getPriceBookItemArea(row.matchedItem));
+            setView('detail');
+        } else {
+            setView('custom');
+        }
+
+        setEditorOpen(true);
+        setMessage(`Editing imported price before save: ${form.name}`);
+    }
+
+    function skipPriceImportRow(rowId: string) {
+        setPriceImportRows((current) => current.filter((row) => row.id !== rowId));
+        setMessage('Imported price row skipped.');
+    }
+
+    function clearPriceImport() {
+        setPriceImportText('');
+        setPriceImportRows([]);
+        setMessage('Price sheet import cleared.');
+    }
+
     function openAiResearchForItem(item: CompanyPriceBookItem) {
+        editItem(item);
         setActiveTool('ai');
         setResearchForm((current) => ({
             ...current,
             scope: 'one_item',
             itemKey: item.price_key,
-            trade: item.system || current.trade,
+            itemSearch: item.name,
+            trade: inferTradeCategory(item),
+            customServiceType: inferServiceType(item.name),
         }));
-        setMessage('Ready to research this item. Suggestions are generated for manual review only.');
+        setMessage(`Selected for AI Research: ${item.name}`);
     }
 
     async function requestAiResearch() {
         if (!manageAccess) {
+            const companyIdResolution = resolveAiCompanyId(company, companyId);
             setMessage('Only company owners, admins, managers, or platform admins can request AI price research.');
+            setResearchStatus({
+                kind: 'auth_error',
+                message: 'Auth/session error: Only authorized company users can request AI price research.',
+                debugSummary: buildAiRequestSummary(researchForm, 0, companyIdResolution, ''),
+            });
             return;
         }
 
-        const researchItems = getResearchItems(displayItems, filteredItems, researchForm, selectedSystem);
+        setResearchStatus(emptyAiResearchStatus());
+        const companyIdResolution = resolveAiCompanyId(company, companyId);
+        const customResearchItem = researchForm.scope === 'custom_item'
+            ? buildCustomResearchItem(companyIdResolution.finalCompanyId, researchForm)
+            : null;
+        const researchItems = customResearchItem
+            ? [customResearchItem]
+            : getResearchItems(displayItems, filteredItems, researchForm, selectedSystem);
+        const requestSummary = buildAiRequestSummary(researchForm, researchItems.length, companyIdResolution, '');
+
+        if (!isUuid(companyIdResolution.finalCompanyId)) {
+            const invalidCompanyMessage = 'Company id is missing or invalid for AI price research.';
+            setMessage(invalidCompanyMessage);
+            setResearchStatus({
+                kind: 'warning',
+                message: invalidCompanyMessage,
+                debugSummary: requestSummary,
+            });
+            return;
+        }
+
+        if (researchForm.scope === 'custom_item' && !customResearchItem) {
+            const customMessage = 'Add a custom item or service name before researching.';
+            setMessage(customMessage);
+            setResearchStatus({
+                kind: 'warning',
+                message: customMessage,
+                debugSummary: requestSummary,
+            });
+            return;
+        }
 
         if (researchItems.length === 0) {
-            setMessage('No price book items match this AI research scope.');
+            const emptyMessage = getEmptyResearchItemsMessage(researchForm);
+            setMessage(emptyMessage);
+            setResearchStatus({
+                kind: 'warning',
+                message: emptyMessage,
+                debugSummary: requestSummary,
+            });
             return;
+        }
+
+        if (!researchForm.serviceArea.trim()) {
+            setMessage('No service area entered. Results may be less specific.');
+            setResearchStatus({
+                kind: 'warning',
+                message: 'No service area entered. Results may be less specific.',
+                debugSummary: requestSummary,
+            });
         }
 
         setResearching(true);
-        setMessage('Researching prices with AI...');
+        setMessage('Researching pricing with AI...');
+        setResearchStatus({
+            kind: 'loading',
+            message: 'Calling research-price-book...',
+            debugSummary: requestSummary,
+        });
 
         try {
-            const { data, error } = await supabase.functions.invoke('research-price-book', {
-                body: {
-                    company_id: companyId,
-                    company_name: companyName,
-                    service_area_zip: researchForm.serviceArea,
-                    city: researchForm.serviceArea,
-                    trade: researchForm.trade || selectedSystem || researchItems[0]?.system || 'Home service',
-                    pricing_positioning: toApiPositioning(researchForm.positioning),
-                    target_margin_percent: parseOptionalNumber(researchForm.targetMargin),
-                    notes: researchForm.notes,
-                    items: researchItems.map(toAiResearchItemPayload),
-                },
-            });
+            const {
+                data: { session },
+                error: sessionError,
+            } = await supabase.auth.getSession();
 
-            if (error) {
-                throw new Error(readFunctionErrorMessage(error, data));
-            }
-
-            const nextSuggestions = readAiSuggestions(data, displayItems);
-
-            if (nextSuggestions.length === 0) {
-                setMessage('AI price research returned no suggestions. Try narrowing the scope or adding more item details.');
+            if (sessionError) {
+                const authMessage = sessionError.message || 'Could not verify the current session.';
+                setMessage(`Auth/session error: ${authMessage}`);
+                setResearchStatus({
+                    kind: 'auth_error',
+                    message: `Auth/session error: ${authMessage}`,
+                    debugSummary: '',
+                });
                 return;
             }
 
-            setSuggestions((current) => mergeSuggestions(current, nextSuggestions));
+            if (!session) {
+                setMessage('Sign in again before using AI Price Research.');
+                setResearchStatus({
+                    kind: 'auth_error',
+                    message: 'Auth/session error: Sign in again before using AI Price Research.',
+                    debugSummary: '',
+                });
+                return;
+            }
+
+            const payload = {
+                company_id: companyIdResolution.finalCompanyId,
+                company_name: companyName,
+                service_area_zip: researchForm.serviceArea,
+                city: researchForm.serviceArea,
+                trade: researchForm.trade || selectedSystem || researchItems[0]?.system || 'Home service',
+                service_type: researchForm.customServiceType,
+                unit: researchForm.customUnit,
+                pricing_positioning: toApiPositioning(researchForm.positioning),
+                target_margin_percent: parseOptionalNumber(researchForm.targetMargin),
+                company_minimum_price: parseOptionalNumber(researchForm.minimumPrice),
+                labor_rate: parseOptionalNumber(researchForm.laborRate),
+                estimated_labor_hours: parseOptionalNumber(researchForm.estimatedLaborHours),
+                material_cost: parseOptionalNumber(researchForm.materialCost),
+                overhead_percent: parseOptionalNumber(researchForm.overheadPercent),
+                service_details: buildServiceDetails(researchForm),
+                notes: researchForm.notes,
+                items: researchItems.map(toAiResearchItemPayload),
+            };
+            const suggestionSourceItems = customResearchItem ? [customResearchItem, ...displayItems] : displayItems;
+            const model = 'server configured';
+            const outgoingSummary = buildAiRequestSummary(researchForm, payload.items.length, companyIdResolution, model);
+
+            setResearchStatus({
+                kind: 'loading',
+                message: 'Calling research-price-book...',
+                debugSummary: outgoingSummary,
+            });
+
+            const response = await fetch(`${supabaseUrl}/functions/v1/research-price-book`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`,
+                    apikey: supabaseAnonKey,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+            const data = await readFunctionJson(response);
+
+            if (!response.ok) {
+                const functionMessage = formatFunctionError(data, response.status);
+                setMessage(functionMessage);
+                setResearchStatus({
+                    kind: 'function_error',
+                    message: functionMessage,
+                    debugSummary: `${outgoingSummary}; ${safeDebugSummary(data)}`,
+                });
+                return;
+            }
+
+            const readResult = readAiSuggestions(data, suggestionSourceItems);
+
+            if (!readResult.ok) {
+                setMessage(readResult.message);
+                setResearchStatus({
+                    kind: 'function_error',
+                    message: readResult.message,
+                    debugSummary: readResult.debugSummary,
+                });
+                return;
+            }
+
+            const nextSuggestions = customResearchItem
+                ? readResult.suggestions.map((suggestion) => attachCustomDraftToSuggestion(suggestion, customResearchItem))
+                : readResult.suggestions;
+            const guardedSuggestions = nextSuggestions.map((suggestion) => applyLocalPriceGuardrails(suggestion, researchForm));
+
+            if (guardedSuggestions.length === 0) {
+                setMessage('AI price research returned no suggestions. Try narrowing the scope or adding more item details.');
+                setResearchStatus({
+                    kind: 'success',
+                    message: 'AI suggestions received.',
+                    debugSummary: safeDebugSummary(data),
+                });
+                return;
+            }
+
+            setSuggestions((current) => mergeSuggestions(current, guardedSuggestions));
+            setSuggestionsExpanded(true);
             setMessage('AI-assisted price suggestions are ready. Review carefully before applying.');
+            setResearchStatus({
+                kind: 'success',
+                message: 'AI suggestions received.',
+                debugSummary: `${outgoingSummary}; suggestions=${guardedSuggestions.length}`,
+            });
         } catch (error) {
-            setMessage(`AI price research failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            const networkMessage = error instanceof Error ? error.message : 'Unknown network error';
+            setMessage(`Network error: ${networkMessage}`);
+            setResearchStatus({
+                kind: 'network_error',
+                message: `Network error: ${networkMessage}`,
+                debugSummary: '',
+            });
         } finally {
             setResearching(false);
         }
     }
 
     async function applySuggestion(suggestion: PriceSuggestion) {
+        await applySuggestionAtPrice(suggestion, getSuggestionEffectivePrice(suggestion), 'Suggested price applied after review.');
+    }
+
+    async function applyCompanyMinimum(suggestion: PriceSuggestion) {
+        const minimumPrice = suggestion.adjustedRecommendation ?? suggestion.companyMinimumPrice;
+
+        if (minimumPrice === null) {
+            setMessage('This suggestion does not include a company minimum adjustment.');
+            return;
+        }
+
+        await applySuggestionAtPrice(suggestion, minimumPrice, 'Company minimum price applied after review.');
+    }
+
+    async function applySuggestionAtPrice(suggestion: PriceSuggestion, price: number, successMessage: string) {
         if (!manageAccess) {
             setMessage('Only company owners, admins, managers, or platform admins can apply suggested pricing.');
             return;
@@ -597,7 +1178,7 @@ export default function CompanyPriceBookScreen() {
                 system: item.system,
                 category: item.category,
                 unit: item.unit,
-                base_price: suggestion.suggestedPrice,
+                base_price: price,
                 labor_hours: item.labor_hours,
                 material_cost: item.material_cost,
                 customer_description: item.customer_description,
@@ -610,9 +1191,85 @@ export default function CompanyPriceBookScreen() {
             setItems(refreshed.items);
             setSuggestions((current) => current.filter((entry) => entry.id !== suggestion.id));
             setBackendStatusMessage(refreshed.backendStatus.message);
-            setMessage('Suggested price applied after review.');
+            setMessage(successMessage);
         } catch (error) {
             setMessage(`Suggested price could not be applied: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    function editSuggestionBeforeSave(suggestion: PriceSuggestion) {
+        const existingItem = displayItems.find((candidate) => candidate.price_key === suggestion.priceKey);
+        const draft = suggestion.customDraft;
+        const price = getSuggestionEffectivePrice(suggestion);
+
+        if (draft) {
+            const draftPricingDetails = getPriceBookPricingDetailsFromNotes(draft.internal_notes);
+
+            setEditorForm({
+                priceKey: draft.price_key,
+                name: draft.name,
+                system: draft.system,
+                area: readAreaFromNotes(draft.internal_notes) || selectedArea || 'Other',
+                category: draft.category,
+                unit: draft.unit,
+                basePrice: price.toFixed(2),
+                laborHours: draft.labor_hours === null ? '' : String(draft.labor_hours),
+                materialCost: draft.material_cost === null ? '' : String(draft.material_cost),
+                linearFootPrice: draftPricingDetails.linearFootPrice,
+                packageDiscountPercent: draftPricingDetails.packageDiscountPercent,
+                packageDiscountNote: draftPricingDetails.packageDiscountNote,
+                customerDescription: draft.customer_description || '',
+                internalNotes: removePriceBookMetadataFromNotes(draft.internal_notes || ''),
+                active: draft.active,
+            });
+            setView('custom');
+            setEditorOpen(true);
+            setMessage(`Editing before save: ${draft.name}`);
+            return;
+        }
+
+        if (!existingItem) {
+            setMessage('Suggested item is no longer visible in this price book.');
+            return;
+        }
+
+        editItem(existingItem);
+        setEditorForm((current) => ({
+            ...current,
+            basePrice: price.toFixed(2),
+        }));
+        setMessage(`Editing before save: ${existingItem.name}`);
+    }
+
+    async function createPriceBookItemFromSuggestion(suggestion: PriceSuggestion) {
+        if (!manageAccess) {
+            setMessage('Only company owners, admins, managers, or platform admins can create suggested price items.');
+            return;
+        }
+
+        if (!suggestion.customDraft) {
+            setMessage('This suggestion is linked to an existing price book item.');
+            return;
+        }
+
+        setSaving(true);
+        setMessage('Creating price book item from AI suggestion...');
+
+        try {
+            const result = await upsertCompanyPriceBookItem(companyId, {
+                ...suggestion.customDraft,
+                base_price: getSuggestionEffectivePrice(suggestion),
+            });
+            const refreshed = await loadCompanyPriceBook(companyId);
+
+            setItems(refreshed.items);
+            setSuggestions((current) => current.filter((entry) => entry.id !== suggestion.id));
+            setBackendStatusMessage(result.backendStatus.message);
+            setMessage('Custom price book item created from reviewed AI suggestion.');
+        } catch (error) {
+            setMessage(`Custom price item could not be created: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
             setSaving(false);
         }
@@ -623,6 +1280,12 @@ export default function CompanyPriceBookScreen() {
         setMessage('Price suggestion dismissed.');
     }
 
+    function clearSuggestions() {
+        setSuggestions([]);
+        setSuggestionsExpanded(false);
+        setMessage('Price suggestions cleared.');
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -631,10 +1294,10 @@ export default function CompanyPriceBookScreen() {
             <View style={{ width: '100%', maxWidth: 1180, minWidth: 0 }}>
                 <AdminNavBar companyId={companyId} backFallback={companyRoute as never} />
 
-                <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>ManagementOS / Price Book</Text>
-                <Text style={[titleStyle, { color: theme.colors.text }]}>Company Price Book</Text>
+                <Text style={[eyebrowStyle, { color: theme.colors.mutedText }]}>ManagementOS / {companyName}</Text>
+                <Text style={[titleStyle, { color: theme.colors.text }]}>Plumbing Price Book</Text>
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                    {companyName} / Company-owned pricing used for estimates and proposals.
+                    Company-owned plumbing pricing used for estimates and proposals.
                 </Text>
 
                 {loading ? (
@@ -670,182 +1333,129 @@ export default function CompanyPriceBookScreen() {
                             </ThemedCard>
                         )}
 
-                        <ThemedCard style={sectionCardStyle}>
-                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Pricing Tools</Text>
-                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                Review every change before applying. AI suggestions never overwrite prices automatically.
-                            </Text>
-                            <View style={toolGridStyle}>
-                                <ToolCard
-                                    title="AI Price Research"
-                                    description="Request server-side market research suggestions."
-                                    active={activeTool === 'ai'}
-                                    onPress={() => toggleTool('ai')}
-                                />
-                                <ToolCard
-                                    title="Bulk Price Increase"
-                                    description="Preview percent changes before saving."
-                                    active={activeTool === 'bulk'}
-                                    onPress={() => toggleTool('bulk')}
-                                />
-                                <ToolCard
-                                    title="Margin / Markup Calculator"
-                                    description="Markup and margin are different."
-                                    active={activeTool === 'calculator'}
-                                    onPress={() => toggleTool('calculator')}
-                                />
-                                <ToolCard
-                                    title="Import / Export"
-                                    description="CSV import/export foundation coming soon."
-                                    active={activeTool === 'import'}
-                                    onPress={() => toggleTool('import')}
-                                />
-                            </View>
-
-                            {activeTool === 'bulk' && (
-                                <BulkPriceTool
-                                    scope={bulkScope}
-                                    percent={bulkPercent}
-                                    system={bulkSystem}
-                                    category={bulkCategory}
-                                    systems={systems}
-                                    categories={categories}
-                                    selectedCount={selectedPriceKeys.length}
-                                    previewRows={bulkPreviewRows}
-                                    previewOpen={bulkPreviewOpen}
-                                    saving={saving}
-                                    canManage={!!manageAccess}
-                                    onChangeScope={(nextScope) => {
-                                        setBulkScope(nextScope);
-                                        setBulkPreviewOpen(false);
-                                    }}
-                                    onChangePercent={(value) => {
-                                        setBulkPercent(value);
-                                        setBulkPreviewOpen(false);
-                                    }}
-                                    onChangeSystem={(value) => {
-                                        setBulkSystem(value);
-                                        setBulkPreviewOpen(false);
-                                    }}
-                                    onChangeCategory={(value) => {
-                                        setBulkCategory(value);
-                                        setBulkPreviewOpen(false);
-                                    }}
-                                    onPreview={previewBulkUpdate}
-                                    onApply={applyBulkUpdate}
-                                />
-                            )}
-
-                            {activeTool === 'calculator' && (
-                                <MarginCalculatorTool
-                                    form={calculatorForm}
-                                    result={calculatorResult}
-                                    selectedCount={selectedPriceKeys.length}
-                                    saving={saving}
-                                    canManage={!!manageAccess}
-                                    onChange={(patch) => setCalculatorForm((current) => ({ ...current, ...patch }))}
-                                    onApplyToEditor={applyCalculatorToEditor}
-                                    onApplyToSelected={applyCalculatorToSelectedItems}
-                                />
-                            )}
-
-                            {activeTool === 'ai' && (
-                                <AiResearchTool
-                                    form={researchForm}
-                                    items={filteredItems}
-                                    canManage={!!manageAccess}
-                                    researching={researching}
-                                    onChange={(patch) => setResearchForm((current) => ({ ...current, ...patch }))}
-                                    onResearch={requestAiResearch}
-                                />
-                            )}
-
-                            {activeTool === 'import' && (
-                                <View style={toolPanelStyle}>
-                                    <Text style={[bodyTextStyle, { color: theme.colors.text }]}>Import / Export Coming Soon</Text>
-                                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                        CSV import/export will be added after the shared backend price book table is installed and reviewed.
-                                    </Text>
-                                </View>
-                            )}
-                        </ThemedCard>
-
-                        <SuggestionReviewSection
-                            suggestions={suggestions}
-                            onApply={applySuggestion}
-                            onDismiss={dismissSuggestion}
-                            canManage={!!manageAccess}
-                        />
-
                         <View style={tabRowStyle}>
-                            <TabButton active={view === 'systems'} label="Systems" onPress={() => setView('systems')} />
-                            <TabButton active={view === 'items'} label="All Items" onPress={() => setView('items')} />
-                            <TabButton active={view === 'custom'} label="Add Custom Price Item" onPress={addCustomItem} />
+                            <ThemedButton
+                                title="Company Dashboard"
+                                variant="secondary"
+                                onPress={() => router.push(companyRoute as never)}
+                                style={compactButtonStyle}
+                                textStyle={compactButtonTextStyle}
+                            />
+                            <TabButton
+                                active={view === 'systems' || view === 'system' || view === 'area' || view === 'detail'}
+                                label="Systems"
+                                onPress={openSystems}
+                            />
+                            <TabButton active={view === 'items'} label="All Items" onPress={openAllItems} />
+                            <TabButton
+                                active={view === 'advanced'}
+                                label="Advanced Tools"
+                                onPress={() => {
+                                    setView('advanced');
+                                    setEditorOpen(false);
+                                }}
+                            />
                         </View>
 
                         {view === 'systems' && (
                             <ThemedCard style={sectionCardStyle}>
-                                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Systems</Text>
+                                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Price Book Systems</Text>
                                 <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                    Pick a service system to drill into priceable items.
+                                    Choose a plumbing system to browse areas and priceable services.
                                 </Text>
                                 <View style={systemGridStyle}>
-                                    {homeSystemOptions.map((system) => (
-                                        <SystemStatusCard
-                                            key={system.key}
-                                            title={system.label}
-                                            icon={system.icon}
-                                            status={systemHasPricedItems(displayItems, system.key) ? 'Good' : 'Needs Review'}
-                                            onPress={() => openSystem(system.key)}
-                                            style={systemTileStyle}
+                                    {plumbingPriceBookCatalog.map((system) => {
+                                        const systemItems = displayItems.filter((item) => item.system === system.label);
+                                        const systemPriced = systemItems.filter((item) => item.base_price !== null).length;
+
+                                        return (
+                                            <SystemStatusCard
+                                                key={system.key}
+                                                title={system.label}
+                                                icon={system.icon}
+                                                status={systemPriced > 0 ? 'Good' : 'Needs Review'}
+                                                onPress={() => openSystem(system.key)}
+                                                style={systemTileStyle}
+                                            />
+                                        );
+                                    })}
+                                </View>
+                            </ThemedCard>
+                        )}
+
+                        {view === 'system' && selectedSystemNode && (
+                            <ThemedCard style={sectionCardStyle}>
+                                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
+                                    {selectedSystemNode.label}
+                                </Text>
+                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                    Choose an area or container for {selectedSystemNode.label} pricing.
+                                </Text>
+                                <View style={filterRowStyle}>
+                                    <ThemedButton
+                                        title="Back to Price Book"
+                                        variant="secondary"
+                                        onPress={openSystems}
+                                        style={compactButtonStyle}
+                                        textStyle={compactButtonTextStyle}
+                                    />
+                                </View>
+                                <View style={areaGridStyle}>
+                                    {areaCards.map((area) => (
+                                        <PriceBookAreaCard
+                                            key={area.name}
+                                            name={area.name}
+                                            itemCount={area.itemCount}
+                                            pricedCount={area.pricedCount}
+                                            onPress={() => openArea(area.name)}
                                         />
                                     ))}
                                 </View>
                             </ThemedCard>
                         )}
 
-                        {view !== 'systems' && (
+                        {view === 'area' && selectedSystemNode && (
                             <ThemedCard style={sectionCardStyle}>
                                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
-                                    {selectedSystem ? `${selectedSystem} Items` : 'All Price Book Items'}
+                                    {selectedSystemNode.label} / {selectedArea}
                                 </Text>
                                 <View style={filterRowStyle}>
-                                    <TextInput
-                                        value={search}
-                                        onChangeText={setSearch}
-                                        placeholder="Search name, system, category..."
-                                        style={[searchInputStyle, {
-                                            borderColor: theme.colors.border,
-                                            color: theme.colors.text,
-                                            backgroundColor: theme.colors.surfaceAlt,
-                                        }]}
-                                        placeholderTextColor={theme.colors.mutedText}
+                                    <ThemedButton
+                                        title="Back to System"
+                                        variant="secondary"
+                                        onPress={() => {
+                                            setView('system');
+                                            setEditorOpen(false);
+                                        }}
+                                        style={compactButtonStyle}
+                                        textStyle={compactButtonTextStyle}
                                     />
-                                    <FilterButton label="All" active={pricedFilter === 'all'} onPress={() => setPricedFilter('all')} />
-                                    <FilterButton label="Priced" active={pricedFilter === 'priced'} onPress={() => setPricedFilter('priced')} />
-                                    <FilterButton label="Not Priced" active={pricedFilter === 'not_priced'} onPress={() => setPricedFilter('not_priced')} />
-                                    {!!selectedSystem && (
-                                        <FilterButton label="Clear System" active={false} onPress={() => setSelectedSystem('')} />
-                                    )}
+                                    <ThemedButton
+                                        title="Back to Price Book"
+                                        variant="secondary"
+                                        onPress={openSystems}
+                                        style={compactButtonStyle}
+                                        textStyle={compactButtonTextStyle}
+                                    />
                                 </View>
 
-                                {filteredItems.length === 0 ? (
+                                {selectedAreaItems.length === 0 ? (
                                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                        No price book items match this filter.
+                                        No {selectedSystemNode.label} price items are cataloged for {selectedArea}.
                                     </Text>
                                 ) : (
                                     <View style={itemGridStyle}>
-                                        {filteredItems.map((item) => (
+                                        {selectedAreaItems.map((item) => (
                                             <PriceBookItemCard
                                                 key={item.price_key}
                                                 item={item}
                                                 canManage={!!manageAccess}
-                                                selectable={activeTool === 'bulk' || activeTool === 'calculator'}
+                                                selectable={false}
                                                 selected={selectedPriceKeys.includes(item.price_key)}
+                                                onOpen={() => openPriceBookItem(item)}
                                                 onEdit={() => editItem(item)}
                                                 onArchive={() => archiveItem(item)}
                                                 onToggleSelected={() => toggleSelectedItem(item.price_key)}
-                                                onResearch={() => openAiResearchForItem(item)}
                                             />
                                         ))}
                                     </View>
@@ -853,105 +1463,249 @@ export default function CompanyPriceBookScreen() {
                             </ThemedCard>
                         )}
 
-                        {editorOpen && (
+                        {view === 'detail' && selectedItem && (
+                            <PriceBookItemDetail
+                                item={selectedItem}
+                                editing={editorOpen}
+                                form={editorForm}
+                                saving={saving}
+                                canManage={!!manageAccess}
+                                onEdit={() => editItem(selectedItem)}
+                                onSave={saveEditor}
+                                onCancel={() => setEditorOpen(false)}
+                                onChangeField={updateEditor}
+                                onChangeUnit={(unit) => setEditorForm((current) => ({ ...current, unit }))}
+                                onToggleActive={() => setEditorForm((current) => ({ ...current, active: !current.active }))}
+                                onBackToArea={() => {
+                                    setView('area');
+                                    setEditorOpen(false);
+                                }}
+                                onBackToSystem={() => {
+                                    setView('system');
+                                    setEditorOpen(false);
+                                }}
+                                onBackToPriceBook={openSystems}
+                            />
+                        )}
+
+                        {view === 'custom' && editorOpen && (
+                            <PriceBookItemDetail
+                                item={editorPreviewItem}
+                                editing={editorOpen}
+                                form={editorForm}
+                                saving={saving}
+                                canManage={!!manageAccess}
+                                onEdit={() => undefined}
+                                onSave={saveEditor}
+                                onCancel={() => {
+                                    setEditorOpen(false);
+                                    openAllItems();
+                                }}
+                                onChangeField={updateEditor}
+                                onChangeUnit={(unit) => setEditorForm((current) => ({ ...current, unit }))}
+                                onToggleActive={() => setEditorForm((current) => ({ ...current, active: !current.active }))}
+                                onBackToArea={openAllItems}
+                                onBackToSystem={openSystems}
+                                onBackToPriceBook={openSystems}
+                            />
+                        )}
+
+                        {view === 'items' && (
                             <ThemedCard style={sectionCardStyle}>
-                                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Price Item Editor</Text>
-                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                    Save company-owned pricing. This does not edit homeowner HomeOS records.
+                                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>All Plumbing Price Items</Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Search the full catalog when you already know the service name.
                                 </Text>
-
-                                <View style={editorToolRowStyle}>
-                                    <EditorPercentTool
-                                        currentPrice={editorForm.basePrice}
-                                        onApply={(nextPrice) => {
-                                            setEditorForm((current) => ({ ...current, basePrice: nextPrice }));
-                                            setMessage('Percent adjustment applied to the editor. Save to update the price book.');
-                                        }}
+                                <View style={filterRowStyle}>
+                                    <TextInput
+                                        value={search}
+                                        onChangeText={setSearch}
+                                        placeholder="Search plumbing services..."
+                                        style={[searchInputStyle, {
+                                            borderColor: theme.colors.border,
+                                            color: theme.colors.text,
+                                            backgroundColor: theme.colors.surfaceAlt,
+                                        }]}
+                                        placeholderTextColor={theme.colors.mutedText}
                                     />
-                                    <ThemedButton
-                                        title="Calculate from Margin"
-                                        variant="secondary"
-                                        onPress={() => setActiveTool('calculator')}
-                                        style={compactButtonStyle}
-                                        textStyle={compactButtonTextStyle}
-                                    />
-                                    <ThemedButton
-                                        title="Research This Item with AI"
-                                        variant="secondary"
-                                        onPress={() => {
-                                            setActiveTool('ai');
-                                            setResearchForm((current) => ({
-                                                ...current,
-                                                scope: 'one_item',
-                                                itemKey: editorForm.priceKey,
-                                                trade: editorForm.system || current.trade,
-                                            }));
-                                        }}
-                                        style={compactButtonStyle}
-                                        textStyle={compactButtonTextStyle}
-                                    />
-                                    {currentEditorSuggestion && (
-                                        <ThemedButton
-                                            title="Apply Suggested Price"
-                                            variant="secondary"
-                                            onPress={() => void applySuggestion(currentEditorSuggestion)}
-                                            style={compactButtonStyle}
-                                            textStyle={compactButtonTextStyle}
-                                        />
-                                    )}
                                 </View>
-
-                                <View style={editorGridStyle}>
-                                    <EditorField label="Item / Service Name" value={editorForm.name} onChangeText={(value) => updateEditor('name', value)} />
-                                    <EditorField label="System" value={editorForm.system} onChangeText={(value) => updateEditor('system', value)} />
-                                    <EditorField label="Category" value={editorForm.category} onChangeText={(value) => updateEditor('category', value)} />
-                                    <EditorField label="Base Price" value={editorForm.basePrice} onChangeText={(value) => updateEditor('basePrice', value)} keyboardType="decimal-pad" />
-                                    <EditorField label="Labor Hours" value={editorForm.laborHours} onChangeText={(value) => updateEditor('laborHours', value)} keyboardType="decimal-pad" />
-                                    <EditorField label="Material Cost" value={editorForm.materialCost} onChangeText={(value) => updateEditor('materialCost', value)} keyboardType="decimal-pad" />
-                                </View>
-
-                                <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Unit</Text>
+                                <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Category</Text>
                                 <View style={unitRowStyle}>
-                                    {priceBookUnits.map((unit) => (
+                                    <FilterButton label="All Categories" active={!categoryFilter} onPress={() => setCategoryFilter('')} />
+                                    {categories.map((category) => (
                                         <FilterButton
-                                            key={unit}
-                                            label={unit}
-                                            active={editorForm.unit === unit}
-                                            onPress={() => setEditorForm((current) => ({ ...current, unit }))}
+                                            key={category}
+                                            label={category}
+                                            active={categoryFilter === category}
+                                            onPress={() => setCategoryFilter(category)}
                                         />
                                     ))}
                                 </View>
+                                <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Price Status</Text>
+                                <View style={unitRowStyle}>
+                                    <FilterButton label="All" active={pricedFilter === 'all'} onPress={() => setPricedFilter('all')} />
+                                    <FilterButton label="Priced" active={pricedFilter === 'priced'} onPress={() => setPricedFilter('priced')} />
+                                    <FilterButton label="Not Priced" active={pricedFilter === 'not_priced'} onPress={() => setPricedFilter('not_priced')} />
+                                </View>
+                                <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Active Status</Text>
+                                <View style={unitRowStyle}>
+                                    <FilterButton label="Active" active={activeFilter === 'active'} onPress={() => setActiveFilter('active')} />
+                                    <FilterButton label="Inactive" active={activeFilter === 'inactive'} onPress={() => setActiveFilter('inactive')} />
+                                    <FilterButton label="All Statuses" active={activeFilter === 'all'} onPress={() => setActiveFilter('all')} />
+                                </View>
 
-                                <EditorField label="Customer-Facing Description" value={editorForm.customerDescription} onChangeText={(value) => updateEditor('customerDescription', value)} multiline />
-                                <EditorField label="Internal Notes" value={editorForm.internalNotes} onChangeText={(value) => updateEditor('internalNotes', value)} multiline />
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Showing {visibleItems.length} of {displayItems.length} plumbing items.
+                                </Text>
 
-                                <TouchableOpacity
-                                    activeOpacity={0.82}
-                                    onPress={() => setEditorForm((current) => ({ ...current, active: !current.active }))}
-                                    style={[activeToggleStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}
-                                >
-                                    <Text style={[bodyTextStyle, { color: theme.colors.text }]}>
-                                        {editorForm.active ? 'Active item' : 'Inactive item'}
+                                {visibleItems.length === 0 ? (
+                                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                        No plumbing price items match this filter.
                                     </Text>
-                                </TouchableOpacity>
+                                ) : (
+                                    <View style={itemGridStyle}>
+                                        {visibleItems.map((item) => (
+                                            <PriceBookItemCard
+                                                key={item.price_key}
+                                                item={item}
+                                                canManage={!!manageAccess}
+                                                selectable={false}
+                                                selected={selectedPriceKeys.includes(item.price_key)}
+                                                onOpen={() => openPriceBookItem(item)}
+                                                onEdit={() => editItem(item)}
+                                                onArchive={() => archiveItem(item)}
+                                                onToggleSelected={() => toggleSelectedItem(item.price_key)}
+                                            />
+                                        ))}
+                                    </View>
+                                )}
+                            </ThemedCard>
+                        )}
 
-                                <View style={editorActionRowStyle}>
-                                    <ThemedButton
-                                        title={saving ? 'Saving...' : 'Save Price Item'}
-                                        disabled={saving || !manageAccess}
-                                        onPress={saveEditor}
-                                        style={compactButtonStyle}
-                                        textStyle={compactButtonTextStyle}
+                        {view === 'advanced' && (
+                            <ThemedCard style={sectionCardStyle}>
+                                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Advanced Tools</Text>
+                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                    AI research, bulk changes, calculators, and import/export stay here. The main workflow remains HomeOS-style navigation.
+                                </Text>
+                                <View style={toolGridStyle}>
+                                    <ToolCard
+                                        title="AI Price Research"
+                                        description={activeTool === 'ai' ? 'Hide AI research' : 'Research selected plumbing items'}
+                                        active={activeTool === 'ai'}
+                                        onPress={() => toggleTool('ai')}
                                     />
-                                    <ThemedButton
-                                        title="Cancel"
-                                        variant="secondary"
-                                        onPress={() => setEditorOpen(false)}
-                                        style={compactButtonStyle}
-                                        textStyle={compactButtonTextStyle}
+                                    <ToolCard
+                                        title="Bulk Price Increase"
+                                        description="Preview percent changes before saving."
+                                        active={activeTool === 'bulk'}
+                                        onPress={() => toggleTool('bulk')}
+                                    />
+                                    <ToolCard
+                                        title="Margin / Markup Calculator"
+                                        description="Markup and margin are different."
+                                        active={activeTool === 'calculator'}
+                                        onPress={() => toggleTool('calculator')}
+                                    />
+                                    <ToolCard
+                                        title="Import / Review Price Sheet"
+                                        description="Paste researched prices for review."
+                                        active={activeTool === 'import'}
+                                        onPress={() => toggleTool('import')}
                                     />
                                 </View>
+
+                                {activeTool === 'bulk' && (
+                                    <BulkPriceTool
+                                        scope={bulkScope}
+                                        percent={bulkPercent}
+                                        system={bulkSystem}
+                                        category={bulkCategory}
+                                        systems={systems}
+                                        categories={categories}
+                                        selectedCount={selectedPriceKeys.length}
+                                        previewRows={bulkPreviewRows}
+                                        previewOpen={bulkPreviewOpen}
+                                        saving={saving}
+                                        canManage={!!manageAccess}
+                                        onChangeScope={(nextScope) => {
+                                            setBulkScope(nextScope);
+                                            setBulkPreviewOpen(false);
+                                        }}
+                                        onChangePercent={(value) => {
+                                            setBulkPercent(value);
+                                            setBulkPreviewOpen(false);
+                                        }}
+                                        onChangeSystem={(value) => {
+                                            setBulkSystem(value);
+                                            setBulkPreviewOpen(false);
+                                        }}
+                                        onChangeCategory={(value) => {
+                                            setBulkCategory(value);
+                                            setBulkPreviewOpen(false);
+                                        }}
+                                        onPreview={previewBulkUpdate}
+                                        onApply={applyBulkUpdate}
+                                    />
+                                )}
+
+                                {activeTool === 'calculator' && (
+                                    <MarginCalculatorTool
+                                        form={calculatorForm}
+                                        result={calculatorResult}
+                                        selectedCount={selectedPriceKeys.length}
+                                        saving={saving}
+                                        canManage={!!manageAccess}
+                                        onChange={(patch) => setCalculatorForm((current) => ({ ...current, ...patch }))}
+                                        onApplyToEditor={applyCalculatorToEditor}
+                                        onApplyToSelected={applyCalculatorToSelectedItems}
+                                    />
+                                )}
+
+                                {activeTool === 'ai' && (
+                                    <AiResearchTool
+                                        form={researchForm}
+                                        items={displayItems}
+                                        canManage={!!manageAccess}
+                                        researching={researching}
+                                        status={researchStatus}
+                                        onChange={(patch) => setResearchForm((current) => ({ ...current, ...patch }))}
+                                        onResearch={requestAiResearch}
+                                    />
+                                )}
+
+                                {activeTool === 'import' && (
+                                    <PriceResearchImportTool
+                                        text={priceImportText}
+                                        rows={priceImportRows}
+                                        saving={saving}
+                                        canManage={!!manageAccess}
+                                        onChangeText={setPriceImportText}
+                                        onPreview={previewPriceResearchImport}
+                                        onApply={applyPriceImportRow}
+                                        onApplyAllMatched={applyAllMatchedPriceImportRows}
+                                        onEdit={editPriceImportRowBeforeSave}
+                                        onSkip={skipPriceImportRow}
+                                        onClear={clearPriceImport}
+                                    />
+                                )}
                             </ThemedCard>
+                        )}
+
+                        {view === 'advanced' && (activeTool === 'ai' || suggestions.length > 0) && (
+                            <SuggestionReviewSection
+                                suggestions={suggestions}
+                                expanded={suggestionsExpanded}
+                                onExpand={() => setSuggestionsExpanded(true)}
+                                onHide={() => setSuggestionsExpanded(false)}
+                                onClear={clearSuggestions}
+                                onApply={applySuggestion}
+                                onApplyMinimum={applyCompanyMinimum}
+                                onCreate={createPriceBookItemFromSuggestion}
+                                onEdit={editSuggestionBeforeSave}
+                                onDismiss={dismissSuggestion}
+                                canManage={!!manageAccess}
+                            />
                         )}
                     </>
                 )}
@@ -963,9 +1717,9 @@ export default function CompanyPriceBookScreen() {
         setEditorForm((current) => ({
             ...current,
             [key]: value,
-            priceKey: key === 'name' || key === 'system' || key === 'category'
+            priceKey: key === 'name' || key === 'category'
                 ? createPriceKey(
-                    key === 'system' ? value : current.system,
+                    current.system,
                     key === 'category' ? value : current.category,
                     key === 'name' ? value : current.name
                 )
@@ -979,30 +1733,37 @@ function PriceBookItemCard({
     canManage,
     selectable,
     selected,
+    onOpen,
     onEdit,
     onArchive,
     onToggleSelected,
-    onResearch,
 }: {
     item: CompanyPriceBookItem;
     canManage: boolean;
     selectable: boolean;
     selected: boolean;
+    onOpen: () => void;
     onEdit: () => void;
     onArchive: () => void;
     onToggleSelected: () => void;
-    onResearch: () => void;
 }) {
     const { theme } = useTheme();
     const priced = item.base_price !== null;
+    const pricingDetails = getPriceBookPricingDetails(item);
+    const linearFootPrice = parseOptionalNumber(pricingDetails.linearFootPrice);
+    const packageDiscountPercent = parseOptionalNumber(pricingDetails.packageDiscountPercent);
+    const showLinearFootPrice = item.unit === 'linear foot' || linearFootPrice !== null;
+    const showPackageDiscount = packageDiscountPercent !== null || Boolean(pricingDetails.packageDiscountNote.trim());
 
     return (
         <ThemedCard style={priceItemCardStyle}>
-            <Text style={[itemTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
-                {item.name}
-            </Text>
+            <TouchableOpacity activeOpacity={0.82} onPress={onOpen}>
+                <Text style={[itemTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                    {item.name}
+                </Text>
+            </TouchableOpacity>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                {item.system} / {item.category}
+                {item.category}
             </Text>
             <View style={chipRowStyle}>
                 <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}>
@@ -1015,13 +1776,33 @@ function PriceBookItemCard({
                     {item.active ? 'Active' : 'Inactive'}
                 </Text>
             </View>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                {item.source === 'local' ? 'Local price book draft' : item.source === 'backend' ? 'Saved to company price book' : 'Starter template'}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Last changed: {formatDateTime(item.updated_at)}
-            </Text>
-
+            <View style={detailGridStyle}>
+                {item.labor_hours !== null && (
+                    <Text style={[detailLineStyle, { color: theme.colors.mutedText }]}>
+                        Labor: {formatHours(item.labor_hours)}
+                    </Text>
+                )}
+                {item.material_cost !== null && (
+                    <Text style={[detailLineStyle, { color: theme.colors.mutedText }]}>
+                        Material: {formatPrice(item.material_cost)}
+                    </Text>
+                )}
+                {showLinearFootPrice && (
+                    <Text style={[detailLineStyle, { color: theme.colors.mutedText }]}>
+                        Linear foot: {linearFootPrice === null ? 'Not set' : formatPrice(linearFootPrice)}
+                    </Text>
+                )}
+                {showPackageDiscount && (
+                    <Text style={[detailLineStyle, { color: theme.colors.mutedText }]}>
+                        Package discount: {packageDiscountPercent === null ? 'See note' : `${formatPercent(packageDiscountPercent)}`}
+                    </Text>
+                )}
+                {!!pricingDetails.packageDiscountNote.trim() && (
+                    <Text style={[detailLineStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                        Discount note: {pricingDetails.packageDiscountNote.trim()}
+                    </Text>
+                )}
+            </View>
             <View style={itemActionRowStyle}>
                 {selectable && (
                     <ThemedButton
@@ -1033,21 +1814,20 @@ function PriceBookItemCard({
                     />
                 )}
                 <ThemedButton
-                    title={canManage ? 'Edit Price' : 'View Details'}
+                    title="Details"
+                    variant="secondary"
+                    onPress={onOpen}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Edit Price"
                     variant={canManage ? 'primary' : 'secondary'}
+                    disabled={!canManage}
                     onPress={onEdit}
                     style={compactButtonStyle}
                     textStyle={compactButtonTextStyle}
                 />
-                {canManage && (
-                    <ThemedButton
-                        title="AI Research"
-                        variant="secondary"
-                        onPress={onResearch}
-                        style={compactButtonStyle}
-                        textStyle={compactButtonTextStyle}
-                    />
-                )}
                 {canManage && item.source !== 'template' && (
                     <ThemedButton
                         title="Set Inactive"
@@ -1059,6 +1839,213 @@ function PriceBookItemCard({
                 )}
             </View>
         </ThemedCard>
+    );
+}
+
+function PriceBookItemDetail({
+    item,
+    editing,
+    form,
+    saving,
+    canManage,
+    onEdit,
+    onSave,
+    onCancel,
+    onChangeField,
+    onChangeUnit,
+    onToggleActive,
+    onBackToArea,
+    onBackToSystem,
+    onBackToPriceBook,
+}: {
+    item: CompanyPriceBookItem;
+    editing: boolean;
+    form: EditorForm;
+    saving: boolean;
+    canManage: boolean;
+    onEdit: () => void;
+    onSave: () => void;
+    onCancel: () => void;
+    onChangeField: (key: keyof EditorForm, value: string) => void;
+    onChangeUnit: (unit: CompanyPriceBookUnit) => void;
+    onToggleActive: () => void;
+    onBackToArea: () => void;
+    onBackToSystem: () => void;
+    onBackToPriceBook: () => void;
+}) {
+    const { theme } = useTheme();
+    const pricingDetails = getPriceBookPricingDetails(item);
+    const linearFootPrice = parseOptionalNumber(pricingDetails.linearFootPrice);
+    const packageDiscountPercent = parseOptionalNumber(pricingDetails.packageDiscountPercent);
+
+    function renderEditorActions() {
+        return (
+            <View style={editorActionRowStyle}>
+                <ThemedButton
+                    title={saving ? 'Saving...' : 'Save Price'}
+                    disabled={saving || !canManage}
+                    onPress={onSave}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Cancel"
+                    variant="secondary"
+                    onPress={onCancel}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Back to Item"
+                    variant="secondary"
+                    onPress={onCancel}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+            </View>
+        );
+    }
+
+    return (
+        <ThemedCard style={sectionCardStyle}>
+            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
+                {editing ? `Editing: ${item.name}` : item.name}
+            </Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                {item.system} / {getPriceBookItemArea(item)} / {item.category}
+            </Text>
+
+            <View style={filterRowStyle}>
+                <ThemedButton
+                    title="Back to Area"
+                    variant="secondary"
+                    onPress={onBackToArea}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Back to System"
+                    variant="secondary"
+                    onPress={onBackToSystem}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Back to Price Book"
+                    variant="secondary"
+                    onPress={onBackToPriceBook}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+            </View>
+
+            {editing ? (
+                <>
+                    {renderEditorActions()}
+
+                    <View style={editorGridStyle}>
+                        <EditorField label="Base Price" value={form.basePrice} onChangeText={(value) => onChangeField('basePrice', value)} keyboardType="decimal-pad" />
+                        <EditorField label="Labor Hours" value={form.laborHours} onChangeText={(value) => onChangeField('laborHours', value)} keyboardType="decimal-pad" />
+                        <EditorField label="Material Cost" value={form.materialCost} onChangeText={(value) => onChangeField('materialCost', value)} keyboardType="decimal-pad" />
+                        <EditorField label="Linear Foot Price" value={form.linearFootPrice} onChangeText={(value) => onChangeField('linearFootPrice', value)} keyboardType="decimal-pad" />
+                        <EditorField label="Package Discount Percent" value={form.packageDiscountPercent} onChangeText={(value) => onChangeField('packageDiscountPercent', value)} keyboardType="decimal-pad" />
+                    </View>
+
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Unit</Text>
+                    <View style={unitRowStyle}>
+                        {priceBookUnits.map((unit) => (
+                            <FilterButton
+                                key={unit}
+                                label={unit}
+                                active={form.unit === unit}
+                                onPress={() => onChangeUnit(unit)}
+                            />
+                        ))}
+                    </View>
+
+                    <EditorField label="Package Discount Note" value={form.packageDiscountNote} onChangeText={(value) => onChangeField('packageDiscountNote', value)} multiline />
+                    <EditorField label="Customer-Facing Description" value={form.customerDescription} onChangeText={(value) => onChangeField('customerDescription', value)} multiline />
+                    <EditorField label="Internal Notes" value={form.internalNotes} onChangeText={(value) => onChangeField('internalNotes', value)} multiline />
+
+                    <TouchableOpacity
+                        activeOpacity={0.82}
+                        onPress={onToggleActive}
+                        style={[activeToggleStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}
+                    >
+                        <Text style={[bodyTextStyle, { color: theme.colors.text }]}>
+                            {form.active ? 'Active item' : 'Inactive item'}
+                        </Text>
+                    </TouchableOpacity>
+
+                    {renderEditorActions()}
+                </>
+            ) : (
+                <>
+                    <View style={detailGridStyle}>
+                        <PriceBookDetailRow label="Current base price" value={formatPrice(item.base_price)} />
+                        <PriceBookDetailRow label="Unit" value={item.unit} />
+                        <PriceBookDetailRow label="Labor hours" value={formatHours(item.labor_hours)} />
+                        <PriceBookDetailRow label="Material cost" value={formatPrice(item.material_cost)} />
+                        <PriceBookDetailRow label="Linear foot price" value={linearFootPrice === null ? 'Not set' : formatPrice(linearFootPrice)} />
+                        <PriceBookDetailRow label="Package discount" value={packageDiscountPercent === null ? 'Not set' : formatPercent(packageDiscountPercent)} />
+                        {!!pricingDetails.packageDiscountNote.trim() && (
+                            <PriceBookDetailRow label="Package discount note" value={pricingDetails.packageDiscountNote.trim()} />
+                        )}
+                        <PriceBookDetailRow label="Customer-facing description" value={item.customer_description || 'Not set'} />
+                        <PriceBookDetailRow label="Internal notes" value={removePriceBookMetadataFromNotes(item.internal_notes || '') || 'Not set'} />
+                        <PriceBookDetailRow label="Status" value={item.active ? 'Active' : 'Inactive'} />
+                    </View>
+
+                    <View style={editorActionRowStyle}>
+                        <ThemedButton
+                            title="Edit Price"
+                            disabled={!canManage}
+                            onPress={onEdit}
+                            style={compactButtonStyle}
+                            textStyle={compactButtonTextStyle}
+                        />
+                    </View>
+                </>
+            )}
+        </ThemedCard>
+    );
+}
+
+function PriceBookDetailRow({ label, value }: { label: string; value: string }) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={[detailRowStyle, { borderColor: theme.colors.border }]}>
+            <Text style={[summaryLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.text }]}>{value}</Text>
+        </View>
+    );
+}
+
+function PriceBookAreaCard({
+    name,
+    itemCount,
+    pricedCount,
+    onPress,
+}: {
+    name: string;
+    itemCount: number;
+    pricedCount: number;
+    onPress: () => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <TouchableOpacity
+            activeOpacity={0.82}
+            onPress={onPress}
+            style={[areaCardStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}
+        >
+            <Text style={[itemTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>{name}</Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                {itemCount} items / {pricedCount} priced
+            </Text>
+        </TouchableOpacity>
     );
 }
 
@@ -1300,11 +2287,201 @@ function MarginCalculatorTool({
     );
 }
 
+function PriceResearchImportTool({
+    text,
+    rows,
+    saving,
+    canManage,
+    onChangeText,
+    onPreview,
+    onApply,
+    onApplyAllMatched,
+    onEdit,
+    onSkip,
+    onClear,
+}: {
+    text: string;
+    rows: PriceResearchImportRow[];
+    saving: boolean;
+    canManage: boolean;
+    onChangeText: (value: string) => void;
+    onPreview: () => void;
+    onApply: (row: PriceResearchImportRow) => void;
+    onApplyAllMatched: () => void;
+    onEdit: (row: PriceResearchImportRow) => void;
+    onSkip: (rowId: string) => void;
+    onClear: () => void;
+}) {
+    const { theme } = useTheme();
+    const matchedCount = rows.filter((row) => row.status === 'matched').length;
+    const newItemCount = rows.filter((row) => row.status === 'new_item').length;
+    const needsReviewCount = rows.filter((row) => row.status === 'needs_review').length;
+
+    return (
+        <View style={toolPanelStyle}>
+            <Text style={[toolPanelTitleStyle, { color: theme.colors.text }]}>Import / Review Price Sheet</Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Paste CSV or tab-separated research rows, then review before saving.
+            </Text>
+
+            <TextInput
+                value={text}
+                onChangeText={onChangeText}
+                multiline
+                placeholder="price_key,service_name,recommended_price,market_low,market_average,market_high,source_notes"
+                style={[
+                    inputStyle,
+                    multilineInputStyle,
+                    importTextAreaStyle,
+                    {
+                        borderColor: theme.colors.border,
+                        color: theme.colors.text,
+                        backgroundColor: theme.colors.surfaceAlt,
+                    },
+                ]}
+                placeholderTextColor={theme.colors.mutedText}
+            />
+
+            <View style={editorActionRowStyle}>
+                <ThemedButton
+                    title="Review Import"
+                    disabled={saving || !text.trim()}
+                    onPress={onPreview}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title={`Apply All Matched (${matchedCount})`}
+                    disabled={!canManage || saving || matchedCount === 0}
+                    onPress={onApplyAllMatched}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Clear Import"
+                    variant="secondary"
+                    disabled={saving || (!text.trim() && rows.length === 0)}
+                    onPress={onClear}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+            </View>
+
+            {rows.length > 0 && (
+                <>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Review rows: {matchedCount} matched / {newItemCount} new item / {needsReviewCount} needs review
+                    </Text>
+                    <View style={suggestionGridStyle}>
+                        {rows.map((row) => (
+                            <PriceResearchImportReviewCard
+                                key={row.id}
+                                row={row}
+                                saving={saving}
+                                canManage={canManage}
+                                onApply={() => onApply(row)}
+                                onEdit={() => onEdit(row)}
+                                onSkip={() => onSkip(row.id)}
+                            />
+                        ))}
+                    </View>
+                </>
+            )}
+        </View>
+    );
+}
+
+function PriceResearchImportReviewCard({
+    row,
+    saving,
+    canManage,
+    onApply,
+    onEdit,
+    onSkip,
+}: {
+    row: PriceResearchImportRow;
+    saving: boolean;
+    canManage: boolean;
+    onApply: () => void;
+    onEdit: () => void;
+    onSkip: () => void;
+}) {
+    const { theme } = useTheme();
+    const isNewItem = row.status === 'new_item';
+    const isNeedsReview = row.status === 'needs_review';
+
+    return (
+        <View style={[suggestionCardStyle, { borderColor: theme.colors.border }]}>
+            <Text style={[itemTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                {isNewItem ? 'New Price Item' : row.draft.name}
+            </Text>
+            {isNewItem && (
+                <Text style={[metaTextStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                    {row.draft.name}
+                </Text>
+            )}
+            <View style={chipRowStyle}>
+                <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}>
+                    {getPriceImportStatusLabel(row.status)}
+                </Text>
+                <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}>
+                    Row {row.rowNumber}
+                </Text>
+            </View>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Current: {formatPrice(row.matchedItem?.base_price ?? null)}
+            </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Imported: {formatPrice(row.importedPrice)}
+            </Text>
+            {(row.marketLow !== null || row.marketAverage !== null || row.marketHigh !== null) && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    Market: {formatPrice(row.marketLow)} / {formatPrice(row.marketAverage)} / {formatPrice(row.marketHigh)}
+                </Text>
+            )}
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                {row.matchSummary}
+            </Text>
+            {!!row.sourceNotes && (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={3}>
+                    Source notes: {row.sourceNotes}
+                </Text>
+            )}
+            <View style={itemActionRowStyle}>
+                <ThemedButton
+                    title={isNewItem ? 'Create Price Book Item' : 'Apply'}
+                    disabled={!canManage || saving || isNeedsReview}
+                    onPress={onApply}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Edit Before Save"
+                    variant="secondary"
+                    disabled={!canManage || saving}
+                    onPress={onEdit}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Skip"
+                    variant="secondary"
+                    disabled={saving}
+                    onPress={onSkip}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+            </View>
+        </View>
+    );
+}
+
 function AiResearchTool({
     form,
     items,
     canManage,
     researching,
+    status,
     onChange,
     onResearch,
 }: {
@@ -1312,10 +2489,23 @@ function AiResearchTool({
     items: CompanyPriceBookItem[];
     canManage: boolean;
     researching: boolean;
+    status: AiResearchStatus;
     onChange: (patch: Partial<ResearchForm>) => void;
     onResearch: () => void;
 }) {
     const { theme } = useTheme();
+    const selectedItem = items.find((item) => item.price_key === form.itemKey) || null;
+    const itemSearchTerm = form.itemSearch.trim().toLowerCase();
+    const itemChoices = items
+        .filter((item) => {
+            if (!itemSearchTerm) return true;
+
+            return [item.name, item.system, item.category, item.price_key]
+                .join(' ')
+                .toLowerCase()
+                .includes(itemSearchTerm);
+        })
+        .slice(0, 12);
 
     return (
         <View style={toolPanelStyle}>
@@ -1327,6 +2517,7 @@ function AiResearchTool({
             <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Research Scope</Text>
             <View style={unitRowStyle}>
                 <FilterButton label="One Item" active={form.scope === 'one_item'} onPress={() => onChange({ scope: 'one_item' })} />
+                <FilterButton label="Research Custom Item" active={form.scope === 'custom_item'} onPress={() => onChange({ scope: 'custom_item' })} />
                 <FilterButton label="Current System" active={form.scope === 'current_system'} onPress={() => onChange({ scope: 'current_system' })} />
                 <FilterButton label="Filtered List" active={form.scope === 'filtered_list'} onPress={() => onChange({ scope: 'filtered_list' })} />
                 <FilterButton label="All Unpriced" active={form.scope === 'all_unpriced'} onPress={() => onChange({ scope: 'all_unpriced' })} />
@@ -1334,25 +2525,147 @@ function AiResearchTool({
 
             {form.scope === 'one_item' && (
                 <>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        {selectedItem
+                            ? `Selected for AI Research: ${selectedItem.name}`
+                            : 'Select one item below or search for an item.'}
+                    </Text>
+                    <View style={editorGridStyle}>
+                        <EditorField
+                            label="Search Items"
+                            value={form.itemSearch}
+                            onChangeText={(value) => onChange({ itemSearch: value })}
+                        />
+                    </View>
                     <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Item</Text>
                     <View style={unitRowStyle}>
-                        {items.slice(0, 10).map((item) => (
+                        {itemChoices.map((item) => (
                             <FilterButton
                                 key={item.price_key}
                                 label={item.name}
                                 active={form.itemKey === item.price_key}
-                                onPress={() => onChange({ itemKey: item.price_key, trade: item.system })}
+                                onPress={() => onChange({ itemKey: item.price_key, trade: inferTradeCategory(item), customServiceType: inferServiceType(item.name) })}
                             />
                         ))}
                     </View>
                 </>
             )}
 
+            {form.scope === 'custom_item' && (
+                <>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Research a service that is not in the price book yet. AI suggestions stay in review until you create the item.
+                    </Text>
+                    <View style={editorGridStyle}>
+                        <EditorField label="Custom Item / Service Name" value={form.customName} onChangeText={(value) => onChange({ customName: value })} />
+                        <EditorField label="Custom Notes" value={form.customNotes} onChangeText={(value) => onChange({ customNotes: value })} multiline />
+                    </View>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>System</Text>
+                    <View style={unitRowStyle}>
+                        {researchSystemOptions.map((option) => (
+                            <FilterButton
+                                key={option.value}
+                                label={option.label}
+                                active={form.customSystem === option.value}
+                                onPress={() => onChange({ customSystem: option.value })}
+                            />
+                        ))}
+                    </View>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Trade / Category</Text>
+                    <View style={unitRowStyle}>
+                        {researchTradeOptions.map((option) => (
+                            <FilterButton
+                                key={option}
+                                label={option}
+                                active={form.customCategory === option}
+                                onPress={() => onChange({ customCategory: option, trade: option })}
+                            />
+                        ))}
+                    </View>
+                </>
+            )}
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Trade / Category</Text>
+            <View style={unitRowStyle}>
+                {researchTradeOptions.map((option) => (
+                    <FilterButton
+                        key={option}
+                        label={option}
+                        active={form.trade === option}
+                        onPress={() => onChange({ trade: option })}
+                    />
+                ))}
+            </View>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Service Type</Text>
+            <View style={unitRowStyle}>
+                {researchServiceTypeOptions.map((option) => (
+                    <FilterButton
+                        key={option}
+                        label={capitalizeWords(option)}
+                        active={form.customServiceType === option}
+                        onPress={() => onChange({ customServiceType: option })}
+                    />
+                ))}
+            </View>
+
+            {form.scope === 'custom_item' && (
+                <>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Unit</Text>
+                    <View style={unitRowStyle}>
+                        {priceBookUnits.map((unit) => (
+                            <FilterButton
+                                key={unit}
+                                label={unit}
+                                active={form.customUnit === unit}
+                                onPress={() => onChange({ customUnit: unit })}
+                            />
+                        ))}
+                    </View>
+                </>
+            )}
+
+            {isWaterHeaterResearch(form) && (
+                <View style={[guardrailBoxStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Water Heater Details</Text>
+                    <View style={unitRowStyle}>
+                        <FilterButton label="Tank" active={form.waterHeaterKind === 'tank'} onPress={() => onChange({ waterHeaterKind: 'tank' })} />
+                        <FilterButton label="Tankless" active={form.waterHeaterKind === 'tankless'} onPress={() => onChange({ waterHeaterKind: 'tankless' })} />
+                        <FilterButton label="Not Set" active={!form.waterHeaterKind} onPress={() => onChange({ waterHeaterKind: '' })} />
+                    </View>
+                    <View style={editorGridStyle}>
+                        <EditorField label="Gallon Size" value={form.waterHeaterGallons} onChangeText={(value) => onChange({ waterHeaterGallons: value })} />
+                        <EditorField label="Access Difficulty" value={form.accessDifficulty} onChangeText={(value) => onChange({ accessDifficulty: value })} />
+                    </View>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Install Scope</Text>
+                    <View style={unitRowStyle}>
+                        <FilterButton label="Standard Replacement" active={form.waterHeaterInstallScope === 'standard replacement'} onPress={() => onChange({ waterHeaterInstallScope: 'standard replacement' })} />
+                        <FilterButton label="New Install" active={form.waterHeaterInstallScope === 'new install'} onPress={() => onChange({ waterHeaterInstallScope: 'new install' })} />
+                        <FilterButton label="Not Set" active={!form.waterHeaterInstallScope} onPress={() => onChange({ waterHeaterInstallScope: '' })} />
+                    </View>
+                    <YesNoButtonGroup label="Permit Included" value={form.permitIncluded} onChange={(value) => onChange({ permitIncluded: value })} />
+                    <YesNoButtonGroup label="Haul Away Included" value={form.haulAwayIncluded} onChange={(value) => onChange({ haulAwayIncluded: value })} />
+                    <YesNoButtonGroup label="Expansion Tank Included" value={form.expansionTankIncluded} onChange={(value) => onChange({ expansionTankIncluded: value })} />
+                    <YesNoButtonGroup label="Code Upgrades Included" value={form.codeUpgradesIncluded} onChange={(value) => onChange({ codeUpgradesIncluded: value })} />
+                </View>
+            )}
+
             <View style={editorGridStyle}>
                 <EditorField label="Service Area / ZIP Code" value={form.serviceArea} onChangeText={(value) => onChange({ serviceArea: value })} />
-                <EditorField label="Trade / Category" value={form.trade} onChangeText={(value) => onChange({ trade: value })} />
-                <EditorField label="Target Margin %" value={form.targetMargin} onChangeText={(value) => onChange({ targetMargin: value })} keyboardType="decimal-pad" />
                 <EditorField label="Notes" value={form.notes} onChangeText={(value) => onChange({ notes: value })} multiline />
+            </View>
+
+            <View style={[guardrailBoxStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+                <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Company Pricing Guardrails</Text>
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Company minimums override AI suggestions.</Text>
+                <View style={editorGridStyle}>
+                    <EditorField label="Minimum Acceptable Price" value={form.minimumPrice} onChangeText={(value) => onChange({ minimumPrice: value })} keyboardType="decimal-pad" />
+                    <EditorField label="Target Gross Margin %" value={form.targetMargin} onChangeText={(value) => onChange({ targetMargin: value })} keyboardType="decimal-pad" />
+                    <EditorField label="Labor Rate" value={form.laborRate} onChangeText={(value) => onChange({ laborRate: value })} keyboardType="decimal-pad" />
+                    <EditorField label="Estimated Labor Hours" value={form.estimatedLaborHours} onChangeText={(value) => onChange({ estimatedLaborHours: value })} keyboardType="decimal-pad" />
+                    <EditorField label="Material Cost" value={form.materialCost} onChangeText={(value) => onChange({ materialCost: value })} keyboardType="decimal-pad" />
+                    <EditorField label="Overhead %" value={form.overheadPercent} onChangeText={(value) => onChange({ overheadPercent: value })} keyboardType="decimal-pad" />
+                </View>
             </View>
 
             <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Positioning</Text>
@@ -1364,12 +2677,23 @@ function AiResearchTool({
 
             <View style={editorActionRowStyle}>
                 <ThemedButton
-                    title={researching ? 'Researching...' : 'Research Pricing with AI'}
+                    title={researching ? 'Researching pricing with AI...' : 'Research Pricing with AI'}
                     disabled={!canManage || researching}
                     onPress={onResearch}
                     style={compactButtonStyle}
                     textStyle={compactButtonTextStyle}
                 />
+            </View>
+
+            <View style={[aiStatusLineStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+                <Text style={[metaTextStyle, { color: status.kind === 'function_error' || status.kind === 'network_error' || status.kind === 'auth_error' ? '#B42318' : theme.colors.mutedText }]}>
+                    {status.message || 'AI research is idle.'}
+                </Text>
+                {!!status.debugSummary && (
+                    <Text style={[debugTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                        {status.debugSummary}
+                    </Text>
+                )}
             </View>
         </View>
     );
@@ -1377,28 +2701,80 @@ function AiResearchTool({
 
 function SuggestionReviewSection({
     suggestions,
+    expanded,
+    onExpand,
+    onHide,
+    onClear,
     onApply,
+    onApplyMinimum,
+    onCreate,
+    onEdit,
     onDismiss,
     canManage,
 }: {
     suggestions: PriceSuggestion[];
+    expanded: boolean;
+    onExpand: () => void;
+    onHide: () => void;
+    onClear: () => void;
     onApply: (suggestion: PriceSuggestion) => void;
+    onApplyMinimum: (suggestion: PriceSuggestion) => void;
+    onCreate: (suggestion: PriceSuggestion) => void;
+    onEdit: (suggestion: PriceSuggestion) => void;
     onDismiss: (suggestionId: string) => void;
     canManage: boolean;
 }) {
     const { theme } = useTheme();
+    const suggestionLabel = suggestions.length === 1 ? '1 suggestion' : `${suggestions.length} suggestions`;
 
     return (
         <ThemedCard style={sectionCardStyle}>
-            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Suggested Price Review</Text>
-            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                AI or calculator suggestions appear here for manual review. Applying a suggestion updates one price item.
-            </Text>
+            <View style={suggestionHeaderStyle}>
+                <View style={suggestionHeaderTextStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
+                        Suggested Price Review - {suggestionLabel}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Suggestions stay manual. Review before creating or applying prices.
+                    </Text>
+                </View>
+                <View style={itemActionRowStyle}>
+                    <ThemedButton
+                        title="Review"
+                        disabled={suggestions.length === 0}
+                        onPress={onExpand}
+                        style={compactButtonStyle}
+                        textStyle={compactButtonTextStyle}
+                    />
+                    <ThemedButton
+                        title="Hide"
+                        variant="secondary"
+                        disabled={!expanded}
+                        onPress={onHide}
+                        style={compactButtonStyle}
+                        textStyle={compactButtonTextStyle}
+                    />
+                    <ThemedButton
+                        title="Clear Suggestions"
+                        variant="secondary"
+                        disabled={suggestions.length === 0}
+                        onPress={onClear}
+                        style={compactButtonStyle}
+                        textStyle={compactButtonTextStyle}
+                    />
+                </View>
+            </View>
 
             {suggestions.length === 0 ? (
                 <View style={[emptySuggestionStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        No price suggestions yet. AI research is waiting for a server-side relay.
+                        No price suggestions yet.
+                    </Text>
+                </View>
+            ) : !expanded ? (
+                <View style={[emptySuggestionStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        {suggestionLabel} hidden. Use Review to open them.
                     </Text>
                 </View>
             ) : (
@@ -1411,6 +2787,16 @@ function SuggestionReviewSection({
                             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                                 Current: {formatPrice(suggestion.currentPrice)} / Suggested: {formatPrice(suggestion.suggestedPrice)}
                             </Text>
+                            {suggestion.belowCompanyMinimum && (
+                                <Text style={[metaTextStyle, { color: '#B42318' }]}>
+                                    Below company minimum. Company minimums override AI suggestions.
+                                </Text>
+                            )}
+                            {suggestion.adjustedRecommendation !== null && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Adjusted recommendation: {formatPrice(suggestion.adjustedRecommendation)}
+                                </Text>
+                            )}
                             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                                 Low/Average/High: {formatPrice(suggestion.lowPrice)} / {formatPrice(suggestion.averagePrice)} / {formatPrice(suggestion.highPrice)}
                             </Text>
@@ -1433,14 +2819,50 @@ function SuggestionReviewSection({
                                     Source notes: {suggestion.sourceNotes.slice(0, 2).join(' / ')}
                                 </Text>
                             )}
+                            {suggestion.missingInfoQuestions.length > 0 && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Missing info: {suggestion.missingInfoQuestions.slice(0, 2).join(' / ')}
+                                </Text>
+                            )}
                             <View style={itemActionRowStyle}>
+                                {suggestion.customDraft ? (
+                                    <ThemedButton
+                                        title="Create Price Book Item"
+                                        disabled={!canManage || !suggestion.applyAllowed}
+                                        onPress={() => onCreate(suggestion)}
+                                        style={compactButtonStyle}
+                                        textStyle={compactButtonTextStyle}
+                                    />
+                                ) : (
+                                    <ThemedButton
+                                        title={suggestion.applyAllowed ? 'Apply Suggested Price' : 'Review Only'}
+                                        disabled={!canManage || !suggestion.applyAllowed}
+                                        onPress={() => onApply(suggestion)}
+                                        style={compactButtonStyle}
+                                        textStyle={compactButtonTextStyle}
+                                    />
+                                )}
                                 <ThemedButton
-                                    title={suggestion.applyAllowed ? 'Apply' : 'Review Only'}
-                                    disabled={!canManage || !suggestion.applyAllowed}
-                                    onPress={() => onApply(suggestion)}
+                                    title="Edit Before Save"
+                                    variant="secondary"
+                                    disabled={!canManage}
+                                    onPress={() => onEdit(suggestion)}
                                     style={compactButtonStyle}
                                     textStyle={compactButtonTextStyle}
                                 />
+                                {suggestion.belowCompanyMinimum && (
+                                    <ThemedButton
+                                        title="Apply Company Minimum"
+                                        variant="secondary"
+                                        disabled={!canManage || !suggestion.applyAllowed}
+                                        onPress={() => suggestion.customDraft ? onCreate({
+                                            ...suggestion,
+                                            suggestedPrice: getSuggestionEffectivePrice(suggestion),
+                                        }) : onApplyMinimum(suggestion)}
+                                        style={compactButtonStyle}
+                                        textStyle={compactButtonTextStyle}
+                                    />
+                                )}
                                 <ThemedButton
                                     title="Dismiss"
                                     variant="secondary"
@@ -1555,6 +2977,34 @@ function FilterButton({ active, label, onPress }: { active: boolean; label: stri
                 {label}
             </Text>
         </TouchableOpacity>
+    );
+}
+
+function YesNoButtonGroup({
+    label,
+    value,
+    onChange,
+}: {
+    label: string;
+    value: ResearchYesNo;
+    onChange: (value: ResearchYesNo) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <>
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
+            <View style={unitRowStyle}>
+                {yesNoOptions.map((option) => (
+                    <FilterButton
+                        key={option.value}
+                        label={option.label}
+                        active={value === option.value}
+                        onPress={() => onChange(option.value)}
+                    />
+                ))}
+            </View>
+        </>
     );
 }
 
@@ -1679,46 +3129,627 @@ function isPlatformAdminProfile(profile?: { role?: string | null; is_platform_ad
     );
 }
 
-function buildDisplayItems(companyId: string, savedItems: CompanyPriceBookItem[]) {
-    const savedByKey = new Map(savedItems.map((item) => [item.price_key, item]));
-    const templateItems: CompanyPriceBookItem[] = starterPriceTemplates.map((item) => ({
-        ...item,
-        id: `template-${item.price_key}`,
-        company_id: companyId,
-        created_at: null,
-        updated_at: null,
-        source: 'template' as const,
-    }));
+function buildPriceResearchImportRows(
+    companyId: string,
+    text: string,
+    displayItems: CompanyPriceBookItem[]
+): PriceResearchImportRow[] {
+    const parsedRows = parsePriceResearchImportTable(text);
 
-    return [
-        ...templateItems.map((item) => savedByKey.get(item.price_key) || item),
-        ...savedItems.filter((item) => !starterPriceTemplates.some((templateItem) => templateItem.price_key === item.price_key)),
-    ].sort((a, b) =>
+    if (parsedRows.length === 0) {
+        throw new Error('Paste at least one price row after the header.');
+    }
+
+    return parsedRows.map((row) => buildPriceResearchImportRow(companyId, row, displayItems));
+}
+
+function parsePriceResearchImportTable(text: string): ParsedPriceResearchImportRow[] {
+    const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    const headerIndex = lines.findIndex((line) => line.trim().length > 0);
+
+    if (headerIndex < 0) {
+        throw new Error('Paste CSV or tab-separated text with a header row.');
+    }
+
+    const delimiter = lines[headerIndex].includes('\t') ? '\t' : ',';
+    const headers = parseDelimitedImportLine(lines[headerIndex], delimiter).map(normalizePriceResearchImportHeader);
+    const supportedHeaderCount = headers.filter(Boolean).length;
+
+    if (supportedHeaderCount === 0) {
+        throw new Error('No supported import columns were found.');
+    }
+
+    const rows: ParsedPriceResearchImportRow[] = [];
+
+    lines.slice(headerIndex + 1).forEach((line, index) => {
+        if (!line.trim()) return;
+
+        const values: PriceResearchImportValues = {};
+        const cells = parseDelimitedImportLine(line, delimiter);
+
+        headers.forEach((header, cellIndex) => {
+            if (!header) return;
+
+            values[header] = (cells[cellIndex] || '').trim();
+        });
+
+        if (Object.values(values).some((value) => typeof value === 'string' && value.trim().length > 0)) {
+            rows.push({
+                rowNumber: headerIndex + index + 2,
+                values,
+            });
+        }
+    });
+
+    return rows;
+}
+
+function parseDelimitedImportLine(line: string, delimiter: string) {
+    const cells: string[] = [];
+    let currentCell = '';
+    let quoted = false;
+
+    for (let index = 0; index < line.length; index += 1) {
+        const character = line[index];
+
+        if (character === '"') {
+            if (quoted && line[index + 1] === '"') {
+                currentCell += '"';
+                index += 1;
+            } else {
+                quoted = !quoted;
+            }
+        } else if (character === delimiter && !quoted) {
+            cells.push(currentCell.trim());
+            currentCell = '';
+        } else {
+            currentCell += character;
+        }
+    }
+
+    cells.push(currentCell.trim());
+
+    return cells;
+}
+
+function normalizePriceResearchImportHeader(value: string): PriceResearchImportColumn | null {
+    const normalizedHeader = value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+
+    return priceResearchImportColumnSet.has(normalizedHeader)
+        ? normalizedHeader as PriceResearchImportColumn
+        : null;
+}
+
+function buildPriceResearchImportRow(
+    companyId: string,
+    row: ParsedPriceResearchImportRow,
+    displayItems: CompanyPriceBookItem[]
+): PriceResearchImportRow {
+    const values = row.values;
+    const match = findPriceResearchImportMatch(values, displayItems);
+    const matchedItem = match?.item || null;
+    const importedName = readImportValue(values, 'service_name') || readImportValue(values, 'name');
+    const name = importedName || matchedItem?.name || readImportValue(values, 'price_key') || 'New Price Item';
+    const system = readImportValue(values, 'system') || matchedItem?.system || PLUMBING_SYSTEM;
+    const category = readImportValue(values, 'category') || matchedItem?.category || 'Other Plumbing';
+    const area = readImportValue(values, 'area') || (matchedItem ? getPriceBookItemArea(matchedItem) : '');
+    const priceKey = matchedItem?.price_key || readImportValue(values, 'price_key') || createPriceKey(system, category, name);
+    const existingPricingDetails = matchedItem ? getPriceBookPricingDetails(matchedItem) : {
+        linearFootPrice: '',
+        packageDiscountPercent: '',
+        packageDiscountNote: '',
+    };
+    const marketLow = readImportNumber(values.market_low);
+    const marketAverage = readImportNumber(values.market_average);
+    const marketHigh = readImportNumber(values.market_high);
+    const importedPrice = readImportNumber(values.base_price) ?? readImportNumber(values.recommended_price);
+    const sourceNotes = readImportValue(values, 'source_notes');
+    const importedInternalNotes = readImportValue(values, 'internal_notes');
+    const existingNotes = matchedItem ? removePriceBookMetadataFromNotes(matchedItem.internal_notes || '') : '';
+    const baseNotes = [
+        importedInternalNotes || existingNotes,
+        sourceNotes ? `Source notes: ${sourceNotes}` : '',
+    ].filter(Boolean).join('\n');
+    const metadataForm = emptyEditorForm({
+        area,
+        linearFootPrice: readImportValue(values, 'linear_foot_price') || existingPricingDetails.linearFootPrice,
+        packageDiscountPercent: readImportValue(values, 'package_discount_percent') || existingPricingDetails.packageDiscountPercent,
+        packageDiscountNote: readImportValue(values, 'package_discount_note') || existingPricingDetails.packageDiscountNote,
+    });
+    const hasUsableName = Boolean(importedName || readImportValue(values, 'price_key'));
+    const status: PriceResearchImportStatus = matchedItem ? 'matched' : hasUsableName ? 'new_item' : 'needs_review';
+    const draft: CompanyPriceBookDraft = {
+        id: matchedItem?.source === 'backend' || matchedItem?.source === 'local' ? matchedItem.id : undefined,
+        price_key: priceKey,
+        name,
+        system,
+        category,
+        unit: readImportUnit(values.unit, matchedItem?.unit),
+        base_price: importedPrice ?? matchedItem?.base_price ?? null,
+        labor_hours: readImportNumber(values.labor_hours) ?? matchedItem?.labor_hours ?? null,
+        material_cost: readImportNumber(values.material_cost) ?? matchedItem?.material_cost ?? null,
+        customer_description: readImportValue(values, 'customer_description') || matchedItem?.customer_description || null,
+        internal_notes: mergePriceBookMetadataIntoNotes(baseNotes, metadataForm),
+        active: true,
+    };
+
+    return {
+        id: `price-import-${row.rowNumber}-${priceKey}`,
+        rowNumber: row.rowNumber,
+        values,
+        matchedItem,
+        draft,
+        status,
+        marketLow,
+        marketAverage,
+        marketHigh,
+        importedPrice,
+        sourceNotes,
+        matchSummary: buildPriceResearchImportMatchSummary(status, match),
+    };
+}
+
+function findPriceResearchImportMatch(
+    values: PriceResearchImportValues,
+    displayItems: CompanyPriceBookItem[]
+): PriceResearchImportMatch | null {
+    const priceKey = readImportValue(values, 'price_key');
+
+    if (priceKey) {
+        const priceKeyMatch = displayItems.find((item) => item.price_key === priceKey);
+
+        if (priceKeyMatch) return { item: priceKeyMatch, reason: 'price_key' };
+    }
+
+    const importedName = readImportValue(values, 'service_name') || readImportValue(values, 'name');
+    const importedSystem = readImportValue(values, 'system');
+    const importedCategory = readImportValue(values, 'category');
+
+    if (!importedName) return null;
+
+    const catalogMatch = plumbingPriceBookCatalogItems.find((catalogItem) =>
+        importNameMatchesCatalogItem(importedName, catalogItem) &&
+        importSystemMatches(catalogItem.system, importedSystem) &&
+        importCategoryMatches(catalogItem.category, importedCategory)
+    );
+
+    if (catalogMatch) {
+        const item = displayItems.find((candidate) => candidate.price_key === catalogMatch.price_key);
+
+        if (item) {
+            return {
+                item,
+                reason: catalogMatch.name === importedName ? 'catalog name' : 'catalog alias',
+            };
+        }
+    }
+
+    const displayMatch = displayItems.find((item) =>
+        normalizeMatchText(item.name) === normalizeMatchText(importedName) &&
+        importSystemMatches(item.system, importedSystem) &&
+        importCategoryMatches(item.category, importedCategory)
+    );
+
+    return displayMatch ? { item: displayMatch, reason: 'name + system/category' } : null;
+}
+
+function importNameMatchesCatalogItem(importedName: string, catalogItem: PlumbingPriceBookCatalogItem) {
+    const importedNameText = normalizeMatchText(importedName);
+    const catalogNames = [
+        catalogItem.name,
+        ...(catalogItem.aliases || []),
+    ].map(normalizeMatchText);
+
+    return catalogNames.includes(importedNameText);
+}
+
+function importSystemMatches(candidateSystem: string, importedSystem: string) {
+    if (!importedSystem.trim()) return true;
+
+    const candidateText = normalizeMatchText(candidateSystem);
+    const importedText = normalizeMatchText(importedSystem);
+    const matchTerms = getSystemMatchTerms(importedSystem);
+
+    return (
+        candidateText === importedText ||
+        matchTerms.includes(candidateText) ||
+        matchTerms.some((term) => candidateText.includes(term) || term.includes(candidateText))
+    );
+}
+
+function importCategoryMatches(candidateCategory: string, importedCategory: string) {
+    if (!importedCategory.trim()) return true;
+
+    const candidateText = normalizeMatchText(candidateCategory);
+    const importedText = normalizeMatchText(importedCategory);
+
+    return candidateText === importedText || candidateText.includes(importedText) || importedText.includes(candidateText);
+}
+
+function readImportValue(values: PriceResearchImportValues, column: PriceResearchImportColumn) {
+    return (values[column] || '').trim();
+}
+
+function readImportNumber(value: string | undefined) {
+    const rawValue = String(value || '').trim();
+
+    if (!rawValue) return null;
+
+    const parsedValue = Number.parseFloat(rawValue.replace(/[$,%]/g, '').replace(/,/g, ''));
+
+    return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function readImportUnit(value: string | undefined, fallback?: CompanyPriceBookUnit): CompanyPriceBookUnit {
+    const normalizedValue = normalizeMatchText(value || '');
+    const matchedUnit = priceBookUnits.find((unit) => normalizeMatchText(unit) === normalizedValue);
+
+    return matchedUnit || fallback || 'each';
+}
+
+function buildPriceResearchImportMatchSummary(
+    status: PriceResearchImportStatus,
+    match?: PriceResearchImportMatch | null
+) {
+    if (match) return `Matched by ${match.reason}: ${match.item.name}`;
+    if (status === 'new_item') return 'No catalog match found. Review before creating.';
+
+    return 'Missing service name or price_key.';
+}
+
+function buildEditorFormFromImportRow(row: PriceResearchImportRow): EditorForm {
+    const pricingDetails = getPriceBookPricingDetailsFromNotes(row.draft.internal_notes);
+
+    return {
+        id: row.draft.id,
+        priceKey: row.draft.price_key,
+        name: row.draft.name,
+        system: row.draft.system,
+        area: readAreaFromNotes(row.draft.internal_notes) || '',
+        category: row.draft.category,
+        unit: row.draft.unit,
+        basePrice: numberToEditorText(row.draft.base_price),
+        laborHours: numberToEditorText(row.draft.labor_hours),
+        materialCost: numberToEditorText(row.draft.material_cost),
+        linearFootPrice: pricingDetails.linearFootPrice,
+        packageDiscountPercent: pricingDetails.packageDiscountPercent,
+        packageDiscountNote: pricingDetails.packageDiscountNote,
+        customerDescription: row.draft.customer_description || '',
+        internalNotes: removePriceBookMetadataFromNotes(row.draft.internal_notes || ''),
+        active: row.draft.active,
+    };
+}
+
+function numberToEditorText(value: number | null) {
+    return value === null ? '' : String(value);
+}
+
+function getPriceImportStatusLabel(status: PriceResearchImportStatus) {
+    if (status === 'matched') return 'matched';
+    if (status === 'new_item') return 'new item';
+
+    return 'needs review';
+}
+
+function buildDisplayItems(companyId: string, savedItems: CompanyPriceBookItem[]) {
+    const plumbingSavedItems = savedItems.filter(isPlumbingPriceBookItem);
+    const matchedSavedIds = new Set<string>();
+    const catalogItems = plumbingPriceBookCatalogItems.map((catalogItem) => {
+        const savedItem = findSavedItemForCatalogItem(catalogItem, plumbingSavedItems, matchedSavedIds);
+
+        if (savedItem) {
+            matchedSavedIds.add(savedItem.id);
+        }
+
+        return buildCatalogDisplayItem(companyId, catalogItem, savedItem);
+    });
+    const unmatchedSavedItems = plumbingSavedItems.filter((item) => !matchedSavedIds.has(item.id));
+
+    return sortDisplayItems([...catalogItems, ...unmatchedSavedItems]);
+}
+
+function findSavedItemForCatalogItem(
+    catalogItem: PlumbingPriceBookCatalogItem,
+    savedItems: CompanyPriceBookItem[],
+    matchedSavedIds: Set<string>
+) {
+    const exactMatch = savedItems.find((item) =>
+        !matchedSavedIds.has(item.id) && item.price_key === catalogItem.price_key
+    );
+
+    if (exactMatch) return exactMatch;
+
+    const catalogMatchKeys = [
+        buildPriceBookMatchKey(catalogItem.name, catalogItem.system, catalogItem.category),
+        ...((catalogItem.aliases || []).map((alias) => buildPriceBookMatchKey(alias, catalogItem.system, catalogItem.category))),
+    ];
+
+    return savedItems.find((item) =>
+        !matchedSavedIds.has(item.id) &&
+        catalogMatchKeys.includes(buildPriceBookMatchKey(item.name, item.system, item.category))
+    ) || null;
+}
+
+function buildCatalogDisplayItem(
+    companyId: string,
+    catalogItem: PlumbingPriceBookCatalogItem,
+    savedItem?: CompanyPriceBookItem | null
+): CompanyPriceBookItem {
+    return {
+        id: savedItem?.id || `template-${catalogItem.price_key}`,
+        company_id: savedItem?.company_id || companyId,
+        price_key: catalogItem.price_key,
+        name: catalogItem.name,
+        system: catalogItem.system,
+        category: catalogItem.category,
+        unit: savedItem?.unit || catalogItem.unit,
+        base_price: savedItem?.base_price ?? null,
+        labor_hours: savedItem?.labor_hours ?? null,
+        material_cost: savedItem?.material_cost ?? null,
+        customer_description: savedItem?.customer_description || catalogItem.defaultDescription,
+        internal_notes: mergeAreaIntoNotes(savedItem?.internal_notes || '', catalogItem.area),
+        active: savedItem?.active ?? true,
+        created_at: savedItem?.created_at || null,
+        updated_at: savedItem?.updated_at || null,
+        source: savedItem?.source || 'template',
+    };
+}
+
+function sortDisplayItems(items: CompanyPriceBookItem[]) {
+    return [...items].sort((a, b) =>
         a.system.localeCompare(b.system) ||
+        getPriceBookItemArea(a).localeCompare(getPriceBookItemArea(b)) ||
         a.category.localeCompare(b.category) ||
         a.name.localeCompare(b.name)
+    );
+}
+
+function buildEditorPreviewItem(companyId: string, form: EditorForm): CompanyPriceBookItem {
+    return {
+        id: form.id || `editor-${form.priceKey || 'price-item'}`,
+        company_id: companyId,
+        price_key: form.priceKey || createPriceKey(form.system, form.category, form.name),
+        name: form.name || 'New plumbing price item',
+        system: form.system || PLUMBING_SYSTEM,
+        category: form.category || 'Other Plumbing',
+        unit: form.unit,
+        base_price: parseOptionalNumber(form.basePrice),
+        labor_hours: parseOptionalNumber(form.laborHours),
+        material_cost: parseOptionalNumber(form.materialCost),
+        customer_description: form.customerDescription || null,
+        internal_notes: mergePriceBookMetadataIntoNotes(form.internalNotes, form),
+        active: form.active,
+        created_at: null,
+        updated_at: null,
+        source: form.id ? 'local' : 'template',
+    };
+}
+
+function isPlumbingPriceBookItem(item: CompanyPriceBookItem) {
+    const category = normalizeMatchText(item.category);
+    const system = normalizeMatchText(item.system);
+    const name = normalizeMatchText(item.name);
+    const searchableText = normalizeMatchText([item.system, item.category, item.name].join(' '));
+    const plumbingCategorySet = new Set(plumbingPriceBookCategories.map(normalizeMatchText));
+    const plumbingSystemSet = new Set(plumbingPriceBookCatalog.map((catalogSystem) => normalizeMatchText(catalogSystem.label)));
+    const catalogNameSet = new Set(plumbingPriceBookCatalogItems.map((catalogItem) => normalizeMatchText(catalogItem.name)));
+
+    return (
+        system === normalizeMatchText(PLUMBING_SYSTEM) ||
+        plumbingSystemSet.has(system) ||
+        plumbingCategorySet.has(category) ||
+        catalogNameSet.has(name) ||
+        plumbingPriceBookCatalogItems.some((catalogItem) =>
+            catalogItem.aliases?.some((alias) => searchableText.includes(normalizeMatchText(alias)))
+        )
     );
 }
 
 function filterPriceBookItems(
     items: CompanyPriceBookItem[],
     search: string,
-    selectedSystem: string,
-    pricedFilter: 'all' | 'priced' | 'not_priced'
+    categoryFilter: string,
+    pricedFilter: 'all' | 'priced' | 'not_priced',
+    activeFilter: ActiveFilter
 ) {
     const searchTerm = search.trim().toLowerCase();
 
     return items.filter((item) => {
-        if (selectedSystem && item.system !== selectedSystem) return false;
+        if (categoryFilter && item.category !== categoryFilter) return false;
         if (pricedFilter === 'priced' && item.base_price === null) return false;
         if (pricedFilter === 'not_priced' && item.base_price !== null) return false;
+        if (activeFilter === 'active' && !item.active) return false;
+        if (activeFilter === 'inactive' && item.active) return false;
         if (!searchTerm) return true;
 
-        return [item.name, item.system, item.category, item.unit]
+        return [item.name, item.category, item.unit, item.customer_description || '', item.internal_notes || '']
             .join(' ')
             .toLowerCase()
             .includes(searchTerm);
     });
+}
+
+function filterPriceBookItemsByArea(items: CompanyPriceBookItem[], areaName: string) {
+    if (!areaName) return items;
+
+    return items.filter((item) => getPriceBookItemArea(item) === areaName);
+}
+
+function buildPriceBookAreaCards(items: CompanyPriceBookItem[]) {
+    return plumbingPriceBookAreaNames
+        .map((name) => {
+            const areaItems = filterPriceBookItemsByArea(items, name);
+
+            return {
+                name,
+                itemCount: areaItems.length,
+                pricedCount: areaItems.filter((item) => item.base_price !== null).length,
+            };
+        })
+        .filter((area) => area.itemCount > 0);
+}
+
+function getCatalogSystemKeyForItem(item: CompanyPriceBookItem) {
+    const priceKeyMatch = plumbingPriceBookCatalog.find((system) =>
+        system.areas.some((area) => area.items.some((catalogItem) => catalogItem.price_key === item.price_key))
+    );
+
+    if (priceKeyMatch) return priceKeyMatch.key;
+
+    const systemMatch = plumbingPriceBookCatalog.find((system) =>
+        normalizeMatchText(system.label) === normalizeMatchText(item.system)
+    );
+
+    return systemMatch?.key || '';
+}
+
+function getPriceBookItemArea(item: CompanyPriceBookItem) {
+    const explicitArea = readAreaFromNotes(item.internal_notes);
+
+    if (explicitArea) return explicitArea;
+
+    return inferPriceBookArea(item);
+}
+
+function readAreaFromNotes(notes?: string | null) {
+    const match = areaNotePattern.exec(notes || '');
+
+    return match?.[1]?.trim() || '';
+}
+
+function removeAreaFromNotes(notes: string) {
+    return notes.replace(areaNotePattern, '').trim();
+}
+
+function mergeAreaIntoNotes(notes: string, area: string) {
+    const cleanNotes = removeAreaFromNotes(notes);
+    const cleanArea = area.trim();
+
+    return [cleanArea ? `[Area: ${cleanArea}]` : '', cleanNotes].filter(Boolean).join(' ');
+}
+
+function getPriceBookPricingDetails(item: CompanyPriceBookItem): PriceBookPricingDetails {
+    return getPriceBookPricingDetailsFromNotes(item.internal_notes);
+}
+
+function getPriceBookPricingDetailsFromNotes(notes?: string | null): PriceBookPricingDetails {
+    const noteText = notes || '';
+
+    return {
+        linearFootPrice: readNoteMetadata(noteText, linearFootPriceNotePattern),
+        packageDiscountPercent: readNoteMetadata(noteText, packageDiscountPercentNotePattern),
+        packageDiscountNote: readNoteMetadata(noteText, packageDiscountNotePattern),
+    };
+}
+
+function readNoteMetadata(notes: string, pattern: RegExp) {
+    const match = pattern.exec(notes);
+
+    return match?.[1]?.trim() || '';
+}
+
+function removePriceBookMetadataFromNotes(notes: string) {
+    return notes
+        .replace(areaNotePattern, '')
+        .replace(linearFootPriceNotePattern, '')
+        .replace(packageDiscountPercentNotePattern, '')
+        .replace(packageDiscountNotePattern, '')
+        .trim();
+}
+
+function mergePriceBookMetadataIntoNotes(notes: string, form: EditorForm) {
+    const cleanNotes = removePriceBookMetadataFromNotes(notes);
+    const cleanArea = form.area.trim();
+    const linearFootPrice = form.linearFootPrice.trim();
+    const packageDiscountPercent = form.packageDiscountPercent.trim();
+    const packageDiscountNote = form.packageDiscountNote.trim();
+    const metadata = [
+        cleanArea ? `[Area: ${sanitizeNoteMetadataValue(cleanArea)}]` : '',
+        linearFootPrice ? `[Linear Foot Price: ${sanitizeNoteMetadataValue(linearFootPrice)}]` : '',
+        packageDiscountPercent ? `[Package Discount Percent: ${sanitizeNoteMetadataValue(packageDiscountPercent)}]` : '',
+        packageDiscountNote ? `[Package Discount Note: ${sanitizeNoteMetadataValue(packageDiscountNote)}]` : '',
+    ].filter(Boolean);
+
+    return [...metadata, cleanNotes].filter(Boolean).join(' ');
+}
+
+function sanitizeNoteMetadataValue(value: string) {
+    return value.trim().replace(/\]/g, ')').slice(0, 160);
+}
+
+function inferPriceBookArea(item: CompanyPriceBookItem) {
+    const text = normalizeMatchText([item.name, item.category, item.system, item.internal_notes || '', item.customer_description || ''].join(' '));
+
+    if (text.includes('garage')) return 'Garage';
+    if (text.includes('kitchen') || text.includes('faucet') || text.includes('disposal') || text.includes('dishwasher') || text.includes('sink')) return 'Kitchen';
+    if (text.includes('bath') || text.includes('toilet') || text.includes('shower') || text.includes('tub') || text.includes('vanity')) return 'Bathroom';
+    if (text.includes('laundry') || text.includes('washer') || text.includes('dryer')) return 'Laundry';
+    if (text.includes('water heater') || text.includes('tankless') || text.includes('expansion tank') || text.includes('prv') || text.includes('pressure regulator') || text.includes('main water') || text.includes('shutoff') || text.includes('whole home filter')) return 'Garage';
+    if (text.includes('exterior') || text.includes('hose') || text.includes('bibb') || text.includes('irrigation') || text.includes('pool')) return 'Exterior';
+    if (text.includes('hvac') || text.includes('air handler') || text.includes('furnace')) return 'Mechanical Area';
+    if (text.includes('main') || text.includes('whole home') || text.includes('filter')) return 'Whole Home';
+
+    return 'Other';
+}
+
+function itemMatchesSystem(item: CompanyPriceBookItem, selectedSystem: string) {
+    const terms = getSystemMatchTerms(selectedSystem);
+    const itemSystem = normalizeMatchText(item.system);
+    const itemCategory = normalizeMatchText(item.category);
+    const itemName = normalizeMatchText(item.name);
+
+    if (terms.length === 0) return false;
+
+    return terms.some((term) =>
+        itemSystem === term ||
+        itemSystem.includes(term) ||
+        itemCategory === term ||
+        itemCategory.includes(term) ||
+        itemName.includes(term)
+    );
+}
+
+function getSystemMatchTerms(systemName: string) {
+    const normalizedSystem = normalizeMatchText(systemName);
+
+    const matchMap: Record<string, string[]> = {
+        plumbing: ['plumbing', 'water service', 'water system', 'fixture', 'fixtures', 'water heater', 'water'],
+        'water service': ['water service', 'water line', 'water leak', 'slab leak'],
+        'drain sewer': ['drain sewer', 'drains sewer', 'drains', 'sewer', 'sewer service', 'drain'],
+        'sewer service': ['sewer service', 'drains sewer', 'drains', 'sewer', 'drain'],
+        fixtures: ['fixtures', 'fixture', 'shower', 'tub'],
+        toilets: ['toilets', 'toilet'],
+        'faucets sinks': ['faucets sinks', 'faucet', 'sink'],
+        'valves shutoffs': ['valves shutoffs', 'valve', 'shutoff', 'prv', 'pressure regulator'],
+        'water heaters': ['water heaters', 'water heater', 'tankless', 'expansion tank'],
+        'laundry dishwasher': ['laundry dishwasher', 'laundry', 'dishwasher', 'ice maker', 'washing machine'],
+        'inspections diagnostics': ['inspections diagnostics', 'inspection', 'diagnostic', 'leak detection'],
+        'emergency after hours': ['emergency after hours', 'emergency', 'after hours', 'weekend'],
+        gas: ['gas', 'gas service'],
+        'drains sewer': ['drains sewer', 'drains', 'sewer', 'sewer service', 'drain'],
+        hvac: ['hvac', 'ac service', 'heating cooling', 'air conditioning', 'cooling', 'heating'],
+        electrical: ['electrical', 'electrical system'],
+        safety: ['safety', 'safety system'],
+        appliances: ['appliances', 'appliance'],
+        'water quality': ['water quality', 'filter', 'filtration'],
+        exterior: ['exterior', 'hose bibb', 'outdoor'],
+        irrigation: ['irrigation', 'irrigation system'],
+        pool: ['pool', 'pool system'],
+    };
+
+    return matchMap[normalizedSystem] || [normalizedSystem].filter(Boolean);
+}
+
+function normalizeMatchText(value: string) {
+    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function buildPriceBookMatchKey(name: string, system: string, category: string) {
+    return [name, system, category].map(normalizeMatchText).join('|');
 }
 
 function getResearchItems(
@@ -1730,12 +3761,12 @@ function getResearchItems(
     if (form.scope === 'one_item') {
         const explicitItem = displayItems.find((item) => item.price_key === form.itemKey);
 
-        return explicitItem ? [explicitItem] : filteredItems.slice(0, 1);
+        return explicitItem ? [explicitItem] : [];
     }
 
     if (form.scope === 'current_system') {
         const systemName = selectedSystem || form.trade;
-        const systemItems = displayItems.filter((item) => item.active && item.system === systemName);
+        const systemItems = displayItems.filter((item) => item.active && itemMatchesSystem(item, systemName));
 
         return systemItems.length ? systemItems : filteredItems.filter((item) => item.active);
     }
@@ -1745,6 +3776,34 @@ function getResearchItems(
     }
 
     return filteredItems.filter((item) => item.active);
+}
+
+function getEmptyResearchItemsMessage(form: ResearchForm) {
+    if (form.scope === 'one_item') return 'No price book items selected for AI research.';
+    if (form.scope === 'custom_item') return 'Add a custom item or service name before researching.';
+    if (form.scope === 'all_unpriced') return 'No unpriced items found. Select another scope or add price book items.';
+
+    return 'No price book items selected for AI research.';
+}
+
+function buildAiRequestSummary(
+    form: ResearchForm,
+    itemCount: number,
+    companyIdResolution: CompanyIdResolution,
+    model: string
+) {
+    return [
+        `scope=${form.scope}`,
+        `item_count=${itemCount}`,
+        `company_id_present=${companyIdResolution.finalCompanyId ? 'yes' : 'no'}`,
+        `route_company_id_valid=${isUuid(companyIdResolution.routeCompanyId) ? 'yes' : 'no'}`,
+        `loaded_company_id_valid=${isUuid(companyIdResolution.loadedCompanyId) ? 'yes' : 'no'}`,
+        `final_company_id_valid=${isUuid(companyIdResolution.finalCompanyId) ? 'yes' : 'no'}`,
+        `final_company_id_preview=${safeIdPreview(companyIdResolution.finalCompanyId)}`,
+        `final_company_id_length=${companyIdResolution.finalCompanyId.length}`,
+        `service_area_entered=${form.serviceArea.trim() ? 'yes' : 'no'}`,
+        `model=${model || 'unknown'}`,
+    ].join('; ');
 }
 
 function toAiResearchItemPayload(item: CompanyPriceBookItem) {
@@ -1757,18 +3816,147 @@ function toAiResearchItemPayload(item: CompanyPriceBookItem) {
         unit: item.unit,
         labor_hours: item.labor_hours,
         material_cost: item.material_cost,
+        service_type: inferServiceType(item.name),
         notes: item.internal_notes || item.customer_description || null,
     };
 }
 
-function readAiSuggestions(data: unknown, items: CompanyPriceBookItem[]): PriceSuggestion[] {
-    const record = isRecord(data) ? data : {};
+function buildCustomResearchItem(companyId: string, form: ResearchForm): CompanyPriceBookItem | null {
+    const name = form.customName.trim();
+
+    if (!name) return null;
+
+    const system = form.customSystem.trim() || PLUMBING_SYSTEM;
+    const category = form.customCategory.trim() || form.trade.trim() || 'Other Plumbing';
+    const notes = [form.customNotes.trim(), buildServiceDetails(form), form.notes.trim()]
+        .filter(Boolean)
+        .join(' / ') || null;
+
+    return {
+        id: `custom-research-${createPriceKey(system, category, name)}`,
+        company_id: companyId,
+        price_key: `custom-research-${createPriceKey(system, category, name)}`,
+        name,
+        system,
+        category,
+        unit: form.customUnit,
+        base_price: null,
+        labor_hours: null,
+        material_cost: null,
+        customer_description: null,
+        internal_notes: notes,
+        active: true,
+        created_at: null,
+        updated_at: null,
+        source: 'template',
+    };
+}
+
+function attachCustomDraftToSuggestion(
+    suggestion: PriceSuggestion,
+    customResearchItem: CompanyPriceBookItem
+): PriceSuggestion {
+    return {
+        ...suggestion,
+        customDraft: {
+            price_key: createPriceKey(customResearchItem.system, customResearchItem.category, customResearchItem.name),
+            name: customResearchItem.name,
+            system: customResearchItem.system,
+            category: customResearchItem.category,
+            unit: customResearchItem.unit,
+            base_price: suggestion.suggestedPrice,
+            labor_hours: customResearchItem.labor_hours,
+            material_cost: customResearchItem.material_cost,
+            customer_description: customResearchItem.customer_description,
+            internal_notes: customResearchItem.internal_notes,
+            active: true,
+        },
+    };
+}
+
+function applyLocalPriceGuardrails(suggestion: PriceSuggestion, form: ResearchForm): PriceSuggestion {
+    const minimumPrice = parseOptionalNumber(form.minimumPrice);
+
+    if (minimumPrice === null || suggestion.suggestedPrice >= minimumPrice) {
+        return {
+            ...suggestion,
+            companyMinimumPrice: suggestion.companyMinimumPrice ?? minimumPrice,
+        };
+    }
+
+    return {
+        ...suggestion,
+        belowCompanyMinimum: true,
+        adjustedRecommendation: Math.max(minimumPrice, suggestion.adjustedRecommendation ?? 0),
+        companyMinimumPrice: minimumPrice,
+        cautionNotes: [
+            'Below company minimum. Company minimums override AI suggestions.',
+            ...suggestion.cautionNotes,
+        ],
+    };
+}
+
+function buildServiceDetails(form: ResearchForm) {
+    return [
+        `service_type=${form.customServiceType}`,
+        `unit=${form.customUnit}`,
+        form.minimumPrice.trim() ? `company_minimum_price=${form.minimumPrice.trim()}` : '',
+        form.laborRate.trim() ? `labor_rate=${form.laborRate.trim()}` : '',
+        form.estimatedLaborHours.trim() ? `estimated_labor_hours=${form.estimatedLaborHours.trim()}` : '',
+        form.materialCost.trim() ? `material_cost=${form.materialCost.trim()}` : '',
+        form.overheadPercent.trim() ? `overhead_percent=${form.overheadPercent.trim()}` : '',
+        isWaterHeaterResearch(form) ? buildWaterHeaterDetails(form) : '',
+    ].filter(Boolean).join('; ');
+}
+
+function buildWaterHeaterDetails(form: ResearchForm) {
+    return [
+        'water_heater_context=true',
+        form.waterHeaterKind ? `kind=${form.waterHeaterKind}` : '',
+        form.waterHeaterGallons.trim() ? `gallons=${form.waterHeaterGallons.trim()}` : '',
+        form.waterHeaterInstallScope ? `install_scope=${form.waterHeaterInstallScope}` : '',
+        `permit_included=${form.permitIncluded}`,
+        `haul_away_included=${form.haulAwayIncluded}`,
+        `expansion_tank_included=${form.expansionTankIncluded}`,
+        `code_upgrades_included=${form.codeUpgradesIncluded}`,
+        form.accessDifficulty.trim() ? `access_difficulty=${form.accessDifficulty.trim()}` : '',
+    ].filter(Boolean).join('; ');
+}
+
+function readAiSuggestions(data: unknown, items: CompanyPriceBookItem[]): AiSuggestionReadResult {
+    if (!isRecord(data)) {
+        return {
+            ok: false,
+            message: 'AI returned an unexpected response.',
+            debugSummary: safeDebugSummary(data),
+        };
+    }
+
+    const record = data;
+
+    if (!Array.isArray(record.suggestions)) {
+        return {
+            ok: false,
+            message: 'AI returned an unexpected response.',
+            debugSummary: safeDebugSummary(data),
+        };
+    }
+
     const rawSuggestions = Array.isArray(record.suggestions) ? record.suggestions : [];
     const itemByKey = new Map(items.map((item) => [item.price_key, item]));
-
-    return rawSuggestions
+    const suggestions = rawSuggestions
         .map((value) => readAiSuggestion(value, itemByKey))
         .filter((suggestion): suggestion is PriceSuggestion => Boolean(suggestion));
+
+    if (rawSuggestions.length > 0 && suggestions.length === 0) {
+        return {
+            ok: false,
+            message: 'AI returned an unexpected response.',
+            debugSummary: safeDebugSummary(data),
+        };
+    }
+
+    return { ok: true, suggestions };
 }
 
 function readAiSuggestion(value: unknown, itemByKey: Map<string, CompanyPriceBookItem>): PriceSuggestion | null {
@@ -1803,6 +3991,10 @@ function readAiSuggestion(value: unknown, itemByKey: Map<string, CompanyPriceBoo
         cautionNotes,
         sourceNotes,
         applyAllowed: suggestion.apply_allowed === true && recommendedPrice > 0,
+        missingInfoQuestions: readStringArray(suggestion.missing_info_questions),
+        belowCompanyMinimum: suggestion.below_company_minimum === true,
+        adjustedRecommendation: readNullableNumber(suggestion.adjusted_recommendation),
+        companyMinimumPrice: readNullableNumber(suggestion.company_minimum_price),
         createdAt: new Date().toISOString(),
     };
 }
@@ -1869,7 +4061,7 @@ function getBulkScopedItems(
     }
 
     if (scope === 'system') {
-        return displayItems.filter((item) => item.active && item.system === selectedSystem);
+        return displayItems.filter((item) => item.active && itemMatchesSystem(item, selectedSystem));
     }
 
     if (scope === 'category') {
@@ -1944,7 +4136,7 @@ function invalidCalculatorResult(error: string): CalculatorResult {
 }
 
 function systemHasPricedItems(items: CompanyPriceBookItem[], system: string) {
-    return items.some((item) => item.system === system && item.base_price !== null && item.active);
+    return items.some((item) => itemMatchesSystem(item, system) && item.base_price !== null && item.active);
 }
 
 function emptyCalculatorForm(): CalculatorForm {
@@ -1964,53 +4156,64 @@ function emptyResearchForm(): ResearchForm {
     return {
         scope: 'all_unpriced',
         itemKey: '',
+        itemSearch: '',
+        customName: '',
+        customSystem: PLUMBING_SYSTEM,
+        customCategory: 'Other Plumbing',
+        customServiceType: 'diagnostic',
+        customUnit: 'each',
+        customNotes: '',
+        waterHeaterKind: '',
+        waterHeaterGallons: '',
+        waterHeaterInstallScope: '',
+        permitIncluded: 'unspecified',
+        haulAwayIncluded: 'unspecified',
+        expansionTankIncluded: 'unspecified',
+        codeUpgradesIncluded: 'unspecified',
+        accessDifficulty: '',
         serviceArea: '',
-        trade: 'Plumbing',
+        trade: PLUMBING_SYSTEM,
         positioning: 'market average',
         targetMargin: '',
+        minimumPrice: '',
+        laborRate: '',
+        estimatedLaborHours: '',
+        materialCost: '',
+        overheadPercent: '',
         notes: '',
     };
 }
 
+function emptyAiResearchStatus(): AiResearchStatus {
+    return {
+        kind: 'idle',
+        message: '',
+        debugSummary: '',
+    };
+}
+
 function emptyEditorForm(seed: Partial<EditorForm> = {}): EditorForm {
-    const system = seed.system || 'Plumbing';
-    const category = seed.category || 'Service';
+    const system = seed.system || PLUMBING_SYSTEM;
+    const area = seed.area || '';
+    const category = seed.category || 'Other Plumbing';
     const name = seed.name || '';
 
     return {
         priceKey: seed.priceKey || createPriceKey(system, category, name),
         name,
         system,
+        area,
         category,
         unit: seed.unit || 'each',
         basePrice: seed.basePrice || '',
         laborHours: seed.laborHours || '',
         materialCost: seed.materialCost || '',
+        linearFootPrice: seed.linearFootPrice || '',
+        packageDiscountPercent: seed.packageDiscountPercent || '',
+        packageDiscountNote: seed.packageDiscountNote || '',
         customerDescription: seed.customerDescription || '',
         internalNotes: seed.internalNotes || '',
         active: seed.active ?? true,
-    };
-}
-
-function template(
-    priceKey: string,
-    name: string,
-    system: string,
-    category: string,
-    unit: CompanyPriceBookUnit
-): PriceBookTemplate {
-    return {
-        price_key: priceKey,
-        name,
-        system,
-        category,
-        unit,
-        base_price: null,
-        labor_hours: null,
-        material_cost: null,
-        customer_description: null,
-        internal_notes: null,
-        active: true,
     };
 }
 
@@ -2018,8 +4221,55 @@ function getCompanyDisplayName(company?: CompanyRecord | null) {
     return company?.public_name?.trim() || company?.dba_name?.trim() || company?.name?.trim() || 'Company';
 }
 
-function createPriceKey(system: string, category: string, name: string) {
-    return [system, category, name]
+function inferTradeCategory(item: CompanyPriceBookItem): ResearchTradeCategory {
+    return inferTradeCategoryFromText([item.system, item.category, item.name].join(' '));
+}
+
+function inferTradeCategoryFromText(value: string): ResearchTradeCategory {
+    const text = normalizeMatchText(value);
+
+    if (text.includes('water heater')) return 'Water Heater';
+    if (text.includes('drain') || text.includes('sewer')) return 'Drain/Sewer';
+    if (text.includes('gas')) return 'Gas';
+    if (text.includes('hvac') || text.includes('ac') || text.includes('heating')) return 'HVAC';
+    if (text.includes('electrical') || text.includes('outlet')) return 'Electrical';
+    if (text.includes('appliance')) return 'Appliance';
+    if (text.includes('water quality') || text.includes('filter')) return 'Water Quality';
+    if (text.includes('exterior') || text.includes('hose bibb')) return 'Exterior';
+    if (text.includes('plumb') || text.includes('water') || text.includes('fixture')) return 'Plumbing';
+
+    return 'Other';
+}
+
+function inferServiceType(value: string): ResearchServiceType {
+    const text = normalizeMatchText(value);
+
+    if (text.includes('install')) return 'installation';
+    if (text.includes('replace') || text.includes('replacement')) return 'replacement';
+    if (text.includes('repair')) return 'repair';
+    if (text.includes('flush') || text.includes('maintenance') || text.includes('service')) return 'maintenance';
+    if (text.includes('inspection') || text.includes('inspect')) return 'inspection';
+    if (text.includes('emergency')) return 'emergency';
+    if (text.includes('code')) return 'code upgrade';
+
+    return 'diagnostic';
+}
+
+function isWaterHeaterResearch(form: ResearchForm) {
+    return normalizeMatchText([form.customName, form.customCategory, form.trade, form.notes, form.customNotes].join(' '))
+        .includes('water heater');
+}
+
+function capitalizeWords(value: string) {
+    return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function getSuggestionEffectivePrice(suggestion: PriceSuggestion) {
+    return suggestion.adjustedRecommendation ?? suggestion.suggestedPrice;
+}
+
+function createPriceKey(...parts: string[]) {
+    return parts
         .filter(Boolean)
         .join(' ')
         .trim()
@@ -2043,6 +4293,16 @@ function formatPrice(value: number | null) {
     return `$${value.toFixed(2)}`;
 }
 
+function formatHours(value: number | null) {
+    if (value === null) return 'Not set';
+
+    return `${value.toFixed(2)} hr`;
+}
+
+function formatPercent(value: number) {
+    return `${value.toFixed(2).replace(/\.00$/, '')}%`;
+}
+
 function formatDateTime(value: string | null) {
     if (!value) return 'Not available';
 
@@ -2063,14 +4323,100 @@ function toApiPositioning(value: Positioning) {
     return value === 'market average' ? 'market_average' : value;
 }
 
-function readFunctionErrorMessage(error: unknown, data: unknown) {
-    const dataMessage = isRecord(data) ? readString(data.message) : '';
+function normalizeCompanyIdInput(value: string | string[] | undefined | null) {
+    const rawValue = (Array.isArray(value) ? value[0] || '' : value || '').trim();
+    const uuidMatch = UUID_SUBSTRING_PATTERN.exec(rawValue);
 
-    if (dataMessage) return dataMessage;
-    if (error instanceof Error) return error.message;
-    if (isRecord(error)) return readString(error.message) || 'Price research function failed.';
+    return uuidMatch?.[0] || rawValue;
+}
 
-    return 'Price research function failed.';
+function resolveAiCompanyId(company: CompanyRecord | null, routeCompanyId: string): CompanyIdResolution {
+    const loadedCompanyId = normalizeCompanyIdInput(company?.id || '');
+    const normalizedRouteCompanyId = normalizeCompanyIdInput(routeCompanyId);
+
+    return {
+        routeCompanyId: normalizedRouteCompanyId,
+        loadedCompanyId,
+        finalCompanyId: isUuid(loadedCompanyId) ? loadedCompanyId : normalizedRouteCompanyId,
+    };
+}
+
+function isUuid(value: string) {
+    return UUID_PATTERN.test(value.trim());
+}
+
+function safeIdPreview(value: string) {
+    const trimmedValue = value.trim();
+
+    if (!trimmedValue) return 'missing';
+
+    return trimmedValue.length <= 6 ? trimmedValue : `...${trimmedValue.slice(-6)}`;
+}
+
+async function readFunctionJson(response: Response): Promise<unknown> {
+    const text = await response.text();
+
+    if (!text) return null;
+
+    try {
+        return JSON.parse(text) as unknown;
+    } catch {
+        return {
+            ok: false,
+            code: 'invalid_json_response',
+            stage: 'parse_response',
+            message: 'Function returned a non-JSON response.',
+            detail: text.slice(0, 240),
+        } satisfies AiResearchFunctionError;
+    }
+}
+
+function formatFunctionError(value: unknown, status: number) {
+    const errorBody = readFunctionErrorBody(value);
+
+    if (!errorBody) {
+        return `Function error [http_${status}/unknown]: Price research function failed.`;
+    }
+
+    const detailText = errorBody.detail ? ` — ${errorBody.detail}` : '';
+
+    return `Function error [${errorBody.stage}/${errorBody.code}]: ${errorBody.message}${detailText}`;
+}
+
+function readFunctionErrorBody(value: unknown): AiResearchFunctionError | null {
+    if (!isRecord(value)) return null;
+
+    return {
+        ok: false,
+        code: readString(value.code) || 'unknown',
+        stage: readString(value.stage) || 'unknown',
+        message: readString(value.message) || 'Price research function failed.',
+        detail: readString(value.detail),
+    };
+}
+
+function safeDebugSummary(value: unknown): string {
+    if (!isRecord(value)) {
+        if (Array.isArray(value)) return `response_type=array; length=${value.length}`;
+        return `response_type=${value === null ? 'null' : typeof value}`;
+    }
+
+    const keys = Object.keys(value).slice(0, 8);
+    const suggestionsValue = value.suggestions;
+    const suggestionCount = Array.isArray(suggestionsValue) ? suggestionsValue.length : 'missing';
+    const code = readString(value.code) || 'none';
+    const stage = readString(value.stage) || 'none';
+    const message = readString(value.message);
+    const detail = readString(value.detail);
+
+    return [
+        `keys=${keys.join(',') || 'none'}`,
+        `suggestions=${suggestionCount}`,
+        `stage=${stage}`,
+        `code=${code}`,
+        message ? `message=${message.slice(0, 120)}` : '',
+        detail ? `detail=${detail.slice(0, 120)}` : '',
+    ].filter(Boolean).join('; ');
 }
 
 function readConfidence(value: unknown): PriceSuggestion['confidence'] {
@@ -2202,6 +4548,14 @@ const filterRowStyle = {
     marginBottom: 14,
 };
 
+const topControlRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    marginBottom: 8,
+};
+
 const filterButtonStyle = {
     borderRadius: 999,
     borderWidth: 1,
@@ -2236,6 +4590,21 @@ const systemTileStyle = {
     minHeight: 160,
 };
 
+const areaGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 14,
+};
+
+const areaCardStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    minHeight: 92,
+    padding: 12,
+    width: 170,
+};
+
 const itemGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
@@ -2250,11 +4619,11 @@ const toolGridStyle = {
 };
 
 const toolCardStyle = {
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
-    padding: 12,
-    width: 180,
-    minHeight: 118,
+    padding: 10,
+    width: 150,
+    minHeight: 88,
 };
 
 const toolTitleStyle = {
@@ -2280,6 +4649,30 @@ const toolPanelTitleStyle = {
     fontSize: 17,
     fontWeight: '900' as const,
     marginTop: 8,
+};
+
+const aiStatusLineStyle = {
+    alignSelf: 'flex-start' as const,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+    maxWidth: 680,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+};
+
+const debugTextStyle = {
+    fontSize: 11,
+    fontWeight: '800' as const,
+    lineHeight: 16,
+    marginTop: 4,
+};
+
+const guardrailBoxStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 10,
 };
 
 const previewListStyle = {
@@ -2343,6 +4736,20 @@ const emptySuggestionStyle = {
     maxWidth: 520,
 };
 
+const suggestionHeaderStyle = {
+    alignItems: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+};
+
+const suggestionHeaderTextStyle = {
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 240,
+};
+
 const suggestionGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
@@ -2358,8 +4765,8 @@ const suggestionCardStyle = {
 };
 
 const priceItemCardStyle = {
-    width: 240,
-    minHeight: 230,
+    width: 260,
+    minHeight: 260,
 };
 
 const itemTitleStyle = {
@@ -2381,6 +4788,22 @@ const chipStyle = {
     fontWeight: '900' as const,
     paddingHorizontal: 8,
     paddingVertical: 5,
+};
+
+const detailGridStyle = {
+    marginTop: 8,
+    gap: 2,
+};
+
+const detailRowStyle = {
+    borderBottomWidth: 1,
+    paddingVertical: 9,
+};
+
+const detailLineStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 17,
 };
 
 const itemActionRowStyle = {
@@ -2445,6 +4868,12 @@ const inputStyle = {
 const multilineInputStyle = {
     minHeight: 90,
     textAlignVertical: 'top' as const,
+};
+
+const importTextAreaStyle = {
+    marginTop: 12,
+    minHeight: 150,
+    width: '100%' as const,
 };
 
 const unitRowStyle = {
