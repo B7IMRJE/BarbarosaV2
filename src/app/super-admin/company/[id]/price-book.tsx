@@ -97,7 +97,27 @@ type PriceSuggestion = {
     confidence: 'low' | 'medium' | 'high';
     sourceCount: number;
     notes: string;
+    reasoningSummary: string;
+    assumptions: string[];
+    cautionNotes: string[];
+    sourceNotes: string[];
+    applyAllowed: boolean;
     createdAt: string;
+};
+
+type AiResearchSuggestionRecord = {
+    item_key?: unknown;
+    name?: unknown;
+    suggested_low_price?: unknown;
+    suggested_average_price?: unknown;
+    suggested_high_price?: unknown;
+    recommended_price?: unknown;
+    confidence?: unknown;
+    reasoning_summary?: unknown;
+    assumptions?: unknown;
+    caution_notes?: unknown;
+    source_notes?: unknown;
+    apply_allowed?: unknown;
 };
 
 type ResearchForm = {
@@ -159,6 +179,7 @@ export default function CompanyPriceBookScreen() {
     const [calculatorForm, setCalculatorForm] = useState<CalculatorForm>(emptyCalculatorForm());
     const [researchForm, setResearchForm] = useState<ResearchForm>(emptyResearchForm());
     const [suggestions, setSuggestions] = useState<PriceSuggestion[]>([]);
+    const [researching, setResearching] = useState(false);
 
     useEffect(() => {
         void loadPriceBook();
@@ -498,11 +519,58 @@ export default function CompanyPriceBookScreen() {
             itemKey: item.price_key,
             trade: item.system || current.trade,
         }));
-        setMessage('AI price research is not connected yet. Add the server-side AI relay configuration in SQL/doc 598 to enable live pricing research.');
+        setMessage('Ready to research this item. Suggestions are generated for manual review only.');
     }
 
-    function requestAiResearch() {
-        setMessage('AI price research is not connected yet. Add AI relay/API configuration to enable live pricing research. No fake market prices were generated.');
+    async function requestAiResearch() {
+        if (!manageAccess) {
+            setMessage('Only company owners, admins, managers, or platform admins can request AI price research.');
+            return;
+        }
+
+        const researchItems = getResearchItems(displayItems, filteredItems, researchForm, selectedSystem);
+
+        if (researchItems.length === 0) {
+            setMessage('No price book items match this AI research scope.');
+            return;
+        }
+
+        setResearching(true);
+        setMessage('Researching prices with AI...');
+
+        try {
+            const { data, error } = await supabase.functions.invoke('research-price-book', {
+                body: {
+                    company_id: companyId,
+                    company_name: companyName,
+                    service_area_zip: researchForm.serviceArea,
+                    city: researchForm.serviceArea,
+                    trade: researchForm.trade || selectedSystem || researchItems[0]?.system || 'Home service',
+                    pricing_positioning: toApiPositioning(researchForm.positioning),
+                    target_margin_percent: parseOptionalNumber(researchForm.targetMargin),
+                    notes: researchForm.notes,
+                    items: researchItems.map(toAiResearchItemPayload),
+                },
+            });
+
+            if (error) {
+                throw new Error(readFunctionErrorMessage(error, data));
+            }
+
+            const nextSuggestions = readAiSuggestions(data, displayItems);
+
+            if (nextSuggestions.length === 0) {
+                setMessage('AI price research returned no suggestions. Try narrowing the scope or adding more item details.');
+                return;
+            }
+
+            setSuggestions((current) => mergeSuggestions(current, nextSuggestions));
+            setMessage('AI-assisted price suggestions are ready. Review carefully before applying.');
+        } catch (error) {
+            setMessage(`AI price research failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setResearching(false);
+        }
     }
 
     async function applySuggestion(suggestion: PriceSuggestion) {
@@ -686,6 +754,7 @@ export default function CompanyPriceBookScreen() {
                                     form={researchForm}
                                     items={filteredItems}
                                     canManage={!!manageAccess}
+                                    researching={researching}
                                     onChange={(patch) => setResearchForm((current) => ({ ...current, ...patch }))}
                                     onResearch={requestAiResearch}
                                 />
@@ -1235,12 +1304,14 @@ function AiResearchTool({
     form,
     items,
     canManage,
+    researching,
     onChange,
     onResearch,
 }: {
     form: ResearchForm;
     items: CompanyPriceBookItem[];
     canManage: boolean;
+    researching: boolean;
     onChange: (patch: Partial<ResearchForm>) => void;
     onResearch: () => void;
 }) {
@@ -1250,7 +1321,7 @@ function AiResearchTool({
         <View style={toolPanelStyle}>
             <Text style={[toolPanelTitleStyle, { color: theme.colors.text }]}>AI Price Research</Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                AI research must run server-side. This app will not put OpenAI or paid API keys in the frontend.
+                AI runs server-side through Supabase. This first version creates AI-assisted estimates from provided context, not live online market research.
             </Text>
 
             <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Research Scope</Text>
@@ -1293,8 +1364,8 @@ function AiResearchTool({
 
             <View style={editorActionRowStyle}>
                 <ThemedButton
-                    title="Research Pricing with AI"
-                    disabled={!canManage}
+                    title={researching ? 'Researching...' : 'Research Pricing with AI'}
+                    disabled={!canManage || researching}
                     onPress={onResearch}
                     style={compactButtonStyle}
                     textStyle={compactButtonTextStyle}
@@ -1346,11 +1417,26 @@ function SuggestionReviewSection({
                             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                                 Confidence: {suggestion.confidence} / Sources: {suggestion.sourceCount}
                             </Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{suggestion.notes}</Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{suggestion.reasoningSummary || suggestion.notes}</Text>
+                            {suggestion.assumptions.length > 0 && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Assumptions: {suggestion.assumptions.slice(0, 2).join(' / ')}
+                                </Text>
+                            )}
+                            {suggestion.cautionNotes.length > 0 && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Caution: {suggestion.cautionNotes.slice(0, 2).join(' / ')}
+                                </Text>
+                            )}
+                            {suggestion.sourceNotes.length > 0 && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Source notes: {suggestion.sourceNotes.slice(0, 2).join(' / ')}
+                                </Text>
+                            )}
                             <View style={itemActionRowStyle}>
                                 <ThemedButton
-                                    title="Apply"
-                                    disabled={!canManage}
+                                    title={suggestion.applyAllowed ? 'Apply' : 'Review Only'}
+                                    disabled={!canManage || !suggestion.applyAllowed}
                                     onPress={() => onApply(suggestion)}
                                     style={compactButtonStyle}
                                     textStyle={compactButtonTextStyle}
@@ -1635,6 +1721,101 @@ function filterPriceBookItems(
     });
 }
 
+function getResearchItems(
+    displayItems: CompanyPriceBookItem[],
+    filteredItems: CompanyPriceBookItem[],
+    form: ResearchForm,
+    selectedSystem: string
+) {
+    if (form.scope === 'one_item') {
+        const explicitItem = displayItems.find((item) => item.price_key === form.itemKey);
+
+        return explicitItem ? [explicitItem] : filteredItems.slice(0, 1);
+    }
+
+    if (form.scope === 'current_system') {
+        const systemName = selectedSystem || form.trade;
+        const systemItems = displayItems.filter((item) => item.active && item.system === systemName);
+
+        return systemItems.length ? systemItems : filteredItems.filter((item) => item.active);
+    }
+
+    if (form.scope === 'all_unpriced') {
+        return displayItems.filter((item) => item.active && item.base_price === null);
+    }
+
+    return filteredItems.filter((item) => item.active);
+}
+
+function toAiResearchItemPayload(item: CompanyPriceBookItem) {
+    return {
+        price_key: item.price_key,
+        name: item.name,
+        system: item.system,
+        category: item.category,
+        current_price: item.base_price,
+        unit: item.unit,
+        labor_hours: item.labor_hours,
+        material_cost: item.material_cost,
+        notes: item.internal_notes || item.customer_description || null,
+    };
+}
+
+function readAiSuggestions(data: unknown, items: CompanyPriceBookItem[]): PriceSuggestion[] {
+    const record = isRecord(data) ? data : {};
+    const rawSuggestions = Array.isArray(record.suggestions) ? record.suggestions : [];
+    const itemByKey = new Map(items.map((item) => [item.price_key, item]));
+
+    return rawSuggestions
+        .map((value) => readAiSuggestion(value, itemByKey))
+        .filter((suggestion): suggestion is PriceSuggestion => Boolean(suggestion));
+}
+
+function readAiSuggestion(value: unknown, itemByKey: Map<string, CompanyPriceBookItem>): PriceSuggestion | null {
+    if (!isRecord(value)) return null;
+
+    const suggestion = value as AiResearchSuggestionRecord;
+    const priceKey = readString(suggestion.item_key);
+    const item = itemByKey.get(priceKey);
+    const recommendedPrice = readNullableNumber(suggestion.recommended_price);
+
+    if (!priceKey || recommendedPrice === null) return null;
+
+    const sourceNotes = readStringArray(suggestion.source_notes);
+    const cautionNotes = readStringArray(suggestion.caution_notes);
+    const assumptions = readStringArray(suggestion.assumptions);
+    const reasoningSummary = readString(suggestion.reasoning_summary);
+
+    return {
+        id: `ai-${priceKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        priceKey,
+        itemName: readString(suggestion.name) || item?.name || 'Price book item',
+        currentPrice: item?.base_price ?? null,
+        suggestedPrice: recommendedPrice,
+        lowPrice: readNullableNumber(suggestion.suggested_low_price),
+        averagePrice: readNullableNumber(suggestion.suggested_average_price),
+        highPrice: readNullableNumber(suggestion.suggested_high_price),
+        confidence: readConfidence(suggestion.confidence),
+        sourceCount: sourceNotes.length,
+        notes: reasoningSummary || 'AI-assisted price suggestion.',
+        reasoningSummary,
+        assumptions,
+        cautionNotes,
+        sourceNotes,
+        applyAllowed: suggestion.apply_allowed === true && recommendedPrice > 0,
+        createdAt: new Date().toISOString(),
+    };
+}
+
+function mergeSuggestions(current: PriceSuggestion[], next: PriceSuggestion[]) {
+    const nextKeys = new Set(next.map((suggestion) => suggestion.priceKey));
+
+    return [
+        ...next,
+        ...current.filter((suggestion) => !nextKeys.has(suggestion.priceKey)),
+    ];
+}
+
 function buildBulkPreviewRows(
     displayItems: CompanyPriceBookItem[],
     filteredItems: CompanyPriceBookItem[],
@@ -1876,6 +2057,51 @@ function roundCurrency(value: number) {
 
 function uniqueStrings(values: string[]) {
     return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+}
+
+function toApiPositioning(value: Positioning) {
+    return value === 'market average' ? 'market_average' : value;
+}
+
+function readFunctionErrorMessage(error: unknown, data: unknown) {
+    const dataMessage = isRecord(data) ? readString(data.message) : '';
+
+    if (dataMessage) return dataMessage;
+    if (error instanceof Error) return error.message;
+    if (isRecord(error)) return readString(error.message) || 'Price research function failed.';
+
+    return 'Price research function failed.';
+}
+
+function readConfidence(value: unknown): PriceSuggestion['confidence'] {
+    const confidence = readString(value).toLowerCase();
+
+    if (confidence === 'medium' || confidence === 'high') return confidence;
+
+    return 'low';
+}
+
+function readString(value: unknown) {
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function readNullableNumber(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value !== 'string') return null;
+
+    const parsed = Number.parseFloat(value.trim());
+
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readStringArray(value: unknown) {
+    return Array.isArray(value)
+        ? value.map(readString).filter(Boolean).slice(0, 8)
+        : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 const eyebrowStyle = {
