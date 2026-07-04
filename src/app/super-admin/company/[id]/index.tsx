@@ -447,6 +447,11 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
+        if (card === 'Price Book') {
+            router.push(`/super-admin/company/${id}/price-book` as never);
+            return;
+        }
+
         alert(`${card} foundation comes next.`);
     }
 
@@ -1382,7 +1387,7 @@ function getModuleDescription(title: string) {
     if (title === 'Estimates / Proposals') return 'Open estimate drafts and proposal foundations without fake pricing.';
     if (title === 'Jobs / Dispatch') return 'Open the dispatch queue for jobs, requests, and technician workflow setup.';
     if (title === 'Team / Technicians') return 'Open company owners, admins, managers, technicians, and invitations.';
-    if (title === 'Price Book') return 'Price book setup will live here before estimate pricing is turned on.';
+    if (title === 'Price Book') return 'Company-owned price book for estimate and proposal line items.';
     if (title === 'Settings / Permissions') return 'Manage company access, owner/admin permissions, and team safety.';
 
     return `Open ${title.toLowerCase()} tools.`;
@@ -1395,7 +1400,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Leads / Requests') return 'Open Requests';
     if (title === 'Jobs / Dispatch') return 'Open Dispatch';
     if (title === 'Estimates / Proposals') return 'Open Estimates';
-    if (title === 'Price Book') return 'Coming Soon';
+    if (title === 'Price Book') return 'Open Price Book';
     if (title === 'Opportunities') return 'Coming Soon';
     if (title === 'Settings / Permissions') return 'Open Settings';
 
