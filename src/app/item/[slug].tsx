@@ -128,9 +128,12 @@ const providerFindingSeverities: ProviderFindingSeverity[] = ['low', 'medium', '
 
 const PROVIDER_STAGED_PHOTO_BUCKET = 'item-files';
 
-const providerStagedWorkTypes: ProviderStagedWorkType[] = [
+type ProviderStagedDisplayType = ProviderStagedWorkType | 'reminder';
+
+const providerStagedDisplayTypes: ProviderStagedDisplayType[] = [
     'photo',
     'document',
+    'reminder',
     'note',
     'finding',
     'edit',
@@ -139,9 +142,10 @@ const providerStagedWorkTypes: ProviderStagedWorkType[] = [
     'client_update_mark',
 ];
 
-const providerStagedCountLabels: Record<ProviderStagedWorkType, { singular: string; plural: string }> = {
+const providerStagedCountLabels: Record<ProviderStagedDisplayType, { singular: string; plural: string }> = {
     photo: { singular: 'photo', plural: 'photos' },
     document: { singular: 'document', plural: 'documents' },
+    reminder: { singular: 'reminder', plural: 'reminders' },
     note: { singular: 'note', plural: 'notes' },
     finding: { singular: 'finding', plural: 'findings' },
     edit: { singular: 'edit', plural: 'edits' },
@@ -2957,7 +2961,7 @@ export default function ItemScreen() {
             >
                 <View style={scaleStyle(providerStagedEntryHeaderStyle)}>
                     <Text style={[scaleStyle(providerStagedEntryTypeStyle), { color: theme.colors.text }]}>
-                        {providerStagedWorkTypeLabel(entry.type)}
+                        {providerStagedEntryLabel(entry)}
                     </Text>
                     <Text style={[scaleStyle(providerStagedEntryDateStyle), { color: theme.colors.mutedText }]}>
                         {formatCompactDateTime(entry.created_at)}
@@ -2969,6 +2973,18 @@ export default function ItemScreen() {
                 <Text style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText }]}>
                     {summarizeProviderStagedEntry(entry)}
                 </Text>
+                {isProviderStagedReminderEntry(entry) && !compact ? (
+                    <View style={scaleStyle(providerReminderDetailsStyle)}>
+                        {providerReminderDetailLines(entry).map((line) => (
+                            <Text
+                                key={line}
+                                style={[scaleStyle(providerStagedEntrySummaryStyle), { color: theme.colors.mutedText, marginTop: 0 }]}
+                            >
+                                {line}
+                            </Text>
+                        ))}
+                    </View>
+                ) : null}
                 {entry.type === 'photo' && !compact ? (
                     <View style={scaleStyle(providerStagedPhotoBlockStyle)}>
                         {photoPreviewUrl ? (
@@ -3202,14 +3218,16 @@ export default function ItemScreen() {
                         <ThemedButton
                             title={providerReviewExpanded ? 'Hide' : 'Review'}
                             variant="secondary"
-                            onPress={() => setProviderReviewExpanded((current) => !current)}
+                            onPress={() => setProviderReviewExpanded(providerReviewExpanded ? false : true)}
                             style={scaleStyle(providerStagedHeaderButtonStyle)}
                             textStyle={scaleStyle(fileActionButtonTextStyle)}
                         />
                     ) : null}
                 </View>
                 <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                    Provider work is saved to provider staging when available. Local fallback entries are labeled below. Publishing is not installed yet, so these updates have not been copied to the client’s permanent HomeOS.
+                    {providerReviewExpanded
+                        ? 'Showing full staged history. Publishing is not installed yet, so these updates have not been copied to the client’s permanent HomeOS.'
+                        : 'Showing a compact staged update summary. Tap Review to expand the full staged history.'}
                 </Text>
                 <Text
                     style={[
@@ -4461,9 +4479,10 @@ function formatCompactDateTime(value?: string | null) {
 }
 
 function countProviderStagedEntries(entries: ProviderStagedWorkEntry[]) {
-    const counts: Record<ProviderStagedWorkType, number> = {
+    const counts: Record<ProviderStagedDisplayType, number> = {
         photo: 0,
         document: 0,
+        reminder: 0,
         note: 0,
         finding: 0,
         edit: 0,
@@ -4473,7 +4492,7 @@ function countProviderStagedEntries(entries: ProviderStagedWorkEntry[]) {
     };
 
     entries.forEach((entry) => {
-        counts[entry.type] += 1;
+        counts[providerStagedDisplayType(entry)] += 1;
     });
 
     return counts;
@@ -4481,7 +4500,7 @@ function countProviderStagedEntries(entries: ProviderStagedWorkEntry[]) {
 
 function formatProviderStagedSummary(entries: ProviderStagedWorkEntry[]) {
     const counts = countProviderStagedEntries(entries);
-    const parts = providerStagedWorkTypes
+    const parts = providerStagedDisplayTypes
         .map((type) => {
             const count = counts[type];
             if (count <= 0) return '';
@@ -4497,8 +4516,52 @@ function formatProviderStagedSummary(entries: ProviderStagedWorkEntry[]) {
     return parts.length > 0 ? parts.join(' · ') : 'No staged updates yet.';
 }
 
+function providerStagedDisplayType(entry: ProviderStagedWorkEntry): ProviderStagedDisplayType {
+    return isProviderStagedReminderEntry(entry) ? 'reminder' : entry.type;
+}
+
+function providerStagedEntryLabel(entry: ProviderStagedWorkEntry) {
+    if (isProviderStagedReminderEntry(entry)) return 'Staged Reminder';
+
+    return providerStagedWorkTypeLabel(entry.type);
+}
+
+function isProviderStagedReminderEntry(entry: ProviderStagedWorkEntry) {
+    const source = payloadString(entry.payload, 'source').toLowerCase();
+    const destination = payloadString(entry.payload, 'destination').toLowerCase();
+
+    return (
+        entry.type === 'note' &&
+        (
+            source === 'custom_reminder' ||
+            destination === 'provider_staged_reminder' ||
+            Boolean(payloadString(entry.payload, 'reminder_title')) ||
+            Boolean(payloadString(entry.payload, 'reminder_text'))
+        )
+    );
+}
+
 function summarizeProviderStagedEntry(entry: ProviderStagedWorkEntry) {
     const payload = entry.payload;
+
+    if (isProviderStagedReminderEntry(entry)) {
+        const title = payloadString(payload, 'reminder_title') || payloadString(payload, 'reminder_text') || 'Custom reminder';
+        const recurrence = formatProviderReminderRecurrence(payload);
+        const dueDate = payloadString(payload, 'next_due_date');
+        const itemName = payloadString(payload, 'item_name') || entry.item_name;
+        const location = payloadString(payload, 'location') || entry.location || '';
+        const system = payloadString(payload, 'system') || entry.system || '';
+
+        return [
+            title,
+            recurrence,
+            dueDate ? `Due ${dueDate}` : '',
+            itemName ? `Item: ${itemName}` : '',
+            system || location ? [system, location].filter(Boolean).join(' / ') : '',
+        ]
+            .filter(Boolean)
+            .join(' - ');
+    }
 
     if (entry.type === 'note') {
         return payloadString(payload, 'details') || payloadString(payload, 'destination') || 'Provider note staged.';
@@ -4553,6 +4616,39 @@ function summarizeProviderStagedEntry(entry: ProviderStagedWorkEntry) {
     }
 
     return 'Marked for a future Client HomeOS update.';
+}
+
+function providerReminderDetailLines(entry: ProviderStagedWorkEntry) {
+    const payload = entry.payload;
+    const title = payloadString(payload, 'reminder_title') || payloadString(payload, 'reminder_text') || 'Custom reminder';
+    const description = payloadString(payload, 'reminder_description');
+    const recurrence = formatProviderReminderRecurrence(payload);
+    const startDate = payloadString(payload, 'start_date');
+    const dueDate = payloadString(payload, 'next_due_date');
+    const itemName = payloadString(payload, 'item_name') || entry.item_name;
+    const system = payloadString(payload, 'system') || entry.system || '';
+    const location = payloadString(payload, 'location') || entry.location || '';
+
+    return [
+        `Reminder: ${title}`,
+        description ? `Notes: ${description}` : '',
+        recurrence ? `Recurrence: ${recurrence}` : '',
+        startDate ? `Start: ${startDate}` : '',
+        dueDate ? `Next due: ${dueDate}` : '',
+        itemName ? `Item: ${itemName}` : '',
+        system || location ? `System/location: ${[system, location].filter(Boolean).join(' / ')}` : '',
+    ].filter(Boolean);
+}
+
+function formatProviderReminderRecurrence(payload: ProviderStagedWorkPayload) {
+    const interval = payloadNumber(payload, 'recurrence_interval');
+    const unit = payloadString(payload, 'recurrence_unit');
+
+    if (!interval || !unit) return '';
+
+    const normalizedUnit = interval === 1 ? unit.replace(/s$/, '') : unit;
+
+    return `Every ${interval} ${normalizedUnit}`;
 }
 
 function providerStagedSourceLabel(entry: ProviderStagedWorkEntry) {
@@ -4637,6 +4733,17 @@ function payloadString(payload: ProviderStagedWorkPayload, key: string) {
     const value = payload[key];
 
     return typeof value === 'string' ? value.trim() : '';
+}
+
+function payloadNumber(payload: ProviderStagedWorkPayload, key: string) {
+    const value = payload[key];
+
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value !== 'string') return null;
+
+    const parsedValue = Number.parseInt(value.trim(), 10);
+
+    return Number.isFinite(parsedValue) ? parsedValue : null;
 }
 
 const centerStyle = {
@@ -5080,6 +5187,11 @@ const providerStagedEntrySummaryStyle = {
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '800' as const,
+};
+
+const providerReminderDetailsStyle = {
+    marginTop: 10,
+    gap: 4,
 };
 
 const providerStagedPhotoBlockStyle = {
