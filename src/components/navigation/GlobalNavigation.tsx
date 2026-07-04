@@ -11,16 +11,23 @@ type GlobalNavigationProps = {
     children: ReactNode;
 };
 
+type NavigationLink = {
+    label: string;
+    route: string;
+    staffOnly?: boolean;
+    preserveProvider?: boolean;
+};
+
 const hiddenRoutePrefixes = ['/auth', '/onboarding', '/super-admin'];
 
-const primaryTabs = [
+const primaryTabs: NavigationLink[] = [
     { label: 'Home', route: '/' },
     { label: 'Equipment', route: '/equipment' },
     { label: 'Documents', route: '/documents' },
     { label: 'Profile', route: '/profile' },
 ];
 
-const drawerLinks = [
+const drawerLinks: NavigationLink[] = [
     { label: 'ManagementOS', route: '/management', staffOnly: true },
     { label: 'Maintenance', route: '/maintenance' },
     { label: 'Jobs', route: '/jobs', staffOnly: true },
@@ -64,21 +71,31 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
         return <>{children}</>;
     }
 
-    function goTo(route: string) {
+    function goTo(link: NavigationLink | string) {
         setDrawerOpen(false);
 
-        const nextRoute = providerModeContext && normalizePath(route) === '/'
-            ? String(providerModePath('/', providerModeContext))
+        const route = typeof link === 'string' ? link : link.route;
+        const shouldPreserveProvider = typeof link === 'string'
+            ? true
+            : link.preserveProvider !== false;
+        const nextRoute = providerModeContext && shouldPreserveProvider && isProviderModeNavigationRoute(route)
+            ? String(providerModePath(route, providerModeContext))
             : route;
 
         if (normalizePath(nextRoute) === currentPath) {
             return;
         }
 
-        router.push(nextRoute as any);
+        router.push(nextRoute as never);
     }
 
-    const visibleDrawerLinks = drawerLinks.filter((link) => !link.staffOnly || canUseStaffTools);
+    const activePrimaryTabs = providerModeContext
+        ? providerPrimaryTabs(providerModeContext.companyId, providerModeContext.propertyId)
+        : primaryTabs;
+    const activeDrawerLinks = providerModeContext
+        ? providerDrawerLinks(providerModeContext.companyId, providerModeContext.propertyId)
+        : drawerLinks;
+    const visibleDrawerLinks = activeDrawerLinks.filter((link) => !link.staffOnly || canUseStaffTools);
 
     function isActiveTab(route: string) {
         const normalizedRoute = normalizePath(route);
@@ -142,7 +159,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
 
                         <TouchableOpacity
                             activeOpacity={0.82}
-                            onPress={() => goTo('/')}
+                            onPress={() => goTo({ label: 'Home', route: '/' })}
                             style={{
                                 backgroundColor: theme.colors.primary,
                                 borderRadius: theme.radii.pill,
@@ -197,14 +214,14 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                         gap: scaleIcon(6),
                     }}
                 >
-                    {primaryTabs.map((tab) => {
+                    {activePrimaryTabs.map((tab) => {
                         const active = isActiveTab(tab.route);
 
                         return (
                             <TouchableOpacity
                                 key={tab.route}
                                 activeOpacity={0.82}
-                                onPress={() => goTo(tab.route)}
+                                onPress={() => goTo(tab)}
                                 style={{
                                     alignItems: 'center',
                                     backgroundColor: active ? theme.colors.primary : theme.colors.secondaryButton,
@@ -328,7 +345,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                                     <TouchableOpacity
                                         key={link.route}
                                         activeOpacity={0.82}
-                                        onPress={() => goTo(link.route)}
+                                        onPress={() => goTo(link)}
                                         style={{
                                             backgroundColor: active
                                                 ? theme.colors.secondaryButton
@@ -365,4 +382,57 @@ function normalizePath(pathname: string) {
     const withoutTrailingSlash = pathOnly.replace(/\/+$/, '');
 
     return withoutTrailingSlash || '/';
+}
+
+function providerPrimaryTabs(companyId: string, propertyId: string): NavigationLink[] {
+    return [
+        { label: 'Home', route: '/' },
+        { label: 'Equipment', route: '/equipment' },
+        { label: 'Documents', route: '/documents' },
+        {
+            label: 'Customer',
+            route: customerDetailRoute(companyId, propertyId),
+            preserveProvider: false,
+        },
+    ];
+}
+
+function providerDrawerLinks(companyId: string, propertyId: string): NavigationLink[] {
+    return [
+        { label: 'Client Home', route: '/' },
+        { label: 'Equipment', route: '/equipment' },
+        { label: 'Documents', route: '/documents' },
+        { label: 'Estimate Draft', route: '/estimate' },
+        {
+            label: 'Customer Detail',
+            route: customerDetailRoute(companyId, propertyId),
+            preserveProvider: false,
+        },
+        {
+            label: 'Company Dashboard',
+            route: companyDashboardRoute(companyId),
+            preserveProvider: false,
+        },
+    ];
+}
+
+function customerDetailRoute(companyId: string, propertyId: string) {
+    return `/super-admin/company/${encodeURIComponent(companyId)}/client/${encodeURIComponent(propertyId)}`;
+}
+
+function companyDashboardRoute(companyId: string) {
+    return `/super-admin/company/${encodeURIComponent(companyId)}`;
+}
+
+function isProviderModeNavigationRoute(route: string) {
+    const normalizedRoute = normalizePath(route);
+
+    return (
+        normalizedRoute === '/' ||
+        normalizedRoute === '/equipment' ||
+        normalizedRoute === '/documents' ||
+        normalizedRoute === '/estimate' ||
+        normalizedRoute.startsWith('/item/') ||
+        normalizedRoute.startsWith('/system/')
+    );
 }

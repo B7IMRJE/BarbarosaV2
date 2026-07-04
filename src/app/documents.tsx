@@ -1,5 +1,5 @@
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -9,6 +9,7 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../lib/activeProperty';
+import { providerModePath, readProviderModeParams } from '../lib/providerMode';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -23,8 +24,20 @@ type HomeDocument = {
 
 export default function DocumentsScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const routeParams = useLocalSearchParams<{
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
+    }>();
+    const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
+        routeParams.providerMode,
+        routeParams.companyId,
+        routeParams.propertyId,
+        routeParams.returnTo,
+    ]);
 
-    function scaleStyle<T extends Record<string, any>>(style: T): T {
+    function scaleStyle<T extends Record<string, unknown>>(style: T): T {
         const fontKeys = new Set(['fontSize', 'lineHeight']);
         const iconKeys = new Set([
             'padding',
@@ -41,7 +54,7 @@ export default function DocumentsScreen() {
             'borderRadius',
         ]);
 
-        const scaledStyle: Record<string, any> = { ...style };
+        const scaledStyle: Record<string, unknown> = { ...style };
 
         Object.entries(style).forEach(([key, value]) => {
             if (typeof value !== 'number') return;
@@ -62,8 +75,15 @@ export default function DocumentsScreen() {
     const [message, setMessage] = useState('');
 
     useEffect(() => {
+        if (providerModeContext) {
+            setDocuments([]);
+            setMessage('');
+            setLoading(false);
+            return;
+        }
+
         loadDocuments();
-    }, []);
+    }, [providerModeContext?.companyId, providerModeContext?.propertyId]);
 
     async function loadDocuments() {
         setLoading(true);
@@ -78,9 +98,9 @@ export default function DocumentsScreen() {
             setLoading(false);
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
-                router.replace('/auth/login' as any);
+                router.replace('/auth/login' as never);
             } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
-                router.replace('/onboarding/create-home' as any);
+                router.replace('/onboarding/create-home' as never);
             }
 
             return;
@@ -107,13 +127,33 @@ export default function DocumentsScreen() {
     async function openDocument(url: string) {
         try {
             await Linking.openURL(url);
-        } catch (error: any) {
-            setMessage(`Could not open document: ${error.message || 'Unknown error'}`);
+        } catch (error) {
+            setMessage(`Could not open document: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
     function handleAddDocument() {
         setMessage('Open an item detail page and use Upload Document. Full document-center upload is planned.');
+    }
+
+    function goToClientHome() {
+        if (!providerModeContext) return;
+
+        router.push(providerModePath('/', providerModeContext) as never);
+    }
+
+    function goToCustomerDetail() {
+        if (!providerModeContext) return;
+
+        router.push(
+            `/super-admin/company/${encodeURIComponent(providerModeContext.companyId)}/client/${encodeURIComponent(providerModeContext.propertyId)}` as never
+        );
+    }
+
+    function goToCompanyDashboard() {
+        if (!providerModeContext) return;
+
+        router.push(`/super-admin/company/${encodeURIComponent(providerModeContext.companyId)}` as never);
     }
 
     return (
@@ -128,54 +168,78 @@ export default function DocumentsScreen() {
                     <Text style={[scaleStyle(backTextStyle), { color: theme.colors.text }]}>Back</Text>
                 </TouchableOpacity>
 
-                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Documents</Text>
-
-                <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
-                    Keep warranties, manuals, permits, receipts, photos, and service records connected to your home.
+                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>
+                    {providerModeContext ? 'Client Documents' : 'Documents'}
                 </Text>
 
-                <ThemedCard style={scaleStyle(actionCardStyle)}>
-                    <Text style={[scaleStyle(actionTitleStyle), { color: theme.colors.text }]}>Add Document</Text>
-                    <Text style={[scaleStyle(actionSubtitleStyle), { color: theme.colors.mutedText }]}>
-                        Upload from an item detail page for now so each file stays attached to the right home item.
-                    </Text>
-                    <ThemedButton
-                        title="Add Document"
-                        variant="secondary"
-                        onPress={handleAddDocument}
-                        style={{ marginTop: scaleIcon(16) }}
-                    />
-                </ThemedCard>
+                <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
+                    {providerModeContext
+                        ? 'Client documents stay protected until the provider sharing workflow is enabled.'
+                        : 'Keep warranties, manuals, permits, receipts, photos, and service records connected to your home.'}
+                </Text>
 
-                {loading ? (
-                    <ThemedCard style={scaleStyle(stateCardStyle)}>
-                        <Text style={[scaleStyle(stateTextStyle), { color: theme.colors.mutedText }]}>Loading documents...</Text>
-                    </ThemedCard>
-                ) : documents.length === 0 ? (
-                    <ThemedCard style={scaleStyle(stateCardStyle)}>
-                        <Text style={[scaleStyle(stateTitleStyle), { color: theme.colors.text }]}>No documents yet.</Text>
-                        <Text style={[scaleStyle(stateTextStyle), { color: theme.colors.mutedText }]}>
-                            Manuals, warranties, receipts, permits, photos, and service records will appear here after
-                            they are uploaded to an item.
+                {providerModeContext ? (
+                    <ThemedCard style={scaleStyle(actionCardStyle)}>
+                        <Text style={[scaleStyle(actionTitleStyle), { color: theme.colors.text }]}>
+                            Provider-mode documents are coming next.
                         </Text>
+                        <Text style={[scaleStyle(actionSubtitleStyle), { color: theme.colors.mutedText }]}>
+                            Homeowner documents are not opened from this provider view yet. Company-side staged photos
+                            and notes remain available from item pages.
+                        </Text>
+
+                        <View style={scaleStyle(providerActionRowStyle)}>
+                            <ThemedButton title="Client Home" onPress={goToClientHome} />
+                            <ThemedButton title="Customer Detail" variant="secondary" onPress={goToCustomerDetail} />
+                            <ThemedButton title="Company Dashboard" variant="secondary" onPress={goToCompanyDashboard} />
+                        </View>
                     </ThemedCard>
                 ) : (
-                    <View style={scaleStyle(documentListStyle)}>
-                        {documents.map((document) => (
-                            <ThemedCard
-                                key={document.id || `${document.item_slug}-${document.file_url}`}
-                                onPress={() => openDocument(document.file_url)}
-                            >
-                                <Text style={[scaleStyle(documentTitleStyle), { color: theme.colors.text }]}>
-                                    {document.file_name || 'Document'}
-                                </Text>
-                                <Text style={[scaleStyle(documentMetaStyle), { color: theme.colors.mutedText }]}>
-                                    {document.category || 'Document'}
-                                    {document.item_slug ? ` | ${document.item_slug}` : ''}
+                    <>
+                        <ThemedCard style={scaleStyle(actionCardStyle)}>
+                            <Text style={[scaleStyle(actionTitleStyle), { color: theme.colors.text }]}>Add Document</Text>
+                            <Text style={[scaleStyle(actionSubtitleStyle), { color: theme.colors.mutedText }]}>
+                                Upload from an item detail page for now so each file stays attached to the right home item.
+                            </Text>
+                            <ThemedButton
+                                title="Add Document"
+                                variant="secondary"
+                                onPress={handleAddDocument}
+                                style={{ marginTop: scaleIcon(16) }}
+                            />
+                        </ThemedCard>
+
+                        {loading ? (
+                            <ThemedCard style={scaleStyle(stateCardStyle)}>
+                                <Text style={[scaleStyle(stateTextStyle), { color: theme.colors.mutedText }]}>Loading documents...</Text>
+                            </ThemedCard>
+                        ) : documents.length === 0 ? (
+                            <ThemedCard style={scaleStyle(stateCardStyle)}>
+                                <Text style={[scaleStyle(stateTitleStyle), { color: theme.colors.text }]}>No documents yet.</Text>
+                                <Text style={[scaleStyle(stateTextStyle), { color: theme.colors.mutedText }]}>
+                                    Manuals, warranties, receipts, permits, photos, and service records will appear here after
+                                    they are uploaded to an item.
                                 </Text>
                             </ThemedCard>
-                        ))}
-                    </View>
+                        ) : (
+                            <View style={scaleStyle(documentListStyle)}>
+                                {documents.map((document) => (
+                                    <ThemedCard
+                                        key={document.id || `${document.item_slug}-${document.file_url}`}
+                                        onPress={() => openDocument(document.file_url)}
+                                    >
+                                        <Text style={[scaleStyle(documentTitleStyle), { color: theme.colors.text }]}>
+                                            {document.file_name || 'Document'}
+                                        </Text>
+                                        <Text style={[scaleStyle(documentMetaStyle), { color: theme.colors.mutedText }]}>
+                                            {document.category || 'Document'}
+                                            {document.item_slug ? ` | ${document.item_slug}` : ''}
+                                        </Text>
+                                    </ThemedCard>
+                                ))}
+                            </View>
+                        )}
+                    </>
                 )}
 
                 {!!message && (
@@ -220,6 +284,13 @@ const actionSubtitleStyle = {
     fontSize: 15,
     lineHeight: 22,
     marginTop: 8,
+};
+
+const providerActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 16,
 };
 
 const stateCardStyle = {

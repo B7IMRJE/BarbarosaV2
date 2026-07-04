@@ -1,12 +1,26 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import SystemStatusCard from '../components/cards/SystemStatusCard';
 import { homeSystemOptions } from '../lib/homeSystems';
+import { providerModeQueryParams, readProviderModeParams } from '../lib/providerMode';
 import { useTheme } from '../theme/useTheme';
 
 export default function EquipmentScreen() {
     const { theme } = useTheme();
+    const routeParams = useLocalSearchParams<{
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
+    }>();
+    const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
+        routeParams.providerMode,
+        routeParams.companyId,
+        routeParams.propertyId,
+        routeParams.returnTo,
+    ]);
 
     return (
         <ScrollView
@@ -56,15 +70,26 @@ export default function EquipmentScreen() {
                             title={system.label}
                             icon={system.icon}
                             onPress={() => {
+                                if (providerModeContext) {
+                                    router.push({
+                                        pathname: '/system/[system]',
+                                        params: {
+                                            system: system.key,
+                                            ...providerModeQueryParams(providerModeContext),
+                                        },
+                                    } as never);
+                                    return;
+                                }
+
                                 if (system.key === 'Plumbing') {
-                                    router.push('/system/plumbing' as any);
+                                    router.push('/system/plumbing' as never);
                                     return;
                                 }
 
                                 router.push({
                                     pathname: '/system/[system]',
                                     params: { system: system.key },
-                                } as any);
+                                } as never);
                             }}
                             style={{
                                 width: '48%',

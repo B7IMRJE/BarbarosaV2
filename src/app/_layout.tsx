@@ -393,6 +393,8 @@ function isProviderModeHomeOsPath(
 
   return (
     pathname === HOME_ROUTE ||
+    pathname === '/equipment' ||
+    pathname === '/documents' ||
     pathname === '/area/create' ||
     pathname === '/item/create' ||
     pathname === '/item/edit' ||
