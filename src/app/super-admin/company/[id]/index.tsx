@@ -135,6 +135,7 @@ const cards = [
     'Jobs / Dispatch',
     'Team / Technicians',
     'Price Book',
+    'Knowledge Engine',
     'Settings / Permissions',
 ];
 
@@ -449,6 +450,11 @@ export default function CompanyDashboardScreen() {
 
         if (card === 'Price Book') {
             router.push(`/super-admin/company/${id}/price-book` as never);
+            return;
+        }
+
+        if (card === 'Knowledge Engine') {
+            router.push(`/super-admin/company/${id}/knowledge-engine` as never);
             return;
         }
 
@@ -1388,6 +1394,7 @@ function getModuleDescription(title: string) {
     if (title === 'Jobs / Dispatch') return 'Open the dispatch queue for jobs, requests, and technician workflow setup.';
     if (title === 'Team / Technicians') return 'Open company owners, admins, managers, technicians, and invitations.';
     if (title === 'Price Book') return 'Company-owned price book for estimate and proposal line items.';
+    if (title === 'Knowledge Engine') return 'Review read-only Bravo Knowledge Engine objects before connecting them to operations.';
     if (title === 'Settings / Permissions') return 'Manage company access, owner/admin permissions, and team safety.';
 
     return `Open ${title.toLowerCase()} tools.`;
@@ -1401,6 +1408,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Jobs / Dispatch') return 'Open Dispatch';
     if (title === 'Estimates / Proposals') return 'Open Estimates';
     if (title === 'Price Book') return 'Open Price Book';
+    if (title === 'Knowledge Engine') return 'Open Viewer';
     if (title === 'Opportunities') return 'Coming Soon';
     if (title === 'Settings / Permissions') return 'Open Settings';
 
