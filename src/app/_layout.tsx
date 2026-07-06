@@ -476,6 +476,18 @@ function resolveRedirectForPath(
     return routeDecision.route;
   }
 
+  if (routeDecision.reason === 'staff') {
+    if (
+      isTechOSPath(pathname) ||
+      pathname === COMPANY_INVITATIONS_ROUTE ||
+      pathname === PROFILE_CHANGE_PASSWORD_ROUTE
+    ) {
+      return null;
+    }
+
+    return routeDecision.route;
+  }
+
   if (routeDecision.reason === 'homeowner-needs-first-home') {
     if (isAllowedFirstHomeOnboardingPath(pathname)) {
       return null;

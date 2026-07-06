@@ -9,6 +9,7 @@ export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Ch
 
 const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher'];
 const TECHOS_COMPANY_ROLES = ['technician'];
+const COMPANY_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER'];
 
 export type LoggedInUserRoute = string;
 
@@ -81,18 +82,13 @@ export async function resolveLoggedInUserRoute(
         }
 
         const role = normalizeRole(profile.role);
-        const companyAccessQuery = await supabase
-            .from('company_users')
-            .select('id, company_id, role, status, created_at')
-            .eq('auth_user_id', userId)
-            .order('created_at', { ascending: true })
-            .limit(50);
+        const companyAccessQuery = await loadLoggedInUserCompanyAccess(userId);
 
         if (companyAccessQuery.error) {
             return serviceUnavailableRouteDecision(companyAccessQuery.error.message);
         }
 
-        const activeCompanyAccess = normalizeCompanyAccessRows(companyAccessQuery.data)
+        const activeCompanyAccess = companyAccessQuery.data
             .filter((companyUser) => normalizeCompanyUserStatus(companyUser.status) === 'active');
         const managementAccess = pickCompanyAccessForRoles(
             activeCompanyAccess,
@@ -118,7 +114,7 @@ export async function resolveLoggedInUserRoute(
             activeCompanyAccess,
             TECHOS_COMPANY_ROLES,
             options.preferredCompanyId
-        );
+        ) || pickCompanyAccessForTechOS(activeCompanyAccess, options.preferredCompanyId);
 
         if (technicianAccess) {
             return {
@@ -130,7 +126,14 @@ export async function resolveLoggedInUserRoute(
             };
         }
 
-        if (isStaffRole(role) || role !== 'HOMEOWNER') {
+        if (isStaffRole(role) || COMPANY_PROFILE_ROLES.includes(role)) {
+            return {
+                route: TECHOS_ROUTE,
+                reason: 'staff',
+            };
+        }
+
+        if (role !== 'HOMEOWNER') {
             return {
                 route: HOME_ROUTE,
                 reason: 'staff',
@@ -170,11 +173,51 @@ export async function resolveLoggedInUserRoute(
     }
 }
 
-type CompanyRouteAccessRow = {
+export type CompanyRouteAccessRow = {
+    id: string | null;
     company_id: string;
+    full_name: string | null;
+    email: string | null;
     role: string | null;
     status: string | null;
+    created_at: string | null;
+    can_view_techos?: boolean | null;
 };
+
+export async function loadLoggedInUserCompanyAccess(userId: string): Promise<{
+    data: CompanyRouteAccessRow[];
+    error: { message: string } | null;
+}> {
+    const rpcResult = await supabase.rpc('get_my_company_permissions', {
+        p_company_id: null,
+    });
+
+    if (!rpcResult.error) {
+        return {
+            data: normalizeCompanyAccessRows(rpcResult.data),
+            error: null,
+        };
+    }
+
+    if (isServiceUnavailableError(rpcResult.error)) {
+        return {
+            data: [],
+            error: rpcResult.error,
+        };
+    }
+
+    const directQuery = await supabase
+        .from('company_users')
+        .select('id, company_id, full_name, email, role, status, created_at')
+        .eq('auth_user_id', userId)
+        .order('created_at', { ascending: true })
+        .limit(50);
+
+    return {
+        data: normalizeCompanyAccessRows(directQuery.data),
+        error: directQuery.error,
+    };
+}
 
 function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {
     return (Array.isArray(data) ? data : [])
@@ -183,9 +226,14 @@ function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {
             const companyId = readStringField(record, 'company_id');
 
             return {
+                id: readStringField(record, 'company_user_id') || readStringField(record, 'id'),
                 company_id: companyId || '',
+                full_name: readStringField(record, 'full_name'),
+                email: readStringField(record, 'email'),
                 role: readStringField(record, 'role'),
                 status: readStringField(record, 'status'),
+                created_at: readStringField(record, 'created_at'),
+                can_view_techos: readBooleanField(record, 'can_view_techos'),
             };
         })
         .filter((row) => row.company_id);
@@ -207,10 +255,28 @@ function pickCompanyAccessForRoles(
     return matchingRows[0] || null;
 }
 
+function pickCompanyAccessForTechOS(
+    rows: CompanyRouteAccessRow[],
+    preferredCompanyId?: string | null
+) {
+    const preferredId = String(preferredCompanyId || '').trim();
+    const matchingRows = rows.filter((row) => (
+        row.can_view_techos === true ||
+        TECHOS_COMPANY_ROLES.includes(normalizeCompanyUserRole(row.role))
+    ));
+
+    if (preferredId) {
+        const preferredRow = matchingRows.find((row) => row.company_id === preferredId);
+        if (preferredRow) return preferredRow;
+    }
+
+    return matchingRows[0] || null;
+}
+
 function normalizeCompanyUserRole(role?: string | null) {
     const normalizedRole = String(role || '').trim().toLowerCase();
 
-    if (normalizedRole === 'tech') return 'technician';
+    if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
     return normalizedRole;
 }
 
@@ -230,6 +296,12 @@ function readStringField(record: Record<string, unknown>, key: string) {
     const value = record[key];
 
     return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readBooleanField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'boolean' ? value : null;
 }
 
 async function loadRouteProfile(userId: string) {

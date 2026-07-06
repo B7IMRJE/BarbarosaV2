@@ -11,6 +11,7 @@ import {
     normalizeCompanyRole,
     normalizeCompanyStatus,
 } from '../lib/companyPermissions';
+import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -22,6 +23,9 @@ type CompanyUserAccess = {
     role: string | null;
     status: string | null;
     created_at: string | null;
+    permissions?: {
+        can_view_techos?: boolean;
+    } | null;
 };
 
 type CompanyUser = CompanyUserAccess & {
@@ -134,6 +138,7 @@ export default function TechOSScreen() {
     const pagePadding = isPhoneLayout ? 16 : 20;
     const [checkingAccess, setCheckingAccess] = useState(true);
     const [membership, setMembership] = useState<CompanyUserAccess | null>(null);
+    const [companyChoices, setCompanyChoices] = useState<CompanyUserAccess[]>([]);
     const [isPlatformAdminAccess, setIsPlatformAdminAccess] = useState(false);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
     const [clients, setClients] = useState<CompanyClient[]>([]);
@@ -180,6 +185,7 @@ export default function TechOSScreen() {
         setCheckingAccess(true);
         setMessage('Loading TechOS...');
         setMembership(null);
+        setCompanyChoices([]);
         setIsPlatformAdminAccess(false);
         setCompany(null);
         setClients([]);
@@ -225,48 +231,45 @@ export default function TechOSScreen() {
 
         const platformAdminCheck = await loadPlatformAdminStatus(userId);
 
-        let membershipData: unknown[] = [];
-        let membershipErrorMessage = '';
+        const membershipResult = await loadLoggedInUserCompanyAccess(userId);
 
-        try {
-            let membershipQuery = supabase
-                .from('company_users')
-                .select('id, company_id, full_name, email, role, status, created_at')
-                .eq('auth_user_id', userId)
-                .order('created_at', { ascending: true })
-                .limit(20);
-
-            if (requestedCompanyId) {
-                membershipQuery = membershipQuery.eq('company_id', requestedCompanyId);
-            }
-
-            const { data, error } = await membershipQuery;
-            membershipData = data || [];
-            membershipErrorMessage = error?.message || '';
-        } catch (error) {
-            membershipErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
-        }
-
-        if (membershipErrorMessage) {
+        if (membershipResult.error) {
             setCheckingAccess(false);
-            setMessage(`Could not verify TechOS access: ${normalizeServiceErrorMessage(membershipErrorMessage)}`);
+            setMessage(`Could not verify TechOS access: ${normalizeServiceErrorMessage(membershipResult.error.message)}`);
             return;
         }
 
-        const activeMembership = ((membershipData || []) as CompanyUserAccess[]).find((companyUser) =>
-            canAccessTechOS(companyUser)
-        ) || null;
+        const activeTechOSMemberships = membershipResult.data
+            .map(toCompanyUserAccess)
+            .filter((companyUser) => isActiveStatus(companyUser.status) && canAccessTechOS(companyUser));
+        let activeMembership = requestedCompanyId
+            ? activeTechOSMemberships.find((companyUser) => companyUser.company_id === requestedCompanyId) || null
+            : null;
+        let selectedCompanyId = requestedCompanyId;
 
-        if (platformAdminCheck.isPlatformAdmin && requestedCompanyId) {
+        if (!selectedCompanyId && activeTechOSMemberships.length === 1) {
+            activeMembership = activeTechOSMemberships[0];
+            selectedCompanyId = activeMembership.company_id;
+            replaceTechOSCompanyRoute(selectedCompanyId);
+        }
+
+        if (!selectedCompanyId && activeTechOSMemberships.length > 1) {
+            setCompanyChoices(activeTechOSMemberships);
+            setCheckingAccess(false);
+            setMessage('Choose a company to open TechOS.');
+            return;
+        }
+
+        if (platformAdminCheck.isPlatformAdmin && selectedCompanyId) {
             setMembership(activeMembership);
             setIsPlatformAdminAccess(true);
             setTechOSMode('platform-preview');
-            setActiveCompanyId(requestedCompanyId);
+            setActiveCompanyId(selectedCompanyId);
             await Promise.all([
-                loadCompanyBrand(requestedCompanyId),
-                loadCompanyClients(requestedCompanyId),
-                loadActiveTechnicians(requestedCompanyId),
-                loadCompanyJobs(requestedCompanyId, 'platform-preview'),
+                loadCompanyBrand(selectedCompanyId),
+                loadCompanyClients(selectedCompanyId),
+                loadActiveTechnicians(selectedCompanyId),
+                loadCompanyJobs(selectedCompanyId, 'platform-preview'),
             ]);
             setCheckingAccess(false);
             setMessage('');
@@ -278,7 +281,7 @@ export default function TechOSScreen() {
             setMessage(
                 platformAdminCheck.isPlatformAdmin
                     ? 'Choose a company before opening TechOS as a platform admin.'
-                    : 'TechOS is available to active company technicians, managers, admins, and owners.'
+                    : 'No company access found.'
             );
             return;
         }
@@ -290,7 +293,7 @@ export default function TechOSScreen() {
         if (nextMode === 'technician') {
             await Promise.all([
                 loadCompanyBrand(activeMembership.company_id),
-                loadAssignedTechnicianJobs(),
+                loadAssignedTechnicianJobs(activeMembership.company_id),
             ]);
         } else {
             await Promise.all([
@@ -402,7 +405,7 @@ export default function TechOSScreen() {
         setPropertiesById(nextPropertiesById);
     }
 
-    async function loadAssignedTechnicianJobs() {
+    async function loadAssignedTechnicianJobs(companyIdToLoad: string) {
         setJobLoading(true);
         setAssignmentModelReady(false);
 
@@ -414,7 +417,7 @@ export default function TechOSScreen() {
             }
 
             setAssignmentModelReady(true);
-            setJobs((data || []) as TechOSJob[]);
+            setJobs(((data || []) as TechOSJob[]).filter((job) => job.company_id === companyIdToLoad));
             setJobMessage('');
         } catch (error) {
             setJobs([]);
@@ -589,6 +592,16 @@ export default function TechOSScreen() {
     }
 
     if (!membership && !isPlatformAdminAccess) {
+        if (companyChoices.length > 1) {
+            return (
+                <CompanyPicker
+                    choices={companyChoices}
+                    message={message}
+                    onSelectCompany={replaceTechOSCompanyRoute}
+                />
+            );
+        }
+
         return <AccessMessage title="TechOS" message={message} />;
     }
 
@@ -816,7 +829,69 @@ function AccessMessage({ title, message }: { title: string; message: string }) {
                     <ThemedButton
                         title="Back to Home"
                         variant="secondary"
-                        onPress={() => router.push('/' as any)}
+                        onPress={() => router.push('/' as never)}
+                        style={{ marginTop: 16 }}
+                    />
+                </ThemedCard>
+            </View>
+        </ScrollView>
+    );
+}
+
+function CompanyPicker({
+    choices,
+    message,
+    onSelectCompany,
+}: {
+    choices: CompanyUserAccess[];
+    message: string;
+    onSelectCompany: (companyId: string) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ScrollView
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentContainerStyle={{ padding: 20, alignItems: 'center' }}
+        >
+            <View style={{ width: '100%', maxWidth: 720 }}>
+                <HomeHeader />
+                <ThemedCard>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>TechOS</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        {message || 'Choose a company to open TechOS.'}
+                    </Text>
+                    <View style={technicianPickerStyle}>
+                        {choices.map((choice) => (
+                            <TouchableOpacity
+                                key={choice.company_id}
+                                onPress={() => onSelectCompany(choice.company_id)}
+                                style={[
+                                    technicianPickerRowStyle,
+                                    {
+                                        borderColor: theme.colors.border,
+                                        backgroundColor: theme.colors.surface,
+                                    },
+                                ]}
+                            >
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text style={[technicianPickerNameStyle, { color: theme.colors.text }]}>
+                                        Company {shortId(choice.company_id)}
+                                    </Text>
+                                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                        Role: {formatLabel(choice.role)} · Status: {formatStatus(choice.status)}
+                                    </Text>
+                                </View>
+                                <Text style={[technicianPickerActionStyle, { color: theme.colors.primary }]}>
+                                    Open
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                    <ThemedButton
+                        title="Back to Home"
+                        variant="secondary"
+                        onPress={() => router.push('/' as never)}
                         style={{ marginTop: 16 }}
                     />
                 </ThemedCard>
@@ -1554,10 +1629,29 @@ function normalizeStatus(status?: string | null) {
     return normalizeCompanyStatus(status);
 }
 
+function toCompanyUserAccess(access: CompanyRouteAccessRow): CompanyUserAccess {
+    return {
+        id: access.id || access.company_id,
+        company_id: access.company_id,
+        full_name: access.full_name,
+        email: access.email,
+        role: access.role,
+        status: access.status,
+        created_at: access.created_at,
+        permissions: typeof access.can_view_techos === 'boolean'
+            ? { can_view_techos: access.can_view_techos }
+            : null,
+    };
+}
+
 function firstParam(value?: string | string[]) {
     if (Array.isArray(value)) return value[0] || '';
 
     return value || '';
+}
+
+function replaceTechOSCompanyRoute(companyIdToOpen: string) {
+    router.replace(`/techos?companyId=${encodeURIComponent(companyIdToOpen)}` as never);
 }
 
 function getReadableColor(color: string) {
