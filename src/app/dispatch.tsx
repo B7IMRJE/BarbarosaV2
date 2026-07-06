@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { Alert, AppState, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -52,6 +52,16 @@ type ServiceRequestEvent = {
     event_type: string | null;
     message: string | null;
     created_at: string | null;
+};
+
+type ScheduleSlot = {
+    id: string;
+    company_id: string;
+    service_request_id: string | null;
+    technician_company_user_id: string;
+    start_at: string | null;
+    end_at: string | null;
+    status: string | null;
 };
 
 type CompanyUser = {
@@ -112,6 +122,8 @@ export default function DispatchBoardScreen() {
     const [leadCountError, setLeadCountError] = useState('');
     const [eventsByRequestId, setEventsByRequestId] = useState<Record<string, ServiceRequestEvent[]>>({});
     const [eventsMessage, setEventsMessage] = useState('');
+    const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlot[]>([]);
+    const [scheduleSlotsMessage, setScheduleSlotsMessage] = useState('');
     const [message, setMessage] = useState('Loading Dispatch Board...');
     const [rpcStatusMessage, setRpcStatusMessage] = useState('');
     const [authDebug, setAuthDebug] = useState<DispatchAuthDebug | null>(null);
@@ -127,7 +139,6 @@ export default function DispatchBoardScreen() {
     const assignedScheduledRequests = requests.filter((request) => isAssignedOrScheduledStatus(request.status));
     const inProgressRequests = requests.filter((request) => isInProgressStatus(request.status));
     const completedRequests = requests.filter((request) => isCompletedStatus(request.status));
-    const scheduledRequests = requests.filter((request) => normalizeStatus(request.status) === 'scheduled');
     const cancelledRequests = requests.filter((request) => ['cancelled', 'canceled', 'archived'].includes(normalizeStatus(request.status)));
     const cardBasis = viewportWidth <= 700 ? '100%' : '31.8%';
 
@@ -149,6 +160,7 @@ export default function DispatchBoardScreen() {
                 await Promise.all([
                     loadDispatchRequests(companyIdToRefresh),
                     loadActiveTechnicians(companyIdToRefresh),
+                    loadScheduleSlots(companyIdToRefresh),
                 ]);
             } finally {
                 dispatchRefreshInFlight.current = false;
@@ -192,6 +204,8 @@ export default function DispatchBoardScreen() {
         setLeadCountError('');
         setEventsByRequestId({});
         setEventsMessage('');
+        setScheduleSlots([]);
+        setScheduleSlotsMessage('');
         setRpcStatusMessage('');
         setAuthDebug(null);
         setActiveTechnicians([]);
@@ -258,6 +272,7 @@ export default function DispatchBoardScreen() {
             loadCompany(access.company_id),
             loadActiveTechnicians(access.company_id),
             loadDispatchRequests(access.company_id),
+            loadScheduleSlots(access.company_id),
         ]);
         setLoading(false);
     }
@@ -309,6 +324,30 @@ export default function DispatchBoardScreen() {
         setActiveTechnicians(
             result.data.filter((member) => isActiveStatus(member.status) && isTechnicianRole(member.role))
         );
+    }
+
+    async function loadScheduleSlots(companyIdToLoad: string) {
+        const windowStart = new Date();
+        const windowEnd = new Date();
+        windowStart.setDate(windowStart.getDate() - 30);
+        windowEnd.setDate(windowEnd.getDate() + 30);
+
+        const { data, error } = await supabase
+            .from('job_schedule_slots')
+            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status')
+            .eq('company_id', companyIdToLoad)
+            .gte('start_at', windowStart.toISOString())
+            .lte('start_at', windowEnd.toISOString())
+            .order('start_at', { ascending: true });
+
+        if (error) {
+            setScheduleSlots([]);
+            setScheduleSlotsMessage(`Schedule conflict check unavailable: ${error.message}`);
+            return;
+        }
+
+        setScheduleSlots(normalizeScheduleSlots(data));
+        setScheduleSlotsMessage('');
     }
 
     async function loadRequestEvents(loadedRequests: DispatchRequest[]) {
@@ -421,6 +460,46 @@ export default function DispatchBoardScreen() {
         const endAt = new Date(startAt.getTime() + duration * 60 * 1000);
         const arrivalStart = parseOptionalLocalDateTime(form.date, form.arrivalWindowStart) || startAt;
         const arrivalEnd = parseOptionalLocalDateTime(form.date, form.arrivalWindowEnd) || endAt;
+        const selectedTechnician = activeTechnicians.find((technician) => technician.id === form.technicianCompanyUserId) || null;
+
+        try {
+            const freshTechnicianSlots = await loadTechnicianScheduleSlots({
+                companyId: request.company_id,
+                technicianCompanyUserId: form.technicianCompanyUserId,
+                startAt,
+                endAt,
+            });
+            const conflict = findScheduleConflict(
+                mergeScheduleSlots(scheduleSlots, freshTechnicianSlots),
+                form.technicianCompanyUserId,
+                startAt,
+                endAt
+            );
+
+            if (conflict) {
+                setRequestActionMessageById((current) => ({
+                    ...current,
+                    [request.id]: `Schedule conflict: ${selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'This technician'} is already booked from ${formatScheduleConflictRange(conflict)}.`,
+                }));
+                return;
+            }
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+            if (isScheduleBackendMissingMessage(normalizeStatus(errorMessage))) {
+                setRequestActionMessageById((current) => ({
+                    ...current,
+                    [request.id]: 'Tech assignment backend not connected yet.',
+                }));
+                return;
+            }
+
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: `Could not check schedule conflicts: ${errorMessage}`,
+            }));
+            return;
+        }
 
         setActionRequestId(request.id);
         setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Scheduling request...' }));
@@ -457,49 +536,64 @@ export default function DispatchBoardScreen() {
             ...current,
             [request.id]: `Scheduled for ${formatDateTime(startAt.toISOString())}.`,
         }));
-        await loadDispatchRequests(request.company_id);
+        await Promise.all([
+            loadDispatchRequests(request.company_id),
+            loadScheduleSlots(request.company_id),
+        ]);
     }
 
     async function handleCancelRequest(request: DispatchRequest) {
         const form = scheduleFormByRequestId[request.id] || createDefaultScheduleForm();
+        const confirmed = await confirmRequestAction('Cancel this request?');
+
+        if (!confirmed) return;
+
         setActionRequestId(request.id);
         setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Cancelling request...' }));
 
-        const { error } = await supabase.rpc('cancel_service_request', {
-            p_service_request_id: request.id,
-            p_reason: form.cancelReason.trim() || null,
-        });
-
-        setActionRequestId(null);
-
-        if (error) {
-            setRequestActionMessageById((current) => ({ ...current, [request.id]: `Could not cancel request: ${error.message}` }));
-            return;
+        try {
+            await updateRequestClosedStatus({
+                requestId: request.id,
+                status: 'cancelled',
+                reason: form.cancelReason.trim(),
+            });
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request cancelled.' }));
+            await loadDispatchRequests(request.company_id);
+        } catch (error) {
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: `Could not cancel request: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            }));
+        } finally {
+            setActionRequestId(null);
         }
-
-        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request cancelled.' }));
-        await loadDispatchRequests(request.company_id);
     }
 
     async function handleArchiveRequest(request: DispatchRequest) {
         const form = scheduleFormByRequestId[request.id] || createDefaultScheduleForm();
+        const confirmed = await confirmRequestAction('Archive this request?');
+
+        if (!confirmed) return;
+
         setActionRequestId(request.id);
         setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Archiving request...' }));
 
-        const { error } = await supabase.rpc('archive_service_request', {
-            p_service_request_id: request.id,
-            p_reason: form.archiveReason.trim() || null,
-        });
-
-        setActionRequestId(null);
-
-        if (error) {
-            setRequestActionMessageById((current) => ({ ...current, [request.id]: `Could not archive request: ${error.message}` }));
-            return;
+        try {
+            await updateRequestClosedStatus({
+                requestId: request.id,
+                status: 'archived',
+                reason: form.archiveReason.trim(),
+            });
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request archived.' }));
+            await loadDispatchRequests(request.company_id);
+        } catch (error) {
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: `Could not archive request: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            }));
+        } finally {
+            setActionRequestId(null);
         }
-
-        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request archived.' }));
-        await loadDispatchRequests(request.company_id);
     }
 
     const companyName = company?.public_name || company?.dba_name || company?.name || 'Company';
@@ -556,13 +650,20 @@ export default function DispatchBoardScreen() {
                     </ThemedCard>
                 )}
 
+                {!!scheduleSlotsMessage && (
+                    <ThemedCard style={{ marginBottom: 16 }}>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{scheduleSlotsMessage}</Text>
+                    </ThemedCard>
+                )}
+
                 {loading ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading requests...</Text>
                     </ThemedCard>
                 ) : activeBoardView === 'schedule' ? (
                     <ActivityScheduleFoundation
-                        requests={scheduledRequests}
+                        requests={requests}
+                        scheduleSlots={scheduleSlots}
                         activeTechnicians={activeTechnicians}
                         cardBasis={cardBasis}
                     />
@@ -814,15 +915,27 @@ function LeadCountSummary({
 
 function ActivityScheduleFoundation({
     requests,
+    scheduleSlots,
     activeTechnicians,
     cardBasis,
 }: {
     requests: DispatchRequest[];
+    scheduleSlots: ScheduleSlot[];
     activeTechnicians: CompanyUser[];
     cardBasis: ViewStyle['flexBasis'];
 }) {
     const { theme } = useTheme();
-    const todayRequests = requests.filter((request) => isToday(request.created_at));
+    const todaySlots = scheduleSlots.filter((slot) => isToday(slot.start_at));
+    const weekSlots = scheduleSlots.filter((slot) => isThisWeek(slot.start_at));
+    const requestsById = useMemo(
+        () => requests.reduce<Record<string, DispatchRequest>>((accumulator, request) => {
+            accumulator[request.id] = request;
+            return accumulator;
+        }, {}),
+        [requests]
+    );
+    const activeTechnicianIds = new Set(activeTechnicians.map((technician) => technician.id));
+    const unknownTechnicianSlots = scheduleSlots.filter((slot) => !activeTechnicianIds.has(slot.technician_company_user_id));
 
     // Schedule design intent: after assigning a tech, the job appears here; every technician gets a visible row; blocks stay color-coded and glass-style by status or technician.
     return (
@@ -835,7 +948,7 @@ function ActivityScheduleFoundation({
                     </Text>
                 </View>
                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {requests.length}
+                    {scheduleSlots.length}
                 </Text>
             </View>
 
@@ -843,7 +956,7 @@ function ActivityScheduleFoundation({
                 <ThemedCard style={[scheduleSummaryCardStyle, { flexBasis: cardBasis }]}>
                     <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>Today</Text>
                     <Text style={[requestTitleStyle, { color: theme.colors.text }]}>
-                        {todayRequests.length} scheduled
+                        {todaySlots.length} scheduled
                     </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Scheduled blocks will land here after dispatch assigns time and technician context.
@@ -852,7 +965,7 @@ function ActivityScheduleFoundation({
                 <ThemedCard style={[scheduleSummaryCardStyle, { flexBasis: cardBasis }]}>
                     <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>This Week</Text>
                     <Text style={[requestTitleStyle, { color: theme.colors.text }]}>
-                        {requests.length} scheduled
+                        {weekSlots.length} scheduled
                     </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Every technician schedule should be visible here as assignment data grows.
@@ -860,25 +973,29 @@ function ActivityScheduleFoundation({
                 </ThemedCard>
             </View>
 
-            {requests.length === 0 ? (
+            {scheduleSlots.length === 0 ? (
                 <ThemedCard>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>No scheduled work yet.</Text>
                 </ThemedCard>
             ) : (
                 <View style={scheduleLaneListStyle}>
-                    <ScheduleTechLane
-                        title="Unassigned Scheduled Work"
-                        subtitle="Request schedule rows currently do not expose assigned technician details."
-                        requests={requests}
-                    />
                     {activeTechnicians.slice(0, 8).map((technician) => (
                         <ScheduleTechLane
                             key={technician.id}
                             title={getMemberDisplayName(technician)}
                             subtitle={technician.email || 'Technician'}
-                            requests={[]}
+                            slots={scheduleSlots.filter((slot) => slot.technician_company_user_id === technician.id)}
+                            requestsById={requestsById}
                         />
                     ))}
+                    {unknownTechnicianSlots.length > 0 && (
+                        <ScheduleTechLane
+                            title="Unassigned / Unknown Tech"
+                            subtitle="Schedule rows without a matching active technician."
+                            slots={unknownTechnicianSlots}
+                            requestsById={requestsById}
+                        />
+                    )}
                 </View>
             )}
         </View>
@@ -888,11 +1005,13 @@ function ActivityScheduleFoundation({
 function ScheduleTechLane({
     title,
     subtitle,
-    requests,
+    slots,
+    requestsById,
 }: {
     title: string;
     subtitle: string;
-    requests: DispatchRequest[];
+    slots: ScheduleSlot[];
+    requestsById: Record<string, DispatchRequest>;
 }) {
     const { theme } = useTheme();
 
@@ -906,36 +1025,43 @@ function ScheduleTechLane({
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{subtitle}</Text>
                 </View>
                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {requests.length}
+                    {slots.length}
                 </Text>
             </View>
 
-            {requests.length === 0 ? (
+            {slots.length === 0 ? (
                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>No scheduled work yet.</Text>
             ) : (
                 <View style={scheduleBlockRowStyle}>
-                    {requests.map((request) => (
-                        <View
-                            key={request.id}
-                            style={[
-                                scheduleGlassBlockStyle,
-                                {
-                                    backgroundColor: getScheduleBlockBackground(request),
-                                    borderColor: getScheduleBlockBorder(request),
-                                },
-                            ]}
-                        >
-                            <Text style={[requestTypeStyle, { color: theme.colors.text }]}>
-                                {formatCallType(request)}
-                            </Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.text }]} numberOfLines={1}>
-                                {request.customer_display_name || request.property_display_name || 'Customer Home'}
-                            </Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                                {request.issue_summary || 'No description provided.'}
-                            </Text>
-                        </View>
-                    ))}
+                    {slots.map((slot) => {
+                        const request = slot.service_request_id ? requestsById[slot.service_request_id] || null : null;
+
+                        return (
+                            <View
+                                key={slot.id}
+                                style={[
+                                    scheduleGlassBlockStyle,
+                                    {
+                                        backgroundColor: getScheduleBlockBackground(request),
+                                        borderColor: getScheduleBlockBorder(request),
+                                    },
+                                ]}
+                            >
+                                <Text style={[requestTypeStyle, { color: theme.colors.text }]}>
+                                    {request ? formatCallType(request) : 'Scheduled Work'}
+                                </Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                                    {request?.customer_display_name || request?.property_display_name || `Request ${shortId(slot.service_request_id || slot.id)}`}
+                                </Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                                    {formatTime(slot.start_at)} - {formatTime(slot.end_at)} / {formatLabel(slot.status || request?.status || 'scheduled')}
+                                </Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                                    {request?.issue_summary || 'No description provided.'}
+                                </Text>
+                            </View>
+                        );
+                    })}
                 </View>
             )}
         </ThemedCard>
@@ -1024,7 +1150,6 @@ function DispatchRequestCard({
         return normalizeStatus(`${getMemberDisplayName(technician)} ${technician.email || ''} ${technician.role || ''}`).includes(technicianSearch);
     });
     const scheduledPreview = getSchedulePreview(scheduleForm);
-    const canArchive = request.converted_job_id || ['cancelled', 'canceled', 'converted_to_job', 'archived'].includes(status);
     const selectedDateLabel = formatSelectedScheduleDate(scheduleForm.date);
     const selectedStartLabel = formatSelectedScheduleTime(scheduleForm.startTime);
 
@@ -1292,27 +1417,25 @@ function DispatchRequestCard({
                             textStyle={{ fontSize: 12 }}
                         />
                     </View>
-                    {canArchive && (
-                        <View style={[secondaryActionPanelStyle, { borderColor: theme.colors.border }]}>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                Archive hides old closed or cancelled requests from the active board.
-                            </Text>
-                            <ScheduleInput
-                                label="Archive Reason"
-                                value={scheduleForm.archiveReason}
-                                placeholder="Optional"
-                                onChangeText={(archiveReason) => onUpdateScheduleForm({ archiveReason })}
-                            />
-                            <ThemedButton
-                                title="Archive Request"
-                                variant="secondary"
-                                disabled={acknowledging}
-                                onPress={onArchiveRequest}
-                                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 10 }}
-                                textStyle={{ fontSize: 12 }}
-                            />
-                        </View>
-                    )}
+                    <View style={[secondaryActionPanelStyle, { borderColor: theme.colors.border }]}>
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            Archive hides old or unanswered requests from the active lead list.
+                        </Text>
+                        <ScheduleInput
+                            label="Archive Reason"
+                            value={scheduleForm.archiveReason}
+                            placeholder="Optional"
+                            onChangeText={(archiveReason) => onUpdateScheduleForm({ archiveReason })}
+                        />
+                        <ThemedButton
+                            title="Archive Request"
+                            variant="secondary"
+                            disabled={acknowledging}
+                            onPress={onArchiveRequest}
+                            style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 10 }}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                    </View>
                     {!!actionMessage && (
                         <Text style={[eventNoticeStyle, { color: theme.colors.primary }]}>
                             {actionMessage}
@@ -1431,6 +1554,142 @@ function MiniScheduleCalendar({
             </View>
         </View>
     );
+}
+
+async function loadTechnicianScheduleSlots({
+    companyId,
+    technicianCompanyUserId,
+    startAt,
+    endAt,
+}: {
+    companyId: string;
+    technicianCompanyUserId: string;
+    startAt: Date;
+    endAt: Date;
+}) {
+    const { data, error } = await supabase
+        .from('job_schedule_slots')
+        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status')
+        .eq('company_id', companyId)
+        .eq('technician_company_user_id', technicianCompanyUserId)
+        .lt('start_at', endAt.toISOString())
+        .gt('end_at', startAt.toISOString())
+        .order('start_at', { ascending: true });
+
+    if (error) {
+        throw new Error(error.message);
+    }
+
+    return normalizeScheduleSlots(data);
+}
+
+function normalizeScheduleSlots(data: unknown): ScheduleSlot[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                company_id: readStringField(record, 'company_id') || '',
+                service_request_id: readStringField(record, 'service_request_id'),
+                technician_company_user_id: readStringField(record, 'technician_company_user_id') || '',
+                start_at: readStringField(record, 'start_at'),
+                end_at: readStringField(record, 'end_at'),
+                status: readStringField(record, 'status'),
+            };
+        })
+        .filter((slot) => slot.id && slot.company_id && slot.technician_company_user_id);
+}
+
+function mergeScheduleSlots(currentSlots: ScheduleSlot[], freshSlots: ScheduleSlot[]) {
+    const byId = new Map<string, ScheduleSlot>();
+
+    [...currentSlots, ...freshSlots].forEach((slot) => {
+        byId.set(slot.id, slot);
+    });
+
+    return Array.from(byId.values());
+}
+
+function findScheduleConflict(
+    slots: ScheduleSlot[],
+    technicianCompanyUserId: string,
+    newStart: Date,
+    newEnd: Date
+) {
+    return slots.find((slot) => (
+        slot.technician_company_user_id === technicianCompanyUserId &&
+        isActiveScheduleSlot(slot) &&
+        hasScheduleSlotOverlap(slot, newStart, newEnd)
+    )) || null;
+}
+
+function hasScheduleSlotOverlap(slot: ScheduleSlot, newStart: Date, newEnd: Date) {
+    if (!slot.start_at || !slot.end_at) return false;
+
+    const existingStart = new Date(slot.start_at);
+    const existingEnd = new Date(slot.end_at);
+
+    if (Number.isNaN(existingStart.getTime()) || Number.isNaN(existingEnd.getTime())) return false;
+
+    return newStart < existingEnd && newEnd > existingStart;
+}
+
+function isActiveScheduleSlot(slot: ScheduleSlot) {
+    return !['cancelled', 'canceled', 'completed', 'archived'].includes(normalizeStatus(slot.status));
+}
+
+function formatScheduleConflictRange(slot: ScheduleSlot) {
+    return `${formatDateTime(slot.start_at)} to ${formatTime(slot.end_at)}`;
+}
+
+async function updateRequestClosedStatus({
+    requestId,
+    status,
+    reason,
+}: {
+    requestId: string;
+    status: 'archived' | 'cancelled';
+    reason: string;
+}) {
+    const rpcName = status === 'archived' ? 'archive_service_request' : 'cancel_service_request';
+    const { error } = await supabase.rpc(rpcName, {
+        p_service_request_id: requestId,
+        p_reason: reason || null,
+    });
+
+    if (!error) return;
+
+    if (!isRequestCloseBackendMissingMessage(error.message)) {
+        throw new Error(error.message);
+    }
+
+    const { error: updateError } = await supabase
+        .from('service_requests')
+        .update({
+            status,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', requestId);
+
+    if (updateError) {
+        throw new Error(`${error.message}; direct status update failed: ${updateError.message}`);
+    }
+}
+
+function confirmRequestAction(message: string) {
+    const confirmLike = (globalThis as { confirm?: (message: string) => boolean }).confirm;
+
+    if (typeof confirmLike === 'function') {
+        return Promise.resolve(confirmLike(message));
+    }
+
+    return new Promise<boolean>((resolve) => {
+        Alert.alert('Confirm Request Action', message, [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Confirm', style: 'destructive', onPress: () => resolve(true) },
+        ]);
+    });
 }
 
 async function resolveDispatchCompanyAccess(userId: string, requestedCompanyId: string) {
@@ -1747,23 +2006,42 @@ function isMissingAssignmentBackendMessage(message: string) {
         message.includes('schema cache') ||
         message.includes('could not find the function') ||
         message.includes('function public.schedule_service_request_slot') ||
+        message.includes('job_schedule_slots') ||
         message.includes('schedule_service_request_slot') ||
         message.includes('does not exist')
     );
 }
 
-function getScheduleBlockBackground(request: DispatchRequest) {
-    if (isEmergencyDispatchRequest(request)) return 'rgba(220, 38, 38, 0.13)';
-    if (isInProgressStatus(request.status)) return 'rgba(245, 158, 11, 0.14)';
-    if (isCompletedStatus(request.status)) return 'rgba(4, 120, 87, 0.13)';
+function isScheduleBackendMissingMessage(message: string) {
+    return isMissingAssignmentBackendMessage(message);
+}
+
+function isRequestCloseBackendMissingMessage(message: string) {
+    const normalized = normalizeStatus(message);
+
+    return (
+        normalized.includes('schema cache') ||
+        normalized.includes('could not find the function') ||
+        normalized.includes('function public.archive_service_request') ||
+        normalized.includes('function public.cancel_service_request') ||
+        normalized.includes('archive_service_request') ||
+        normalized.includes('cancel_service_request') ||
+        normalized.includes('does not exist')
+    );
+}
+
+function getScheduleBlockBackground(request: DispatchRequest | null) {
+    if (request && isEmergencyDispatchRequest(request)) return 'rgba(220, 38, 38, 0.13)';
+    if (request && isInProgressStatus(request.status)) return 'rgba(245, 158, 11, 0.14)';
+    if (request && isCompletedStatus(request.status)) return 'rgba(4, 120, 87, 0.13)';
 
     return 'rgba(11, 95, 255, 0.12)';
 }
 
-function getScheduleBlockBorder(request: DispatchRequest) {
-    if (isEmergencyDispatchRequest(request)) return 'rgba(220, 38, 38, 0.32)';
-    if (isInProgressStatus(request.status)) return 'rgba(245, 158, 11, 0.34)';
-    if (isCompletedStatus(request.status)) return 'rgba(4, 120, 87, 0.32)';
+function getScheduleBlockBorder(request: DispatchRequest | null) {
+    if (request && isEmergencyDispatchRequest(request)) return 'rgba(220, 38, 38, 0.32)';
+    if (request && isInProgressStatus(request.status)) return 'rgba(245, 158, 11, 0.34)';
+    if (request && isCompletedStatus(request.status)) return 'rgba(4, 120, 87, 0.32)';
 
     return 'rgba(11, 95, 255, 0.28)';
 }
@@ -1795,6 +2073,24 @@ function isToday(value?: string | null) {
         date.getMonth() === today.getMonth() &&
         date.getDate() === today.getDate()
     );
+}
+
+function isThisWeek(value?: string | null) {
+    if (!value) return false;
+
+    const date = new Date(value);
+    const today = new Date();
+
+    if (Number.isNaN(date.getTime())) return false;
+
+    const startOfWeek = new Date(today);
+    startOfWeek.setHours(0, 0, 0, 0);
+    startOfWeek.setDate(today.getDate() - today.getDay());
+
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 7);
+
+    return date >= startOfWeek && date < endOfWeek;
 }
 
 function formatDateTime(value?: string | null) {

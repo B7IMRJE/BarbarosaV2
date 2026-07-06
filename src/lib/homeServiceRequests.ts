@@ -2,7 +2,10 @@ import {
     getCompanyDispatchRequests,
     type CompanyDispatchRequest,
 } from './companyLeadAlerts';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+
+const LOCAL_SERVICE_REQUEST_UPDATE_KEY = 'homeos_local_service_request_updates_v1';
 
 export type CreatedServiceRequestReceipt = {
     id: string;
@@ -23,6 +26,22 @@ export type CreateHomeownerServiceRequestInput = {
 };
 
 export type CompanyDispatchServiceRequest = CompanyDispatchRequest;
+
+export type ServiceRequestUpdateResult = {
+    status: 'sent' | 'local';
+    message: string;
+};
+
+type LocalServiceRequestUpdate = {
+    id: string;
+    service_request_id: string;
+    company_id: string | null;
+    property_id: string | null;
+    source: 'homeowner_request_update';
+    message: string;
+    status: 'new';
+    created_at: string;
+};
 
 export async function createHomeownerServiceRequest(
     input: CreateHomeownerServiceRequestInput
@@ -95,6 +114,117 @@ export async function linkHomeEmergencyToServiceRequest(input: {
     };
 }
 
+export async function requestHomeownerServiceRequestUpdate(
+    serviceRequestId: string
+): Promise<ServiceRequestUpdateResult> {
+    const requestId = serviceRequestId.trim();
+
+    if (!requestId) {
+        throw new Error('Service request id is required.');
+    }
+
+    const { error } = await supabase.rpc('request_service_request_update', {
+        p_service_request_id: requestId,
+    });
+
+    if (!error) {
+        return {
+            status: 'sent',
+            message: 'Update request sent.',
+        };
+    }
+
+    if (!isServiceRequestMessagingBackendMissing(error.message)) {
+        throw new Error(error.message);
+    }
+
+    await saveLocalServiceRequestUpdate(requestId);
+
+    return {
+        status: 'local',
+        message: 'Update request saved locally, but company messaging is not connected yet.',
+    };
+}
+
+async function saveLocalServiceRequestUpdate(serviceRequestId: string) {
+    const requestContext = await loadServiceRequestContext(serviceRequestId);
+    const nextUpdate: LocalServiceRequestUpdate = {
+        id: createLocalId(),
+        service_request_id: serviceRequestId,
+        company_id: requestContext.company_id,
+        property_id: requestContext.property_id,
+        source: 'homeowner_request_update',
+        message: 'Homeowner requested an update.',
+        status: 'new',
+        created_at: new Date().toISOString(),
+    };
+    const existing = await loadLocalServiceRequestUpdates();
+
+    await AsyncStorage.setItem(
+        LOCAL_SERVICE_REQUEST_UPDATE_KEY,
+        JSON.stringify([nextUpdate, ...existing].slice(0, 50))
+    );
+}
+
+async function loadServiceRequestContext(serviceRequestId: string) {
+    const { data } = await supabase
+        .from('service_requests')
+        .select('company_id, property_id')
+        .eq('id', serviceRequestId)
+        .maybeSingle();
+    const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+
+    return {
+        company_id: readOptionalString(record.company_id),
+        property_id: readOptionalString(record.property_id),
+    };
+}
+
+async function loadLocalServiceRequestUpdates(): Promise<LocalServiceRequestUpdate[]> {
+    try {
+        const raw = await AsyncStorage.getItem(LOCAL_SERVICE_REQUEST_UPDATE_KEY);
+        const parsed: unknown = raw ? JSON.parse(raw) : [];
+
+        return Array.isArray(parsed)
+            ? parsed.filter(isLocalServiceRequestUpdate)
+            : [];
+    } catch {
+        return [];
+    }
+}
+
+function isLocalServiceRequestUpdate(value: unknown): value is LocalServiceRequestUpdate {
+    if (!value || typeof value !== 'object') return false;
+
+    const record = value as Record<string, unknown>;
+
+    return (
+        typeof record.id === 'string' &&
+        typeof record.service_request_id === 'string' &&
+        record.source === 'homeowner_request_update' &&
+        record.status === 'new' &&
+        typeof record.created_at === 'string'
+    );
+}
+
+function isServiceRequestMessagingBackendMissing(message: string) {
+    const normalized = message.toLowerCase();
+
+    return (
+        normalized.includes('schema cache') ||
+        normalized.includes('service_request_events') ||
+        normalized.includes('request_service_request_update') ||
+        normalized.includes('could not find the function') ||
+        normalized.includes('does not exist')
+    );
+}
+
+function createLocalId() {
+    const cryptoLike = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+
+    return cryptoLike?.randomUUID?.() || `local-update-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 async function linkHomeEmergencyWithRpc(emergencyId: string, serviceRequestId: string) {
     const { error } = await supabase.rpc('link_home_emergency_service_request', {
         p_home_emergency_id: emergencyId,
@@ -139,4 +269,10 @@ function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt
 
 function readString(value: unknown) {
     return String(value || '').trim();
+}
+
+function readOptionalString(value: unknown) {
+    const text = readString(value);
+
+    return text || null;
 }

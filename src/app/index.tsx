@@ -13,6 +13,7 @@ import {
   isActivePropertyResolutionError,
   requireActivePropertyMembership,
 } from '../lib/activeProperty';
+import { requestHomeownerServiceRequestUpdate } from '../lib/homeServiceRequests';
 import type { HomeHealthEmergency } from '../lib/homeHealth';
 import { loadActiveHomeIdentity, loadHomeIdentityForProperty, type HomeIdentity } from '../lib/homeIdentity';
 import {
@@ -515,19 +516,16 @@ export default function HomeScreen() {
     setServiceRequestActionId(request.id);
     setServiceRequestMessage('Requesting update...');
 
-    const { error } = await supabase.rpc('request_service_request_update', {
-      p_service_request_id: request.id,
-    });
+    try {
+      const result = await requestHomeownerServiceRequestUpdate(request.id);
 
-    setServiceRequestActionId(null);
-
-    if (error) {
-      setServiceRequestMessage(formatServiceEventError(error.message, 'Service request updates are not installed yet. Review SQL 580 before requesting updates.'));
-      return;
+      setServiceRequestMessage(result.message);
+      await loadHomeServiceRequests(request.property_id);
+    } catch (error) {
+      setServiceRequestMessage(`Request update failed: ${getErrorMessage(error)}`);
+    } finally {
+      setServiceRequestActionId(null);
     }
-
-    setServiceRequestMessage('Update requested. The company dispatch board will show this request.');
-    await loadHomeServiceRequests(request.property_id);
   }
 
   return (
@@ -1104,4 +1102,8 @@ function formatServiceEventError(message: string, setupMessage: string) {
   }
 
   return `Could not update service request: ${message}`;
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Unknown error';
 }

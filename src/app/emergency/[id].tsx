@@ -21,6 +21,7 @@ import {
 import {
     createHomeownerServiceRequest,
     linkHomeEmergencyToServiceRequest,
+    requestHomeownerServiceRequestUpdate,
 } from '../../lib/homeServiceRequests';
 import {
     loadHomeServiceReviewsForEmergency,
@@ -445,18 +446,15 @@ export default function EmergencyDetailScreen() {
         setSaving(true);
         setServiceRequestMessage('Requesting update...');
 
-        const { error } = await supabase.rpc('request_service_request_update', {
-            p_service_request_id: serviceRequestId,
-        });
+        try {
+            const result = await requestHomeownerServiceRequestUpdate(serviceRequestId);
 
-        setSaving(false);
-
-        if (error) {
-            setServiceRequestMessage(`Could not request update: ${error.message}`);
-            return;
+            setServiceRequestMessage(result.message);
+        } catch (error) {
+            setServiceRequestMessage(`Request update failed: ${getErrorMessage(error)}`);
+        } finally {
+            setSaving(false);
         }
-
-        setServiceRequestMessage(`Update requested for service request ${shortId(serviceRequestId)}.`);
     }
 
     async function markResolved() {
