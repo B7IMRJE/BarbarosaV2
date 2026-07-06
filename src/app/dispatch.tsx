@@ -82,15 +82,32 @@ type ScheduleRequestForm = {
     date: string;
     calendarMonth: string;
     startTime: string;
+    durationMode: DurationMode;
     durationMinutes: string;
-    arrivalWindowStart: string;
-    arrivalWindowEnd: string;
+    arrivalWindowMode: ArrivalWindowMode;
+    arrivalWindowHours: string;
     notes: string;
     cancelReason: string;
     archiveReason: string;
 };
 
 type DispatchBoardView = 'activity' | 'schedule';
+type DurationMode = '30' | '60' | '90' | '120' | 'custom';
+type ArrivalWindowMode = '0' | '1' | '2' | '3' | 'custom';
+
+const QUICK_DURATION_OPTIONS: Array<{ label: string; value: Exclude<DurationMode, 'custom'> }> = [
+    { label: '30 min', value: '30' },
+    { label: '60 min', value: '60' },
+    { label: '90 min', value: '90' },
+    { label: '120 min', value: '120' },
+];
+
+const ARRIVAL_WINDOW_OPTIONS: Array<{ label: string; value: Exclude<ArrivalWindowMode, 'custom'> }> = [
+    { label: 'Exact', value: '0' },
+    { label: '1 hr', value: '1' },
+    { label: '2 hr', value: '2' },
+    { label: '3 hr', value: '3' },
+];
 
 function createDefaultScheduleForm(): ScheduleRequestForm {
     const start = getNextScheduleStart();
@@ -101,9 +118,10 @@ function createDefaultScheduleForm(): ScheduleRequestForm {
         date: formatDateInput(start),
         calendarMonth: formatMonthInput(start),
         startTime: formatTimeInput(start),
+        durationMode: '60',
         durationMinutes: '60',
-        arrivalWindowStart: '',
-        arrivalWindowEnd: '',
+        arrivalWindowMode: '0',
+        arrivalWindowHours: '0',
         notes: '',
         cancelReason: '',
         archiveReason: '',
@@ -142,6 +160,7 @@ export default function DispatchBoardScreen() {
     const completedRequests = requests.filter((request) => isCompletedStatus(request.status));
     const cancelledRequests = requests.filter((request) => ['cancelled', 'canceled', 'archived'].includes(normalizeStatus(request.status)));
     const cardBasis = viewportWidth <= 700 ? '100%' : '31.8%';
+    const expandedCardBasis = viewportWidth <= 900 ? '100%' : '65%';
 
     useEffect(() => {
         loadDispatchBoard();
@@ -428,13 +447,30 @@ export default function DispatchBoardScreen() {
         }));
     }
 
+    function toggleExpandedRequest(requestId: string) {
+        setScheduleFormByRequestId((current) => (
+            current[requestId]
+                ? current
+                : {
+                    ...current,
+                    [requestId]: createDefaultScheduleForm(),
+                }
+        ));
+        setExpandedRequestId((current) => (current === requestId ? null : requestId));
+    }
+
+    function collapseExpandedRequest() {
+        setExpandedRequestId(null);
+    }
+
     async function handleScheduleRequest(request: DispatchRequest) {
         const form = scheduleFormByRequestId[request.id] || createDefaultScheduleForm();
-        const duration = Number.parseInt(form.durationMinutes, 10);
+        const duration = getScheduleDurationMinutes(form);
+        const arrivalWindowHours = getArrivalWindowHours(form);
         const startAt = parseLocalDateTime(form.date, form.startTime);
 
         if (!form.technicianCompanyUserId) {
-            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Pick a technician.' }));
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Select a technician before scheduling.' }));
             return;
         }
 
@@ -453,14 +489,24 @@ export default function DispatchBoardScreen() {
             return;
         }
 
-        if (!Number.isFinite(duration) || duration <= 0) {
-            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Enter a valid estimated duration.' }));
+        if (!duration || duration <= 0) {
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: form.durationMode === 'custom'
+                    ? 'Enter a custom duration.'
+                    : 'Enter a valid estimated duration.',
+            }));
+            return;
+        }
+
+        if (arrivalWindowHours === null || arrivalWindowHours < 0) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Enter a custom arrival window.' }));
             return;
         }
 
         const endAt = new Date(startAt.getTime() + duration * 60 * 1000);
-        const arrivalStart = parseOptionalLocalDateTime(form.date, form.arrivalWindowStart) || startAt;
-        const arrivalEnd = parseOptionalLocalDateTime(form.date, form.arrivalWindowEnd) || endAt;
+        const arrivalStart = startAt;
+        const arrivalEnd = new Date(startAt.getTime() + arrivalWindowHours * 60 * 60 * 1000);
         const selectedTechnician = activeTechnicians.find((technician) => technician.id === form.technicianCompanyUserId) || null;
 
         try {
@@ -683,7 +729,9 @@ export default function DispatchBoardScreen() {
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
-                            onToggleRequest={setExpandedRequestId}
+                            expandedCardBasis={expandedCardBasis}
+                            onToggleRequest={toggleExpandedRequest}
+                            onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
@@ -701,7 +749,9 @@ export default function DispatchBoardScreen() {
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
-                            onToggleRequest={setExpandedRequestId}
+                            expandedCardBasis={expandedCardBasis}
+                            onToggleRequest={toggleExpandedRequest}
+                            onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
@@ -719,7 +769,9 @@ export default function DispatchBoardScreen() {
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
-                            onToggleRequest={setExpandedRequestId}
+                            expandedCardBasis={expandedCardBasis}
+                            onToggleRequest={toggleExpandedRequest}
+                            onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
@@ -737,7 +789,9 @@ export default function DispatchBoardScreen() {
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
-                            onToggleRequest={setExpandedRequestId}
+                            expandedCardBasis={expandedCardBasis}
+                            onToggleRequest={toggleExpandedRequest}
+                            onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
@@ -755,7 +809,9 @@ export default function DispatchBoardScreen() {
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
-                            onToggleRequest={setExpandedRequestId}
+                            expandedCardBasis={expandedCardBasis}
+                            onToggleRequest={toggleExpandedRequest}
+                            onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
@@ -780,7 +836,9 @@ function DispatchSection({
     actionRequestId,
     expandedRequestId,
     cardBasis,
+    expandedCardBasis,
     onToggleRequest,
+    onCollapseRequest,
     onAcknowledge,
     activeTechnicians,
     scheduleFormByRequestId,
@@ -797,7 +855,9 @@ function DispatchSection({
     actionRequestId: string | null;
     expandedRequestId: string | null;
     cardBasis: ViewStyle['flexBasis'];
-    onToggleRequest: (requestId: string | null) => void;
+    expandedCardBasis: ViewStyle['flexBasis'];
+    onToggleRequest: (requestId: string) => void;
+    onCollapseRequest: () => void;
     onAcknowledge: (request: DispatchRequest) => void;
     activeTechnicians: CompanyUser[];
     scheduleFormByRequestId: Record<string, ScheduleRequestForm>;
@@ -837,15 +897,9 @@ function DispatchSection({
                             acknowledging={actionRequestId === request.id}
                             expanded={expandedRequestId === request.id}
                             cardBasis={cardBasis}
-                            onToggle={() => {
-                                const nextRequestId = expandedRequestId === request.id ? null : request.id;
-
-                                if (nextRequestId && !scheduleFormByRequestId[request.id]) {
-                                    onUpdateScheduleForm(request.id, {});
-                                }
-
-                                onToggleRequest(nextRequestId);
-                            }}
+                            expandedCardBasis={expandedCardBasis}
+                            onToggle={() => onToggleRequest(request.id)}
+                            onCollapse={onCollapseRequest}
                             onAcknowledge={onAcknowledge}
                             activeTechnicians={activeTechnicians}
                             scheduleForm={scheduleFormByRequestId[request.id] || createDefaultScheduleForm()}
@@ -1119,7 +1173,9 @@ function DispatchRequestCard({
     acknowledging,
     expanded,
     cardBasis,
+    expandedCardBasis,
     onToggle,
+    onCollapse,
     onAcknowledge,
     activeTechnicians,
     scheduleForm,
@@ -1134,7 +1190,9 @@ function DispatchRequestCard({
     acknowledging: boolean;
     expanded: boolean;
     cardBasis: ViewStyle['flexBasis'];
+    expandedCardBasis: ViewStyle['flexBasis'];
     onToggle: () => void;
+    onCollapse: () => void;
     onAcknowledge: (request: DispatchRequest) => void;
     activeTechnicians: CompanyUser[];
     scheduleForm: ScheduleRequestForm;
@@ -1155,12 +1213,23 @@ function DispatchRequestCard({
 
         return normalizeStatus(`${getMemberDisplayName(technician)} ${technician.email || ''} ${technician.role || ''}`).includes(technicianSearch);
     });
-    const scheduledPreview = getSchedulePreview(scheduleForm);
+    const durationMinutes = getScheduleDurationMinutes(scheduleForm);
+    const arrivalWindowHours = getArrivalWindowHours(scheduleForm);
+    const arrivalWindowPreview = getArrivalWindowPreview(scheduleForm);
     const selectedDateLabel = formatSelectedScheduleDate(scheduleForm.date);
     const selectedStartLabel = formatSelectedScheduleTime(scheduleForm.startTime);
 
     return (
-        <ThemedCard onPress={expanded ? undefined : onToggle} style={[requestCardStyle, { flexBasis: cardBasis }]}>
+        <ThemedCard
+            onPress={expanded ? undefined : onToggle}
+            style={[
+                requestCardStyle,
+                {
+                    flexBasis: expanded ? expandedCardBasis : cardBasis,
+                    flexGrow: expanded ? 1 : 0,
+                },
+            ]}
+        >
             <View style={requestTopRowStyle}>
                 <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>{formatCallType(request)}</Text>
                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
@@ -1216,7 +1285,7 @@ function DispatchRequestCard({
                     <ThemedButton
                         title="Collapse"
                         variant="ghost"
-                        onPress={onToggle}
+                        onPress={onCollapse}
                         style={{ alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12 }}
                         textStyle={{ fontSize: 12 }}
                     />
@@ -1237,142 +1306,225 @@ function DispatchRequestCard({
                     <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
                         Schedule / Assign
                     </Text>
-                    <View style={[schedulerPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
-                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                            Technician: {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Not selected'}
-                        </Text>
-                        {!!selectedTechnician && (
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                Selected technician ID: {shortId(selectedTechnician.id)}
-                            </Text>
-                        )}
-                        <TextInput
-                            value={scheduleForm.technicianSearch}
-                            onChangeText={(technicianSearchText) => onUpdateScheduleForm({ technicianSearch: technicianSearchText })}
-                            placeholder="Search technicians"
-                            placeholderTextColor={theme.colors.mutedText}
-                            style={[scheduleTextInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
-                        />
-                        {activeTechnicians.length === 0 ? (
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                No active technicians found for this company.
-                            </Text>
-                        ) : visibleTechnicians.length === 0 ? (
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                No technicians match that search.
-                            </Text>
-                        ) : (
-                            <View style={technicianPickerStyle}>
-                                {visibleTechnicians.slice(0, 6).map((technician) => {
-                                    const selected = scheduleForm.technicianCompanyUserId === technician.id;
+                    <View style={scheduleFormRowsStyle}>
+                        <View style={[schedulerPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+                            <View style={schedulePanelHeaderStyle}>
+                                <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Technician</Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'No technician selected'}
+                                </Text>
+                            </View>
+                            <TextInput
+                                value={scheduleForm.technicianSearch}
+                                onChangeText={(technicianSearchText) => onUpdateScheduleForm({ technicianSearch: technicianSearchText })}
+                                placeholder="Search technicians"
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[scheduleTextInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                            {activeTechnicians.length === 0 ? (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    No active technicians found for this company.
+                                </Text>
+                            ) : visibleTechnicians.length === 0 ? (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    No technicians match that search.
+                                </Text>
+                            ) : (
+                                <View style={technicianPickerStyle}>
+                                    {visibleTechnicians.slice(0, 6).map((technician) => {
+                                        const selected = scheduleForm.technicianCompanyUserId === technician.id;
 
-                                    return (
+                                        return (
+                                            <ThemedButton
+                                                key={technician.id}
+                                                title={`${getMemberDisplayName(technician)}${technician.email ? ` / ${technician.email}` : ''}`}
+                                                variant={selected ? 'primary' : 'secondary'}
+                                                onPress={() => onUpdateScheduleForm({ technicianCompanyUserId: technician.id })}
+                                                style={technicianButtonStyle}
+                                                textStyle={{ fontSize: 12 }}
+                                            />
+                                        );
+                                    })}
+                                </View>
+                            )}
+                        </View>
+
+                        <View style={[schedulerPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+                            <View style={schedulePanelHeaderStyle}>
+                                <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Date + Start Time</Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    {selectedDateLabel} / {selectedStartLabel}
+                                </Text>
+                            </View>
+                            <View style={scheduleFieldGridStyle}>
+                                <ScheduleInput
+                                    label="Date"
+                                    value={scheduleForm.date}
+                                    placeholder="YYYY-MM-DD"
+                                    onChangeText={(date) => onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) })}
+                                />
+                                <View style={scheduleInputWrapStyle}>
+                                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Quick Dates</Text>
+                                    <View style={compactActionRowStyle}>
                                         <ThemedButton
-                                            key={technician.id}
-                                            title={`${getMemberDisplayName(technician)}${technician.email ? ` / ${technician.email}` : ''}`}
-                                            variant={selected ? 'primary' : 'secondary'}
-                                            onPress={() => onUpdateScheduleForm({ technicianCompanyUserId: technician.id })}
-                                            style={technicianButtonStyle}
+                                            title="Today"
+                                            variant={isDateOffsetSelected(scheduleForm.date, 0) ? 'primary' : 'secondary'}
+                                            onPress={() => {
+                                                const date = dateTextForOffset(0);
+                                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
+                                            }}
+                                            style={quickScheduleButtonStyle}
                                             textStyle={{ fontSize: 12 }}
                                         />
-                                    );
-                                })}
+                                        <ThemedButton
+                                            title="Tomorrow"
+                                            variant={isDateOffsetSelected(scheduleForm.date, 1) ? 'primary' : 'secondary'}
+                                            onPress={() => {
+                                                const date = dateTextForOffset(1);
+                                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
+                                            }}
+                                            style={quickScheduleButtonStyle}
+                                            textStyle={{ fontSize: 12 }}
+                                        />
+                                        <ThemedButton
+                                            title="+2 Days"
+                                            variant={isDateOffsetSelected(scheduleForm.date, 2) ? 'primary' : 'secondary'}
+                                            onPress={() => {
+                                                const date = dateTextForOffset(2);
+                                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
+                                            }}
+                                            style={quickScheduleButtonStyle}
+                                            textStyle={{ fontSize: 12 }}
+                                        />
+                                    </View>
+                                </View>
                             </View>
-                        )}
+                            <View style={compactActionRowStyle}>
+                                {[
+                                    ['8:00 AM', '08:00'],
+                                    ['9:00 AM', '09:00'],
+                                    ['10:00 AM', '10:00'],
+                                    ['11:00 AM', '11:00'],
+                                    ['12:00 PM', '12:00'],
+                                    ['1:00 PM', '13:00'],
+                                    ['2:00 PM', '14:00'],
+                                    ['3:00 PM', '15:00'],
+                                    ['4:00 PM', '16:00'],
+                                    ['5:00 PM', '17:00'],
+                                ].map(([label, startTime]) => (
+                                    <ThemedButton
+                                        key={startTime}
+                                        title={label}
+                                        variant={scheduleForm.startTime === startTime ? 'primary' : 'secondary'}
+                                        onPress={() => onUpdateScheduleForm({ startTime })}
+                                        style={quickScheduleButtonStyle}
+                                        textStyle={{ fontSize: 12 }}
+                                    />
+                                ))}
+                            </View>
+                        </View>
+
+                        <View style={scheduleTwoColumnRowStyle}>
+                            <View style={[schedulerPanelStyle, scheduleHalfPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+                                <View style={schedulePanelHeaderStyle}>
+                                    <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Duration</Text>
+                                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                        {formatDurationSummary(durationMinutes)}
+                                    </Text>
+                                </View>
+                                <View style={compactActionRowStyle}>
+                                    {QUICK_DURATION_OPTIONS.map((option) => (
+                                        <ThemedButton
+                                            key={option.value}
+                                            title={option.label}
+                                            variant={scheduleForm.durationMode === option.value ? 'primary' : 'secondary'}
+                                            onPress={() => onUpdateScheduleForm({ durationMode: option.value, durationMinutes: option.value })}
+                                            style={quickScheduleButtonStyle}
+                                            textStyle={{ fontSize: 12 }}
+                                        />
+                                    ))}
+                                    <ThemedButton
+                                        title="Custom"
+                                        variant={scheduleForm.durationMode === 'custom' ? 'primary' : 'secondary'}
+                                        onPress={() => onUpdateScheduleForm({
+                                            durationMode: 'custom',
+                                            durationMinutes: scheduleForm.durationMode === 'custom' ? scheduleForm.durationMinutes : '',
+                                        })}
+                                        style={quickScheduleButtonStyle}
+                                        textStyle={{ fontSize: 12 }}
+                                    />
+                                </View>
+                                <ScheduleInput
+                                    label="Custom Duration (min)"
+                                    value={scheduleForm.durationMode === 'custom' ? scheduleForm.durationMinutes : ''}
+                                    placeholder="Minutes"
+                                    onChangeText={(durationMinutesText) => onUpdateScheduleForm({ durationMode: 'custom', durationMinutes: durationMinutesText })}
+                                />
+                            </View>
+
+                            <View style={[schedulerPanelStyle, scheduleHalfPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+                                <View style={schedulePanelHeaderStyle}>
+                                    <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Arrival Window</Text>
+                                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                        {formatArrivalWindowSummary(arrivalWindowHours)}
+                                    </Text>
+                                </View>
+                                <View style={compactActionRowStyle}>
+                                    {ARRIVAL_WINDOW_OPTIONS.map((option) => (
+                                        <ThemedButton
+                                            key={option.value}
+                                            title={option.label}
+                                            variant={scheduleForm.arrivalWindowMode === option.value ? 'primary' : 'secondary'}
+                                            onPress={() => onUpdateScheduleForm({ arrivalWindowMode: option.value, arrivalWindowHours: option.value })}
+                                            style={quickScheduleButtonStyle}
+                                            textStyle={{ fontSize: 12 }}
+                                        />
+                                    ))}
+                                    <ThemedButton
+                                        title="Custom"
+                                        variant={scheduleForm.arrivalWindowMode === 'custom' ? 'primary' : 'secondary'}
+                                        onPress={() => onUpdateScheduleForm({
+                                            arrivalWindowMode: 'custom',
+                                            arrivalWindowHours: scheduleForm.arrivalWindowMode === 'custom' ? scheduleForm.arrivalWindowHours : '',
+                                        })}
+                                        style={quickScheduleButtonStyle}
+                                        textStyle={{ fontSize: 12 }}
+                                    />
+                                </View>
+                                <ScheduleInput
+                                    label="Custom Arrival Window (hr)"
+                                    value={scheduleForm.arrivalWindowMode === 'custom' ? scheduleForm.arrivalWindowHours : ''}
+                                    placeholder="Hours"
+                                    onChangeText={(arrivalWindowHoursText) => onUpdateScheduleForm({ arrivalWindowMode: 'custom', arrivalWindowHours: arrivalWindowHoursText })}
+                                />
+                            </View>
+                        </View>
+
+                        <View style={[schedulerPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+                            <View style={scheduleFieldGridStyle}>
+                                <ScheduleInput
+                                    label="Notes"
+                                    value={scheduleForm.notes}
+                                    placeholder="Optional"
+                                    onChangeText={(notes) => onUpdateScheduleForm({ notes })}
+                                />
+                            </View>
+                        </View>
                     </View>
-                    <MiniScheduleCalendar
-                        selectedDate={scheduleForm.date}
-                        calendarMonth={scheduleForm.calendarMonth}
-                        onSelectDate={(date) => onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) })}
-                        onChangeMonth={(calendarMonth) => onUpdateScheduleForm({ calendarMonth })}
-                    />
-                    <View style={compactActionRowStyle}>
-                        <ThemedButton
-                            title="Today"
-                            variant={isDateOffsetSelected(scheduleForm.date, 0) ? 'primary' : 'secondary'}
-                            onPress={() => {
-                                const date = dateTextForOffset(0);
-                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
-                            }}
-                            style={compactActionButtonStyle}
-                            textStyle={{ fontSize: 12 }}
-                        />
-                        <ThemedButton
-                            title="Tomorrow"
-                            variant={isDateOffsetSelected(scheduleForm.date, 1) ? 'primary' : 'secondary'}
-                            onPress={() => {
-                                const date = dateTextForOffset(1);
-                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
-                            }}
-                            style={compactActionButtonStyle}
-                            textStyle={{ fontSize: 12 }}
-                        />
-                        <ThemedButton
-                            title="+2 Days"
-                            variant={isDateOffsetSelected(scheduleForm.date, 2) ? 'primary' : 'secondary'}
-                            onPress={() => {
-                                const date = dateTextForOffset(2);
-                                onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) });
-                            }}
-                            style={compactActionButtonStyle}
-                            textStyle={{ fontSize: 12 }}
-                        />
+                    <View style={[scheduleSummaryPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            Scheduled start: {selectedDateLabel} at {selectedStartLabel}
+                        </Text>
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            Estimated duration: {formatDurationSummary(durationMinutes)}
+                        </Text>
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            Arrival window: {formatArrivalWindowSummary(arrivalWindowHours)}
+                        </Text>
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            Window: {arrivalWindowPreview}
+                        </Text>
                     </View>
-                    <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
-                        Start Time
-                    </Text>
-                    <View style={compactActionRowStyle}>
-                        {[
-                            ['8:00 AM', '08:00'],
-                            ['9:00 AM', '09:00'],
-                            ['10:00 AM', '10:00'],
-                            ['11:00 AM', '11:00'],
-                            ['12:00 PM', '12:00'],
-                            ['1:00 PM', '13:00'],
-                            ['2:00 PM', '14:00'],
-                            ['3:00 PM', '15:00'],
-                            ['4:00 PM', '16:00'],
-                            ['5:00 PM', '17:00'],
-                        ].map(([label, startTime]) => (
-                            <ThemedButton
-                                key={startTime}
-                                title={label}
-                                variant={scheduleForm.startTime === startTime ? 'primary' : 'secondary'}
-                                onPress={() => onUpdateScheduleForm({ startTime })}
-                                style={compactActionButtonStyle}
-                                textStyle={{ fontSize: 12 }}
-                            />
-                        ))}
-                    </View>
-                    <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
-                        Estimated Duration
-                    </Text>
-                    <View style={compactActionRowStyle}>
-                        {['30', '60', '90', '120'].map((durationMinutes) => (
-                            <ThemedButton
-                                key={durationMinutes}
-                                title={`${durationMinutes} min`}
-                                variant={scheduleForm.durationMinutes === durationMinutes ? 'primary' : 'secondary'}
-                                onPress={() => onUpdateScheduleForm({ durationMinutes })}
-                                style={compactActionButtonStyle}
-                                textStyle={{ fontSize: 12 }}
-                            />
-                        ))}
-                    </View>
-                    <View style={scheduleFieldGridStyle}>
-                        <ScheduleInput
-                            label="Notes"
-                            value={scheduleForm.notes}
-                            placeholder="Optional"
-                            onChangeText={(notes) => onUpdateScheduleForm({ notes })}
-                        />
-                    </View>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Technician: {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Pick a technician.'} / Date: {selectedDateLabel} / Start: {selectedStartLabel} / Duration: {scheduleForm.durationMinutes || '60'} min
-                    </Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Scheduled window: {scheduledPreview}
-                    </Text>
                     <View style={compactActionRowStyle}>
                         {!request.converted_job_id && status === 'new' && (
                             <ThemedButton
@@ -1873,10 +2025,6 @@ function parseMonthInput(monthText: string) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function parseOptionalLocalDateTime(dateText: string, timeText: string) {
-    return timeText.trim() ? parseLocalDateTime(dateText, timeText) : null;
-}
-
 function getNextScheduleStart() {
     const start = new Date();
     const minutes = start.getMinutes();
@@ -1962,17 +2110,49 @@ function getCalendarDays(monthDate: Date) {
     });
 }
 
-function getSchedulePreview(form: ScheduleRequestForm) {
-    const duration = Number.parseInt(form.durationMinutes, 10);
-    const start = parseLocalDateTime(form.date, form.startTime);
+function getScheduleDurationMinutes(form: ScheduleRequestForm) {
+    const rawDuration = form.durationMode === 'custom' ? form.durationMinutes : form.durationMode;
+    const duration = Number.parseInt(rawDuration, 10);
 
-    if (!start || !Number.isFinite(duration) || duration <= 0) {
-        return 'Pick a date and start time.';
+    return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+function getArrivalWindowHours(form: ScheduleRequestForm) {
+    const rawHours = form.arrivalWindowMode === 'custom' ? form.arrivalWindowHours : form.arrivalWindowMode;
+    const hours = Number.parseFloat(rawHours);
+
+    return Number.isFinite(hours) && hours >= 0 ? hours : null;
+}
+
+function getArrivalWindowPreview(form: ScheduleRequestForm) {
+    const start = parseLocalDateTime(form.date, form.startTime);
+    const arrivalWindowHours = getArrivalWindowHours(form);
+
+    if (!start || arrivalWindowHours === null) {
+        return 'Pick a start time and arrival window.';
     }
 
-    const end = new Date(start.getTime() + duration * 60 * 1000);
+    const arrivalEnd = new Date(start.getTime() + arrivalWindowHours * 60 * 60 * 1000);
 
-    return `${formatScheduleWindowDate(start)} - ${formatTime(end.toISOString())}`;
+    return `${formatTime(start.toISOString())} - ${formatTime(arrivalEnd.toISOString())}`;
+}
+
+function formatDurationSummary(durationMinutes: number | null) {
+    if (!durationMinutes) return 'Not set';
+    if (durationMinutes < 60) return `${durationMinutes} min`;
+
+    const hours = Math.floor(durationMinutes / 60);
+    const minutes = durationMinutes % 60;
+
+    return minutes > 0 ? `${hours} hr ${minutes} min` : `${hours} hr`;
+}
+
+function formatArrivalWindowSummary(hours: number | null) {
+    if (hours === null) return 'Not set';
+    if (hours === 0) return '0 hr / exact time';
+    if (hours === 1) return '1 hr';
+
+    return `${hours} hr`;
 }
 
 function formatSelectedScheduleDate(dateText: string) {
@@ -2304,10 +2484,48 @@ const technicianButtonStyle = {
     paddingVertical: 9,
 };
 
+const scheduleFormRowsStyle = {
+    gap: 10,
+};
+
 const schedulerPanelStyle = {
     borderRadius: 12,
     borderWidth: 1,
     marginTop: 8,
+    padding: 10,
+};
+
+const schedulePanelHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+};
+
+const scheduleTwoColumnRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const scheduleHalfPanelStyle = {
+    flexBasis: 300,
+    flexGrow: 1,
+    minWidth: 260,
+};
+
+const quickScheduleButtonStyle = {
+    flexBasis: 92,
+    flexGrow: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+};
+
+const scheduleSummaryPanelStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 10,
     padding: 10,
 };
 
