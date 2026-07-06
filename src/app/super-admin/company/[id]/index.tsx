@@ -145,7 +145,8 @@ const cards = [
 ];
 
 export default function CompanyDashboardScreen() {
-    const { id } = useLocalSearchParams<{ id: string }>();
+    const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+    const routeCompanyId = normalizeRouteParam(id);
     const { width: viewportWidth } = useWindowDimensions();
     const isPhoneLayout = viewportWidth <= 640;
     const pagePadding = isPhoneLayout ? 16 : 20;
@@ -161,13 +162,14 @@ export default function CompanyDashboardScreen() {
     const [leadCountMessage, setLeadCountMessage] = useState('');
     const [leadCountLoading, setLeadCountLoading] = useState(false);
     const leadRefreshInFlight = useRef(false);
+    const activeCompanyId = company?.id || routeCompanyId;
 
     useEffect(() => {
         loadCompany();
-    }, [id]);
+    }, [routeCompanyId]);
 
     useEffect(() => {
-        const companyIdToLoad = String(id || '').trim();
+        const companyIdToLoad = activeCompanyId;
 
         if (!companyIdToLoad) {
             setLeadCounts(null);
@@ -203,10 +205,10 @@ export default function CompanyDashboardScreen() {
             appStateSubscription.remove();
             focusTarget.removeEventListener?.('focus', handleFocus);
         };
-    }, [id]);
+    }, [activeCompanyId]);
 
     async function loadCompany() {
-        if (!id) {
+        if (!routeCompanyId) {
             setMessage('Missing company id.');
             return;
         }
@@ -238,7 +240,7 @@ export default function CompanyDashboardScreen() {
                     website,
                     short_description
                 `)
-                .eq('id', String(id))
+                .eq('id', routeCompanyId)
                 .single();
             data = result.data || null;
             errorMessage = result.error?.message || '';
@@ -483,30 +485,35 @@ export default function CompanyDashboardScreen() {
         }
     }
     function openModule(card: string) {
+        if (!activeCompanyId) {
+            alert('Missing company id.');
+            return;
+        }
+
         if (card === 'Company Profile / Identity') {
             toggleConfigSection('identity');
             return;
         }
 
         if (card === 'Team / Technicians') {
-            router.push(`/super-admin/company/${id}/users` as any);
+            router.push(`/super-admin/company/${activeCompanyId}/users` as any);
             return;
         }
 
         if (card === 'Settings / Permissions') {
-            router.push(`/super-admin/company/${id}/users` as any);
+            router.push(`/super-admin/company/${activeCompanyId}/users` as any);
             return;
         }
 
         if (card === 'Customers / Clients') {
-            router.push(`/super-admin/company/${id}/clients` as any);
+            router.push(`/super-admin/company/${activeCompanyId}/clients` as any);
             return;
         }
 
         if (card === 'Leads / Requests' || card === 'Jobs / Dispatch') {
             router.push({
                 pathname: '/dispatch',
-                params: { companyId: String(id) },
+                params: { companyId: activeCompanyId },
             } as any);
             return;
         }
@@ -517,12 +524,12 @@ export default function CompanyDashboardScreen() {
         }
 
         if (card === 'Price Book') {
-            router.push(`/super-admin/company/${id}/price-book` as never);
+            router.push(`/super-admin/company/${activeCompanyId}/price-book` as never);
             return;
         }
 
         if (card === 'Knowledge Engine') {
-            router.push(`/super-admin/company/${id}/knowledge-engine` as never);
+            router.push(`/super-admin/company/${activeCompanyId}/knowledge-engine` as never);
             return;
         }
 
@@ -553,7 +560,7 @@ export default function CompanyDashboardScreen() {
         >
             <View style={{ width: '100%', maxWidth: 1180, minWidth: 0 }}>
                 <AdminNavBar
-                    companyId={String(id || '')}
+                    companyId={activeCompanyId}
                     backFallback="/super-admin/companies"
                     showBack={false}
                 />
@@ -806,9 +813,13 @@ export default function CompanyDashboardScreen() {
                         primaryColor={brandPrimary}
                         onOpen={() => router.push({
                             pathname: '/dispatch',
-                            params: { companyId: String(id) },
+                            params: { companyId: activeCompanyId },
                         } as never)}
-                        onRefresh={() => loadCompanyLeadCounts(String(id))}
+                        onRefresh={() => {
+                            if (activeCompanyId) {
+                                void loadCompanyLeadCounts(activeCompanyId);
+                            }
+                        }}
                     />
 
                     <View
@@ -1647,6 +1658,10 @@ function getErrorMessage(error: unknown) {
     if (typeof error === 'string') return error;
 
     return HOMEOS_SERVICE_ERROR_MESSAGE;
+}
+
+function normalizeRouteParam(value?: string | string[]) {
+    return (Array.isArray(value) ? value[0] || '' : value || '').trim();
 }
 
 function getFileExtension(fileName: string) {

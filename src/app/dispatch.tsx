@@ -1,6 +1,7 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import AdminNavBar from '../components/AdminNavBar';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -597,6 +598,10 @@ export default function DispatchBoardScreen() {
     }
 
     const companyName = company?.public_name || company?.dba_name || company?.name || 'Company';
+    const dispatchCompanyId = companyAccess?.company_id || requestedCompanyId;
+    const dispatchBackFallback = dispatchCompanyId
+        ? (`/super-admin/company/${dispatchCompanyId}` as Href)
+        : ('/super-admin' as Href);
 
     return (
         <ScrollView
@@ -605,6 +610,7 @@ export default function DispatchBoardScreen() {
         >
             <View style={{ width: '100%', maxWidth: 1120 }}>
                 <HomeHeader />
+                <AdminNavBar companyId={dispatchCompanyId} backFallback={dispatchBackFallback} />
 
                 <ThemedCard style={{ marginBottom: 16 }}>
                     <Text style={[kickerStyle, { color: theme.colors.primary }]}>Service Desk</Text>

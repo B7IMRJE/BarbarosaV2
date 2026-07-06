@@ -1,6 +1,7 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
+import AdminNavBar from '../components/AdminNavBar';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -60,6 +61,10 @@ export default function ScheduleBoardScreen() {
         () => groupScheduleSlotsByDate(selectedTechnicianSlots),
         [selectedTechnicianSlots]
     );
+    const scheduleCompanyId = access?.company_id || requestedCompanyId;
+    const scheduleBackFallback = scheduleCompanyId
+        ? (`/super-admin/company/${scheduleCompanyId}` as Href)
+        : ('/super-admin' as Href);
 
     useEffect(() => {
         loadScheduleBoard();
@@ -179,6 +184,7 @@ export default function ScheduleBoardScreen() {
         >
             <View style={{ width: '100%', maxWidth: 1120 }}>
                 <HomeHeader />
+                <AdminNavBar companyId={scheduleCompanyId} backFallback={scheduleBackFallback} />
 
                 <ThemedCard style={{ marginBottom: 16 }}>
                     <Text style={{ color: theme.colors.primary, fontSize: 13, fontWeight: '900', marginBottom: 6 }}>
