@@ -58,7 +58,8 @@ export async function getCompanyDispatchRequests(companyId: string): Promise<Com
 
     return rows
         .map(parseCompanyDispatchRequest)
-        .filter((request): request is CompanyDispatchRequest => Boolean(request));
+        .filter((request): request is CompanyDispatchRequest => Boolean(request))
+        .filter((request) => request.company_id === normalizedCompanyId);
 }
 
 export async function getCompanyLeadCounts(companyId: string): Promise<CompanyLeadCounts> {

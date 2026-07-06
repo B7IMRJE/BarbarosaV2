@@ -17,6 +17,7 @@ import {
     type CompanyDispatchRequest,
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
+import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -34,6 +35,12 @@ type DispatchAuthDebug = {
     isPlatformAdmin: boolean;
     requestedCompanyId: string;
     selectedCompanyId: string;
+};
+
+type DispatchCompanyAccessResult = {
+    access: CompanyAccess | null;
+    choices: CompanyAccess[];
+    isPlatformAdmin: boolean;
 };
 
 type DispatchRequest = CompanyDispatchRequest;
@@ -135,6 +142,7 @@ export default function DispatchBoardScreen() {
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const [loading, setLoading] = useState(true);
     const [companyAccess, setCompanyAccess] = useState<CompanyAccess | null>(null);
+    const [companyChoices, setCompanyChoices] = useState<CompanyAccess[]>([]);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
     const [requests, setRequests] = useState<DispatchRequest[]>([]);
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
@@ -218,6 +226,7 @@ export default function DispatchBoardScreen() {
         setLoading(true);
         setMessage('Loading Dispatch Board...');
         setCompanyAccess(null);
+        setCompanyChoices([]);
         setCompany(null);
         setRequests([]);
         setLeadCounts(null);
@@ -248,13 +257,13 @@ export default function DispatchBoardScreen() {
             return;
         }
 
-        let access: CompanyAccess | null = null;
+        let accessResult: DispatchCompanyAccessResult;
 
         try {
-            access = await resolveDispatchCompanyAccess(user.id, requestedCompanyId);
-        } catch (error: any) {
+            accessResult = await resolveDispatchCompanyAccess(user.id, requestedCompanyId);
+        } catch (error) {
             setLoading(false);
-            setMessage(`Could not resolve dispatch access: ${error.message || 'Unknown error'}`);
+            setMessage(`Could not resolve dispatch access: ${error instanceof Error ? error.message : 'Unknown error'}`);
             setAuthDebug({
                 userId: user.id,
                 email: user.email || null,
@@ -267,24 +276,33 @@ export default function DispatchBoardScreen() {
             return;
         }
 
+        const access = accessResult.access;
+
         setAuthDebug({
             userId: user.id,
             email: user.email || null,
             accessRole: access?.role || null,
             accessStatus: access?.status || null,
-            isPlatformAdmin: access?.role === 'platform_admin',
+            isPlatformAdmin: accessResult.isPlatformAdmin,
             requestedCompanyId,
             selectedCompanyId: access?.company_id || '',
         });
 
         if (!access) {
+            if (!requestedCompanyId && accessResult.choices.length > 1) {
+                setCompanyChoices(accessResult.choices);
+                setLoading(false);
+                setMessage('Choose a company to open Dispatch.');
+                return;
+            }
+
             setLoading(false);
-            setMessage(
-                requestedCompanyId
-                    ? 'You do not have Dispatch access for this company.'
-                    : 'Choose a company before opening the Dispatch Board as a platform admin.'
-            );
+            setMessage('No company access found.');
             return;
+        }
+
+        if (!requestedCompanyId && accessResult.choices.length === 1) {
+            replaceDispatchCompanyRoute(access.company_id);
         }
 
         setCompanyAccess(access);
@@ -393,7 +411,7 @@ export default function DispatchBoardScreen() {
 
                 return {
                     requestId: request.id,
-                    events: (data || []) as ServiceRequestEvent[],
+                    events: normalizeServiceRequestEvents(data, request.company_id),
                     error: null,
                 };
             })
@@ -518,6 +536,7 @@ export default function DispatchBoardScreen() {
             });
             const conflict = findScheduleConflict(
                 mergeScheduleSlots(scheduleSlots, freshTechnicianSlots),
+                request.company_id,
                 form.technicianCompanyUserId,
                 startAt,
                 endAt
@@ -601,6 +620,7 @@ export default function DispatchBoardScreen() {
         try {
             await updateRequestClosedStatus({
                 requestId: request.id,
+                companyId: request.company_id,
                 status: 'cancelled',
                 reason: form.cancelReason.trim(),
             });
@@ -628,6 +648,7 @@ export default function DispatchBoardScreen() {
         try {
             await updateRequestClosedStatus({
                 requestId: request.id,
+                companyId: request.company_id,
                 status: 'archived',
                 reason: form.archiveReason.trim(),
             });
@@ -708,11 +729,18 @@ export default function DispatchBoardScreen() {
                     </ThemedCard>
                 )}
 
+                {!loading && companyChoices.length > 1 ? (
+                    <DispatchCompanyPicker
+                        choices={companyChoices}
+                        onSelectCompany={(companyIdToOpen) => replaceDispatchCompanyRoute(companyIdToOpen)}
+                    />
+                ) : null}
+
                 {loading ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading requests...</Text>
                     </ThemedCard>
-                ) : activeBoardView === 'schedule' ? (
+                ) : companyChoices.length > 1 ? null : activeBoardView === 'schedule' ? (
                     <ActivityScheduleFoundation
                         requests={requests}
                         scheduleSlots={scheduleSlots}
@@ -1164,6 +1192,36 @@ function DispatchDebugCard({
                 </Text>
             )}
         </View>
+    );
+}
+
+function DispatchCompanyPicker({
+    choices,
+    onSelectCompany,
+}: {
+    choices: CompanyAccess[];
+    onSelectCompany: (companyId: string) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={{ marginBottom: 16 }}>
+            <Text style={[requestTitleStyle, { color: theme.colors.text }]}>Choose Company</Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                Select the company whose Dispatch board you want to open.
+            </Text>
+            <View style={buttonRowStyle}>
+                {choices.map((choice) => (
+                    <ThemedButton
+                        key={choice.company_id}
+                        title={`Company ${shortId(choice.company_id)} / ${formatLabel(choice.role || 'staff')}`}
+                        variant="secondary"
+                        onPress={() => onSelectCompany(choice.company_id)}
+                        style={buttonStyle}
+                    />
+                ))}
+            </View>
+        </ThemedCard>
     );
 }
 
@@ -1759,6 +1817,24 @@ function normalizeScheduleSlots(data: unknown): ScheduleSlot[] {
         .filter((slot) => slot.id && slot.company_id && slot.technician_company_user_id);
 }
 
+function normalizeServiceRequestEvents(data: unknown, companyId: string): ServiceRequestEvent[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                service_request_id: readStringField(record, 'service_request_id') || '',
+                company_id: readStringField(record, 'company_id') || companyId,
+                property_id: readStringField(record, 'property_id') || '',
+                event_type: readStringField(record, 'event_type'),
+                message: readStringField(record, 'message'),
+                created_at: readStringField(record, 'created_at'),
+            };
+        })
+        .filter((event) => event.id && event.service_request_id && event.company_id === companyId);
+}
+
 function mergeScheduleSlots(currentSlots: ScheduleSlot[], freshSlots: ScheduleSlot[]) {
     const byId = new Map<string, ScheduleSlot>();
 
@@ -1771,11 +1847,13 @@ function mergeScheduleSlots(currentSlots: ScheduleSlot[], freshSlots: ScheduleSl
 
 function findScheduleConflict(
     slots: ScheduleSlot[],
+    companyId: string,
     technicianCompanyUserId: string,
     newStart: Date,
     newEnd: Date
 ) {
     return slots.find((slot) => (
+        slot.company_id === companyId &&
         slot.technician_company_user_id === technicianCompanyUserId &&
         isActiveScheduleSlot(slot) &&
         hasScheduleSlotOverlap(slot, newStart, newEnd)
@@ -1803,10 +1881,12 @@ function formatScheduleConflictRange(slot: ScheduleSlot) {
 
 async function updateRequestClosedStatus({
     requestId,
+    companyId,
     status,
     reason,
 }: {
     requestId: string;
+    companyId: string;
     status: 'archived' | 'cancelled';
     reason: string;
 }) {
@@ -1828,7 +1908,8 @@ async function updateRequestClosedStatus({
             status,
             updated_at: new Date().toISOString(),
         })
-        .eq('id', requestId);
+        .eq('id', requestId)
+        .eq('company_id', companyId);
 
     if (updateError) {
         throw new Error(`${error.message}; direct status update failed: ${updateError.message}`);
@@ -1850,46 +1931,65 @@ function confirmRequestAction(message: string) {
     });
 }
 
-async function resolveDispatchCompanyAccess(userId: string, requestedCompanyId: string) {
+async function resolveDispatchCompanyAccess(
+    userId: string,
+    requestedCompanyId: string
+): Promise<DispatchCompanyAccessResult> {
     const isPlatformAdmin = await loadDispatchPlatformAdminStatus(userId);
+    const selectedCompanyId = requestedCompanyId.trim();
 
-    if (isPlatformAdmin && requestedCompanyId) {
+    if (isPlatformAdmin && selectedCompanyId) {
         return {
-            company_id: requestedCompanyId,
-            role: 'platform_admin',
-            status: 'active',
+            access: {
+                company_id: selectedCompanyId,
+                role: 'platform_admin',
+                status: 'active',
+            },
+            choices: [],
+            isPlatformAdmin,
         };
     }
 
-    let query = supabase
-        .from('company_users')
-        .select('company_id, role, status')
-        .eq('auth_user_id', userId)
-        .order('created_at', { ascending: true })
-        .limit(25);
+    const accessResult = await loadLoggedInUserCompanyAccess(userId);
 
-    if (requestedCompanyId) {
-        query = query.eq('company_id', requestedCompanyId);
+    if (accessResult.error) {
+        throw new Error(accessResult.error.message);
     }
 
-    const { data, error } = await query;
+    const choices = getActiveDispatchCompanyChoices(accessResult.data);
+    const access = selectedCompanyId
+        ? choices.find((choice) => choice.company_id === selectedCompanyId) || null
+        : choices.length === 1
+            ? choices[0]
+            : null;
 
-    if (error) {
-        throw new Error(error.message);
-    }
+    return {
+        access,
+        choices,
+        isPlatformAdmin,
+    };
+}
 
-    const access =
-        ((data || []) as CompanyAccess[]).find((companyUser) => {
-            const role = normalizeStatus(companyUser.role);
-            const status = normalizeStatus(companyUser.status);
+function getActiveDispatchCompanyChoices(rows: CompanyRouteAccessRow[]) {
+    const byCompanyId = new Map<string, CompanyAccess>();
 
-            return (
-                status === 'active' &&
-                ['owner', 'admin', 'manager', 'office', 'dispatcher'].includes(role)
-            );
-        }) || null;
+    rows.forEach((row) => {
+        if (!row.company_id || !isActiveStatus(row.status) || byCompanyId.has(row.company_id)) {
+            return;
+        }
 
-    return access;
+        byCompanyId.set(row.company_id, toDispatchCompanyAccess(row));
+    });
+
+    return Array.from(byCompanyId.values());
+}
+
+function toDispatchCompanyAccess(row: CompanyRouteAccessRow): CompanyAccess {
+    return {
+        company_id: row.company_id,
+        role: row.role,
+        status: row.status,
+    };
 }
 
 async function loadDispatchPlatformAdminStatus(userId: string) {
@@ -1974,8 +2074,12 @@ function readStringField(record: Record<string, unknown>, key: string) {
 }
 
 function firstParam(value?: string | string[]) {
-    if (Array.isArray(value)) return value[0] || '';
-    return value || '';
+    if (Array.isArray(value)) return String(value[0] || '').trim();
+    return String(value || '').trim();
+}
+
+function replaceDispatchCompanyRoute(companyIdToOpen: string) {
+    router.replace(`/dispatch?companyId=${encodeURIComponent(companyIdToOpen)}` as never);
 }
 
 function normalizeStatus(value?: string | null) {
