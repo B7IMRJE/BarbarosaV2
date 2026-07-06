@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
+import { getCompanyLeadCounts, type CompanyLeadCounts } from '../../../../lib/companyLeadAlerts';
 import { supabase } from '../../../../lib/supabase';
 
 type Company = {
@@ -152,6 +153,8 @@ export default function CompanyDashboardScreen() {
     const [savingBrand, setSavingBrand] = useState(false);
     const [extractedLogoColors, setExtractedLogoColors] = useState<string[]>([]);
     const [expandedConfigSection, setExpandedConfigSection] = useState<ConfigSectionKey | null>(null);
+    const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
+    const [leadCountMessage, setLeadCountMessage] = useState('');
 
     useEffect(() => {
         loadCompany();
@@ -208,6 +211,19 @@ export default function CompanyDashboardScreen() {
         setCompany(loadedCompany);
         setBrandForm(companyToBrandForm(loadedCompany));
         setMessage('');
+        await loadCompanyLeadCounts(String(id));
+    }
+
+    async function loadCompanyLeadCounts(companyIdToLoad: string) {
+        try {
+            const counts = await getCompanyLeadCounts(companyIdToLoad);
+
+            setLeadCounts(counts);
+            setLeadCountMessage(counts.newLeads === 0 ? 'No new leads.' : '');
+        } catch {
+            setLeadCounts(null);
+            setLeadCountMessage('Lead count unavailable.');
+        }
     }
 
     async function saveBrandProfile() {
@@ -730,6 +746,17 @@ export default function CompanyDashboardScreen() {
                         </View>
                     </View>
 
+                    <LeadAlertPanel
+                        counts={leadCounts}
+                        message={leadCountMessage}
+                        accentColor={brandAccent}
+                        primaryColor={brandPrimary}
+                        onPress={() => router.push({
+                            pathname: '/dispatch',
+                            params: { companyId: String(id) },
+                        } as never)}
+                    />
+
                     <View
                         style={{
                             flexDirection: 'row',
@@ -1246,6 +1273,93 @@ export default function CompanyDashboardScreen() {
 
             </View>
         </ScrollView>
+    );
+}
+
+function LeadAlertPanel({
+    counts,
+    message,
+    accentColor,
+    primaryColor,
+    onPress,
+}: {
+    counts: CompanyLeadCounts | null;
+    message: string;
+    accentColor: string;
+    primaryColor: string;
+    onPress: () => void;
+}) {
+    const unavailable = message === 'Lead count unavailable.';
+    const hasLeads = !!counts && counts.newLeads > 0;
+
+    return (
+        <TouchableOpacity
+            onPress={onPress}
+            activeOpacity={0.84}
+            style={{
+                backgroundColor: hasLeads ? '#F8FAFC' : '#FFFFFF',
+                borderColor: unavailable ? '#DC2626' : hasLeads ? accentColor : '#E3E8EF',
+                borderRadius: 18,
+                borderWidth: 1,
+                marginBottom: 16,
+                padding: 14,
+            }}
+        >
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flex: 1, minWidth: 220 }}>
+                    <Text style={{ color: unavailable ? '#DC2626' : primaryColor, fontSize: 13, fontWeight: '900' }}>
+                        Lead Alerts
+                    </Text>
+                    <Text style={{ color: '#64748B', fontSize: 13, fontWeight: '700', lineHeight: 19, marginTop: 4 }}>
+                        {unavailable
+                            ? 'Lead count unavailable.'
+                            : hasLeads
+                                ? 'New company-visible service requests are waiting in Dispatch.'
+                                : message || 'No new leads.'}
+                    </Text>
+                </View>
+
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    <LeadAlertPill
+                        label={unavailable ? 'Lead count unavailable.' : hasLeads ? `New Leads: ${counts?.newLeads || 0}` : 'No new leads.'}
+                        backgroundColor={unavailable ? '#FEE2E2' : '#EEF4FF'}
+                        textColor={unavailable ? '#DC2626' : accentColor}
+                    />
+                    {!!counts && counts.emergencyLeads > 0 && (
+                        <LeadAlertPill
+                            label={`Emergency Leads: ${counts.emergencyLeads}`}
+                            backgroundColor="#FEE2E2"
+                            textColor="#DC2626"
+                        />
+                    )}
+                </View>
+            </View>
+        </TouchableOpacity>
+    );
+}
+
+function LeadAlertPill({
+    label,
+    backgroundColor,
+    textColor,
+}: {
+    label: string;
+    backgroundColor: string;
+    textColor: string;
+}) {
+    return (
+        <View
+            style={{
+                backgroundColor,
+                borderRadius: 999,
+                paddingHorizontal: 12,
+                paddingVertical: 8,
+            }}
+        >
+            <Text numberOfLines={1} style={{ color: textColor, fontSize: 12, fontWeight: '900' }}>
+                {label}
+            </Text>
+        </View>
     );
 }
 

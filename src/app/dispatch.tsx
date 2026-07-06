@@ -4,6 +4,17 @@ import { ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle 
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import {
+    calculateCompanyLeadCounts,
+    getCompanyDispatchRequests,
+    isAssignedOrScheduledStatus,
+    isCompletedStatus,
+    isEmergencyDispatchRequest,
+    isInProgressStatus,
+    isNewLeadStatus,
+    type CompanyDispatchRequest,
+    type CompanyLeadCounts,
+} from '../lib/companyLeadAlerts';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -23,26 +34,7 @@ type DispatchAuthDebug = {
     selectedCompanyId: string;
 };
 
-type DispatchRequest = {
-    id: string;
-    company_id: string;
-    property_id: string;
-    company_property_client_id: string | null;
-    request_type: string | null;
-    status: string | null;
-    priority: string | null;
-    issue_summary: string | null;
-    customer_display_name: string | null;
-    property_display_name: string | null;
-    property_address: string | null;
-    property_city: string | null;
-    property_state: string | null;
-    property_postal_code: string | null;
-    created_at: string | null;
-    acknowledged_at: string | null;
-    converted_job_id: string | null;
-    converted_at: string | null;
-};
+type DispatchRequest = CompanyDispatchRequest;
 
 type CompanyBrand = {
     id: string;
@@ -86,6 +78,8 @@ type ScheduleRequestForm = {
     archiveReason: string;
 };
 
+type DispatchBoardView = 'activity' | 'schedule';
+
 function createDefaultScheduleForm(): ScheduleRequestForm {
     const start = getNextScheduleStart();
 
@@ -113,6 +107,8 @@ export default function DispatchBoardScreen() {
     const [companyAccess, setCompanyAccess] = useState<CompanyAccess | null>(null);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
     const [requests, setRequests] = useState<DispatchRequest[]>([]);
+    const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
+    const [leadCountError, setLeadCountError] = useState('');
     const [eventsByRequestId, setEventsByRequestId] = useState<Record<string, ServiceRequestEvent[]>>({});
     const [eventsMessage, setEventsMessage] = useState('');
     const [message, setMessage] = useState('Loading Dispatch Board...');
@@ -123,11 +119,13 @@ export default function DispatchBoardScreen() {
     const [activeTechnicians, setActiveTechnicians] = useState<CompanyUser[]>([]);
     const [scheduleFormByRequestId, setScheduleFormByRequestId] = useState<Record<string, ScheduleRequestForm>>({});
     const [requestActionMessageById, setRequestActionMessageById] = useState<Record<string, string>>({});
+    const [activeBoardView, setActiveBoardView] = useState<DispatchBoardView>('activity');
 
-    const newRequests = requests.filter((request) => isNewDispatchStatus(request.status));
-    const acknowledgedRequests = requests.filter((request) => normalizeStatus(request.status) === 'acknowledged');
+    const newRequests = requests.filter((request) => isNewLeadStatus(request.status));
+    const assignedScheduledRequests = requests.filter((request) => isAssignedOrScheduledStatus(request.status));
+    const inProgressRequests = requests.filter((request) => isInProgressStatus(request.status));
+    const completedRequests = requests.filter((request) => isCompletedStatus(request.status));
     const scheduledRequests = requests.filter((request) => normalizeStatus(request.status) === 'scheduled');
-    const convertedRequests = requests.filter((request) => normalizeStatus(request.status) === 'converted_to_job');
     const cancelledRequests = requests.filter((request) => ['cancelled', 'canceled', 'archived'].includes(normalizeStatus(request.status)));
     const cardBasis = viewportWidth <= 700 ? '100%' : '31.8%';
 
@@ -141,6 +139,8 @@ export default function DispatchBoardScreen() {
         setCompanyAccess(null);
         setCompany(null);
         setRequests([]);
+        setLeadCounts(null);
+        setLeadCountError('');
         setEventsByRequestId({});
         setEventsMessage('');
         setRpcStatusMessage('');
@@ -224,26 +224,28 @@ export default function DispatchBoardScreen() {
     }
 
     async function loadDispatchRequests(companyIdToLoad: string) {
-        const { data, error } = await supabase.rpc('get_company_dispatch_requests', {
-            p_company_id: companyIdToLoad,
-        });
+        try {
+            const loadedRequests = await getCompanyDispatchRequests(companyIdToLoad);
 
-        if (error) {
+            setRequests(loadedRequests);
+            setLeadCounts(calculateCompanyLeadCounts(loadedRequests));
+            setLeadCountError('');
+            setRpcStatusMessage(
+                loadedRequests.length === 0
+                    ? 'No requests returned by dispatch RPC for this company.'
+                    : `Dispatch RPC returned ${loadedRequests.length} request${loadedRequests.length === 1 ? '' : 's'}.`
+            );
+            setMessage(loadedRequests.length === 0 ? 'No requests returned by dispatch RPC for this company.' : '');
+            await loadRequestEvents(loadedRequests);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             setRequests([]);
-            setRpcStatusMessage(`get_company_dispatch_requests RPC error: ${error.message}`);
-            setMessage(`Could not load dispatch requests: ${error.message}`);
+            setLeadCounts(null);
+            setLeadCountError('Lead count unavailable.');
+            setRpcStatusMessage(`get_company_dispatch_requests RPC error: ${errorMessage}`);
+            setMessage(`Could not load dispatch requests: ${errorMessage}`);
             return;
         }
-
-        const loadedRequests = (data || []) as DispatchRequest[];
-        setRequests(loadedRequests);
-        setRpcStatusMessage(
-            loadedRequests.length === 0
-                ? 'No requests returned by dispatch RPC for this company.'
-                : `Dispatch RPC returned ${loadedRequests.length} request${loadedRequests.length === 1 ? '' : 's'}.`
-        );
-        setMessage(loadedRequests.length === 0 ? 'No requests returned by dispatch RPC for this company.' : '');
-        await loadRequestEvents(loadedRequests);
     }
 
     async function loadActiveTechnicians(companyIdToLoad: string) {
@@ -393,7 +395,9 @@ export default function DispatchBoardScreen() {
             const normalized = normalizeStatus(error.message);
             setRequestActionMessageById((current) => ({
                 ...current,
-                [request.id]: normalized.includes('scheduled work during this time')
+                [request.id]: isMissingAssignmentBackendMessage(normalized)
+                    ? 'Tech assignment backend not connected yet.'
+                    : normalized.includes('scheduled work during this time')
                     ? 'This technician already has a scheduled job during that time.'
                     : `Could not schedule request: ${error.message}`,
             }));
@@ -461,7 +465,7 @@ export default function DispatchBoardScreen() {
 
                 <ThemedCard style={{ marginBottom: 16 }}>
                     <Text style={[kickerStyle, { color: theme.colors.primary }]}>Service Desk</Text>
-                    <Text style={[titleStyle, { color: theme.colors.text }]}>Dispatch Board</Text>
+                    <Text style={[titleStyle, { color: theme.colors.text }]}>Dispatch / Activity Board</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                         {companyName} receives homeowner service requests here before jobs are created or technicians are assigned.
                     </Text>
@@ -469,10 +473,25 @@ export default function DispatchBoardScreen() {
                         Selected company: {companyAccess?.company_id || requestedCompanyId || 'Not selected'}
                         {companyAccess?.role ? ` / Access: ${formatLabel(companyAccess.role)}` : ''}
                     </Text>
+                    <LeadCountSummary counts={leadCounts} error={leadCountError} />
                     <DispatchDebugCard debug={authDebug} rpcStatusMessage={rpcStatusMessage} />
                     <View style={buttonRowStyle}>
                         <ThemedButton title="Refresh" onPress={loadDispatchBoard} style={buttonStyle} />
                         <ThemedButton title="Back Home" variant="secondary" onPress={() => router.push('/' as any)} style={buttonStyle} />
+                    </View>
+                    <View style={buttonRowStyle}>
+                        <ThemedButton
+                            title="Activity Board"
+                            variant={activeBoardView === 'activity' ? 'primary' : 'secondary'}
+                            onPress={() => setActiveBoardView('activity')}
+                            style={buttonStyle}
+                        />
+                        <ThemedButton
+                            title="Schedule Board"
+                            variant={activeBoardView === 'schedule' ? 'primary' : 'secondary'}
+                            onPress={() => setActiveBoardView('schedule')}
+                            style={buttonStyle}
+                        />
                     </View>
                 </ThemedCard>
 
@@ -492,6 +511,12 @@ export default function DispatchBoardScreen() {
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading requests...</Text>
                     </ThemedCard>
+                ) : activeBoardView === 'schedule' ? (
+                    <ActivityScheduleFoundation
+                        requests={scheduledRequests}
+                        activeTechnicians={activeTechnicians}
+                        cardBasis={cardBasis}
+                    />
                 ) : (
                     <>
                         <DispatchSection
@@ -513,8 +538,8 @@ export default function DispatchBoardScreen() {
                             onArchiveRequest={handleArchiveRequest}
                         />
                         <DispatchSection
-                            title="Acknowledged"
-                            requests={acknowledgedRequests}
+                            title="Assigned / Scheduled"
+                            requests={assignedScheduledRequests}
                             totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
@@ -531,8 +556,8 @@ export default function DispatchBoardScreen() {
                             onArchiveRequest={handleArchiveRequest}
                         />
                         <DispatchSection
-                            title="Scheduled"
-                            requests={scheduledRequests}
+                            title="In Progress"
+                            requests={inProgressRequests}
                             totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
@@ -549,8 +574,8 @@ export default function DispatchBoardScreen() {
                             onArchiveRequest={handleArchiveRequest}
                         />
                         <DispatchSection
-                            title="Converted to Jobs"
-                            requests={convertedRequests}
+                            title="Completed"
+                            requests={completedRequests}
                             totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
                             actionRequestId={actionRequestId}
@@ -681,6 +706,181 @@ function DispatchSection({
     );
 }
 
+function LeadCountSummary({
+    counts,
+    error,
+}: {
+    counts: CompanyLeadCounts | null;
+    error: string;
+}) {
+    const { theme } = useTheme();
+
+    if (error) {
+        return (
+            <View style={leadSummaryRowStyle}>
+                <Text style={[leadSummaryPillStyle, { color: theme.colors.danger, backgroundColor: theme.colors.dangerBackground }]}>
+                    {error}
+                </Text>
+            </View>
+        );
+    }
+
+    if (!counts) return null;
+
+    if (counts.newLeads === 0) {
+        return (
+            <View style={leadSummaryRowStyle}>
+                <Text style={[leadSummaryPillStyle, { color: theme.colors.mutedText, backgroundColor: theme.colors.surfaceAlt }]}>
+                    No new leads.
+                </Text>
+            </View>
+        );
+    }
+
+    return (
+        <View style={leadSummaryRowStyle}>
+            <Text style={[leadSummaryPillStyle, { color: theme.colors.primaryText, backgroundColor: theme.colors.primary }]}>
+                New Leads: {counts.newLeads}
+            </Text>
+            {counts.emergencyLeads > 0 && (
+                <Text style={[leadSummaryPillStyle, { color: theme.colors.danger, backgroundColor: theme.colors.dangerBackground }]}>
+                    Emergency Leads: {counts.emergencyLeads}
+                </Text>
+            )}
+        </View>
+    );
+}
+
+function ActivityScheduleFoundation({
+    requests,
+    activeTechnicians,
+    cardBasis,
+}: {
+    requests: DispatchRequest[];
+    activeTechnicians: CompanyUser[];
+    cardBasis: ViewStyle['flexBasis'];
+}) {
+    const { theme } = useTheme();
+    const todayRequests = requests.filter((request) => isToday(request.created_at));
+
+    // Schedule design intent: after assigning a tech, the job appears here; every technician gets a visible row; blocks stay color-coded and glass-style by status or technician.
+    return (
+        <View style={{ marginBottom: 18 }}>
+            <View style={sectionHeaderStyle}>
+                <View>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Activity / Schedule</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Today / This Week / technician schedule foundation
+                    </Text>
+                </View>
+                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                    {requests.length}
+                </Text>
+            </View>
+
+            <View style={scheduleSummaryGridStyle}>
+                <ThemedCard style={[scheduleSummaryCardStyle, { flexBasis: cardBasis }]}>
+                    <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>Today</Text>
+                    <Text style={[requestTitleStyle, { color: theme.colors.text }]}>
+                        {todayRequests.length} scheduled
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Scheduled blocks will land here after dispatch assigns time and technician context.
+                    </Text>
+                </ThemedCard>
+                <ThemedCard style={[scheduleSummaryCardStyle, { flexBasis: cardBasis }]}>
+                    <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>This Week</Text>
+                    <Text style={[requestTitleStyle, { color: theme.colors.text }]}>
+                        {requests.length} scheduled
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Every technician schedule should be visible here as assignment data grows.
+                    </Text>
+                </ThemedCard>
+            </View>
+
+            {requests.length === 0 ? (
+                <ThemedCard>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>No scheduled work yet.</Text>
+                </ThemedCard>
+            ) : (
+                <View style={scheduleLaneListStyle}>
+                    <ScheduleTechLane
+                        title="Unassigned Scheduled Work"
+                        subtitle="Request schedule rows currently do not expose assigned technician details."
+                        requests={requests}
+                    />
+                    {activeTechnicians.slice(0, 8).map((technician) => (
+                        <ScheduleTechLane
+                            key={technician.id}
+                            title={getMemberDisplayName(technician)}
+                            subtitle={technician.email || 'Technician'}
+                            requests={[]}
+                        />
+                    ))}
+                </View>
+            )}
+        </View>
+    );
+}
+
+function ScheduleTechLane({
+    title,
+    subtitle,
+    requests,
+}: {
+    title: string;
+    subtitle: string;
+    requests: DispatchRequest[];
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={scheduleLaneCardStyle}>
+            <View style={sectionHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[requestTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                        {title}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{subtitle}</Text>
+                </View>
+                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                    {requests.length}
+                </Text>
+            </View>
+
+            {requests.length === 0 ? (
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>No scheduled work yet.</Text>
+            ) : (
+                <View style={scheduleBlockRowStyle}>
+                    {requests.map((request) => (
+                        <View
+                            key={request.id}
+                            style={[
+                                scheduleGlassBlockStyle,
+                                {
+                                    backgroundColor: getScheduleBlockBackground(request),
+                                    borderColor: getScheduleBlockBorder(request),
+                                },
+                            ]}
+                        >
+                            <Text style={[requestTypeStyle, { color: theme.colors.text }]}>
+                                {formatCallType(request)}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                                {request.customer_display_name || request.property_display_name || 'Customer Home'}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                                {request.issue_summary || 'No description provided.'}
+                            </Text>
+                        </View>
+                    ))}
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
 function DispatchDebugCard({
     debug,
     rpcStatusMessage,
@@ -779,6 +979,9 @@ function DispatchRequestCard({
             <Text style={[requestTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
                 {displayName}
             </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                {request.issue_summary || 'No description provided.'}
+            </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Request #{shortId(request.id)}
             </Text>
@@ -791,6 +994,25 @@ function DispatchRequestCard({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Priority: {formatLabel(request.priority)}
             </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Assigned tech: {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Not assigned'}
+            </Text>
+            <View style={compactActionRowStyle}>
+                <ThemedButton
+                    title="Open Customer"
+                    variant="secondary"
+                    onPress={() => router.push(`/super-admin/company/${request.company_id}/client/${request.property_id}` as any)}
+                    style={compactActionButtonStyle}
+                    textStyle={{ fontSize: 12 }}
+                />
+                <ThemedButton
+                    title="Open Client HomeOS"
+                    variant="secondary"
+                    onPress={() => router.push(`/super-admin/company/${request.company_id}/client/${request.property_id}/homeos` as any)}
+                    style={compactActionButtonStyle}
+                    textStyle={{ fontSize: 12 }}
+                />
+            </View>
             {!!latestUpdateRequest && (
                 <Text style={[eventNoticeStyle, { color: theme.colors.primary }]}>
                     Homeowner requested update
@@ -970,7 +1192,7 @@ function DispatchRequestCard({
                             />
                         )}
                         <ThemedButton
-                            title={acknowledging ? 'Scheduling...' : 'Schedule Request'}
+                            title={acknowledging ? 'Assigning...' : 'Assign Tech / Schedule'}
                             disabled={acknowledging || activeTechnicians.length === 0}
                             onPress={onScheduleRequest}
                             style={compactActionButtonStyle}
@@ -1449,12 +1671,6 @@ function formatScheduleWindowDate(date: Date) {
     });
 }
 
-function isNewDispatchStatus(value?: string | null) {
-    const normalized = normalizeStatus(value);
-
-    return !['acknowledged', 'scheduled', 'converted_to_job', 'cancelled', 'canceled', 'archived'].includes(normalized);
-}
-
 function formatCallType(request: DispatchRequest) {
     const type = normalizeStatus(request.request_type);
     const priority = normalizeStatus(request.priority);
@@ -1463,6 +1679,32 @@ function formatCallType(request: DispatchRequest) {
     if (type === 'maintenance') return 'Maintenance';
     if (type === 'regular') return 'Service Call';
     return formatLabel(request.request_type || 'Other');
+}
+
+function isMissingAssignmentBackendMessage(message: string) {
+    return (
+        message.includes('schema cache') ||
+        message.includes('could not find the function') ||
+        message.includes('function public.schedule_service_request_slot') ||
+        message.includes('schedule_service_request_slot') ||
+        message.includes('does not exist')
+    );
+}
+
+function getScheduleBlockBackground(request: DispatchRequest) {
+    if (isEmergencyDispatchRequest(request)) return 'rgba(220, 38, 38, 0.13)';
+    if (isInProgressStatus(request.status)) return 'rgba(245, 158, 11, 0.14)';
+    if (isCompletedStatus(request.status)) return 'rgba(4, 120, 87, 0.13)';
+
+    return 'rgba(11, 95, 255, 0.12)';
+}
+
+function getScheduleBlockBorder(request: DispatchRequest) {
+    if (isEmergencyDispatchRequest(request)) return 'rgba(220, 38, 38, 0.32)';
+    if (isInProgressStatus(request.status)) return 'rgba(245, 158, 11, 0.34)';
+    if (isCompletedStatus(request.status)) return 'rgba(4, 120, 87, 0.32)';
+
+    return 'rgba(11, 95, 255, 0.28)';
 }
 
 function formatLabel(value?: string | null) {
@@ -1478,6 +1720,20 @@ function formatDate(value?: string | null) {
     if (!value) return 'Not available';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleDateString();
+}
+
+function isToday(value?: string | null) {
+    if (!value) return false;
+
+    const date = new Date(value);
+    const today = new Date();
+
+    return (
+        !Number.isNaN(date.getTime()) &&
+        date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate()
+    );
 }
 
 function formatDateTime(value?: string | null) {
@@ -1527,6 +1783,22 @@ const buttonStyle = {
     flexShrink: 1,
 };
 
+const leadSummaryRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 12,
+};
+
+const leadSummaryPillStyle = {
+    borderRadius: 999,
+    overflow: 'hidden' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
 const sectionHeaderStyle = {
     alignItems: 'center' as const,
     flexDirection: 'row' as const,
@@ -1560,6 +1832,44 @@ const requestCardStyle = {
     maxWidth: '100%' as const,
     minHeight: 178,
     minWidth: 0,
+};
+
+const scheduleSummaryGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginBottom: 14,
+};
+
+const scheduleSummaryCardStyle = {
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+};
+
+const scheduleLaneListStyle = {
+    gap: 12,
+};
+
+const scheduleLaneCardStyle = {
+    marginBottom: 0,
+};
+
+const scheduleBlockRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 10,
+};
+
+const scheduleGlassBlockStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    flexBasis: 220,
+    flexGrow: 1,
+    minHeight: 112,
+    padding: 12,
 };
 
 const requestTopRowStyle = {

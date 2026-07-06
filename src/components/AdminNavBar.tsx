@@ -1,5 +1,7 @@
 import { router, type Href } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { Text, TouchableOpacity, View } from 'react-native';
+import { getCompanyLeadCounts, type CompanyLeadCounts } from '../lib/companyLeadAlerts';
 import { safeBack } from '../lib/navigation';
 import { useTheme } from '../theme/useTheme';
 
@@ -15,7 +17,44 @@ export default function AdminNavBar({
     showBack = true,
 }: AdminNavBarProps) {
     const { theme } = useTheme();
-    const companyDashboardRoute = companyId ? (`/super-admin/company/${companyId}` as Href) : null;
+    const normalizedCompanyId = String(companyId || '').trim();
+    const companyDashboardRoute = normalizedCompanyId ? (`/super-admin/company/${normalizedCompanyId}` as Href) : null;
+    const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
+    const [leadCountError, setLeadCountError] = useState('');
+
+    useEffect(() => {
+        let active = true;
+
+        async function loadLeadCounts() {
+            if (!normalizedCompanyId) {
+                setLeadCounts(null);
+                setLeadCountError('');
+                return;
+            }
+
+            try {
+                const counts = await getCompanyLeadCounts(normalizedCompanyId);
+
+                if (!active) return;
+
+                setLeadCounts(counts);
+                setLeadCountError('');
+            } catch {
+                if (!active) return;
+
+                setLeadCounts(null);
+                setLeadCountError('Lead count unavailable.');
+            }
+        }
+
+        void loadLeadCounts();
+
+        return () => {
+            active = false;
+        };
+    }, [normalizedCompanyId]);
+
+    const leadBadgeLabel = getLeadBadgeLabel(leadCounts, leadCountError);
 
     return (
         <View style={navWrapStyle}>
@@ -51,8 +90,28 @@ export default function AdminNavBar({
                     textColor={theme.colors.primaryText}
                 />
             )}
+            {normalizedCompanyId && leadBadgeLabel && (
+                <NavButton
+                    label={leadBadgeLabel}
+                    onPress={() => router.push({
+                        pathname: '/dispatch',
+                        params: { companyId: normalizedCompanyId },
+                    } as never)}
+                    backgroundColor={leadCountError ? theme.colors.dangerBackground : theme.colors.secondaryButton}
+                    borderColor={leadCountError ? theme.colors.danger : theme.colors.primary}
+                    textColor={leadCountError ? theme.colors.danger : theme.colors.secondaryButtonText}
+                />
+            )}
         </View>
     );
+}
+
+function getLeadBadgeLabel(counts: CompanyLeadCounts | null, error: string) {
+    if (error) return 'Lead count unavailable.';
+    if (!counts || counts.newLeads === 0) return '';
+    if (counts.emergencyLeads > 0) return `Emergency Leads: ${counts.emergencyLeads} / New Leads: ${counts.newLeads}`;
+
+    return `New Leads: ${counts.newLeads}`;
 }
 
 function NavButton({
