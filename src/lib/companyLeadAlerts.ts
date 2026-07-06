@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 
 export const NEW_LEAD_STATUSES = ['new', 'open', 'reported', 'unassigned'] as const;
+export const LEAD_ALERT_REFRESH_MS = 30_000;
 
 export type CompanyDispatchRequest = {
     id: string;

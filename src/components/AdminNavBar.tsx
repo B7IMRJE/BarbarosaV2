@@ -1,7 +1,11 @@
 import { router, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Text, TouchableOpacity, View } from 'react-native';
-import { getCompanyLeadCounts, type CompanyLeadCounts } from '../lib/companyLeadAlerts';
+import { AppState, Text, TouchableOpacity, View } from 'react-native';
+import {
+    getCompanyLeadCounts,
+    LEAD_ALERT_REFRESH_MS,
+    type CompanyLeadCounts,
+} from '../lib/companyLeadAlerts';
 import { safeBack } from '../lib/navigation';
 import { useTheme } from '../theme/useTheme';
 
@@ -21,16 +25,24 @@ export default function AdminNavBar({
     const companyDashboardRoute = normalizedCompanyId ? (`/super-admin/company/${normalizedCompanyId}` as Href) : null;
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
     const [leadCountError, setLeadCountError] = useState('');
+    const [leadCountLoading, setLeadCountLoading] = useState(false);
 
     useEffect(() => {
         let active = true;
+        let refreshing = false;
 
         async function loadLeadCounts() {
-            if (!normalizedCompanyId) {
-                setLeadCounts(null);
-                setLeadCountError('');
+            if (!normalizedCompanyId || refreshing) {
+                if (!normalizedCompanyId) {
+                    setLeadCounts(null);
+                    setLeadCountError('');
+                    setLeadCountLoading(false);
+                }
                 return;
             }
+
+            refreshing = true;
+            setLeadCountLoading(true);
 
             try {
                 const counts = await getCompanyLeadCounts(normalizedCompanyId);
@@ -44,17 +56,46 @@ export default function AdminNavBar({
 
                 setLeadCounts(null);
                 setLeadCountError('Lead count unavailable.');
+            } finally {
+                refreshing = false;
+
+                if (active) {
+                    setLeadCountLoading(false);
+                }
             }
         }
 
         void loadLeadCounts();
 
+        const intervalId = setInterval(() => {
+            void loadLeadCounts();
+        }, LEAD_ALERT_REFRESH_MS);
+
+        const appStateSubscription = AppState.addEventListener('change', (state) => {
+            if (state === 'active') {
+                void loadLeadCounts();
+            }
+        });
+
+        const focusTarget = globalThis as {
+            addEventListener?: (type: 'focus', listener: () => void) => void;
+            removeEventListener?: (type: 'focus', listener: () => void) => void;
+        };
+        const handleFocus = () => {
+            void loadLeadCounts();
+        };
+
+        focusTarget.addEventListener?.('focus', handleFocus);
+
         return () => {
             active = false;
+            clearInterval(intervalId);
+            appStateSubscription.remove();
+            focusTarget.removeEventListener?.('focus', handleFocus);
         };
     }, [normalizedCompanyId]);
 
-    const leadBadgeLabel = getLeadBadgeLabel(leadCounts, leadCountError);
+    const leadBadgeLabel = getLeadBadgeLabel(leadCounts, leadCountError, leadCountLoading);
 
     return (
         <View style={navWrapStyle}>
@@ -106,8 +147,9 @@ export default function AdminNavBar({
     );
 }
 
-function getLeadBadgeLabel(counts: CompanyLeadCounts | null, error: string) {
+function getLeadBadgeLabel(counts: CompanyLeadCounts | null, error: string, loading: boolean) {
     if (error) return 'Lead count unavailable.';
+    if (loading && !counts) return 'Checking leads...';
     if (!counts || counts.newLeads === 0) return '';
     if (counts.emergencyLeads > 0) return `Emergency Leads: ${counts.emergencyLeads} / New Leads: ${counts.newLeads}`;
 

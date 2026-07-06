@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -12,6 +12,7 @@ import {
     isEmergencyDispatchRequest,
     isInProgressStatus,
     isNewLeadStatus,
+    LEAD_ALERT_REFRESH_MS,
     type CompanyDispatchRequest,
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
@@ -120,6 +121,7 @@ export default function DispatchBoardScreen() {
     const [scheduleFormByRequestId, setScheduleFormByRequestId] = useState<Record<string, ScheduleRequestForm>>({});
     const [requestActionMessageById, setRequestActionMessageById] = useState<Record<string, string>>({});
     const [activeBoardView, setActiveBoardView] = useState<DispatchBoardView>('activity');
+    const dispatchRefreshInFlight = useRef(false);
 
     const newRequests = requests.filter((request) => isNewLeadStatus(request.status));
     const assignedScheduledRequests = requests.filter((request) => isAssignedOrScheduledStatus(request.status));
@@ -132,6 +134,53 @@ export default function DispatchBoardScreen() {
     useEffect(() => {
         loadDispatchBoard();
     }, [requestedCompanyId]);
+
+    useEffect(() => {
+        const companyIdToRefresh = companyAccess?.company_id;
+
+        if (!companyIdToRefresh) return;
+
+        async function refreshDispatchBoardQuietly() {
+            if (!companyIdToRefresh || dispatchRefreshInFlight.current) return;
+
+            dispatchRefreshInFlight.current = true;
+
+            try {
+                await Promise.all([
+                    loadDispatchRequests(companyIdToRefresh),
+                    loadActiveTechnicians(companyIdToRefresh),
+                ]);
+            } finally {
+                dispatchRefreshInFlight.current = false;
+            }
+        }
+
+        const intervalId = setInterval(() => {
+            void refreshDispatchBoardQuietly();
+        }, LEAD_ALERT_REFRESH_MS);
+
+        const appStateSubscription = AppState.addEventListener('change', (state) => {
+            if (state === 'active') {
+                void refreshDispatchBoardQuietly();
+            }
+        });
+
+        const focusTarget = globalThis as {
+            addEventListener?: (type: 'focus', listener: () => void) => void;
+            removeEventListener?: (type: 'focus', listener: () => void) => void;
+        };
+        const handleFocus = () => {
+            void refreshDispatchBoardQuietly();
+        };
+
+        focusTarget.addEventListener?.('focus', handleFocus);
+
+        return () => {
+            clearInterval(intervalId);
+            appStateSubscription.remove();
+            focusTarget.removeEventListener?.('focus', handleFocus);
+        };
+    }, [companyAccess?.company_id]);
 
     async function loadDispatchBoard() {
         setLoading(true);
@@ -473,7 +522,7 @@ export default function DispatchBoardScreen() {
                         Selected company: {companyAccess?.company_id || requestedCompanyId || 'Not selected'}
                         {companyAccess?.role ? ` / Access: ${formatLabel(companyAccess.role)}` : ''}
                     </Text>
-                    <LeadCountSummary counts={leadCounts} error={leadCountError} />
+                    <LeadCountSummary counts={leadCounts} error={leadCountError} loading={loading} />
                     <DispatchDebugCard debug={authDebug} rpcStatusMessage={rpcStatusMessage} />
                     <View style={buttonRowStyle}>
                         <ThemedButton title="Refresh" onPress={loadDispatchBoard} style={buttonStyle} />
@@ -709,9 +758,11 @@ function DispatchSection({
 function LeadCountSummary({
     counts,
     error,
+    loading,
 }: {
     counts: CompanyLeadCounts | null;
     error: string;
+    loading: boolean;
 }) {
     const { theme } = useTheme();
 
@@ -725,7 +776,17 @@ function LeadCountSummary({
         );
     }
 
-    if (!counts) return null;
+    if (!counts) {
+        if (!loading) return null;
+
+        return (
+            <View style={leadSummaryRowStyle}>
+                <Text style={[leadSummaryPillStyle, { color: theme.colors.mutedText, backgroundColor: theme.colors.surfaceAlt }]}>
+                    Checking leads...
+                </Text>
+            </View>
+        );
+    }
 
     if (counts.newLeads === 0) {
         return (

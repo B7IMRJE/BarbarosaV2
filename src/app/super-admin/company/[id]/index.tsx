@@ -1,9 +1,13 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState, Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
-import { getCompanyLeadCounts, type CompanyLeadCounts } from '../../../../lib/companyLeadAlerts';
+import {
+    getCompanyLeadCounts,
+    LEAD_ALERT_REFRESH_MS,
+    type CompanyLeadCounts,
+} from '../../../../lib/companyLeadAlerts';
 import { supabase } from '../../../../lib/supabase';
 
 type Company = {
@@ -155,9 +159,50 @@ export default function CompanyDashboardScreen() {
     const [expandedConfigSection, setExpandedConfigSection] = useState<ConfigSectionKey | null>(null);
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
     const [leadCountMessage, setLeadCountMessage] = useState('');
+    const [leadCountLoading, setLeadCountLoading] = useState(false);
+    const leadRefreshInFlight = useRef(false);
 
     useEffect(() => {
         loadCompany();
+    }, [id]);
+
+    useEffect(() => {
+        const companyIdToLoad = String(id || '').trim();
+
+        if (!companyIdToLoad) {
+            setLeadCounts(null);
+            setLeadCountMessage('');
+            setLeadCountLoading(false);
+            return;
+        }
+
+        void loadCompanyLeadCounts(companyIdToLoad);
+
+        const intervalId = setInterval(() => {
+            void loadCompanyLeadCounts(companyIdToLoad);
+        }, LEAD_ALERT_REFRESH_MS);
+
+        const appStateSubscription = AppState.addEventListener('change', (state) => {
+            if (state === 'active') {
+                void loadCompanyLeadCounts(companyIdToLoad);
+            }
+        });
+
+        const focusTarget = globalThis as {
+            addEventListener?: (type: 'focus', listener: () => void) => void;
+            removeEventListener?: (type: 'focus', listener: () => void) => void;
+        };
+        const handleFocus = () => {
+            void loadCompanyLeadCounts(companyIdToLoad);
+        };
+
+        focusTarget.addEventListener?.('focus', handleFocus);
+
+        return () => {
+            clearInterval(intervalId);
+            appStateSubscription.remove();
+            focusTarget.removeEventListener?.('focus', handleFocus);
+        };
     }, [id]);
 
     async function loadCompany() {
@@ -211,10 +256,14 @@ export default function CompanyDashboardScreen() {
         setCompany(loadedCompany);
         setBrandForm(companyToBrandForm(loadedCompany));
         setMessage('');
-        await loadCompanyLeadCounts(String(id));
     }
 
     async function loadCompanyLeadCounts(companyIdToLoad: string) {
+        if (leadRefreshInFlight.current) return;
+
+        leadRefreshInFlight.current = true;
+        setLeadCountLoading(true);
+
         try {
             const counts = await getCompanyLeadCounts(companyIdToLoad);
 
@@ -223,6 +272,9 @@ export default function CompanyDashboardScreen() {
         } catch {
             setLeadCounts(null);
             setLeadCountMessage('Lead count unavailable.');
+        } finally {
+            leadRefreshInFlight.current = false;
+            setLeadCountLoading(false);
         }
     }
 
@@ -748,13 +800,15 @@ export default function CompanyDashboardScreen() {
 
                     <LeadAlertPanel
                         counts={leadCounts}
+                        loading={leadCountLoading}
                         message={leadCountMessage}
                         accentColor={brandAccent}
                         primaryColor={brandPrimary}
-                        onPress={() => router.push({
+                        onOpen={() => router.push({
                             pathname: '/dispatch',
                             params: { companyId: String(id) },
                         } as never)}
+                        onRefresh={() => loadCompanyLeadCounts(String(id))}
                     />
 
                     <View
@@ -1278,24 +1332,27 @@ export default function CompanyDashboardScreen() {
 
 function LeadAlertPanel({
     counts,
+    loading,
     message,
     accentColor,
     primaryColor,
-    onPress,
+    onOpen,
+    onRefresh,
 }: {
     counts: CompanyLeadCounts | null;
+    loading: boolean;
     message: string;
     accentColor: string;
     primaryColor: string;
-    onPress: () => void;
+    onOpen: () => void;
+    onRefresh: () => void;
 }) {
     const unavailable = message === 'Lead count unavailable.';
     const hasLeads = !!counts && counts.newLeads > 0;
+    const checking = loading && !counts && !unavailable;
 
     return (
-        <TouchableOpacity
-            onPress={onPress}
-            activeOpacity={0.84}
+        <View
             style={{
                 backgroundColor: hasLeads ? '#F8FAFC' : '#FFFFFF',
                 borderColor: unavailable ? '#DC2626' : hasLeads ? accentColor : '#E3E8EF',
@@ -1313,7 +1370,9 @@ function LeadAlertPanel({
                     <Text style={{ color: '#64748B', fontSize: 13, fontWeight: '700', lineHeight: 19, marginTop: 4 }}>
                         {unavailable
                             ? 'Lead count unavailable.'
-                            : hasLeads
+                            : checking
+                                ? 'Checking leads...'
+                                : hasLeads
                                 ? 'New company-visible service requests are waiting in Dispatch.'
                                 : message || 'No new leads.'}
                     </Text>
@@ -1321,20 +1380,42 @@ function LeadAlertPanel({
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                     <LeadAlertPill
-                        label={unavailable ? 'Lead count unavailable.' : hasLeads ? `New Leads: ${counts?.newLeads || 0}` : 'No new leads.'}
+                        label={
+                            unavailable
+                                ? 'Lead count unavailable.'
+                                : checking
+                                    ? 'Checking leads...'
+                                    : hasLeads
+                                        ? `New Leads: ${counts?.newLeads || 0}`
+                                        : 'No new leads.'
+                        }
                         backgroundColor={unavailable ? '#FEE2E2' : '#EEF4FF'}
                         textColor={unavailable ? '#DC2626' : accentColor}
+                        onPress={hasLeads ? onOpen : undefined}
                     />
                     {!!counts && counts.emergencyLeads > 0 && (
                         <LeadAlertPill
                             label={`Emergency Leads: ${counts.emergencyLeads}`}
                             backgroundColor="#FEE2E2"
                             textColor="#DC2626"
+                            onPress={onOpen}
                         />
                     )}
+                    <LeadAlertPill
+                        label={loading ? 'Refreshing...' : 'Refresh'}
+                        backgroundColor="#FFFFFF"
+                        textColor={primaryColor}
+                        onPress={onRefresh}
+                    />
+                    <LeadAlertPill
+                        label="Open Dispatch"
+                        backgroundColor={primaryColor}
+                        textColor="#FFFFFF"
+                        onPress={onOpen}
+                    />
                 </View>
             </View>
-        </TouchableOpacity>
+        </View>
     );
 }
 
@@ -1342,12 +1423,14 @@ function LeadAlertPill({
     label,
     backgroundColor,
     textColor,
+    onPress,
 }: {
     label: string;
     backgroundColor: string;
     textColor: string;
+    onPress?: () => void;
 }) {
-    return (
+    const content = (
         <View
             style={{
                 backgroundColor,
@@ -1360,6 +1443,14 @@ function LeadAlertPill({
                 {label}
             </Text>
         </View>
+    );
+
+    if (!onPress) return content;
+
+    return (
+        <TouchableOpacity activeOpacity={0.84} onPress={onPress}>
+            {content}
+        </TouchableOpacity>
     );
 }
 
