@@ -9,7 +9,7 @@ export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Ch
 
 const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher'];
 const TECHOS_COMPANY_ROLES = ['technician'];
-const COMPANY_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER'];
+const COMPANY_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER'];
 
 export type LoggedInUserRoute = string;
 
@@ -127,6 +127,18 @@ export async function resolveLoggedInUserRoute(
         }
 
         if (isStaffRole(role) || COMPANY_PROFILE_ROLES.includes(role)) {
+            const fallbackCompanyAccess = pickCompanyAccess(activeCompanyAccess, options.preferredCompanyId);
+
+            if (fallbackCompanyAccess) {
+                return {
+                    route: techOSRoute(fallbackCompanyAccess.company_id),
+                    reason: 'company-technician',
+                    companyId: fallbackCompanyAccess.company_id,
+                    companyRole: normalizeCompanyUserRole(fallbackCompanyAccess.role),
+                    allowedCompanyIds: [fallbackCompanyAccess.company_id],
+                };
+            }
+
             return {
                 route: TECHOS_ROUTE,
                 reason: 'staff',
@@ -191,32 +203,44 @@ export async function loadLoggedInUserCompanyAccess(userId: string): Promise<{
     const rpcResult = await supabase.rpc('get_my_company_permissions', {
         p_company_id: null,
     });
+    const rpcRows = rpcResult.error ? [] : normalizeCompanyAccessRows(rpcResult.data);
 
-    if (!rpcResult.error) {
-        return {
-            data: normalizeCompanyAccessRows(rpcResult.data),
-            error: null,
-        };
-    }
-
-    if (isServiceUnavailableError(rpcResult.error)) {
+    if (rpcResult.error && isServiceUnavailableError(rpcResult.error)) {
         return {
             data: [],
             error: rpcResult.error,
         };
     }
 
-    const directQuery = await supabase
+    const directQuery = await loadCompanyUsersAccess(userId);
+
+    if (!directQuery.error) {
+        return {
+            data: mergeCompanyAccessRows(rpcRows, normalizeCompanyAccessRows(directQuery.data)),
+            error: null,
+        };
+    }
+
+    if (!rpcResult.error) {
+        return {
+            data: rpcRows,
+            error: null,
+        };
+    }
+
+    return {
+        data: [],
+        error: directQuery.error,
+    };
+}
+
+async function loadCompanyUsersAccess(userId: string) {
+    return supabase
         .from('company_users')
         .select('id, company_id, full_name, email, role, status, created_at')
         .eq('auth_user_id', userId)
         .order('created_at', { ascending: true })
         .limit(50);
-
-    return {
-        data: normalizeCompanyAccessRows(directQuery.data),
-        error: directQuery.error,
-    };
 }
 
 function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {
@@ -237,6 +261,50 @@ function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {
             };
         })
         .filter((row) => row.company_id);
+}
+
+function mergeCompanyAccessRows(
+    permissionRows: CompanyRouteAccessRow[],
+    companyUserRows: CompanyRouteAccessRow[]
+): CompanyRouteAccessRow[] {
+    const rowsByCompanyId = new Map<string, CompanyRouteAccessRow>();
+
+    companyUserRows.forEach((row) => {
+        rowsByCompanyId.set(row.company_id, row);
+    });
+
+    permissionRows.forEach((row) => {
+        const existing = rowsByCompanyId.get(row.company_id) || null;
+
+        rowsByCompanyId.set(row.company_id, {
+            id: row.id || existing?.id || null,
+            company_id: row.company_id,
+            full_name: row.full_name || existing?.full_name || null,
+            email: row.email || existing?.email || null,
+            role: row.role || existing?.role || null,
+            status: row.status || existing?.status || null,
+            created_at: row.created_at || existing?.created_at || null,
+            can_view_techos: typeof row.can_view_techos === 'boolean'
+                ? row.can_view_techos
+                : existing?.can_view_techos ?? null,
+        });
+    });
+
+    return Array.from(rowsByCompanyId.values());
+}
+
+function pickCompanyAccess(
+    rows: CompanyRouteAccessRow[],
+    preferredCompanyId?: string | null
+) {
+    const preferredId = String(preferredCompanyId || '').trim();
+
+    if (preferredId) {
+        const preferredRow = rows.find((row) => row.company_id === preferredId);
+        if (preferredRow) return preferredRow;
+    }
+
+    return rows[0] || null;
 }
 
 function pickCompanyAccessForRoles(
