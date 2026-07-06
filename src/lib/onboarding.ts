@@ -254,39 +254,19 @@ export async function loadLoggedInUserCompanyAccess(
     data: CompanyRouteAccessRow[];
     error: { message: string } | null;
 }> {
-    const rpcResult = await supabase.rpc('get_my_company_permissions', {
-        p_company_id: null,
-    });
-    const rpcRows = rpcResult.error ? [] : normalizeCompanyAccessRows(rpcResult.data);
-    logCompanyAccessDebug(options.debug === true, 'rpc_company_access', rpcRows, rpcResult.error?.message || null);
-
-    if (rpcResult.error && isServiceUnavailableError(rpcResult.error)) {
-        return {
-            data: [],
-            error: rpcResult.error,
-        };
-    }
+    logCompanyAccessDebug(
+        options.debug === true,
+        'rpc_company_access',
+        [],
+        'skipped: get_my_company_permissions is not installed in deployed migrations'
+    );
 
     const directQuery = await loadCompanyUsersAccess(userId);
     const directRows = directQuery.error ? [] : normalizeCompanyAccessRows(directQuery.data);
     logCompanyAccessDebug(options.debug === true, 'direct_company_users', directRows, directQuery.error?.message || null);
 
-    if (!directQuery.error) {
-        return {
-            data: mergeCompanyAccessRows(rpcRows, directRows),
-            error: null,
-        };
-    }
-
-    if (!rpcResult.error) {
-        return {
-            data: rpcRows,
-            error: null,
-        };
-    }
-
     return {
-        data: [],
+        data: directRows,
         error: directQuery.error,
     };
 }
@@ -345,36 +325,6 @@ function summarizeCompanyAccessRows(rows: CompanyRouteAccessRow[]) {
         normalized_status: normalizeCompanyUserStatus(row.status),
         can_view_techos: row.can_view_techos ?? null,
     }));
-}
-
-function mergeCompanyAccessRows(
-    permissionRows: CompanyRouteAccessRow[],
-    companyUserRows: CompanyRouteAccessRow[]
-): CompanyRouteAccessRow[] {
-    const rowsByCompanyId = new Map<string, CompanyRouteAccessRow>();
-
-    companyUserRows.forEach((row) => {
-        rowsByCompanyId.set(row.company_id, row);
-    });
-
-    permissionRows.forEach((row) => {
-        const existing = rowsByCompanyId.get(row.company_id) || null;
-
-        rowsByCompanyId.set(row.company_id, {
-            id: row.id || existing?.id || null,
-            company_id: row.company_id,
-            full_name: row.full_name || existing?.full_name || null,
-            email: row.email || existing?.email || null,
-            role: row.role || existing?.role || null,
-            status: row.status || existing?.status || null,
-            created_at: row.created_at || existing?.created_at || null,
-            can_view_techos: typeof row.can_view_techos === 'boolean'
-                ? row.can_view_techos
-                : existing?.can_view_techos ?? null,
-        });
-    });
-
-    return Array.from(rowsByCompanyId.values());
 }
 
 function pickCompanyAccess(
@@ -456,31 +406,23 @@ function readBooleanField(record: Record<string, unknown>, key: string) {
     return typeof value === 'boolean' ? value : null;
 }
 
-async function loadRouteProfile(userId: string) {
+async function loadRouteProfile(userId: string): Promise<{
+    data: ProfileRouteFields | null;
+    error: { message: string } | null;
+}> {
     try {
-        const primaryQuery = await supabase
-            .from('profiles')
-            .select('id, role, is_platform_admin')
-            .eq('id', userId)
-            .maybeSingle();
-
-        if (!primaryQuery.error) {
-            return primaryQuery;
-        }
-
-        if (isServiceUnavailableError(primaryQuery.error)) {
-            return primaryQuery;
-        }
-
-        const fallbackQuery = await supabase
+        const profileQuery = await supabase
             .from('profiles')
             .select('id, role')
             .eq('id', userId)
             .maybeSingle();
+        const profile = profileQuery.data
+            ? ({ ...profileQuery.data, is_platform_admin: null } as ProfileRouteFields)
+            : null;
 
         return {
-            data: fallbackQuery.data ? { ...fallbackQuery.data, is_platform_admin: null } : null,
-            error: fallbackQuery.error,
+            data: profile,
+            error: profileQuery.error,
         };
     } catch (error) {
         return {
