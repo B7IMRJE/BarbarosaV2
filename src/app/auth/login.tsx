@@ -75,9 +75,7 @@ export default function LoginScreen() {
             return;
         }
 
-        const routeDecision = await resolveLoggedInUserRoute(data.user.id, {
-            debugAuthEmail: cleanEmail,
-        });
+        const routeDecision = await resolveLoggedInUserRoute(data.user.id);
         const nextRoute = resolveSafeNext(firstParam(params.next));
 
         setLoading(false);
