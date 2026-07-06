@@ -179,7 +179,10 @@ export default function Layout() {
       }
 
       const sessionUserId = sessionResult.data.session?.user.id || '';
-      const routeDecision = await resolveLoggedInUserRoute(sessionUserId);
+      const sessionUserEmail = sessionResult.data.session?.user.email || '';
+      const routeDecision = await resolveLoggedInUserRoute(sessionUserId, {
+        debugAuthEmail: sessionUserEmail,
+      });
 
       if (runId !== checkRunRef.current) return;
 
@@ -189,6 +192,19 @@ export default function Layout() {
       }
 
       const redirectRoute = resolveRedirectForPath(currentPath, routeDecision, options.routeParams || routeParamsRef.current);
+      logRouteGuardDebug('layout_decision', {
+        auth_user_id: sessionUserId,
+        auth_email: sessionUserEmail || 'unknown',
+        current_path: currentPath,
+        route: routeDecision.route,
+        reason: routeDecision.reason,
+        route_kind: getRouteKind(routeDecision.reason),
+        company_id: routeDecision.companyId || null,
+        company_role: routeDecision.companyRole || null,
+        receives_staff_route: isStaffRouteDecision(routeDecision),
+        redirect_route: redirectRoute || null,
+        will_redirect: Boolean(redirectRoute),
+      });
 
       if (redirectRoute) {
         replaceIfNeeded(redirectRoute, currentPath);
@@ -508,6 +524,38 @@ function resolveRedirectForPath(
   }
 
   return null;
+}
+
+function isStaffRouteDecision(routeDecision: LoggedInUserRouteDecision) {
+  return (
+    routeDecision.reason === 'company-management' ||
+    routeDecision.reason === 'company-technician' ||
+    routeDecision.reason === 'staff' ||
+    routeDecision.reason === 'super-admin'
+  );
+}
+
+function getRouteKind(reason: LoggedInUserRouteDecision['reason']) {
+  if (
+    reason === 'company-management' ||
+    reason === 'company-technician' ||
+    reason === 'staff' ||
+    reason === 'super-admin'
+  ) {
+    return 'staff';
+  }
+
+  if (reason === 'homeowner-active-membership') return 'homeowner';
+  if (reason === 'homeowner-needs-first-home') return 'onboarding';
+
+  return 'error';
+}
+
+function logRouteGuardDebug(stage: string, details: Record<string, unknown>) {
+  console.log('[route-debug]', {
+    stage,
+    ...details,
+  });
 }
 
 function firstRouteParam(value?: string | string[]) {

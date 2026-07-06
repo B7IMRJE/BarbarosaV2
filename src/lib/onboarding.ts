@@ -9,7 +9,7 @@ export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Ch
 
 const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher'];
 const TECHOS_COMPANY_ROLES = ['technician'];
-const COMPANY_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER'];
+const COMPANY_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD-TECH', 'FIELD TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER', 'DISPATCH'];
 
 export type LoggedInUserRoute = string;
 
@@ -35,7 +35,13 @@ export type LoggedInUserRouteDecision = {
     message?: string;
 };
 
+type ResolveLoggedInUserRouteOptions = {
+    preferredCompanyId?: string | null;
+    debugAuthEmail?: string | null;
+};
+
 type ProfileRouteFields = {
+    id?: string | null;
     role?: string | null;
     is_platform_admin?: boolean | null;
 };
@@ -49,47 +55,83 @@ export function isSuperAdminProfile(profile?: ProfileRouteFields | null) {
 
 export async function resolveLoggedInUserRoute(
     userId: string,
-    options: { preferredCompanyId?: string | null } = {}
+    options: ResolveLoggedInUserRouteOptions = {}
 ): Promise<LoggedInUserRouteDecision> {
+    const debugBase = {
+        auth_user_id: userId || 'missing',
+        auth_email: options.debugAuthEmail || 'unknown',
+        preferred_company_id: options.preferredCompanyId || null,
+    };
+    const resolve = (decision: LoggedInUserRouteDecision) => {
+        logRouteDebug('resolved_route', {
+            ...debugBase,
+            route: decision.route,
+            reason: decision.reason,
+            route_kind: getRouteKind(decision.reason),
+            company_id: decision.companyId || null,
+            company_role: decision.companyRole || null,
+            allowed_company_count: decision.allowedCompanyIds?.length || 0,
+        });
+
+        return decision;
+    };
+
+    logRouteDebug('start', debugBase);
+
     try {
         const profileQuery = await loadRouteProfile(userId);
 
         if (profileQuery.error) {
-            return isServiceUnavailableError(profileQuery.error)
-                ? serviceUnavailableRouteDecision(profileQuery.error.message)
-                : {
+            return resolve(
+                isServiceUnavailableError(profileQuery.error)
+                    ? serviceUnavailableRouteDecision(profileQuery.error.message)
+                    : {
                     route: HOME_ROUTE,
                     reason: 'profile-query-error',
                     message: 'Login succeeded, but HomeOS could not confirm your account profile. Opening HomeOS.',
-                };
+                }
+            );
         }
 
         const profile = profileQuery.data;
+        logRouteDebug('profile', {
+            ...debugBase,
+            profile_id: profile?.id || null,
+            profile_role: profile?.role || null,
+            normalized_profile_role: normalizeRole(profile?.role),
+            is_platform_admin: profile?.is_platform_admin === true,
+        });
 
         if (!profile) {
-            return {
+            return resolve({
                 route: HOME_ROUTE,
                 reason: 'profile-missing',
                 message: 'Login succeeded, but HomeOS could not find your account profile. Opening HomeOS.',
-            };
+            });
         }
 
         if (isSuperAdminProfile(profile)) {
-            return {
+            return resolve({
                 route: SUPER_ADMIN_ROUTE,
                 reason: 'super-admin',
-            };
+            });
         }
 
         const role = normalizeRole(profile.role);
-        const companyAccessQuery = await loadLoggedInUserCompanyAccess(userId);
+        const companyAccessQuery = await loadLoggedInUserCompanyAccess(userId, { debug: true });
 
         if (companyAccessQuery.error) {
-            return serviceUnavailableRouteDecision(companyAccessQuery.error.message);
+            return resolve(serviceUnavailableRouteDecision(companyAccessQuery.error.message));
         }
 
         const activeCompanyAccess = companyAccessQuery.data
             .filter((companyUser) => normalizeCompanyUserStatus(companyUser.status) === 'active');
+        logRouteDebug('active_company_access', {
+            ...debugBase,
+            active_company_count: activeCompanyAccess.length,
+            active_company_rows: summarizeCompanyAccessRows(activeCompanyAccess),
+        });
+
         const managementAccess = pickCompanyAccessForRoles(
             activeCompanyAccess,
             MANAGEMENT_COMPANY_ROLES,
@@ -101,13 +143,13 @@ export async function resolveLoggedInUserRoute(
                 .filter((companyUser) => MANAGEMENT_COMPANY_ROLES.includes(normalizeCompanyUserRole(companyUser.role)))
                 .map((companyUser) => companyUser.company_id);
 
-            return {
+            return resolve({
                 route: companyManagementRoute(managementAccess.company_id),
                 reason: 'company-management',
                 companyId: managementAccess.company_id,
                 companyRole: normalizeCompanyUserRole(managementAccess.role),
                 allowedCompanyIds,
-            };
+            });
         }
 
         const technicianAccess = pickCompanyAccessForRoles(
@@ -117,71 +159,80 @@ export async function resolveLoggedInUserRoute(
         ) || pickCompanyAccessForTechOS(activeCompanyAccess, options.preferredCompanyId);
 
         if (technicianAccess) {
-            return {
+            return resolve({
                 route: techOSRoute(technicianAccess.company_id),
                 reason: 'company-technician',
                 companyId: technicianAccess.company_id,
                 companyRole: normalizeCompanyUserRole(technicianAccess.role),
                 allowedCompanyIds: [technicianAccess.company_id],
-            };
+            });
         }
 
         if (isStaffRole(role) || COMPANY_PROFILE_ROLES.includes(role)) {
             const fallbackCompanyAccess = pickCompanyAccess(activeCompanyAccess, options.preferredCompanyId);
 
             if (fallbackCompanyAccess) {
-                return {
+                return resolve({
                     route: techOSRoute(fallbackCompanyAccess.company_id),
                     reason: 'company-technician',
                     companyId: fallbackCompanyAccess.company_id,
                     companyRole: normalizeCompanyUserRole(fallbackCompanyAccess.role),
                     allowedCompanyIds: [fallbackCompanyAccess.company_id],
-                };
+                });
             }
 
-            return {
+            return resolve({
                 route: TECHOS_ROUTE,
                 reason: 'staff',
-            };
+            });
         }
 
         if (role !== 'HOMEOWNER') {
-            return {
-                route: HOME_ROUTE,
+            return resolve({
+                route: TECHOS_ROUTE,
                 reason: 'staff',
-            };
+            });
         }
 
         const membershipQuery = await supabase
             .from('property_memberships')
-            .select('id')
+            .select('id', { count: 'exact' })
             .eq('user_id', userId)
             .eq('status', 'active')
-            .limit(1);
+            .limit(20);
+        const activePropertyMembershipCount = membershipQuery.count ?? (membershipQuery.data || []).length;
+
+        logRouteDebug('property_memberships', {
+            ...debugBase,
+            active_property_membership_count: activePropertyMembershipCount,
+            error: membershipQuery.error?.message || null,
+        });
 
         if (membershipQuery.error) {
-            return isServiceUnavailableError(membershipQuery.error)
-                ? serviceUnavailableRouteDecision(membershipQuery.error.message)
-                : {
+            return resolve(
+                isServiceUnavailableError(membershipQuery.error)
+                    ? serviceUnavailableRouteDecision(membershipQuery.error.message)
+                    : {
                     route: HOME_ROUTE,
                     reason: 'membership-query-error',
                     message: 'Login succeeded, but HomeOS could not confirm your home setup. Opening HomeOS.',
-                };
+                }
+            );
         }
 
-        if ((membershipQuery.data || []).length > 0) {
-            return {
+        if (activePropertyMembershipCount > 0) {
+            return resolve({
                 route: HOME_ROUTE,
                 reason: 'homeowner-active-membership',
-            };
+            });
         }
 
-        return {
+        return resolve({
             route: FIRST_HOME_ONBOARDING_ROUTE,
             reason: 'homeowner-needs-first-home',
-        };
+        });
     } catch (error) {
-        return serviceUnavailableRouteDecision(getErrorMessage(error));
+        return resolve(serviceUnavailableRouteDecision(getErrorMessage(error)));
     }
 }
 
@@ -196,7 +247,10 @@ export type CompanyRouteAccessRow = {
     can_view_techos?: boolean | null;
 };
 
-export async function loadLoggedInUserCompanyAccess(userId: string): Promise<{
+export async function loadLoggedInUserCompanyAccess(
+    userId: string,
+    options: { debug?: boolean } = {}
+): Promise<{
     data: CompanyRouteAccessRow[];
     error: { message: string } | null;
 }> {
@@ -204,6 +258,7 @@ export async function loadLoggedInUserCompanyAccess(userId: string): Promise<{
         p_company_id: null,
     });
     const rpcRows = rpcResult.error ? [] : normalizeCompanyAccessRows(rpcResult.data);
+    logCompanyAccessDebug(options.debug === true, 'rpc_company_access', rpcRows, rpcResult.error?.message || null);
 
     if (rpcResult.error && isServiceUnavailableError(rpcResult.error)) {
         return {
@@ -213,10 +268,12 @@ export async function loadLoggedInUserCompanyAccess(userId: string): Promise<{
     }
 
     const directQuery = await loadCompanyUsersAccess(userId);
+    const directRows = directQuery.error ? [] : normalizeCompanyAccessRows(directQuery.data);
+    logCompanyAccessDebug(options.debug === true, 'direct_company_users', directRows, directQuery.error?.message || null);
 
     if (!directQuery.error) {
         return {
-            data: mergeCompanyAccessRows(rpcRows, normalizeCompanyAccessRows(directQuery.data)),
+            data: mergeCompanyAccessRows(rpcRows, directRows),
             error: null,
         };
     }
@@ -261,6 +318,33 @@ function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {
             };
         })
         .filter((row) => row.company_id);
+}
+
+function logCompanyAccessDebug(
+    enabled: boolean,
+    stage: string,
+    rows: CompanyRouteAccessRow[],
+    error: string | null
+) {
+    if (!enabled) return;
+
+    logRouteDebug(stage, {
+        count: rows.length,
+        rows: summarizeCompanyAccessRows(rows),
+        error,
+    });
+}
+
+function summarizeCompanyAccessRows(rows: CompanyRouteAccessRow[]) {
+    return rows.slice(0, 10).map((row) => ({
+        company_id: row.company_id,
+        company_user_id: row.id,
+        role: row.role,
+        normalized_role: normalizeCompanyUserRole(row.role),
+        status: row.status,
+        normalized_status: normalizeCompanyUserStatus(row.status),
+        can_view_techos: row.can_view_techos ?? null,
+    }));
 }
 
 function mergeCompanyAccessRows(
@@ -376,7 +460,7 @@ async function loadRouteProfile(userId: string) {
     try {
         const primaryQuery = await supabase
             .from('profiles')
-            .select('role, is_platform_admin')
+            .select('id, role, is_platform_admin')
             .eq('id', userId)
             .maybeSingle();
 
@@ -390,7 +474,7 @@ async function loadRouteProfile(userId: string) {
 
         const fallbackQuery = await supabase
             .from('profiles')
-            .select('role')
+            .select('id, role')
             .eq('id', userId)
             .maybeSingle();
 
@@ -412,6 +496,24 @@ function serviceUnavailableRouteDecision(message?: string | null): LoggedInUserR
         reason: 'service-unavailable',
         message: normalizeServiceUnavailableMessage(message),
     };
+}
+
+function getRouteKind(reason: LoggedInUserRouteReason) {
+    if (reason === 'company-management' || reason === 'company-technician' || reason === 'staff' || reason === 'super-admin') {
+        return 'staff';
+    }
+
+    if (reason === 'homeowner-active-membership') return 'homeowner';
+    if (reason === 'homeowner-needs-first-home') return 'onboarding';
+
+    return 'error';
+}
+
+function logRouteDebug(stage: string, details: Record<string, unknown>) {
+    console.log('[route-debug]', {
+        stage,
+        ...details,
+    });
 }
 
 function isServiceUnavailableError(error?: { message?: string | null } | null) {
