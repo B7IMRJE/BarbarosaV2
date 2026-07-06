@@ -7,6 +7,7 @@ import {
     ScrollView,
     Text,
     TextInput,
+    TouchableOpacity,
     View,
 } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
@@ -17,6 +18,17 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
+import {
+    createHomeownerServiceRequest,
+    linkHomeEmergencyToServiceRequest,
+} from '../../lib/homeServiceRequests';
+import {
+    loadHomeServiceReviewsForEmergency,
+    saveHomeServiceReview,
+    type HomeServiceReview,
+    type HomeServiceReviewTarget,
+} from '../../lib/homeServiceReviews';
+import { loadPreferredProviderForProperty, type PreferredProvider } from '../../lib/preferredProviders';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -48,19 +60,19 @@ type EmergencyRecord = {
     service_request_sent_at?: string | null;
 };
 
-type PreferredProvider = {
-    companyId: string;
-    companyName: string;
+type ReviewFormState = {
+    rating: number;
+    comments: string;
+    tags: string[];
 };
 
-type CreatedServiceRequestReceipt = {
-    id: string;
-    companyId: string;
-    propertyId: string;
-    requestType: string;
-    status: string;
-    priority: string;
-    createdAt: string | null;
+const technicianReviewTags = ['On time', 'Professional', 'Clean work', 'Explained clearly'];
+const companyReviewTags = ['Fair pricing', 'Easy scheduling', 'Good communication', 'Would recommend'];
+
+const emptyReviewForm: ReviewFormState = {
+    rating: 0,
+    comments: '',
+    tags: [],
 };
 
 function formatDate(value?: string | null) {
@@ -103,6 +115,12 @@ export default function EmergencyDetailScreen() {
     const [activePropertyId, setActivePropertyId] = useState('');
     const [sentServiceRequestId, setSentServiceRequestId] = useState('');
     const [sentServiceRequestStatus, setSentServiceRequestStatus] = useState('');
+    const [reviews, setReviews] = useState<HomeServiceReview[]>([]);
+    const [activeReviewTarget, setActiveReviewTarget] = useState<HomeServiceReviewTarget | null>(null);
+    const [technicianReviewForm, setTechnicianReviewForm] = useState<ReviewFormState>(emptyReviewForm);
+    const [companyReviewForm, setCompanyReviewForm] = useState<ReviewFormState>(emptyReviewForm);
+    const [reviewMessage, setReviewMessage] = useState('');
+    const [savingReviewTarget, setSavingReviewTarget] = useState<HomeServiceReviewTarget | null>(null);
 
     useEffect(() => {
         loadEmergency();
@@ -115,6 +133,7 @@ export default function EmergencyDetailScreen() {
             setNoteMessage('');
             setServiceRequestMessage('');
             setSentServiceRequestStatus('');
+            setReviewMessage('');
         }
 
         let activeProperty;
@@ -155,6 +174,7 @@ export default function EmergencyDetailScreen() {
             setEmergency(null);
         } else {
             setEmergency(data as EmergencyRecord);
+            await loadReviewsForEmergency((data as EmergencyRecord).id);
             const linkedId = String((data as EmergencyRecord).service_request_id || '').trim();
             if (linkedId) {
                 setSentServiceRequestId(linkedId);
@@ -163,6 +183,14 @@ export default function EmergencyDetailScreen() {
         }
 
         setLoading(false);
+    }
+
+    async function loadReviewsForEmergency(emergencyId: string) {
+        const loadedReviews = await loadHomeServiceReviewsForEmergency(emergencyId);
+
+        setReviews(loadedReviews);
+        setTechnicianReviewForm(reviewToForm(findReview(loadedReviews, 'technician')));
+        setCompanyReviewForm(reviewToForm(findReview(loadedReviews, 'company')));
     }
 
     async function loadLinkedServiceRequestStatus(serviceRequestId: string) {
@@ -181,52 +209,12 @@ export default function EmergencyDetailScreen() {
     }
 
     async function loadPreferredProvider(propertyId: string) {
-        const { data: preferredRows, error: preferredError } = await supabase
-            .from('property_preferred_providers')
-            .select('company_id, property_id, status, selected_at')
-            .eq('property_id', propertyId)
-            .eq('status', 'active')
-            .order('selected_at', { ascending: false })
-            .limit(1);
-
-        if (preferredError) {
+        try {
+            setPreferredProvider(await loadPreferredProviderForProperty(propertyId));
+        } catch (error) {
             setPreferredProvider(null);
-            setServiceRequestMessage(`Could not load preferred provider: ${preferredError.message}`);
-            return;
+            setServiceRequestMessage(`Could not load preferred provider: ${getErrorMessage(error)}`);
         }
-
-        const preferredRow = (preferredRows || [])[0] as { company_id?: string | null } | undefined;
-        const providerCompanyId = String(preferredRow?.company_id || '').trim();
-
-        if (!providerCompanyId) {
-            setPreferredProvider(null);
-            return;
-        }
-
-        const { data: companyData, error: companyError } = await supabase
-            .from('companies')
-            .select('id, name, public_name, dba_name')
-            .eq('id', providerCompanyId)
-            .maybeSingle();
-
-        if (companyError) {
-            setPreferredProvider({
-                companyId: providerCompanyId,
-                companyName: 'Selected provider',
-            });
-            return;
-        }
-
-        const companyRecord = (companyData || {}) as {
-            name?: string | null;
-            public_name?: string | null;
-            dba_name?: string | null;
-        };
-
-        setPreferredProvider({
-            companyId: providerCompanyId,
-            companyName: firstText(companyRecord.public_name, companyRecord.dba_name, companyRecord.name) || 'Selected provider',
-        });
     }
 
     async function uploadPhoto(userId: string, emergencyId: string, asset: ImagePicker.ImagePickerAsset) {
@@ -321,8 +309,8 @@ export default function EmergencyDetailScreen() {
 
             setMessage('Photos added.');
             await loadEmergency({ preserveMessages: true });
-        } catch (error: any) {
-            setMessage(`Photo upload failed: ${error.message || 'Unknown error'}`);
+        } catch (error) {
+            setMessage(`Photo upload failed: ${getErrorMessage(error)}`);
         } finally {
             setSaving(false);
         }
@@ -391,28 +379,23 @@ export default function EmergencyDetailScreen() {
         setSaving(true);
         setServiceRequestMessage('Sending service request...');
 
-        const { data, error } = await supabase.rpc('create_homeowner_service_request', {
-            p_property_id: activePropertyId,
-            p_company_id: preferredProvider.companyId,
-            p_request_type: 'emergency',
-            p_issue_summary: buildServiceRequestSummary(emergency),
-            p_priority: 'emergency',
-        });
+        let confirmedRequest;
+
+        try {
+            confirmedRequest = await createHomeownerServiceRequest({
+                propertyId: activePropertyId,
+                companyId: preferredProvider.companyId,
+                requestType: 'emergency',
+                issueSummary: buildServiceRequestSummary(emergency),
+                priority: 'emergency',
+            });
+        } catch (error) {
+            setSaving(false);
+            setServiceRequestMessage(`Could not send service request: ${getErrorMessage(error)}`);
+            return;
+        }
 
         setSaving(false);
-
-        if (error) {
-            setServiceRequestMessage(`Could not send service request: ${error.message}`);
-            return;
-        }
-
-        const confirmedRequest = parseCreatedServiceRequest(data);
-
-        if (!confirmedRequest) {
-            setServiceRequestMessage('Could not confirm service request: Supabase did not return a service_request_id.');
-            return;
-        }
-
         setSentServiceRequestId(confirmedRequest.id);
         setSentServiceRequestStatus(confirmedRequest.status);
         setServiceRequestMessage(`Service request sent to ${preferredProvider.companyName}. Request ID: ${shortId(confirmedRequest.id)}.`);
@@ -426,21 +409,24 @@ export default function EmergencyDetailScreen() {
             makeHistoryEntry('status', `Service request ${shortId(confirmedRequest.id)} sent to ${preferredProvider.companyName}.`),
         ];
 
-        const { error: linkError } = await supabase
+        const linkResult = await linkHomeEmergencyToServiceRequest({
+            emergencyId: emergency.id,
+            propertyId: activePropertyId,
+            serviceRequest: confirmedRequest,
+        });
+
+        const { error: historyError } = await supabase
             .from('home_emergencies')
             .update({
-                service_request_id: confirmedRequest.id,
-                service_request_company_id: confirmedRequest.companyId,
-                service_request_sent_at: confirmedRequest.createdAt || new Date().toISOString(),
                 history: nextHistory,
                 updated_at: new Date().toISOString(),
             })
             .eq('id', emergency.id)
             .eq('property_id', activePropertyId);
 
-        if (linkError) {
+        if (!linkResult.linked || historyError) {
             setServiceRequestMessage(
-                `Service request sent to ${preferredProvider.companyName}. Request ID: ${shortId(confirmedRequest.id)}. Link update failed: ${linkError.message}`
+                `Service request sent to ${preferredProvider.companyName}. Request ID: ${shortId(confirmedRequest.id)}. Link update failed: ${historyError?.message || linkResult.detail}`
             );
             return;
         }
@@ -524,6 +510,80 @@ export default function EmergencyDetailScreen() {
         await loadEmergency({ preserveMessages: true });
     }
 
+    function updateReviewRating(target: HomeServiceReviewTarget, rating: number) {
+        updateReviewForm(target, (form) => ({ ...form, rating }));
+    }
+
+    function updateReviewComments(target: HomeServiceReviewTarget, comments: string) {
+        updateReviewForm(target, (form) => ({ ...form, comments }));
+    }
+
+    function toggleReviewTag(target: HomeServiceReviewTarget, tag: string) {
+        updateReviewForm(target, (form) => ({
+            ...form,
+            tags: form.tags.includes(tag)
+                ? form.tags.filter((currentTag) => currentTag !== tag)
+                : [...form.tags, tag],
+        }));
+    }
+
+    function updateReviewForm(
+        target: HomeServiceReviewTarget,
+        updater: (form: ReviewFormState) => ReviewFormState
+    ) {
+        if (target === 'technician') {
+            setTechnicianReviewForm((current) => updater(current));
+            return;
+        }
+
+        setCompanyReviewForm((current) => updater(current));
+    }
+
+    async function submitReview(target: HomeServiceReviewTarget) {
+        if (!emergency) return;
+
+        const form = target === 'technician' ? technicianReviewForm : companyReviewForm;
+
+        if (form.rating < 1) {
+            setReviewMessage(`${reviewTitle(target)} needs a star rating.`);
+            return;
+        }
+
+        setSavingReviewTarget(target);
+        setReviewMessage(`Saving ${reviewTitle(target).toLowerCase()}...`);
+
+        try {
+            const savedReview = await saveHomeServiceReview({
+                id: findReview(reviews, target)?.id,
+                target_type: target,
+                property_id: emergency.property_id,
+                emergency_id: emergency.id,
+                service_request_id: firstText(emergency.service_request_id, sentServiceRequestId) || null,
+                company_id: target === 'company'
+                    ? firstText(emergency.service_request_company_id, preferredProvider?.companyId) || null
+                    : null,
+                company_name: target === 'company' ? preferredProvider?.companyName || null : null,
+                technician_id: null,
+                technician_name: null,
+                star_rating: form.rating,
+                comments: form.comments,
+                tags: form.tags,
+            });
+            const nextReviews = [
+                savedReview,
+                ...reviews.filter((review) => review.id !== savedReview.id),
+            ];
+
+            setReviews(nextReviews);
+            setActiveReviewTarget(null);
+            setReviewMessage(`${reviewTitle(target)} saved.`);
+        } catch (error) {
+            setReviewMessage(`${reviewTitle(target)} failed: ${getErrorMessage(error)}`);
+        } finally {
+            setSavingReviewTarget(null);
+        }
+    }
+
     if (loading) {
         return (
             <View
@@ -564,6 +624,8 @@ export default function EmergencyDetailScreen() {
     const history = normalizeHistory(emergency.history);
     const currentServiceRequestId = firstText(emergency.service_request_id, sentServiceRequestId);
     const hasDispatchRequest = !!currentServiceRequestId;
+    const savedTechnicianReview = findReview(reviews, 'technician');
+    const savedCompanyReview = findReview(reviews, 'company');
 
     return (
         <ScrollView
@@ -714,6 +776,52 @@ export default function EmergencyDetailScreen() {
                     )}
                 </View>
 
+                <ThemedCard style={{ marginBottom: 14 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                        Service Reviews
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20, fontWeight: '800' }}>
+                        Technician and company reviews are saved as separate HomeOS review records.
+                    </Text>
+
+                    <View style={reviewGridStyle}>
+                        <ServiceReviewCard
+                            title="Review Technician"
+                            targetName={savedTechnicianReview?.technician_name || 'Technician not assigned in HomeOS yet'}
+                            tags={technicianReviewTags}
+                            form={technicianReviewForm}
+                            savedReview={savedTechnicianReview}
+                            expanded={activeReviewTarget === 'technician'}
+                            saving={savingReviewTarget === 'technician'}
+                            onToggle={() => setActiveReviewTarget(activeReviewTarget === 'technician' ? null : 'technician')}
+                            onRatingChange={(rating) => updateReviewRating('technician', rating)}
+                            onTagToggle={(tag) => toggleReviewTag('technician', tag)}
+                            onCommentsChange={(comments) => updateReviewComments('technician', comments)}
+                            onSubmit={() => submitReview('technician')}
+                        />
+                        <ServiceReviewCard
+                            title="Review Company"
+                            targetName={preferredProvider?.companyName || savedCompanyReview?.company_name || 'Company not connected yet'}
+                            tags={companyReviewTags}
+                            form={companyReviewForm}
+                            savedReview={savedCompanyReview}
+                            expanded={activeReviewTarget === 'company'}
+                            saving={savingReviewTarget === 'company'}
+                            onToggle={() => setActiveReviewTarget(activeReviewTarget === 'company' ? null : 'company')}
+                            onRatingChange={(rating) => updateReviewRating('company', rating)}
+                            onTagToggle={(tag) => toggleReviewTag('company', tag)}
+                            onCommentsChange={(comments) => updateReviewComments('company', comments)}
+                            onSubmit={() => submitReview('company')}
+                        />
+                    </View>
+
+                    {!!reviewMessage && (
+                        <Text style={{ color: theme.colors.mutedText, fontWeight: '900', marginTop: 12 }}>
+                            {reviewMessage}
+                        </Text>
+                    )}
+                </ThemedCard>
+
                 {photos.length > 0 && (
                     <ThemedCard style={{ marginBottom: 14 }}>
                         <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
@@ -818,6 +926,152 @@ export default function EmergencyDetailScreen() {
     );
 }
 
+function ServiceReviewCard({
+    title,
+    targetName,
+    tags,
+    form,
+    savedReview,
+    expanded,
+    saving,
+    onToggle,
+    onRatingChange,
+    onTagToggle,
+    onCommentsChange,
+    onSubmit,
+}: {
+    title: string;
+    targetName: string;
+    tags: string[];
+    form: ReviewFormState;
+    savedReview?: HomeServiceReview;
+    expanded: boolean;
+    saving: boolean;
+    onToggle: () => void;
+    onRatingChange: (rating: number) => void;
+    onTagToggle: (tag: string) => void;
+    onCommentsChange: (comments: string) => void;
+    onSubmit: () => void;
+}) {
+    const { theme } = useTheme();
+    const visibleRating = form.rating || savedReview?.star_rating || 0;
+
+    return (
+        <View style={[reviewCardStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+            <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ color: theme.colors.text, fontSize: 17, fontWeight: '900' }}>{title}</Text>
+                <Text style={{ color: theme.colors.mutedText, marginTop: 5, fontWeight: '800', lineHeight: 19 }}>
+                    {targetName}
+                </Text>
+                {savedReview && (
+                    <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '900' }}>
+                        Saved: {savedReview.star_rating} star{savedReview.star_rating === 1 ? '' : 's'}
+                    </Text>
+                )}
+            </View>
+
+            <ThemedButton
+                title={expanded ? 'Close' : title}
+                variant="secondary"
+                onPress={onToggle}
+                style={reviewButtonStyle}
+                textStyle={reviewButtonTextStyle}
+            />
+
+            {expanded && (
+                <View style={reviewFormStyle}>
+                    <View>
+                        <Text style={[reviewLabelStyle, { color: theme.colors.text }]}>Star rating</Text>
+                        <View style={starRowStyle}>
+                            {[1, 2, 3, 4, 5].map((rating) => (
+                                <TouchableOpacity
+                                    key={rating}
+                                    onPress={() => onRatingChange(rating)}
+                                    activeOpacity={0.82}
+                                    style={[
+                                        starButtonStyle,
+                                        {
+                                            backgroundColor: visibleRating >= rating ? theme.colors.primary : theme.colors.surface,
+                                            borderColor: visibleRating >= rating ? theme.colors.primary : theme.colors.border,
+                                        },
+                                    ]}
+                                >
+                                    <Text
+                                        style={{
+                                            color: visibleRating >= rating ? theme.colors.primaryText : theme.colors.text,
+                                            fontWeight: '900',
+                                        }}
+                                    >
+                                        {rating}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    </View>
+
+                    <View>
+                        <Text style={[reviewLabelStyle, { color: theme.colors.text }]}>Quick tags</Text>
+                        <View style={tagRowStyle}>
+                            {tags.map((tag) => {
+                                const selected = form.tags.includes(tag);
+
+                                return (
+                                    <TouchableOpacity
+                                        key={tag}
+                                        onPress={() => onTagToggle(tag)}
+                                        activeOpacity={0.82}
+                                        style={[
+                                            reviewTagStyle,
+                                            {
+                                                backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                                                borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                            },
+                                        ]}
+                                    >
+                                        <Text
+                                            style={{
+                                                color: selected ? theme.colors.primaryText : theme.colors.mutedText,
+                                                fontWeight: '900',
+                                            }}
+                                        >
+                                            {tag}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    </View>
+
+                    <View>
+                        <Text style={[reviewLabelStyle, { color: theme.colors.text }]}>Comments</Text>
+                        <TextInput
+                            value={form.comments}
+                            onChangeText={onCommentsChange}
+                            placeholder="Optional comments"
+                            placeholderTextColor={theme.colors.mutedText}
+                            multiline
+                            style={[
+                                reviewInputStyle,
+                                {
+                                    color: theme.colors.text,
+                                    backgroundColor: theme.colors.surface,
+                                    borderColor: theme.colors.border,
+                                },
+                            ]}
+                        />
+                    </View>
+
+                    <ThemedButton
+                        title={saving ? 'Saving Review...' : `Save ${title}`}
+                        disabled={saving}
+                        onPress={onSubmit}
+                    />
+                </View>
+            )}
+        </View>
+    );
+}
+
 function firstText(...values: Array<string | null | undefined>) {
     for (const value of values) {
         const text = String(value || '').trim();
@@ -854,27 +1108,29 @@ function buildServiceRequestSummary(emergency: EmergencyRecord) {
         .join('\n\n');
 }
 
-function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt | null {
-    const row = Array.isArray(data) ? data[0] : data;
+function findReview(reviews: HomeServiceReview[], target: HomeServiceReviewTarget) {
+    return reviews.find((review) => review.target_type === target);
+}
 
-    if (!row || typeof row !== 'object') return null;
-
-    const record = row as Record<string, unknown>;
-    const id = String(record.service_request_id || '').trim();
-    const companyId = String(record.company_id || '').trim();
-    const propertyId = String(record.property_id || '').trim();
-
-    if (!id || !companyId || !propertyId) return null;
+function reviewToForm(review?: HomeServiceReview): ReviewFormState {
+    if (!review) return emptyReviewForm;
 
     return {
-        id,
-        companyId,
-        propertyId,
-        requestType: String(record.request_type || ''),
-        status: String(record.status || ''),
-        priority: String(record.priority || ''),
-        createdAt: typeof record.created_at === 'string' ? record.created_at : null,
+        rating: review.star_rating,
+        comments: review.comments,
+        tags: review.tags,
     };
+}
+
+function reviewTitle(target: HomeServiceReviewTarget) {
+    return target === 'technician' ? 'Review Technician' : 'Review Company';
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return 'Unknown error';
 }
 
 function emergencySupportsServiceRequestLink(emergency: EmergencyRecord) {
@@ -884,3 +1140,77 @@ function emergencySupportsServiceRequestLink(emergency: EmergencyRecord) {
         Object.prototype.hasOwnProperty.call(emergency, 'service_request_sent_at')
     );
 }
+
+const reviewGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 14,
+};
+
+const reviewCardStyle = {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 260,
+    width: '48%' as const,
+    gap: 10,
+};
+
+const reviewButtonStyle = {
+    paddingVertical: 10,
+};
+
+const reviewButtonTextStyle = {
+    fontSize: 13,
+};
+
+const reviewFormStyle = {
+    gap: 12,
+};
+
+const reviewLabelStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+    marginBottom: 8,
+    textTransform: 'uppercase' as const,
+};
+
+const starRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const starButtonStyle = {
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+};
+
+const tagRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const reviewTagStyle = {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+};
+
+const reviewInputStyle = {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    minHeight: 86,
+    textAlignVertical: 'top' as const,
+    fontWeight: '800' as const,
+};

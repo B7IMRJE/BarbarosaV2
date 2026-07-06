@@ -202,6 +202,15 @@ export default function CompanyInvitationsScreen() {
         router.replace((acceptedRoute || routeDecision?.route || '/') as any);
     }
 
+    function goBack() {
+        if (router.canGoBack()) {
+            router.back();
+            return;
+        }
+
+        router.replace('/' as any);
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -209,6 +218,21 @@ export default function CompanyInvitationsScreen() {
         >
             <View style={{ width: '100%', maxWidth: 900 }}>
                 <HomeHeader />
+
+                <View style={topActionRowStyle}>
+                    <ThemedButton
+                        title="Back"
+                        variant="secondary"
+                        onPress={goBack}
+                        style={topActionButtonStyle}
+                    />
+                    <ThemedButton
+                        title="Home"
+                        variant="secondary"
+                        onPress={() => router.replace('/' as any)}
+                        style={topActionButtonStyle}
+                    />
+                </View>
 
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Company Invitations</Text>
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
@@ -407,4 +431,16 @@ const actionButtonStyle = {
     flexGrow: 1,
     minWidth: 160,
     paddingVertical: 14,
+};
+
+const topActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginBottom: 18,
+};
+
+const topActionButtonStyle = {
+    minWidth: 120,
+    paddingVertical: 12,
 };

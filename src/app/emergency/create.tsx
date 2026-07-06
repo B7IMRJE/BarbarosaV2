@@ -17,6 +17,13 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
+import {
+    createHomeownerServiceRequest,
+    linkHomeEmergencyToServiceRequest,
+    type CreatedServiceRequestReceipt,
+} from '../../lib/homeServiceRequests';
+import { loadPreferredProviderForProperty, type PreferredProvider } from '../../lib/preferredProviders';
+import { addProviderStagedWork } from '../../lib/providerStagedWork';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -124,12 +131,12 @@ export default function CreateEmergencyScreen() {
 
     async function submitEmergency() {
         if (!description.trim()) {
-            setMessage('Add a description of what is happening.');
+            setMessage('Description is required.');
             return;
         }
 
         setSaving(true);
-        setMessage('Submitting emergency...');
+        setMessage('Saving emergency...');
 
         try {
             let activeProperty;
@@ -148,12 +155,24 @@ export default function CreateEmergencyScreen() {
                 return;
             }
 
+            let preferredProvider: PreferredProvider | null = null;
+
+            try {
+                preferredProvider = await loadPreferredProviderForProperty(activeProperty.propertyId);
+            } catch {
+                preferredProvider = null;
+            }
+
+            const now = new Date().toISOString();
             const status: EmergencyStatus = 'Reported';
             const history = [
                 makeHistoryEntry(
                     'created',
                     `${emergencyType} reported for ${area}.`
                 ),
+                ...(preferredProvider
+                    ? [makeHistoryEntry('status', `Preferred company at save: ${preferredProvider.companyName}.`)]
+                    : []),
             ];
 
             const { data: created, error: insertError } = await supabase
@@ -168,22 +187,26 @@ export default function CreateEmergencyScreen() {
                     photo_urls: [],
                     video_urls: [],
                     history,
+                    created_at: now,
+                    updated_at: now,
                 })
                 .select('id')
                 .single();
 
             if (insertError || !created) {
-                setMessage(`Submit failed: ${insertError?.message || 'Emergency was not created.'}`);
+                setMessage(`Save emergency failed: ${insertError?.message || 'Emergency was not created.'}`);
                 return;
             }
 
             const emergencyId = String(created.id);
+            let currentHistory = history;
+            let photoUrls: string[] = [];
 
             if (photos.length > 0) {
                 setMessage('Uploading photos...');
-                const photoUrls = await uploadPhotos(activeProperty.userId, emergencyId);
+                photoUrls = await uploadPhotos(activeProperty.userId, emergencyId);
                 const nextHistory = [
-                    ...history,
+                    ...currentHistory,
                     makeHistoryEntry('photo', `${photoUrls.length} photo${photoUrls.length === 1 ? '' : 's'} added.`),
                 ];
 
@@ -198,16 +221,159 @@ export default function CreateEmergencyScreen() {
                     .eq('property_id', activeProperty.propertyId);
 
                 if (updateError) {
-                    setMessage(`Emergency created but photos were not saved: ${updateError.message}`);
+                    setMessage(`Save emergency failed: Emergency created but photos were not saved: ${updateError.message}`);
                     return;
                 }
+
+                currentHistory = nextHistory;
             }
 
-            router.replace(`/emergency/${emergencyId}` as any);
-        } catch (error: any) {
-            setMessage(`Submit failed: ${error.message || 'Unknown error'}`);
+            if (!preferredProvider) {
+                setMessage('Emergency saved. Company notification is not fully connected yet.');
+                setTimeout(() => router.replace(`/emergency/${emergencyId}` as any), 900);
+                return;
+            }
+
+            setMessage(`Emergency saved. Sending to ${preferredProvider.companyName}...`);
+            const sendResult = await sendEmergencyToPreferredCompany({
+                activeProperty,
+                emergencyId,
+                preferredProvider,
+                photoCount: photoUrls.length,
+                history: currentHistory,
+            });
+
+            setMessage(
+                sendResult.sent
+                    ? 'Emergency saved and sent to preferred company.'
+                    : 'Emergency saved. Company notification is not fully connected yet.'
+            );
+            setTimeout(() => router.replace(`/emergency/${emergencyId}` as any), 900);
+        } catch (error) {
+            setMessage(`Save emergency failed: ${getErrorMessage(error)}`);
         } finally {
             setSaving(false);
+        }
+    }
+
+    async function sendEmergencyToPreferredCompany({
+        activeProperty,
+        emergencyId,
+        preferredProvider,
+        photoCount,
+        history,
+    }: {
+        activeProperty: { userId: string; propertyId: string };
+        emergencyId: string;
+        preferredProvider: PreferredProvider;
+        photoCount: number;
+        history: EmergencyHistoryEntry[];
+    }) {
+        try {
+            const serviceRequest = await createHomeownerServiceRequest({
+                propertyId: activeProperty.propertyId,
+                companyId: preferredProvider.companyId,
+                requestType: 'emergency',
+                issueSummary: buildServiceRequestSummary(emergencyType, area, description),
+                priority: 'emergency',
+            });
+
+            await linkSavedEmergencyToServiceRequest({
+                activeProperty,
+                emergencyId,
+                preferredProvider,
+                serviceRequest,
+                history,
+            });
+
+            return { sent: true };
+        } catch (error) {
+            const staged = await stageEmergencyForPreferredCompany({
+                activeProperty,
+                emergencyId,
+                preferredProvider,
+                photoCount,
+                sendError: getErrorMessage(error),
+            });
+
+            return { sent: staged };
+        }
+    }
+
+    async function linkSavedEmergencyToServiceRequest({
+        activeProperty,
+        emergencyId,
+        preferredProvider,
+        serviceRequest,
+        history,
+    }: {
+        activeProperty: { propertyId: string };
+        emergencyId: string;
+        preferredProvider: PreferredProvider;
+        serviceRequest: CreatedServiceRequestReceipt;
+        history: EmergencyHistoryEntry[];
+    }) {
+        await linkHomeEmergencyToServiceRequest({
+            emergencyId,
+            propertyId: activeProperty.propertyId,
+            serviceRequest,
+        });
+
+        const nextHistory = [
+            ...history,
+            makeHistoryEntry('status', `Service request ${shortId(serviceRequest.id)} sent to ${preferredProvider.companyName}.`),
+        ];
+
+        await supabase
+            .from('home_emergencies')
+            .update({
+                history: nextHistory,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', emergencyId)
+            .eq('property_id', activeProperty.propertyId);
+    }
+
+    async function stageEmergencyForPreferredCompany({
+        activeProperty,
+        emergencyId,
+        preferredProvider,
+        photoCount,
+        sendError,
+    }: {
+        activeProperty: { userId: string; propertyId: string };
+        emergencyId: string;
+        preferredProvider: PreferredProvider;
+        photoCount: number;
+        sendError: string;
+    }) {
+        try {
+            const entry = await addProviderStagedWork({
+                company_id: preferredProvider.companyId,
+                property_id: activeProperty.propertyId,
+                item_id: null,
+                item_slug: null,
+                item_name: 'HomeOS Emergency',
+                system: 'Emergency',
+                location: area,
+                category: emergencyType,
+                type: 'note',
+                created_by: activeProperty.userId,
+                status: 'staged',
+                payload: {
+                    source: 'homeos_emergency_create',
+                    emergency_id: emergencyId,
+                    emergency_type: emergencyType,
+                    area,
+                    description: description.trim(),
+                    photo_count: photoCount,
+                    service_request_error: sendError,
+                },
+            });
+
+            return entry.source === 'provider_staging';
+        } catch {
+            return false;
         }
     }
 
@@ -231,8 +397,7 @@ export default function CreateEmergencyScreen() {
                         lineHeight: 22,
                     }}
                 >
-                    Step 1: Document the emergency in HomeOS. Step 2: Send it to your provider's Dispatch Board from the next screen.
-                    Creating this record saves photos and notes privately in HomeOS; it does not notify dispatch until you send it.
+                    Document the emergency in HomeOS. If a preferred company is connected, HomeOS will try to send the emergency to that company during save.
                 </Text>
 
                 <Text style={[labelStyle, { color: theme.colors.text }]}>Emergency Type</Text>
@@ -348,6 +513,27 @@ function OptionRow({
             })}
         </View>
     );
+}
+
+function buildServiceRequestSummary(emergencyType: string, area: string, description: string) {
+    return [
+        `${emergencyType} reported for ${area}.`,
+        description,
+    ]
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join('\n\n');
+}
+
+function shortId(value?: string | null) {
+    return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return 'Unknown error';
 }
 
 const labelStyle = {
