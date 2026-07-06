@@ -6,6 +6,10 @@ import ThemedButton from '../../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../../components/theme/ThemedCard';
 import { verifyCustomerWorkspaceAccess } from '../../../../../lib/customerWorkspaceAccess';
 import {
+    loadCompanyDispatchRequestsForProperty,
+    type CompanyDispatchServiceRequest,
+} from '../../../../../lib/homeServiceRequests';
+import {
     addProviderStagedWork,
     loadProviderStagedWorkWithStatus,
     providerStagedWorkTypeLabel,
@@ -66,6 +70,18 @@ type CustomerInvite = {
     accepted_at: string | null;
 };
 
+type CompanyEmergencyIntake = {
+    id: string;
+    source: 'service_request' | 'provider_staged_work';
+    sourceLabel: string;
+    title: string;
+    description: string;
+    status: string | null;
+    created_at: string | null;
+    requestId: string | null;
+    emergencyId: string | null;
+};
+
 export default function CompanyClientDetailScreen() {
     const { theme } = useTheme();
     const { id, propertyId } = useLocalSearchParams<{ id: string; propertyId: string }>();
@@ -80,6 +96,8 @@ export default function CompanyClientDetailScreen() {
     const [invite, setInvite] = useState<CustomerInvite | null>(null);
     const [stagedEntries, setStagedEntries] = useState<ProviderStagedWorkEntry[]>([]);
     const [stagingStatusMessage, setStagingStatusMessage] = useState('');
+    const [emergencyIntakes, setEmergencyIntakes] = useState<CompanyEmergencyIntake[]>([]);
+    const [emergencyIntakeMessage, setEmergencyIntakeMessage] = useState('');
     const [showNoteForm, setShowNoteForm] = useState(false);
     const [noteText, setNoteText] = useState('');
     const [savingAction, setSavingAction] = useState('');
@@ -113,6 +131,10 @@ export default function CompanyClientDetailScreen() {
 
         setLoading(true);
         setMessage('');
+        setEmergencyIntakes([]);
+        setEmergencyIntakeMessage('');
+        setStagedEntries([]);
+        setStagingStatusMessage('');
 
         const hasAccess = await verifyClientDetailAccess(companyId);
 
@@ -170,6 +192,7 @@ export default function CompanyClientDetailScreen() {
             loadConnection(loadedClient),
             loadAcceptedInvite(),
             loadCustomerStagedEntries(),
+            loadCompanyEmergencyIntakes(),
         ]);
         setLoading(false);
     }
@@ -227,6 +250,48 @@ export default function CompanyClientDetailScreen() {
             setStagedEntries([]);
             setStagingStatusMessage(`Provider staging unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+    }
+
+    async function loadCompanyEmergencyIntakes() {
+        const [dispatchResult, stagedResult] = await Promise.allSettled([
+            loadCompanyDispatchRequestsForProperty({
+                companyId,
+                propertyId: clientPropertyId,
+            }),
+            loadProviderStagedWorkWithStatus({
+                companyId,
+                propertyId: clientPropertyId,
+            }),
+        ]);
+        const nextIntakes: CompanyEmergencyIntake[] = [];
+        const statusMessages: string[] = [];
+
+        if (dispatchResult.status === 'fulfilled') {
+            nextIntakes.push(
+                ...dispatchResult.value
+                    .filter(isEmergencyDispatchRequest)
+                    .map(mapDispatchRequestToEmergencyIntake)
+            );
+        } else {
+            statusMessages.push(`Dispatch requests unavailable: ${getErrorMessage(dispatchResult.reason)}`);
+        }
+
+        if (stagedResult.status === 'fulfilled') {
+            nextIntakes.push(
+                ...stagedResult.value.entries
+                    .filter(isCompanyVisibleHomeOsEmergencyStagedEntry)
+                    .map(mapStagedEntryToEmergencyIntake)
+            );
+
+            if (stagedResult.value.backendStatus.status !== 'connected') {
+                statusMessages.push('Provider emergency staging is not connected.');
+            }
+        } else {
+            statusMessages.push(`Provider emergency staging unavailable: ${getErrorMessage(stagedResult.reason)}`);
+        }
+
+        setEmergencyIntakes(sortEmergencyIntakes(nextIntakes).slice(0, 8));
+        setEmergencyIntakeMessage(statusMessages.join(' '));
     }
 
     function openEstimateDraft() {
@@ -513,6 +578,55 @@ export default function CompanyClientDetailScreen() {
                         )}
 
                         <ThemedCard style={sectionCardStyle}>
+                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Emergency Requests</Text>
+                            {!!emergencyIntakeMessage && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{emergencyIntakeMessage}</Text>
+                            )}
+                            {emergencyIntakes.length === 0 ? (
+                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                    No HomeOS emergency requests are visible for this customer yet.
+                                </Text>
+                            ) : (
+                                <View style={stagedListStyle}>
+                                    {emergencyIntakes.map((intake) => (
+                                        <View key={`${intake.source}-${intake.id}`} style={[stagedEntryStyle, { borderColor: theme.colors.border }]}>
+                                            <Text style={[stagedEntryTitleStyle, { color: theme.colors.text }]}>
+                                                {intake.title}
+                                            </Text>
+                                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                                {intake.description}
+                                            </Text>
+                                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                                Emergency / {formatStatus(intake.status)} / {intake.sourceLabel} / {formatDateTime(intake.created_at)}
+                                            </Text>
+                                            <View style={noteButtonRowStyle}>
+                                                {intake.requestId && (
+                                                    <ThemedButton
+                                                        title="Open Request"
+                                                        variant="secondary"
+                                                        onPress={() => router.push({
+                                                            pathname: '/dispatch',
+                                                            params: { companyId },
+                                                        } as never)}
+                                                        style={smallButtonStyle}
+                                                        textStyle={smallButtonTextStyle}
+                                                    />
+                                                )}
+                                                <ThemedButton
+                                                    title="Open HomeOS Emergency"
+                                                    variant="secondary"
+                                                    onPress={() => router.push(`/super-admin/company/${companyId}/client/${clientPropertyId}/homeos` as never)}
+                                                    style={smallButtonStyle}
+                                                    textStyle={smallButtonTextStyle}
+                                                />
+                                            </View>
+                                        </View>
+                                    ))}
+                                </View>
+                            )}
+                        </ThemedCard>
+
+                        <ThemedCard style={sectionCardStyle}>
                             <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Customer Notes & Requests</Text>
                             {!!stagingStatusMessage && (
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{stagingStatusMessage}</Text>
@@ -637,10 +751,84 @@ function customerWorkspaceEntrySummary(entry: ProviderStagedWorkEntry) {
     return 'Company-side staged update.';
 }
 
+function isEmergencyDispatchRequest(request: CompanyDispatchServiceRequest) {
+    const requestType = normalizeText(request.request_type);
+    const priority = normalizeText(request.priority);
+    const summary = normalizeText(request.issue_summary);
+
+    return requestType === 'emergency' || priority === 'emergency' || summary.includes('emergency');
+}
+
+function mapDispatchRequestToEmergencyIntake(request: CompanyDispatchServiceRequest): CompanyEmergencyIntake {
+    return {
+        id: request.id,
+        source: 'service_request',
+        sourceLabel: 'Dispatch Request',
+        title: 'Emergency Request',
+        description: request.issue_summary || 'No emergency description provided.',
+        status: request.status,
+        created_at: request.created_at,
+        requestId: request.id,
+        emergencyId: null,
+    };
+}
+
+function isCompanyVisibleHomeOsEmergencyStagedEntry(entry: ProviderStagedWorkEntry) {
+    if (entry.source !== 'provider_staging') return false;
+
+    const source = payloadString(entry, 'source');
+    const system = normalizeText(entry.system);
+    const itemName = normalizeText(entry.item_name);
+    const category = normalizeText(entry.category);
+
+    return (
+        source === 'homeos_emergency_create' ||
+        system === 'emergency' ||
+        itemName === 'homeos emergency' ||
+        category.includes('emergency')
+    );
+}
+
+function mapStagedEntryToEmergencyIntake(entry: ProviderStagedWorkEntry): CompanyEmergencyIntake {
+    return {
+        id: entry.id,
+        source: 'provider_staged_work',
+        sourceLabel: 'Provider Staging',
+        title: payloadString(entry, 'emergency_type') || entry.category || 'Emergency Request',
+        description: payloadString(entry, 'description') || payloadString(entry, 'details') || 'Emergency staged for company review.',
+        status: entry.status,
+        created_at: entry.created_at,
+        requestId: null,
+        emergencyId: payloadString(entry, 'emergency_id') || null,
+    };
+}
+
+function sortEmergencyIntakes(entries: CompanyEmergencyIntake[]) {
+    const seen = new Set<string>();
+
+    return entries
+        .filter((entry) => {
+            const key = entry.requestId
+                ? `request:${entry.requestId}`
+                : entry.emergencyId
+                    ? `emergency:${entry.emergencyId}`
+                    : `${entry.source}:${entry.id}`;
+
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        })
+        .sort((left, right) => getTimeValue(right.created_at) - getTimeValue(left.created_at));
+}
+
 function payloadString(entry: ProviderStagedWorkEntry, key: string) {
     const value = entry.payload[key];
 
     return typeof value === 'string' ? value.trim() : '';
+}
+
+function getErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : 'Unknown error';
 }
 
 function formatAddress(property?: PropertyRecord | null) {
@@ -681,6 +869,13 @@ function formatDateTime(value?: string | null) {
 
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
+}
+
+function getTimeValue(value?: string | null) {
+    if (!value) return 0;
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
 }
 
 function normalizeText(value?: string | null) {

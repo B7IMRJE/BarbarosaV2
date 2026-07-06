@@ -59,6 +59,8 @@ const areas = [
     'Other',
 ];
 
+const COMPANY_INTAKE_NOT_CONNECTED_MESSAGE = 'Emergency saved in HomeOS, but company intake is not connected yet.';
+
 function makeHistoryEntry(kind: EmergencyHistoryEntry['kind'], message: string) {
     return {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -229,7 +231,7 @@ export default function CreateEmergencyScreen() {
             }
 
             if (!preferredProvider) {
-                setMessage('Emergency saved. Company notification is not fully connected yet.');
+                setMessage(COMPANY_INTAKE_NOT_CONNECTED_MESSAGE);
                 setTimeout(() => router.replace(`/emergency/${emergencyId}` as any), 900);
                 return;
             }
@@ -246,7 +248,7 @@ export default function CreateEmergencyScreen() {
             setMessage(
                 sendResult.sent
                     ? 'Emergency saved and sent to preferred company.'
-                    : 'Emergency saved. Company notification is not fully connected yet.'
+                    : COMPANY_INTAKE_NOT_CONNECTED_MESSAGE
             );
             setTimeout(() => router.replace(`/emergency/${emergencyId}` as any), 900);
         } catch (error) {

@@ -18,6 +18,27 @@ export type CreateHomeownerServiceRequestInput = {
     priority: 'low' | 'normal' | 'high' | 'emergency';
 };
 
+export type CompanyDispatchServiceRequest = {
+    id: string;
+    company_id: string;
+    property_id: string;
+    company_property_client_id: string | null;
+    request_type: string | null;
+    status: string | null;
+    priority: string | null;
+    issue_summary: string | null;
+    customer_display_name: string | null;
+    property_display_name: string | null;
+    property_address: string | null;
+    property_city: string | null;
+    property_state: string | null;
+    property_postal_code: string | null;
+    created_at: string | null;
+    acknowledged_at: string | null;
+    converted_job_id: string | null;
+    converted_at: string | null;
+};
+
 export async function createHomeownerServiceRequest(
     input: CreateHomeownerServiceRequestInput
 ): Promise<CreatedServiceRequestReceipt> {
@@ -40,6 +61,31 @@ export async function createHomeownerServiceRequest(
     }
 
     return confirmedRequest;
+}
+
+export async function loadCompanyDispatchRequestsForProperty(input: {
+    companyId: string;
+    propertyId: string;
+}): Promise<CompanyDispatchServiceRequest[]> {
+    const companyId = input.companyId.trim();
+    const propertyId = input.propertyId.trim();
+
+    if (!companyId || !propertyId) return [];
+
+    const { data, error } = await supabase.rpc('get_company_dispatch_requests', {
+        p_company_id: companyId,
+    });
+
+    if (error) {
+        throw new Error(error.message);
+    }
+
+    const rows: unknown[] = Array.isArray(data) ? data : [];
+
+    return rows
+        .map(parseCompanyDispatchServiceRequest)
+        .filter((request): request is CompanyDispatchServiceRequest => Boolean(request))
+        .filter((request) => request.property_id === propertyId);
 }
 
 export async function linkHomeEmergencyToServiceRequest(input: {
@@ -72,6 +118,38 @@ export async function linkHomeEmergencyToServiceRequest(input: {
     return {
         linked: true,
         detail: 'Linked through direct update.',
+    };
+}
+
+function parseCompanyDispatchServiceRequest(row: unknown): CompanyDispatchServiceRequest | null {
+    if (!row || typeof row !== 'object') return null;
+
+    const record = row as Record<string, unknown>;
+    const id = readString(record.id);
+    const companyId = readString(record.company_id);
+    const propertyId = readString(record.property_id);
+
+    if (!id || !companyId || !propertyId) return null;
+
+    return {
+        id,
+        company_id: companyId,
+        property_id: propertyId,
+        company_property_client_id: readOptionalString(record.company_property_client_id),
+        request_type: readOptionalString(record.request_type),
+        status: readOptionalString(record.status),
+        priority: readOptionalString(record.priority),
+        issue_summary: readOptionalString(record.issue_summary),
+        customer_display_name: readOptionalString(record.customer_display_name),
+        property_display_name: readOptionalString(record.property_display_name),
+        property_address: readOptionalString(record.property_address),
+        property_city: readOptionalString(record.property_city),
+        property_state: readOptionalString(record.property_state),
+        property_postal_code: readOptionalString(record.property_postal_code),
+        created_at: readOptionalString(record.created_at),
+        acknowledged_at: readOptionalString(record.acknowledged_at),
+        converted_job_id: readOptionalString(record.converted_job_id),
+        converted_at: readOptionalString(record.converted_at),
     };
 }
 
@@ -119,4 +197,10 @@ function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt
 
 function readString(value: unknown) {
     return String(value || '').trim();
+}
+
+function readOptionalString(value: unknown) {
+    const text = readString(value);
+
+    return text || null;
 }
