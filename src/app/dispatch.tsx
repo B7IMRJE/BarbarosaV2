@@ -17,6 +17,7 @@ import {
     type CompanyDispatchRequest,
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
+import { canAccessDispatch, normalizeCompanyRole } from '../lib/companyPermissions';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
@@ -40,6 +41,7 @@ type DispatchAuthDebug = {
 type DispatchCompanyAccessResult = {
     access: CompanyAccess | null;
     choices: CompanyAccess[];
+    deniedAccess: CompanyAccess | null;
     isPlatformAdmin: boolean;
 };
 
@@ -289,6 +291,12 @@ export default function DispatchBoardScreen() {
         });
 
         if (!access) {
+            if (accessResult.deniedAccess) {
+                setLoading(false);
+                setMessage(getDispatchAccessDeniedMessage(accessResult.deniedAccess.role));
+                return;
+            }
+
             if (!requestedCompanyId && accessResult.choices.length > 1) {
                 setCompanyChoices(accessResult.choices);
                 setLoading(false);
@@ -1989,6 +1997,7 @@ async function resolveDispatchCompanyAccess(
                 status: 'active',
             },
             choices: [],
+            deniedAccess: null,
             isPlatformAdmin,
         };
     }
@@ -2000,6 +2009,7 @@ async function resolveDispatchCompanyAccess(
     }
 
     const choices = getActiveDispatchCompanyChoices(accessResult.data);
+    const deniedAccess = getDeniedDispatchCompanyAccess(accessResult.data, selectedCompanyId);
     const access = selectedCompanyId
         ? choices.find((choice) => choice.company_id === selectedCompanyId) || null
         : choices.length === 1
@@ -2009,6 +2019,7 @@ async function resolveDispatchCompanyAccess(
     return {
         access,
         choices,
+        deniedAccess,
         isPlatformAdmin,
     };
 }
@@ -2017,7 +2028,7 @@ function getActiveDispatchCompanyChoices(rows: CompanyRouteAccessRow[]) {
     const byCompanyId = new Map<string, CompanyAccess>();
 
     rows.forEach((row) => {
-        if (!row.company_id || !isActiveStatus(row.status) || byCompanyId.has(row.company_id)) {
+        if (!row.company_id || !isActiveStatus(row.status) || !canAccessDispatch(row) || byCompanyId.has(row.company_id)) {
             return;
         }
 
@@ -2027,12 +2038,34 @@ function getActiveDispatchCompanyChoices(rows: CompanyRouteAccessRow[]) {
     return Array.from(byCompanyId.values());
 }
 
+function getDeniedDispatchCompanyAccess(rows: CompanyRouteAccessRow[], selectedCompanyId: string) {
+    const activeRows = rows
+        .filter((row) => row.company_id && isActiveStatus(row.status) && !canAccessDispatch(row))
+        .map(toDispatchCompanyAccess);
+
+    if (selectedCompanyId) {
+        return activeRows.find((row) => row.company_id === selectedCompanyId) || null;
+    }
+
+    return activeRows[0] || null;
+}
+
 function toDispatchCompanyAccess(row: CompanyRouteAccessRow): CompanyAccess {
     return {
         company_id: row.company_id,
         role: row.role,
         status: row.status,
     };
+}
+
+function getDispatchAccessDeniedMessage(role?: string | null) {
+    const normalizedRole = normalizeCompanyRole(role);
+
+    if (normalizedRole === 'technician') {
+        return 'Your account is active as Technician. Dispatch requires office, supervisor, manager, admin, or owner access.';
+    }
+
+    return `Your account is active as ${formatLabel(normalizedRole || role || 'staff')}. Dispatch requires office, supervisor, manager, admin, or owner access.`;
 }
 
 async function loadDispatchPlatformAdminStatus(userId: string) {

@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 
-const STAFF_ROLES = ['TECH', 'TECHNICIAN', 'OFFICE', 'MANAGER', 'SUPER_ADMIN', 'ADMIN'];
+const STAFF_ROLES = ['TECH', 'TECHNICIAN', 'OFFICE', 'DISPATCH', 'DISPATCHER', 'SUPERVISOR', 'MANAGER', 'SUPER_ADMIN', 'ADMIN'];
 
 export function normalizeRole(role?: string | null) {
     const normalizedRole = String(role || '').trim().toUpperCase();

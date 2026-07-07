@@ -7,9 +7,9 @@ export const FIRST_HOME_ONBOARDING_ROUTE = '/onboarding/create-home' as const;
 export const TECHOS_ROUTE = '/techos' as const;
 export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
-const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher'];
+const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
 const TECHOS_COMPANY_ROLES = ['technician'];
-const COMPANY_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD-TECH', 'FIELD TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER', 'DISPATCH'];
+const COMPANY_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD-TECH', 'FIELD TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER', 'DISPATCH', 'SUPERVISOR'];
 
 export type LoggedInUserRoute = string;
 
@@ -299,6 +299,7 @@ function normalizeCompanyUserRole(role?: string | null) {
     const normalizedRole = String(role || '').trim().toLowerCase();
 
     if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
+    if (normalizedRole === 'dispatch') return 'dispatcher';
     return normalizedRole;
 }
 

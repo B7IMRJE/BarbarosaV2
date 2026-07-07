@@ -5,6 +5,7 @@ import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import {
+    canAccessDispatch,
     canAccessTechOS,
     isActiveCompanyStatus,
     isTechnicianCompanyRole,
@@ -619,7 +620,8 @@ export default function TechOSScreen() {
     const jobBoardDescription = isTechnicianWorkspace
         ? 'Only jobs assigned to the signed-in technician belong here.'
         : 'Company-level jobs shown for setup and dispatch preview. This is not one technician workload.';
-    const dispatchCompanyId = activeCompanyId || membership?.company_id || requestedCompanyId;
+    const canOpenDispatch = isPlatformAdminAccess || canAccessDispatch(membership || undefined);
+    const dispatchCompanyId = canOpenDispatch ? activeCompanyId || membership?.company_id || requestedCompanyId : '';
 
     return (
         <ScrollView

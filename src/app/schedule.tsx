@@ -552,7 +552,7 @@ async function resolveScheduleCompanyAccess(userId: string, requestedCompanyId: 
             const role = normalizeStatus(companyUser.role);
             const status = normalizeStatus(companyUser.status);
 
-            return status === 'active' && ['owner', 'admin', 'manager', 'office', 'dispatcher'].includes(role);
+            return status === 'active' && ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'].includes(role);
         }) || null
     );
 }

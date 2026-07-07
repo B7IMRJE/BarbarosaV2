@@ -24,7 +24,7 @@ import {
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
-type CompanyRole = 'owner' | 'admin' | 'manager' | 'office' | 'technician';
+type CompanyRole = 'owner' | 'admin' | 'manager' | 'office' | 'dispatcher' | 'supervisor' | 'technician';
 type MemberActionStatus = 'active' | 'suspended' | 'inactive';
 
 type CompanyUser = {
@@ -83,6 +83,8 @@ const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
     { label: 'Admin', value: 'admin' },
     { label: 'Manager', value: 'manager' },
     { label: 'Office', value: 'office' },
+    { label: 'Dispatcher', value: 'dispatcher' },
+    { label: 'Supervisor', value: 'supervisor' },
     { label: 'Technician', value: 'technician' },
 ];
 
@@ -1068,7 +1070,7 @@ function TeamMemberRow({
                     <DetailPanelSection title="TechOS Access">
                         <DetailLine label="Access" value={techOSAllowed ? 'Allowed' : 'Not allowed'} />
                         <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
-                            Active technicians, managers, admins, and owners can currently access TechOS.
+                            Active technicians and approved company staff roles can access TechOS.
                         </Text>
                     </DetailPanelSection>
 
@@ -1768,7 +1770,7 @@ function isCompanyOwnerRole(role?: string | null) {
 function isAdminManagerRole(role?: string | null) {
     const normalizedRole = normalizeRole(role);
 
-    return normalizedRole === 'admin' || normalizedRole === 'manager' || normalizedRole === 'office';
+    return ['admin', 'manager', 'office', 'dispatcher', 'supervisor'].includes(normalizedRole);
 }
 
 function formatRole(role?: string | null) {
@@ -1778,6 +1780,8 @@ function formatRole(role?: string | null) {
     if (normalizedRole === 'admin') return 'Admin';
     if (normalizedRole === 'manager') return 'Manager';
     if (normalizedRole === 'office') return 'Office';
+    if (normalizedRole === 'dispatcher') return 'Dispatcher';
+    if (normalizedRole === 'supervisor') return 'Supervisor';
     if (normalizedRole === 'technician') return 'Technician';
 
     return formatLabel(role || null);

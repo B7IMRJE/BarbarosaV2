@@ -63,6 +63,16 @@ const TECHNICIAN_PERMISSIONS: CompanyPermissionSet = {
     can_manage_company_profile: false,
 };
 
+const DISPATCH_PERMISSIONS: CompanyPermissionSet = {
+    can_view_techos: true,
+    can_create_estimates: false,
+    can_add_item_to_estimate: false,
+    can_view_customers: true,
+    can_view_jobs: true,
+    can_manage_company_users: false,
+    can_manage_company_profile: false,
+};
+
 const MANAGER_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
     can_create_estimates: true,
@@ -70,7 +80,7 @@ const MANAGER_PERMISSIONS: CompanyPermissionSet = {
     can_view_customers: true,
     can_view_jobs: true,
     can_manage_company_users: true,
-    can_manage_company_profile: false,
+    can_manage_company_profile: true,
 };
 
 const ADMIN_PERMISSIONS: CompanyPermissionSet = {
@@ -96,7 +106,8 @@ const OWNER_PERMISSIONS: CompanyPermissionSet = {
 export function normalizeCompanyRole(role?: string | null) {
     const normalizedRole = String(role || '').trim().toLowerCase();
 
-    if (normalizedRole === 'tech') return 'technician';
+    if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
+    if (normalizedRole === 'dispatch') return 'dispatcher';
     return normalizedRole;
 }
 
@@ -112,10 +123,15 @@ export function isTechnicianCompanyRole(role?: string | null) {
     return normalizeCompanyRole(role) === 'technician';
 }
 
+export function isDispatchCompanyRole(role?: string | null) {
+    return ['office', 'dispatcher', 'supervisor'].includes(normalizeCompanyRole(role));
+}
+
 export function getRoleDefaultPermissions(role?: string | null): CompanyPermissionSet {
     const normalizedRole = normalizeCompanyRole(role);
 
     if (normalizedRole === 'technician') return { ...TECHNICIAN_PERMISSIONS };
+    if (isDispatchCompanyRole(normalizedRole)) return { ...DISPATCH_PERMISSIONS };
     if (normalizedRole === 'manager') return { ...MANAGER_PERMISSIONS };
     if (normalizedRole === 'admin') return { ...ADMIN_PERMISSIONS };
     if (normalizedRole === 'owner') return { ...OWNER_PERMISSIONS };
@@ -143,6 +159,12 @@ export function hasCompanyPermission(
 
 export function canAccessTechOS(subject: CompanyAccessSubject) {
     return hasCompanyPermission(subject, 'can_view_techos');
+}
+
+export function canAccessDispatch(subject?: CompanyAccessSubject | null) {
+    if (!subject || !isActiveCompanyStatus(subject.status)) return false;
+
+    return ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'].includes(normalizeCompanyRole(subject.role));
 }
 
 export async function loadCurrentCompanyPermissionAccess(
