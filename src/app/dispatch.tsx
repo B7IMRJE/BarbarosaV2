@@ -488,9 +488,37 @@ export default function DispatchBoardScreen() {
         const duration = getScheduleDurationMinutes(form);
         const arrivalWindowHours = getArrivalWindowHours(form);
         const startAt = parseLocalDateTime(form.date, form.startTime);
+        const activeCompanyId = companyAccess?.company_id || '';
+
+        if (!activeCompanyId) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Active company is missing. Refresh Dispatch and try again.' }));
+            return;
+        }
+
+        if (!request.id) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Selected request is missing. Refresh Dispatch and try again.' }));
+            return;
+        }
+
+        if (!request.company_id || request.company_id !== activeCompanyId) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Selected request does not match the active company. Refresh Dispatch and try again.' }));
+            return;
+        }
+
+        if (activeTechnicians.length === 0) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'No active technicians found for this company.' }));
+            return;
+        }
 
         if (!form.technicianCompanyUserId) {
             setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Select a technician before scheduling.' }));
+            return;
+        }
+
+        const selectedTechnician = activeTechnicians.find((technician) => technician.id === form.technicianCompanyUserId) || null;
+
+        if (!selectedTechnician) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Selected technician is not active for this company. Choose another technician.' }));
             return;
         }
 
@@ -527,18 +555,20 @@ export default function DispatchBoardScreen() {
         const endAt = new Date(startAt.getTime() + duration * 60 * 1000);
         const arrivalStart = startAt;
         const arrivalEnd = new Date(startAt.getTime() + arrivalWindowHours * 60 * 60 * 1000);
-        const selectedTechnician = activeTechnicians.find((technician) => technician.id === form.technicianCompanyUserId) || null;
+
+        setActionRequestId(request.id);
+        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Checking schedule conflicts...' }));
 
         try {
             const freshTechnicianSlots = await loadTechnicianScheduleSlots({
-                companyId: request.company_id,
+                companyId: activeCompanyId,
                 technicianCompanyUserId: form.technicianCompanyUserId,
                 startAt,
                 endAt,
             });
             const conflict = findScheduleConflict(
                 mergeScheduleSlots(scheduleSlots, freshTechnicianSlots),
-                request.company_id,
+                activeCompanyId,
                 form.technicianCompanyUserId,
                 startAt,
                 endAt
@@ -549,6 +579,7 @@ export default function DispatchBoardScreen() {
                     ...current,
                     [request.id]: `Schedule conflict: ${selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'This technician'} is already booked from ${formatScheduleConflictRange(conflict)}.`,
                 }));
+                setActionRequestId(null);
                 return;
             }
         } catch (error) {
@@ -557,8 +588,9 @@ export default function DispatchBoardScreen() {
             if (isScheduleBackendMissingMessage(normalizeStatus(errorMessage))) {
                 setRequestActionMessageById((current) => ({
                     ...current,
-                    [request.id]: 'Tech assignment backend not connected yet.',
+                    [request.id]: `Tech assignment backend not connected yet: ${errorMessage}`,
                 }));
+                setActionRequestId(null);
                 return;
             }
 
@@ -566,36 +598,44 @@ export default function DispatchBoardScreen() {
                 ...current,
                 [request.id]: `Could not check schedule conflicts: ${errorMessage}`,
             }));
+            setActionRequestId(null);
             return;
         }
 
-        setActionRequestId(request.id);
         setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Scheduling request...' }));
 
-        const { error } = await supabase.rpc('schedule_service_request_slot', {
-            p_company_id: request.company_id,
-            p_service_request_id: request.id,
-            p_technician_company_user_id: form.technicianCompanyUserId,
-            p_start_at: startAt.toISOString(),
-            p_end_at: endAt.toISOString(),
-            p_arrival_window_start: arrivalStart?.toISOString() || null,
-            p_arrival_window_end: arrivalEnd?.toISOString() || null,
-            p_estimated_duration_minutes: duration,
-            p_priority: request.priority || 'normal',
-            p_notes: form.notes.trim() || null,
-        });
+        let scheduleErrorMessage = '';
+
+        try {
+            const { error } = await supabase.rpc('schedule_service_request_slot', {
+                p_company_id: activeCompanyId,
+                p_service_request_id: request.id,
+                p_technician_company_user_id: form.technicianCompanyUserId,
+                p_start_at: startAt.toISOString(),
+                p_end_at: endAt.toISOString(),
+                p_arrival_window_start: arrivalStart?.toISOString() || null,
+                p_arrival_window_end: arrivalEnd?.toISOString() || null,
+                p_estimated_duration_minutes: duration,
+                p_priority: request.priority || 'normal',
+                p_notes: form.notes.trim() || null,
+            });
+
+            scheduleErrorMessage = error?.message || '';
+        } catch (error) {
+            scheduleErrorMessage = error instanceof Error ? error.message : 'Unknown error';
+        }
 
         setActionRequestId(null);
 
-        if (error) {
-            const normalized = normalizeStatus(error.message);
+        if (scheduleErrorMessage) {
+            const normalized = normalizeStatus(scheduleErrorMessage);
             setRequestActionMessageById((current) => ({
                 ...current,
                 [request.id]: isMissingAssignmentBackendMessage(normalized)
-                    ? 'Tech assignment backend not connected yet.'
+                    ? `Tech assignment backend not connected yet: ${scheduleErrorMessage}`
                     : normalized.includes('scheduled work during this time')
                     ? 'This technician already has a scheduled job during that time.'
-                    : `Could not schedule request: ${error.message}`,
+                    : `Could not schedule request: ${scheduleErrorMessage}`,
             }));
             return;
         }
@@ -605,8 +645,8 @@ export default function DispatchBoardScreen() {
             [request.id]: `Scheduled for ${formatDateTime(startAt.toISOString())}.`,
         }));
         await Promise.all([
-            loadDispatchRequests(request.company_id),
-            loadScheduleSlots(request.company_id),
+            loadDispatchRequests(activeCompanyId),
+            loadScheduleSlots(activeCompanyId),
         ]);
     }
 
@@ -1585,6 +1625,11 @@ function DispatchRequestCard({
                             Window: {arrivalWindowPreview}
                         </Text>
                     </View>
+                    {!!actionMessage && (
+                        <Text style={[eventNoticeStyle, { color: theme.colors.primary }]}>
+                            {actionMessage}
+                        </Text>
+                    )}
                     <View style={compactActionRowStyle}>
                         {!request.converted_job_id && status === 'new' && (
                             <ThemedButton
@@ -1596,8 +1641,8 @@ function DispatchRequestCard({
                             />
                         )}
                         <ThemedButton
-                            title={acknowledging ? 'Assigning...' : 'Assign Tech / Schedule'}
-                            disabled={acknowledging || activeTechnicians.length === 0}
+                            title={acknowledging ? 'Scheduling...' : 'Assign Tech / Schedule'}
+                            disabled={acknowledging}
                             onPress={onScheduleRequest}
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
@@ -1654,11 +1699,6 @@ function DispatchRequestCard({
                             textStyle={{ fontSize: 12 }}
                         />
                     </View>
-                    {!!actionMessage && (
-                        <Text style={[eventNoticeStyle, { color: theme.colors.primary }]}>
-                            {actionMessage}
-                        </Text>
-                    )}
                 </View>
             )}
         </ThemedCard>
