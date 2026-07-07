@@ -398,6 +398,7 @@ export default function DispatchBoardScreen() {
         const entries = await Promise.all(
             loadedRequests.map(async (request) => {
                 const { data, error } = await supabase.rpc('get_service_request_events', {
+                    p_company_id: request.company_id,
                     p_service_request_id: request.id,
                 });
 
@@ -441,6 +442,7 @@ export default function DispatchBoardScreen() {
         setMessage('Acknowledging service request...');
 
         const { error } = await supabase.rpc('acknowledge_service_request', {
+            p_company_id: request.company_id,
             p_service_request_id: request.id,
         });
 
@@ -1892,6 +1894,7 @@ async function updateRequestClosedStatus({
 }) {
     const rpcName = status === 'archived' ? 'archive_service_request' : 'cancel_service_request';
     const { error } = await supabase.rpc(rpcName, {
+        p_company_id: companyId,
         p_service_request_id: requestId,
         p_reason: reason || null,
     });
