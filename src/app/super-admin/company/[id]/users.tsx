@@ -15,6 +15,7 @@ import {
     COMPANY_PERMISSION_LABELS,
     canAccessTechOS as canAccessCompanyTechOS,
     isTechnicianCompanyRole,
+    loadCurrentCompanyPermissionAccess,
     normalizeCompanyRole,
     normalizeCompanyStatus,
     resolveCompanyPermissions,
@@ -76,7 +77,12 @@ type ManualInviteResult = {
     warning: string | null;
 };
 
-type SectionKey = 'owners' | 'adminsManagers' | 'technicians' | 'members' | 'invitations';
+type SectionKey = 'owners' | 'adminManagerStaff' | 'technicians' | 'members' | 'invitations';
+
+type CompanyUserManagementAccessResult = {
+    canManage: boolean;
+    message: string | null;
+};
 
 const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
     { label: 'Company Owner', value: 'owner' },
@@ -113,13 +119,14 @@ export default function CompanyUsersScreen() {
     const [searchQuery, setSearchQuery] = useState('');
     const [message, setMessage] = useState('Loading company users...');
     const [loadingLists, setLoadingLists] = useState(true);
+    const [canManageUsers, setCanManageUsers] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
     const [deliveryFeedbackById, setDeliveryFeedbackById] = useState<Record<string, DeliveryFeedback>>({});
     const [manualInvitesById, setManualInvitesById] = useState<Record<string, ManualInviteDetails>>({});
     const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
         owners: false,
-        adminsManagers: false,
+        adminManagerStaff: false,
         technicians: false,
         members: true,
         invitations: true,
@@ -142,17 +149,17 @@ export default function CompanyUsersScreen() {
 
     useEffect(() => {
         const hasOwners = members.some((member) => isCompanyOwnerRole(member.role));
-        const hasAdminsManagers = members.some((member) => isAdminManagerRole(member.role));
+        const hasAdminManagerStaff = members.some((member) => isAdminManagerStaffRole(member.role));
         const hasTechnicians = members.some((member) => isTechnicianRole(member.role));
         const hasMembers = members.length > 0;
         const hasPendingInvitations = invitations.some(
             (invitation) => normalizeStatus(invitation.status) === 'pending' && !isInvitationExpired(invitation, nowMs)
         );
-        const hasCategorizedMembers = hasOwners || hasAdminsManagers || hasTechnicians;
+        const hasCategorizedMembers = hasOwners || hasAdminManagerStaff || hasTechnicians;
 
         setCollapsedSections((current) => ({
             owners: touchedSections.owners ? current.owners : false,
-            adminsManagers: touchedSections.adminsManagers ? current.adminsManagers : !hasAdminsManagers,
+            adminManagerStaff: touchedSections.adminManagerStaff ? current.adminManagerStaff : !hasAdminManagerStaff,
             technicians: touchedSections.technicians ? current.technicians : false,
             members: touchedSections.members ? current.members : hasCategorizedMembers && hasMembers,
             invitations: touchedSections.invitations ? current.invitations : !hasPendingInvitations,
@@ -161,6 +168,7 @@ export default function CompanyUsersScreen() {
 
     async function loadCompanyUsers(showLoading = true) {
         if (!id) {
+            setCanManageUsers(false);
             setMessage('Missing company id.');
             setLoadingLists(false);
             return false;
@@ -168,8 +176,22 @@ export default function CompanyUsersScreen() {
 
         if (showLoading) {
             setLoadingLists(true);
-            setMessage('Loading company users...');
+            setCanManageUsers(false);
+            setMessage('Checking company user management access...');
         }
+
+        const accessResult = await loadCompanyUserManagementAccess(String(id));
+
+        if (!accessResult.canManage) {
+            setMembers([]);
+            setInvitations([]);
+            setCanManageUsers(false);
+            setLoadingLists(false);
+            setMessage(accessResult.message || 'Company user management requires owner, admin, or manager access.');
+            return false;
+        }
+
+        setCanManageUsers(true);
 
         const [membersResult, invitationsResult, companyNameResult] = await Promise.all([
             loadCompanyMembers(String(id)),
@@ -207,6 +229,11 @@ export default function CompanyUsersScreen() {
     }
 
     async function createInvitation() {
+        if (!canManageUsers) {
+            setMessage('Company user management requires owner, admin, or manager access.');
+            return;
+        }
+
         if (!id) {
             setMessage('Missing company id.');
             return;
@@ -249,6 +276,11 @@ export default function CompanyUsersScreen() {
     }
 
     async function sendInvitationEmail(invitationId: string) {
+        if (!canManageUsers) {
+            setMessage('Company user management requires owner, admin, or manager access.');
+            return;
+        }
+
         const invitation = invitations.find((candidate) => candidate.id === invitationId);
 
         if (!invitation) {
@@ -346,6 +378,11 @@ export default function CompanyUsersScreen() {
     }
 
     async function updateMemberStatus(memberId: string, nextStatus: MemberActionStatus) {
+        if (!canManageUsers) {
+            setMessage('Company user management requires owner, admin, or manager access.');
+            return;
+        }
+
         const actionKey = `${memberId}:${nextStatus}`;
         setActionLoadingKey(actionKey);
         setMessage(`${statusVerb(nextStatus)} member...`);
@@ -367,6 +404,11 @@ export default function CompanyUsersScreen() {
     }
 
     async function revokeInvitation(invitationId: string) {
+        if (!canManageUsers) {
+            setMessage('Company user management requires owner, admin, or manager access.');
+            return;
+        }
+
         const actionKey = `${invitationId}:revoke`;
         setActionLoadingKey(actionKey);
         setMessage('Revoking invitation...');
@@ -394,6 +436,11 @@ export default function CompanyUsersScreen() {
             failurePrefix?: string;
         }
     ) {
+        if (!canManageUsers) {
+            setMessage('Company user management requires owner, admin, or manager access.');
+            return false;
+        }
+
         const actionKey = `${invitationId}:manual`;
         const loadingMessage = options?.loadingMessage || 'Creating manual invite link/code...';
         const successMessage = options?.successMessage || 'Manual invite link/code ready.';
@@ -490,6 +537,11 @@ export default function CompanyUsersScreen() {
     }
 
     async function deleteInvitation(invitationId: string) {
+        if (!canManageUsers) {
+            setMessage('Company user management requires owner, admin, or manager access.');
+            return;
+        }
+
         const invitation = invitations.find((candidate) => candidate.id === invitationId);
         const status = normalizeStatus(invitation?.status);
         const expiredPending = !!invitation && status === 'pending' && isInvitationExpired(invitation, Date.now());
@@ -582,7 +634,7 @@ export default function CompanyUsersScreen() {
     );
     const allOwnerMembers = members.filter((member) => isCompanyOwnerRole(member.role));
     const ownerMembers = filteredMembers.filter((member) => isCompanyOwnerRole(member.role));
-    const adminManagerMembers = filteredMembers.filter((member) => isAdminManagerRole(member.role));
+    const adminManagerStaffMembers = filteredMembers.filter((member) => isAdminManagerStaffRole(member.role));
     const allTechnicianMembers = members.filter((member) => isTechnicianRole(member.role));
     const technicianMembers = filteredMembers.filter((member) => isTechnicianRole(member.role));
     const activeOwners = allOwnerMembers.filter((member) => normalizeStatus(member.status) === 'active');
@@ -619,145 +671,149 @@ export default function CompanyUsersScreen() {
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Team / Technicians</Text>
 
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                    Manage company credentials, technician access, and pending team invitations for TechOS.
+                    Manage company credentials, Dispatch access, technician access, and pending team invitations for TechOS.
                 </Text>
 
-                <ThemedCard style={heroCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Company Ownership & TechOS Access</Text>
-                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Invite the real company owner first, then add admins, managers, office staff, and technicians.
-                        Invited users become active only after accepting with their own HomeOS account.
-                    </Text>
-                    <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
-                        Owner transfer/removal coming soon. Invite and activate the new owner first.
-                    </Text>
-                    <View style={metricGridStyle}>
-                        <MetricCard label="Active Company Owners" value={activeOwners.length.toString()} />
-                        <MetricCard label="Pending Owner Invites" value={pendingOwnerInvitations.length.toString()} />
-                        <MetricCard label="Active Technicians" value={activeTechnicians.length.toString()} />
-                        <MetricCard label="Pending Technician Invites" value={pendingTechnicianInvitations.length.toString()} />
-                        <MetricCard label="Active Team Members" value={activeMembers.length.toString()} />
-                    </View>
-                    <View style={[actionRowStyle, { marginTop: 14 }]}>
-                        <ThemedButton
-                            title="Invite Company Owner"
-                            onPress={prepareOwnerInvite}
-                            variant="secondary"
-                            style={actionButtonStyle}
-                        />
-                        <ThemedButton
-                            title="Invite First Test Technician"
-                            onPress={prepareTechnicianInvite}
-                            variant="secondary"
-                            style={actionButtonStyle}
-                        />
-                    </View>
-                </ThemedCard>
+                {canManageUsers && (
+                    <>
+                        <ThemedCard style={heroCardStyle}>
+                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Company Ownership & TechOS Access</Text>
+                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                Invite the real company owner first, then add admins, managers, Dispatch staff, and technicians.
+                                Invited users become active only after accepting with their own HomeOS account.
+                            </Text>
+                            <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                                Owner transfer/removal coming soon. Invite and activate the new owner first.
+                            </Text>
+                            <View style={metricGridStyle}>
+                                <MetricCard label="Active Company Owners" value={activeOwners.length.toString()} />
+                                <MetricCard label="Pending Owner Invites" value={pendingOwnerInvitations.length.toString()} />
+                                <MetricCard label="Active Technicians" value={activeTechnicians.length.toString()} />
+                                <MetricCard label="Pending Technician Invites" value={pendingTechnicianInvitations.length.toString()} />
+                                <MetricCard label="Active Team Members" value={activeMembers.length.toString()} />
+                            </View>
+                            <View style={[actionRowStyle, { marginTop: 14 }]}>
+                                <ThemedButton
+                                    title="Invite Company Owner"
+                                    onPress={prepareOwnerInvite}
+                                    variant="secondary"
+                                    style={actionButtonStyle}
+                                />
+                                <ThemedButton
+                                    title="Invite First Test Technician"
+                                    onPress={prepareTechnicianInvite}
+                                    variant="secondary"
+                                    style={actionButtonStyle}
+                                />
+                            </View>
+                        </ThemedCard>
 
-                <ThemedCard style={searchCardStyle}>
-                    <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Search Team</Text>
-                    <TextInput
-                        placeholder="Search name, email, role, or status"
-                        placeholderTextColor={theme.colors.mutedText}
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        style={[
-                            inputStyle,
-                            {
-                                backgroundColor: theme.colors.background,
-                                borderColor: theme.colors.border,
-                                color: theme.colors.text,
-                            },
-                        ]}
-                    />
-                </ThemedCard>
+                        <ThemedCard style={searchCardStyle}>
+                            <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Search Team</Text>
+                            <TextInput
+                                placeholder="Search name, email, role, or status"
+                                placeholderTextColor={theme.colors.mutedText}
+                                value={searchQuery}
+                                onChangeText={setSearchQuery}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                style={[
+                                    inputStyle,
+                                    {
+                                        backgroundColor: theme.colors.background,
+                                        borderColor: theme.colors.border,
+                                        color: theme.colors.text,
+                                    },
+                                ]}
+                            />
+                        </ThemedCard>
 
-                <ThemedCard style={formCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Team Member</Text>
-                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        This creates a pending invitation record. Use Send Email Invitation after creation to deliver
-                        a secure HomeOS sign-in link. Invitation creation does not directly modify a Supabase Auth account.
-                    </Text>
+                        <ThemedCard style={formCardStyle}>
+                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Team Member</Text>
+                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                This creates a pending invitation record. Use Send Email Invitation after creation to deliver
+                                a secure HomeOS sign-in link. Invitation creation does not directly modify a Supabase Auth account.
+                            </Text>
 
-                    <TextInput
-                        placeholder="Full Name"
-                        placeholderTextColor={theme.colors.mutedText}
-                        value={fullName}
-                        onChangeText={setFullName}
-                        style={[
-                            inputStyle,
-                            {
-                                backgroundColor: theme.colors.background,
-                                borderColor: theme.colors.border,
-                                color: theme.colors.text,
-                            },
-                        ]}
-                    />
+                            <TextInput
+                                placeholder="Full Name"
+                                placeholderTextColor={theme.colors.mutedText}
+                                value={fullName}
+                                onChangeText={setFullName}
+                                style={[
+                                    inputStyle,
+                                    {
+                                        backgroundColor: theme.colors.background,
+                                        borderColor: theme.colors.border,
+                                        color: theme.colors.text,
+                                    },
+                                ]}
+                            />
 
-                    <TextInput
-                        placeholder="Email"
-                        placeholderTextColor={theme.colors.mutedText}
-                        value={email}
-                        onChangeText={setEmail}
-                        autoCapitalize="none"
-                        autoComplete="email"
-                        autoCorrect={false}
-                        keyboardType="email-address"
-                        textContentType="emailAddress"
-                        style={[
-                            inputStyle,
-                            {
-                                backgroundColor: theme.colors.background,
-                                borderColor: theme.colors.border,
-                                color: theme.colors.text,
-                            },
-                        ]}
-                    />
-                    <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
-                        Use a different email for each test user. Gmail plus aliases are okay.
-                    </Text>
+                            <TextInput
+                                placeholder="Email"
+                                placeholderTextColor={theme.colors.mutedText}
+                                value={email}
+                                onChangeText={setEmail}
+                                autoCapitalize="none"
+                                autoComplete="email"
+                                autoCorrect={false}
+                                keyboardType="email-address"
+                                textContentType="emailAddress"
+                                style={[
+                                    inputStyle,
+                                    {
+                                        backgroundColor: theme.colors.background,
+                                        borderColor: theme.colors.border,
+                                        color: theme.colors.text,
+                                    },
+                                ]}
+                            />
+                            <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                                Use a different email for each test user. Gmail plus aliases are okay.
+                            </Text>
 
-                    <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Role</Text>
-                    <View style={roleGridStyle}>
-                        {ROLE_OPTIONS.map((option) => {
-                            const selected = role === option.value;
+                            <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Role</Text>
+                            <View style={roleGridStyle}>
+                                {ROLE_OPTIONS.map((option) => {
+                                    const selected = role === option.value;
 
-                            return (
-                                <TouchableOpacity
-                                    key={option.value}
-                                    activeOpacity={0.82}
-                                    onPress={() => setRole(option.value)}
-                                    style={[
-                                        roleChipStyle,
-                                        {
-                                            backgroundColor: selected ? theme.colors.primary : theme.colors.background,
-                                            borderColor: selected ? theme.colors.primary : theme.colors.border,
-                                        },
-                                    ]}
-                                >
-                                    <Text
-                                        style={[
-                                            roleChipTextStyle,
-                                            {
-                                                color: selected ? theme.colors.primaryText : theme.colors.text,
-                                            },
-                                        ]}
-                                    >
-                                        {option.label}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </View>
+                                    return (
+                                        <TouchableOpacity
+                                            key={option.value}
+                                            activeOpacity={0.82}
+                                            onPress={() => setRole(option.value)}
+                                            style={[
+                                                roleChipStyle,
+                                                {
+                                                    backgroundColor: selected ? theme.colors.primary : theme.colors.background,
+                                                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                                },
+                                            ]}
+                                        >
+                                            <Text
+                                                style={[
+                                                    roleChipTextStyle,
+                                                    {
+                                                        color: selected ? theme.colors.primaryText : theme.colors.text,
+                                                    },
+                                                ]}
+                                            >
+                                                {option.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
 
-                    <ThemedButton
-                        title={submitting ? 'Creating Invitation...' : 'Create Invitation'}
-                        onPress={createInvitation}
-                        disabled={submitting}
-                    />
-                </ThemedCard>
+                            <ThemedButton
+                                title={submitting ? 'Creating Invitation...' : 'Create Invitation'}
+                                onPress={createInvitation}
+                                disabled={submitting}
+                            />
+                        </ThemedCard>
+                    </>
+                )}
 
                 {!!message && (
                     <ThemedCard style={messageCardStyle}>
@@ -769,7 +825,7 @@ export default function CompanyUsersScreen() {
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading company users...</Text>
                     </ThemedCard>
-                ) : (
+                ) : canManageUsers ? (
                     <>
                         <CompactSection
                             title="Company Owners"
@@ -794,15 +850,15 @@ export default function CompanyUsersScreen() {
                         </CompactSection>
 
                         <CompactSection
-                            title="Admins / Managers"
-                            count={adminManagerMembers.length}
-                            collapsed={collapsedSections.adminsManagers}
-                            onToggle={() => toggleSection('adminsManagers')}
+                            title="Admins / Managers / Dispatch Staff"
+                            count={adminManagerStaffMembers.length}
+                            collapsed={collapsedSections.adminManagerStaff}
+                            onToggle={() => toggleSection('adminManagerStaff')}
                         >
-                            {adminManagerMembers.length === 0 ? (
-                                <EmptyListMessage message="No admins, managers, or office staff match this view." />
+                            {adminManagerStaffMembers.length === 0 ? (
+                                <EmptyListMessage message="No admins, managers, office, dispatcher, or supervisor staff match this view." />
                             ) : (
-                                adminManagerMembers.map((member) => (
+                                adminManagerStaffMembers.map((member) => (
                                     <TeamMemberRow
                                         key={member.id}
                                         member={member}
@@ -888,7 +944,7 @@ export default function CompanyUsersScreen() {
                             )}
                         </CompactSection>
                     </>
-                )}
+                ) : null}
             </View>
         </ScrollView>
     );
@@ -1519,6 +1575,36 @@ async function loadCompanyDisplayName(companyId: string) {
     );
 }
 
+async function loadCompanyUserManagementAccess(companyId: string): Promise<CompanyUserManagementAccessResult> {
+    const rpcResult = await supabase.rpc('can_manage_company_users', {
+        p_company_id: companyId,
+    });
+
+    if (!rpcResult.error) {
+        return {
+            canManage: rpcResult.data === true,
+            message: rpcResult.data === true
+                ? null
+                : 'Company user management requires owner, admin, or manager access.',
+        };
+    }
+
+    const permissionResult = await loadCurrentCompanyPermissionAccess('can_manage_company_users', {
+        companyId,
+    });
+
+    if (permissionResult.access) {
+        return { canManage: true, message: null };
+    }
+
+    return {
+        canManage: false,
+        message: permissionResult.error
+            ? `Company user management unavailable: ${permissionResult.error}`
+            : 'Company user management requires owner, admin, or manager access.',
+    };
+}
+
 async function loadCompanyMembers(companyId: string): Promise<{
     data: CompanyUser[];
     error: { message: string } | null;
@@ -1767,7 +1853,7 @@ function isCompanyOwnerRole(role?: string | null) {
     return normalizeRole(role) === 'owner';
 }
 
-function isAdminManagerRole(role?: string | null) {
+function isAdminManagerStaffRole(role?: string | null) {
     const normalizedRole = normalizeRole(role);
 
     return ['admin', 'manager', 'office', 'dispatcher', 'supervisor'].includes(normalizedRole);
