@@ -22,7 +22,7 @@ import {
     type CompanyPermissionKey,
     type CompanyPermissionSet,
 } from '../../../../lib/companyPermissions';
-import { supabase } from '../../../../lib/supabase';
+import { supabase, supabaseAnonKey, supabaseUrl } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
 type CompanyRole = 'owner' | 'admin' | 'manager' | 'office' | 'dispatcher' | 'supervisor' | 'technician';
@@ -75,6 +75,11 @@ type ManualInviteResult = {
     inviteUrl: string | null;
     expiresAt: string | null;
     warning: string | null;
+};
+
+type InvitationEmailResult = {
+    ok: boolean;
+    message: string;
 };
 
 type SectionKey = 'owners' | 'adminManagerStaff' | 'technicians' | 'members' | 'invitations';
@@ -297,11 +302,11 @@ export default function CompanyUsersScreen() {
                 message: 'Sending invitation email...',
             },
         }));
-        setMessage('Creating invite link for email...');
+        setMessage('Preparing invitation email...');
 
         const manualInvite = await requestManualInvite(invitationId);
 
-        if (!manualInvite.inviteCode && !manualInvite.inviteUrl) {
+        if (!manualInvite.inviteCode) {
             const message = manualInvite.warning || 'Email could not be sent because the invite link/code could not be created.';
             setActionLoadingKey(null);
             setDeliveryFeedbackById((current) => ({
@@ -315,43 +320,36 @@ export default function CompanyUsersScreen() {
             return;
         }
 
-        setManualInvitesById((current) => ({
-            ...current,
-            [invitationId]: {
-                status: 'ready',
-                inviteCode: manualInvite.inviteCode,
-                inviteUrl: manualInvite.inviteUrl,
-                expiresAt: manualInvite.expiresAt,
-                warning: manualInvite.warning,
-                message: manualInvite.warning
-                    ? `Manual invite ready. ${manualInvite.warning}`
-                    : 'Manual invite link/code ready.',
-            },
-        }));
         setMessage('Sending invitation email...');
-
-        const { data, error } = await supabase.functions.invoke('send-company-user-invitation', {
-            body: {
-                invitation_id: invitationId,
-                email: invitation.email,
-                invite_name: invitation.full_name,
-                company_name: companyName,
-                invite_code: manualInvite.inviteCode,
-                invite_link: manualInvite.inviteUrl,
-                role: invitation.role,
-            },
+        const publicInvite = buildPublicCompanyInvite(manualInvite.inviteCode);
+        const emailResult = await sendCompanyInvitationEmail({
+            invitation,
+            invitationId,
+            companyName,
+            inviteCode: manualInvite.inviteCode,
+            inviteLink: publicInvite.inviteLink,
+            appBaseUrl: publicInvite.appBaseUrl,
         });
 
         setActionLoadingKey(null);
         setNowMs(Date.now());
 
-        const functionResponse = readFunctionResponse(data);
-        const functionFailed = error || functionResponse.ok === false;
+        if (!emailResult.ok) {
+            const message = emailResult.message || EMAIL_DELIVERY_FALLBACK_MESSAGE;
 
-        if (functionFailed) {
-            const errorMessage = await getFunctionErrorMessage(error, data);
-            const message = errorMessage || EMAIL_DELIVERY_FALLBACK_MESSAGE;
-
+            setManualInvitesById((current) => ({
+                ...current,
+                [invitationId]: {
+                    status: 'ready',
+                    inviteCode: manualInvite.inviteCode,
+                    inviteUrl: manualInvite.inviteUrl,
+                    expiresAt: manualInvite.expiresAt,
+                    warning: manualInvite.warning,
+                    message: manualInvite.warning
+                        ? `Email send failed. Manual invite ready. ${manualInvite.warning}`
+                        : 'Email send failed. Manual invite link/code is ready below.',
+                },
+            }));
             setDeliveryFeedbackById((current) => ({
                 ...current,
                 [invitationId]: {
@@ -364,7 +362,7 @@ export default function CompanyUsersScreen() {
             return;
         }
 
-        const responseMessage = functionResponse.message || 'Invitation email sent.';
+        const responseMessage = emailResult.message || 'Invitation email sent.';
 
         setDeliveryFeedbackById((current) => ({
             ...current,
@@ -1556,6 +1554,161 @@ async function requestManualInvite(invitationId: string): Promise<ManualInviteRe
     };
 }
 
+async function sendCompanyInvitationEmail({
+    invitation,
+    invitationId,
+    companyName,
+    inviteCode,
+    inviteLink,
+    appBaseUrl,
+}: {
+    invitation: CompanyInvitation;
+    invitationId: string;
+    companyName: string;
+    inviteCode: string;
+    inviteLink: string | null;
+    appBaseUrl: string | null;
+}): Promise<InvitationEmailResult> {
+    const {
+        data: { session },
+        error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+        return {
+            ok: false,
+            message: sessionError?.message || 'Sign in again before sending company invitations.',
+        };
+    }
+
+    const payload: Record<string, string> = {
+        invitation_id: invitationId,
+        invitationId,
+        email: invitation.email,
+        invite_name: invitation.full_name || '',
+        inviteName: invitation.full_name || '',
+        company_name: companyName,
+        companyName,
+        invite_code: inviteCode,
+        inviteCode,
+        role: invitation.role,
+    };
+
+    if (inviteLink) {
+        payload.invite_link = inviteLink;
+        payload.inviteLink = inviteLink;
+    }
+
+    if (appBaseUrl) {
+        payload.app_base_url = appBaseUrl;
+        payload.appBaseUrl = appBaseUrl;
+    }
+
+    try {
+        const response = await fetch(`${supabaseUrl}/functions/v1/send-company-user-invitation`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${session.access_token}`,
+                apikey: supabaseAnonKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        });
+        const body = await readInvitationEmailResponse(response);
+
+        if (!response.ok || body.ok === false) {
+            return {
+                ok: false,
+                message: body.message || `Invitation email failed with status ${response.status}.`,
+            };
+        }
+
+        return {
+            ok: true,
+            message: body.message || 'Invitation email sent.',
+        };
+    } catch (error) {
+        return {
+            ok: false,
+            message: error instanceof Error ? error.message : 'Network error sending invitation email.',
+        };
+    }
+}
+
+async function readInvitationEmailResponse(response: Response): Promise<{
+    ok: boolean | null;
+    message: string | null;
+}> {
+    const text = await response.text();
+
+    if (!text.trim()) {
+        return {
+            ok: response.ok,
+            message: null,
+        };
+    }
+
+    try {
+        const body = JSON.parse(text) as unknown;
+        const record = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+
+        return {
+            ok: typeof record.ok === 'boolean' ? record.ok : response.ok,
+            message: readStringField(record, 'message'),
+        };
+    } catch {
+        return {
+            ok: response.ok,
+            message: text.trim(),
+        };
+    }
+}
+
+function buildPublicCompanyInvite(inviteCode: string | null) {
+    const appBaseUrl = getEmailAppBaseUrl();
+
+    if (!inviteCode || !appBaseUrl) {
+        return {
+            inviteLink: null,
+            appBaseUrl,
+        };
+    }
+
+    try {
+        const inviteUrl = new URL('/company-invite', appBaseUrl);
+        inviteUrl.searchParams.set('code', inviteCode);
+
+        return {
+            inviteLink: inviteUrl.toString(),
+            appBaseUrl,
+        };
+    } catch {
+        return {
+            inviteLink: null,
+            appBaseUrl,
+        };
+    }
+}
+
+function getEmailAppBaseUrl() {
+    const configuredBaseUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_APP_URL);
+
+    if (configuredBaseUrl) return configuredBaseUrl;
+
+    const fallbackBaseUrl = getBrowserOrigin();
+
+    return fallbackBaseUrl && !isLocalInviteOrigin(fallbackBaseUrl) ? fallbackBaseUrl : null;
+}
+
+function getBrowserOrigin() {
+    const globalWithLocation = globalThis as unknown as {
+        location?: { origin?: string };
+        window?: { location?: { origin?: string } };
+    };
+
+    return normalizeBaseUrl(globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null);
+}
+
 async function loadCompanyDisplayName(companyId: string) {
     const { data, error } = await supabase
         .from('companies')
@@ -1688,13 +1841,7 @@ function readPermissionOverrides(record: Record<string, unknown>, key: string): 
 
 function getAppBaseUrl() {
     const configuredBaseUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_APP_URL);
-    const globalWithLocation = globalThis as unknown as {
-        location?: { origin?: string };
-        window?: { location?: { origin?: string } };
-    };
-    const fallbackBaseUrl = normalizeBaseUrl(
-        globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null
-    );
+    const fallbackBaseUrl = getBrowserOrigin();
     const baseUrl = configuredBaseUrl || fallbackBaseUrl || null;
     const warning = !configuredBaseUrl && isLikelyNonPublicInviteOrigin(fallbackBaseUrl)
         ? 'Warning: this invite link may not be public. Set EXPO_PUBLIC_APP_URL to your production app URL.'
@@ -1733,57 +1880,17 @@ function isLikelyNonPublicInviteOrigin(originOrUrl: string | null) {
     }
 }
 
-function readFunctionResponse(data: unknown) {
-    const record = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+function isLocalInviteOrigin(originOrUrl: string | null) {
+    if (!originOrUrl) return true;
 
-    return {
-        ok: typeof record.ok === 'boolean' ? record.ok : true,
-        message: readStringField(record, 'message'),
-    };
-}
+    try {
+        const url = new URL(originOrUrl);
+        const hostname = url.hostname.toLowerCase();
 
-async function getFunctionErrorMessage(error: unknown, data: unknown) {
-    const responseMessage = readFunctionResponse(data).message;
-
-    if (responseMessage) return responseMessage;
-
-    if (error && typeof error === 'object') {
-        const record = error as Record<string, unknown>;
-        const context = record.context;
-
-        if (context && typeof context === 'object') {
-            const contextRecord = context as Record<string, unknown>;
-            const json = contextRecord.json;
-            const text = contextRecord.text;
-
-            if (typeof json === 'function') {
-                try {
-                    const body = (await json.call(context)) as unknown;
-                    const bodyRecord = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-                    const message = readStringField(bodyRecord, 'message');
-
-                    if (message) return message;
-                } catch {
-                    // Fall through to the function error message.
-                }
-            }
-
-            if (typeof text === 'function') {
-                try {
-                    const bodyText = String((await text.call(context)) || '').trim();
-
-                    if (bodyText) return bodyText;
-                } catch {
-                    // Fall through to the function error message.
-                }
-            }
-        }
-
-        const errorMessage = readStringField(record, 'message');
-        if (errorMessage) return errorMessage;
+        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local');
+    } catch {
+        return true;
     }
-
-    return EMAIL_DELIVERY_FALLBACK_MESSAGE;
 }
 
 async function writeClipboardText(value: string) {

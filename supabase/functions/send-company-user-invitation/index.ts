@@ -42,7 +42,7 @@ type SendResult = {
 
 const COMPANY_INVITE_ROUTE = '/company-invite';
 const UUID_PATTERN =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default {
     async fetch(req: Request): Promise<Response> {
@@ -87,10 +87,15 @@ export default {
             }
 
             const body = await readJsonBody(req);
-            const invitationId = normalizeInvitationId(body.invitation_id ?? body.invitationId);
+            const invitationIdInput = body.invitation_id ?? body.invitationId ?? body.p_invitation_id;
+            const invitationId = normalizeInvitationId(invitationIdInput);
 
             if (!invitationId) {
-                return json(req, { ok: false, code: 'invalid_invitation', message: 'Invitation id is required.' }, 400);
+                const message = invitationIdInput
+                    ? 'Invitation id is invalid.'
+                    : 'Invitation id is required.';
+
+                return json(req, { ok: false, code: 'invalid_invitation', message }, 400);
             }
 
             const userVerified = await verifyCaller(env, authToken);
@@ -431,12 +436,30 @@ function resolveInviteLink(env: FunctionEnv, body: Record<string, unknown>, invi
         return explicitLink;
     }
 
-    if (!inviteCode || !env.publicAppUrl) return null;
+    const appBaseUrl = env.publicAppUrl || readRequestAppBaseUrl(body);
 
-    const url = new URL(COMPANY_INVITE_ROUTE, env.publicAppUrl);
+    if (!inviteCode || !appBaseUrl) return null;
+
+    const url = new URL(COMPANY_INVITE_ROUTE, appBaseUrl);
     url.searchParams.set('code', inviteCode);
 
     return url.toString();
+}
+
+function readRequestAppBaseUrl(body: Record<string, unknown>) {
+    const value =
+        readStringField(body, 'app_base_url') ||
+        readStringField(body, 'appBaseUrl') ||
+        readStringField(body, 'public_app_url') ||
+        readStringField(body, 'publicAppUrl');
+
+    if (!value) return '';
+
+    try {
+        return normalizeOptionalUrl(value);
+    } catch {
+        return '';
+    }
 }
 
 function isHttpUrl(value: string) {
