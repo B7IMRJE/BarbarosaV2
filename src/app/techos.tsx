@@ -619,6 +619,7 @@ export default function TechOSScreen() {
     const jobBoardDescription = isTechnicianWorkspace
         ? 'Only jobs assigned to the signed-in technician belong here.'
         : 'Company-level jobs shown for setup and dispatch preview. This is not one technician workload.';
+    const dispatchCompanyId = activeCompanyId || membership?.company_id || requestedCompanyId;
 
     return (
         <ScrollView
@@ -686,6 +687,18 @@ export default function TechOSScreen() {
                         />
                         <InfoPill label="Company" value={formatStatus(company?.status)} textColor={heroTextColor} />
                     </View>
+
+                    {!!dispatchCompanyId && (
+                        <View style={heroActionRowStyle}>
+                            <ThemedButton
+                                title="Open Dispatch"
+                                variant="secondary"
+                                onPress={() => router.push(`/dispatch?companyId=${encodeURIComponent(dispatchCompanyId)}` as any)}
+                                style={heroActionButtonStyle}
+                                textStyle={{ fontSize: 14 }}
+                            />
+                        </View>
+                    )}
                 </View>
 
                 {!isTechnicianWorkspace && (
@@ -1738,6 +1751,24 @@ const pillRowStyle = {
     gap: 10,
     marginTop: 18,
     maxWidth: '100%' as const,
+};
+
+const heroActionRowStyle = {
+    alignItems: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 16,
+};
+
+const heroActionButtonStyle = {
+    flexBasis: 180,
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
 };
 
 const pillStyle = {
