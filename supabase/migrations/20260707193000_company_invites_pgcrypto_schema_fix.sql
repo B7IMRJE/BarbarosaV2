@@ -1,33 +1,10 @@
--- Repair company invitation lookup/acceptance for email links that use
--- /company-invite?code=<manual_invite_code>.
---
--- The app's public company invite route expects a code-based lookup. The live
--- company_user_invitations table stores the emailed/manual code in
--- manual_invite_code, while older draft RPCs looked only at
--- manual_invite_token_hash. Keep both paths so previously generated links stay
--- usable.
+-- Fix company invite code generation on Supabase projects where pgcrypto
+-- functions live in the extensions schema and are not visible through the RPC
+-- search_path.
 
 begin;
 
 create extension if not exists pgcrypto with schema extensions;
-
-alter table public.company_user_invitations
-    add column if not exists manual_invite_code text null,
-    add column if not exists manual_invite_expires_at timestamptz null,
-    add column if not exists manual_invite_created_at timestamptz null,
-    add column if not exists manual_invite_token_hash text null,
-    add column if not exists manual_invite_token_last4 text null,
-    add column if not exists manual_invite_token_expires_at timestamptz null,
-    add column if not exists manual_invite_token_created_at timestamptz null,
-    add column if not exists manual_invite_token_created_by_user_id uuid null;
-
-create index if not exists company_user_invitations_manual_invite_code_idx
-on public.company_user_invitations (upper(btrim(manual_invite_code)))
-where manual_invite_code is not null;
-
-create index if not exists company_user_invitations_manual_token_hash_idx
-on public.company_user_invitations (manual_invite_token_hash)
-where manual_invite_token_hash is not null;
 
 create or replace function public.create_company_user_manual_invite_link(
     p_invitation_id uuid,
