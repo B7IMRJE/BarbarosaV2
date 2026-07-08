@@ -4,6 +4,12 @@ import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-nati
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import {
+    buildPendingCompanyInviteState,
+    clearPendingCompanyInviteState,
+    getPendingCompanyInviteState,
+    replacePendingCompanyInviteState,
+} from '../lib/companyInviteState';
 import { resolveLoggedInUserRoute } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
@@ -58,6 +64,7 @@ export default function CompanyInviteScreen() {
     const autoAcceptKeyRef = useRef('');
 
     useEffect(() => {
+        autoAcceptKeyRef.current = '';
         loadInvitation();
     }, [parsedCode?.rawCode]);
 
@@ -93,6 +100,8 @@ export default function CompanyInviteScreen() {
         setInvitation(null);
         setSuccess(false);
 
+        const storedPendingInvite = getPendingCompanyInviteState();
+
         let currentSessionUser: SessionUser | null = null;
 
         try {
@@ -110,6 +119,7 @@ export default function CompanyInviteScreen() {
         }
 
         if (!parsedCode) {
+            clearPendingCompanyInviteState();
             setLoading(false);
             setMessage(
                 currentSessionUser
@@ -119,14 +129,38 @@ export default function CompanyInviteScreen() {
             return;
         }
 
+        const currentInviteCode = normalizeInviteStorageCode(parsedCode.inviteCode);
+
+        if (storedPendingInvite && storedPendingInvite.inviteCode !== currentInviteCode) {
+            clearPendingCompanyInviteState();
+        }
+
+        persistPendingInvite(null);
+
         const lookupResult = await loadInvitationByCode(parsedCode.inviteCode);
 
         if (lookupResult.errorMessage) {
+            clearPendingCompanyInviteState({ inviteCode: parsedCode.inviteCode });
             setMessage(lookupResult.errorMessage);
         } else if (lookupResult.invitation) {
+            const loadedInviteEmail = normalizeEmail(lookupResult.invitation.email);
+            const storedInviteEmail = storedPendingInvite?.inviteCode === currentInviteCode
+                ? storedPendingInvite.invitedEmail
+                : null;
+
+            if (storedInviteEmail && loadedInviteEmail && storedInviteEmail !== loadedInviteEmail) {
+                clearPendingCompanyInviteState();
+            }
+
+            persistPendingInvite(lookupResult.invitation);
             setInvitation(lookupResult.invitation);
             setMessage(statusMessage(lookupResult.invitation.status));
+
+            if (normalizeStatus(lookupResult.invitation.status) !== 'pending') {
+                clearPendingCompanyInviteState({ inviteCode: parsedCode.inviteCode });
+            }
         } else {
+            clearPendingCompanyInviteState({ inviteCode: parsedCode.inviteCode });
             setMessage('This invite link is invalid or no longer available. Ask the company admin to create a new manual invite link.');
         }
 
@@ -178,6 +212,7 @@ export default function CompanyInviteScreen() {
         }
 
         if (!acceptErrorMessage) {
+            clearPendingCompanyInviteState({ inviteCode: parsedCode.inviteCode });
             setSuccess(true);
             setMessage('Invitation accepted. Opening your company workspace...');
             const acceptedCompanyId = acceptedCompanyUser?.company_id || invitation.company_id;
@@ -215,6 +250,7 @@ export default function CompanyInviteScreen() {
     }
 
     async function signOut() {
+        persistPendingInvite(invitation);
         await supabase.auth.signOut();
         setUser(null);
         setSuccess(false);
@@ -222,6 +258,7 @@ export default function CompanyInviteScreen() {
     }
 
     async function signOutAndContinue() {
+        persistPendingInvite(invitation);
         await supabase.auth.signOut();
         setUser(null);
         setSuccess(false);
@@ -231,6 +268,7 @@ export default function CompanyInviteScreen() {
     }
 
     async function goToLoginAsInvitedUser() {
+        persistPendingInvite(invitation);
         await supabase.auth.signOut();
         setUser(null);
         router.push({
@@ -240,6 +278,7 @@ export default function CompanyInviteScreen() {
     }
 
     async function goToCreateWorkAccountForInvite() {
+        persistPendingInvite(invitation);
         await supabase.auth.signOut();
         setUser(null);
         router.push({
@@ -257,6 +296,7 @@ export default function CompanyInviteScreen() {
     }
 
     function goToLogin() {
+        persistPendingInvite(invitation);
         router.push({
             pathname: '/auth/login',
             params: buildWorkAuthParams(nextPath, invitation),
@@ -264,10 +304,25 @@ export default function CompanyInviteScreen() {
     }
 
     function goToRegister() {
+        persistPendingInvite(invitation);
         router.push({
             pathname: '/auth/register',
             params: buildWorkAuthParams(nextPath, invitation),
         } as any);
+    }
+
+    function persistPendingInvite(invite: CompanyInvitation | null) {
+        if (!parsedCode) return;
+
+        replacePendingCompanyInviteState(buildPendingCompanyInviteState({
+            inviteCode: parsedCode.inviteCode,
+            rawCode: parsedCode.rawCode,
+            invitedEmail: invite?.email || null,
+            nextPath,
+            invitationId: invite?.invitation_id || parsedCode.invitationId,
+            companyId: invite?.company_id || null,
+            role: invite?.invited_role || null,
+        }));
     }
 
     return (
@@ -607,6 +662,10 @@ function formatLabel(value: string | null) {
 
 function normalizeEmail(value: string | null | undefined) {
     return String(value || '').trim().toLowerCase();
+}
+
+function normalizeInviteStorageCode(value: string | null | undefined) {
+    return String(value || '').trim().toUpperCase();
 }
 
 function normalizeStatus(value: string | null) {

@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     ScrollView,
     Text,
@@ -7,6 +7,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { replacePendingCompanyInviteFromNextPath } from '../../lib/companyInviteState';
 import { resolveLoggedInUserRoute } from '../../lib/onboarding';
 import { supabase } from '../../lib/supabase';
 
@@ -31,6 +32,14 @@ export default function LoginScreen() {
     const [resending, setResending] = useState(false);
     const [message, setMessage] = useState('');
     const [unconfirmedEmail, setUnconfirmedEmail] = useState('');
+
+    useEffect(() => {
+        if (!workAccountMode) return;
+
+        setEmail(invitedEmail);
+        replacePendingCompanyInviteFromNextPath(nextRoute, invitedEmail);
+        setUnconfirmedEmail('');
+    }, [invitedEmail, nextRoute, workAccountMode]);
 
     async function handleLogin() {
         if (!email.trim() || !password) {

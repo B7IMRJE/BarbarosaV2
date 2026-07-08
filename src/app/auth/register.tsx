@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     Alert,
     ScrollView,
@@ -8,6 +8,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { replacePendingCompanyInviteFromNextPath } from '../../lib/companyInviteState';
 import { supabase } from '../../lib/supabase';
 
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
@@ -36,6 +37,13 @@ export default function RegisterScreen() {
     const [resending, setResending] = useState(false);
     const [confirmationEmail, setConfirmationEmail] = useState('');
     const [message, setMessage] = useState('');
+
+    useEffect(() => {
+        if (!workAccountMode) return;
+
+        setEmail(invitedEmail);
+        replacePendingCompanyInviteFromNextPath(nextRoute, invitedEmail);
+    }, [invitedEmail, nextRoute, workAccountMode]);
 
     async function handleRegister() {
         const cleanName = fullName.trim();
