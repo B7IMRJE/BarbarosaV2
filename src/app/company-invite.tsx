@@ -33,6 +33,7 @@ type ParsedInviteCode = {
 
 const COMPANY_INVITE_ROUTE = '/company-invite';
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
+const COMPANY_MANAGEMENT_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
 
 export default function CompanyInviteScreen() {
     const { theme } = useTheme();
@@ -98,7 +99,7 @@ export default function CompanyInviteScreen() {
         if (!parsedCode || accepting) return;
 
         if (!user) {
-            setMessage('Sign in or create an account to accept this company invitation.');
+            setMessage('Sign in or create a work account with the invited email to accept this company invitation.');
             return;
         }
 
@@ -116,9 +117,7 @@ export default function CompanyInviteScreen() {
         const invitedEmail = normalizeEmail(invitation.email);
 
         if (signedInEmail && invitedEmail && signedInEmail !== invitedEmail) {
-            setMessage(
-                `This invitation was sent to ${invitation.email}. You are signed in as ${user.email}. Sign out, then sign in or create an account with the invited email.`
-            );
+            setMessage(`This invite is for ${invitation.email}. Sign in with that email or ask for a new invite.`);
             return;
         }
 
@@ -150,9 +149,10 @@ export default function CompanyInviteScreen() {
                 setMessage(routeDecision.message || HOMEOS_SERVICE_ERROR_MESSAGE);
                 return;
             }
+            const acceptedInviteRoute = getAcceptedInviteRoute(invitation, routeDecision.route);
             setAccepting(false);
             setTimeout(() => {
-                router.replace(routeDecision.route as any);
+                router.replace(acceptedInviteRoute as any);
             }, 900);
             return;
         }
@@ -164,14 +164,14 @@ export default function CompanyInviteScreen() {
     function goToLogin() {
         router.push({
             pathname: '/auth/login',
-            params: { next: nextPath },
+            params: buildWorkAuthParams(nextPath, invitation),
         } as any);
     }
 
     function goToRegister() {
         router.push({
             pathname: '/auth/register',
-            params: { next: nextPath },
+            params: buildWorkAuthParams(nextPath, invitation),
         } as any);
     }
 
@@ -228,12 +228,12 @@ export default function CompanyInviteScreen() {
                                 {!user ? (
                                     <View style={actionGroupStyle}>
                                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                            Sign in or create an account to accept this company invitation.
+                                            Sign in or create a work account with the invited email to accept this company invitation.
                                         </Text>
                                         <View style={actionRowStyle}>
                                             <ThemedButton title="Sign In" onPress={goToLogin} style={actionButtonStyle} />
                                             <ThemedButton
-                                                title="Create Account"
+                                                title="Create Work Account"
                                                 variant="secondary"
                                                 onPress={goToRegister}
                                                 style={actionButtonStyle}
@@ -405,6 +405,50 @@ function normalizeEmail(value: string | null | undefined) {
 
 function normalizeStatus(value: string | null) {
     return String(value || '').trim().toLowerCase();
+}
+
+function buildWorkAuthParams(nextPath: string, invitation: CompanyInvitation | null) {
+    const authParams: Record<string, string> = {
+        next: nextPath,
+        mode: 'work',
+    };
+    const invitedEmail = normalizeEmail(invitation?.email);
+
+    if (invitedEmail) authParams.email = invitedEmail;
+
+    return authParams;
+}
+
+function getAcceptedInviteRoute(invitation: CompanyInvitation, resolvedRoute: string) {
+    const companyId = String(invitation.company_id || '').trim();
+    const invitedRole = normalizeInviteRole(invitation.invited_role);
+
+    if (!companyId) {
+        return resolvedRoute;
+    }
+
+    if (invitedRole === 'technician') {
+        return `/techos?companyId=${encodeURIComponent(companyId)}`;
+    }
+
+    if (COMPANY_MANAGEMENT_ROLES.includes(invitedRole)) {
+        return `/super-admin/company/${encodeURIComponent(companyId)}`;
+    }
+
+    if (resolvedRoute === '/onboarding/create-home' || resolvedRoute === '/') {
+        return `/techos?companyId=${encodeURIComponent(companyId)}`;
+    }
+
+    return resolvedRoute;
+}
+
+function normalizeInviteRole(role?: string | null) {
+    const normalizedRole = String(role || '').trim().toLowerCase();
+
+    if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
+    if (normalizedRole === 'dispatch') return 'dispatcher';
+
+    return normalizedRole;
 }
 
 function statusMessage(status: string | null) {

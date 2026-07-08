@@ -11,13 +11,25 @@ import {
 import { supabase } from '../../lib/supabase';
 
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
+const HOMEOWNER_PROFILE_ROLE = 'HOMEOWNER';
+const WORK_PROFILE_ROLE = 'WORK';
+const COMPANY_INVITE_ROUTE = '/company-invite';
+const CUSTOMER_INVITE_ROUTE = '/customer-invite';
+const FIRST_HOME_ONBOARDING_ROUTE = '/onboarding/create-home';
 
 export default function RegisterScreen() {
-    const params = useLocalSearchParams<{ next?: string | string[] }>();
+    const params = useLocalSearchParams<{
+        next?: string | string[];
+        mode?: string | string[];
+        email?: string | string[];
+    }>();
     const nextRoute = resolveSafeNext(firstParam(params.next));
+    const workAccountMode = isWorkAccountFlow(firstParam(params.mode), nextRoute);
+    const confirmNextRoute = nextRoute || (workAccountMode ? COMPANY_INVITE_ROUTE : null);
+    const invitedEmail = normalizeEmail(firstParam(params.email));
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
-    const [email, setEmail] = useState('');
+    const [email, setEmail] = useState(invitedEmail);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -40,18 +52,26 @@ export default function RegisterScreen() {
             return;
         }
 
+        if (workAccountMode && invitedEmail && cleanEmail !== invitedEmail) {
+            setMessage(`This invite is for ${invitedEmail}. Sign in with that email or ask for a new invite.`);
+            return;
+        }
+
         setLoading(true);
         setMessage('');
+
+        const profileRole = workAccountMode ? WORK_PROFILE_ROLE : HOMEOWNER_PROFILE_ROLE;
 
         const { data, error } = await supabase.auth.signUp({
             email: cleanEmail,
             password,
             options: {
-                emailRedirectTo: buildConfirmRedirect(nextRoute),
+                emailRedirectTo: buildConfirmRedirect(confirmNextRoute),
                 data: {
                     full_name: cleanName,
                     phone: cleanPhone,
-                    role: 'HOMEOWNER',
+                    role: profileRole,
+                    account_type: workAccountMode ? 'work' : 'homeowner',
                 },
             },
         });
@@ -73,20 +93,24 @@ export default function RegisterScreen() {
                 email: cleanEmail,
                 full_name: cleanName,
                 phone: cleanPhone,
-                role: 'HOMEOWNER',
+                role: profileRole,
             });
         }
 
         setLoading(false);
 
         if (data.session) {
-            router.replace((nextRoute || '/onboarding/create-home') as any);
+            router.replace((nextRoute || (workAccountMode ? COMPANY_INVITE_ROUTE : FIRST_HOME_ONBOARDING_ROUTE)) as any);
             return;
         }
 
         if (data.user) {
             setConfirmationEmail(cleanEmail);
-            setMessage('Account created. A confirmation email was sent. Confirm your email before logging in with your original password. Check spam or junk if you do not see it.');
+            setMessage(
+                workAccountMode
+                    ? 'Work account created. A confirmation email was sent. Confirm your email, then sign in to accept the company invitation.'
+                    : 'Account created. A confirmation email was sent. Confirm your email before logging in with your original password. Check spam or junk if you do not see it.'
+            );
             return;
         }
 
@@ -102,6 +126,9 @@ export default function RegisterScreen() {
         const { error } = await supabase.auth.resend({
             type: 'signup',
             email: confirmationEmail,
+            options: {
+                emailRedirectTo: buildConfirmRedirect(confirmNextRoute),
+            },
         });
 
         setResending(false);
@@ -125,7 +152,7 @@ export default function RegisterScreen() {
             contentContainerStyle={{ padding: 24, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 500 }}>
-                <Text style={titleStyle}>Create Account</Text>
+                <Text style={titleStyle}>{workAccountMode ? 'Create Work Account' : 'Create Account'}</Text>
 
                 {confirmationEmail ? (
                     <>
@@ -137,7 +164,7 @@ export default function RegisterScreen() {
                             onPress={() =>
                                 router.replace({
                                     pathname: '/auth/login',
-                                    params: nextRoute ? { next: nextRoute } : undefined,
+                                    params: buildAuthNavParams(nextRoute, workAccountMode, confirmationEmail || email),
                                 } as any)
                             }
                             disabled={resending}
@@ -158,7 +185,11 @@ export default function RegisterScreen() {
                     </>
                 ) : (
                     <>
-                        <Text style={subtitleStyle}>Create your HomeOS account.</Text>
+                        <Text style={subtitleStyle}>
+                            {workAccountMode
+                                ? 'Create your work login. Your company access is added after you accept the invitation.'
+                                : 'Create your HomeOS account.'}
+                        </Text>
 
                         <TextInput
                             placeholder="Full Name"
@@ -235,7 +266,7 @@ export default function RegisterScreen() {
                             style={buttonStyle}
                         >
                             <Text style={buttonTextStyle}>
-                                {loading ? 'Creating...' : 'Create Account'}
+                                {loading ? 'Creating...' : workAccountMode ? 'Create Work Account' : 'Create Account'}
                             </Text>
                         </TouchableOpacity>
                     </>
@@ -245,12 +276,12 @@ export default function RegisterScreen() {
                     onPress={() =>
                         router.push({
                             pathname: '/auth/login',
-                            params: nextRoute ? { next: nextRoute } : undefined,
+                            params: buildAuthNavParams(nextRoute, workAccountMode, email),
                         } as any)
                     }
                     style={linkStyle}
                 >
-                    Already have an account? Login
+                    {workAccountMode ? 'Already have a work account? Login' : 'Already have an account? Login'}
                 </Text>
             </View>
         </ScrollView>
@@ -267,7 +298,7 @@ function resolveSafeNext(value: string | undefined) {
     try {
         const parsed = new URL(value, 'https://app.local');
 
-        if (parsed.pathname === '/company-invite' || parsed.pathname === '/customer-invite') {
+        if (parsed.pathname === COMPANY_INVITE_ROUTE || parsed.pathname === CUSTOMER_INVITE_ROUTE) {
             return `${parsed.pathname}${parsed.search}`;
         }
     } catch {
@@ -275,6 +306,27 @@ function resolveSafeNext(value: string | undefined) {
     }
 
     return null;
+}
+
+function isWorkAccountFlow(mode: string | undefined, nextRoute: string | null) {
+    const normalizedMode = String(mode || '').trim().toLowerCase();
+
+    return normalizedMode === 'work' || nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true;
+}
+
+function normalizeEmail(value: string | undefined) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function buildAuthNavParams(nextRoute: string | null, workAccountMode: boolean, email: string) {
+    const navParams: Record<string, string> = {};
+    const cleanEmail = normalizeEmail(email);
+
+    if (nextRoute) navParams.next = nextRoute;
+    if (workAccountMode) navParams.mode = 'work';
+    if (cleanEmail) navParams.email = cleanEmail;
+
+    return Object.keys(navParams).length ? navParams : undefined;
 }
 
 function buildConfirmRedirect(nextRoute: string | null) {

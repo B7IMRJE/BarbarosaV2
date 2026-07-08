@@ -12,10 +12,20 @@ import { supabase } from '../../lib/supabase';
 
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
+const COMPANY_INVITE_ROUTE = '/company-invite';
+const CUSTOMER_INVITE_ROUTE = '/customer-invite';
 
 export default function LoginScreen() {
-    const params = useLocalSearchParams<{ next?: string | string[] }>();
-    const [email, setEmail] = useState('');
+    const params = useLocalSearchParams<{
+        next?: string | string[];
+        mode?: string | string[];
+        email?: string | string[];
+    }>();
+    const nextRoute = resolveSafeNext(firstParam(params.next));
+    const workAccountMode = isWorkAccountFlow(firstParam(params.mode), nextRoute);
+    const confirmNextRoute = nextRoute || (workAccountMode ? COMPANY_INVITE_ROUTE : null);
+    const invitedEmail = normalizeEmail(firstParam(params.email));
+    const [email, setEmail] = useState(invitedEmail);
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [resending, setResending] = useState(false);
@@ -32,6 +42,13 @@ export default function LoginScreen() {
         setMessage('Logging in...');
 
         const cleanEmail = email.trim().toLowerCase();
+
+        if (workAccountMode && invitedEmail && cleanEmail !== invitedEmail) {
+            setLoading(false);
+            setMessage(`This invite is for ${invitedEmail}. Sign in with that email or ask for a new invite.`);
+            return;
+        }
+
         setUnconfirmedEmail('');
 
         let data: { user: { id: string } | null } = { user: null };
@@ -76,7 +93,6 @@ export default function LoginScreen() {
         }
 
         const routeDecision = await resolveLoggedInUserRoute(data.user.id);
-        const nextRoute = resolveSafeNext(firstParam(params.next));
 
         setLoading(false);
 
@@ -105,6 +121,9 @@ export default function LoginScreen() {
         const { error } = await supabase.auth.resend({
             type: 'signup',
             email: unconfirmedEmail,
+            options: {
+                emailRedirectTo: buildConfirmRedirect(confirmNextRoute),
+            },
         });
 
         setResending(false);
@@ -129,11 +148,11 @@ export default function LoginScreen() {
         >
             <View style={{ width: '100%', maxWidth: 500, marginTop: 60 }}>
                 <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33' }}>
-                    HomeOS Login
+                    {workAccountMode ? 'Work Account Login' : 'HomeOS Login'}
                 </Text>
 
                 <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
-                    Login to your HomeOS account.
+                    {workAccountMode ? 'Sign in with the invited email to accept your company invitation.' : 'Login to your HomeOS account.'}
                 </Text>
 
                 <TextInput
@@ -196,12 +215,12 @@ export default function LoginScreen() {
                     onPress={() =>
                         router.push({
                             pathname: '/auth/register',
-                            params: resolveSafeNext(firstParam(params.next)) ? { next: firstParam(params.next) as string } : undefined,
+                            params: buildAuthNavParams(nextRoute, workAccountMode, email),
                         } as any)
                     }
                     style={linkStyle}
                 >
-                    Create Account
+                    {workAccountMode ? 'Create Work Account' : 'Create Account'}
                 </Text>
 
                 <Text
@@ -225,7 +244,7 @@ function resolveSafeNext(value: string | undefined) {
     try {
         const parsed = new URL(value, 'https://app.local');
 
-        if (parsed.pathname === '/company-invite' || parsed.pathname === '/customer-invite') {
+        if (parsed.pathname === COMPANY_INVITE_ROUTE || parsed.pathname === CUSTOMER_INVITE_ROUTE) {
             return `${parsed.pathname}${parsed.search}`;
         }
     } catch {
@@ -233,6 +252,46 @@ function resolveSafeNext(value: string | undefined) {
     }
 
     return null;
+}
+
+function isWorkAccountFlow(mode: string | undefined, nextRoute: string | null) {
+    const normalizedMode = String(mode || '').trim().toLowerCase();
+
+    return normalizedMode === 'work' || nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true;
+}
+
+function normalizeEmail(value: string | undefined) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function buildAuthNavParams(nextRoute: string | null, workAccountMode: boolean, email: string) {
+    const navParams: Record<string, string> = {};
+    const cleanEmail = normalizeEmail(email);
+
+    if (nextRoute) navParams.next = nextRoute;
+    if (workAccountMode) navParams.mode = 'work';
+    if (cleanEmail) navParams.email = cleanEmail;
+
+    return Object.keys(navParams).length ? navParams : undefined;
+}
+
+function buildConfirmRedirect(nextRoute: string | null) {
+    const origin = getAppOrigin();
+    if (!origin) return undefined;
+
+    const nextQuery = nextRoute ? `?next=${encodeURIComponent(nextRoute)}` : '';
+
+    return `${origin}/auth/confirm${nextQuery}`;
+}
+
+function getAppOrigin() {
+    const globalWithLocation = globalThis as unknown as {
+        location?: { origin?: string };
+        window?: { location?: { origin?: string } };
+    };
+    const origin = globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null;
+
+    return typeof origin === 'string' && origin.trim() ? origin : null;
 }
 
 function isEmailRateLimitError(error: unknown) {
