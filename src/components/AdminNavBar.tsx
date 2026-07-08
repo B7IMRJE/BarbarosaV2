@@ -7,12 +7,22 @@ import {
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
 import { safeBack } from '../lib/navigation';
+import { loadLoggedInUserCompanyAccess } from '../lib/onboarding';
+import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
 type AdminNavBarProps = {
     companyId?: string | string[] | null;
     backFallback?: Href;
     showBack?: boolean;
+};
+
+type ManagementIdentity = {
+    userId: string;
+    email: string | null;
+    companyUserId: string | null;
+    role: string | null;
+    status: string | null;
 };
 
 export default function AdminNavBar({
@@ -26,6 +36,8 @@ export default function AdminNavBar({
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
     const [leadCountError, setLeadCountError] = useState('');
     const [leadCountLoading, setLeadCountLoading] = useState(false);
+    const [identity, setIdentity] = useState<ManagementIdentity | null>(null);
+    const [identityError, setIdentityError] = useState('');
 
     useEffect(() => {
         let active = true;
@@ -97,6 +109,61 @@ export default function AdminNavBar({
         };
     }, [normalizedCompanyId]);
 
+    useEffect(() => {
+        let active = true;
+
+        if (!normalizedCompanyId) {
+            setIdentity(null);
+            setIdentityError('');
+            return () => {
+                active = false;
+            };
+        }
+
+        async function loadIdentity() {
+            try {
+                const {
+                    data: { user },
+                    error: userError,
+                } = await supabase.auth.getUser();
+
+                if (userError || !user) {
+                    if (!active) return;
+
+                    setIdentity(null);
+                    setIdentityError('Signed-in identity unavailable.');
+                    return;
+                }
+
+                const accessResult = await loadLoggedInUserCompanyAccess(user.id);
+
+                if (!active) return;
+
+                const matchingAccess = accessResult.data.find((access) => access.company_id === normalizedCompanyId);
+
+                setIdentity({
+                    userId: user.id,
+                    email: user.email || null,
+                    companyUserId: matchingAccess?.id || null,
+                    role: matchingAccess?.role || null,
+                    status: matchingAccess?.status || (matchingAccess ? null : 'no company row'),
+                });
+                setIdentityError(accessResult.error ? 'Company access check unavailable.' : '');
+            } catch {
+                if (!active) return;
+
+                setIdentity(null);
+                setIdentityError('Signed-in identity unavailable.');
+            }
+        }
+
+        void loadIdentity();
+
+        return () => {
+            active = false;
+        };
+    }, [normalizedCompanyId]);
+
     function openDispatchBoard() {
         if (!normalizedCompanyId) return;
 
@@ -114,6 +181,7 @@ export default function AdminNavBar({
                 loading={leadCountLoading}
                 onPress={openDispatchBoard}
             />
+            <ManagementIdentityBadge identity={identity} error={identityError} />
 
             <View style={navWrapStyle}>
                 {showBack && (
@@ -149,6 +217,51 @@ export default function AdminNavBar({
                     />
                 )}
             </View>
+        </View>
+    );
+}
+
+function ManagementIdentityBadge({
+    identity,
+    error,
+}: {
+    identity: ManagementIdentity | null;
+    error: string;
+}) {
+    const { theme } = useTheme();
+
+    if (error) {
+        return (
+            <View style={identityBadgeRowStyle}>
+                <Text style={[identityTextStyle, { color: theme.colors.danger, backgroundColor: theme.colors.dangerBackground, borderColor: theme.colors.danger }]}>
+                    {error}
+                </Text>
+            </View>
+        );
+    }
+
+    if (!identity) return null;
+
+    const role = identity.role ? formatTinyLabel(identity.role) : 'No company role';
+    const status = identity.status ? formatTinyLabel(identity.status) : 'Unknown access';
+    const shortUserId = shortId(identity.userId);
+    const shortCompanyUserId = identity.companyUserId ? shortId(identity.companyUserId) : 'none';
+
+    return (
+        <View style={identityBadgeRowStyle}>
+            <Text
+                style={[
+                    identityTextStyle,
+                    {
+                        color: theme.colors.mutedText,
+                        backgroundColor: theme.colors.surfaceAlt,
+                        borderColor: theme.colors.border,
+                    },
+                ]}
+                numberOfLines={2}
+            >
+                Signed in: {identity.email || 'unknown email'} / user {shortUserId} / role {role} / access {status} / company user {shortCompanyUserId}
+            </Text>
         </View>
     );
 }
@@ -291,6 +404,20 @@ function normalizeCompanyId(value?: string | string[] | null) {
     return text.trim();
 }
 
+function shortId(value: string) {
+    const text = value.trim();
+
+    return text.length <= 8 ? text : `...${text.slice(-8)}`;
+}
+
+function formatTinyLabel(value: string) {
+    return value
+        .trim()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+}
+
 const navShellStyle = {
     marginTop: 16,
     marginBottom: 18,
@@ -339,5 +466,21 @@ const leadStatusTextStyle = {
     fontWeight: '900' as const,
     overflow: 'hidden' as const,
     paddingHorizontal: 12,
+    paddingVertical: 7,
+};
+
+const identityBadgeRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    marginBottom: 10,
+};
+
+const identityTextStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    fontSize: 11,
+    fontWeight: '800' as const,
+    overflow: 'hidden' as const,
+    paddingHorizontal: 10,
     paddingVertical: 7,
 };

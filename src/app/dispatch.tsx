@@ -5,6 +5,7 @@ import AdminNavBar from '../components/AdminNavBar';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import { logCompanyAuditEvent, safeAuditRecord } from '../lib/companyAuditLogs';
 import {
     calculateCompanyLeadCounts,
     getCompanyDispatchRequests,
@@ -460,8 +461,20 @@ export default function DispatchBoardScreen() {
             return;
         }
 
+        await recordCompanyAuditEvent({
+            companyId: request.company_id,
+            action: 'dispatch_request_acknowledged',
+            targetType: 'service_request',
+            targetId: request.id,
+            targetLabel: getRequestAuditLabel(request),
+            beforeData: requestToAuditRecord(request),
+            afterData: safeAuditRecord({
+                status: 'acknowledged',
+            }),
+        });
         await loadDispatchRequests(request.company_id);
         setActionRequestId(null);
+        setMessage('Request acknowledged.');
     }
 
     function updateScheduleForm(requestId: string, updates: Partial<ScheduleRequestForm>) {
@@ -652,6 +665,29 @@ export default function DispatchBoardScreen() {
             ...current,
             [request.id]: `Scheduled for ${formatDateTime(startAt.toISOString())}.`,
         }));
+        await recordCompanyAuditEvent({
+            companyId: activeCompanyId,
+            action: 'dispatch_request_scheduled',
+            targetType: 'service_request',
+            targetId: request.id,
+            targetLabel: getRequestAuditLabel(request),
+            beforeData: requestToAuditRecord(request),
+            afterData: safeAuditRecord({
+                status: 'scheduled',
+                technician_company_user_id: form.technicianCompanyUserId,
+                technician_name: getMemberDisplayName(selectedTechnician),
+                start_at: startAt.toISOString(),
+                end_at: endAt.toISOString(),
+                arrival_window_start: arrivalStart.toISOString(),
+                arrival_window_end: arrivalEnd.toISOString(),
+                estimated_duration_minutes: duration,
+                priority: request.priority || 'normal',
+            }),
+            metadata: safeAuditRecord({
+                notes_present: Boolean(form.notes.trim()),
+                arrival_window_hours: arrivalWindowHours,
+            }),
+        });
         await Promise.all([
             loadDispatchRequests(activeCompanyId),
             loadScheduleSlots(activeCompanyId),
@@ -673,6 +709,20 @@ export default function DispatchBoardScreen() {
                 companyId: request.company_id,
                 status: 'cancelled',
                 reason: form.cancelReason.trim(),
+            });
+            await recordCompanyAuditEvent({
+                companyId: request.company_id,
+                action: 'dispatch_request_cancelled',
+                targetType: 'service_request',
+                targetId: request.id,
+                targetLabel: getRequestAuditLabel(request),
+                beforeData: requestToAuditRecord(request),
+                afterData: safeAuditRecord({
+                    status: 'cancelled',
+                }),
+                metadata: safeAuditRecord({
+                    reason: form.cancelReason.trim() || null,
+                }),
             });
             setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request cancelled.' }));
             await loadDispatchRequests(request.company_id);
@@ -701,6 +751,20 @@ export default function DispatchBoardScreen() {
                 companyId: request.company_id,
                 status: 'archived',
                 reason: form.archiveReason.trim(),
+            });
+            await recordCompanyAuditEvent({
+                companyId: request.company_id,
+                action: 'dispatch_request_archived',
+                targetType: 'service_request',
+                targetId: request.id,
+                targetLabel: getRequestAuditLabel(request),
+                beforeData: requestToAuditRecord(request),
+                afterData: safeAuditRecord({
+                    status: 'archived',
+                }),
+                metadata: safeAuditRecord({
+                    reason: form.archiveReason.trim() || null,
+                }),
             });
             setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request archived.' }));
             await loadDispatchRequests(request.company_id);
@@ -1965,6 +2029,33 @@ async function updateRequestClosedStatus({
     if (updateError) {
         throw new Error(`${error.message}; direct status update failed: ${updateError.message}`);
     }
+}
+
+async function recordCompanyAuditEvent(input: Parameters<typeof logCompanyAuditEvent>[0]) {
+    try {
+        await logCompanyAuditEvent(input);
+    } catch {
+        // Dispatch action already completed; do not hide that result behind an audit write issue.
+    }
+}
+
+function getRequestAuditLabel(request: DispatchRequest) {
+    return `${formatCallType(request)} ${shortId(request.id)}`;
+}
+
+function requestToAuditRecord(request: DispatchRequest) {
+    return safeAuditRecord({
+        company_id: request.company_id,
+        property_id: request.property_id,
+        company_property_client_id: request.company_property_client_id,
+        request_type: request.request_type,
+        status: request.status,
+        priority: request.priority,
+        created_at: request.created_at,
+        acknowledged_at: request.acknowledged_at,
+        converted_job_id: request.converted_job_id,
+        converted_at: request.converted_at,
+    });
 }
 
 function confirmRequestAction(message: string) {

@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { AppState, Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
+import { logCompanyAuditEvent, safeAuditRecord } from '../../../../lib/companyAuditLogs';
 import {
     getCompanyLeadCounts,
     LEAD_ALERT_REFRESH_MS,
@@ -139,6 +140,7 @@ const cards = [
     'Estimates / Proposals',
     'Jobs / Dispatch',
     'Team / Technicians',
+    'Activity / Audit Log',
     'Price Book',
     'Knowledge Engine',
     'Settings / Permissions',
@@ -325,6 +327,16 @@ export default function CompanyDashboardScreen() {
 
         const updatedCompany = data as Company;
 
+        await recordCompanyAuditEvent({
+            companyId: updatedCompany.id,
+            action: 'company_profile_updated',
+            targetType: 'company',
+            targetId: updatedCompany.id,
+            targetLabel: updatedCompany.public_name || updatedCompany.dba_name || updatedCompany.name,
+            beforeData: companyToAuditRecord(company),
+            afterData: companyToAuditRecord(updatedCompany),
+        });
+
         setCompany(updatedCompany);
         setBrandForm(companyToBrandForm(updatedCompany));
         setMessage('Company configuration saved.');
@@ -502,6 +514,11 @@ export default function CompanyDashboardScreen() {
 
         if (card === 'Settings / Permissions') {
             router.push(`/super-admin/company/${activeCompanyId}/users` as any);
+            return;
+        }
+
+        if (card === 'Activity / Audit Log') {
+            router.push(`/super-admin/company/${activeCompanyId}/audit-log` as never);
             return;
         }
 
@@ -1609,6 +1626,7 @@ function getModuleDescription(title: string) {
     if (title === 'Estimates / Proposals') return 'Open estimate drafts and proposal foundations without fake pricing.';
     if (title === 'Jobs / Dispatch') return 'Open the dispatch queue for jobs, requests, and technician workflow setup.';
     if (title === 'Team / Technicians') return 'Open company owners, admins, managers, technicians, and invitations.';
+    if (title === 'Activity / Audit Log') return 'Review company-scoped ManagementOS actions and changes.';
     if (title === 'Price Book') return 'Company-owned price book for estimate and proposal line items.';
     if (title === 'Knowledge Engine') return 'Review read-only Bravo Knowledge Engine objects before connecting them to operations.';
     if (title === 'Settings / Permissions') return 'Manage company access, owner/admin permissions, and team safety.';
@@ -1623,6 +1641,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Leads / Requests') return 'Open Requests';
     if (title === 'Jobs / Dispatch') return 'Open Dispatch';
     if (title === 'Estimates / Proposals') return 'Open Estimates';
+    if (title === 'Activity / Audit Log') return 'Open Audit Log';
     if (title === 'Price Book') return 'Open Price Book';
     if (title === 'Knowledge Engine') return 'Open Viewer';
     if (title === 'Opportunities') return 'Coming Soon';
@@ -2260,6 +2279,34 @@ function companyToBrandForm(company: Company): CompanyBrandForm {
         website: company.website || '',
         shortDescription: company.short_description || '',
     };
+}
+
+function companyToAuditRecord(company: Company) {
+    return safeAuditRecord({
+        name: company.name,
+        public_name: company.public_name,
+        dba_name: company.dba_name,
+        logo_url: company.logo_url,
+        primary_color: company.primary_color,
+        secondary_color: company.secondary_color,
+        accent_color: company.accent_color,
+        service_categories: company.service_categories || [],
+        homeos_rating: company.homeos_rating,
+        homeos_rating_count: company.homeos_rating_count,
+        combined_experience_years: company.combined_experience_years,
+        license_number: company.license_number,
+        phone: company.phone,
+        website: company.website,
+        short_description: company.short_description,
+    });
+}
+
+async function recordCompanyAuditEvent(input: Parameters<typeof logCompanyAuditEvent>[0]) {
+    try {
+        await logCompanyAuditEvent(input);
+    } catch {
+        // The business action already succeeded; keep the audit failure from blocking MVP workflows.
+    }
 }
 
 function parseCategories(value: string) {

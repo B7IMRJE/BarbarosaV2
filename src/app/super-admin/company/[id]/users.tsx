@@ -11,6 +11,7 @@ import {
 import AdminNavBar from '../../../../components/AdminNavBar';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
+import { logCompanyAuditEvent, safeAuditRecord } from '../../../../lib/companyAuditLogs';
 import {
     COMPANY_PERMISSION_LABELS,
     canAccessTechOS as canAccessCompanyTechOS,
@@ -259,7 +260,7 @@ export default function CompanyUsersScreen() {
         setSubmitting(true);
         setMessage('Creating invitation...');
 
-        const { error } = await supabase.rpc('create_company_user_invitation', {
+        const { data, error } = await supabase.rpc('create_company_user_invitation', {
             p_company_id: String(id),
             p_email: normalizedEmail,
             p_full_name: fullName.trim() || null,
@@ -272,6 +273,22 @@ export default function CompanyUsersScreen() {
             setMessage(`Create invitation failed: ${error.message}`);
             return;
         }
+
+        const createdInvitation = normalizeInvitationRecord(data);
+
+        await recordCompanyAuditEvent({
+            companyId: String(id),
+            action: 'company_user_invitation_created',
+            targetType: 'company_user_invitation',
+            targetId: createdInvitation?.id || null,
+            targetLabel: `${normalizedEmail} (${role})`,
+            afterData: safeAuditRecord({
+                email: normalizedEmail,
+                full_name: fullName.trim() || null,
+                role,
+                status: createdInvitation?.status || 'pending',
+            }),
+        });
 
         setFullName('');
         setEmail('');
@@ -364,6 +381,20 @@ export default function CompanyUsersScreen() {
 
         const responseMessage = emailResult.message || 'Invitation email sent.';
 
+        await recordCompanyAuditEvent({
+            companyId: invitation.company_id,
+            action: 'company_user_invitation_email_sent',
+            targetType: 'company_user_invitation',
+            targetId: invitation.id,
+            targetLabel: `${invitation.email} (${invitation.role})`,
+            metadata: safeAuditRecord({
+                email: invitation.email,
+                role: invitation.role,
+                invite_link_built: Boolean(publicInvite.inviteLink),
+                app_base_url: publicInvite.appBaseUrl,
+            }),
+        });
+
         setDeliveryFeedbackById((current) => ({
             ...current,
             [invitationId]: {
@@ -382,6 +413,7 @@ export default function CompanyUsersScreen() {
         }
 
         const actionKey = `${memberId}:${nextStatus}`;
+        const member = members.find((candidate) => candidate.id === memberId) || null;
         setActionLoadingKey(actionKey);
         setMessage(`${statusVerb(nextStatus)} member...`);
 
@@ -397,6 +429,25 @@ export default function CompanyUsersScreen() {
             return;
         }
 
+        await recordCompanyAuditEvent({
+            companyId: member?.company_id || String(id),
+            action: nextStatus === 'inactive' ? 'company_user_deactivated' : 'company_user_status_changed',
+            targetType: 'company_user',
+            targetId: memberId,
+            targetLabel: member ? getMemberDisplayName(member, member.email || memberId) : memberId,
+            beforeData: member
+                ? safeAuditRecord({
+                    email: member.email,
+                    full_name: member.full_name,
+                    role: member.role,
+                    status: member.status,
+                })
+                : null,
+            afterData: safeAuditRecord({
+                status: nextStatus,
+            }),
+        });
+
         await loadCompanyUsers(false);
         setMessage(`Member ${statusResult(nextStatus)}.`);
     }
@@ -408,6 +459,7 @@ export default function CompanyUsersScreen() {
         }
 
         const actionKey = `${invitationId}:revoke`;
+        const invitation = invitations.find((candidate) => candidate.id === invitationId) || null;
         setActionLoadingKey(actionKey);
         setMessage('Revoking invitation...');
 
@@ -421,6 +473,25 @@ export default function CompanyUsersScreen() {
             setMessage(`Revoke invitation failed: ${error.message}`);
             return;
         }
+
+        await recordCompanyAuditEvent({
+            companyId: invitation?.company_id || String(id),
+            action: 'company_user_invitation_revoked',
+            targetType: 'company_user_invitation',
+            targetId: invitationId,
+            targetLabel: invitation ? `${invitation.email} (${invitation.role})` : invitationId,
+            beforeData: invitation
+                ? safeAuditRecord({
+                    email: invitation.email,
+                    full_name: invitation.full_name,
+                    role: invitation.role,
+                    status: invitation.status,
+                })
+                : null,
+            afterData: safeAuditRecord({
+                status: 'revoked',
+            }),
+        });
 
         await loadCompanyUsers(false);
         setMessage('Invitation revoked.');
@@ -568,6 +639,24 @@ export default function CompanyUsersScreen() {
                 delete next[invitationId];
                 return next;
             });
+            await recordCompanyAuditEvent({
+                companyId: invitation?.company_id || String(id),
+                action: 'company_user_invitation_deleted',
+                targetType: 'company_user_invitation',
+                targetId: invitationId,
+                targetLabel: invitation ? `${invitation.email} (${invitation.role})` : invitationId,
+                beforeData: invitation
+                    ? safeAuditRecord({
+                        email: invitation.email,
+                        full_name: invitation.full_name,
+                        role: invitation.role,
+                        status: invitation.status,
+                    })
+                    : null,
+                metadata: safeAuditRecord({
+                    fallback_delete: true,
+                }),
+            });
             await loadCompanyUsers(false);
             setMessage('Revoked invitation deleted.');
             return;
@@ -588,6 +677,21 @@ export default function CompanyUsersScreen() {
             const next = { ...current };
             delete next[invitationId];
             return next;
+        });
+        await recordCompanyAuditEvent({
+            companyId: invitation?.company_id || String(id),
+            action: 'company_user_invitation_deleted',
+            targetType: 'company_user_invitation',
+            targetId: invitationId,
+            targetLabel: invitation ? `${invitation.email} (${invitation.role})` : invitationId,
+            beforeData: invitation
+                ? safeAuditRecord({
+                    email: invitation.email,
+                    full_name: invitation.full_name,
+                    role: invitation.role,
+                    status: invitation.status,
+                })
+                : null,
         });
         await loadCompanyUsers(false);
         setMessage('Invitation deleted.');
@@ -1814,10 +1918,51 @@ function normalizeCompanyUsers(data: unknown): CompanyUser[] {
         .filter((member) => member.id && member.company_id);
 }
 
+function normalizeInvitationRecord(row: unknown): CompanyInvitation | null {
+    if (!row || typeof row !== 'object') return null;
+
+    const record = row as Record<string, unknown>;
+    const id = readStringField(record, 'id') || '';
+    const companyId = readStringField(record, 'company_id') || '';
+    const email = readStringField(record, 'email') || '';
+
+    if (!id || !companyId || !email) return null;
+
+    return {
+        id,
+        company_id: companyId,
+        email,
+        full_name: readStringField(record, 'full_name'),
+        role: readStringField(record, 'role') || 'unknown',
+        status: readStringField(record, 'status') || 'unknown',
+        expires_at: readStringField(record, 'expires_at'),
+        created_at: readStringField(record, 'created_at'),
+        last_email_attempted_at: readStringField(record, 'last_email_attempted_at'),
+        last_email_sent_at: readStringField(record, 'last_email_sent_at'),
+        email_send_count: readNullableNumberField(record, 'email_send_count'),
+        email_delivery_status: readStringField(record, 'email_delivery_status'),
+        email_delivery_error: readStringField(record, 'email_delivery_error'),
+    };
+}
+
+async function recordCompanyAuditEvent(input: Parameters<typeof logCompanyAuditEvent>[0]) {
+    try {
+        await logCompanyAuditEvent(input);
+    } catch {
+        // Audit logging should not roll back an already-completed ManagementOS action.
+    }
+}
+
 function readStringField(record: Record<string, unknown>, key: string) {
     const value = record[key];
 
     return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readNullableNumberField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function readPermissionOverrides(record: Record<string, unknown>, key: string): Partial<CompanyPermissionSet> | null {
