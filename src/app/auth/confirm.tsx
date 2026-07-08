@@ -24,16 +24,32 @@ export default function AuthConfirmScreen() {
         tokenHash?: string | string[];
         type?: string | string[];
         next?: string | string[];
+        error?: string | string[];
+        error_code?: string | string[];
+        error_description?: string | string[];
     }>();
+    const nextRoute = resolveSafeNext(firstParam(params.next));
     const [message, setMessage] = useState('Confirming sign-in...');
     const [failed, setFailed] = useState(false);
     const [inviteCode, setInviteCode] = useState('');
+    const [confirmationEmail, setConfirmationEmail] = useState('');
+    const [resending, setResending] = useState(false);
 
     useEffect(() => {
         confirmEmailLink();
     }, []);
 
     async function confirmEmailLink() {
+        if (isExpiredConfirmationLink(params)) {
+            if (nextRoute) {
+                replacePendingCompanyInviteFromNextPath(nextRoute, null);
+            }
+
+            setFailed(true);
+            setMessage('This email confirmation link expired or was already used.');
+            return;
+        }
+
         const tokenHash = firstParam(params.token_hash) || firstParam(params.tokenHash);
         const type = normalizeOtpType(firstParam(params.type));
 
@@ -50,11 +66,11 @@ export default function AuthConfirmScreen() {
 
         if (error) {
             setFailed(true);
-            setMessage('This sign-in link is invalid or expired. Request a new invitation email.');
+            setMessage(isExpiredOtpError(error)
+                ? 'This email confirmation link expired or was already used.'
+                : 'This sign-in link is invalid or expired. Request a new invitation email.');
             return;
         }
-
-        const nextRoute = resolveSafeNext(firstParam(params.next));
 
         if (!nextRoute) {
             setFailed(true);
@@ -65,6 +81,35 @@ export default function AuthConfirmScreen() {
         replacePendingCompanyInviteFromNextPath(nextRoute, null);
         setMessage('Opening company invitation...');
         router.replace(nextRoute as any);
+    }
+
+    async function resendConfirmationEmail() {
+        const email = confirmationEmail.trim().toLowerCase();
+
+        if (!email) {
+            setMessage('Enter the invited email address first.');
+            return;
+        }
+
+        setResending(true);
+        setMessage('Sending confirmation email...');
+
+        const { error } = await supabase.auth.resend({
+            type: 'signup',
+            email,
+            options: {
+                emailRedirectTo: buildConfirmRedirect(nextRoute),
+            },
+        });
+
+        setResending(false);
+
+        if (error) {
+            setMessage(`Resend confirmation failed: ${readErrorMessage(error)}`);
+            return;
+        }
+
+        setMessage('Confirmation email sent. Check your inbox, spam, or junk folder.');
     }
 
     async function signOut() {
@@ -81,6 +126,13 @@ export default function AuthConfirmScreen() {
         }
 
         router.replace(`${COMPANY_INVITE_ROUTE}?code=${encodeURIComponent(code)}` as any);
+    }
+
+    function backToLogin() {
+        router.replace({
+            pathname: '/auth/login',
+            params: buildLoginParams(nextRoute),
+        } as any);
     }
 
     return (
@@ -104,6 +156,27 @@ export default function AuthConfirmScreen() {
                     {failed && (
                         <View style={{ marginTop: 18 }}>
                             <TextInput
+                                placeholder="Invited email for resend"
+                                value={confirmationEmail}
+                                onChangeText={setConfirmationEmail}
+                                autoCapitalize="none"
+                                keyboardType="email-address"
+                                autoCorrect={false}
+                                style={[
+                                    inputStyle,
+                                    {
+                                        backgroundColor: theme.colors.surface,
+                                        borderColor: theme.colors.border,
+                                        color: theme.colors.text,
+                                    },
+                                ]}
+                            />
+                            <ThemedButton
+                                title={resending ? 'Sending...' : 'Resend Confirmation Email'}
+                                onPress={resendConfirmationEmail}
+                                disabled={resending}
+                            />
+                            <TextInput
                                 placeholder="Invite code"
                                 value={inviteCode}
                                 onChangeText={setInviteCode}
@@ -121,11 +194,12 @@ export default function AuthConfirmScreen() {
                             <ThemedButton
                                 title="Enter Invite Code"
                                 onPress={openInviteCode}
+                                style={{ marginTop: 12 }}
                             />
                             <ThemedButton
                                 title="Back to Login"
                                 variant="secondary"
-                                onPress={() => router.replace('/auth/login' as any)}
+                                onPress={backToLogin}
                                 style={{ marginTop: 12 }}
                             />
                             <ThemedButton
@@ -152,6 +226,34 @@ function normalizeOtpType(value: string | undefined): EmailOtpType {
     return ALLOWED_OTP_TYPES.has(normalized) ? normalized : 'email';
 }
 
+function isExpiredConfirmationLink(params: {
+    error?: string | string[];
+    error_code?: string | string[];
+    error_description?: string | string[];
+}) {
+    const error = String(firstParam(params.error) || '').trim().toLowerCase();
+    const errorCode = String(firstParam(params.error_code) || '').trim().toLowerCase();
+    const description = String(firstParam(params.error_description) || '').trim().toLowerCase();
+
+    return (
+        errorCode === 'otp_expired' ||
+        description.includes('email link is invalid or has expired') ||
+        (error === 'access_denied' && description.includes('expired')) ||
+        (description.includes('invalid') && description.includes('expired'))
+    );
+}
+
+function isExpiredOtpError(error: unknown) {
+    const code = String(
+        (error as { code?: unknown; error_code?: unknown })?.code ??
+        (error as { error_code?: unknown })?.error_code ??
+        ''
+    ).toLowerCase();
+    const message = readErrorMessage(error).toLowerCase();
+
+    return code === 'otp_expired' || message.includes('expired') || message.includes('already used');
+}
+
 function resolveSafeNext(value: string | undefined) {
     if (!value) return null;
 
@@ -167,6 +269,43 @@ function resolveSafeNext(value: string | undefined) {
     }
 
     return null;
+}
+
+function buildConfirmRedirect(nextRoute: string | null) {
+    const origin = getAppOrigin();
+    if (!origin) return undefined;
+
+    const nextQuery = nextRoute ? `?next=${encodeURIComponent(nextRoute)}` : '';
+
+    return `${origin}/auth/confirm${nextQuery}`;
+}
+
+function buildLoginParams(nextRoute: string | null) {
+    if (!nextRoute) return undefined;
+
+    return {
+        next: nextRoute,
+        mode: nextRoute.startsWith(COMPANY_INVITE_ROUTE) ? 'work' : undefined,
+    };
+}
+
+function getAppOrigin() {
+    const globalWithLocation = globalThis as unknown as {
+        location?: { origin?: string };
+        window?: { location?: { origin?: string } };
+    };
+    const origin = globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null;
+
+    return typeof origin === 'string' && origin.trim() ? origin : null;
+}
+
+function readErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    const message = (error as { message?: unknown })?.message;
+
+    return typeof message === 'string' && message.trim() ? message : 'Unknown error';
 }
 
 const titleStyle = {
