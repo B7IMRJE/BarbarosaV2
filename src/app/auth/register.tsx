@@ -71,7 +71,6 @@ export default function RegisterScreen() {
                     full_name: cleanName,
                     phone: cleanPhone,
                     role: profileRole,
-                    account_type: workAccountMode ? 'work' : 'homeowner',
                 },
             },
         });
@@ -88,13 +87,9 @@ export default function RegisterScreen() {
         }
 
         if (data.user) {
-            await supabase.from('profiles').upsert({
-                id: data.user.id,
-                email: cleanEmail,
-                full_name: cleanName,
-                phone: cleanPhone,
-                role: profileRole,
-            });
+            await supabase.from('profiles').upsert(
+                buildProfileUpsertPayload(data.user.id, cleanEmail, cleanName, cleanPhone, profileRole, workAccountMode)
+            );
         }
 
         setLoading(false);
@@ -327,6 +322,36 @@ function buildAuthNavParams(nextRoute: string | null, workAccountMode: boolean, 
     if (cleanEmail) navParams.email = cleanEmail;
 
     return Object.keys(navParams).length ? navParams : undefined;
+}
+
+type ProfileUpsertPayload = {
+    id: string;
+    email: string;
+    full_name?: string;
+    phone?: string;
+    role: string;
+};
+
+function buildProfileUpsertPayload(
+    userId: string,
+    email: string,
+    fullName: string,
+    phone: string,
+    role: string,
+    workAccountMode: boolean
+): ProfileUpsertPayload {
+    const profilePayload: ProfileUpsertPayload = {
+        id: userId,
+        email,
+        role,
+    };
+    const cleanFullName = fullName.trim();
+    const cleanPhone = phone.trim();
+
+    if (cleanFullName) profilePayload.full_name = cleanFullName;
+    if (!workAccountMode && cleanPhone) profilePayload.phone = cleanPhone;
+
+    return profilePayload;
 }
 
 function buildConfirmRedirect(nextRoute: string | null) {

@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -23,6 +23,11 @@ type CompanyInvitation = {
 type SessionUser = {
     id: string;
     email?: string | null;
+};
+
+type AcceptedCompanyUser = {
+    company_id: string | null;
+    role: string | null;
 };
 
 type ParsedInviteCode = {
@@ -49,6 +54,7 @@ export default function CompanyInviteScreen() {
     const [accepting, setAccepting] = useState(false);
     const [message, setMessage] = useState('');
     const [success, setSuccess] = useState(false);
+    const [manualInviteCode, setManualInviteCode] = useState('');
     const autoAcceptKeyRef = useRef('');
 
     useEffect(() => {
@@ -82,12 +88,15 @@ export default function CompanyInviteScreen() {
         setInvitation(null);
         setSuccess(false);
 
+        let currentSessionUser: SessionUser | null = null;
+
         try {
             const {
                 data: { user: currentUser },
             } = await supabase.auth.getUser();
 
-            setUser(currentUser ? { id: currentUser.id, email: currentUser.email } : null);
+            currentSessionUser = currentUser ? { id: currentUser.id, email: currentUser.email } : null;
+            setUser(currentSessionUser);
         } catch (error) {
             setUser(null);
             setLoading(false);
@@ -97,7 +106,11 @@ export default function CompanyInviteScreen() {
 
         if (!parsedCode) {
             setLoading(false);
-            setMessage('The invite code is missing. Ask your company admin for a fresh invitation link.');
+            setMessage(
+                currentSessionUser
+                    ? 'Enter your company invite code to finish work account setup.'
+                    : 'The invite code is missing. Ask your company admin for a fresh invitation link.'
+            );
             return;
         }
 
@@ -145,14 +158,16 @@ export default function CompanyInviteScreen() {
         setMessage('Accepting invitation...');
 
         let acceptErrorMessage = '';
+        let acceptedCompanyUser: AcceptedCompanyUser | null = null;
 
         try {
-            const { error } = await supabase.rpc('accept_company_user_invitation_by_code', {
+            const { data, error } = await supabase.rpc('accept_company_user_invitation_by_code', {
                 p_invitation_id: invitation.invitation_id,
                 p_invite_code: parsedCode.inviteCode,
             });
 
             acceptErrorMessage = error?.message || '';
+            acceptedCompanyUser = normalizeAcceptedCompanyUser(data);
         } catch (error) {
             acceptErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
         }
@@ -160,8 +175,10 @@ export default function CompanyInviteScreen() {
         if (!acceptErrorMessage) {
             setSuccess(true);
             setMessage('Invitation accepted. Opening your company workspace...');
+            const acceptedCompanyId = acceptedCompanyUser?.company_id || invitation.company_id;
+            const acceptedRole = acceptedCompanyUser?.role || invitation.invited_role;
             const routeDecision = await resolveLoggedInUserRoute(user.id, {
-                preferredCompanyId: invitation.company_id,
+                preferredCompanyId: acceptedCompanyId,
             });
             if (routeDecision.reason === 'service-unavailable') {
                 setSuccess(false);
@@ -169,7 +186,7 @@ export default function CompanyInviteScreen() {
                 setMessage(routeDecision.message || HOMEOS_SERVICE_ERROR_MESSAGE);
                 return;
             }
-            const acceptedInviteRoute = getAcceptedInviteRoute(invitation, routeDecision.route);
+            const acceptedInviteRoute = getAcceptedInviteRoute(acceptedCompanyId, acceptedRole, routeDecision.route);
             setAccepting(false);
             setTimeout(() => {
                 router.replace(acceptedInviteRoute as any);
@@ -179,6 +196,32 @@ export default function CompanyInviteScreen() {
 
         setAccepting(false);
         setMessage(`Accept invitation failed: ${formatAcceptError(acceptErrorMessage)}`);
+    }
+
+    function openManualInviteCode() {
+        const code = manualInviteCode.trim();
+
+        if (!code) {
+            setMessage('Enter invite code.');
+            return;
+        }
+
+        router.replace(`${COMPANY_INVITE_ROUTE}?code=${encodeURIComponent(code)}` as any);
+    }
+
+    async function signOut() {
+        await supabase.auth.signOut();
+        setUser(null);
+        setSuccess(false);
+        setMessage('Signed out. Sign in with the invited email to accept this company invitation.');
+    }
+
+    async function backToLogin() {
+        await supabase.auth.signOut();
+        router.replace({
+            pathname: '/auth/login',
+            params: { mode: 'work' },
+        } as any);
     }
 
     function goToLogin() {
@@ -281,8 +324,44 @@ export default function CompanyInviteScreen() {
                             <ThemedCard>
                                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite code missing</Text>
                                 <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                    Ask your company admin to send the invitation link again.
+                                    Enter your company invite code, or ask your company admin to send the invitation link again.
                                 </Text>
+
+                                <TextInput
+                                    placeholder="Invite code"
+                                    value={manualInviteCode}
+                                    onChangeText={setManualInviteCode}
+                                    autoCapitalize="characters"
+                                    autoCorrect={false}
+                                    style={[
+                                        inviteCodeInputStyle,
+                                        {
+                                            backgroundColor: theme.colors.surface,
+                                            borderColor: theme.colors.border,
+                                            color: theme.colors.text,
+                                        },
+                                    ]}
+                                />
+
+                                <View style={actionGroupStyle}>
+                                    <ThemedButton title="Enter Invite Code" onPress={openManualInviteCode} />
+                                    <View style={actionRowStyle}>
+                                        {!!user && (
+                                            <ThemedButton
+                                                title="Sign Out"
+                                                variant="secondary"
+                                                onPress={signOut}
+                                                style={actionButtonStyle}
+                                            />
+                                        )}
+                                        <ThemedButton
+                                            title="Back to Login"
+                                            variant="ghost"
+                                            onPress={backToLogin}
+                                            style={actionButtonStyle}
+                                        />
+                                    </View>
+                                </View>
                             </ThemedCard>
                         )}
                     </>
@@ -398,6 +477,19 @@ function readStringField(record: Record<string, unknown>, key: string) {
     return typeof value === 'string' && value.trim() ? value : null;
 }
 
+function normalizeAcceptedCompanyUser(data: unknown): AcceptedCompanyUser | null {
+    const row = Array.isArray(data) ? data[0] : data;
+
+    if (!row || typeof row !== 'object') return null;
+
+    const record = row as Record<string, unknown>;
+
+    return {
+        company_id: readStringField(record, 'company_id'),
+        role: readStringField(record, 'role'),
+    };
+}
+
 function firstParam(value: string | string[] | undefined) {
     return Array.isArray(value) ? value[0] : value;
 }
@@ -439,9 +531,9 @@ function buildWorkAuthParams(nextPath: string, invitation: CompanyInvitation | n
     return authParams;
 }
 
-function getAcceptedInviteRoute(invitation: CompanyInvitation, resolvedRoute: string) {
-    const companyId = String(invitation.company_id || '').trim();
-    const invitedRole = normalizeInviteRole(invitation.invited_role);
+function getAcceptedInviteRoute(companyIdValue: string | null, roleValue: string | null, resolvedRoute: string) {
+    const companyId = String(companyIdValue || '').trim();
+    const invitedRole = normalizeInviteRole(roleValue);
 
     if (!companyId) {
         return resolvedRoute;
@@ -506,28 +598,6 @@ function formatInviteLookupError(message: string) {
 function formatAcceptError(message: string) {
     if (isFetchFailureMessage(message) || message === HOMEOS_SERVICE_ERROR_MESSAGE) {
         return HOMEOS_SERVICE_ERROR_MESSAGE;
-    }
-
-    const normalized = message.toLowerCase();
-
-    if (
-        normalized.includes('manual invite code has not been generated') ||
-        normalized.includes('invalid invite code') ||
-        normalized.includes('invitation not found')
-    ) {
-        return 'This invite link is not active or does not match this invitation. Ask the company admin to create a new manual invite link.';
-    }
-
-    if (normalized.includes('invite code has expired')) {
-        return 'This invite link has expired. Ask the company admin to create a new manual invite link.';
-    }
-
-    if (normalized.includes('verified account email required')) {
-        return 'Use a verified account with the invited email address to accept this invitation.';
-    }
-
-    if (normalized.includes('does not match')) {
-        return 'This signed-in account does not match the invited email address.';
     }
 
     return message || 'The invite code could not be accepted.';
@@ -617,6 +687,15 @@ const detailValueStyle = {
 
 const actionGroupStyle = {
     marginTop: 18,
+};
+
+const inviteCodeInputStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginTop: 16,
+    padding: 14,
 };
 
 const actionRowStyle = {
