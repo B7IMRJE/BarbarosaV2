@@ -82,7 +82,18 @@ export default function RegisterScreen() {
                 return;
             }
 
+            if (workAccountMode && isExistingAccountError(error)) {
+                setMessage('An account may already exist. Sign in or use Forgot Password.');
+                return;
+            }
+
             Alert.alert('Create account failed', 'We could not create your account right now. Please check your information and try again.');
+            return;
+        }
+
+        if (workAccountMode && maybeExistingAccount(data.user)) {
+            setLoading(false);
+            setMessage('An account may already exist. Sign in or use Forgot Password.');
             return;
         }
 
@@ -278,6 +289,15 @@ export default function RegisterScreen() {
                 >
                     {workAccountMode ? 'Already have a work account? Login' : 'Already have an account? Login'}
                 </Text>
+
+                {workAccountMode && (
+                    <Text
+                        onPress={() => router.push('/auth/forgot-password' as any)}
+                        style={linkStyle}
+                    >
+                        Forgot Password?
+                    </Text>
+                )}
             </View>
         </ScrollView>
     );
@@ -394,6 +414,31 @@ function isEmailRateLimitError(error: unknown) {
         message.includes('email rate limit exceeded') ||
         message.includes('rate limit')
     );
+}
+
+function isExistingAccountError(error: unknown) {
+    const code = String(
+        (error as { code?: unknown; error_code?: unknown })?.code ??
+        (error as { error_code?: unknown })?.error_code ??
+        ''
+    ).toLowerCase();
+    const message = String((error as { message?: unknown })?.message ?? '').toLowerCase();
+
+    return (
+        code.includes('user_already_exists') ||
+        code.includes('email_exists') ||
+        message.includes('already registered') ||
+        message.includes('already exists') ||
+        message.includes('user already')
+    );
+}
+
+function maybeExistingAccount(user: unknown) {
+    if (!user || typeof user !== 'object') return false;
+
+    const identities = (user as { identities?: unknown }).identities;
+
+    return Array.isArray(identities) && identities.length === 0;
 }
 
 const titleStyle = {

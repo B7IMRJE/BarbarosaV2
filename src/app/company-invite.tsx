@@ -65,6 +65,11 @@ export default function CompanyInviteScreen() {
         if (loading || accepting || success || !user || !invitation || !parsedCode) return;
         if (normalizeStatus(invitation.status) !== 'pending') return;
 
+        if (isSignedInAsDifferentUser(user, invitation)) {
+            setMessage(signedInMismatchMessage(user, invitation));
+            return;
+        }
+
         const autoAcceptKey = `${user.id}:${invitation.invitation_id}:${parsedCode.inviteCode}`;
         if (autoAcceptKeyRef.current === autoAcceptKey) return;
 
@@ -150,7 +155,7 @@ export default function CompanyInviteScreen() {
         const invitedEmail = normalizeEmail(invitation.email);
 
         if (signedInEmail && invitedEmail && signedInEmail !== invitedEmail) {
-            setMessage(`This invite is for ${invitation.email}. Sign in with that email or ask for a new invite.`);
+            setMessage(signedInMismatchMessage(user, invitation));
             return;
         }
 
@@ -214,6 +219,33 @@ export default function CompanyInviteScreen() {
         setUser(null);
         setSuccess(false);
         setMessage('Signed out. Sign in with the invited email to accept this company invitation.');
+    }
+
+    async function signOutAndContinue() {
+        await supabase.auth.signOut();
+        setUser(null);
+        setSuccess(false);
+        setAccepting(false);
+        setMessage('Signed out. Continue with the invited email to accept this company invitation.');
+        router.replace(nextPath as any);
+    }
+
+    async function goToLoginAsInvitedUser() {
+        await supabase.auth.signOut();
+        setUser(null);
+        router.push({
+            pathname: '/auth/login',
+            params: buildWorkAuthParams(nextPath, invitation),
+        } as any);
+    }
+
+    async function goToCreateWorkAccountForInvite() {
+        await supabase.auth.signOut();
+        setUser(null);
+        router.push({
+            pathname: '/auth/register',
+            params: buildWorkAuthParams(nextPath, invitation),
+        } as any);
     }
 
     async function backToLogin() {
@@ -303,6 +335,44 @@ export default function CompanyInviteScreen() {
                                             />
                                         </View>
                                     </View>
+                                ) : invitation && isSignedInAsDifferentUser(user, invitation) ? (
+                                    <View style={actionGroupStyle}>
+                                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                            {signedInMismatchMessage(user, invitation)}
+                                        </Text>
+                                        <View style={actionRowStyle}>
+                                            <ThemedButton
+                                                title="Sign Out and Continue"
+                                                onPress={signOutAndContinue}
+                                                style={actionButtonStyle}
+                                            />
+                                            <ThemedButton
+                                                title="Sign In as Invited User"
+                                                variant="secondary"
+                                                onPress={goToLoginAsInvitedUser}
+                                                style={actionButtonStyle}
+                                            />
+                                            <ThemedButton
+                                                title="Create Work Account for this Invite"
+                                                variant="secondary"
+                                                onPress={goToCreateWorkAccountForInvite}
+                                                style={actionButtonStyle}
+                                            />
+                                            <ThemedButton
+                                                title="Back to Login"
+                                                variant="ghost"
+                                                onPress={goToLoginAsInvitedUser}
+                                                style={actionButtonStyle}
+                                            />
+                                        </View>
+
+                                        <InviteCodeEntry
+                                            value={manualInviteCode}
+                                            onChangeText={setManualInviteCode}
+                                            onSubmit={openManualInviteCode}
+                                            submitTitle="Enter Another Invite Code"
+                                        />
+                                    </View>
                                 ) : (
                                     <View style={actionGroupStyle}>
                                         <ThemedButton
@@ -327,24 +397,13 @@ export default function CompanyInviteScreen() {
                                     Enter your company invite code, or ask your company admin to send the invitation link again.
                                 </Text>
 
-                                <TextInput
-                                    placeholder="Invite code"
+                                <InviteCodeEntry
                                     value={manualInviteCode}
                                     onChangeText={setManualInviteCode}
-                                    autoCapitalize="characters"
-                                    autoCorrect={false}
-                                    style={[
-                                        inviteCodeInputStyle,
-                                        {
-                                            backgroundColor: theme.colors.surface,
-                                            borderColor: theme.colors.border,
-                                            color: theme.colors.text,
-                                        },
-                                    ]}
+                                    onSubmit={openManualInviteCode}
                                 />
 
                                 <View style={actionGroupStyle}>
-                                    <ThemedButton title="Enter Invite Code" onPress={openManualInviteCode} />
                                     <View style={actionRowStyle}>
                                         {!!user && (
                                             <ThemedButton
@@ -368,6 +427,41 @@ export default function CompanyInviteScreen() {
                 )}
             </View>
         </ScrollView>
+    );
+}
+
+function InviteCodeEntry({
+    value,
+    onChangeText,
+    onSubmit,
+    submitTitle = 'Enter Invite Code',
+}: {
+    value: string;
+    onChangeText: (value: string) => void;
+    onSubmit: () => void;
+    submitTitle?: string;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={inviteCodeEntryStyle}>
+            <TextInput
+                placeholder="Invite code"
+                value={value}
+                onChangeText={onChangeText}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                style={[
+                    inviteCodeInputStyle,
+                    {
+                        backgroundColor: theme.colors.surface,
+                        borderColor: theme.colors.border,
+                        color: theme.colors.text,
+                    },
+                ]}
+            />
+            <ThemedButton title={submitTitle} onPress={onSubmit} style={{ marginTop: 10 }} />
+        </View>
     );
 }
 
@@ -517,6 +611,20 @@ function normalizeEmail(value: string | null | undefined) {
 
 function normalizeStatus(value: string | null) {
     return String(value || '').trim().toLowerCase();
+}
+
+function isSignedInAsDifferentUser(user: SessionUser | null, invitation: CompanyInvitation | null) {
+    const signedInEmail = normalizeEmail(user?.email);
+    const invitedEmail = normalizeEmail(invitation?.email);
+
+    return !!signedInEmail && !!invitedEmail && signedInEmail !== invitedEmail;
+}
+
+function signedInMismatchMessage(user: SessionUser, invitation: CompanyInvitation) {
+    const signedInEmail = user.email || 'another account';
+    const invitedEmail = invitation.email || 'the invited email';
+
+    return `You are signed in as ${signedInEmail}. This invite is for ${invitedEmail}.`;
 }
 
 function buildWorkAuthParams(nextPath: string, invitation: CompanyInvitation | null) {
@@ -686,6 +794,10 @@ const detailValueStyle = {
 };
 
 const actionGroupStyle = {
+    marginTop: 18,
+};
+
+const inviteCodeEntryStyle = {
     marginTop: 18,
 };
 
