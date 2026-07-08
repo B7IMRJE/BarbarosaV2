@@ -92,6 +92,12 @@ export default function LoginScreen() {
             return;
         }
 
+        if (isCompanyInviteRoute(nextRoute)) {
+            setLoading(false);
+            router.replace(nextRoute as any);
+            return;
+        }
+
         const routeDecision = await resolveLoggedInUserRoute(data.user.id);
 
         setLoading(false);
@@ -258,6 +264,10 @@ function isWorkAccountFlow(mode: string | undefined, nextRoute: string | null) {
     const normalizedMode = String(mode || '').trim().toLowerCase();
 
     return normalizedMode === 'work' || nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true;
+}
+
+function isCompanyInviteRoute(nextRoute: string | null) {
+    return nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true;
 }
 
 function normalizeEmail(value: string | undefined) {

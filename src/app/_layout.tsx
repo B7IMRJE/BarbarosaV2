@@ -23,6 +23,7 @@ const REGISTER_ROUTE = '/auth/register';
 const AUTH_CONFIRM_ROUTE = '/auth/confirm';
 const FORGOT_PASSWORD_ROUTE = '/auth/forgot-password';
 const RESET_PASSWORD_ROUTE = '/auth/reset-password';
+const ADMIN_ROUTE = '/admin';
 const COMPANY_INVITE_ROUTE = '/company-invite';
 const CUSTOMER_INVITE_ROUTE = '/customer-invite';
 const ONBOARDING_INVITE_ROUTE = '/onboarding/invite';
@@ -322,6 +323,14 @@ function isSuperAdminPath(pathname: string) {
   return pathname === SUPER_ADMIN_ROUTE || pathname.startsWith(`${SUPER_ADMIN_ROUTE}/`);
 }
 
+function isAdminPath(pathname: string) {
+  return pathname === ADMIN_ROUTE || pathname.startsWith(`${ADMIN_ROUTE}/`);
+}
+
+function isAdminShellPath(pathname: string) {
+  return pathname === SUPER_ADMIN_ROUTE || isAdminPath(pathname);
+}
+
 function isCompanyManagementPath(pathname: string) {
   return pathname.startsWith(`${SUPER_ADMIN_ROUTE}/company/`);
 }
@@ -431,6 +440,7 @@ function resolveRedirectForPath(
   if (routeDecision.reason === 'super-admin') {
     if (
       isSuperAdminPath(pathname) ||
+      isAdminPath(pathname) ||
       isProviderModeHomeOsPath(pathname, routeParams) ||
       isProviderModeEstimatePath(pathname, routeParams) ||
       isTechOSPath(pathname) ||
@@ -445,6 +455,10 @@ function resolveRedirectForPath(
   }
 
   if (routeDecision.reason === 'company-management') {
+    if (isAdminShellPath(pathname)) {
+      return null;
+    }
+
     if (
       isAllowedCompanyManagementPath(pathname, routeDecision.allowedCompanyIds) ||
       isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
@@ -462,6 +476,10 @@ function resolveRedirectForPath(
   }
 
   if (routeDecision.reason === 'company-technician') {
+    if (isAdminShellPath(pathname)) {
+      return null;
+    }
+
     if (
       isAllowedCompanyClientPath(pathname, routeDecision.allowedCompanyIds) ||
       isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
@@ -477,10 +495,26 @@ function resolveRedirectForPath(
   }
 
   if (routeDecision.reason === 'staff') {
+    if (isAdminShellPath(pathname)) {
+      return null;
+    }
+
     if (
       isTechOSPath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
+    ) {
+      return null;
+    }
+
+    return routeDecision.route;
+  }
+
+  if (routeDecision.reason === 'work-pending-invite') {
+    if (
+      pathname === COMPANY_INVITE_ROUTE ||
+      pathname === PROFILE_CHANGE_PASSWORD_ROUTE ||
+      isAdminShellPath(pathname)
     ) {
       return null;
     }

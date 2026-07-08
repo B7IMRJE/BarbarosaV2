@@ -5,6 +5,7 @@ export const HOME_ROUTE = '/' as const;
 export const SUPER_ADMIN_ROUTE = '/super-admin' as const;
 export const FIRST_HOME_ONBOARDING_ROUTE = '/onboarding/create-home' as const;
 export const TECHOS_ROUTE = '/techos' as const;
+export const COMPANY_INVITE_ROUTE = '/company-invite' as const;
 export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
 const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
@@ -18,6 +19,7 @@ export type LoggedInUserRouteReason =
     | 'company-management'
     | 'company-technician'
     | 'staff'
+    | 'work-pending-invite'
     | 'homeowner-active-membership'
     | 'homeowner-needs-first-home'
     | 'profile-missing'
@@ -148,6 +150,14 @@ export async function resolveLoggedInUserRoute(
             return {
                 route: TECHOS_ROUTE,
                 reason: 'staff',
+            };
+        }
+
+        if (role === 'WORK') {
+            return {
+                route: COMPANY_INVITE_ROUTE,
+                reason: 'work-pending-invite',
+                message: 'Open your company invitation link to finish work account setup.',
             };
         }
 
@@ -332,24 +342,49 @@ async function loadRouteProfile(userId: string): Promise<{
     error: { message: string } | null;
 }> {
     try {
-        const profileQuery = await supabase
+        const primaryQuery = await supabase
+            .from('profiles')
+            .select('id, role, is_platform_admin')
+            .eq('id', userId)
+            .maybeSingle();
+
+        if (!primaryQuery.error) {
+            return {
+                data: primaryQuery.data as ProfileRouteFields | null,
+                error: null,
+            };
+        }
+
+        const fallbackQuery = await supabase
             .from('profiles')
             .select('id, role')
             .eq('id', userId)
             .maybeSingle();
-        const profile = profileQuery.data
-            ? ({ ...profileQuery.data, is_platform_admin: null } as ProfileRouteFields)
+
+        const platformAdminFlag = await loadPlatformAdminFlag();
+        const profile = fallbackQuery.data
+            ? ({ ...fallbackQuery.data, is_platform_admin: platformAdminFlag } as ProfileRouteFields)
             : null;
 
         return {
             data: profile,
-            error: profileQuery.error,
+            error: fallbackQuery.error,
         };
     } catch (error) {
         return {
             data: null,
             error: { message: getErrorMessage(error) },
         };
+    }
+}
+
+async function loadPlatformAdminFlag() {
+    try {
+        const rpcResult = await supabase.rpc('homeos_is_platform_admin');
+
+        return rpcResult.error ? null : rpcResult.data === true;
+    } catch {
+        return null;
     }
 }
 
