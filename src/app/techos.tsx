@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -90,6 +90,43 @@ type TechOSJob = {
     assignment_count?: number | null;
 };
 
+type TechScheduleSlot = {
+    id: string;
+    company_id: string;
+    job_id: string | null;
+    service_request_id: string | null;
+    technician_company_user_id: string;
+    start_at: string | null;
+    end_at: string | null;
+    arrival_window_start: string | null;
+    arrival_window_end: string | null;
+    status: string | null;
+    estimated_duration_minutes: number | null;
+    priority: string | null;
+    notes: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+};
+
+type TechServiceRequest = {
+    id: string;
+    company_id: string;
+    property_id: string | null;
+    company_property_client_id: string | null;
+    request_type: string | null;
+    status: string | null;
+    priority: string | null;
+    issue_summary: string | null;
+    created_at: string | null;
+    converted_job_id: string | null;
+    converted_at: string | null;
+};
+
+type TechAssignedScheduleJob = {
+    slot: TechScheduleSlot;
+    request: TechServiceRequest | null;
+};
+
 type JobDateGroup = {
     key: string;
     label: string;
@@ -110,8 +147,10 @@ type PlatformProfile = {
 };
 
 type TechOSMode = 'technician' | 'management-preview' | 'platform-preview';
+type TechDashboardView = 'home' | 'jobs' | 'calendar' | 'history';
 
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
+const TECHOS_ASSIGNMENT_REFRESH_MS = 45_000;
 
 const secondaryWorkflowCards = [
     {
@@ -146,15 +185,21 @@ export default function TechOSScreen() {
     const [clients, setClients] = useState<CompanyClient[]>([]);
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
     const [jobs, setJobs] = useState<TechOSJob[]>([]);
+    const [assignedScheduleSlots, setAssignedScheduleSlots] = useState<TechScheduleSlot[]>([]);
+    const [serviceRequestsById, setServiceRequestsById] = useState<Record<string, TechServiceRequest>>({});
     const [activeCompanyId, setActiveCompanyId] = useState('');
     const [clientMessage, setClientMessage] = useState('');
     const [jobLoading, setJobLoading] = useState(false);
+    const [scheduleLoading, setScheduleLoading] = useState(false);
+    const [scheduleMessage, setScheduleMessage] = useState('');
+    const [assignmentBanner, setAssignmentBanner] = useState('');
     const [creatingJobClientId, setCreatingJobClientId] = useState<string | null>(null);
     const [jobMessage, setJobMessage] = useState('');
     const [message, setMessage] = useState('Loading TechOS...');
     const [showAssignedClients, setShowAssignedClients] = useState(false);
     const [assignmentModelReady, setAssignmentModelReady] = useState(false);
     const [techOSMode, setTechOSMode] = useState<TechOSMode>('technician');
+    const [dashboardView, setDashboardView] = useState<TechDashboardView>('home');
     const [activeTechnicians, setActiveTechnicians] = useState<CompanyUser[]>([]);
     const [expandedAssignmentJobs, setExpandedAssignmentJobs] = useState<Record<string, boolean>>({});
     const [selectedTechnicianByJob, setSelectedTechnicianByJob] = useState<Record<string, string>>({});
@@ -162,6 +207,7 @@ export default function TechOSScreen() {
     const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
     const [authEmail, setAuthEmail] = useState('');
     const [signingOut, setSigningOut] = useState(false);
+    const knownAssignedSlotIdsRef = useRef<Set<string>>(new Set());
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const visibleClients = useMemo(
@@ -180,10 +226,76 @@ export default function TechOSScreen() {
     const pausedJobs = useMemo(() => visibleJobs.filter((job) => isPausedJobStatus(job.status)), [visibleJobs]);
     const closedJobs = useMemo(() => visibleJobs.filter((job) => isClosedJobStatus(job.status)), [visibleJobs]);
     const groupedJobSections = useMemo(() => groupJobsByDate(visibleJobs), [visibleJobs]);
+    const assignedScheduleJobs = useMemo(
+        () => assignedScheduleSlots.map((slot) => ({
+            slot,
+            request: slot.service_request_id ? serviceRequestsById[slot.service_request_id] || null : null,
+        })),
+        [assignedScheduleSlots, serviceRequestsById]
+    );
+    const todayAssignedScheduleJobs = useMemo(
+        () => assignedScheduleJobs.filter((job) => isTodayDate(job.slot.start_at)),
+        [assignedScheduleJobs]
+    );
+    const activeUpcomingScheduleJobs = useMemo(
+        () => assignedScheduleJobs.filter((job) => isActiveUpcomingScheduleJob(job.slot)),
+        [assignedScheduleJobs]
+    );
+    const historyScheduleJobs = useMemo(
+        () => assignedScheduleJobs.filter((job) => !isActiveUpcomingScheduleJob(job.slot)),
+        [assignedScheduleJobs]
+    );
+    const calendarScheduleGroups = useMemo(
+        () => groupAssignedScheduleJobsByDate(assignedScheduleJobs),
+        [assignedScheduleJobs]
+    );
 
     useEffect(() => {
         loadTechOSAccess();
     }, [requestedCompanyId]);
+
+    useEffect(() => {
+        const technicianCompanyUserId = techOSMode === 'technician' ? membership?.id || '' : '';
+        const companyIdForRefresh = activeCompanyId;
+
+        if (!companyIdForRefresh || !technicianCompanyUserId) return;
+
+        const refreshAssignedJobs = () => {
+            void loadAssignedScheduleJobs(companyIdForRefresh, technicianCompanyUserId, {
+                announceNewAssignments: true,
+                subtle: true,
+            });
+        };
+        const intervalId = setInterval(refreshAssignedJobs, TECHOS_ASSIGNMENT_REFRESH_MS);
+        const channel = supabase
+            .channel(`techos-assigned-jobs:${companyIdForRefresh}:${technicianCompanyUserId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'job_schedule_slots',
+                    filter: `technician_company_user_id=eq.${technicianCompanyUserId}`,
+                },
+                refreshAssignedJobs
+            )
+            .subscribe();
+
+        return () => {
+            clearInterval(intervalId);
+            void supabase.removeChannel(channel);
+        };
+    }, [activeCompanyId, membership?.id, techOSMode]);
+
+    useEffect(() => {
+        if (!assignmentBanner) return;
+
+        const timer = setTimeout(() => {
+            setAssignmentBanner('');
+        }, 8000);
+
+        return () => clearTimeout(timer);
+    }, [assignmentBanner]);
 
     async function loadTechOSAccess() {
         setCheckingAccess(true);
@@ -195,18 +307,24 @@ export default function TechOSScreen() {
         setClients([]);
         setPropertiesById({});
         setJobs([]);
+        setAssignedScheduleSlots([]);
+        setServiceRequestsById({});
         setActiveCompanyId('');
         setClientMessage('');
+        setScheduleMessage('');
+        setAssignmentBanner('');
         setCreatingJobClientId(null);
         setJobMessage('');
         setAssignmentModelReady(false);
         setTechOSMode('technician');
+        setDashboardView('home');
         setActiveTechnicians([]);
         setExpandedAssignmentJobs({});
         setSelectedTechnicianByJob({});
         setAssignmentMessageByJob({});
         setAssigningJobId(null);
         setAuthEmail('');
+        knownAssignedSlotIdsRef.current = new Set();
 
         let userId = '';
 
@@ -299,6 +417,9 @@ export default function TechOSScreen() {
         if (nextMode === 'technician') {
             await Promise.all([
                 loadCompanyBrand(activeMembership.company_id),
+                loadAssignedScheduleJobs(activeMembership.company_id, activeMembership.id, {
+                    announceNewAssignments: false,
+                }),
                 loadAssignedTechnicianJobs(activeMembership.company_id),
             ]);
         } else {
@@ -311,6 +432,64 @@ export default function TechOSScreen() {
         }
         setCheckingAccess(false);
         setMessage('');
+    }
+
+    async function loadAssignedScheduleJobs(
+        companyIdToLoad: string,
+        technicianCompanyUserId: string,
+        options: { announceNewAssignments?: boolean; subtle?: boolean } = {}
+    ) {
+        if (!companyIdToLoad || !technicianCompanyUserId) {
+            setAssignedScheduleSlots([]);
+            setServiceRequestsById({});
+            return;
+        }
+
+        if (!options.subtle) {
+            setScheduleLoading(true);
+        }
+
+        const windowStart = new Date();
+        const windowEnd = new Date();
+        windowStart.setDate(windowStart.getDate() - 30);
+        windowEnd.setDate(windowEnd.getDate() + 60);
+
+        const { data, error } = await supabase
+            .from('job_schedule_slots')
+            .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes')
+            .eq('company_id', companyIdToLoad)
+            .eq('technician_company_user_id', technicianCompanyUserId)
+            .gte('start_at', windowStart.toISOString())
+            .lte('start_at', windowEnd.toISOString())
+            .order('start_at', { ascending: true });
+
+        if (error) {
+            setAssignedScheduleSlots([]);
+            setServiceRequestsById({});
+            setScheduleMessage(`Could not load assigned jobs: ${normalizeServiceErrorMessage(error.message)}`);
+            setScheduleLoading(false);
+            return;
+        }
+
+        const nextSlots = normalizeScheduleSlots(data);
+        const previousSlotIds = knownAssignedSlotIdsRef.current;
+        const nextSlotIds = new Set(nextSlots.map((slot) => slot.id));
+        const hasNewSlot = options.announceNewAssignments &&
+            previousSlotIds.size > 0 &&
+            nextSlots.some((slot) => !previousSlotIds.has(slot.id) && isActiveScheduleSlot(slot.status));
+
+        knownAssignedSlotIdsRef.current = nextSlotIds;
+        setAssignedScheduleSlots(nextSlots);
+
+        const serviceRequestsResult = await loadScheduleServiceRequests(companyIdToLoad, nextSlots);
+        setServiceRequestsById(serviceRequestsResult.requestsById);
+        setScheduleMessage(serviceRequestsResult.message);
+
+        if (hasNewSlot) {
+            setAssignmentBanner('New job assigned');
+        }
+
+        setScheduleLoading(false);
     }
 
     async function loadCompanyBrand(companyIdToLoad: string) {
@@ -638,6 +817,9 @@ export default function TechOSScreen() {
         : 'Company-level jobs shown for setup and dispatch preview. This is not one technician workload.';
     const canOpenDispatch = isPlatformAdminAccess || canAccessDispatch(membership || undefined);
     const dispatchCompanyId = canOpenDispatch ? activeCompanyId || membership?.company_id || requestedCompanyId : '';
+    const dashboardTodayCount = isTechnicianWorkspace ? todayAssignedScheduleJobs.length : 0;
+    const dashboardJobsCount = isTechnicianWorkspace ? activeUpcomingScheduleJobs.length : visibleJobs.length;
+    const dashboardHistoryCount = isTechnicianWorkspace ? historyScheduleJobs.length : closedJobs.length;
 
     return (
         <ScrollView
@@ -740,77 +922,107 @@ export default function TechOSScreen() {
                     </ThemedCard>
                 )}
 
-                <View style={summaryGridStyle}>
-                    <SummaryCard
-                        title={isTechnicianWorkspace ? 'My Assigned Jobs' : 'Active Jobs'}
-                        value={String(visibleJobs.length)}
-                        note={isTechnicianWorkspace ? 'Jobs assigned through dispatch.' : 'Company jobs visible in preview.'}
-                    />
-                    <SummaryCard
-                        title="Open Jobs"
-                        value={String(openJobs.length)}
-                        note="Ready or in progress."
-                    />
-                    <SummaryCard
-                        title="Paused Jobs"
-                        value={String(pausedJobs.length)}
-                        note="Waiting, paused, or on hold."
-                    />
-                    <SummaryCard
-                        title="Closed Jobs"
-                        value={String(closedJobs.length)}
-                        note="Completed, closed, or canceled."
-                    />
-                    <SummaryCard
-                        title={isTechnicianWorkspace ? 'My Sales' : 'Technicians'}
-                        value="--"
-                        note={isTechnicianWorkspace ? 'Sales totals are not connected yet.' : 'Technician assignment summary is not configured yet.'}
-                    />
-                    {!isTechnicianWorkspace && (
-                        <SummaryCard
-                            title="Unassigned Jobs"
-                            value="--"
-                            note="Use the job cards below to assign active technicians."
-                        />
-                    )}
-                    {!isTechnicianWorkspace && (
-                        <SummaryCard
-                            title="Dispatch Assignment"
-                            value={String(activeTechnicians.length)}
-                            note="Active technicians available for primary assignment."
-                        />
-                    )}
-                </View>
+                {!!assignmentBanner && (
+                    <ThemedCard style={assignmentBannerStyle}>
+                        <Text style={[assignmentBannerTextStyle, { color: theme.colors.primary }]}>
+                            {assignmentBanner}
+                        </Text>
+                    </ThemedCard>
+                )}
 
-                <TechOSJobsBoard
-                    activeTechnicians={activeTechnicians}
-                    assigningJobId={assigningJobId}
-                    clients={visibleClients}
-                    canAssignTechnicians={!isTechnicianWorkspace}
-                    groupedJobs={groupedJobSections}
-                    jobs={visibleJobs}
-                    loading={jobLoading}
-                    message={jobMessage}
-                    assignmentMessageByJob={assignmentMessageByJob}
-                    expandedAssignmentJobs={expandedAssignmentJobs}
-                    onOpenJob={handleOpenJob}
-                    onAssignTechnician={handleAssignTechnician}
-                    onSelectTechnician={(jobId, technicianId) =>
-                        setSelectedTechnicianByJob((current) => ({ ...current, [jobId]: technicianId }))
-                    }
-                    onToggleAssignment={(jobId) =>
-                        setExpandedAssignmentJobs((current) => ({ ...current, [jobId]: !current[jobId] }))
-                    }
-                    propertiesById={propertiesById}
-                    selectedTechnicianByJob={selectedTechnicianByJob}
-                    title={jobBoardTitle}
-                    description={jobBoardDescription}
-                    emptyMessage={
-                        isTechnicianWorkspace && !assignmentModelReady
-                            ? 'Job assignment is not configured yet. Jobs will appear here after dispatch assigns them.'
-                            : 'Jobs will appear here after ManagementOS dispatch creates or assigns company service jobs.'
-                    }
+                <TechOSDashboardCards
+                    activeView={dashboardView}
+                    calendarCount={calendarScheduleGroups.length}
+                    historyCount={dashboardHistoryCount}
+                    jobsCount={dashboardJobsCount}
+                    onSelectView={setDashboardView}
+                    todayCount={dashboardTodayCount}
                 />
+
+                {isTechnicianWorkspace ? (
+                    <TechOSDashboardContent
+                        activeJobs={activeUpcomingScheduleJobs}
+                        activeView={dashboardView}
+                        calendarGroups={calendarScheduleGroups}
+                        historyJobs={historyScheduleJobs}
+                        loading={scheduleLoading}
+                        message={scheduleMessage}
+                        onRefresh={() => {
+                            if (activeCompanyId && membership?.id) {
+                                void loadAssignedScheduleJobs(activeCompanyId, membership.id, {
+                                    announceNewAssignments: false,
+                                });
+                            }
+                        }}
+                        todayJobs={todayAssignedScheduleJobs}
+                    />
+                ) : (
+                    <>
+                        <View style={summaryGridStyle}>
+                            <SummaryCard
+                                title="Active Jobs"
+                                value={String(visibleJobs.length)}
+                                note="Company jobs visible in preview."
+                            />
+                            <SummaryCard
+                                title="Open Jobs"
+                                value={String(openJobs.length)}
+                                note="Ready or in progress."
+                            />
+                            <SummaryCard
+                                title="Paused Jobs"
+                                value={String(pausedJobs.length)}
+                                note="Waiting, paused, or on hold."
+                            />
+                            <SummaryCard
+                                title="Closed Jobs"
+                                value={String(closedJobs.length)}
+                                note="Completed, closed, or canceled."
+                            />
+                            <SummaryCard
+                                title="Technicians"
+                                value="--"
+                                note="Technician assignment summary is not configured yet."
+                            />
+                            <SummaryCard
+                                title="Unassigned Jobs"
+                                value="--"
+                                note="Use the job cards below to assign active technicians."
+                            />
+                            <SummaryCard
+                                title="Dispatch Assignment"
+                                value={String(activeTechnicians.length)}
+                                note="Active technicians available for primary assignment."
+                            />
+                        </View>
+
+                        <TechOSJobsBoard
+                            activeTechnicians={activeTechnicians}
+                            assigningJobId={assigningJobId}
+                            clients={visibleClients}
+                            canAssignTechnicians
+                            groupedJobs={groupedJobSections}
+                            jobs={visibleJobs}
+                            loading={jobLoading}
+                            message={jobMessage}
+                            assignmentMessageByJob={assignmentMessageByJob}
+                            expandedAssignmentJobs={expandedAssignmentJobs}
+                            onOpenJob={handleOpenJob}
+                            onAssignTechnician={handleAssignTechnician}
+                            onSelectTechnician={(jobId, technicianId) =>
+                                setSelectedTechnicianByJob((current) => ({ ...current, [jobId]: technicianId }))
+                            }
+                            onToggleAssignment={(jobId) =>
+                                setExpandedAssignmentJobs((current) => ({ ...current, [jobId]: !current[jobId] }))
+                            }
+                            propertiesById={propertiesById}
+                            selectedTechnicianByJob={selectedTechnicianByJob}
+                            title={jobBoardTitle}
+                            description={jobBoardDescription}
+                            emptyMessage="Jobs will appear here after ManagementOS dispatch creates or assigns company service jobs."
+                        />
+                    </>
+                )}
 
                 <View style={secondarySectionHeaderStyle}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 0 }]}>Field Tools</Text>
@@ -1020,6 +1232,334 @@ function SummaryCard({ title, value, note }: { title: string; value: string; not
             <Text style={[summaryTitleStyle, { color: theme.colors.text }]}>{title}</Text>
             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{note}</Text>
         </ThemedCard>
+    );
+}
+
+function TechOSDashboardCards({
+    activeView,
+    calendarCount,
+    historyCount,
+    jobsCount,
+    onSelectView,
+    todayCount,
+}: {
+    activeView: TechDashboardView;
+    calendarCount: number;
+    historyCount: number;
+    jobsCount: number;
+    onSelectView: (view: TechDashboardView) => void;
+    todayCount: number;
+}) {
+    const cards: Array<{ key: TechDashboardView; title: string; value: string; note: string }> = [
+        {
+            key: 'home',
+            title: 'Today',
+            value: String(todayCount),
+            note: todayCount === 1 ? 'job assigned today' : 'jobs assigned today',
+        },
+        {
+            key: 'jobs',
+            title: 'Jobs',
+            value: String(jobsCount),
+            note: 'active and upcoming assigned work',
+        },
+        {
+            key: 'calendar',
+            title: 'Work Calendar',
+            value: String(calendarCount),
+            note: calendarCount === 1 ? 'scheduled day' : 'scheduled days',
+        },
+        {
+            key: 'history',
+            title: 'History',
+            value: String(historyCount),
+            note: 'past or closed scheduled work',
+        },
+    ];
+    const { theme } = useTheme();
+
+    return (
+        <View style={dashboardGridStyle}>
+            {cards.map((card) => {
+                const active = activeView === card.key;
+
+                return (
+                    <ThemedCard
+                        key={card.key}
+                        onPress={() => onSelectView(card.key)}
+                        style={[
+                            dashboardCardStyle,
+                            active && {
+                                borderColor: theme.colors.primary,
+                                backgroundColor: theme.colors.secondaryButton,
+                            },
+                        ]}
+                    >
+                        <Text style={[dashboardCardValueStyle, { color: theme.colors.text }]}>{card.value}</Text>
+                        <Text style={[dashboardCardTitleStyle, { color: theme.colors.text }]}>{card.title}</Text>
+                        <Text style={[dashboardCardNoteStyle, { color: theme.colors.mutedText }]}>{card.note}</Text>
+                    </ThemedCard>
+                );
+            })}
+        </View>
+    );
+}
+
+function TechOSDashboardContent({
+    activeJobs,
+    activeView,
+    calendarGroups,
+    historyJobs,
+    loading,
+    message,
+    onRefresh,
+    todayJobs,
+}: {
+    activeJobs: TechAssignedScheduleJob[];
+    activeView: TechDashboardView;
+    calendarGroups: Array<{ key: string; label: string; jobs: TechAssignedScheduleJob[] }>;
+    historyJobs: TechAssignedScheduleJob[];
+    loading: boolean;
+    message: string;
+    onRefresh: () => void;
+    todayJobs: TechAssignedScheduleJob[];
+}) {
+    if (activeView === 'calendar') {
+        return (
+            <TechOSCalendarView
+                groups={calendarGroups}
+                loading={loading}
+                message={message}
+                onRefresh={onRefresh}
+            />
+        );
+    }
+
+    if (activeView === 'jobs') {
+        return (
+            <AssignedScheduleJobsSection
+                emptyTitle="No active assigned jobs"
+                emptyMessage="Assigned work will appear automatically after Dispatch schedules you."
+                jobs={activeJobs}
+                loading={loading}
+                message={message}
+                onRefresh={onRefresh}
+                title="Assigned Jobs"
+            />
+        );
+    }
+
+    if (activeView === 'history') {
+        return (
+            <AssignedScheduleJobsSection
+                emptyTitle="No job history yet"
+                emptyMessage="Completed or past assigned work will collect here."
+                jobs={historyJobs}
+                loading={loading}
+                message={message}
+                onRefresh={onRefresh}
+                title="History"
+            />
+        );
+    }
+
+    return (
+        <AssignedScheduleJobsSection
+            emptyTitle="No jobs scheduled for today"
+            emptyMessage="New assignments will appear here automatically. TechOS also checks for new work in the background."
+            jobs={todayJobs}
+            loading={loading}
+            message={message}
+            onRefresh={onRefresh}
+            title="Today's Jobs"
+        />
+    );
+}
+
+function AssignedScheduleJobsSection({
+    emptyMessage,
+    emptyTitle,
+    jobs,
+    loading,
+    message,
+    onRefresh,
+    title,
+}: {
+    emptyMessage: string;
+    emptyTitle: string;
+    jobs: TechAssignedScheduleJob[];
+    loading: boolean;
+    message: string;
+    onRefresh: () => void;
+    title: string;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={assignedJobsSectionStyle}>
+            <View style={assignedJobsHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>{title}</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        {jobs.length === 1 ? '1 assigned job' : `${jobs.length} assigned jobs`}
+                    </Text>
+                </View>
+                <ThemedButton
+                    title={loading ? 'Checking...' : 'Refresh'}
+                    variant="secondary"
+                    onPress={onRefresh}
+                    disabled={loading}
+                    style={refreshButtonStyle}
+                />
+            </View>
+
+            {!!message && (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                </View>
+            )}
+
+            {loading && jobs.length === 0 ? (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Checking assigned jobs...</Text>
+                </View>
+            ) : jobs.length === 0 ? (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>{emptyTitle}</Text>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        {emptyMessage}
+                    </Text>
+                </View>
+            ) : (
+                <View style={assignedJobGridStyle}>
+                    {jobs.map((job) => (
+                        <AssignedScheduleJobCard key={job.slot.id} job={job} />
+                    ))}
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
+function TechOSCalendarView({
+    groups,
+    loading,
+    message,
+    onRefresh,
+}: {
+    groups: Array<{ key: string; label: string; jobs: TechAssignedScheduleJob[] }>;
+    loading: boolean;
+    message: string;
+    onRefresh: () => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={assignedJobsSectionStyle}>
+            <View style={assignedJobsHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>Work Calendar</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        Simple day view for assigned work.
+                    </Text>
+                </View>
+                <ThemedButton
+                    title={loading ? 'Checking...' : 'Refresh'}
+                    variant="secondary"
+                    onPress={onRefresh}
+                    disabled={loading}
+                    style={refreshButtonStyle}
+                />
+            </View>
+
+            {!!message && (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                </View>
+            )}
+
+            {groups.length === 0 ? (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>No scheduled work yet</Text>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        Scheduled assignments will appear here by day.
+                    </Text>
+                </View>
+            ) : (
+                <View style={calendarDayListStyle}>
+                    {groups.map((group) => (
+                        <View key={group.key} style={[calendarDayBlockStyle, { borderColor: theme.colors.border }]}>
+                            <View style={calendarDayHeaderStyle}>
+                                <Text style={[calendarDayTitleStyle, { color: theme.colors.text }]}>{group.label}</Text>
+                                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                    {group.jobs.length} job{group.jobs.length === 1 ? '' : 's'}
+                                </Text>
+                            </View>
+                            <View style={assignedJobGridStyle}>
+                                {group.jobs.map((job) => (
+                                    <AssignedScheduleJobCard key={job.slot.id} job={job} compact />
+                                ))}
+                            </View>
+                        </View>
+                    ))}
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
+function AssignedScheduleJobCard({
+    compact = false,
+    job,
+}: {
+    compact?: boolean;
+    job: TechAssignedScheduleJob;
+}) {
+    const { theme } = useTheme();
+    const title = getAssignedJobTitle(job);
+    const location = getAssignedJobLocation(job);
+
+    return (
+        <View
+            style={[
+                assignedJobCardStyle,
+                compact && assignedJobCardCompactStyle,
+                {
+                    backgroundColor: theme.colors.surface,
+                    borderColor: theme.colors.border,
+                },
+            ]}
+        >
+            <View style={assignedJobTopRowStyle}>
+                <Text style={[jobNumberStyle, { color: theme.colors.mutedText }]}>#{shortJobId(job.slot.service_request_id || job.slot.id)}</Text>
+                <Text style={[jobStatusBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                    {formatStatus(job.slot.status || job.request?.status || 'scheduled')}
+                </Text>
+            </View>
+            <Text style={[jobTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                {title}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                {formatScheduleRange(job.slot)}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                {location}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                {job.request?.issue_summary || job.slot.notes || 'No description provided.'}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Arrival: {formatArrivalWindow(job.slot)}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Priority: {formatLabel(job.slot.priority || job.request?.priority || 'normal')}
+            </Text>
+            {!job.slot.job_id && (
+                <Text style={[jobWorkflowHintStyle, { color: theme.colors.mutedText }]}>
+                    Job workflow opens after this request is converted to a TechOS job.
+                </Text>
+            )}
+        </View>
     );
 }
 
@@ -1496,10 +2036,95 @@ function normalizeCompanyUsers(data: unknown): CompanyUser[] {
         .filter((member) => member.id && member.company_id);
 }
 
+async function loadScheduleServiceRequests(companyId: string, slots: TechScheduleSlot[]): Promise<{
+    requestsById: Record<string, TechServiceRequest>;
+    message: string;
+}> {
+    const requestIds = Array.from(new Set(slots.map((slot) => slot.service_request_id).filter(Boolean))) as string[];
+
+    if (requestIds.length === 0) {
+        return { requestsById: {}, message: '' };
+    }
+
+    const { data, error } = await supabase
+        .from('service_requests')
+        .select('id, company_id, property_id, company_property_client_id, request_type, status, priority, issue_summary, created_at, converted_job_id, converted_at')
+        .eq('company_id', companyId)
+        .in('id', requestIds);
+
+    if (error) {
+        return {
+            requestsById: {},
+            message: `Assigned jobs loaded, but request details could not load: ${normalizeServiceErrorMessage(error.message)}`,
+        };
+    }
+
+    const requestsById = normalizeTechServiceRequests(data).reduce<Record<string, TechServiceRequest>>((accumulator, request) => {
+        accumulator[request.id] = request;
+        return accumulator;
+    }, {});
+
+    return { requestsById, message: '' };
+}
+
+function normalizeScheduleSlots(data: unknown): TechScheduleSlot[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                company_id: readStringField(record, 'company_id') || '',
+                job_id: readStringField(record, 'job_id'),
+                service_request_id: readStringField(record, 'service_request_id'),
+                technician_company_user_id: readStringField(record, 'technician_company_user_id') || '',
+                start_at: readStringField(record, 'start_at'),
+                end_at: readStringField(record, 'end_at'),
+                arrival_window_start: readStringField(record, 'arrival_window_start'),
+                arrival_window_end: readStringField(record, 'arrival_window_end'),
+                status: readStringField(record, 'status'),
+                estimated_duration_minutes: readNumberField(record, 'estimated_duration_minutes'),
+                priority: readStringField(record, 'priority'),
+                notes: readStringField(record, 'notes'),
+                created_at: readStringField(record, 'created_at'),
+                updated_at: readStringField(record, 'updated_at'),
+            };
+        })
+        .filter((slot) => slot.id && slot.company_id && slot.technician_company_user_id);
+}
+
+function normalizeTechServiceRequests(data: unknown): TechServiceRequest[] {
+    return (Array.isArray(data) ? data : [])
+        .map((row) => {
+            const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+
+            return {
+                id: readStringField(record, 'id') || '',
+                company_id: readStringField(record, 'company_id') || '',
+                property_id: readStringField(record, 'property_id'),
+                company_property_client_id: readStringField(record, 'company_property_client_id'),
+                request_type: readStringField(record, 'request_type'),
+                status: readStringField(record, 'status'),
+                priority: readStringField(record, 'priority'),
+                issue_summary: readStringField(record, 'issue_summary'),
+                created_at: readStringField(record, 'created_at'),
+                converted_job_id: readStringField(record, 'converted_job_id'),
+                converted_at: readStringField(record, 'converted_at'),
+            };
+        })
+        .filter((request) => request.id && request.company_id);
+}
+
 function readStringField(record: Record<string, unknown>, key: string) {
     const value = record[key];
 
     return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readNumberField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 function getMemberDisplayName(member?: CompanyUser | null) {
@@ -1676,6 +2301,130 @@ function groupJobsByDate(jobs: TechOSJob[]): JobDateGroup[] {
         if (second.key === 'unscheduled') return -1;
         return second.key.localeCompare(first.key);
     });
+}
+
+function groupAssignedScheduleJobsByDate(jobs: TechAssignedScheduleJob[]) {
+    const groups = jobs.reduce<Record<string, { key: string; label: string; jobs: TechAssignedScheduleJob[] }>>((accumulator, job) => {
+        const key = getDateKey(job.slot.start_at) || 'unscheduled';
+
+        if (!accumulator[key]) {
+            accumulator[key] = {
+                key,
+                label: key === 'unscheduled' ? 'Unscheduled' : formatDateGroup(job.slot.start_at),
+                jobs: [],
+            };
+        }
+
+        accumulator[key].jobs.push(job);
+        return accumulator;
+    }, {});
+
+    return Object.values(groups).sort((first, second) => {
+        if (first.key === 'unscheduled') return 1;
+        if (second.key === 'unscheduled') return -1;
+        return first.key.localeCompare(second.key);
+    });
+}
+
+function isTodayDate(value?: string | null) {
+    const key = getDateKey(value);
+
+    return Boolean(key && key === getDateKey(new Date().toISOString()));
+}
+
+function isActiveUpcomingScheduleJob(slot: TechScheduleSlot) {
+    if (!isActiveScheduleSlot(slot.status)) return false;
+
+    const endMs = slot.end_at ? new Date(slot.end_at).getTime() : Number.NaN;
+    const startMs = slot.start_at ? new Date(slot.start_at).getTime() : Number.NaN;
+    const todayStartMs = getStartOfToday().getTime();
+
+    if (Number.isFinite(endMs)) return endMs >= todayStartMs;
+    if (Number.isFinite(startMs)) return startMs >= todayStartMs;
+
+    return true;
+}
+
+function isActiveScheduleSlot(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return !['cancelled', 'canceled', 'completed', 'complete', 'closed', 'archived'].includes(normalized);
+}
+
+function getAssignedJobTitle(job: TechAssignedScheduleJob) {
+    const requestType = formatLabel(job.request?.request_type || 'Service Request');
+    const summary = job.request?.issue_summary?.trim();
+
+    return summary || requestType || `Request ${shortJobId(job.slot.service_request_id || job.slot.id)}`;
+}
+
+function getAssignedJobLocation(job: TechAssignedScheduleJob) {
+    if (job.request?.property_id) return `Home ${shortId(job.request.property_id)}`;
+    if (job.slot.service_request_id) return `Request ${shortId(job.slot.service_request_id)}`;
+
+    return `Schedule slot ${shortId(job.slot.id)}`;
+}
+
+function formatScheduleRange(slot: TechScheduleSlot) {
+    const start = formatDateTime(slot.start_at);
+    const end = formatTime(slot.end_at);
+
+    if (start === 'Unscheduled') return start;
+    if (!slot.end_at) return start;
+
+    return `${start} - ${end}`;
+}
+
+function formatArrivalWindow(slot: TechScheduleSlot) {
+    if (!slot.arrival_window_start || !slot.arrival_window_end) return 'Exact or not set';
+
+    return `${formatTime(slot.arrival_window_start)} - ${formatTime(slot.arrival_window_end)}`;
+}
+
+function formatDateTime(value?: string | null) {
+    if (!value) return 'Unscheduled';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Unscheduled';
+
+    return date.toLocaleString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
+function formatTime(value?: string | null) {
+    if (!value) return 'Not set';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Not set';
+
+    return date.toLocaleTimeString(undefined, {
+        hour: 'numeric',
+        minute: '2-digit',
+    });
+}
+
+function getDateKey(value?: string | null) {
+    if (!value) return '';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+
+    return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, '0'),
+        String(date.getDate()).padStart(2, '0'),
+    ].join('-');
+}
+
+function getStartOfToday() {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    return date;
 }
 
 function isOpenJobStatus(status?: string | null) {
@@ -1908,6 +2657,137 @@ const summaryTitleStyle = {
     fontWeight: '900' as const,
     marginBottom: 8,
     marginTop: 4,
+};
+
+const assignmentBannerStyle = {
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 14,
+    paddingVertical: 14,
+};
+
+const assignmentBannerTextStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const dashboardGridStyle = {
+    width: '100%' as const,
+    minWidth: 0,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginBottom: 18,
+};
+
+const dashboardCardStyle = {
+    flexBasis: 210,
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minHeight: 132,
+    minWidth: 0,
+};
+
+const dashboardCardValueStyle = {
+    fontSize: 34,
+    fontWeight: '900' as const,
+};
+
+const dashboardCardTitleStyle = {
+    fontSize: 17,
+    fontWeight: '900' as const,
+    marginTop: 6,
+};
+
+const dashboardCardNoteStyle = {
+    fontSize: 13,
+    fontWeight: '800' as const,
+    lineHeight: 18,
+    marginTop: 6,
+};
+
+const assignedJobsSectionStyle = {
+    marginBottom: 22,
+};
+
+const assignedJobsHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+};
+
+const refreshButtonStyle = {
+    flexBasis: 130,
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+};
+
+const assignedJobGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginTop: 14,
+    width: '100%' as const,
+};
+
+const assignedJobCardStyle = {
+    borderRadius: 18,
+    borderWidth: 1,
+    flexBasis: 250,
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
+    minHeight: 220,
+    minWidth: 0,
+    padding: 14,
+};
+
+const assignedJobCardCompactStyle = {
+    flexBasis: 220,
+    minHeight: 190,
+};
+
+const assignedJobTopRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+    marginBottom: 10,
+};
+
+const jobWorkflowHintStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 17,
+    marginTop: 10,
+};
+
+const calendarDayListStyle = {
+    gap: 14,
+    marginTop: 14,
+};
+
+const calendarDayBlockStyle = {
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 12,
+};
+
+const calendarDayHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    justifyContent: 'space-between' as const,
+};
+
+const calendarDayTitleStyle = {
+    fontSize: 17,
+    fontWeight: '900' as const,
 };
 
 const workflowGridStyle = {
