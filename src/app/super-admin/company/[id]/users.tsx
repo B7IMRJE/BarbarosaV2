@@ -2,6 +2,7 @@ import { router, useLocalSearchParams, type Href } from 'expo-router';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import {
+    Pressable,
     ScrollView,
     Text,
     TextInput,
@@ -1183,9 +1184,43 @@ function EmptyListMessage({ message }: { message: string }) {
     const { theme } = useTheme();
 
     return (
-        <ThemedCard style={compactRowStyle}>
+        <ThemedCard style={emptyListCardStyle}>
             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
         </ThemedCard>
+    );
+}
+
+function GlassGridCard({
+    children,
+    expanded,
+    onPress,
+}: {
+    children: ReactNode;
+    expanded: boolean;
+    onPress: () => void;
+}) {
+    const { theme } = useTheme();
+    const [hovered, setHovered] = useState(false);
+
+    return (
+        <Pressable
+            accessibilityRole="button"
+            onHoverIn={() => setHovered(true)}
+            onHoverOut={() => setHovered(false)}
+            onPress={onPress}
+            style={[
+                glassCardStyle,
+                {
+                    backgroundColor: hovered ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.74)',
+                    borderColor: hovered ? theme.colors.primary : 'rgba(255,255,255,0.86)',
+                    shadowColor: theme.colors.text,
+                },
+                hovered && glassCardHoverStyle,
+                expanded && glassCardExpandedStyle,
+            ]}
+        >
+            {children}
+        </Pressable>
     );
 }
 
@@ -1211,33 +1246,65 @@ function TeamMemberRow({
     const companyOwner = isCompanyOwnerRole(member.role);
 
     return (
-        <ThemedCard onPress={onToggle} style={compactRowStyle}>
-            <View style={compactRowHeaderStyle}>
-                <View style={compactIdentityStyle}>
-                    <View style={compactAvatarStyle}>
-                        <Text style={compactAvatarTextStyle}>{getInitials(displayName || contactLine)}</Text>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[compactTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
-                            {displayName}
-                        </Text>
-                        <Text style={[compactMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
-                            {contactLine}
-                        </Text>
-                    </View>
-                </View>
-
-                <View style={compactBadgeClusterStyle}>
-                    <RoleBadge label={formatRole(member.role)} />
-                    <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
-                    <Text style={[compactDateTextStyle, { color: theme.colors.mutedText }]}>
-                        {formatDate(member.created_at)}
+        <GlassGridCard expanded={expanded} onPress={onToggle}>
+            <View style={glassCardTopRowStyle}>
+                <View style={[glassAvatarStyle, { backgroundColor: theme.colors.secondaryButton }]}>
+                    <Text style={[glassAvatarTextStyle, { color: theme.colors.primary }]}>
+                        {getInitials(displayName || contactLine)}
                     </Text>
                 </View>
+                <TouchableOpacity
+                    activeOpacity={0.82}
+                    onPress={onToggle}
+                    style={[
+                        manageChipStyle,
+                        {
+                            backgroundColor: expanded ? theme.colors.primary : 'rgba(255,255,255,0.82)',
+                            borderColor: expanded ? theme.colors.primary : theme.colors.border,
+                        },
+                    ]}
+                >
+                    <Text
+                        style={[
+                            manageChipTextStyle,
+                            { color: expanded ? theme.colors.primaryText : theme.colors.text },
+                        ]}
+                    >
+                        {expanded ? 'Close' : 'Manage'}
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            <View style={glassIdentityColumnStyle}>
+                <Text style={[glassNameStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                    {displayName}
+                </Text>
+                <Text style={[glassEmailStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                    {contactLine}
+                </Text>
+            </View>
+
+            <View style={glassPillRowStyle}>
+                <RoleBadge label={formatRole(member.role)} />
+                <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
+            </View>
+
+            <View style={glassMetaFooterStyle}>
+                <Text style={[glassDateTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                    Joined {formatDate(member.created_at)}
+                </Text>
             </View>
 
             {expanded && (
                 <View style={rowDetailsStyle}>
+                    <View style={compactManageHeaderStyle}>
+                        <Text style={[compactManageTitleStyle, { color: theme.colors.text }]}>Manage Staff Member</Text>
+                        <View style={compactBadgeClusterStyle}>
+                            <RoleBadge label={formatRole(member.role)} />
+                            <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
+                        </View>
+                    </View>
+
                     <DetailPanelSection title="Status">
                         <DetailLine label="Role" value={formatRole(member.role)} />
                         <DetailLine label="Status" value={formatLabel(member.status)} />
@@ -1337,7 +1404,7 @@ function TeamMemberRow({
                     </View>
                 </View>
             )}
-        </ThemedCard>
+        </GlassGridCard>
     );
 }
 
@@ -1524,33 +1591,64 @@ function InvitationRow({
     const inviteTitle = invitation.full_name || invitation.email || 'Unnamed invitee';
 
     return (
-        <ThemedCard onPress={onToggle} style={compactRowStyle}>
-            <View style={compactRowHeaderStyle}>
-                <View style={compactIdentityStyle}>
-                    <View style={compactAvatarStyle}>
-                        <Text style={compactAvatarTextStyle}>{getInitials(inviteTitle)}</Text>
-                    </View>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                        <Text style={[compactTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
-                            {inviteTitle}
-                        </Text>
-                        <Text style={[compactMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
-                            {invitation.email || 'No email'}
-                        </Text>
-                    </View>
-                </View>
-
-                <View style={compactBadgeClusterStyle}>
-                    <RoleBadge label={formatRole(invitation.role)} />
-                    <RoleBadge label={formatLabel(displayStatus)} tone={displayStatus} />
-                    <Text style={[compactDateTextStyle, { color: theme.colors.mutedText }]}>
-                        {formatDate(invitation.created_at)}
+        <GlassGridCard expanded={expanded} onPress={onToggle}>
+            <View style={glassCardTopRowStyle}>
+                <View style={[glassAvatarStyle, { backgroundColor: theme.colors.secondaryButton }]}>
+                    <Text style={[glassAvatarTextStyle, { color: theme.colors.primary }]}>
+                        {getInitials(inviteTitle)}
                     </Text>
                 </View>
+                <TouchableOpacity
+                    activeOpacity={0.82}
+                    onPress={onToggle}
+                    style={[
+                        manageChipStyle,
+                        {
+                            backgroundColor: expanded ? theme.colors.primary : 'rgba(255,255,255,0.82)',
+                            borderColor: expanded ? theme.colors.primary : theme.colors.border,
+                        },
+                    ]}
+                >
+                    <Text
+                        style={[
+                            manageChipTextStyle,
+                            { color: expanded ? theme.colors.primaryText : theme.colors.text },
+                        ]}
+                    >
+                        {expanded ? 'Close' : 'Manage'}
+                    </Text>
+                </TouchableOpacity>
+            </View>
+
+            <View style={glassIdentityColumnStyle}>
+                <Text style={[glassNameStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                    {inviteTitle}
+                </Text>
+                <Text style={[glassEmailStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                    {invitation.email || 'No email'}
+                </Text>
+            </View>
+
+            <View style={glassPillRowStyle}>
+                <RoleBadge label={formatRole(invitation.role)} />
+                <RoleBadge label={formatLabel(displayStatus)} tone={displayStatus} />
+            </View>
+
+            <View style={glassMetaFooterStyle}>
+                <Text style={[glassDateTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                    Invited {formatDate(invitation.created_at)}
+                </Text>
             </View>
 
             {expanded && (
                 <View style={rowDetailsStyle}>
+                    <View style={compactManageHeaderStyle}>
+                        <Text style={[compactManageTitleStyle, { color: theme.colors.text }]}>Manage Invitation</Text>
+                        <View style={compactBadgeClusterStyle}>
+                            <RoleBadge label={formatRole(invitation.role)} />
+                            <RoleBadge label={formatLabel(displayStatus)} tone={displayStatus} />
+                        </View>
+                    </View>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Role: {formatRole(invitation.role)}</Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Status: {formatLabel(displayStatus)}
@@ -1687,7 +1785,7 @@ function InvitationRow({
                     )}
                 </View>
             )}
-        </ThemedCard>
+        </GlassGridCard>
     );
 }
 
@@ -2541,7 +2639,10 @@ const compactListStyle = {
     width: '100%' as const,
     maxWidth: '100%' as const,
     minWidth: 0,
-    gap: 8,
+    alignItems: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
 };
 
 const metricGridStyle = {
@@ -2584,55 +2685,121 @@ const technicianCardHeaderStyle = {
     minWidth: 0,
 };
 
-const compactRowStyle = {
-    padding: 12,
+const emptyListCardStyle = {
+    width: '100%' as const,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    padding: 14,
 };
 
-const compactRowHeaderStyle = {
+const glassCardStyle = {
+    borderRadius: 22,
+    borderWidth: 1,
+    flexBasis: 230,
+    flexGrow: 1,
+    flexShrink: 1,
+    maxWidth: 268,
+    minHeight: 188,
+    minWidth: 0,
+    overflow: 'hidden' as const,
+    padding: 14,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.09,
+    shadowRadius: 24,
+    elevation: 3,
+};
+
+const glassCardHoverStyle = {
+    shadowOpacity: 0.14,
+    transform: [{ translateY: -2 }],
+};
+
+const glassCardExpandedStyle = {
+    flexBasis: 460,
+    maxWidth: 560,
+    minHeight: 240,
+};
+
+const glassCardTopRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    gap: 10,
+};
+
+const glassIdentityColumnStyle = {
+    marginTop: 14,
+    minWidth: 0,
+};
+
+const glassAvatarStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 18,
+    height: 44,
+    justifyContent: 'center' as const,
+    width: 44,
+};
+
+const glassAvatarTextStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const glassNameStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+    lineHeight: 20,
+};
+
+const glassEmailStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 17,
+    marginTop: 4,
+};
+
+const glassPillRowStyle = {
     alignItems: 'center' as const,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
-    gap: 10,
+    gap: 6,
+    marginTop: 12,
+    minWidth: 0,
+};
+
+const glassMetaFooterStyle = {
+    marginTop: 12,
+};
+
+const glassDateTextStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const manageChipStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+};
+
+const manageChipTextStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const compactManageHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
     justifyContent: 'space-between' as const,
     minWidth: 0,
 };
 
-const compactIdentityStyle = {
-    alignItems: 'center' as const,
-    flexBasis: 260,
-    flexDirection: 'row' as const,
-    flexGrow: 1,
-    flexShrink: 1,
-    gap: 10,
-    minWidth: 0,
-};
-
-const compactAvatarStyle = {
-    alignItems: 'center' as const,
-    backgroundColor: '#EEF4FF',
-    borderRadius: 12,
-    height: 36,
-    justifyContent: 'center' as const,
-    width: 36,
-};
-
-const compactAvatarTextStyle = {
-    color: '#0B5FFF',
-    fontSize: 12,
-    fontWeight: '900' as const,
-};
-
-const compactTitleStyle = {
+const compactManageTitleStyle = {
     fontSize: 15,
     fontWeight: '900' as const,
-    flexShrink: 1,
-};
-
-const compactMetaTextStyle = {
-    fontSize: 12,
-    fontWeight: '800' as const,
-    lineHeight: 17,
-    marginTop: 2,
 };
 
 const compactBadgeClusterStyle = {
@@ -2642,11 +2809,6 @@ const compactBadgeClusterStyle = {
     gap: 6,
     justifyContent: 'flex-end' as const,
     minWidth: 0,
-};
-
-const compactDateTextStyle = {
-    fontSize: 12,
-    fontWeight: '900' as const,
 };
 
 const rowDetailsStyle = {
