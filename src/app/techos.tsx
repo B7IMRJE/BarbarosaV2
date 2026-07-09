@@ -12,6 +12,7 @@ import {
     normalizeCompanyRole,
     normalizeCompanyStatus,
 } from '../lib/companyPermissions';
+import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
@@ -159,6 +160,8 @@ export default function TechOSScreen() {
     const [selectedTechnicianByJob, setSelectedTechnicianByJob] = useState<Record<string, string>>({});
     const [assignmentMessageByJob, setAssignmentMessageByJob] = useState<Record<string, string>>({});
     const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
+    const [authEmail, setAuthEmail] = useState('');
+    const [signingOut, setSigningOut] = useState(false);
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const visibleClients = useMemo(
@@ -203,6 +206,7 @@ export default function TechOSScreen() {
         setSelectedTechnicianByJob({});
         setAssignmentMessageByJob({});
         setAssigningJobId(null);
+        setAuthEmail('');
 
         let userId = '';
 
@@ -224,6 +228,7 @@ export default function TechOSScreen() {
             }
 
             userId = user.id;
+            setAuthEmail(user.email || '');
         } catch (error) {
             setCheckingAccess(false);
             setMessage(normalizeServiceErrorMessage(getErrorMessage(error)));
@@ -588,8 +593,17 @@ export default function TechOSScreen() {
         } as any);
     }
 
+    async function signOutFromTechOS() {
+        if (signingOut) return;
+
+        setSigningOut(true);
+        clearPendingCompanyInviteState();
+        await supabase.auth.signOut();
+        router.replace('/auth/login' as any);
+    }
+
     if (checkingAccess) {
-        return <AccessMessage title="TechOS" message="Checking TechOS access..." />;
+        return <AccessMessage title="TechOS" message="Checking TechOS access..." onSignOut={signOutFromTechOS} signingOut={signingOut} />;
     }
 
     if (!membership && !isPlatformAdminAccess) {
@@ -599,11 +613,13 @@ export default function TechOSScreen() {
                     choices={companyChoices}
                     message={message}
                     onSelectCompany={replaceTechOSCompanyRoute}
+                    onSignOut={signOutFromTechOS}
+                    signingOut={signingOut}
                 />
             );
         }
 
-        return <AccessMessage title="TechOS" message={message} />;
+        return <AccessMessage title="TechOS" message={message} onSignOut={signOutFromTechOS} signingOut={signingOut} />;
     }
 
     const companyName = company?.public_name || company?.name || 'Company';
@@ -630,6 +646,13 @@ export default function TechOSScreen() {
         >
             <View style={{ width: '100%', maxWidth: 1120, minWidth: 0 }}>
                 <HomeHeader />
+                <TechOSIdentityBar
+                    email={authEmail || membership?.email || null}
+                    role={isPlatformAdminAccess ? 'Platform Admin' : membership?.role}
+                    status={isPlatformAdminAccess ? 'active' : membership?.status}
+                    onSignOut={signOutFromTechOS}
+                    signingOut={signingOut}
+                />
 
                 <View
                     style={[
@@ -828,7 +851,55 @@ export default function TechOSScreen() {
     );
 }
 
-function AccessMessage({ title, message }: { title: string; message: string }) {
+function TechOSIdentityBar({
+    email,
+    role,
+    status,
+    onSignOut,
+    signingOut,
+}: {
+    email: string | null;
+    role?: string | null;
+    status?: string | null;
+    onSignOut: () => void;
+    signingOut: boolean;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={identityCardStyle}>
+            <View style={identityContentRowStyle}>
+                <View style={{ flex: 1, minWidth: 220 }}>
+                    <Text style={[identityLabelStyle, { color: theme.colors.mutedText }]}>Signed in</Text>
+                    <Text style={[identityMainTextStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                        {email || 'unknown email'}
+                    </Text>
+                    <Text style={[identityMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                        Role: {formatLabel(role)} / Access: {formatStatus(status)}
+                    </Text>
+                </View>
+                <ThemedButton
+                    title={signingOut ? 'Signing Out...' : 'Sign Out'}
+                    variant="secondary"
+                    onPress={onSignOut}
+                    style={identitySignOutButtonStyle}
+                />
+            </View>
+        </ThemedCard>
+    );
+}
+
+function AccessMessage({
+    title,
+    message,
+    onSignOut,
+    signingOut,
+}: {
+    title: string;
+    message: string;
+    onSignOut: () => void;
+    signingOut: boolean;
+}) {
     const { theme } = useTheme();
 
     return (
@@ -847,6 +918,12 @@ function AccessMessage({ title, message }: { title: string; message: string }) {
                         onPress={() => router.push('/' as never)}
                         style={{ marginTop: 16 }}
                     />
+                    <ThemedButton
+                        title={signingOut ? 'Signing Out...' : 'Sign Out'}
+                        variant="ghost"
+                        onPress={onSignOut}
+                        style={{ marginTop: 12 }}
+                    />
                 </ThemedCard>
             </View>
         </ScrollView>
@@ -857,10 +934,14 @@ function CompanyPicker({
     choices,
     message,
     onSelectCompany,
+    onSignOut,
+    signingOut,
 }: {
     choices: CompanyUserAccess[];
     message: string;
     onSelectCompany: (companyId: string) => void;
+    onSignOut: () => void;
+    signingOut: boolean;
 }) {
     const { theme } = useTheme();
 
@@ -908,6 +989,12 @@ function CompanyPicker({
                         variant="secondary"
                         onPress={() => router.push('/' as never)}
                         style={{ marginTop: 16 }}
+                    />
+                    <ThemedButton
+                        title={signingOut ? 'Signing Out...' : 'Sign Out'}
+                        variant="ghost"
+                        onPress={onSignOut}
+                        style={{ marginTop: 12 }}
                     />
                 </ThemedCard>
             </View>
@@ -1469,42 +1556,24 @@ function getErrorMessage(error: unknown) {
 }
 
 async function loadPlatformAdminStatus(userId: string) {
-    let primaryData: unknown[] = [];
-    let primaryErrorMessage = '';
-
-    try {
-        const primaryQuery = await supabase
-            .from('profiles')
-            .select('role, is_platform_admin')
-            .eq('id', userId)
-            .limit(1);
-        primaryData = primaryQuery.data || [];
-        primaryErrorMessage = primaryQuery.error?.message || '';
-    } catch (error) {
-        primaryErrorMessage = normalizeServiceErrorMessage(getErrorMessage(error));
-    }
-
-    if (!primaryErrorMessage) {
-        return {
-            isPlatformAdmin: isPlatformAdminProfile(primaryData[0] as PlatformProfile | undefined),
-        };
-    }
-
-    let fallbackData: unknown[] = [];
-
-    try {
-        const fallbackQuery = await supabase
+    const [profileResult, platformAdminResult] = await Promise.allSettled([
+        supabase
             .from('profiles')
             .select('role')
             .eq('id', userId)
-            .limit(1);
-        fallbackData = fallbackQuery.data || [];
-    } catch {
-        fallbackData = [];
-    }
+            .limit(1),
+        supabase.rpc('homeos_is_platform_admin'),
+    ]);
+
+    const profileData = profileResult.status === 'fulfilled' && !profileResult.value.error
+        ? profileResult.value.data || []
+        : [];
+    const isRpcPlatformAdmin = platformAdminResult.status === 'fulfilled' &&
+        !platformAdminResult.value.error &&
+        platformAdminResult.value.data === true;
 
     return {
-        isPlatformAdmin: isPlatformAdminProfile(fallbackData[0] as PlatformProfile | undefined),
+        isPlatformAdmin: isRpcPlatformAdmin || isPlatformAdminProfile(profileData[0] as PlatformProfile | undefined),
     };
 }
 
@@ -2098,4 +2167,41 @@ const buttonStyle = {
     flexShrink: 1,
     maxWidth: '100%' as const,
     minWidth: 0,
+};
+
+const identityCardStyle = {
+    marginBottom: 14,
+};
+
+const identityContentRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+};
+
+const identityLabelStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+    textTransform: 'uppercase' as const,
+};
+
+const identityMainTextStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+    marginTop: 3,
+};
+
+const identityMetaTextStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    marginTop: 3,
+};
+
+const identitySignOutButtonStyle = {
+    flexBasis: 140,
+    flexGrow: 0,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
 };

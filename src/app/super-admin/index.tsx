@@ -14,7 +14,7 @@ function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin
 async function loadSuperAdminProfile(userId: string) {
     const primaryQuery = await supabase
         .from('profiles')
-        .select('full_name, role, is_platform_admin')
+        .select('full_name, role')
         .eq('id', userId)
         .maybeSingle();
 

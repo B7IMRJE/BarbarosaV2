@@ -3105,7 +3105,7 @@ function platformAdminAccess(userId: string, companyId: string): CompanyPermissi
 async function isPlatformAdmin(userId: string) {
     const primaryQuery = await supabase
         .from('profiles')
-        .select('role, is_platform_admin')
+        .select('role')
         .eq('id', userId)
         .limit(1);
 

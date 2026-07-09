@@ -48,7 +48,7 @@ export async function verifyCustomerWorkspaceAccess(companyId: string): Promise<
 async function isPlatformAdmin(userId: string) {
     const primaryQuery = await supabase
         .from('profiles')
-        .select('role, is_platform_admin')
+        .select('role')
         .eq('id', userId)
         .limit(1);
 

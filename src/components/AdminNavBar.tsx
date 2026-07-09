@@ -6,6 +6,7 @@ import {
     LEAD_ALERT_REFRESH_MS,
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
+import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { safeBack } from '../lib/navigation';
 import { loadLoggedInUserCompanyAccess } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
@@ -38,6 +39,7 @@ export default function AdminNavBar({
     const [leadCountLoading, setLeadCountLoading] = useState(false);
     const [identity, setIdentity] = useState<ManagementIdentity | null>(null);
     const [identityError, setIdentityError] = useState('');
+    const [signingOut, setSigningOut] = useState(false);
 
     useEffect(() => {
         let active = true;
@@ -173,6 +175,15 @@ export default function AdminNavBar({
         } as never);
     }
 
+    async function signOut() {
+        if (signingOut) return;
+
+        setSigningOut(true);
+        clearPendingCompanyInviteState();
+        await supabase.auth.signOut();
+        router.replace('/auth/login' as Href);
+    }
+
     return (
         <View style={navShellStyle}>
             <LeadAlertBadges
@@ -181,7 +192,16 @@ export default function AdminNavBar({
                 loading={leadCountLoading}
                 onPress={openDispatchBoard}
             />
-            <ManagementIdentityBadge identity={identity} error={identityError} />
+            <View style={identityActionRowStyle}>
+                <ManagementIdentityBadge identity={identity} error={identityError} />
+                <NavButton
+                    label={signingOut ? 'Signing Out...' : 'Sign Out'}
+                    onPress={signOut}
+                    backgroundColor={theme.colors.secondaryButton}
+                    borderColor={theme.colors.border}
+                    textColor={theme.colors.secondaryButtonText}
+                />
+            </View>
 
             <View style={navWrapStyle}>
                 {showBack && (
@@ -229,6 +249,7 @@ function ManagementIdentityBadge({
     error: string;
 }) {
     const { theme } = useTheme();
+    const [showDetails, setShowDetails] = useState(false);
 
     if (error) {
         return (
@@ -244,24 +265,31 @@ function ManagementIdentityBadge({
 
     const role = identity.role ? formatTinyLabel(identity.role) : 'No company role';
     const status = identity.status ? formatTinyLabel(identity.status) : 'Unknown access';
-    const shortUserId = shortId(identity.userId);
-    const shortCompanyUserId = identity.companyUserId ? shortId(identity.companyUserId) : 'none';
-
     return (
         <View style={identityBadgeRowStyle}>
-            <Text
+            <TouchableOpacity
+                activeOpacity={0.82}
+                onPress={() => setShowDetails((current) => !current)}
                 style={[
-                    identityTextStyle,
+                    identityPillStyle,
                     {
-                        color: theme.colors.mutedText,
                         backgroundColor: theme.colors.surfaceAlt,
                         borderColor: theme.colors.border,
                     },
                 ]}
-                numberOfLines={2}
             >
-                Signed in: {identity.email || 'unknown email'} / user {shortUserId} / role {role} / access {status} / company user {shortCompanyUserId}
-            </Text>
+                <Text style={[identityTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                    {identity.email || 'unknown email'} / role {role} / access {status}
+                </Text>
+                <Text style={[identityDetailsToggleTextStyle, { color: theme.colors.primary }]} numberOfLines={1}>
+                    {showDetails ? 'Hide details' : 'Details'}
+                </Text>
+                {showDetails && (
+                    <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                        user {shortId(identity.userId)} / company user {identity.companyUserId ? shortId(identity.companyUserId) : 'none'}
+                    </Text>
+                )}
+            </TouchableOpacity>
         </View>
     );
 }
@@ -472,15 +500,38 @@ const leadStatusTextStyle = {
 const identityBadgeRowStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
-    marginBottom: 10,
+    flexShrink: 1,
 };
 
 const identityTextStyle = {
-    borderRadius: 12,
-    borderWidth: 1,
     fontSize: 11,
     fontWeight: '800' as const,
-    overflow: 'hidden' as const,
+};
+
+const identityActionRowStyle = {
+    alignItems: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginBottom: 10,
+};
+
+const identityPillStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    maxWidth: 620,
     paddingHorizontal: 10,
     paddingVertical: 7,
+};
+
+const identityDetailsTextStyle = {
+    fontSize: 10,
+    fontWeight: '700' as const,
+    marginTop: 3,
+};
+
+const identityDetailsToggleTextStyle = {
+    fontSize: 10,
+    fontWeight: '900' as const,
+    marginTop: 3,
 };

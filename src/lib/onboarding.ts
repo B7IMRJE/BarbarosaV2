@@ -342,33 +342,22 @@ async function loadRouteProfile(userId: string): Promise<{
     error: { message: string } | null;
 }> {
     try {
-        const primaryQuery = await supabase
-            .from('profiles')
-            .select('id, role, is_platform_admin')
-            .eq('id', userId)
-            .maybeSingle();
+        const [profileQuery, platformAdminFlag] = await Promise.all([
+            supabase
+                .from('profiles')
+                .select('id, role')
+                .eq('id', userId)
+                .maybeSingle(),
+            loadPlatformAdminFlag(),
+        ]);
 
-        if (!primaryQuery.error) {
-            return {
-                data: primaryQuery.data as ProfileRouteFields | null,
-                error: null,
-            };
-        }
-
-        const fallbackQuery = await supabase
-            .from('profiles')
-            .select('id, role')
-            .eq('id', userId)
-            .maybeSingle();
-
-        const platformAdminFlag = await loadPlatformAdminFlag();
-        const profile = fallbackQuery.data
-            ? ({ ...fallbackQuery.data, is_platform_admin: platformAdminFlag } as ProfileRouteFields)
+        const profile = profileQuery.data
+            ? ({ ...profileQuery.data, is_platform_admin: platformAdminFlag } as ProfileRouteFields)
             : null;
 
         return {
             data: profile,
-            error: fallbackQuery.error,
+            error: profileQuery.error,
         };
     } catch (error) {
         return {

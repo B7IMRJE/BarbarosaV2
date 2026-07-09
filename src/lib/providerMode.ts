@@ -231,7 +231,7 @@ async function loadActiveCompanyUser(userId: string, companyId: string) {
 async function loadPlatformAdmin(userId: string) {
     const primaryQuery = await supabase
         .from('profiles')
-        .select('role, is_platform_admin')
+        .select('role')
         .eq('id', userId)
         .limit(1);
 
