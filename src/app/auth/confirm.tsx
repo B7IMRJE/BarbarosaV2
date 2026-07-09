@@ -3,7 +3,11 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import { replacePendingCompanyInviteFromNextPath } from '../../lib/companyInviteState';
+import {
+    getPendingCompanyInviteState,
+    readInviteCodeFromNextPath,
+    replacePendingCompanyInviteFromNextPath,
+} from '../../lib/companyInviteState';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -28,12 +32,23 @@ export default function AuthConfirmScreen() {
         error_code?: string | string[];
         error_description?: string | string[];
     }>();
-    const nextRoute = resolveSafeNext(firstParam(params.next));
-    const [message, setMessage] = useState('Confirming sign-in...');
+    const pendingInvite = getPendingCompanyInviteState();
+    const urlNextRoute = resolveSafeNext(firstParam(params.next));
+    const pendingNextRoute = pendingInvite && readInviteCodeFromNextPath(pendingInvite.nextPath)
+        ? pendingInvite.nextPath
+        : null;
+    const nextRoute = urlNextRoute || pendingNextRoute;
+    const pendingInviteEmail = pendingInvite?.nextPath === nextRoute ? pendingInvite.invitedEmail : null;
+    const isCompanyInviteConfirmation = !!nextRoute;
+    const [message, setMessage] = useState(
+        isCompanyInviteConfirmation ? 'Confirming your work account email...' : 'Confirming sign-in...'
+    );
     const [failed, setFailed] = useState(false);
     const [inviteCode, setInviteCode] = useState('');
-    const [confirmationEmail, setConfirmationEmail] = useState('');
+    const [confirmationEmail, setConfirmationEmail] = useState(pendingInviteEmail || '');
     const [resending, setResending] = useState(false);
+    const [showInviteCodeEntry, setShowInviteCodeEntry] = useState(!nextRoute);
+    const shouldShowInviteCodeEntry = !nextRoute || showInviteCodeEntry;
 
     useEffect(() => {
         confirmEmailLink();
@@ -42,11 +57,11 @@ export default function AuthConfirmScreen() {
     async function confirmEmailLink() {
         if (isExpiredConfirmationLink(params)) {
             if (nextRoute) {
-                replacePendingCompanyInviteFromNextPath(nextRoute, null);
+                replacePendingCompanyInviteFromNextPath(nextRoute, pendingInviteEmail);
             }
 
             setFailed(true);
-            setMessage('This email confirmation link expired or was already used.');
+            setMessage('Your email confirmation link expired. Request a new confirmation email to continue accepting your company invite.');
             return;
         }
 
@@ -67,7 +82,7 @@ export default function AuthConfirmScreen() {
         if (error) {
             setFailed(true);
             setMessage(isExpiredOtpError(error)
-                ? 'This email confirmation link expired or was already used.'
+                ? 'Your email confirmation link expired. Request a new confirmation email to continue accepting your company invite.'
                 : 'This sign-in link is invalid or expired. Request a new invitation email.');
             return;
         }
@@ -78,7 +93,7 @@ export default function AuthConfirmScreen() {
             return;
         }
 
-        replacePendingCompanyInviteFromNextPath(nextRoute, null);
+        replacePendingCompanyInviteFromNextPath(nextRoute, pendingInviteEmail);
         setMessage('Opening company invitation...');
         router.replace(nextRoute as any);
     }
@@ -109,7 +124,11 @@ export default function AuthConfirmScreen() {
             return;
         }
 
-        setMessage('Confirmation email sent. Check your inbox, spam, or junk folder.');
+        setMessage(
+            nextRoute
+                ? 'Confirmation email sent. After confirming your work account email, your company invite will continue automatically.'
+                : 'Confirmation email sent. Check your inbox, spam, or junk folder.'
+        );
     }
 
     async function signOut() {
@@ -150,7 +169,9 @@ export default function AuthConfirmScreen() {
                         />
                     )}
 
-                    <Text style={[titleStyle, { color: theme.colors.text }]}>Company Invitations</Text>
+                    <Text style={[titleStyle, { color: theme.colors.text }]}>
+                        {isCompanyInviteConfirmation ? 'Confirm your work account email' : 'Confirm your email'}
+                    </Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
 
                     {failed && (
@@ -176,26 +197,37 @@ export default function AuthConfirmScreen() {
                                 onPress={resendConfirmationEmail}
                                 disabled={resending}
                             />
-                            <TextInput
-                                placeholder="Invite code"
-                                value={inviteCode}
-                                onChangeText={setInviteCode}
-                                autoCapitalize="characters"
-                                autoCorrect={false}
-                                style={[
-                                    inputStyle,
-                                    {
-                                        backgroundColor: theme.colors.surface,
-                                        borderColor: theme.colors.border,
-                                        color: theme.colors.text,
-                                    },
-                                ]}
-                            />
-                            <ThemedButton
-                                title="Enter Invite Code"
-                                onPress={openInviteCode}
-                                style={{ marginTop: 12 }}
-                            />
+                            {shouldShowInviteCodeEntry ? (
+                                <>
+                                    <TextInput
+                                        placeholder="Invite code"
+                                        value={inviteCode}
+                                        onChangeText={setInviteCode}
+                                        autoCapitalize="characters"
+                                        autoCorrect={false}
+                                        style={[
+                                            inputStyle,
+                                            {
+                                                backgroundColor: theme.colors.surface,
+                                                borderColor: theme.colors.border,
+                                                color: theme.colors.text,
+                                            },
+                                        ]}
+                                    />
+                                    <ThemedButton
+                                        title="Enter Invite Code"
+                                        onPress={openInviteCode}
+                                        style={{ marginTop: 12 }}
+                                    />
+                                </>
+                            ) : (
+                                <ThemedButton
+                                    title="Enter Another Invite Code"
+                                    variant="ghost"
+                                    onPress={() => setShowInviteCodeEntry(true)}
+                                    style={{ marginTop: 12 }}
+                                />
+                            )}
                             <ThemedButton
                                 title="Back to Login"
                                 variant="secondary"
@@ -283,10 +315,15 @@ function buildConfirmRedirect(nextRoute: string | null) {
 function buildLoginParams(nextRoute: string | null) {
     if (!nextRoute) return undefined;
 
-    return {
+    const loginParams: Record<string, string> = {
         next: nextRoute,
-        mode: nextRoute.startsWith(COMPANY_INVITE_ROUTE) ? 'work' : undefined,
     };
+
+    if (nextRoute.startsWith(COMPANY_INVITE_ROUTE)) {
+        loginParams.mode = 'work';
+    }
+
+    return loginParams;
 }
 
 function getAppOrigin() {

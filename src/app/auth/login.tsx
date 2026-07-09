@@ -82,7 +82,9 @@ export default function LoginScreen() {
 
             if (errorCode === 'email_not_confirmed') {
                 setUnconfirmedEmail(cleanEmail);
-                setMessage('Please confirm your email before logging in. Your original password has not been changed.');
+                setMessage(workAccountMode
+                    ? 'Confirm your work account email before logging in. Your company invite will continue after confirmation.'
+                    : 'Please confirm your email before logging in. Your original password has not been changed.');
                 return;
             }
 
@@ -153,7 +155,9 @@ export default function LoginScreen() {
             return;
         }
 
-        setMessage('Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.');
+        setMessage(workAccountMode
+            ? 'Confirmation email sent. After confirming your ManagementOS work account, your company invite will continue automatically.'
+            : 'Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.');
     }
 
     return (

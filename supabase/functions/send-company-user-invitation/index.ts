@@ -496,16 +496,17 @@ function buildCompanyInviteEmail({
     inviteCode: string | null;
     inviteLink: string;
 }) {
-    const subject = `${companyName} invited you to join their HomeOS company team`;
+    const subject = `${companyName} invited you to join their ManagementOS team`;
     const text = [
         `Hi${inviteName ? ` ${inviteName}` : ''},`,
         '',
-        `${companyName} invited you to join their HomeOS company team as ${formatRole(role)}.`,
+        `${companyName} invited you to join their ManagementOS team as ${formatRole(role)}.`,
         '',
         `Open this secure invite link: ${inviteLink}`,
         inviteCode ? `Invite code: ${inviteCode}` : '',
         '',
-        'Sign in or create a normal HomeOS account with this email address, then accept the company invitation.',
+        'Sign in or create a ManagementOS work account with this email address, then accept the company invitation.',
+        'Email confirmation only verifies your work account. Your company invite will continue automatically after confirmation.',
         'This invitation does not expose private HomeOS homeowner data.',
     ].filter((line) => line !== '').join('\n');
     const html = text

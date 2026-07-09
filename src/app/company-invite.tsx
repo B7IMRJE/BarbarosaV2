@@ -61,10 +61,12 @@ export default function CompanyInviteScreen() {
     const [message, setMessage] = useState('');
     const [success, setSuccess] = useState(false);
     const [manualInviteCode, setManualInviteCode] = useState('');
+    const [showAlternateInviteCode, setShowAlternateInviteCode] = useState(false);
     const autoAcceptKeyRef = useRef('');
 
     useEffect(() => {
         autoAcceptKeyRef.current = '';
+        setShowAlternateInviteCode(false);
         loadInvitation();
     }, [parsedCode?.rawCode]);
 
@@ -377,8 +379,13 @@ export default function CompanyInviteScreen() {
 
                                 {!user ? (
                                     <View style={actionGroupStyle}>
+                                        {!!invitation && (
+                                            <Text style={[bodyTextStyle, { color: theme.colors.text }]}>
+                                                You're creating a work account for {invitation.company_name || 'this company'}.
+                                            </Text>
+                                        )}
                                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                            Sign in or create a work account with the invited email to accept this company invitation.
+                                            After confirming your email, your company invite will continue automatically.
                                         </Text>
                                         <View style={actionRowStyle}>
                                             <ThemedButton title="Sign In" onPress={goToLogin} style={actionButtonStyle} />
@@ -421,12 +428,21 @@ export default function CompanyInviteScreen() {
                                             />
                                         </View>
 
-                                        <InviteCodeEntry
-                                            value={manualInviteCode}
-                                            onChangeText={setManualInviteCode}
-                                            onSubmit={openManualInviteCode}
-                                            submitTitle="Enter Another Invite Code"
-                                        />
+                                        {showAlternateInviteCode ? (
+                                            <InviteCodeEntry
+                                                value={manualInviteCode}
+                                                onChangeText={setManualInviteCode}
+                                                onSubmit={openManualInviteCode}
+                                                submitTitle="Enter Another Invite Code"
+                                            />
+                                        ) : (
+                                            <ThemedButton
+                                                title="Enter Another Invite Code"
+                                                variant="ghost"
+                                                onPress={() => setShowAlternateInviteCode(true)}
+                                                style={actionButtonStyle}
+                                            />
+                                        )}
                                     </View>
                                 ) : (
                                     <View style={actionGroupStyle}>

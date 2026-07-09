@@ -122,7 +122,7 @@ export default function RegisterScreen() {
             setConfirmationEmail(cleanEmail);
             setMessage(
                 workAccountMode
-                    ? 'Work account created. A confirmation email was sent. Confirm your email, then sign in to accept the company invitation.'
+                    ? 'Work account created. Confirm your work account email. After confirming, your company invite will continue automatically.'
                     : 'Account created. A confirmation email was sent. Confirm your email before logging in with your original password. Check spam or junk if you do not see it.'
             );
             return;
@@ -157,7 +157,11 @@ export default function RegisterScreen() {
             return;
         }
 
-        setMessage('Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.');
+        setMessage(
+            workAccountMode
+                ? 'Confirmation email sent. After confirming your ManagementOS work account, your company invite will continue automatically.'
+                : 'Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.'
+        );
     }
 
     return (
@@ -201,7 +205,7 @@ export default function RegisterScreen() {
                     <>
                         <Text style={subtitleStyle}>
                             {workAccountMode
-                                ? 'Create your work login. Your company access is added after you accept the invitation.'
+                                ? 'Create your ManagementOS work account. After confirming your email, your company invite will continue automatically.'
                                 : 'Create your HomeOS account.'}
                         </Text>
 
