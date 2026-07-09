@@ -25,6 +25,7 @@ const ALLOWED_OTP_TYPES = new Set<EmailOtpType>([
 export default function AuthConfirmScreen() {
     const { theme } = useTheme();
     const params = useLocalSearchParams<{
+        code?: string | string[];
         token_hash?: string | string[];
         tokenHash?: string | string[];
         type?: string | string[];
@@ -67,7 +68,31 @@ export default function AuthConfirmScreen() {
         }
 
         const tokenHash = firstParam(params.token_hash) || firstParam(params.tokenHash);
+        const confirmationCode = firstParam(params.code)?.trim();
         const type = normalizeOtpType(firstParam(params.type));
+
+        if (confirmationCode) {
+            const { error } = await supabase.auth.exchangeCodeForSession(confirmationCode);
+
+            if (error) {
+                setFailed(true);
+                setMessage(isExpiredOtpError(error)
+                    ? 'Your email confirmation link expired. Request a new confirmation email to continue accepting your company invite.'
+                    : `Email confirmation failed: ${readErrorMessage(error)}`);
+                return;
+            }
+
+            if (!nextRoute) {
+                setFailed(true);
+                setMessage('Email confirmed, but this link does not include a usable company invite code. Enter your current invite code or sign in again.');
+                return;
+            }
+
+            replacePendingCompanyInviteFromNextPath(nextRoute, pendingInviteEmail);
+            setMessage('Opening company invitation...');
+            router.replace(nextRoute as any);
+            return;
+        }
 
         if (!tokenHash) {
             setFailed(true);

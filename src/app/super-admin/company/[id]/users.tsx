@@ -83,6 +83,7 @@ type InvitationEmailResult = {
     message: string;
 };
 
+type SubmitStage = 'idle' | 'creating' | 'sending';
 type SectionKey = 'owners' | 'adminManagerStaff' | 'technicians' | 'members' | 'invitations';
 
 type CompanyUserManagementAccessResult = {
@@ -126,7 +127,7 @@ export default function CompanyUsersScreen() {
     const [message, setMessage] = useState('Loading company users...');
     const [loadingLists, setLoadingLists] = useState(true);
     const [canManageUsers, setCanManageUsers] = useState(false);
-    const [submitting, setSubmitting] = useState(false);
+    const [submitStage, setSubmitStage] = useState<SubmitStage>('idle');
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
     const [deliveryFeedbackById, setDeliveryFeedbackById] = useState<Record<string, DeliveryFeedback>>({});
     const [manualInvitesById, setManualInvitesById] = useState<Record<string, ManualInviteDetails>>({});
@@ -234,7 +235,7 @@ export default function CompanyUsersScreen() {
         return true;
     }
 
-    async function createInvitation() {
+    async function sendInvitation() {
         if (!canManageUsers) {
             setMessage('Company user management requires owner, admin, or manager access.');
             return;
@@ -257,44 +258,76 @@ export default function CompanyUsersScreen() {
             return;
         }
 
-        setSubmitting(true);
-        setMessage('Creating invitation...');
+        const existingPendingInvite =
+            findReusablePendingInvitation(normalizedEmail, invitations, nowMs) ||
+            await loadReusablePendingInvitation(String(id), normalizedEmail, nowMs);
+        let invitationToSend: CompanyInvitation | null = existingPendingInvite;
+        let createdNewInvitation = false;
 
-        const { data, error } = await supabase.rpc('create_company_user_invitation', {
-            p_company_id: String(id),
-            p_email: normalizedEmail,
-            p_full_name: fullName.trim() || null,
-            p_role: role,
-        });
+        setSubmitStage(existingPendingInvite ? 'sending' : 'creating');
+        setMessage(existingPendingInvite
+            ? `A pending invite already exists for ${normalizedEmail}. Sending that invitation email...`
+            : 'Creating invitation...');
 
-        setSubmitting(false);
+        if (!existingPendingInvite) {
+            const { data, error } = await supabase.rpc('create_company_user_invitation', {
+                p_company_id: String(id),
+                p_email: normalizedEmail,
+                p_full_name: fullName.trim() || null,
+                p_role: role,
+            });
 
-        if (error) {
-            setMessage(`Create invitation failed: ${error.message}`);
+            if (error) {
+                setSubmitStage('idle');
+                setMessage(`Create invitation failed: ${error.message}`);
+                return;
+            }
+
+            invitationToSend = normalizeInvitationRecord(data);
+            createdNewInvitation = true;
+
+            await recordCompanyAuditEvent({
+                companyId: String(id),
+                action: 'company_user_invitation_created',
+                targetType: 'company_user_invitation',
+                targetId: invitationToSend?.id || null,
+                targetLabel: `${normalizedEmail} (${role})`,
+                afterData: safeAuditRecord({
+                    email: normalizedEmail,
+                    full_name: fullName.trim() || null,
+                    role,
+                    status: invitationToSend?.status || 'pending',
+                }),
+            });
+        }
+
+        if (!invitationToSend) {
+            setSubmitStage('idle');
+            await loadCompanyUsers(false);
+            setMessage('Invitation was created, but the app could not read the invitation id. Refresh and use the pending invites list to resend.');
             return;
         }
 
-        const createdInvitation = normalizeInvitationRecord(data);
-
-        await recordCompanyAuditEvent({
-            companyId: String(id),
-            action: 'company_user_invitation_created',
-            targetType: 'company_user_invitation',
-            targetId: createdInvitation?.id || null,
-            targetLabel: `${normalizedEmail} (${role})`,
-            afterData: safeAuditRecord({
-                email: normalizedEmail,
-                full_name: fullName.trim() || null,
-                role,
-                status: createdInvitation?.status || 'pending',
-            }),
+        setSubmitStage('sending');
+        setMessage('Sending email...');
+        const emailResult = await sendInvitationEmailForInvitation(invitationToSend, {
+            messagePrefixOnFailure: createdNewInvitation
+                ? 'Invite was created, but email sending failed. You can resend it from the pending invites list.'
+                : 'A pending invite already exists, but email sending failed. You can resend it from the pending invites list.',
         });
+
+        setSubmitStage('idle');
+        await loadCompanyUsers(false);
+
+        if (!emailResult.ok) {
+            setMessage(emailResult.message);
+            return;
+        }
 
         setFullName('');
         setEmail('');
         setRole('technician');
-        await loadCompanyUsers(false);
-        setMessage('Invitation created. Expand the invite row to send the email invitation or copy a manual link.');
+        setMessage(`Invitation sent to ${normalizedEmail}`);
     }
 
     async function sendInvitationEmail(invitationId: string) {
@@ -310,6 +343,24 @@ export default function CompanyUsersScreen() {
             return;
         }
 
+        const emailResult = await sendInvitationEmailForInvitation(invitation);
+
+        if (!emailResult.ok) {
+            setMessage(emailResult.message);
+        }
+    }
+
+    async function sendInvitationEmailForInvitation(
+        invitation: CompanyInvitation,
+        options: { messagePrefixOnFailure?: string } = {}
+    ): Promise<InvitationEmailResult> {
+        if (!canManageUsers) {
+            const message = 'Company user management requires owner, admin, or manager access.';
+            setMessage(message);
+            return { ok: false, message };
+        }
+
+        const invitationId = invitation.id;
         const actionKey = `${invitationId}:email`;
         setActionLoadingKey(actionKey);
         setDeliveryFeedbackById((current) => ({
@@ -319,7 +370,7 @@ export default function CompanyUsersScreen() {
                 message: 'Sending invitation email...',
             },
         }));
-        setMessage('Preparing invitation email...');
+        setMessage('Sending email...');
 
         const manualInvite = await requestManualInvite(invitationId);
 
@@ -333,8 +384,9 @@ export default function CompanyUsersScreen() {
                     message,
                 },
             }));
-            setMessage(message);
-            return;
+            const responseMessage = options.messagePrefixOnFailure ? `${options.messagePrefixOnFailure} ${message}` : message;
+            setMessage(responseMessage);
+            return { ok: false, message: responseMessage };
         }
 
         setMessage('Sending invitation email...');
@@ -352,7 +404,10 @@ export default function CompanyUsersScreen() {
         setNowMs(Date.now());
 
         if (!emailResult.ok) {
-            const message = emailResult.message || EMAIL_DELIVERY_FALLBACK_MESSAGE;
+            const deliveryMessage = emailResult.message || EMAIL_DELIVERY_FALLBACK_MESSAGE;
+            const message = options.messagePrefixOnFailure
+                ? `${options.messagePrefixOnFailure} ${deliveryMessage}`
+                : `${deliveryMessage} Manual invite link/code is ready below.`;
 
             setManualInvitesById((current) => ({
                 ...current,
@@ -371,12 +426,12 @@ export default function CompanyUsersScreen() {
                 ...current,
                 [invitationId]: {
                     status: 'failed',
-                    message: `${message} Manual invite link/code is ready below.`,
+                    message,
                 },
             }));
             await loadCompanyUsers(false);
-            setMessage(`${message} Manual invite link/code is ready below.`);
-            return;
+            setMessage(message);
+            return { ok: false, message };
         }
 
         const responseMessage = emailResult.message || 'Invitation email sent.';
@@ -404,6 +459,7 @@ export default function CompanyUsersScreen() {
         }));
         await loadCompanyUsers(false);
         setMessage(responseMessage);
+        return { ok: true, message: responseMessage };
     }
 
     async function updateMemberStatus(memberId: string, nextStatus: MemberActionStatus) {
@@ -699,12 +755,12 @@ export default function CompanyUsersScreen() {
 
     function prepareOwnerInvite() {
         setRole('owner');
-        setMessage('Company owner invite selected. Enter the owner name and email, then create the invitation.');
+        setMessage('Company owner invite selected. Enter the owner name and email, then send the invitation.');
     }
 
     function prepareTechnicianInvite() {
         setRole('technician');
-        setMessage('Technician invite selected. Enter the technician name and email, then create the invitation.');
+        setMessage('Technician invite selected. Enter the technician name and email, then send the invitation.');
     }
 
     function toggleSection(section: SectionKey) {
@@ -726,6 +782,12 @@ export default function CompanyUsersScreen() {
     }
 
     const normalizedSearch = normalizeSearch(searchQuery);
+    const submitting = submitStage !== 'idle';
+    const inviteSubmitTitle = submitStage === 'creating'
+        ? 'Creating invitation...'
+        : submitStage === 'sending'
+            ? 'Sending email...'
+            : 'Send Invitation';
     const filteredMembers = useMemo(
         () => members.filter((member) => matchesMemberSearch(member, normalizedSearch)),
         [members, normalizedSearch]
@@ -782,7 +844,7 @@ export default function CompanyUsersScreen() {
                             <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Company Ownership & TechOS Access</Text>
                             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                                 Invite the real company owner first, then add admins, managers, Dispatch staff, and technicians.
-                                Invited users become active only after accepting with their own HomeOS account.
+                                Invited users become active only after accepting with their own work account.
                             </Text>
                             <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
                                 Owner transfer/removal coming soon. Invite and activate the new owner first.
@@ -833,8 +895,8 @@ export default function CompanyUsersScreen() {
                         <ThemedCard style={formCardStyle}>
                             <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Team Member</Text>
                             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                This creates a pending invitation record. Use Send Email Invitation after creation to deliver
-                                a secure HomeOS sign-in link. Invitation creation does not directly modify a Supabase Auth account.
+                                Send one company invitation email for ManagementOS or TechOS access. The invite creates a pending
+                                company membership only after the user accepts it with their work account.
                             </Text>
 
                             <TextInput
@@ -909,8 +971,8 @@ export default function CompanyUsersScreen() {
                             </View>
 
                             <ThemedButton
-                                title={submitting ? 'Creating Invitation...' : 'Create Invitation'}
-                                onPress={createInvitation}
+                                title={inviteSubmitTitle}
+                                onPress={sendInvitation}
                                 disabled={submitting}
                             />
                         </ThemedCard>
@@ -1500,109 +1562,116 @@ function InvitationRow({
                         Email: {formatDeliverySummary(invitation, feedback)}
                     </Text>
 
-                    {manualInvite && (
-                        <View
-                            style={[
-                                manualInviteBoxStyle,
-                                {
-                                    backgroundColor: theme.colors.background,
-                                    borderColor: theme.colors.border,
-                                },
-                            ]}
-                        >
-                            <Text style={[manualInviteTitleStyle, { color: theme.colors.text }]}>Manual Invite</Text>
-                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{manualInvite.message}</Text>
-                            {!!manualInvite.warning && (
-                                <Text style={[metaTextStyle, { color: theme.colors.danger }]}>
-                                    {manualInvite.warning}
-                                </Text>
-                            )}
-
-                            {!!manualInvite.inviteUrl && (
-                                <>
-                                    <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Link</Text>
-                                    <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
-                                        {manualInvite.inviteUrl}
-                                    </Text>
-                                </>
-                            )}
-                            {!!manualInvite.inviteCode && (
-                                <>
-                                    <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Code</Text>
-                                    <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
-                                        {manualInvite.inviteCode}
-                                    </Text>
-                                </>
-                            )}
-                            {!!manualInvite.expiresAt && (
-                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                    Expires: {formatDate(manualInvite.expiresAt)}
-                                </Text>
-                            )}
-
-                            {(!!manualInvite.inviteUrl || !!manualInvite.inviteCode) && (
-                                <View style={actionRowStyle}>
-                                    {!!manualInvite.inviteUrl && (
-                                        <ThemedButton
-                                            title="Copy Invite Link"
-                                            variant="secondary"
-                                            onPress={() => onCopyManualInviteValue(invitation.id, 'Invite link', manualInvite.inviteUrl as string)}
-                                            disabled={actionLoadingKey !== null}
-                                            style={actionButtonStyle}
-                                        />
-                                    )}
-                                    {!!manualInvite.inviteCode && (
-                                        <ThemedButton
-                                            title="Copy Invite Code"
-                                            variant="secondary"
-                                            onPress={() => onCopyManualInviteValue(invitation.id, 'Invite code', manualInvite.inviteCode as string)}
-                                            disabled={actionLoadingKey !== null}
-                                            style={actionButtonStyle}
-                                        />
-                                    )}
-                                </View>
-                            )}
-                        </View>
-                    )}
-
                     {status === 'pending' && (
-                        <View style={actionRowStyle}>
-                            <ThemedButton
-                                title={getEmailButtonTitle({
-                                    sending,
-                                    sendable,
-                                    cooldownRemainingMs,
-                                    emailSendCount,
-                                })}
-                                variant={feedback?.status === 'failed' ? 'danger' : 'secondary'}
-                                onPress={() => onSendEmail(invitation.id)}
-                                disabled={anyActionLoading || !sendable || cooldownRemainingMs > 0}
-                                style={actionButtonStyle}
-                            />
-                            <ThemedButton
-                                title={creatingManualInvite ? 'Creating...' : 'Create / Copy Manual Invite'}
-                                variant="secondary"
-                                onPress={() => onCreateManualInvite(invitation.id)}
-                                disabled={anyActionLoading || expired}
-                                style={actionButtonStyle}
-                            />
-                            <ThemedButton
-                                title={actionLoadingKey === revokeKey ? 'Revoking...' : 'Revoke Invitation'}
-                                variant="danger"
-                                onPress={() => onRevoke(invitation.id)}
-                                disabled={actionLoadingKey !== null}
-                                style={actionButtonStyle}
-                            />
-                            {expired && (
+                        <>
+                            <View style={actionRowStyle}>
                                 <ThemedButton
-                                    title={deletingInvitation ? 'Deleting...' : 'Delete Old Invite'}
+                                    title={getEmailButtonTitle({
+                                        sending,
+                                        sendable,
+                                        cooldownRemainingMs,
+                                        emailSendCount,
+                                    })}
+                                    variant={feedback?.status === 'failed' ? 'danger' : 'secondary'}
+                                    onPress={() => onSendEmail(invitation.id)}
+                                    disabled={anyActionLoading || !sendable || cooldownRemainingMs > 0}
+                                    style={actionButtonStyle}
+                                />
+                                <ThemedButton
+                                    title={actionLoadingKey === revokeKey ? 'Revoking...' : 'Revoke Invitation'}
                                     variant="danger"
-                                    onPress={() => onDeleteInvitation(invitation.id)}
+                                    onPress={() => onRevoke(invitation.id)}
                                     disabled={actionLoadingKey !== null}
                                     style={actionButtonStyle}
                                 />
-                            )}
-                        </View>
+                                {expired && (
+                                    <ThemedButton
+                                        title={deletingInvitation ? 'Deleting...' : 'Delete Old Invite'}
+                                        variant="danger"
+                                        onPress={() => onDeleteInvitation(invitation.id)}
+                                        disabled={actionLoadingKey !== null}
+                                        style={actionButtonStyle}
+                                    />
+                                )}
+                            </View>
+
+                            <DetailPanelSection title="Advanced / Manual Invite">
+                                <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                                    Use this backup only if normal email delivery fails or you need to send the invite code another way.
+                                </Text>
+                                {manualInvite && (
+                                    <View
+                                        style={[
+                                            manualInviteBoxStyle,
+                                            {
+                                                backgroundColor: theme.colors.background,
+                                                borderColor: theme.colors.border,
+                                            },
+                                        ]}
+                                    >
+                                        <Text style={[manualInviteTitleStyle, { color: theme.colors.text }]}>Manual Invite</Text>
+                                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{manualInvite.message}</Text>
+                                        {!!manualInvite.warning && (
+                                            <Text style={[metaTextStyle, { color: theme.colors.danger }]}>
+                                                {manualInvite.warning}
+                                            </Text>
+                                        )}
+
+                                        {!!manualInvite.inviteUrl && (
+                                            <>
+                                                <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Link</Text>
+                                                <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
+                                                    {manualInvite.inviteUrl}
+                                                </Text>
+                                            </>
+                                        )}
+                                        {!!manualInvite.inviteCode && (
+                                            <>
+                                                <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Code</Text>
+                                                <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
+                                                    {manualInvite.inviteCode}
+                                                </Text>
+                                            </>
+                                        )}
+                                        {!!manualInvite.expiresAt && (
+                                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                                Expires: {formatDate(manualInvite.expiresAt)}
+                                            </Text>
+                                        )}
+
+                                        {(!!manualInvite.inviteUrl || !!manualInvite.inviteCode) && (
+                                            <View style={actionRowStyle}>
+                                                {!!manualInvite.inviteUrl && (
+                                                    <ThemedButton
+                                                        title="Copy Invite Link"
+                                                        variant="secondary"
+                                                        onPress={() => onCopyManualInviteValue(invitation.id, 'Invite link', manualInvite.inviteUrl as string)}
+                                                        disabled={actionLoadingKey !== null}
+                                                        style={actionButtonStyle}
+                                                    />
+                                                )}
+                                                {!!manualInvite.inviteCode && (
+                                                    <ThemedButton
+                                                        title="Copy Invite Code"
+                                                        variant="secondary"
+                                                        onPress={() => onCopyManualInviteValue(invitation.id, 'Invite code', manualInvite.inviteCode as string)}
+                                                        disabled={actionLoadingKey !== null}
+                                                        style={actionButtonStyle}
+                                                    />
+                                                )}
+                                            </View>
+                                        )}
+                                    </View>
+                                )}
+                                <ThemedButton
+                                    title={creatingManualInvite ? 'Creating...' : 'Create / Copy Manual Invite'}
+                                    variant="secondary"
+                                    onPress={() => onCreateManualInvite(invitation.id)}
+                                    disabled={anyActionLoading || expired}
+                                    style={actionButtonStyle}
+                                />
+                            </DetailPanelSection>
+                        </>
                     )}
 
                     {status === 'revoked' && (
@@ -1943,6 +2012,37 @@ function normalizeInvitationRecord(row: unknown): CompanyInvitation | null {
         email_delivery_status: readStringField(record, 'email_delivery_status'),
         email_delivery_error: readStringField(record, 'email_delivery_error'),
     };
+}
+
+function findReusablePendingInvitation(email: string, invitations: CompanyInvitation[], nowMs: number) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    return invitations.find((invitation) =>
+        invitation.email.trim().toLowerCase() === normalizedEmail &&
+        normalizeStatus(invitation.status) === 'pending' &&
+        !isInvitationExpired(invitation, nowMs)
+    ) || null;
+}
+
+async function loadReusablePendingInvitation(companyId: string, email: string, nowMs: number) {
+    const { data, error } = await supabase
+        .from('company_user_invitations')
+        .select(
+            'id, company_id, full_name, email, role, status, expires_at, created_at, last_email_attempted_at, last_email_sent_at, email_send_count, email_delivery_status, email_delivery_error'
+        )
+        .eq('company_id', companyId)
+        .ilike('email', email.trim().toLowerCase())
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+    if (error) return null;
+
+    const invitations = (Array.isArray(data) ? data : [])
+        .map((row) => normalizeInvitationRecord(row))
+        .filter((invitation): invitation is CompanyInvitation => Boolean(invitation));
+
+    return findReusablePendingInvitation(email, invitations, nowMs);
 }
 
 async function recordCompanyAuditEvent(input: Parameters<typeof logCompanyAuditEvent>[0]) {
