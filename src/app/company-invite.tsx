@@ -374,10 +374,16 @@ export default function CompanyInviteScreen() {
                                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                                             This invite link is invalid or no longer available. Ask the company admin to create a new manual invite link.
                                         </Text>
+                                        <InviteCodeEntry
+                                            value={manualInviteCode}
+                                            onChangeText={setManualInviteCode}
+                                            onSubmit={openManualInviteCode}
+                                            submitTitle="Enter Invite Code Manually"
+                                        />
                                     </>
                                 )}
 
-                                {!user ? (
+                                {invitation && !user ? (
                                     <View style={actionGroupStyle}>
                                         {!!invitation && (
                                             <Text style={[bodyTextStyle, { color: theme.colors.text }]}>
@@ -397,7 +403,7 @@ export default function CompanyInviteScreen() {
                                             />
                                         </View>
                                     </View>
-                                ) : invitation && isSignedInAsDifferentUser(user, invitation) ? (
+                                ) : invitation && user && isSignedInAsDifferentUser(user, invitation) ? (
                                     <View style={actionGroupStyle}>
                                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                                             {signedInMismatchMessage(user, invitation)}
@@ -444,7 +450,7 @@ export default function CompanyInviteScreen() {
                                             />
                                         )}
                                     </View>
-                                ) : (
+                                ) : invitation ? (
                                     <View style={actionGroupStyle}>
                                         <ThemedButton
                                             title={accepting ? 'Accepting...' : 'Accept Invitation'}
@@ -459,7 +465,7 @@ export default function CompanyInviteScreen() {
                                             style={{ marginTop: 12 }}
                                         />
                                     </View>
-                                )}
+                                ) : null}
                             </ThemedCard>
                         ) : (
                             <ThemedCard>

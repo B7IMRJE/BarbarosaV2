@@ -11,6 +11,7 @@ export type PendingCompanyInviteState = {
 
 const PENDING_COMPANY_INVITE_KEY = 'homeos.pendingCompanyInvite';
 const COMPANY_INVITE_ROUTE = '/company-invite';
+const PUBLIC_APP_URL = 'https://barbarosa-v2.vercel.app';
 
 export function getPendingCompanyInviteState(): PendingCompanyInviteState | null {
     return readPendingCompanyInviteState(getStorage('sessionStorage')) ||
@@ -95,6 +96,17 @@ export function readInviteCodeFromNextPath(nextPath: string | null) {
     } catch {
         return null;
     }
+}
+
+export function buildCompanyInviteAuthConfirmRedirect(nextPath: string | null) {
+    const redirectUrl = new URL('/auth/confirm', PUBLIC_APP_URL);
+    const inviteCode = readInviteCodeFromNextPath(nextPath);
+
+    if (nextPath && inviteCode) {
+        redirectUrl.searchParams.set('next', nextPath);
+    }
+
+    return redirectUrl.toString();
 }
 
 function writePendingCompanyInviteState(state: PendingCompanyInviteState) {

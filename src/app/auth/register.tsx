@@ -8,7 +8,12 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { replacePendingCompanyInviteFromNextPath } from '../../lib/companyInviteState';
+import {
+    buildCompanyInviteAuthConfirmRedirect,
+    getPendingCompanyInviteState,
+    readInviteCodeFromNextPath,
+    replacePendingCompanyInviteFromNextPath,
+} from '../../lib/companyInviteState';
 import { supabase } from '../../lib/supabase';
 
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
@@ -24,9 +29,15 @@ export default function RegisterScreen() {
         mode?: string | string[];
         email?: string | string[];
     }>();
-    const nextRoute = resolveSafeNext(firstParam(params.next));
-    const workAccountMode = isWorkAccountFlow(firstParam(params.mode), nextRoute);
-    const confirmNextRoute = nextRoute || (workAccountMode ? COMPANY_INVITE_ROUTE : null);
+    const requestedNextRoute = resolveSafeNext(firstParam(params.next));
+    const pendingInvite = getPendingCompanyInviteState();
+    const pendingNextRoute = pendingInvite && readInviteCodeFromNextPath(pendingInvite.nextPath)
+        ? pendingInvite.nextPath
+        : null;
+    const workModeParam = firstParam(params.mode);
+    const nextRoute = requestedNextRoute || (isExplicitWorkMode(workModeParam) ? pendingNextRoute : null);
+    const workAccountMode = isWorkAccountFlow(workModeParam, nextRoute);
+    const confirmNextRoute = readInviteCodeFromNextPath(nextRoute) ? nextRoute : null;
     const invitedEmail = normalizeEmail(firstParam(params.email));
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
@@ -335,10 +346,14 @@ function resolveSafeNext(value: string | undefined) {
     return null;
 }
 
-function isWorkAccountFlow(mode: string | undefined, nextRoute: string | null) {
+function isExplicitWorkMode(mode: string | undefined) {
     const normalizedMode = String(mode || '').trim().toLowerCase();
 
-    return normalizedMode === 'work' || nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true;
+    return normalizedMode === 'work';
+}
+
+function isWorkAccountFlow(mode: string | undefined, nextRoute: string | null) {
+    return isExplicitWorkMode(mode) || nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true;
 }
 
 function normalizeEmail(value: string | undefined) {
@@ -387,22 +402,7 @@ function buildProfileUpsertPayload(
 }
 
 function buildConfirmRedirect(nextRoute: string | null) {
-    const origin = getAppOrigin();
-    if (!origin) return undefined;
-
-    const nextQuery = nextRoute ? `?next=${encodeURIComponent(nextRoute)}` : '';
-
-    return `${origin}/auth/confirm${nextQuery}`;
-}
-
-function getAppOrigin() {
-    const globalWithLocation = globalThis as unknown as {
-        location?: { origin?: string };
-        window?: { location?: { origin?: string } };
-    };
-    const origin = globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null;
-
-    return typeof origin === 'string' && origin.trim() ? origin : null;
+    return buildCompanyInviteAuthConfirmRedirect(nextRoute);
 }
 
 function isEmailRateLimitError(error: unknown) {

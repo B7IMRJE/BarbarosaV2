@@ -4,6 +4,7 @@ import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-nati
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
+    buildCompanyInviteAuthConfirmRedirect,
     getPendingCompanyInviteState,
     readInviteCodeFromNextPath,
     replacePendingCompanyInviteFromNextPath,
@@ -304,12 +305,7 @@ function resolveSafeNext(value: string | undefined) {
 }
 
 function buildConfirmRedirect(nextRoute: string | null) {
-    const origin = getAppOrigin();
-    if (!origin) return undefined;
-
-    const nextQuery = nextRoute ? `?next=${encodeURIComponent(nextRoute)}` : '';
-
-    return `${origin}/auth/confirm${nextQuery}`;
+    return buildCompanyInviteAuthConfirmRedirect(nextRoute);
 }
 
 function buildLoginParams(nextRoute: string | null) {
@@ -324,16 +320,6 @@ function buildLoginParams(nextRoute: string | null) {
     }
 
     return loginParams;
-}
-
-function getAppOrigin() {
-    const globalWithLocation = globalThis as unknown as {
-        location?: { origin?: string };
-        window?: { location?: { origin?: string } };
-    };
-    const origin = globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null;
-
-    return typeof origin === 'string' && origin.trim() ? origin : null;
 }
 
 function readErrorMessage(error: unknown) {
