@@ -55,6 +55,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
 
     const currentPath = normalizePath(pathname);
     const canUseBack = currentPath !== '/';
+    const isTechOSRoute = currentPath === '/techos' || currentPath.startsWith('/techos/');
+    const appLabel = isTechOSRoute ? 'TechOS' : providerModeContext ? 'Client HomeOS' : 'HomeOS';
     const shouldHideNavigation = hiddenRoutePrefixes.some((prefix) => currentPath.startsWith(prefix));
 
     useEffect(() => {
@@ -189,7 +191,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             textAlign: 'right',
                         }}
                     >
-                        {providerModeContext ? 'Client HomeOS' : 'HomeOS'}
+                        {appLabel}
                     </Text>
                 </View>
             </View>
@@ -198,82 +200,84 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                 {children}
             </View>
 
-            <View
-                style={{
-                    backgroundColor: theme.colors.surface,
-                    borderTopColor: theme.colors.border,
-                    borderTopWidth: 1,
-                    paddingHorizontal: scaleIcon(8),
-                    paddingTop: scaleIcon(8),
-                    paddingBottom: insets.bottom + scaleIcon(8),
-                }}
-            >
+            {!isTechOSRoute && (
                 <View
                     style={{
-                        flexDirection: 'row',
-                        gap: scaleIcon(6),
+                        backgroundColor: theme.colors.surface,
+                        borderTopColor: theme.colors.border,
+                        borderTopWidth: 1,
+                        paddingHorizontal: scaleIcon(8),
+                        paddingTop: scaleIcon(8),
+                        paddingBottom: insets.bottom + scaleIcon(8),
                     }}
                 >
-                    {activePrimaryTabs.map((tab) => {
-                        const active = isActiveTab(tab.route);
-
-                        return (
-                            <TouchableOpacity
-                                key={tab.route}
-                                activeOpacity={0.82}
-                                onPress={() => goTo(tab)}
-                                style={{
-                                    alignItems: 'center',
-                                    backgroundColor: active ? theme.colors.primary : theme.colors.secondaryButton,
-                                    borderColor: active ? theme.colors.primary : theme.colors.border,
-                                    borderRadius: theme.radii.pill,
-                                    borderWidth: 1,
-                                    flex: 1,
-                                    paddingHorizontal: scaleIcon(8),
-                                    paddingVertical: scaleIcon(10),
-                                }}
-                            >
-                                <Text
-                                    numberOfLines={1}
-                                    style={{
-                                        color: active ? theme.colors.primaryText : theme.colors.secondaryButtonText,
-                                        fontSize: scaleFont(12),
-                                        fontWeight: '900',
-                                    }}
-                                >
-                                    {tab.label}
-                                </Text>
-                            </TouchableOpacity>
-                        );
-                    })}
-
-                    <TouchableOpacity
-                        activeOpacity={0.82}
-                        onPress={() => setDrawerOpen(true)}
+                    <View
                         style={{
-                            alignItems: 'center',
-                            backgroundColor: theme.colors.secondaryButton,
-                            borderColor: theme.colors.border,
-                            borderRadius: theme.radii.pill,
-                            borderWidth: 1,
-                            flex: 0.8,
-                            paddingHorizontal: scaleIcon(8),
-                            paddingVertical: scaleIcon(10),
+                            flexDirection: 'row',
+                            gap: scaleIcon(6),
                         }}
                     >
-                        <Text
-                            numberOfLines={1}
+                        {activePrimaryTabs.map((tab) => {
+                            const active = isActiveTab(tab.route);
+
+                            return (
+                                <TouchableOpacity
+                                    key={tab.route}
+                                    activeOpacity={0.82}
+                                    onPress={() => goTo(tab)}
+                                    style={{
+                                        alignItems: 'center',
+                                        backgroundColor: active ? theme.colors.primary : theme.colors.secondaryButton,
+                                        borderColor: active ? theme.colors.primary : theme.colors.border,
+                                        borderRadius: theme.radii.pill,
+                                        borderWidth: 1,
+                                        flex: 1,
+                                        paddingHorizontal: scaleIcon(8),
+                                        paddingVertical: scaleIcon(10),
+                                    }}
+                                >
+                                    <Text
+                                        numberOfLines={1}
+                                        style={{
+                                            color: active ? theme.colors.primaryText : theme.colors.secondaryButtonText,
+                                            fontSize: scaleFont(12),
+                                            fontWeight: '900',
+                                        }}
+                                    >
+                                        {tab.label}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+
+                        <TouchableOpacity
+                            activeOpacity={0.82}
+                            onPress={() => setDrawerOpen(true)}
                             style={{
-                                color: theme.colors.secondaryButtonText,
-                                fontSize: scaleFont(12),
-                                fontWeight: '900',
+                                alignItems: 'center',
+                                backgroundColor: theme.colors.secondaryButton,
+                                borderColor: theme.colors.border,
+                                borderRadius: theme.radii.pill,
+                                borderWidth: 1,
+                                flex: 0.8,
+                                paddingHorizontal: scaleIcon(8),
+                                paddingVertical: scaleIcon(10),
                             }}
                         >
-                            More
-                        </Text>
-                    </TouchableOpacity>
+                            <Text
+                                numberOfLines={1}
+                                style={{
+                                    color: theme.colors.secondaryButtonText,
+                                    fontSize: scaleFont(12),
+                                    fontWeight: '900',
+                                }}
+                            >
+                                More
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
-            </View>
+            )}
 
             <Modal transparent visible={drawerOpen} animationType="fade" onRequestClose={() => setDrawerOpen(false)}>
                 <View style={{ flex: 1 }}>
