@@ -73,6 +73,9 @@ type ScheduleSlot = {
     start_at: string | null;
     end_at: string | null;
     status: string | null;
+    priority: string | null;
+    tech_status_note: string | null;
+    updated_at: string | null;
 };
 
 type CompanyUser = {
@@ -201,6 +204,21 @@ export default function DispatchBoardScreen() {
         const intervalId = setInterval(() => {
             void refreshDispatchBoardQuietly();
         }, LEAD_ALERT_REFRESH_MS);
+        const scheduleChannel = supabase
+            .channel(`dispatch-job-schedule-slots:${companyIdToRefresh}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'job_schedule_slots',
+                    filter: `company_id=eq.${companyIdToRefresh}`,
+                },
+                () => {
+                    void refreshDispatchBoardQuietly();
+                }
+            )
+            .subscribe();
 
         const appStateSubscription = AppState.addEventListener('change', (state) => {
             if (state === 'active') {
@@ -220,6 +238,7 @@ export default function DispatchBoardScreen() {
 
         return () => {
             clearInterval(intervalId);
+            void supabase.removeChannel(scheduleChannel);
             appStateSubscription.remove();
             focusTarget.removeEventListener?.('focus', handleFocus);
         };
@@ -381,7 +400,7 @@ export default function DispatchBoardScreen() {
 
         const { data, error } = await supabase
             .from('job_schedule_slots')
-            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status')
+            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status, priority, tech_status_note, updated_at')
             .eq('company_id', companyIdToLoad)
             .gte('start_at', windowStart.toISOString())
             .lte('start_at', windowEnd.toISOString())
@@ -868,6 +887,7 @@ export default function DispatchBoardScreen() {
                             requests={newRequests}
                             totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
+                            scheduleSlots={scheduleSlots}
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
@@ -888,6 +908,7 @@ export default function DispatchBoardScreen() {
                             requests={assignedScheduledRequests}
                             totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
+                            scheduleSlots={scheduleSlots}
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
@@ -908,6 +929,7 @@ export default function DispatchBoardScreen() {
                             requests={inProgressRequests}
                             totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
+                            scheduleSlots={scheduleSlots}
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
@@ -928,6 +950,7 @@ export default function DispatchBoardScreen() {
                             requests={completedRequests}
                             totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
+                            scheduleSlots={scheduleSlots}
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
@@ -948,6 +971,7 @@ export default function DispatchBoardScreen() {
                             requests={cancelledRequests}
                             totalRequests={requests.length}
                             eventsByRequestId={eventsByRequestId}
+                            scheduleSlots={scheduleSlots}
                             actionRequestId={actionRequestId}
                             expandedRequestId={expandedRequestId}
                             cardBasis={cardBasis}
@@ -975,6 +999,7 @@ function DispatchSection({
     requests,
     totalRequests,
     eventsByRequestId,
+    scheduleSlots,
     actionRequestId,
     expandedRequestId,
     cardBasis,
@@ -994,6 +1019,7 @@ function DispatchSection({
     requests: DispatchRequest[];
     totalRequests: number;
     eventsByRequestId: Record<string, ServiceRequestEvent[]>;
+    scheduleSlots: ScheduleSlot[];
     actionRequestId: string | null;
     expandedRequestId: string | null;
     cardBasis: ViewStyle['flexBasis'];
@@ -1036,6 +1062,7 @@ function DispatchSection({
                             key={request.id}
                             request={request}
                             events={eventsByRequestId[request.id] || []}
+                            scheduleSlots={scheduleSlots.filter((slot) => slot.service_request_id === request.id)}
                             acknowledging={actionRequestId === request.id}
                             expanded={expandedRequestId === request.id}
                             cardBasis={cardBasis}
@@ -1256,8 +1283,13 @@ function ScheduleTechLane({
                                     {request?.customer_display_name || request?.property_display_name || `Request ${shortId(slot.service_request_id || slot.id)}`}
                                 </Text>
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
-                                    {formatTime(slot.start_at)} - {formatTime(slot.end_at)} / {formatLabel(slot.status || request?.status || 'scheduled')}
+                                    {formatTime(slot.start_at)} - {formatTime(slot.end_at)} / {formatTechOSStatusLabel(slot.status || request?.status || 'scheduled')}
                                 </Text>
+                                {!!slot.tech_status_note && (
+                                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                                        {slot.tech_status_note}
+                                    </Text>
+                                )}
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
                                     {request?.issue_summary || 'No description provided.'}
                                 </Text>
@@ -1342,6 +1374,7 @@ function DispatchCompanyPicker({
 function DispatchRequestCard({
     request,
     events,
+    scheduleSlots,
     acknowledging,
     expanded,
     cardBasis,
@@ -1359,6 +1392,7 @@ function DispatchRequestCard({
 }: {
     request: DispatchRequest;
     events: ServiceRequestEvent[];
+    scheduleSlots: ScheduleSlot[];
     acknowledging: boolean;
     expanded: boolean;
     cardBasis: ViewStyle['flexBasis'];
@@ -1379,6 +1413,10 @@ function DispatchRequestCard({
     const latestUpdateRequest = events.find((event) => normalizeStatus(event.event_type) === 'update_requested');
     const displayName = request.customer_display_name || request.property_display_name || 'Homeowner';
     const selectedTechnician = activeTechnicians.find((technician) => technician.id === scheduleForm.technicianCompanyUserId) || null;
+    const currentScheduleSlot = getCurrentRequestScheduleSlot(scheduleSlots);
+    const assignedTechnician = currentScheduleSlot
+        ? activeTechnicians.find((technician) => technician.id === currentScheduleSlot.technician_company_user_id) || null
+        : selectedTechnician;
     const technicianSearch = normalizeStatus(scheduleForm.technicianSearch);
     const visibleTechnicians = activeTechnicians.filter((technician) => {
         if (!technicianSearch) return true;
@@ -1428,8 +1466,26 @@ function DispatchRequestCard({
                 Priority: {formatLabel(request.priority)}
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Assigned tech: {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Not assigned'}
+                Assigned tech: {assignedTechnician ? getMemberDisplayName(assignedTechnician) : 'Not assigned'}
             </Text>
+            {!!currentScheduleSlot && (
+                <View style={[techStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                    <View style={requestTopRowStyle}>
+                        <Text style={[requestTypeStyle, { color: theme.colors.text }]}>TechOS Status</Text>
+                        <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                            {formatTechOSStatusLabel(currentScheduleSlot.status)}
+                        </Text>
+                    </View>
+                    {!!currentScheduleSlot.tech_status_note && (
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                            {currentScheduleSlot.tech_status_note}
+                        </Text>
+                    )}
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Updated: {formatDateTime(currentScheduleSlot.updated_at)}
+                    </Text>
+                </View>
+            )}
             <View style={compactActionRowStyle}>
                 <ThemedButton
                     title="Open Customer"
@@ -1899,7 +1955,7 @@ async function loadTechnicianScheduleSlots({
 }) {
     const { data, error } = await supabase
         .from('job_schedule_slots')
-        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status')
+        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status, priority, tech_status_note, updated_at')
         .eq('company_id', companyId)
         .eq('technician_company_user_id', technicianCompanyUserId)
         .lt('start_at', endAt.toISOString())
@@ -1926,6 +1982,9 @@ function normalizeScheduleSlots(data: unknown): ScheduleSlot[] {
                 start_at: readStringField(record, 'start_at'),
                 end_at: readStringField(record, 'end_at'),
                 status: readStringField(record, 'status'),
+                priority: readStringField(record, 'priority'),
+                tech_status_note: readStringField(record, 'tech_status_note'),
+                updated_at: readStringField(record, 'updated_at'),
             };
         })
         .filter((slot) => slot.id && slot.company_id && slot.technician_company_user_id);
@@ -2556,6 +2615,41 @@ function formatDateTime(value?: string | null) {
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
 }
 
+function getCurrentRequestScheduleSlot(slots: ScheduleSlot[]) {
+    if (slots.length === 0) return null;
+
+    return [...slots].sort((first, second) => {
+        const firstUpdated = getSortableTime(first.updated_at) || getSortableTime(first.start_at);
+        const secondUpdated = getSortableTime(second.updated_at) || getSortableTime(second.start_at);
+
+        return secondUpdated - firstUpdated;
+    })[0] || null;
+}
+
+function getSortableTime(value?: string | null) {
+    if (!value) return 0;
+
+    const time = new Date(value).getTime();
+    return Number.isFinite(time) ? time : 0;
+}
+
+function formatTechOSStatusLabel(status?: string | null) {
+    const normalized = normalizeStatus(status);
+    const labels: Record<string, string> = {
+        scheduled: 'Scheduled',
+        on_my_way: 'On My Way',
+        arrived: 'Arrived',
+        in_progress: 'In Progress',
+        estimate_needed: 'Estimate Needed',
+        completed: 'Completed',
+        running_late: 'Running Late',
+        available: 'Available',
+        custom: 'Custom',
+    };
+
+    return labels[normalized] || formatLabel(status);
+}
+
 function formatTime(value?: string | null) {
     if (!value) return 'Not available';
     const date = new Date(value);
@@ -2646,6 +2740,13 @@ const requestCardStyle = {
     maxWidth: '100%' as const,
     minHeight: 178,
     minWidth: 0,
+};
+
+const techStatusPanelStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 10,
+    padding: 10,
 };
 
 const scheduleSummaryGridStyle = {

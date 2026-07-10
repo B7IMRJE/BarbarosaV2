@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -106,6 +106,7 @@ type TechScheduleSlot = {
     estimated_duration_minutes: number | null;
     priority: string | null;
     notes: string | null;
+    tech_status_note: string | null;
     created_at: string | null;
     updated_at: string | null;
 };
@@ -166,7 +167,7 @@ type PlatformProfile = {
 
 type TechOSMode = 'technician' | 'management-preview' | 'platform-preview';
 type TechDashboardView = 'jobs' | 'schedule' | 'history' | 'estimates' | 'sales' | 'messages' | 'time-clock' | 'van-inventory';
-type TechWorkflowActionKey = 'on_my_way' | 'arrived' | 'in_progress' | 'estimate_needed' | 'completed';
+type TechWorkflowActionKey = 'on_my_way' | 'arrived' | 'in_progress' | 'estimate_needed' | 'completed' | 'running_late' | 'available' | 'custom';
 
 type TechWorkflowAction = {
     key: TechWorkflowActionKey;
@@ -175,13 +176,19 @@ type TechWorkflowAction = {
 };
 
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
-const TECHOS_ASSIGNMENT_REFRESH_MS = 45_000;
+const TECHOS_ASSIGNMENT_REFRESH_MS = 30_000;
 const TECH_WORKFLOW_ACTIONS: TechWorkflowAction[] = [
     { key: 'on_my_way', label: 'On my way', status: 'on_my_way' },
     { key: 'arrived', label: 'Arrived', status: 'arrived' },
     { key: 'in_progress', label: 'Started / In progress', status: 'in_progress' },
     { key: 'estimate_needed', label: 'Need approval / estimate needed', status: 'estimate_needed' },
     { key: 'completed', label: 'Completed', status: 'completed' },
+];
+const TECH_CUSTOM_STATUS_ACTION: TechWorkflowAction = { key: 'custom', label: 'Set custom message', status: 'custom' };
+const TECH_MORE_STATUS_ACTIONS: TechWorkflowAction[] = [
+    { key: 'running_late', label: 'Running late', status: 'running_late' },
+    { key: 'available', label: 'Available', status: 'available' },
+    TECH_CUSTOM_STATUS_ACTION,
 ];
 
 export default function TechOSScreen() {
@@ -223,6 +230,7 @@ export default function TechOSScreen() {
     const [selectedAssignedJobId, setSelectedAssignedJobId] = useState('');
     const [workflowStatusBySlotId, setWorkflowStatusBySlotId] = useState<Record<string, string>>({});
     const [workflowMessageBySlotId, setWorkflowMessageBySlotId] = useState<Record<string, string>>({});
+    const [customStatusNoteBySlotId, setCustomStatusNoteBySlotId] = useState<Record<string, string>>({});
     const [updatingWorkflowSlotId, setUpdatingWorkflowSlotId] = useState('');
     const [scheduleDiagnostics, setScheduleDiagnostics] = useState<TechOSScheduleDiagnostics | null>(null);
     const knownAssignedSlotIdsRef = useRef<Set<string>>(new Set());
@@ -542,7 +550,7 @@ export default function TechOSScreen() {
 
         const { data, error } = await supabase
             .from('job_schedule_slots')
-            .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes')
+            .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, updated_at, created_at')
             .eq('company_id', companyIdToLoad)
             .eq('technician_company_user_id', technicianCompanyUserId)
             .gte('start_at', windowStart.toISOString())
@@ -900,13 +908,23 @@ export default function TechOSScreen() {
         } as any);
     }
 
-    async function handleTechWorkflowAction(job: TechAssignedScheduleJob, action: TechWorkflowAction) {
+    async function handleTechWorkflowAction(job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) {
         const slotId = job.slot.id;
+        const normalizedStatus = normalizeStatus(action.status);
+        const trimmedStatusNote = String(statusNote || '').trim();
 
         if (!slotId || !job.slot.company_id || !job.slot.technician_company_user_id) {
             setWorkflowMessageBySlotId((current) => ({
                 ...current,
                 [slotId || 'missing']: 'Workflow update failed: assigned job context is missing.',
+            }));
+            return;
+        }
+
+        if (normalizedStatus === 'custom' && !trimmedStatusNote) {
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: 'Enter a custom status message.',
             }));
             return;
         }
@@ -918,13 +936,14 @@ export default function TechOSScreen() {
         }));
 
         try {
+            const nextStatusNote = normalizedStatus === 'custom' ? trimmedStatusNote : null;
             const { data, error } = await supabase
                 .from('job_schedule_slots')
-                .update({ status: action.status })
+                .update({ status: action.status, tech_status_note: nextStatusNote })
                 .eq('id', slotId)
                 .eq('company_id', job.slot.company_id)
                 .eq('technician_company_user_id', job.slot.technician_company_user_id)
-                .select('id')
+                .select('id, status, tech_status_note, updated_at')
                 .maybeSingle();
 
             if (error) {
@@ -936,7 +955,14 @@ export default function TechOSScreen() {
             }
 
             setAssignedScheduleSlots((current) => current.map((slot) => (
-                slot.id === slotId ? { ...slot, status: action.status } : slot
+                slot.id === slotId
+                    ? {
+                        ...slot,
+                        status: action.status,
+                        tech_status_note: nextStatusNote,
+                        updated_at: readStringField(data as Record<string, unknown>, 'updated_at') || new Date().toISOString(),
+                    }
+                    : slot
             )));
             setWorkflowStatusBySlotId((current) => ({
                 ...current,
@@ -944,7 +970,9 @@ export default function TechOSScreen() {
             }));
             setWorkflowMessageBySlotId((current) => ({
                 ...current,
-                [slotId]: `Status updated: ${action.label}.`,
+                [slotId]: normalizedStatus === 'custom'
+                    ? `Custom status updated: ${trimmedStatusNote}.`
+                    : `Status updated: ${action.label}.`,
             }));
         } catch (error) {
             setWorkflowMessageBySlotId((current) => ({
@@ -1096,6 +1124,7 @@ export default function TechOSScreen() {
                         scheduleDiagnostics={scheduleDiagnostics}
                         selectedJob={selectedAssignedJob}
                         todayJobs={todayAssignedScheduleJobs}
+                        customStatusNoteBySlotId={customStatusNoteBySlotId}
                         onRefresh={() => {
                             if (activeCompanyId && membership?.id) {
                                 void loadAssignedScheduleJobs(activeCompanyId, membership.id, {
@@ -1104,6 +1133,12 @@ export default function TechOSScreen() {
                             }
                         }}
                         onCloseDetails={handleCloseAssignedJobDetails}
+                        onChangeCustomStatusNote={(slotId, note) => {
+                            setCustomStatusNoteBySlotId((current) => ({
+                                ...current,
+                                [slotId]: note,
+                            }));
+                        }}
                         onOpenDetails={handleOpenAssignedJobDetails}
                         onOpenFullJob={handleOpenFullAssignedJob}
                         onRunWorkflowAction={handleTechWorkflowAction}
@@ -1533,8 +1568,10 @@ function TechOSDashboardContent({
     scheduleDiagnostics,
     selectedJob,
     todayJobs,
+    customStatusNoteBySlotId,
     onRefresh,
     onCloseDetails,
+    onChangeCustomStatusNote,
     onOpenDetails,
     onOpenFullJob,
     onRunWorkflowAction,
@@ -1553,11 +1590,13 @@ function TechOSDashboardContent({
     scheduleDiagnostics: TechOSScheduleDiagnostics | null;
     selectedJob: TechAssignedScheduleJob | null;
     todayJobs: TechAssignedScheduleJob[];
+    customStatusNoteBySlotId: Record<string, string>;
     onRefresh: () => void;
     onCloseDetails: () => void;
+    onChangeCustomStatusNote: (slotId: string, note: string) => void;
     onOpenDetails: (job: TechAssignedScheduleJob) => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
-    onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction) => void;
+    onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
     updatingWorkflowSlotId: string;
     workflowMessageBySlotId: Record<string, string>;
     workflowStatusBySlotId: Record<string, string>;
@@ -1566,9 +1605,11 @@ function TechOSDashboardContent({
         return (
             <TechOSAssignedJobDetail
                 backLabel={getAssignedJobDetailBackLabel(activeView)}
+                customStatusNote={customStatusNoteBySlotId[selectedJob.slot.id] ?? selectedJob.slot.tech_status_note ?? ''}
                 job={selectedJob}
                 message={workflowMessageBySlotId[selectedJob.slot.id] || ''}
                 onBack={onCloseDetails}
+                onChangeCustomStatusNote={(note) => onChangeCustomStatusNote(selectedJob.slot.id, note)}
                 onOpenFullJob={onOpenFullJob}
                 onRunWorkflowAction={onRunWorkflowAction}
                 updating={updatingWorkflowSlotId === selectedJob.slot.id}
@@ -1987,7 +2028,7 @@ function AssignedScheduleJobCard({
             <View style={assignedJobTopRowStyle}>
                 <Text style={[jobNumberStyle, { color: theme.colors.mutedText }]}>Assigned Work</Text>
                 <Text style={[jobStatusBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {formatStatus(job.slot.status || job.request?.status || 'scheduled')}
+                    {formatTechOSStatusLabel(job.slot.status || job.request?.status || 'scheduled')}
                 </Text>
             </View>
             <Text style={[jobTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
@@ -2008,6 +2049,11 @@ function AssignedScheduleJobCard({
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Priority: {formatLabel(job.slot.priority || job.request?.priority || 'normal')}
             </Text>
+            {!!job.slot.tech_status_note && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                    Tech note: {job.slot.tech_status_note}
+                </Text>
+            )}
             {!!onOpenDetails && (
                 <ThemedButton
                     title="Open Details"
@@ -2022,26 +2068,31 @@ function AssignedScheduleJobCard({
 
 function TechOSAssignedJobDetail({
     backLabel,
+    customStatusNote,
     job,
     message,
     onBack,
+    onChangeCustomStatusNote,
     onOpenFullJob,
     onRunWorkflowAction,
     updating,
     workflowStatus,
 }: {
     backLabel: string;
+    customStatusNote: string;
     job: TechAssignedScheduleJob;
     message: string;
     onBack: () => void;
+    onChangeCustomStatusNote: (note: string) => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
-    onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction) => void;
+    onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
     updating: boolean;
     workflowStatus: string;
 }) {
     const { theme } = useTheme();
     const title = getAssignedJobTitle(job);
     const location = getAssignedJobLocation(job);
+    const trimmedCustomStatusNote = customStatusNote.trim();
 
     return (
         <View style={[techJobDetailStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
@@ -2063,9 +2114,12 @@ function TechOSAssignedJobDetail({
 
             <View style={techJobDetailInfoGridStyle}>
                 <TechJobDetailInfo label="Arrival Window" value={formatArrivalWindow(job.slot)} />
-                <TechJobDetailInfo label="Status" value={formatLabel(workflowStatus)} />
+                <TechJobDetailInfo label="Status" value={formatTechOSStatusLabel(workflowStatus)} />
                 <TechJobDetailInfo label="Priority" value={formatLabel(job.slot.priority || job.request?.priority || 'normal')} />
                 <TechJobDetailInfo label="Home / Request" value={location} />
+                {!!job.slot.tech_status_note && (
+                    <TechJobDetailInfo label="Tech Status Note" value={job.slot.tech_status_note} />
+                )}
             </View>
 
             <View style={[techJobDetailSummaryStyle, { borderColor: theme.colors.border }]}>
@@ -2092,6 +2146,49 @@ function TechOSAssignedJobDetail({
                         />
                     );
                 })}
+            </View>
+
+            <View style={[techMoreStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>More Status</Text>
+                <View style={techWorkflowActionGridStyle}>
+                    {TECH_MORE_STATUS_ACTIONS.filter((action) => action.key !== 'custom').map((action) => {
+                        const active = normalizeStatus(workflowStatus) === normalizeStatus(action.status);
+
+                        return (
+                            <ThemedButton
+                                key={action.key}
+                                title={updating && !active ? 'Updating...' : action.label}
+                                variant={active ? 'primary' : 'secondary'}
+                                disabled={updating}
+                                onPress={() => onRunWorkflowAction(job, action)}
+                                style={techWorkflowActionButtonStyle}
+                                textStyle={techWorkflowActionButtonTextStyle}
+                            />
+                        );
+                    })}
+                </View>
+                <TextInput
+                    value={customStatusNote}
+                    onChangeText={onChangeCustomStatusNote}
+                    placeholder="On my way to the store"
+                    placeholderTextColor={theme.colors.mutedText}
+                    multiline
+                    style={[
+                        techCustomStatusInputStyle,
+                        {
+                            borderColor: theme.colors.border,
+                            color: theme.colors.text,
+                        },
+                    ]}
+                />
+                <ThemedButton
+                    title="Set Custom Status"
+                    variant="secondary"
+                    disabled={updating || !trimmedCustomStatusNote}
+                    onPress={() => onRunWorkflowAction(job, TECH_CUSTOM_STATUS_ACTION, trimmedCustomStatusNote)}
+                    style={assignedJobActionButtonStyle}
+                    textStyle={techWorkflowActionButtonTextStyle}
+                />
             </View>
 
             {!!job.slot.job_id && (
@@ -2630,6 +2727,7 @@ function normalizeScheduleSlots(data: unknown): TechScheduleSlot[] {
                 estimated_duration_minutes: readNumberField(record, 'estimated_duration_minutes'),
                 priority: readStringField(record, 'priority'),
                 notes: readStringField(record, 'notes'),
+                tech_status_note: readStringField(record, 'tech_status_note'),
                 created_at: readStringField(record, 'created_at'),
                 updated_at: readStringField(record, 'updated_at'),
             };
@@ -2783,6 +2881,23 @@ function formatStatus(status?: string | null) {
     if (normalized === 'archived') return 'Archived';
 
     return normalized ? formatLabel(normalized) : 'Unknown';
+}
+
+function formatTechOSStatusLabel(status?: string | null) {
+    const normalized = normalizeStatus(status);
+    const labels: Record<string, string> = {
+        scheduled: 'Scheduled',
+        on_my_way: 'On My Way',
+        arrived: 'Arrived',
+        in_progress: 'In Progress',
+        estimate_needed: 'Estimate Needed',
+        completed: 'Completed',
+        running_late: 'Running Late',
+        available: 'Available',
+        custom: 'Custom',
+    };
+
+    return labels[normalized] || formatStatus(status);
 }
 
 function formatSource(source?: string | null) {
@@ -3011,6 +3126,9 @@ function isOpenScheduleSlotStatus(status?: string | null) {
         'arrived',
         'in_progress',
         'estimate_needed',
+        'running_late',
+        'available',
+        'custom',
     ].includes(normalized);
 }
 
@@ -3511,6 +3629,25 @@ const techWorkflowActionButtonStyle = {
 const techWorkflowActionButtonTextStyle = {
     fontSize: 12,
     lineHeight: 16,
+};
+
+const techMoreStatusPanelStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 14,
+    padding: 12,
+};
+
+const techCustomStatusInputStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    fontSize: 14,
+    lineHeight: 19,
+    marginTop: 12,
+    minHeight: 70,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    textAlignVertical: 'top' as const,
 };
 
 const calendarDayListStyle = {
