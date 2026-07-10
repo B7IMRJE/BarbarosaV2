@@ -250,32 +250,32 @@ export default function TechOSScreen() {
         })),
         [assignedScheduleSlots, serviceRequestsById]
     );
-    const todayAssignedScheduleJobs = useMemo(
-        () => assignedScheduleJobs.filter((job) => isActiveTodayScheduleJob(job.slot)),
+    const currentFutureAssignedScheduleJobs = useMemo(
+        () => assignedScheduleJobs.filter((job) => isCurrentFutureActiveScheduleJob(job.slot)),
         [assignedScheduleJobs]
+    );
+    const todayAssignedScheduleJobs = useMemo(
+        () => currentFutureAssignedScheduleJobs.filter((job) => isTodayDate(job.slot.start_at)),
+        [currentFutureAssignedScheduleJobs]
     );
     const futureAssignedScheduleJobs = useMemo(
-        () => assignedScheduleJobs.filter((job) => isFutureScheduleJob(job.slot)),
-        [assignedScheduleJobs]
-    );
-    const activeUpcomingScheduleJobs = useMemo(
-        () => [...todayAssignedScheduleJobs, ...futureAssignedScheduleJobs],
-        [futureAssignedScheduleJobs, todayAssignedScheduleJobs]
+        () => currentFutureAssignedScheduleJobs.filter((job) => isFutureDate(job.slot.start_at)),
+        [currentFutureAssignedScheduleJobs]
     );
     const historyScheduleJobs = useMemo(
         () => assignedScheduleJobs.filter((job) => !isActiveUpcomingScheduleJob(job.slot)),
         [assignedScheduleJobs]
     );
     const assignedOpenScheduleJobs = useMemo(
-        () => assignedScheduleJobs.filter((job) => isOpenJobStatus(job.slot.status || job.request?.status)),
-        [assignedScheduleJobs]
+        () => currentFutureAssignedScheduleJobs.filter((job) => isOpenScheduleSlotStatus(job.slot.status)),
+        [currentFutureAssignedScheduleJobs]
     );
     const assignedPausedScheduleJobs = useMemo(
-        () => assignedScheduleJobs.filter((job) => isPausedJobStatus(job.slot.status || job.request?.status)),
-        [assignedScheduleJobs]
+        () => currentFutureAssignedScheduleJobs.filter((job) => isPausedJobStatus(job.slot.status)),
+        [currentFutureAssignedScheduleJobs]
     );
     const assignedClosedScheduleJobs = useMemo(
-        () => assignedScheduleJobs.filter((job) => isClosedJobStatus(job.slot.status || job.request?.status)),
+        () => assignedScheduleJobs.filter((job) => isClosedJobStatus(job.slot.status)),
         [assignedScheduleJobs]
     );
     const calendarScheduleGroups = useMemo(
@@ -997,7 +997,7 @@ export default function TechOSScreen() {
     const dispatchCompanyId = canOpenDispatch ? activeCompanyId || membership?.company_id || requestedCompanyId : '';
     const dashboardTodayCount = isTechnicianWorkspace ? todayAssignedScheduleJobs.length : 0;
     const dashboardFutureCount = isTechnicianWorkspace ? futureAssignedScheduleJobs.length : 0;
-    const dashboardJobsCount = isTechnicianWorkspace ? activeUpcomingScheduleJobs.length : visibleJobs.length;
+    const dashboardJobsCount = isTechnicianWorkspace ? currentFutureAssignedScheduleJobs.length : visibleJobs.length;
     const dashboardHistoryCount = isTechnicianWorkspace ? historyScheduleJobs.length : closedJobs.length;
     const dashboardOpenCount = isTechnicianWorkspace ? assignedOpenScheduleJobs.length : openJobs.length;
     const dashboardPausedCount = isTechnicianWorkspace ? assignedPausedScheduleJobs.length : pausedJobs.length;
@@ -1076,7 +1076,7 @@ export default function TechOSScreen() {
 
                 {isTechnicianWorkspace ? (
                     <TechOSDashboardContent
-                        activeJobs={activeUpcomingScheduleJobs}
+                        activeJobs={currentFutureAssignedScheduleJobs}
                         activeView={dashboardView}
                         calendarGroups={calendarScheduleGroups}
                         futureJobs={futureAssignedScheduleJobs}
@@ -2908,12 +2908,8 @@ function isFutureDate(value?: string | null) {
     return Boolean(key && todayKey && key > todayKey);
 }
 
-function isActiveTodayScheduleJob(slot: TechScheduleSlot) {
-    return isActiveScheduleSlot(slot.status) && isTodayDate(slot.start_at);
-}
-
-function isFutureScheduleJob(slot: TechScheduleSlot) {
-    return isActiveScheduleSlot(slot.status) && isFutureDate(slot.start_at);
+function isCurrentFutureActiveScheduleJob(slot: TechScheduleSlot) {
+    return isActiveScheduleSlot(slot.status) && (isTodayDate(slot.start_at) || isFutureDate(slot.start_at));
 }
 
 function isActiveUpcomingScheduleJob(slot: TechScheduleSlot) {
@@ -3014,6 +3010,20 @@ function getStartOfToday() {
 function isOpenJobStatus(status?: string | null) {
     const normalized = normalizeStatus(status);
     return !isPausedJobStatus(normalized) && !isClosedJobStatus(normalized);
+}
+
+function isOpenScheduleSlotStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return [
+        'tentative',
+        'scheduled',
+        'dispatched',
+        'on_my_way',
+        'arrived',
+        'in_progress',
+        'estimate_needed',
+    ].includes(normalized);
 }
 
 function isPausedJobStatus(status?: string | null) {
