@@ -17,6 +17,8 @@ import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../li
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
+declare const __DEV__: boolean;
+
 type CompanyUserAccess = {
     id: string;
     company_id: string;
@@ -127,6 +129,21 @@ type TechAssignedScheduleJob = {
     request: TechServiceRequest | null;
 };
 
+type TechOSScheduleDiagnostics = {
+    authUserId: string;
+    authEmail: string;
+    companyId: string;
+    companyUserId: string;
+    role: string | null;
+    status: string | null;
+    queryError: string;
+    rawSlotCount: number;
+    normalizedSlotCount: number;
+    windowStart: string;
+    windowEnd: string;
+    lastLoadedAt: string;
+};
+
 type JobDateGroup = {
     key: string;
     label: string;
@@ -199,12 +216,14 @@ export default function TechOSScreen() {
     const [selectedTechnicianByJob, setSelectedTechnicianByJob] = useState<Record<string, string>>({});
     const [assignmentMessageByJob, setAssignmentMessageByJob] = useState<Record<string, string>>({});
     const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
+    const [authUserId, setAuthUserId] = useState('');
     const [authEmail, setAuthEmail] = useState('');
     const [signingOut, setSigningOut] = useState(false);
     const [selectedAssignedJobId, setSelectedAssignedJobId] = useState('');
     const [workflowStatusBySlotId, setWorkflowStatusBySlotId] = useState<Record<string, string>>({});
     const [workflowMessageBySlotId, setWorkflowMessageBySlotId] = useState<Record<string, string>>({});
     const [updatingWorkflowSlotId, setUpdatingWorkflowSlotId] = useState('');
+    const [scheduleDiagnostics, setScheduleDiagnostics] = useState<TechOSScheduleDiagnostics | null>(null);
     const knownAssignedSlotIdsRef = useRef<Set<string>>(new Set());
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
@@ -340,14 +359,17 @@ export default function TechOSScreen() {
         setSelectedTechnicianByJob({});
         setAssignmentMessageByJob({});
         setAssigningJobId(null);
+        setAuthUserId('');
         setAuthEmail('');
         setSelectedAssignedJobId('');
         setWorkflowStatusBySlotId({});
         setWorkflowMessageBySlotId({});
         setUpdatingWorkflowSlotId('');
+        setScheduleDiagnostics(null);
         knownAssignedSlotIdsRef.current = new Set();
 
         let userId = '';
+        let userEmail = '';
 
         try {
             const {
@@ -367,7 +389,9 @@ export default function TechOSScreen() {
             }
 
             userId = user.id;
-            setAuthEmail(user.email || '');
+            userEmail = user.email || '';
+            setAuthUserId(userId);
+            setAuthEmail(userEmail);
         } catch (error) {
             setCheckingAccess(false);
             setMessage(normalizeServiceErrorMessage(getErrorMessage(error)));
@@ -435,11 +459,24 @@ export default function TechOSScreen() {
         const nextMode: TechOSMode = isTechnicianRole(activeMembership.role) ? 'technician' : 'management-preview';
         setTechOSMode(nextMode);
         setActiveCompanyId(activeMembership.company_id);
+        logTechOSDebug('resolved technician profile', {
+            auth_user_id: userId,
+            auth_email: userEmail,
+            company_user_id: activeMembership.id,
+            company_id: activeMembership.company_id,
+            role: activeMembership.role,
+            status: activeMembership.status,
+            mode: nextMode,
+        });
         if (nextMode === 'technician') {
             await Promise.all([
                 loadCompanyBrand(activeMembership.company_id),
                 loadAssignedScheduleJobs(activeMembership.company_id, activeMembership.id, {
                     announceNewAssignments: false,
+                    authEmail: userEmail,
+                    authUserId: userId,
+                    role: activeMembership.role,
+                    status: activeMembership.status,
                 }),
                 loadAssignedTechnicianJobs(activeMembership.company_id),
             ]);
@@ -458,11 +495,36 @@ export default function TechOSScreen() {
     async function loadAssignedScheduleJobs(
         companyIdToLoad: string,
         technicianCompanyUserId: string,
-        options: { announceNewAssignments?: boolean; subtle?: boolean } = {}
+        options: {
+            announceNewAssignments?: boolean;
+            authEmail?: string;
+            authUserId?: string;
+            role?: string | null;
+            status?: string | null;
+            subtle?: boolean;
+        } = {}
     ) {
+        const diagnosticsContext = {
+            authEmail: options.authEmail ?? authEmail,
+            authUserId: options.authUserId ?? authUserId,
+            companyId: companyIdToLoad,
+            companyUserId: technicianCompanyUserId,
+            role: options.role ?? membership?.role ?? null,
+            status: options.status ?? membership?.status ?? null,
+        };
+
         if (!companyIdToLoad || !technicianCompanyUserId) {
             setAssignedScheduleSlots([]);
             setServiceRequestsById({});
+            setScheduleDiagnostics({
+                ...diagnosticsContext,
+                queryError: 'Missing company id or technician company user id.',
+                rawSlotCount: 0,
+                normalizedSlotCount: 0,
+                windowStart: '',
+                windowEnd: '',
+                lastLoadedAt: new Date().toISOString(),
+            });
             return;
         }
 
@@ -484,15 +546,42 @@ export default function TechOSScreen() {
             .lte('start_at', windowEnd.toISOString())
             .order('start_at', { ascending: true });
 
+        logTechOSDebug('job_schedule_slots query result', {
+            ...diagnosticsContext,
+            error,
+            row_count: Array.isArray(data) ? data.length : 0,
+            window_start: windowStart.toISOString(),
+            window_end: windowEnd.toISOString(),
+        });
+
         if (error) {
+            logTechOSDebug('job_schedule_slots query error', error);
             setAssignedScheduleSlots([]);
             setServiceRequestsById({});
+            setScheduleDiagnostics({
+                ...diagnosticsContext,
+                queryError: error.message,
+                rawSlotCount: 0,
+                normalizedSlotCount: 0,
+                windowStart: windowStart.toISOString(),
+                windowEnd: windowEnd.toISOString(),
+                lastLoadedAt: new Date().toISOString(),
+            });
             setScheduleMessage(`Could not load assigned jobs: ${normalizeServiceErrorMessage(error.message)}`);
             setScheduleLoading(false);
             return;
         }
 
         const nextSlots = normalizeScheduleSlots(data);
+        setScheduleDiagnostics({
+            ...diagnosticsContext,
+            queryError: '',
+            rawSlotCount: Array.isArray(data) ? data.length : 0,
+            normalizedSlotCount: nextSlots.length,
+            windowStart: windowStart.toISOString(),
+            windowEnd: windowEnd.toISOString(),
+            lastLoadedAt: new Date().toISOString(),
+        });
         const previousSlotIds = knownAssignedSlotIdsRef.current;
         const nextSlotIds = new Set(nextSlots.map((slot) => slot.id));
         const hasNewSlot = options.announceNewAssignments &&
@@ -999,6 +1088,7 @@ export default function TechOSScreen() {
                         }}
                         loading={scheduleLoading}
                         message={scheduleMessage}
+                        scheduleDiagnostics={scheduleDiagnostics}
                         selectedJob={selectedAssignedJob}
                         todayJobs={todayAssignedScheduleJobs}
                         onRefresh={() => {
@@ -1435,6 +1525,7 @@ function TechOSDashboardContent({
     jobStats,
     loading,
     message,
+    scheduleDiagnostics,
     selectedJob,
     todayJobs,
     onRefresh,
@@ -1454,6 +1545,7 @@ function TechOSDashboardContent({
     jobStats: { closed: number; open: number; paused: number };
     loading: boolean;
     message: string;
+    scheduleDiagnostics: TechOSScheduleDiagnostics | null;
     selectedJob: TechAssignedScheduleJob | null;
     todayJobs: TechAssignedScheduleJob[];
     onRefresh: () => void;
@@ -1486,6 +1578,7 @@ function TechOSDashboardContent({
                 jobStats={jobStats}
                 loading={loading}
                 message={message}
+                scheduleDiagnostics={scheduleDiagnostics}
                 selectedJob={selectedJob}
                 onRefresh={onRefresh}
                 onCloseDetails={onCloseDetails}
@@ -1571,6 +1664,7 @@ function TechOSDashboardContent({
             jobStats={jobStats}
             loading={loading}
             message={message}
+            scheduleDiagnostics={scheduleDiagnostics}
             onRefresh={onRefresh}
             onOpenDetails={onOpenDetails}
             title="Jobs"
@@ -1613,6 +1707,7 @@ function AssignedScheduleJobsSection({
     jobStats,
     loading,
     message,
+    scheduleDiagnostics,
     selectedJob,
     todayJobs,
     onRefresh,
@@ -1632,6 +1727,7 @@ function AssignedScheduleJobsSection({
     jobStats?: { closed: number; open: number; paused: number };
     loading: boolean;
     message: string;
+    scheduleDiagnostics?: TechOSScheduleDiagnostics | null;
     selectedJob?: TechAssignedScheduleJob | null;
     todayJobs?: TechAssignedScheduleJob[];
     onRefresh: () => void;
@@ -1698,11 +1794,20 @@ function AssignedScheduleJobsSection({
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Checking assigned jobs...</Text>
                 </View>
             ) : visibleJobCount === 0 ? (
-                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
-                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>{emptyTitle}</Text>
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        {emptyMessage}
-                    </Text>
+                <View>
+                    <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                        <Text style={[clientNameStyle, { color: theme.colors.text }]}>{emptyTitle}</Text>
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                            {emptyMessage}
+                        </Text>
+                    </View>
+                    {isTechOSDevelopment() && !!scheduleDiagnostics && (
+                        <TechOSScheduleDebugNote
+                            diagnostics={scheduleDiagnostics}
+                            todayCount={todayJobs?.length || 0}
+                            upcomingCount={futureJobs?.length || 0}
+                        />
+                    )}
                 </View>
             ) : shouldShowTodayAndFuture ? (
                 <View style={calendarDayListStyle}>
@@ -1756,6 +1861,38 @@ function AssignedScheduleJobGroup({
                     <AssignedScheduleJobCard key={job.slot.id} job={job} onOpenDetails={onOpenDetails} />
                 ))}
             </View>
+        </View>
+    );
+}
+
+function TechOSScheduleDebugNote({
+    diagnostics,
+    todayCount,
+    upcomingCount,
+}: {
+    diagnostics: TechOSScheduleDiagnostics;
+    todayCount: number;
+    upcomingCount: number;
+}) {
+    const { theme } = useTheme();
+    const rows = [
+        `auth_user=${shortId(diagnostics.authUserId)} email=${diagnostics.authEmail || 'unknown'}`,
+        `company_id=${shortId(diagnostics.companyId)} company_user_id=${shortId(diagnostics.companyUserId)}`,
+        `role=${formatLabel(diagnostics.role)} status=${formatStatus(diagnostics.status)}`,
+        `query_error=${diagnostics.queryError || 'none'}`,
+        `raw_slots=${diagnostics.rawSlotCount} normalized_slots=${diagnostics.normalizedSlotCount}`,
+        `today_jobs=${todayCount} upcoming_jobs=${upcomingCount}`,
+        `window=${formatDateTime(diagnostics.windowStart)} -> ${formatDateTime(diagnostics.windowEnd)}`,
+    ];
+
+    return (
+        <View style={[techScheduleDebugNoteStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+            <Text style={[jobNumberStyle, { color: theme.colors.mutedText }]}>TechOS schedule debug</Text>
+            {rows.map((row) => (
+                <Text key={row} style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    {row}
+                </Text>
+            ))}
         </View>
     );
 }
@@ -2754,6 +2891,16 @@ function isTodayDate(value?: string | null) {
     return Boolean(key && key === getDateKey(new Date().toISOString()));
 }
 
+function isTechOSDevelopment() {
+    return typeof __DEV__ !== 'undefined' && __DEV__;
+}
+
+function logTechOSDebug(label: string, payload: unknown) {
+    if (!isTechOSDevelopment()) return;
+
+    console.log(`[techos-debug] ${label}`, payload);
+}
+
 function isFutureDate(value?: string | null) {
     const key = getDateKey(value);
     const todayKey = getDateKey(new Date().toISOString());
@@ -3267,6 +3414,13 @@ const assignedJobActionButtonStyle = {
     marginTop: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
+};
+
+const techScheduleDebugNoteStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 10,
+    padding: 12,
 };
 
 const assignedJobTopRowStyle = {
