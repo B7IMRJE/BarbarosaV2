@@ -127,6 +127,7 @@ type TechServiceRequest = {
 type TechAssignedScheduleJob = {
     slot: TechScheduleSlot;
     request: TechServiceRequest | null;
+    property: PropertyRecord | null;
 };
 
 type TechOSScheduleDiagnostics = {
@@ -244,11 +245,13 @@ export default function TechOSScreen() {
     const closedJobs = useMemo(() => visibleJobs.filter((job) => isClosedJobStatus(job.status)), [visibleJobs]);
     const groupedJobSections = useMemo(() => groupJobsByDate(visibleJobs), [visibleJobs]);
     const assignedScheduleJobs = useMemo(
-        () => assignedScheduleSlots.map((slot) => ({
-            slot,
-            request: slot.service_request_id ? serviceRequestsById[slot.service_request_id] || null : null,
-        })),
-        [assignedScheduleSlots, serviceRequestsById]
+        () => assignedScheduleSlots.map((slot) => {
+            const request = slot.service_request_id ? serviceRequestsById[slot.service_request_id] || null : null;
+            const property = request?.property_id ? propertiesById[request.property_id] || null : null;
+
+            return { slot, request, property };
+        }),
+        [assignedScheduleSlots, propertiesById, serviceRequestsById]
     );
     const currentFutureAssignedScheduleJobs = useMemo(
         () => assignedScheduleJobs.filter((job) => isCurrentFutureActiveScheduleJob(job.slot)),
@@ -882,7 +885,6 @@ export default function TechOSScreen() {
 
     function handleOpenAssignedJobDetails(job: TechAssignedScheduleJob) {
         setSelectedAssignedJobId(job.slot.id);
-        setDashboardView('jobs');
     }
 
     function handleCloseAssignedJobDetails() {
@@ -1068,7 +1070,10 @@ export default function TechOSScreen() {
                     activeView={dashboardView}
                     historyCount={dashboardHistoryCount}
                     jobsCount={dashboardJobsCount}
-                    onSelectView={setDashboardView}
+                    onSelectView={(view) => {
+                        setSelectedAssignedJobId('');
+                        setDashboardView(view);
+                    }}
                     scheduleCount={calendarScheduleGroups.length}
                     todayCount={dashboardTodayCount}
                     upcomingCount={dashboardFutureCount}
@@ -1557,6 +1562,21 @@ function TechOSDashboardContent({
     workflowMessageBySlotId: Record<string, string>;
     workflowStatusBySlotId: Record<string, string>;
 }) {
+    if (selectedJob) {
+        return (
+            <TechOSAssignedJobDetail
+                backLabel={getAssignedJobDetailBackLabel(activeView)}
+                job={selectedJob}
+                message={workflowMessageBySlotId[selectedJob.slot.id] || ''}
+                onBack={onCloseDetails}
+                onOpenFullJob={onOpenFullJob}
+                onRunWorkflowAction={onRunWorkflowAction}
+                updating={updatingWorkflowSlotId === selectedJob.slot.id}
+                workflowStatus={workflowStatusBySlotId[selectedJob.slot.id] || selectedJob.slot.status || selectedJob.request?.status || 'scheduled'}
+            />
+        );
+    }
+
     if (activeView === 'schedule') {
         return (
             <TechOSCalendarView
@@ -1579,18 +1599,11 @@ function TechOSDashboardContent({
                 loading={loading}
                 message={message}
                 scheduleDiagnostics={scheduleDiagnostics}
-                selectedJob={selectedJob}
                 onRefresh={onRefresh}
-                onCloseDetails={onCloseDetails}
                 onOpenDetails={onOpenDetails}
-                onOpenFullJob={onOpenFullJob}
-                onRunWorkflowAction={onRunWorkflowAction}
                 title="Assigned Jobs"
                 todayJobs={todayJobs}
                 futureJobs={futureJobs}
-                updatingWorkflowSlotId={updatingWorkflowSlotId}
-                workflowMessageBySlotId={workflowMessageBySlotId}
-                workflowStatusBySlotId={workflowStatusBySlotId}
             />
         );
     }
@@ -1688,6 +1701,13 @@ function TechOSModulePlaceholder({ title, message }: { title: string; message: s
     );
 }
 
+function getAssignedJobDetailBackLabel(view: TechDashboardView) {
+    if (view === 'schedule') return 'Back to Schedule';
+    if (view === 'history') return 'Back to History';
+
+    return 'Back to Jobs';
+}
+
 function TechJobCounter({ label, value }: { label: string; value: number }) {
     const { theme } = useTheme();
 
@@ -1708,17 +1728,10 @@ function AssignedScheduleJobsSection({
     loading,
     message,
     scheduleDiagnostics,
-    selectedJob,
     todayJobs,
     onRefresh,
-    onCloseDetails,
     onOpenDetails,
-    onOpenFullJob,
-    onRunWorkflowAction,
     title,
-    updatingWorkflowSlotId,
-    workflowMessageBySlotId,
-    workflowStatusBySlotId,
 }: {
     emptyMessage: string;
     emptyTitle: string;
@@ -1728,17 +1741,10 @@ function AssignedScheduleJobsSection({
     loading: boolean;
     message: string;
     scheduleDiagnostics?: TechOSScheduleDiagnostics | null;
-    selectedJob?: TechAssignedScheduleJob | null;
     todayJobs?: TechAssignedScheduleJob[];
     onRefresh: () => void;
-    onCloseDetails?: () => void;
     onOpenDetails?: (job: TechAssignedScheduleJob) => void;
-    onOpenFullJob?: (job: TechAssignedScheduleJob) => void;
-    onRunWorkflowAction?: (job: TechAssignedScheduleJob, action: TechWorkflowAction) => void;
     title: string;
-    updatingWorkflowSlotId?: string;
-    workflowMessageBySlotId?: Record<string, string>;
-    workflowStatusBySlotId?: Record<string, string>;
 }) {
     const { theme } = useTheme();
     const shouldShowTodayAndFuture = Boolean(todayJobs || futureJobs);
@@ -1775,18 +1781,6 @@ function AssignedScheduleJobsSection({
                     <TechJobCounter label="Paused Jobs" value={jobStats.paused} />
                     <TechJobCounter label="Closed Jobs" value={jobStats.closed} />
                 </View>
-            )}
-
-            {!!selectedJob && onCloseDetails && onOpenFullJob && onRunWorkflowAction && (
-                <TechOSAssignedJobDetail
-                    job={selectedJob}
-                    message={workflowMessageBySlotId?.[selectedJob.slot.id] || ''}
-                    onBack={onCloseDetails}
-                    onOpenFullJob={onOpenFullJob}
-                    onRunWorkflowAction={onRunWorkflowAction}
-                    updating={updatingWorkflowSlotId === selectedJob.slot.id}
-                    workflowStatus={workflowStatusBySlotId?.[selectedJob.slot.id] || selectedJob.slot.status || selectedJob.request?.status || 'scheduled'}
-                />
             )}
 
             {loading && visibleJobCount === 0 ? (
@@ -2014,11 +2008,6 @@ function AssignedScheduleJobCard({
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Priority: {formatLabel(job.slot.priority || job.request?.priority || 'normal')}
             </Text>
-            {!job.slot.job_id && (
-                <Text style={[jobWorkflowHintStyle, { color: theme.colors.mutedText }]}>
-                    Full job route opens after this request is converted to a TechOS job.
-                </Text>
-            )}
             {!!onOpenDetails && (
                 <ThemedButton
                     title="Open Details"
@@ -2032,6 +2021,7 @@ function AssignedScheduleJobCard({
 }
 
 function TechOSAssignedJobDetail({
+    backLabel,
     job,
     message,
     onBack,
@@ -2040,6 +2030,7 @@ function TechOSAssignedJobDetail({
     updating,
     workflowStatus,
 }: {
+    backLabel: string;
     job: TechAssignedScheduleJob;
     message: string;
     onBack: () => void;
@@ -2063,7 +2054,7 @@ function TechOSAssignedJobDetail({
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{formatScheduleRange(job.slot)}</Text>
                 </View>
                 <ThemedButton
-                    title="Back to Jobs"
+                    title={backLabel}
                     variant="secondary"
                     onPress={onBack}
                     style={techJobDetailBackButtonStyle}
@@ -2110,12 +2101,6 @@ function TechOSAssignedJobDetail({
                     onPress={() => onOpenFullJob(job)}
                     style={assignedJobActionButtonStyle}
                 />
-            )}
-
-            {!job.slot.job_id && (
-                <Text style={[jobWorkflowHintStyle, { color: theme.colors.mutedText }]}>
-                    Full job route is not connected for this request yet. Use these field actions to update the assigned schedule status.
-                </Text>
             )}
 
             {!!message && (
@@ -2939,6 +2924,9 @@ function getAssignedJobTitle(job: TechAssignedScheduleJob) {
 }
 
 function getAssignedJobLocation(job: TechAssignedScheduleJob) {
+    if (job.property?.name) return job.property.name;
+    const propertyAddress = formatAddress(job.property || undefined);
+    if (propertyAddress) return propertyAddress;
     if (job.request?.property_id) return 'Customer home';
     if (job.slot.service_request_id) return 'Assigned request';
 
@@ -3439,13 +3427,6 @@ const assignedJobTopRowStyle = {
     gap: 8,
     justifyContent: 'space-between' as const,
     marginBottom: 10,
-};
-
-const jobWorkflowHintStyle = {
-    fontSize: 12,
-    fontWeight: '800' as const,
-    lineHeight: 17,
-    marginTop: 10,
 };
 
 const techJobDetailStyle = {
