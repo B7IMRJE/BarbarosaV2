@@ -279,8 +279,8 @@ export default function TechOSScreen() {
         [assignedScheduleJobs]
     );
     const calendarScheduleGroups = useMemo(
-        () => groupAssignedScheduleJobsByDate(assignedScheduleJobs),
-        [assignedScheduleJobs]
+        () => groupAssignedScheduleJobsByDate(currentFutureAssignedScheduleJobs),
+        [currentFutureAssignedScheduleJobs]
     );
     const selectedAssignedJob = useMemo(
         () => assignedScheduleJobs.find((job) => job.slot.id === selectedAssignedJobId) || null,
@@ -1918,7 +1918,7 @@ function TechOSCalendarView({
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>Schedule</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Simple day view for assigned work.
+                        Today and upcoming work assigned to your technician profile.
                     </Text>
                 </View>
                 <ThemedButton
@@ -1940,7 +1940,7 @@ function TechOSCalendarView({
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                     <Text style={[clientNameStyle, { color: theme.colors.text }]}>No scheduled work yet</Text>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        Scheduled assignments will appear here by day.
+                        Scheduled jobs appear here when Dispatch assigns work to your technician profile.
                     </Text>
                 </View>
             ) : (
