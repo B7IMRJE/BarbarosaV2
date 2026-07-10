@@ -162,6 +162,7 @@ export default function DispatchBoardScreen() {
     const [authDebug, setAuthDebug] = useState<DispatchAuthDebug | null>(null);
     const [actionRequestId, setActionRequestId] = useState<string | null>(null);
     const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
+    const [companyUsers, setCompanyUsers] = useState<CompanyUser[]>([]);
     const [activeTechnicians, setActiveTechnicians] = useState<CompanyUser[]>([]);
     const [scheduleFormByRequestId, setScheduleFormByRequestId] = useState<Record<string, ScheduleRequestForm>>({});
     const [requestActionMessageById, setRequestActionMessageById] = useState<Record<string, string>>({});
@@ -191,11 +192,11 @@ export default function DispatchBoardScreen() {
             dispatchRefreshInFlight.current = true;
 
             try {
-                await Promise.all([
+                const [loadedRequests] = await Promise.all([
                     loadDispatchRequests(companyIdToRefresh),
                     loadActiveTechnicians(companyIdToRefresh),
-                    loadScheduleSlots(companyIdToRefresh),
                 ]);
+                await loadScheduleSlots(companyIdToRefresh, loadedRequests);
             } finally {
                 dispatchRefreshInFlight.current = false;
             }
@@ -259,6 +260,7 @@ export default function DispatchBoardScreen() {
         setScheduleSlotsMessage('');
         setRpcStatusMessage('');
         setAuthDebug(null);
+        setCompanyUsers([]);
         setActiveTechnicians([]);
         setScheduleFormByRequestId({});
         setRequestActionMessageById({});
@@ -337,9 +339,9 @@ export default function DispatchBoardScreen() {
         await Promise.all([
             loadCompany(access.company_id),
             loadActiveTechnicians(access.company_id),
-            loadDispatchRequests(access.company_id),
-            loadScheduleSlots(access.company_id),
         ]);
+        const loadedRequests = await loadDispatchRequests(access.company_id);
+        await loadScheduleSlots(access.company_id, loadedRequests);
         setLoading(false);
     }
 
@@ -353,7 +355,7 @@ export default function DispatchBoardScreen() {
         setCompany((data || null) as CompanyBrand | null);
     }
 
-    async function loadDispatchRequests(companyIdToLoad: string) {
+    async function loadDispatchRequests(companyIdToLoad: string): Promise<DispatchRequest[]> {
         try {
             const loadedRequests = await getCompanyDispatchRequests(companyIdToLoad);
 
@@ -367,6 +369,7 @@ export default function DispatchBoardScreen() {
             );
             setMessage(loadedRequests.length === 0 ? 'No requests returned by dispatch RPC for this company.' : '');
             await loadRequestEvents(loadedRequests);
+            return loadedRequests;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             setRequests([]);
@@ -374,7 +377,7 @@ export default function DispatchBoardScreen() {
             setLeadCountError('Lead count unavailable.');
             setRpcStatusMessage(`get_company_dispatch_requests RPC error: ${errorMessage}`);
             setMessage(`Could not load dispatch requests: ${errorMessage}`);
-            return;
+            return [];
         }
     }
 
@@ -387,33 +390,47 @@ export default function DispatchBoardScreen() {
             return;
         }
 
-        setActiveTechnicians(
-            result.data.filter((member) => isActiveStatus(member.status) && isTechnicianRole(member.role))
-        );
+        setCompanyUsers(result.data);
+        setActiveTechnicians(result.data.filter((member) => isActiveStatus(member.status) && isTechnicianRole(member.role)));
     }
 
-    async function loadScheduleSlots(companyIdToLoad: string) {
+    async function loadScheduleSlots(companyIdToLoad: string, requestScope: DispatchRequest[] = requests) {
         const windowStart = new Date();
         const windowEnd = new Date();
         windowStart.setDate(windowStart.getDate() - 30);
-        windowEnd.setDate(windowEnd.getDate() + 30);
+        windowEnd.setDate(windowEnd.getDate() + 60);
 
-        const { data, error } = await supabase
+        const windowResult = await supabase
             .from('job_schedule_slots')
             .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status, priority, tech_status_note, updated_at')
             .eq('company_id', companyIdToLoad)
             .gte('start_at', windowStart.toISOString())
             .lte('start_at', windowEnd.toISOString())
             .order('start_at', { ascending: true });
+        const requestIds = Array.from(new Set(requestScope.map((request) => request.id).filter(Boolean)));
+        const requestResult = requestIds.length > 0
+            ? await supabase
+                .from('job_schedule_slots')
+                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status, priority, tech_status_note, updated_at')
+                .eq('company_id', companyIdToLoad)
+                .in('service_request_id', requestIds)
+                .order('start_at', { ascending: true })
+            : { data: [], error: null };
 
-        if (error) {
+        if (windowResult.error && requestResult.error) {
             setScheduleSlots([]);
-            setScheduleSlotsMessage(`Schedule conflict check unavailable: ${error.message}`);
+            setScheduleSlotsMessage(`Schedule assignments unavailable: ${windowResult.error.message}; ${requestResult.error.message}`);
             return;
         }
 
-        setScheduleSlots(normalizeScheduleSlots(data));
-        setScheduleSlotsMessage('');
+        const windowSlots = normalizeScheduleSlots(windowResult.data);
+        const requestSlots = normalizeScheduleSlots(requestResult.data);
+        setScheduleSlots(sortScheduleSlots(mergeScheduleSlots(windowSlots, requestSlots)));
+        setScheduleSlotsMessage(
+            windowResult.error || requestResult.error
+                ? `Some schedule assignments could not load: ${windowResult.error?.message || requestResult.error?.message || 'unknown error'}`
+                : ''
+        );
     }
 
     async function loadRequestEvents(loadedRequests: DispatchRequest[]) {
@@ -491,7 +508,8 @@ export default function DispatchBoardScreen() {
                 status: 'acknowledged',
             }),
         });
-        await loadDispatchRequests(request.company_id);
+        const loadedRequests = await loadDispatchRequests(request.company_id);
+        await loadScheduleSlots(request.company_id, loadedRequests);
         setActionRequestId(null);
         setMessage('Request acknowledged.');
     }
@@ -617,8 +635,11 @@ export default function DispatchBoardScreen() {
             if (conflict) {
                 setRequestActionMessageById((current) => ({
                     ...current,
-                    [request.id]: `Schedule conflict: ${selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'This technician'} is already booked from ${formatScheduleConflictRange(conflict)}.`,
+                    [request.id]: conflict.service_request_id === request.id
+                        ? `This request is already scheduled with ${selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'this technician'} from ${formatScheduleConflictRange(conflict)}.`
+                        : formatScheduleConflictMessage(conflict, selectedTechnician),
                 }));
+                await loadScheduleSlots(activeCompanyId, requests);
                 setActionRequestId(null);
                 return;
             }
@@ -707,10 +728,8 @@ export default function DispatchBoardScreen() {
                 arrival_window_hours: arrivalWindowHours,
             }),
         });
-        await Promise.all([
-            loadDispatchRequests(activeCompanyId),
-            loadScheduleSlots(activeCompanyId),
-        ]);
+        const loadedRequests = await loadDispatchRequests(activeCompanyId);
+        await loadScheduleSlots(activeCompanyId, loadedRequests);
     }
 
     async function handleCancelRequest(request: DispatchRequest) {
@@ -744,7 +763,8 @@ export default function DispatchBoardScreen() {
                 }),
             });
             setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request cancelled.' }));
-            await loadDispatchRequests(request.company_id);
+            const loadedRequests = await loadDispatchRequests(request.company_id);
+            await loadScheduleSlots(request.company_id, loadedRequests);
         } catch (error) {
             setRequestActionMessageById((current) => ({
                 ...current,
@@ -786,7 +806,8 @@ export default function DispatchBoardScreen() {
                 }),
             });
             setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request archived.' }));
-            await loadDispatchRequests(request.company_id);
+            const loadedRequests = await loadDispatchRequests(request.company_id);
+            await loadScheduleSlots(request.company_id, loadedRequests);
         } catch (error) {
             setRequestActionMessageById((current) => ({
                 ...current,
@@ -895,6 +916,7 @@ export default function DispatchBoardScreen() {
                             onToggleRequest={toggleExpandedRequest}
                             onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
+                            companyUsers={companyUsers}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
                             requestActionMessageById={requestActionMessageById}
@@ -916,6 +938,7 @@ export default function DispatchBoardScreen() {
                             onToggleRequest={toggleExpandedRequest}
                             onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
+                            companyUsers={companyUsers}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
                             requestActionMessageById={requestActionMessageById}
@@ -937,6 +960,7 @@ export default function DispatchBoardScreen() {
                             onToggleRequest={toggleExpandedRequest}
                             onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
+                            companyUsers={companyUsers}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
                             requestActionMessageById={requestActionMessageById}
@@ -958,6 +982,7 @@ export default function DispatchBoardScreen() {
                             onToggleRequest={toggleExpandedRequest}
                             onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
+                            companyUsers={companyUsers}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
                             requestActionMessageById={requestActionMessageById}
@@ -979,6 +1004,7 @@ export default function DispatchBoardScreen() {
                             onToggleRequest={toggleExpandedRequest}
                             onCollapseRequest={collapseExpandedRequest}
                             onAcknowledge={handleAcknowledge}
+                            companyUsers={companyUsers}
                             activeTechnicians={activeTechnicians}
                             scheduleFormByRequestId={scheduleFormByRequestId}
                             requestActionMessageById={requestActionMessageById}
@@ -1007,6 +1033,7 @@ function DispatchSection({
     onToggleRequest,
     onCollapseRequest,
     onAcknowledge,
+    companyUsers,
     activeTechnicians,
     scheduleFormByRequestId,
     requestActionMessageById,
@@ -1027,6 +1054,7 @@ function DispatchSection({
     onToggleRequest: (requestId: string) => void;
     onCollapseRequest: () => void;
     onAcknowledge: (request: DispatchRequest) => void;
+    companyUsers: CompanyUser[];
     activeTechnicians: CompanyUser[];
     scheduleFormByRequestId: Record<string, ScheduleRequestForm>;
     requestActionMessageById: Record<string, string>;
@@ -1070,6 +1098,7 @@ function DispatchSection({
                             onToggle={() => onToggleRequest(request.id)}
                             onCollapse={onCollapseRequest}
                             onAcknowledge={onAcknowledge}
+                            companyUsers={companyUsers}
                             activeTechnicians={activeTechnicians}
                             scheduleForm={scheduleFormByRequestId[request.id] || createDefaultScheduleForm()}
                             actionMessage={requestActionMessageById[request.id] || ''}
@@ -1382,6 +1411,7 @@ function DispatchRequestCard({
     onToggle,
     onCollapse,
     onAcknowledge,
+    companyUsers,
     activeTechnicians,
     scheduleForm,
     actionMessage,
@@ -1400,6 +1430,7 @@ function DispatchRequestCard({
     onToggle: () => void;
     onCollapse: () => void;
     onAcknowledge: (request: DispatchRequest) => void;
+    companyUsers: CompanyUser[];
     activeTechnicians: CompanyUser[];
     scheduleForm: ScheduleRequestForm;
     actionMessage: string;
@@ -1413,10 +1444,17 @@ function DispatchRequestCard({
     const latestUpdateRequest = events.find((event) => normalizeStatus(event.event_type) === 'update_requested');
     const displayName = request.customer_display_name || request.property_display_name || 'Homeowner';
     const selectedTechnician = activeTechnicians.find((technician) => technician.id === scheduleForm.technicianCompanyUserId) || null;
-    const currentScheduleSlot = getCurrentRequestScheduleSlot(scheduleSlots);
+    const currentScheduleSlot = getCurrentRequestScheduleSlot(scheduleSlots, request);
     const assignedTechnician = currentScheduleSlot
-        ? activeTechnicians.find((technician) => technician.id === currentScheduleSlot.technician_company_user_id) || null
+        ? companyUsers.find((member) => member.id === currentScheduleSlot.technician_company_user_id) ||
+            activeTechnicians.find((technician) => technician.id === currentScheduleSlot.technician_company_user_id) ||
+            null
         : selectedTechnician;
+    const assignedTechnicianLabel = assignedTechnician
+        ? getMemberDisplayName(assignedTechnician)
+        : currentScheduleSlot
+        ? `Company user ${shortId(currentScheduleSlot.technician_company_user_id)}`
+        : 'Not assigned';
     const technicianSearch = normalizeStatus(scheduleForm.technicianSearch);
     const visibleTechnicians = activeTechnicians.filter((technician) => {
         if (!technicianSearch) return true;
@@ -1466,7 +1504,7 @@ function DispatchRequestCard({
                 Priority: {formatLabel(request.priority)}
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Assigned tech: {assignedTechnician ? getMemberDisplayName(assignedTechnician) : 'Not assigned'}
+                Assigned tech: {assignedTechnicianLabel}
             </Text>
             {!!currentScheduleSlot && (
                 <View style={[techStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
@@ -2018,6 +2056,17 @@ function mergeScheduleSlots(currentSlots: ScheduleSlot[], freshSlots: ScheduleSl
     return Array.from(byId.values());
 }
 
+function sortScheduleSlots(slots: ScheduleSlot[]) {
+    return [...slots].sort((first, second) => {
+        const firstStart = getSortableTime(first.start_at);
+        const secondStart = getSortableTime(second.start_at);
+
+        if (firstStart !== secondStart) return firstStart - secondStart;
+
+        return getSortableTime(second.updated_at) - getSortableTime(first.updated_at);
+    });
+}
+
 function findScheduleConflict(
     slots: ScheduleSlot[],
     companyId: string,
@@ -2050,6 +2099,13 @@ function isActiveScheduleSlot(slot: ScheduleSlot) {
 
 function formatScheduleConflictRange(slot: ScheduleSlot) {
     return `${formatDateTime(slot.start_at)} to ${formatTime(slot.end_at)}`;
+}
+
+function formatScheduleConflictMessage(slot: ScheduleSlot, technician: CompanyUser | null) {
+    const technicianName = technician ? getMemberDisplayName(technician) : 'This technician';
+    const requestLabel = slot.service_request_id ? ` Request #${shortId(slot.service_request_id)}.` : '';
+
+    return `Schedule conflict: ${technicianName} is already booked from ${formatScheduleConflictRange(slot)}.${requestLabel} Status: ${formatTechOSStatusLabel(slot.status)}.`;
 }
 
 async function updateRequestClosedStatus({
@@ -2615,15 +2671,45 @@ function formatDateTime(value?: string | null) {
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
 }
 
-function getCurrentRequestScheduleSlot(slots: ScheduleSlot[]) {
+function getCurrentRequestScheduleSlot(slots: ScheduleSlot[], request: DispatchRequest) {
     if (slots.length === 0) return null;
+    const activeSlots = slots.filter(isActiveScheduleSlot);
+    const currentFutureSlots = activeSlots.filter(isCurrentOrFutureScheduleSlot);
 
-    return [...slots].sort((first, second) => {
-        const firstUpdated = getSortableTime(first.updated_at) || getSortableTime(first.start_at);
-        const secondUpdated = getSortableTime(second.updated_at) || getSortableTime(second.start_at);
+    if (currentFutureSlots.length > 0) {
+        return sortScheduleSlots(currentFutureSlots)[0] || null;
+    }
 
-        return secondUpdated - firstUpdated;
-    })[0] || null;
+    if (isCompletedStatus(request.status) || ['cancelled', 'canceled', 'archived'].includes(normalizeStatus(request.status))) {
+        return [...slots].sort((first, second) => {
+            const firstUpdated = getSortableTime(first.updated_at) || getSortableTime(first.start_at);
+            const secondUpdated = getSortableTime(second.updated_at) || getSortableTime(second.start_at);
+
+            return secondUpdated - firstUpdated;
+        })[0] || null;
+    }
+
+    return activeSlots.length > 0
+        ? [...activeSlots].sort((first, second) => {
+            const firstUpdated = getSortableTime(first.updated_at) || getSortableTime(first.start_at);
+            const secondUpdated = getSortableTime(second.updated_at) || getSortableTime(second.start_at);
+
+            return secondUpdated - firstUpdated;
+        })[0] || null
+        : null;
+}
+
+function isCurrentOrFutureScheduleSlot(slot: ScheduleSlot) {
+    const endTime = getSortableTime(slot.end_at);
+    const startTime = getSortableTime(slot.start_at);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartTime = todayStart.getTime();
+
+    if (endTime) return endTime >= todayStartTime;
+    if (startTime) return startTime >= todayStartTime;
+
+    return true;
 }
 
 function getSortableTime(value?: string | null) {
