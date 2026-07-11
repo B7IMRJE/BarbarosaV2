@@ -1,4 +1,5 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useMemo } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -7,9 +8,11 @@ import { useTheme } from '../../theme/useTheme';
 
 export default function OnboardingThemeScreen() {
     const { scaleFont, scaleIcon, setThemeName, theme, themeName } = useTheme();
+    const params = useLocalSearchParams<{ next?: string | string[] }>();
+    const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
 
     function continueSetup() {
-        router.replace('/onboarding/base-home-wizard' as never);
+        router.replace(buildBaseHomeWizardRoute(nextRoute) as never);
     }
 
     return (
@@ -141,6 +144,32 @@ export default function OnboardingThemeScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function firstParam(value: string | string[] | undefined) {
+    return Array.isArray(value) ? value[0] : value;
+}
+
+function resolveSafeNext(value: string | undefined) {
+    if (!value) return null;
+
+    try {
+        const parsed = new URL(value, 'https://app.local');
+
+        if (parsed.pathname === '/customer-invite' && parsed.searchParams.get('code')?.trim()) {
+            return `${parsed.pathname}${parsed.search}`;
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
+}
+
+function buildBaseHomeWizardRoute(nextRoute: string | null) {
+    if (!nextRoute) return '/onboarding/base-home-wizard';
+
+    return `/onboarding/base-home-wizard?next=${encodeURIComponent(nextRoute)}`;
 }
 
 function ThemeSwatches({ option }: { option: HomeOSTheme }) {

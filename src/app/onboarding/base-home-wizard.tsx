@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -53,6 +53,8 @@ const yesNoNotSureOptions: { value: YesNoNotSure; label: string }[] = [
 
 export default function BaseHomeWizardScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const params = useLocalSearchParams<{ next?: string | string[] }>();
+    const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
     const [bathrooms, setBathrooms] = useState<BathroomCount>('2');
     const [hasKitchen, setHasKitchen] = useState<YesNo>('yes');
     const [hasLaundry, setHasLaundry] = useState<YesNo>('yes');
@@ -191,7 +193,7 @@ export default function BaseHomeWizardScreen() {
             openHomeTimeoutRef.current = null;
         }
 
-        router.replace('/' as never);
+        router.replace((nextRoute || '/') as never);
     }
 
     function scheduleOpenHomeOS() {
@@ -201,7 +203,7 @@ export default function BaseHomeWizardScreen() {
 
         openHomeTimeoutRef.current = setTimeout(() => {
             openHomeTimeoutRef.current = null;
-            router.replace('/' as never);
+            router.replace((nextRoute || '/') as never);
         }, 1000);
     }
 
@@ -310,13 +312,13 @@ export default function BaseHomeWizardScreen() {
                     />
                     {completed && (
                         <ThemedButton
-                            title="Open HomeOS"
+                            title={nextRoute ? 'Continue Invitation' : 'Open HomeOS'}
                             variant="secondary"
                             onPress={openHomeOS}
                         />
                     )}
                     <ThemedButton
-                        title="Skip for Now"
+                        title={nextRoute ? 'Skip Starter Profile For Now' : 'Skip for Now'}
                         variant="secondary"
                         disabled={saving}
                         onPress={openHomeOS}
@@ -339,6 +341,26 @@ export default function BaseHomeWizardScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function firstParam(value: string | string[] | undefined) {
+    return Array.isArray(value) ? value[0] : value;
+}
+
+function resolveSafeNext(value: string | undefined) {
+    if (!value) return null;
+
+    try {
+        const parsed = new URL(value, 'https://app.local');
+
+        if (parsed.pathname === '/customer-invite' && parsed.searchParams.get('code')?.trim()) {
+            return `${parsed.pathname}${parsed.search}`;
+        }
+    } catch {
+        return null;
+    }
+
+    return null;
 }
 
 function QuestionBlock({ title, children }: { title: string; children: React.ReactNode }) {

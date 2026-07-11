@@ -82,7 +82,7 @@ export default function CreateHomeOnboardingScreen() {
                 address: verifiedAddress,
             });
 
-            router.replace((nextRoute || '/onboarding/theme') as never);
+            router.replace(buildThemeRoute(nextRoute) as never);
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'We could not create your home right now. Please try again.');
         } finally {
@@ -220,6 +220,12 @@ function resolveSafeNext(value: string | undefined) {
     }
 
     return null;
+}
+
+function buildThemeRoute(nextRoute: string | null) {
+    if (!nextRoute) return '/onboarding/theme';
+
+    return `/onboarding/theme?next=${encodeURIComponent(nextRoute)}`;
 }
 
 function validateHomeForm({
