@@ -4,6 +4,10 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-nati
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import {
+    clearPendingCompanyInviteState,
+    replacePendingCompanyInviteFromNextPath,
+} from '../lib/companyInviteState';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -57,6 +61,7 @@ export default function CustomerInviteScreen() {
     const [selectedHomeId, setSelectedHomeId] = useState('');
     const [loading, setLoading] = useState(true);
     const [accepting, setAccepting] = useState(false);
+    const [redirectingForInvitedEmail, setRedirectingForInvitedEmail] = useState(false);
     const [message, setMessage] = useState('');
     const [success, setSuccess] = useState(false);
 
@@ -66,7 +71,7 @@ export default function CustomerInviteScreen() {
         !!invite?.invited_email &&
         normalizeEmail(invite.invited_email) !== normalizeEmail(user.email);
     const emailMismatchMessage = emailMismatch
-        ? `This invite was sent to ${invite?.invited_email}. You are signed in as ${user?.email || 'this account'}. Switch accounts to accept this invite.`
+        ? `This invitation was sent to ${invite?.invited_email}. You are signed in as ${user?.email || 'this account'}.`
         : '';
 
     useEffect(() => {
@@ -85,6 +90,7 @@ export default function CustomerInviteScreen() {
         setHomes([]);
         setSelectedHomeId('');
         setSuccess(false);
+        setRedirectingForInvitedEmail(false);
         setMessage('');
 
         const {
@@ -94,7 +100,7 @@ export default function CustomerInviteScreen() {
         setUser(currentUser ? { id: currentUser.id, email: currentUser.email } : null);
 
         if (!inviteCode) {
-            setMessage('The customer invite code is missing. Ask the company for a fresh invite link.');
+            setMessage('The company invitation code is missing. Ask the company for a fresh invite link.');
             setLoading(false);
             return;
         }
@@ -104,7 +110,7 @@ export default function CustomerInviteScreen() {
         });
 
         if (error) {
-            setMessage(`Could not load customer invite: ${formatMissingBackendError(error.message)}`);
+            setMessage(`Could not load company invitation: ${formatHomeownerInviteError(formatMissingBackendError(error.message))}`);
             setLoading(false);
             return;
         }
@@ -112,13 +118,26 @@ export default function CustomerInviteScreen() {
         const loadedInvite = firstRow<CustomerInvite>(data);
 
         if (!loadedInvite) {
-            setMessage('This customer invite link is invalid or no longer available.');
+            clearPendingCompanyInviteState({ inviteCode });
+            setMessage('This company invitation link is invalid or no longer available.');
             setLoading(false);
             return;
         }
 
         setInvite(loadedInvite);
-        setMessage(statusMessage(loadedInvite.status));
+        replacePendingCompanyInviteFromNextPath(nextPath, loadedInvite.invited_email);
+
+        if (isInactiveInvite(loadedInvite)) {
+            clearPendingCompanyInviteState({ inviteCode });
+        }
+
+        setMessage(statusMessage(loadedInvite.status, loadedInvite.expires_at));
+
+        if (currentUser && isWrongSignedInEmail(currentUser.email, loadedInvite.invited_email)) {
+            await continueWithInvitedEmail(loadedInvite.invited_email, true);
+            setLoading(false);
+            return;
+        }
 
         if (currentUser) {
             await loadHomes(currentUser.id);
@@ -163,35 +182,59 @@ export default function CustomerInviteScreen() {
     }
 
     async function switchAccount() {
-        setMessage('Signing out...');
+        await continueWithInvitedEmail(invite?.invited_email, false);
+    }
+
+    async function continueWithInvitedEmail(invitedEmail?: string | null, automatic = false) {
+        const cleanInvitedEmail = normalizeEmail(invitedEmail);
+
+        replacePendingCompanyInviteFromNextPath(nextPath, cleanInvitedEmail);
+        setRedirectingForInvitedEmail(true);
+        setMessage(
+            automatic && cleanInvitedEmail
+                ? `This invitation was sent to ${cleanInvitedEmail}. We signed out the other account so you can continue with the correct email.`
+                : 'Signing out...'
+        );
         await supabase.auth.signOut();
         setUser(null);
         setHomes([]);
         setSelectedHomeId('');
-        setMessage('Signed out. Sign in or create an account to accept this customer invitation.');
-        router.replace(nextPath as never);
+        setMessage(cleanInvitedEmail
+            ? `Continue with ${cleanInvitedEmail} to connect this home with the service company.`
+            : 'Signed out. Sign in or create an account to continue this company invitation.');
+        const loginRoute = {
+            pathname: '/auth/login',
+            params: buildAuthParams(nextPath, cleanInvitedEmail),
+        } as never;
+
+        if (automatic) {
+            setTimeout(() => router.replace(loginRoute), 900);
+            return;
+        }
+
+        router.replace(loginRoute);
     }
 
     async function acceptInvite() {
         if (!inviteCode || accepting) return;
 
         if (!user) {
-            setMessage('Sign in or create an account to accept this customer invitation.');
+            setMessage('Sign in or create an account to continue this company invitation.');
             return;
         }
 
         if (emailMismatch) {
-            setMessage(emailMismatchMessage);
+            await continueWithInvitedEmail(invite?.invited_email, false);
             return;
         }
 
         if (!selectedHomeId) {
-            setMessage('Choose or create a HomeOS home before accepting this invite.');
+            setMessage('Choose or create a HomeOS home before connecting with this service company.');
             return;
         }
 
         if (normalizeStatus(invite?.status) !== 'pending') {
-            setMessage(statusMessage(invite?.status));
+            setMessage(statusMessage(invite?.status, invite?.expires_at));
             return;
         }
 
@@ -206,28 +249,37 @@ export default function CustomerInviteScreen() {
         setAccepting(false);
 
         if (error) {
-            setMessage(`Could not accept customer invite: ${formatMissingBackendError(error.message)}`);
+            setMessage(`Could not accept company invitation: ${formatHomeownerInviteError(formatMissingBackendError(error.message))}`);
             return;
         }
 
         const acceptedInvite = firstRow<AcceptedCustomerInvite>(data);
 
         if (!acceptedInvite?.company_id || !acceptedInvite.property_id) {
-            setMessage('Customer invite accepted, but HomeOS could not confirm the active provider link. Refresh HomeOS and try again.');
+            setMessage('Company invitation accepted, but HomeOS could not confirm the active provider link. Refresh HomeOS and try again.');
             return;
         }
 
+        clearPendingCompanyInviteState({ inviteCode });
         setSuccess(true);
-        setMessage(`${invite?.company_name || 'The company'} is now the active provider for this home. Opening HomeOS...`);
+        setMessage(`Your home is now connected with ${invite?.company_name || 'the service company'}. Opening HomeOS...`);
         setTimeout(() => router.replace('/' as never), 900);
     }
 
     function goToLogin() {
-        router.push(`/auth/login?next=${encodeURIComponent(nextPath)}` as never);
+        replacePendingCompanyInviteFromNextPath(nextPath, invite?.invited_email);
+        router.push({
+            pathname: '/auth/login',
+            params: buildAuthParams(nextPath, invite?.invited_email),
+        } as never);
     }
 
     function goToRegister() {
-        router.push(`/auth/register?next=${encodeURIComponent(nextPath)}` as never);
+        replacePendingCompanyInviteFromNextPath(nextPath, invite?.invited_email);
+        router.push({
+            pathname: '/auth/register',
+            params: buildAuthParams(nextPath, invite?.invited_email),
+        } as never);
     }
 
     return (
@@ -238,7 +290,7 @@ export default function CustomerInviteScreen() {
             <View style={{ width: '100%', maxWidth: 760 }}>
                 <HomeHeader />
 
-                <Text style={[titleStyle, { color: theme.colors.text }]}>Customer Invitation</Text>
+                <Text style={[titleStyle, { color: theme.colors.text }]}>Company Invitation</Text>
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
                     Connect your HomeOS home with a service company.
                 </Text>
@@ -284,8 +336,18 @@ export default function CustomerInviteScreen() {
                                     ]}
                                 >
                                     <Text style={[bodyTextStyle, { color: theme.colors.text }]}>
-                                        {emailMismatchMessage}
+                                        {redirectingForInvitedEmail
+                                            ? 'Signing out so you can continue with the invited email.'
+                                            : `${emailMismatchMessage} Continue with ${invite?.invited_email || 'the invited email'} to connect your home.`}
                                     </Text>
+                                    {!redirectingForInvitedEmail && (
+                                        <ThemedButton
+                                            title={`Continue with ${invite?.invited_email || 'Invited Email'}`}
+                                            variant="secondary"
+                                            onPress={() => continueWithInvitedEmail(invite?.invited_email, false)}
+                                            style={{ marginTop: 12, alignSelf: 'flex-start' }}
+                                        />
+                                    )}
                                 </View>
                             )}
 
@@ -295,7 +357,7 @@ export default function CustomerInviteScreen() {
                                         {invite.company_name || 'Company invite'}
                                     </Text>
                                     <DetailRow label="Company" value={invite.company_name || 'Unavailable'} />
-                                    <DetailRow label="Customer" value={invite.invited_name || 'Not specified'} />
+                                    <DetailRow label="Homeowner" value={invite.invited_name || 'Not specified'} />
                                     <DetailRow label="Email" value={invite.invited_email || 'Not specified'} />
                                     <DetailRow label="Phone" value={invite.invited_phone || 'Not specified'} />
                                     <DetailRow label="Status" value={formatLabel(invite.status)} />
@@ -303,14 +365,14 @@ export default function CustomerInviteScreen() {
                                 </>
                             ) : (
                                 <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                    This invite link is invalid or no longer available.
+                                    This company invitation link is invalid or no longer available.
                                 </Text>
                             )}
 
                             {!user ? (
                                 <View style={actionGroupStyle}>
                                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                        Sign in or create an account to accept this customer invitation.
+                                        Sign in or create an account to connect your HomeOS home with this service company.
                                     </Text>
                                     <View style={actionRowStyle}>
                                         <ThemedButton title="Sign In" onPress={goToLogin} style={actionButtonStyle} />
@@ -328,7 +390,7 @@ export default function CustomerInviteScreen() {
                                     {homes.length === 0 ? (
                                         <>
                                             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                                Create your HomeOS home before accepting this company invite.
+                                                Create your HomeOS home before connecting with this service company.
                                             </Text>
                                             <ThemedButton
                                                 title="Create Home"
@@ -375,7 +437,7 @@ export default function CustomerInviteScreen() {
                                         </View>
                                     )}
                                     <ThemedButton
-                                        title={accepting ? 'Connecting...' : 'Accept Customer Invite'}
+                                        title={accepting ? 'Connecting...' : invite?.company_name ? `Connect with ${invite.company_name}` : 'Accept Company Invitation'}
                                         onPress={acceptInvite}
                                         disabled={accepting || emailMismatch || !selectedHomeId || normalizeStatus(invite?.status) !== 'pending'}
                                         style={{ marginTop: 14 }}
@@ -422,15 +484,50 @@ function normalizeEmail(value?: string | null) {
     return String(value || '').trim().toLowerCase();
 }
 
-function statusMessage(status?: string | null) {
+function statusMessage(status?: string | null, expiresAt?: string | null) {
+    if (isExpiredDate(expiresAt)) return 'This company invitation expired. Ask the company for a fresh invite link.';
+
     const normalized = normalizeStatus(status);
 
-    if (normalized === 'pending') return 'This invite is ready to accept.';
-    if (normalized === 'accepted') return 'This invite has already been accepted.';
-    if (normalized === 'revoked') return 'This invite was revoked. Ask the company for a fresh invite link.';
-    if (normalized === 'expired') return 'This invite expired. Ask the company for a fresh invite link.';
+    if (normalized === 'pending') return 'This company invitation is ready to accept.';
+    if (normalized === 'accepted') return 'This company invitation has already been accepted.';
+    if (normalized === 'revoked') return 'This company invitation was revoked. Ask the company for a fresh invite link.';
+    if (normalized === 'expired') return 'This company invitation expired. Ask the company for a fresh invite link.';
 
     return '';
+}
+
+function isInactiveInvite(invite: CustomerInvite) {
+    const normalized = normalizeStatus(invite.status);
+
+    return normalized === 'accepted' || normalized === 'revoked' || normalized === 'expired' || isExpiredDate(invite.expires_at);
+}
+
+function isExpiredDate(value?: string | null) {
+    if (!value) return false;
+
+    const timestamp = Date.parse(value);
+
+    return Number.isFinite(timestamp) && timestamp <= Date.now();
+}
+
+function isWrongSignedInEmail(currentEmail?: string | null, invitedEmail?: string | null) {
+    const cleanInvitedEmail = normalizeEmail(invitedEmail);
+
+    return !!cleanInvitedEmail && normalizeEmail(currentEmail) !== cleanInvitedEmail;
+}
+
+function buildAuthParams(nextPath: string, invitedEmail?: string | null) {
+    const params: Record<string, string> = {
+        next: nextPath,
+    };
+    const cleanInvitedEmail = normalizeEmail(invitedEmail);
+
+    if (cleanInvitedEmail) {
+        params.email = cleanInvitedEmail;
+    }
+
+    return params;
 }
 
 function formatMissingBackendError(message: string) {
@@ -441,6 +538,12 @@ function formatMissingBackendError(message: string) {
     }
 
     return message;
+}
+
+function formatHomeownerInviteError(message: string) {
+    return message
+        .replace(/customer invite/gi, 'company invitation')
+        .replace(/Customer invite/g, 'Company invitation');
 }
 
 function formatLabel(value?: string | null) {

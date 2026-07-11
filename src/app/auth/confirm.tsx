@@ -15,6 +15,7 @@ import { useTheme } from '../../theme/useTheme';
 type EmailOtpType = 'signup' | 'invite' | 'magiclink' | 'email';
 
 const COMPANY_INVITE_ROUTE = '/company-invite';
+const CUSTOMER_INVITE_ROUTE = '/customer-invite';
 const ALLOWED_OTP_TYPES = new Set<EmailOtpType>([
     'signup',
     'invite',
@@ -41,9 +42,14 @@ export default function AuthConfirmScreen() {
         : null;
     const nextRoute = urlNextRoute || pendingNextRoute;
     const pendingInviteEmail = pendingInvite?.nextPath === nextRoute ? pendingInvite.invitedEmail : null;
-    const isCompanyInviteConfirmation = !!nextRoute;
+    const isCompanyInviteConfirmation = nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true;
+    const isCustomerInviteConfirmation = nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE) === true;
     const [message, setMessage] = useState(
-        isCompanyInviteConfirmation ? 'Confirming your work account email...' : 'Confirming sign-in...'
+        isCompanyInviteConfirmation
+            ? 'Confirming your work account email...'
+            : isCustomerInviteConfirmation
+                ? 'Confirming your email so you can continue the company invitation...'
+                : 'Confirming sign-in...'
     );
     const [failed, setFailed] = useState(false);
     const [inviteCode, setInviteCode] = useState('');
@@ -63,7 +69,7 @@ export default function AuthConfirmScreen() {
             }
 
             setFailed(true);
-            setMessage('Your email confirmation link expired. Request a new confirmation email to continue accepting your company invite.');
+            setMessage(expiredConfirmationMessage(nextRoute));
             return;
         }
 
@@ -77,14 +83,14 @@ export default function AuthConfirmScreen() {
             if (error) {
                 setFailed(true);
                 setMessage(isExpiredOtpError(error)
-                    ? 'Your email confirmation link expired. Request a new confirmation email to continue accepting your company invite.'
+                    ? expiredConfirmationMessage(nextRoute)
                     : `Email confirmation failed: ${readErrorMessage(error)}`);
                 return;
             }
 
             if (!nextRoute) {
                 setFailed(true);
-                setMessage('Email confirmed, but this link does not include a usable company invite code. Enter your current invite code or sign in again.');
+                setMessage('Email confirmed, but this link does not include a usable invitation code. Enter your current invite code or sign in again.');
                 return;
             }
 
@@ -108,14 +114,14 @@ export default function AuthConfirmScreen() {
         if (error) {
             setFailed(true);
             setMessage(isExpiredOtpError(error)
-                ? 'Your email confirmation link expired. Request a new confirmation email to continue accepting your company invite.'
+                ? expiredConfirmationMessage(nextRoute)
                 : 'This sign-in link is invalid or expired. Request a new invitation email.');
             return;
         }
 
         if (!nextRoute) {
             setFailed(true);
-            setMessage('Email confirmed, but this link does not include a usable company invite code. Enter your current invite code or sign in again.');
+            setMessage('Email confirmed, but this link does not include a usable invitation code. Enter your current invite code or sign in again.');
             return;
         }
 
@@ -152,7 +158,7 @@ export default function AuthConfirmScreen() {
 
         setMessage(
             nextRoute
-                ? 'Confirmation email sent. After confirming your work account email, your company invite will continue automatically.'
+                ? confirmationResentMessage(nextRoute)
                 : 'Confirmation email sent. Check your inbox, spam, or junk folder.'
         );
     }
@@ -170,13 +176,15 @@ export default function AuthConfirmScreen() {
             return;
         }
 
-        router.replace(`${COMPANY_INVITE_ROUTE}?code=${encodeURIComponent(code)}` as any);
+        const route = nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE) ? CUSTOMER_INVITE_ROUTE : COMPANY_INVITE_ROUTE;
+
+        router.replace(`${route}?code=${encodeURIComponent(code)}` as any);
     }
 
     function backToLogin() {
         router.replace({
             pathname: '/auth/login',
-            params: buildLoginParams(nextRoute),
+            params: buildLoginParams(nextRoute, pendingInviteEmail || confirmationEmail),
         } as any);
     }
 
@@ -196,7 +204,11 @@ export default function AuthConfirmScreen() {
                     )}
 
                     <Text style={[titleStyle, { color: theme.colors.text }]}>
-                        {isCompanyInviteConfirmation ? 'Confirm your work account email' : 'Confirm your email'}
+                        {isCompanyInviteConfirmation
+                            ? 'Confirm your work account email'
+                            : isCustomerInviteConfirmation
+                                ? 'Confirm your email'
+                                : 'Confirm your email'}
                     </Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
 
@@ -318,8 +330,11 @@ function resolveSafeNext(value: string | undefined) {
     try {
         const parsed = new URL(value, 'https://app.local');
 
-        if (parsed.pathname === COMPANY_INVITE_ROUTE && parsed.searchParams.get('code')?.trim()) {
-            return `${COMPANY_INVITE_ROUTE}${parsed.search}`;
+        if (
+            (parsed.pathname === COMPANY_INVITE_ROUTE || parsed.pathname === CUSTOMER_INVITE_ROUTE) &&
+            parsed.searchParams.get('code')?.trim()
+        ) {
+            return `${parsed.pathname}${parsed.search}`;
         }
 
     } catch {
@@ -333,18 +348,43 @@ function buildConfirmRedirect(nextRoute: string | null) {
     return buildCompanyInviteAuthConfirmRedirect(nextRoute);
 }
 
-function buildLoginParams(nextRoute: string | null) {
+function buildLoginParams(nextRoute: string | null, email?: string | null) {
     if (!nextRoute) return undefined;
 
     const loginParams: Record<string, string> = {
         next: nextRoute,
     };
+    const cleanEmail = String(email || '').trim().toLowerCase();
 
     if (nextRoute.startsWith(COMPANY_INVITE_ROUTE)) {
         loginParams.mode = 'work';
     }
 
+    if (cleanEmail) {
+        loginParams.email = cleanEmail;
+    }
+
     return loginParams;
+}
+
+function expiredConfirmationMessage(nextRoute: string | null) {
+    if (nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE)) {
+        return 'Your email confirmation link expired. Request a new confirmation email to continue accepting your company invitation.';
+    }
+
+    if (nextRoute?.startsWith(COMPANY_INVITE_ROUTE)) {
+        return 'Your email confirmation link expired. Request a new confirmation email to continue accepting your company invite.';
+    }
+
+    return 'This email confirmation link expired or was already used.';
+}
+
+function confirmationResentMessage(nextRoute: string | null) {
+    if (nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE)) {
+        return 'Confirmation email sent. After confirming your email, your company invitation will continue automatically.';
+    }
+
+    return 'Confirmation email sent. After confirming your work account email, your company invite will continue automatically.';
 }
 
 function readErrorMessage(error: unknown) {

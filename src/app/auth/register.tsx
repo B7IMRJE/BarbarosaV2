@@ -34,8 +34,9 @@ export default function RegisterScreen() {
     const pendingNextRoute = pendingInvite && readInviteCodeFromNextPath(pendingInvite.nextPath)
         ? pendingInvite.nextPath
         : null;
+    const pendingCompanyNextRoute = pendingNextRoute?.startsWith(COMPANY_INVITE_ROUTE) ? pendingNextRoute : null;
     const workModeParam = firstParam(params.mode);
-    const nextRoute = requestedNextRoute || (isExplicitWorkMode(workModeParam) ? pendingNextRoute : null);
+    const nextRoute = requestedNextRoute || (isExplicitWorkMode(workModeParam) ? pendingCompanyNextRoute : null);
     const workAccountMode = isWorkAccountFlow(workModeParam, nextRoute);
     const confirmNextRoute = readInviteCodeFromNextPath(nextRoute) ? nextRoute : null;
     const invitedEmail = normalizeEmail(firstParam(params.email));

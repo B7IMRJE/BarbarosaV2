@@ -71,6 +71,14 @@ type CustomerInviteForm = {
     note: string;
 };
 
+type CustomerInviteEmailResponse = {
+    ok?: boolean;
+    message?: string;
+    error?: string;
+    code?: string;
+    details?: string;
+};
+
 export default function CompanyClientsScreen() {
     const { theme } = useTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -296,14 +304,14 @@ export default function CompanyClientsScreen() {
         setInviteActionId('');
 
         if (error) {
-            setInviteMessage(`Email sending is not configured yet. Copy the invite message for now. ${error.message}`);
+            setInviteMessage(await formatCustomerInviteEmailError(error));
             return;
         }
 
-        const result = (data || {}) as { ok?: boolean; message?: string };
+        const result = (data || {}) as CustomerInviteEmailResponse;
 
         if (!result.ok) {
-            setInviteMessage(result.message || 'Email sending is not configured yet. Copy the invite message for now.');
+            setInviteMessage(formatCustomerInviteEmailResponse(result));
             return;
         }
 
@@ -924,6 +932,55 @@ function isLikelyNonPublicInviteOrigin(origin: string) {
     } catch {
         return true;
     }
+}
+
+async function formatCustomerInviteEmailError(error: unknown) {
+    const response = readFunctionErrorResponse(error);
+    const fallbackMessage = error instanceof Error
+        ? error.message
+        : 'Customer invite email could not be sent.';
+
+    if (!response) {
+        return `Customer invite email failed: ${fallbackMessage}`;
+    }
+
+    try {
+        const payload = await response.clone().json() as CustomerInviteEmailResponse;
+
+        return formatCustomerInviteEmailResponse(payload);
+    } catch {
+        try {
+            const text = await response.clone().text();
+
+            return `Customer invite email failed: ${text || fallbackMessage}`;
+        } catch {
+            return `Customer invite email failed: ${fallbackMessage}`;
+        }
+    }
+}
+
+function formatCustomerInviteEmailResponse(payload: CustomerInviteEmailResponse) {
+    const message = payload.error || payload.message || 'Customer invite email could not be sent.';
+    const detail = [payload.code, payload.details].filter(Boolean).join(': ');
+
+    return detail
+        ? `Customer invite email failed: ${message} (${detail})`
+        : `Customer invite email failed: ${message}`;
+}
+
+function readFunctionErrorResponse(error: unknown) {
+    if (!error || typeof error !== 'object') return null;
+
+    const context = (error as { context?: unknown }).context;
+
+    return isResponseLike(context) ? context : null;
+}
+
+function isResponseLike(value: unknown): value is Response {
+    return (
+        typeof Response !== 'undefined' &&
+        value instanceof Response
+    );
 }
 
 const backTextStyle = {
