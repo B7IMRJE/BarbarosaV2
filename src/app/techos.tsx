@@ -14,6 +14,8 @@ import {
 } from '../lib/companyPermissions';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
+import { recordHomeownerStatusUpdate, recordServiceRequestEvent } from '../lib/serviceRequestActivity';
+import { queueHomeownerCompletionNotification } from '../lib/serviceNotifications';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -231,6 +233,9 @@ export default function TechOSScreen() {
     const [workflowStatusBySlotId, setWorkflowStatusBySlotId] = useState<Record<string, string>>({});
     const [workflowMessageBySlotId, setWorkflowMessageBySlotId] = useState<Record<string, string>>({});
     const [customStatusNoteBySlotId, setCustomStatusNoteBySlotId] = useState<Record<string, string>>({});
+    const [timingEstimateBySlotId, setTimingEstimateBySlotId] = useState<Record<string, string>>({});
+    const [timingPromptMessageBySlotId, setTimingPromptMessageBySlotId] = useState<Record<string, string>>({});
+    const [timingPromptAnsweredBySlotId, setTimingPromptAnsweredBySlotId] = useState<Record<string, boolean>>({});
     const [updatingWorkflowSlotId, setUpdatingWorkflowSlotId] = useState('');
     const [scheduleDiagnostics, setScheduleDiagnostics] = useState<TechOSScheduleDiagnostics | null>(null);
     const knownAssignedSlotIdsRef = useRef<Set<string>>(new Set());
@@ -296,6 +301,10 @@ export default function TechOSScreen() {
     const selectedAssignedJob = useMemo(
         () => assignedScheduleJobs.find((job) => job.slot.id === selectedAssignedJobId) || null,
         [assignedScheduleJobs, selectedAssignedJobId]
+    );
+    const timingPromptJob = useMemo(
+        () => findUpcomingTimingPromptJob(currentFutureAssignedScheduleJobs.filter((job) => !timingPromptAnsweredBySlotId[job.slot.id])),
+        [currentFutureAssignedScheduleJobs, timingPromptAnsweredBySlotId]
     );
 
     useEffect(() => {
@@ -375,6 +384,9 @@ export default function TechOSScreen() {
         setSelectedAssignedJobId('');
         setWorkflowStatusBySlotId({});
         setWorkflowMessageBySlotId({});
+        setTimingEstimateBySlotId({});
+        setTimingPromptMessageBySlotId({});
+        setTimingPromptAnsweredBySlotId({});
         setUpdatingWorkflowSlotId('');
         setScheduleDiagnostics(null);
         knownAssignedSlotIdsRef.current = new Set();
@@ -974,6 +986,35 @@ export default function TechOSScreen() {
                     ? `Custom status updated: ${trimmedStatusNote}.`
                     : `Status updated: ${action.label}.`,
             }));
+            if (job.request?.id) {
+                const customerUpdateResult = normalizedStatus === 'completed'
+                    ? await queueHomeownerCompletionNotification({
+                        companyId: job.slot.company_id,
+                        serviceRequestId: job.request.id,
+                        scheduleSlotId: slotId,
+                        companyName: company?.public_name || company?.name || 'your service company',
+                        technicianName: membership?.full_name || authEmail || 'your technician',
+                        completionDateLabel: formatDateTime(new Date().toISOString()),
+                    })
+                    : await recordHomeownerStatusUpdate({
+                        companyId: job.slot.company_id,
+                        serviceRequestId: job.request.id,
+                        scheduleSlotId: slotId,
+                        status: action.status,
+                        statusNote: nextStatusNote,
+                        technicianName: membership?.full_name || authEmail || null,
+                        metadata: {
+                            techos_status: action.status,
+                        },
+                    });
+
+                if (customerUpdateResult.status === 'pending' && normalizeStatus(action.status) !== 'running_late') {
+                    setWorkflowMessageBySlotId((current) => ({
+                        ...current,
+                        [slotId]: `${current[slotId] || `Status updated: ${action.label}.`} Homeowner timeline event is pending backend setup.`,
+                    }));
+                }
+            }
         } catch (error) {
             setWorkflowMessageBySlotId((current) => ({
                 ...current,
@@ -981,6 +1022,62 @@ export default function TechOSScreen() {
             }));
         } finally {
             setUpdatingWorkflowSlotId('');
+        }
+    }
+
+    async function handleTimingPromptResponse(job: TechAssignedScheduleJob, response: string) {
+        const slotId = job.slot.id;
+        const estimatedRemainingText = timingEstimateBySlotId[slotId] || '';
+        const estimatedRemainingMinutes = parsePositiveInteger(estimatedRemainingText);
+
+        if (!job.request?.id) {
+            setTimingPromptMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: 'Timing response could not be saved because this assignment is missing its service request.',
+            }));
+            return;
+        }
+
+        setTimingPromptMessageBySlotId((current) => ({
+            ...current,
+            [slotId]: 'Saving timing response...',
+        }));
+
+        try {
+            const result = await recordServiceRequestEvent({
+                companyId: job.slot.company_id,
+                serviceRequestId: job.request.id,
+                eventType: 'technician_timing_response',
+                message: `Technician timing response: ${response}.`,
+                eventVisibility: 'internal',
+                audience: 'dispatch',
+                scheduleSlotId: slotId,
+                dedupeKey: `timing-response:${slotId}`,
+                metadata: {
+                    response,
+                    estimated_remaining_minutes: estimatedRemainingMinutes,
+                    arrival_window_start: job.slot.arrival_window_start,
+                    arrival_window_end: job.slot.arrival_window_end,
+                    related_next_service_request_id: job.request.id,
+                },
+                notificationChannels: ['in_app'],
+            });
+
+            setTimingPromptMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: result.status === 'recorded'
+                    ? 'Timing response sent to Dispatch.'
+                    : result.message,
+            }));
+            setTimingPromptAnsweredBySlotId((current) => ({
+                ...current,
+                [slotId]: true,
+            }));
+        } catch (error) {
+            setTimingPromptMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: `Timing response failed: ${getErrorMessage(error)}`,
+            }));
         }
     }
 
@@ -1092,6 +1189,21 @@ export default function TechOSScreen() {
                             {assignmentBanner}
                         </Text>
                     </ThemedCard>
+                )}
+
+                {isTechnicianWorkspace && timingPromptJob && (
+                    <TechTimingPromptCard
+                        estimatedRemainingMinutes={timingEstimateBySlotId[timingPromptJob.slot.id] || ''}
+                        job={timingPromptJob}
+                        message={timingPromptMessageBySlotId[timingPromptJob.slot.id] || ''}
+                        onChangeEstimatedRemainingMinutes={(value) => {
+                            setTimingEstimateBySlotId((current) => ({
+                                ...current,
+                                [timingPromptJob.slot.id]: value,
+                            }));
+                        }}
+                        onRespond={(response) => handleTimingPromptResponse(timingPromptJob, response)}
+                    />
                 )}
 
                 <TechOSDashboardCards
@@ -1232,6 +1344,71 @@ export default function TechOSScreen() {
                 </View>
             </View>
         </ScrollView>
+    );
+}
+
+function TechTimingPromptCard({
+    estimatedRemainingMinutes,
+    job,
+    message,
+    onChangeEstimatedRemainingMinutes,
+    onRespond,
+}: {
+    estimatedRemainingMinutes: string;
+    job: TechAssignedScheduleJob;
+    message: string;
+    onChangeEstimatedRemainingMinutes: (value: string) => void;
+    onRespond: (response: string) => void;
+}) {
+    const { theme } = useTheme();
+    const responseOptions = [
+        'Yes, on schedule',
+        'Probably, but close',
+        'Running late',
+        'Need 30 more minutes',
+        'Need 60 more minutes',
+        'Not sure yet',
+    ];
+
+    return (
+        <ThemedCard style={[timingPromptCardStyle, { borderColor: '#C4B5FD', backgroundColor: 'rgba(196, 181, 253, 0.14)' }]}>
+            <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Next Job Timing</Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                Your next arrival window begins at {formatTime(job.slot.arrival_window_start || job.slot.start_at)}. Will you make it on time?
+            </Text>
+            <TextInput
+                value={estimatedRemainingMinutes}
+                onChangeText={onChangeEstimatedRemainingMinutes}
+                placeholder="Estimated time remaining on current job (minutes)"
+                placeholderTextColor={theme.colors.mutedText}
+                keyboardType="numeric"
+                style={[
+                    techCustomStatusInputStyle,
+                    {
+                        borderColor: theme.colors.border,
+                        color: theme.colors.text,
+                        marginTop: 10,
+                    },
+                ]}
+            />
+            <View style={techWorkflowActionGridStyle}>
+                {responseOptions.map((option) => (
+                    <ThemedButton
+                        key={option}
+                        title={option}
+                        variant="secondary"
+                        onPress={() => onRespond(option)}
+                        style={techWorkflowActionButtonStyle}
+                        textStyle={techWorkflowActionButtonTextStyle}
+                    />
+                ))}
+            </View>
+            {!!message && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText, marginTop: 8 }]}>
+                    {message}
+                </Text>
+            )}
+        </ThemedCard>
     );
 }
 
@@ -3025,6 +3202,51 @@ function isActiveUpcomingScheduleJob(slot: TechScheduleSlot) {
     return true;
 }
 
+function findUpcomingTimingPromptJob(jobs: TechAssignedScheduleJob[]) {
+    const now = new Date();
+    const activeCurrentJob = jobs.find((job) => (
+        isCurrentTechnicianActiveStatus(job.slot.status) &&
+        isJobInProgressWindow(job.slot, now)
+    ));
+
+    if (!activeCurrentJob) return null;
+
+    return jobs
+        .filter((job) => (
+            job.slot.id !== activeCurrentJob.slot.id &&
+            isActiveScheduleSlot(job.slot.status) &&
+            !isCurrentTechnicianStartedStatus(job.slot.status) &&
+            isJobApproachingWithinHours(job.slot, now, 2)
+        ))
+        .sort((first, second) => getSortableTime(first.slot.arrival_window_start || first.slot.start_at) - getSortableTime(second.slot.arrival_window_start || second.slot.start_at))[0] || null;
+}
+
+function isCurrentTechnicianActiveStatus(status?: string | null) {
+    return ['arrived', 'in_progress'].includes(normalizeStatus(status));
+}
+
+function isCurrentTechnicianStartedStatus(status?: string | null) {
+    return ['on_my_way', 'arrived', 'in_progress', 'completed'].includes(normalizeStatus(status));
+}
+
+function isJobInProgressWindow(slot: TechScheduleSlot, now: Date) {
+    const start = parseOptionalDate(slot.start_at);
+    const end = parseOptionalDate(slot.end_at);
+
+    if (start && start > now) return false;
+    if (end && end < now && normalizeStatus(slot.status) !== 'in_progress') return false;
+
+    return true;
+}
+
+function isJobApproachingWithinHours(slot: TechScheduleSlot, now: Date, hours: number) {
+    const arrivalStart = parseOptionalDate(slot.arrival_window_start || slot.start_at);
+
+    if (!arrivalStart || arrivalStart <= now) return false;
+
+    return arrivalStart.getTime() - now.getTime() <= hours * 60 * 60 * 1000;
+}
+
 function isActiveScheduleSlot(status?: string | null) {
     const normalized = normalizeStatus(status);
 
@@ -3089,6 +3311,24 @@ function formatTime(value?: string | null) {
         hour: 'numeric',
         minute: '2-digit',
     });
+}
+
+function parseOptionalDate(value?: string | null) {
+    if (!value) return null;
+
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getSortableTime(value?: string | null) {
+    return parseOptionalDate(value)?.getTime() || 0;
+}
+
+function parsePositiveInteger(value: string) {
+    const parsed = Number.parseInt(value, 10);
+
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function getDateKey(value?: string | null) {
@@ -3413,6 +3653,12 @@ const assignmentBannerStyle = {
 const assignmentBannerTextStyle = {
     fontSize: 15,
     fontWeight: '900' as const,
+};
+
+const timingPromptCardStyle = {
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 14,
 };
 
 const dashboardGridStyle = {

@@ -14,6 +14,10 @@ import {
   requireActivePropertyMembership,
 } from '../lib/activeProperty';
 import { requestHomeownerServiceRequestUpdate } from '../lib/homeServiceRequests';
+import {
+  loadHomeownerServiceRequestTimeline,
+  type ServiceRequestActivityEvent,
+} from '../lib/serviceRequestActivity';
 import type { HomeHealthEmergency } from '../lib/homeHealth';
 import { loadActiveHomeIdentity, loadHomeIdentityForProperty, type HomeIdentity } from '../lib/homeIdentity';
 import {
@@ -111,6 +115,8 @@ export default function HomeScreen() {
   const [serviceRequestMessage, setServiceRequestMessage] = useState('');
   const [submittingServiceRequest, setSubmittingServiceRequest] = useState(false);
   const [homeServiceRequests, setHomeServiceRequests] = useState<HomeServiceRequest[]>([]);
+  const [serviceRequestTimelineById, setServiceRequestTimelineById] = useState<Record<string, ServiceRequestActivityEvent[]>>({});
+  const [serviceRequestTimelineMessage, setServiceRequestTimelineMessage] = useState('');
   const [serviceRequestNoteById, setServiceRequestNoteById] = useState<Record<string, string>>({});
   const [serviceRequestActionId, setServiceRequestActionId] = useState<string | null>(null);
   const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
@@ -139,6 +145,8 @@ export default function HomeScreen() {
       setProviderSelectionCompanyId('');
       setServiceRequestMessage('');
       setHomeServiceRequests([]);
+      setServiceRequestTimelineById({});
+      setServiceRequestTimelineMessage('');
       setServiceRequestNoteById({});
       setLastCreatedServiceRequest(null);
 
@@ -222,6 +230,30 @@ export default function HomeScreen() {
       loadHomeHealthData();
     }, [loadHomeHealthData])
   );
+
+  useEffect(() => {
+    if (!activePropertyId || providerModeContext) return;
+
+    const channel = supabase
+      .channel(`homeos-service-request-events:${activePropertyId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'service_request_events',
+          filter: `property_id=eq.${activePropertyId}`,
+        },
+        () => {
+          void loadHomeServiceRequests(activePropertyId);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [activePropertyId, providerModeContext]);
 
   function openSystemTile(system: DashboardSystemTile) {
     if (providerModeContext) {
@@ -417,12 +449,48 @@ export default function HomeScreen() {
 
     if (error) {
       setHomeServiceRequests([]);
+      setServiceRequestTimelineById({});
       setServiceRequestMessage(`Could not load service request status: ${error.message}`);
       return false;
     }
 
-    setHomeServiceRequests((data || []) as HomeServiceRequest[]);
+    const loadedRequests = (data || []) as HomeServiceRequest[];
+    setHomeServiceRequests(loadedRequests);
+    await loadHomeownerTimelinesForRequests(loadedRequests);
     return true;
+  }
+
+  async function loadHomeownerTimelinesForRequests(requests: HomeServiceRequest[]) {
+    if (requests.length === 0) {
+      setServiceRequestTimelineById({});
+      setServiceRequestTimelineMessage('');
+      return;
+    }
+
+    const entries = await Promise.all(
+      requests.map(async (request) => {
+        try {
+          return {
+            requestId: request.id,
+            events: await loadHomeownerServiceRequestTimeline(request.id),
+            error: '',
+          };
+        } catch (error) {
+          return {
+            requestId: request.id,
+            events: [] as ServiceRequestActivityEvent[],
+            error: getErrorMessage(error),
+          };
+        }
+      })
+    );
+    const firstError = entries.find((entry) => entry.error)?.error || '';
+
+    setServiceRequestTimelineById(entries.reduce<Record<string, ServiceRequestActivityEvent[]>>((accumulator, entry) => {
+      accumulator[entry.requestId] = entry.events;
+      return accumulator;
+    }, {}));
+    setServiceRequestTimelineMessage(firstError ? `Could not load some appointment updates: ${firstError}` : '');
   }
 
   async function handleCreateServiceRequest() {
@@ -917,12 +985,26 @@ export default function HomeScreen() {
               {serviceRequestMessage}
             </Text>
           )}
+          {!!serviceRequestTimelineMessage && (
+            <Text
+              style={{
+                fontSize: scaleFont(13),
+                color: theme.colors.mutedText,
+                lineHeight: scaleFont(19),
+                marginTop: scaleIcon(8),
+                fontWeight: '700',
+              }}
+            >
+              {serviceRequestTimelineMessage}
+            </Text>
+          )}
 
           {homeServiceRequests.length > 0 && (
             <View style={{ marginTop: scaleIcon(16), gap: scaleIcon(10) }}>
               {homeServiceRequests.map((request) => {
                 const isActiveRequest = !['converted_to_job', 'cancelled', 'canceled'].includes(normalizeText(request.status));
                 const isActing = serviceRequestActionId === request.id;
+                const timelineEvents = serviceRequestTimelineById[request.id] || [];
 
                 return (
                   <View
@@ -946,6 +1028,42 @@ export default function HomeScreen() {
                     <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
                       {request.issue_summary || 'No summary available.'}
                     </Text>
+
+                    <View
+                      style={{
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        borderRadius: theme.radii.card,
+                        padding: scaleIcon(10),
+                        marginTop: scaleIcon(10),
+                        backgroundColor: theme.colors.background,
+                      }}
+                    >
+                      <Text style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>
+                        Appointment Updates
+                      </Text>
+                      {timelineEvents.length === 0 ? (
+                        <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
+                          Updates will appear here when your appointment is scheduled or your technician shares a customer-visible status.
+                        </Text>
+                      ) : (
+                        <View style={{ gap: scaleIcon(8), marginTop: scaleIcon(8) }}>
+                          {timelineEvents.slice(-5).map((event) => (
+                            <View key={event.id}>
+                              <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '900' }}>
+                                {formatServiceTimelineTitle(event.event_type)}
+                              </Text>
+                              <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(18) }}>
+                                {event.message || 'Appointment update'}
+                              </Text>
+                              <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '700', marginTop: scaleIcon(2) }}>
+                                {formatDateTime(event.created_at)}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </View>
 
                     {isActiveRequest && (
                       <>
@@ -1061,6 +1179,31 @@ function formatDate(value?: string | null) {
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleDateString();
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return 'Not available';
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
+}
+
+function formatServiceTimelineTitle(eventType?: string | null) {
+  const normalized = normalizeText(eventType);
+  const labels: Record<string, string> = {
+    appointment_scheduled: 'Appointment Scheduled',
+    technician_assigned: 'Technician Assigned',
+    technician_reassigned: 'Technician Reassigned',
+    technician_on_the_way: 'Technician On the Way',
+    technician_arrived: 'Technician Arrived',
+    work_in_progress: 'Work in Progress',
+    waiting_for_customer_approval: 'Waiting for Customer Approval',
+    appointment_delayed: 'Appointment Delayed',
+    work_completed: 'Work Completed',
+    work_completed_rating_requested: 'Work Completed',
+  };
+
+  return labels[normalized] || formatLabel(eventType);
 }
 
 function shortId(value?: string | null) {

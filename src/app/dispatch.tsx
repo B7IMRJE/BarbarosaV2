@@ -9,17 +9,21 @@ import { logCompanyAuditEvent, safeAuditRecord } from '../lib/companyAuditLogs';
 import {
     calculateCompanyLeadCounts,
     getCompanyDispatchRequests,
-    isAssignedOrScheduledStatus,
     isCompletedStatus,
     isEmergencyDispatchRequest,
     isInProgressStatus,
-    isNewLeadStatus,
     LEAD_ALERT_REFRESH_MS,
     type CompanyDispatchRequest,
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
 import { canAccessDispatch, normalizeCompanyRole } from '../lib/companyPermissions';
+import { calculateDispatchRisk, type DispatchRiskResult } from '../lib/dispatchRisk';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
+import {
+    queueHomeownerAssignmentNotification,
+    queueHomeownerDelayNotification,
+    queueTechnicianAssignmentNotification,
+} from '../lib/serviceNotifications';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -62,6 +66,12 @@ type ServiceRequestEvent = {
     property_id: string;
     event_type: string | null;
     message: string | null;
+    event_visibility: string | null;
+    audience: string | null;
+    schedule_slot_id: string | null;
+    dedupe_key: string | null;
+    metadata: Record<string, unknown>;
+    notification_status: string | null;
     created_at: string | null;
 };
 
@@ -72,8 +82,12 @@ type ScheduleSlot = {
     technician_company_user_id: string;
     start_at: string | null;
     end_at: string | null;
+    arrival_window_start: string | null;
+    arrival_window_end: string | null;
     status: string | null;
+    estimated_duration_minutes: number | null;
     priority: string | null;
+    notes: string | null;
     tech_status_note: string | null;
     updated_at: string | null;
 };
@@ -105,8 +119,29 @@ type ScheduleRequestForm = {
 };
 
 type DispatchBoardView = 'activity' | 'schedule';
+type DispatchLaneKey = 'unassigned' | 'assigned' | 'on_my_way' | 'arrived' | 'working' | 'waiting' | 'completed';
+type DispatchLane = {
+    key: DispatchLaneKey;
+    title: string;
+    requests: DispatchRequest[];
+};
+type DispatchAttentionItem = {
+    request: DispatchRequest;
+    slot: ScheduleSlot;
+    risk: DispatchRiskResult;
+};
 type DurationMode = '30' | '60' | '90' | '120' | 'custom';
 type ArrivalWindowMode = '0' | '1' | '2' | '3' | 'custom';
+
+const DISPATCH_LANE_DEFINITIONS: Array<{ key: DispatchLaneKey; title: string }> = [
+    { key: 'unassigned', title: 'Unassigned' },
+    { key: 'assigned', title: 'Assigned / Scheduled' },
+    { key: 'on_my_way', title: 'On My Way' },
+    { key: 'arrived', title: 'Arrived' },
+    { key: 'working', title: 'Working' },
+    { key: 'waiting', title: 'Waiting / Assistance Needed' },
+    { key: 'completed', title: 'Completed' },
+];
 
 const QUICK_DURATION_OPTIONS: Array<{ label: string; value: Exclude<DurationMode, 'custom'> }> = [
     { label: '30 min', value: '30' },
@@ -141,6 +176,46 @@ function createDefaultScheduleForm(): ScheduleRequestForm {
     };
 }
 
+function createScheduleFormFromSlot(slot: ScheduleSlot | null): ScheduleRequestForm {
+    const defaultForm = createDefaultScheduleForm();
+
+    if (!slot) return defaultForm;
+
+    const start = parseIsoDate(slot.start_at);
+    const durationMinutes = getScheduleSlotDurationMinutes(slot);
+    const durationMode = getDurationModeFromMinutes(durationMinutes);
+    const arrivalWindowHours = getScheduleSlotArrivalWindowHours(slot);
+    const arrivalWindowMode = getArrivalWindowModeFromHours(arrivalWindowHours);
+
+    return {
+        ...defaultForm,
+        technicianCompanyUserId: slot.technician_company_user_id,
+        date: start ? formatDateInput(start) : defaultForm.date,
+        calendarMonth: start ? formatMonthInput(start) : defaultForm.calendarMonth,
+        startTime: start ? formatTimeInput(start) : defaultForm.startTime,
+        durationMode,
+        durationMinutes: durationMinutes ? String(durationMinutes) : defaultForm.durationMinutes,
+        arrivalWindowMode,
+        arrivalWindowHours: arrivalWindowHours === null ? defaultForm.arrivalWindowHours : String(arrivalWindowHours),
+    };
+}
+
+function getDurationModeFromMinutes(durationMinutes: number | null): DurationMode {
+    if (durationMinutes === 30 || durationMinutes === 60 || durationMinutes === 90 || durationMinutes === 120) {
+        return String(durationMinutes) as DurationMode;
+    }
+
+    return durationMinutes ? 'custom' : '60';
+}
+
+function getArrivalWindowModeFromHours(arrivalWindowHours: number | null): ArrivalWindowMode {
+    if (arrivalWindowHours === 0 || arrivalWindowHours === 1 || arrivalWindowHours === 2 || arrivalWindowHours === 3) {
+        return String(arrivalWindowHours) as ArrivalWindowMode;
+    }
+
+    return arrivalWindowHours === null ? '0' : 'custom';
+}
+
 export default function DispatchBoardScreen() {
     const { companyId } = useLocalSearchParams<{ companyId?: string | string[] }>();
     const { width: viewportWidth } = useWindowDimensions();
@@ -168,18 +243,20 @@ export default function DispatchBoardScreen() {
     const [requestActionMessageById, setRequestActionMessageById] = useState<Record<string, string>>({});
     const [activeBoardView, setActiveBoardView] = useState<DispatchBoardView>('activity');
     const dispatchRefreshInFlight = useRef(false);
+    const requestsRef = useRef<DispatchRequest[]>([]);
 
-    const newRequests = requests.filter((request) => isNewLeadStatus(request.status));
-    const assignedScheduledRequests = requests.filter((request) => isAssignedOrScheduledStatus(request.status));
-    const inProgressRequests = requests.filter((request) => isInProgressStatus(request.status));
-    const completedRequests = requests.filter((request) => isCompletedStatus(request.status));
-    const cancelledRequests = requests.filter((request) => ['cancelled', 'canceled', 'archived'].includes(normalizeStatus(request.status)));
-    const cardBasis = viewportWidth <= 700 ? '100%' : '31.8%';
-    const expandedCardBasis = viewportWidth <= 900 ? '100%' : '65%';
+    const dispatchLanes = useMemo(() => buildDispatchLanes(requests, scheduleSlots), [requests, scheduleSlots]);
+    const attentionItems = useMemo(() => buildDispatchAttentionItems(requests, scheduleSlots), [requests, scheduleSlots]);
+    const laneBasis: ViewStyle['flexBasis'] = viewportWidth <= 700 ? '100%' : viewportWidth <= 1100 ? '48%' : '31.8%';
+    const expandedLaneBasis: ViewStyle['flexBasis'] = viewportWidth <= 900 ? '100%' : '65%';
 
     useEffect(() => {
         loadDispatchBoard();
     }, [requestedCompanyId]);
+
+    useEffect(() => {
+        requestsRef.current = requests;
+    }, [requests]);
 
     useEffect(() => {
         const companyIdToRefresh = companyAccess?.company_id;
@@ -359,6 +436,7 @@ export default function DispatchBoardScreen() {
         try {
             const loadedRequests = await getCompanyDispatchRequests(companyIdToLoad);
 
+            requestsRef.current = loadedRequests;
             setRequests(loadedRequests);
             setLeadCounts(calculateCompanyLeadCounts(loadedRequests));
             setLeadCountError('');
@@ -372,12 +450,10 @@ export default function DispatchBoardScreen() {
             return loadedRequests;
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            setRequests([]);
-            setLeadCounts(null);
             setLeadCountError('Lead count unavailable.');
             setRpcStatusMessage(`get_company_dispatch_requests RPC error: ${errorMessage}`);
             setMessage(`Could not load dispatch requests: ${errorMessage}`);
-            return [];
+            return requestsRef.current;
         }
     }
 
@@ -402,7 +478,7 @@ export default function DispatchBoardScreen() {
 
         const windowResult = await supabase
             .from('job_schedule_slots')
-            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status, priority, tech_status_note, updated_at')
+            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, updated_at')
             .eq('company_id', companyIdToLoad)
             .gte('start_at', windowStart.toISOString())
             .lte('start_at', windowEnd.toISOString())
@@ -411,14 +487,13 @@ export default function DispatchBoardScreen() {
         const requestResult = requestIds.length > 0
             ? await supabase
                 .from('job_schedule_slots')
-                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status, priority, tech_status_note, updated_at')
+                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, updated_at')
                 .eq('company_id', companyIdToLoad)
                 .in('service_request_id', requestIds)
                 .order('start_at', { ascending: true })
             : { data: [], error: null };
 
         if (windowResult.error && requestResult.error) {
-            setScheduleSlots([]);
             setScheduleSlotsMessage(`Schedule assignments unavailable: ${windowResult.error.message}; ${requestResult.error.message}`);
             return;
         }
@@ -574,6 +649,13 @@ export default function DispatchBoardScreen() {
         }
 
         const selectedTechnician = activeTechnicians.find((technician) => technician.id === form.technicianCompanyUserId) || null;
+        const previousScheduleSlot = getCurrentRequestScheduleSlot(
+            scheduleSlots.filter((slot) => slot.company_id === activeCompanyId && slot.service_request_id === request.id),
+            request
+        );
+        const previousTechnician = previousScheduleSlot && previousScheduleSlot.technician_company_user_id !== form.technicianCompanyUserId
+            ? findCompanyUserById(companyUsers, previousScheduleSlot.technician_company_user_id)
+            : null;
 
         if (!selectedTechnician) {
             setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Selected technician is not active for this company. Choose another technician.' }));
@@ -666,9 +748,10 @@ export default function DispatchBoardScreen() {
         setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Scheduling request...' }));
 
         let scheduleErrorMessage = '';
+        let scheduledSlot: ScheduleSlot | null = null;
 
         try {
-            const { error } = await supabase.rpc('schedule_service_request_slot', {
+            const { data, error } = await supabase.rpc('schedule_service_request_slot', {
                 p_company_id: activeCompanyId,
                 p_service_request_id: request.id,
                 p_technician_company_user_id: form.technicianCompanyUserId,
@@ -682,6 +765,7 @@ export default function DispatchBoardScreen() {
             });
 
             scheduleErrorMessage = error?.message || '';
+            scheduledSlot = normalizeScheduleSlots(data)[0] || null;
         } catch (error) {
             scheduleErrorMessage = error instanceof Error ? error.message : 'Unknown error';
         }
@@ -705,6 +789,23 @@ export default function DispatchBoardScreen() {
             ...current,
             [request.id]: `Scheduled for ${formatDateTime(startAt.toISOString())}.`,
         }));
+        if (scheduledSlot) {
+            const notificationDetail = await queueAssignmentNotifications({
+                request,
+                companyName,
+                selectedTechnician,
+                scheduledSlot,
+                previousScheduleSlot,
+                previousTechnician,
+            });
+
+            if (notificationDetail) {
+                setRequestActionMessageById((current) => ({
+                    ...current,
+                    [request.id]: `Scheduled for ${formatDateTime(startAt.toISOString())}. ${notificationDetail}`,
+                }));
+            }
+        }
         await recordCompanyAuditEvent({
             companyId: activeCompanyId,
             action: 'dispatch_request_scheduled',
@@ -818,6 +919,59 @@ export default function DispatchBoardScreen() {
         }
     }
 
+    async function handleNotifyHomeownerDelay(request: DispatchRequest) {
+        const requestScheduleSlots = scheduleSlots.filter((slot) => (
+            slot.company_id === request.company_id &&
+            slot.service_request_id === request.id
+        ));
+        const currentScheduleSlot = getCurrentRequestScheduleSlot(requestScheduleSlots, request);
+        const risk = calculateDispatchRisk(currentScheduleSlot, scheduleSlots);
+
+        if (!currentScheduleSlot) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'No scheduled assignment was found for this request.' }));
+            return;
+        }
+
+        if (risk.state !== 'RUNNING_LATE') {
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: 'Homeowner was not notified. At Risk is an internal Dispatch warning until a delay is confirmed.',
+            }));
+            return;
+        }
+
+        const assignedTechnician = findCompanyUserById(companyUsers, currentScheduleSlot.technician_company_user_id);
+
+        setActionRequestId(request.id);
+        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Sending homeowner delay update...' }));
+
+        try {
+            const result = await queueHomeownerDelayNotification({
+                companyId: request.company_id,
+                serviceRequestId: request.id,
+                scheduleSlotId: currentScheduleSlot.id,
+                technicianName: assignedTechnician ? getMemberDisplayName(assignedTechnician) : 'Your technician',
+                arrivalWindowLabel: formatSlotArrivalWindow(currentScheduleSlot),
+                estimatedArrivalLabel: risk.estimatedArrivalAt ? formatDateTime(risk.estimatedArrivalAt) : null,
+                estimatedDelayMinutes: risk.estimatedDelayMinutes,
+            });
+
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: result.status === 'recorded'
+                    ? 'Homeowner delay update added to the job timeline.'
+                    : result.message,
+            }));
+        } catch (error) {
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: `Homeowner delay update failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            }));
+        } finally {
+            setActionRequestId(null);
+        }
+    }
+
     const companyName = company?.public_name || company?.dba_name || company?.name || 'Company';
     const dispatchCompanyId = companyAccess?.company_id || requestedCompanyId;
     const dispatchBackFallback = dispatchCompanyId
@@ -899,124 +1053,111 @@ export default function DispatchBoardScreen() {
                         requests={requests}
                         scheduleSlots={scheduleSlots}
                         activeTechnicians={activeTechnicians}
-                        cardBasis={cardBasis}
+                        cardBasis={laneBasis}
                     />
                 ) : (
-                    <>
-                        <DispatchSection
-                            title="New / Unassigned"
-                            requests={newRequests}
-                            totalRequests={requests.length}
-                            eventsByRequestId={eventsByRequestId}
-                            scheduleSlots={scheduleSlots}
-                            actionRequestId={actionRequestId}
-                            expandedRequestId={expandedRequestId}
-                            cardBasis={cardBasis}
-                            expandedCardBasis={expandedCardBasis}
-                            onToggleRequest={toggleExpandedRequest}
-                            onCollapseRequest={collapseExpandedRequest}
-                            onAcknowledge={handleAcknowledge}
-                            companyUsers={companyUsers}
-                            activeTechnicians={activeTechnicians}
-                            scheduleFormByRequestId={scheduleFormByRequestId}
-                            requestActionMessageById={requestActionMessageById}
-                            onUpdateScheduleForm={updateScheduleForm}
-                            onScheduleRequest={handleScheduleRequest}
-                            onCancelRequest={handleCancelRequest}
-                            onArchiveRequest={handleArchiveRequest}
-                        />
-                        <DispatchSection
-                            title="Assigned / Scheduled"
-                            requests={assignedScheduledRequests}
-                            totalRequests={requests.length}
-                            eventsByRequestId={eventsByRequestId}
-                            scheduleSlots={scheduleSlots}
-                            actionRequestId={actionRequestId}
-                            expandedRequestId={expandedRequestId}
-                            cardBasis={cardBasis}
-                            expandedCardBasis={expandedCardBasis}
-                            onToggleRequest={toggleExpandedRequest}
-                            onCollapseRequest={collapseExpandedRequest}
-                            onAcknowledge={handleAcknowledge}
-                            companyUsers={companyUsers}
-                            activeTechnicians={activeTechnicians}
-                            scheduleFormByRequestId={scheduleFormByRequestId}
-                            requestActionMessageById={requestActionMessageById}
-                            onUpdateScheduleForm={updateScheduleForm}
-                            onScheduleRequest={handleScheduleRequest}
-                            onCancelRequest={handleCancelRequest}
-                            onArchiveRequest={handleArchiveRequest}
-                        />
-                        <DispatchSection
-                            title="In Progress"
-                            requests={inProgressRequests}
-                            totalRequests={requests.length}
-                            eventsByRequestId={eventsByRequestId}
-                            scheduleSlots={scheduleSlots}
-                            actionRequestId={actionRequestId}
-                            expandedRequestId={expandedRequestId}
-                            cardBasis={cardBasis}
-                            expandedCardBasis={expandedCardBasis}
-                            onToggleRequest={toggleExpandedRequest}
-                            onCollapseRequest={collapseExpandedRequest}
-                            onAcknowledge={handleAcknowledge}
-                            companyUsers={companyUsers}
-                            activeTechnicians={activeTechnicians}
-                            scheduleFormByRequestId={scheduleFormByRequestId}
-                            requestActionMessageById={requestActionMessageById}
-                            onUpdateScheduleForm={updateScheduleForm}
-                            onScheduleRequest={handleScheduleRequest}
-                            onCancelRequest={handleCancelRequest}
-                            onArchiveRequest={handleArchiveRequest}
-                        />
-                        <DispatchSection
-                            title="Completed"
-                            requests={completedRequests}
-                            totalRequests={requests.length}
-                            eventsByRequestId={eventsByRequestId}
-                            scheduleSlots={scheduleSlots}
-                            actionRequestId={actionRequestId}
-                            expandedRequestId={expandedRequestId}
-                            cardBasis={cardBasis}
-                            expandedCardBasis={expandedCardBasis}
-                            onToggleRequest={toggleExpandedRequest}
-                            onCollapseRequest={collapseExpandedRequest}
-                            onAcknowledge={handleAcknowledge}
-                            companyUsers={companyUsers}
-                            activeTechnicians={activeTechnicians}
-                            scheduleFormByRequestId={scheduleFormByRequestId}
-                            requestActionMessageById={requestActionMessageById}
-                            onUpdateScheduleForm={updateScheduleForm}
-                            onScheduleRequest={handleScheduleRequest}
-                            onCancelRequest={handleCancelRequest}
-                            onArchiveRequest={handleArchiveRequest}
-                        />
-                        <DispatchSection
-                            title="Cancelled / Archived"
-                            requests={cancelledRequests}
-                            totalRequests={requests.length}
-                            eventsByRequestId={eventsByRequestId}
-                            scheduleSlots={scheduleSlots}
-                            actionRequestId={actionRequestId}
-                            expandedRequestId={expandedRequestId}
-                            cardBasis={cardBasis}
-                            expandedCardBasis={expandedCardBasis}
-                            onToggleRequest={toggleExpandedRequest}
-                            onCollapseRequest={collapseExpandedRequest}
-                            onAcknowledge={handleAcknowledge}
-                            companyUsers={companyUsers}
-                            activeTechnicians={activeTechnicians}
-                            scheduleFormByRequestId={scheduleFormByRequestId}
-                            requestActionMessageById={requestActionMessageById}
-                            onUpdateScheduleForm={updateScheduleForm}
-                            onScheduleRequest={handleScheduleRequest}
-                            onCancelRequest={handleCancelRequest}
-                            onArchiveRequest={handleArchiveRequest}
-                        />
-                    </>
+                    requests.length === 0 ? (
+                        <ThemedCard>
+                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>No active service requests.</Text>
+                        </ThemedCard>
+                    ) : (
+                        <>
+                            <DispatchNeedsAttentionPanel
+                                items={attentionItems}
+                                companyUsers={companyUsers}
+                                onNotifyHomeownerDelay={handleNotifyHomeownerDelay}
+                            />
+                            <View style={dispatchWallStyle}>
+                                {dispatchLanes.map((lane) => (
+                                    <DispatchSection
+                                        key={lane.key}
+                                        title={lane.title}
+                                        requests={lane.requests}
+                                        totalRequests={requests.length}
+                                        eventsByRequestId={eventsByRequestId}
+                                        scheduleSlots={scheduleSlots}
+                                        actionRequestId={actionRequestId}
+                                        expandedRequestId={expandedRequestId}
+                                        laneBasis={lane.requests.some((request) => request.id === expandedRequestId) ? expandedLaneBasis : laneBasis}
+                                        onToggleRequest={toggleExpandedRequest}
+                                        onCollapseRequest={collapseExpandedRequest}
+                                        onAcknowledge={handleAcknowledge}
+                                        companyUsers={companyUsers}
+                                        activeTechnicians={activeTechnicians}
+                                        scheduleFormByRequestId={scheduleFormByRequestId}
+                                        requestActionMessageById={requestActionMessageById}
+                                        onUpdateScheduleForm={updateScheduleForm}
+                                        onScheduleRequest={handleScheduleRequest}
+                                        onCancelRequest={handleCancelRequest}
+                                        onArchiveRequest={handleArchiveRequest}
+                                        onNotifyHomeownerDelay={handleNotifyHomeownerDelay}
+                                    />
+                                ))}
+                            </View>
+                        </>
+                    )
                 )}
             </View>
         </ScrollView>
+    );
+}
+
+function DispatchNeedsAttentionPanel({
+    items,
+    companyUsers,
+    onNotifyHomeownerDelay,
+}: {
+    items: DispatchAttentionItem[];
+    companyUsers: CompanyUser[];
+    onNotifyHomeownerDelay: (request: DispatchRequest) => void;
+}) {
+    const { theme } = useTheme();
+
+    if (items.length === 0) return null;
+
+    return (
+        <ThemedCard style={[needsAttentionPanelStyle, { borderColor: '#C4B5FD', backgroundColor: 'rgba(196, 181, 253, 0.12)' }]}>
+            <View style={sectionHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Needs Attention</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Internal timing warnings. Homeowners are notified only after Dispatch confirms a delay.
+                    </Text>
+                </View>
+                <Text style={[countBadgeStyle, { color: '#4C1D95', backgroundColor: 'rgba(124, 58, 237, 0.18)' }]}>
+                    {items.length}
+                </Text>
+            </View>
+            <View style={attentionItemListStyle}>
+                {items.map((item) => {
+                    const technician = findCompanyUserById(companyUsers, item.slot.technician_company_user_id);
+
+                    return (
+                        <View key={`${item.request.id}:${item.slot.id}`} style={[attentionItemStyle, { borderColor: getRiskBorderColor(item.risk.state, theme.colors.border) }]}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={[requestTypeStyle, { color: getRiskTextColor(item.risk.state, theme.colors.text) }]}>
+                                    {item.risk.label} / {item.request.customer_display_name || item.request.property_display_name || 'Customer'}
+                                </Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                                    {item.risk.reason}
+                                </Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                                    Tech: {technician ? getMemberDisplayName(technician) : 'Not available'} / Window: {formatSlotArrivalWindow(item.slot)}
+                                </Text>
+                            </View>
+                            <ThemedButton
+                                title={item.risk.state === 'RUNNING_LATE' ? 'Notify Homeowner' : 'Watch'}
+                                variant={item.risk.state === 'RUNNING_LATE' ? 'primary' : 'secondary'}
+                                disabled={item.risk.state !== 'RUNNING_LATE'}
+                                onPress={() => onNotifyHomeownerDelay(item.request)}
+                                style={{ paddingHorizontal: 12, paddingVertical: 10 }}
+                                textStyle={{ fontSize: 12 }}
+                            />
+                        </View>
+                    );
+                })}
+            </View>
+        </ThemedCard>
     );
 }
 
@@ -1028,8 +1169,7 @@ function DispatchSection({
     scheduleSlots,
     actionRequestId,
     expandedRequestId,
-    cardBasis,
-    expandedCardBasis,
+    laneBasis,
     onToggleRequest,
     onCollapseRequest,
     onAcknowledge,
@@ -1041,6 +1181,7 @@ function DispatchSection({
     onScheduleRequest,
     onCancelRequest,
     onArchiveRequest,
+    onNotifyHomeownerDelay,
 }: {
     title: string;
     requests: DispatchRequest[];
@@ -1049,8 +1190,7 @@ function DispatchSection({
     scheduleSlots: ScheduleSlot[];
     actionRequestId: string | null;
     expandedRequestId: string | null;
-    cardBasis: ViewStyle['flexBasis'];
-    expandedCardBasis: ViewStyle['flexBasis'];
+    laneBasis: ViewStyle['flexBasis'];
     onToggleRequest: (requestId: string) => void;
     onCollapseRequest: () => void;
     onAcknowledge: (request: DispatchRequest) => void;
@@ -1062,11 +1202,12 @@ function DispatchSection({
     onScheduleRequest: (request: DispatchRequest) => void;
     onCancelRequest: (request: DispatchRequest) => void;
     onArchiveRequest: (request: DispatchRequest) => void;
+    onNotifyHomeownerDelay: (request: DispatchRequest) => void;
 }) {
     const { theme } = useTheme();
 
     return (
-        <View style={{ marginBottom: 18 }}>
+        <View style={[dispatchLaneStyle, { flexBasis: laneBasis }]}>
             <View style={sectionHeaderStyle}>
                 <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>{title}</Text>
                 <View style={{ alignItems: 'flex-end' }}>
@@ -1085,29 +1226,39 @@ function DispatchSection({
                 </ThemedCard>
             ) : (
                 <View style={requestGridStyle}>
-                    {requests.map((request) => (
-                        <DispatchRequestCard
-                            key={request.id}
-                            request={request}
-                            events={eventsByRequestId[request.id] || []}
-                            scheduleSlots={scheduleSlots.filter((slot) => slot.service_request_id === request.id)}
-                            acknowledging={actionRequestId === request.id}
-                            expanded={expandedRequestId === request.id}
-                            cardBasis={cardBasis}
-                            expandedCardBasis={expandedCardBasis}
-                            onToggle={() => onToggleRequest(request.id)}
-                            onCollapse={onCollapseRequest}
-                            onAcknowledge={onAcknowledge}
-                            companyUsers={companyUsers}
-                            activeTechnicians={activeTechnicians}
-                            scheduleForm={scheduleFormByRequestId[request.id] || createDefaultScheduleForm()}
-                            actionMessage={requestActionMessageById[request.id] || ''}
-                            onUpdateScheduleForm={(updates) => onUpdateScheduleForm(request.id, updates)}
-                            onScheduleRequest={() => onScheduleRequest(request)}
-                            onCancelRequest={() => onCancelRequest(request)}
-                            onArchiveRequest={() => onArchiveRequest(request)}
-                        />
-                    ))}
+                    {requests.map((request) => {
+                        const requestScheduleSlots = scheduleSlots.filter((slot) => (
+                            slot.company_id === request.company_id &&
+                            slot.service_request_id === request.id
+                        ));
+                        const currentScheduleSlot = getCurrentRequestScheduleSlot(requestScheduleSlots, request);
+
+                        return (
+                            <DispatchRequestCard
+                                key={request.id}
+                                request={request}
+                                events={eventsByRequestId[request.id] || []}
+                                scheduleSlots={requestScheduleSlots}
+                                allScheduleSlots={scheduleSlots}
+                                acknowledging={actionRequestId === request.id}
+                                expanded={expandedRequestId === request.id}
+                                cardBasis="100%"
+                                expandedCardBasis="100%"
+                                onToggle={() => onToggleRequest(request.id)}
+                                onCollapse={onCollapseRequest}
+                                onAcknowledge={onAcknowledge}
+                                companyUsers={companyUsers}
+                                activeTechnicians={activeTechnicians}
+                                scheduleForm={scheduleFormByRequestId[request.id] || createScheduleFormFromSlot(currentScheduleSlot)}
+                                actionMessage={requestActionMessageById[request.id] || ''}
+                                onUpdateScheduleForm={(updates) => onUpdateScheduleForm(request.id, updates)}
+                                onScheduleRequest={() => onScheduleRequest(request)}
+                                onCancelRequest={() => onCancelRequest(request)}
+                                onArchiveRequest={() => onArchiveRequest(request)}
+                                onNotifyHomeownerDelay={() => onNotifyHomeownerDelay(request)}
+                            />
+                        );
+                    })}
                 </View>
             )}
         </View>
@@ -1404,6 +1555,7 @@ function DispatchRequestCard({
     request,
     events,
     scheduleSlots,
+    allScheduleSlots,
     acknowledging,
     expanded,
     cardBasis,
@@ -1419,10 +1571,12 @@ function DispatchRequestCard({
     onScheduleRequest,
     onCancelRequest,
     onArchiveRequest,
+    onNotifyHomeownerDelay,
 }: {
     request: DispatchRequest;
     events: ServiceRequestEvent[];
     scheduleSlots: ScheduleSlot[];
+    allScheduleSlots: ScheduleSlot[];
     acknowledging: boolean;
     expanded: boolean;
     cardBasis: ViewStyle['flexBasis'];
@@ -1438,10 +1592,12 @@ function DispatchRequestCard({
     onScheduleRequest: () => void;
     onCancelRequest: () => void;
     onArchiveRequest: () => void;
+    onNotifyHomeownerDelay: () => void;
 }) {
     const { theme } = useTheme();
     const status = normalizeStatus(request.status);
     const latestUpdateRequest = events.find((event) => normalizeStatus(event.event_type) === 'update_requested');
+    const latestTimingResponse = events.find((event) => normalizeStatus(event.event_type) === 'technician_timing_response');
     const displayName = request.customer_display_name || request.property_display_name || 'Homeowner';
     const selectedTechnician = activeTechnicians.find((technician) => technician.id === scheduleForm.technicianCompanyUserId) || null;
     const currentScheduleSlot = getCurrentRequestScheduleSlot(scheduleSlots, request);
@@ -1466,6 +1622,7 @@ function DispatchRequestCard({
     const arrivalWindowPreview = getArrivalWindowPreview(scheduleForm);
     const selectedDateLabel = formatSelectedScheduleDate(scheduleForm.date);
     const selectedStartLabel = formatSelectedScheduleTime(scheduleForm.startTime);
+    const risk = calculateDispatchRisk(currentScheduleSlot, allScheduleSlots);
 
     return (
         <ThemedCard
@@ -1475,6 +1632,9 @@ function DispatchRequestCard({
                 {
                     flexBasis: expanded ? expandedCardBasis : cardBasis,
                     flexGrow: expanded ? 1 : 0,
+                    borderColor: getRiskBorderColor(risk.state, theme.colors.border),
+                    borderWidth: risk.state === 'ON_TIME' ? 1 : 2,
+                    backgroundColor: getRiskBackgroundColor(risk.state, theme.colors.surface),
                 },
             ]}
         >
@@ -1484,12 +1644,31 @@ function DispatchRequestCard({
                     {formatLabel(request.priority)}
                 </Text>
             </View>
+            <View style={compactActionRowStyle}>
+                <Text style={[
+                    riskBadgeStyle,
+                    {
+                        color: getRiskTextColor(risk.state, theme.colors.text),
+                        backgroundColor: getRiskBadgeBackground(risk.state, theme.colors.secondaryButton),
+                    },
+                ]}>
+                    {risk.label}
+                </Text>
+                {risk.state !== 'ON_TIME' && (
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText, flex: 1 }]} numberOfLines={2}>
+                        {risk.reason}
+                    </Text>
+                )}
+            </View>
 
             <Text style={[requestTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
                 {displayName}
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
                 {request.issue_summary || 'No description provided.'}
+            </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                Property: {formatPropertyAddress(request)}
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Request #{shortId(request.id)}
@@ -1505,6 +1684,12 @@ function DispatchRequestCard({
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Assigned tech: {assignedTechnicianLabel}
+            </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Scheduled: {formatScheduleStart(currentScheduleSlot)}
+            </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Arrival window: {formatSlotArrivalWindow(currentScheduleSlot)}
             </Text>
             {!!currentScheduleSlot && (
                 <View style={[techStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
@@ -1525,6 +1710,13 @@ function DispatchRequestCard({
                 </View>
             )}
             <View style={compactActionRowStyle}>
+                <ThemedButton
+                    title={expanded ? 'Collapse' : 'Expand'}
+                    variant={expanded ? 'ghost' : 'secondary'}
+                    onPress={expanded ? onCollapse : onToggle}
+                    style={compactActionButtonStyle}
+                    textStyle={{ fontSize: 12 }}
+                />
                 <ThemedButton
                     title="Open Customer"
                     variant="secondary"
@@ -1559,8 +1751,48 @@ function DispatchRequestCard({
                         {request.issue_summary || 'No summary available.'}
                     </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Property: {request.property_display_name || 'Not available'}
+                        Property: {formatPropertyAddress(request)}
                     </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Scheduled: {formatScheduleStart(currentScheduleSlot)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Arrival window: {formatSlotArrivalWindow(currentScheduleSlot)}
+                    </Text>
+                    {risk.state !== 'ON_TIME' && (
+                        <View style={[secondaryActionPanelStyle, { borderColor: getRiskBorderColor(risk.state, theme.colors.border) }]}>
+                            <Text style={[requestTypeStyle, { color: getRiskTextColor(risk.state, theme.colors.text) }]}>
+                                Delay Risk: {risk.label}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{risk.reason}</Text>
+                            {!!risk.estimatedArrivalAt && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Estimated arrival: {formatDateTime(risk.estimatedArrivalAt)}
+                                </Text>
+                            )}
+                            {risk.estimatedDelayMinutes !== null && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Estimated delay: {risk.estimatedDelayMinutes} min
+                                </Text>
+                            )}
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                Suggested: {risk.suggestedActions.join(' / ')}
+                            </Text>
+                            {!!latestTimingResponse && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Tech timing: {formatTimingResponse(latestTimingResponse)}
+                                </Text>
+                            )}
+                            <ThemedButton
+                                title={risk.state === 'RUNNING_LATE' ? 'Notify Homeowner' : 'Notify after confirmed delay'}
+                                variant={risk.state === 'RUNNING_LATE' ? 'primary' : 'secondary'}
+                                disabled={acknowledging || risk.state !== 'RUNNING_LATE'}
+                                onPress={onNotifyHomeownerDelay}
+                                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 10 }}
+                                textStyle={{ fontSize: 12 }}
+                            />
+                        </View>
+                    )}
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Events: {events.length}
                     </Text>
@@ -1993,7 +2225,7 @@ async function loadTechnicianScheduleSlots({
 }) {
     const { data, error } = await supabase
         .from('job_schedule_slots')
-        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, status, priority, tech_status_note, updated_at')
+        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, updated_at')
         .eq('company_id', companyId)
         .eq('technician_company_user_id', technicianCompanyUserId)
         .lt('start_at', endAt.toISOString())
@@ -2019,8 +2251,12 @@ function normalizeScheduleSlots(data: unknown): ScheduleSlot[] {
                 technician_company_user_id: readStringField(record, 'technician_company_user_id') || '',
                 start_at: readStringField(record, 'start_at'),
                 end_at: readStringField(record, 'end_at'),
+                arrival_window_start: readStringField(record, 'arrival_window_start'),
+                arrival_window_end: readStringField(record, 'arrival_window_end'),
                 status: readStringField(record, 'status'),
+                estimated_duration_minutes: readNumberField(record, 'estimated_duration_minutes'),
                 priority: readStringField(record, 'priority'),
+                notes: readStringField(record, 'notes'),
                 tech_status_note: readStringField(record, 'tech_status_note'),
                 updated_at: readStringField(record, 'updated_at'),
             };
@@ -2040,6 +2276,12 @@ function normalizeServiceRequestEvents(data: unknown, companyId: string): Servic
                 property_id: readStringField(record, 'property_id') || '',
                 event_type: readStringField(record, 'event_type'),
                 message: readStringField(record, 'message'),
+                event_visibility: readStringField(record, 'event_visibility'),
+                audience: readStringField(record, 'audience'),
+                schedule_slot_id: readStringField(record, 'schedule_slot_id'),
+                dedupe_key: readStringField(record, 'dedupe_key'),
+                metadata: readRecordField(record, 'metadata'),
+                notification_status: readStringField(record, 'notification_status'),
                 created_at: readStringField(record, 'created_at'),
             };
         })
@@ -2152,6 +2394,75 @@ async function recordCompanyAuditEvent(input: Parameters<typeof logCompanyAuditE
     } catch {
         // Dispatch action already completed; do not hide that result behind an audit write issue.
     }
+}
+
+async function queueAssignmentNotifications({
+    request,
+    companyName,
+    selectedTechnician,
+    scheduledSlot,
+    previousScheduleSlot,
+    previousTechnician,
+}: {
+    request: DispatchRequest;
+    companyName: string;
+    selectedTechnician: CompanyUser | null;
+    scheduledSlot: ScheduleSlot;
+    previousScheduleSlot: ScheduleSlot | null;
+    previousTechnician: CompanyUser | null;
+}) {
+    const technicianName = selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Your technician';
+    const isReassignment = Boolean(previousScheduleSlot && previousTechnician);
+    const notificationTasks = [
+        queueHomeownerAssignmentNotification({
+            companyId: request.company_id,
+            serviceRequestId: request.id,
+            scheduleSlotId: scheduledSlot.id,
+            companyName,
+            technicianName,
+            serviceDateLabel: formatScheduleDateLabel(scheduledSlot.start_at),
+            arrivalWindowLabel: formatSlotArrivalWindow(scheduledSlot),
+            serviceAddressLabel: formatPropertyAddress(request),
+            reassigned: isReassignment,
+        }),
+        queueTechnicianAssignmentNotification({
+            companyId: request.company_id,
+            serviceRequestId: request.id,
+            scheduleSlotId: scheduledSlot.id,
+            customerName: request.customer_display_name || request.property_display_name || 'Customer',
+            serviceAddressLabel: formatPropertyAddress(request),
+            serviceDateLabel: formatScheduleDateLabel(scheduledSlot.start_at),
+            arrivalWindowLabel: formatSlotArrivalWindow(scheduledSlot),
+            estimatedDurationLabel: formatDurationSummary(scheduledSlot.estimated_duration_minutes),
+            jobType: formatCallType(request),
+            priority: formatLabel(request.priority),
+            notes: scheduledSlot.notes,
+        }),
+    ];
+
+    if (previousScheduleSlot && previousTechnician) {
+        notificationTasks.push(queueTechnicianAssignmentNotification({
+            companyId: request.company_id,
+            serviceRequestId: request.id,
+            scheduleSlotId: previousScheduleSlot.id,
+            customerName: request.customer_display_name || request.property_display_name || 'Customer',
+            serviceAddressLabel: formatPropertyAddress(request),
+            serviceDateLabel: formatScheduleDateLabel(previousScheduleSlot.start_at),
+            arrivalWindowLabel: formatSlotArrivalWindow(previousScheduleSlot),
+            estimatedDurationLabel: formatDurationSummary(previousScheduleSlot.estimated_duration_minutes),
+            jobType: formatCallType(request),
+            priority: formatLabel(request.priority),
+            notes: previousScheduleSlot.notes,
+            removed: true,
+        }));
+    }
+
+    const results = await Promise.all(notificationTasks);
+    const pending = results.filter((result) => result.status !== 'recorded');
+
+    return pending.length > 0
+        ? 'Notification event backend is pending; assignment is still saved.'
+        : 'Homeowner and technician assignment events recorded.';
 }
 
 function getRequestAuditLabel(request: DispatchRequest) {
@@ -2355,6 +2666,46 @@ function readStringField(record: Record<string, unknown>, key: string) {
     return typeof value === 'string' && value.trim() ? value : null;
 }
 
+function readNumberField(record: Record<string, unknown>, key: string) {
+    const value = record[key];
+
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value);
+
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return null;
+}
+
+function readRecordField(record: Record<string, unknown>, key: string): Record<string, unknown> {
+    const value = record[key];
+
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+}
+
+function readMetadataString(metadata: Record<string, unknown>, key: string) {
+    const value = metadata[key];
+
+    return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function readMetadataNumber(metadata: Record<string, unknown>, key: string) {
+    const value = metadata[key];
+
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string' && value.trim()) {
+        const parsed = Number(value);
+
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return null;
+}
+
 function firstParam(value?: string | string[]) {
     if (Array.isArray(value)) return String(value[0] || '').trim();
     return String(value || '').trim();
@@ -2382,6 +2733,12 @@ function getMemberDisplayName(member: CompanyUser) {
     return member.full_name || member.email || `Tech ${shortId(member.auth_user_id || member.id)}`;
 }
 
+function findCompanyUserById(companyUsers: CompanyUser[], companyUserId?: string | null) {
+    if (!companyUserId) return null;
+
+    return companyUsers.find((member) => member.id === companyUserId) || null;
+}
+
 function parseLocalDateTime(dateText: string, timeText: string) {
     const date = dateText.trim();
     const time = timeText.trim();
@@ -2391,6 +2748,14 @@ function parseLocalDateTime(dateText: string, timeText: string) {
     }
 
     const parsed = new Date(`${date}T${time}:00`);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function parseIsoDate(value?: string | null) {
+    if (!value) return null;
+
+    const parsed = new Date(value);
 
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
@@ -2503,11 +2868,29 @@ function getScheduleDurationMinutes(form: ScheduleRequestForm) {
     return Number.isFinite(duration) && duration > 0 ? duration : null;
 }
 
+function getScheduleSlotDurationMinutes(slot: ScheduleSlot) {
+    const start = parseIsoDate(slot.start_at);
+    const end = parseIsoDate(slot.end_at);
+
+    if (!start || !end || end <= start) return null;
+
+    return Math.round((end.getTime() - start.getTime()) / 60_000);
+}
+
 function getArrivalWindowHours(form: ScheduleRequestForm) {
     const rawHours = form.arrivalWindowMode === 'custom' ? form.arrivalWindowHours : form.arrivalWindowMode;
     const hours = Number.parseFloat(rawHours);
 
     return Number.isFinite(hours) && hours >= 0 ? hours : null;
+}
+
+function getScheduleSlotArrivalWindowHours(slot: ScheduleSlot) {
+    const start = parseIsoDate(slot.arrival_window_start || slot.start_at);
+    const end = parseIsoDate(slot.arrival_window_end || slot.arrival_window_start || slot.start_at);
+
+    if (!start || !end || end < start) return null;
+
+    return Number(((end.getTime() - start.getTime()) / 3_600_000).toFixed(2));
 }
 
 function getArrivalWindowPreview(form: ScheduleRequestForm) {
@@ -2671,22 +3054,211 @@ function formatDateTime(value?: string | null) {
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
 }
 
+function formatPropertyAddress(request: DispatchRequest) {
+    const addressParts = [
+        request.property_address,
+        request.property_city,
+        request.property_state,
+        request.property_postal_code,
+    ]
+        .map((part) => String(part || '').trim())
+        .filter(Boolean);
+
+    return addressParts.length > 0 ? addressParts.join(', ') : request.property_display_name || 'Address not available';
+}
+
+function formatScheduleStart(slot: ScheduleSlot | null) {
+    return slot?.start_at ? formatDateTime(slot.start_at) : 'Not scheduled';
+}
+
+function formatScheduleDateLabel(value?: string | null) {
+    if (!value) return 'a scheduled date';
+
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime())
+        ? 'a scheduled date'
+        : date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
+function formatSlotArrivalWindow(slot: ScheduleSlot | null) {
+    if (!slot) return 'Not set';
+
+    const windowStart = slot.arrival_window_start || slot.start_at;
+    const windowEnd = slot.arrival_window_end || slot.arrival_window_start || slot.start_at;
+
+    if (!windowStart || !windowEnd) return 'Not set';
+
+    return `${formatTime(windowStart)} - ${formatTime(windowEnd)}`;
+}
+
+function formatTimingResponse(event: ServiceRequestEvent) {
+    const response = readMetadataString(event.metadata, 'response') || event.message || 'Timing response received.';
+    const remaining = readMetadataNumber(event.metadata, 'estimated_remaining_minutes');
+
+    return remaining !== null ? `${response} / ${remaining} min remaining` : response;
+}
+
+function buildDispatchLanes(requests: DispatchRequest[], scheduleSlots: ScheduleSlot[]): DispatchLane[] {
+    const lanes = DISPATCH_LANE_DEFINITIONS.map((definition) => ({
+        ...definition,
+        requests: [] as DispatchRequest[],
+    }));
+    const lanesByKey = {} as Record<DispatchLaneKey, DispatchLane>;
+    lanes.forEach((lane) => {
+        lanesByKey[lane.key] = lane;
+    });
+
+    requests.forEach((request) => {
+        const requestSlots = scheduleSlots.filter((slot) => (
+            slot.company_id === request.company_id &&
+            slot.service_request_id === request.id
+        ));
+        const currentSlot = getCurrentRequestScheduleSlot(requestSlots, request);
+        lanesByKey[getDispatchLaneKey(request, currentSlot)].requests.push(request);
+    });
+
+    lanes.forEach((lane) => {
+        lane.requests.sort((first, second) => compareDispatchLaneRequests(first, second, scheduleSlots));
+    });
+
+    return lanes;
+}
+
+function buildDispatchAttentionItems(requests: DispatchRequest[], scheduleSlots: ScheduleSlot[]): DispatchAttentionItem[] {
+    return requests
+        .map((request) => {
+            const requestSlots = scheduleSlots.filter((slot) => (
+                slot.company_id === request.company_id &&
+                slot.service_request_id === request.id
+            ));
+            const currentSlot = getCurrentRequestScheduleSlot(requestSlots, request);
+
+            if (!currentSlot) return null;
+
+            const risk = calculateDispatchRisk(currentSlot, scheduleSlots);
+
+            return risk.state === 'ON_TIME'
+                ? null
+                : {
+                    request,
+                    slot: currentSlot,
+                    risk,
+                };
+        })
+        .filter((item): item is DispatchAttentionItem => Boolean(item))
+        .sort((first, second) => {
+            if (first.risk.state !== second.risk.state) {
+                return first.risk.state === 'RUNNING_LATE' ? -1 : 1;
+            }
+
+            return getSortableTime(first.slot.start_at) - getSortableTime(second.slot.start_at);
+        });
+}
+
+function getDispatchLaneKey(request: DispatchRequest, slot: ScheduleSlot | null): DispatchLaneKey {
+    const requestStatus = normalizeStatus(request.status);
+    const slotStatus = normalizeStatus(slot?.status || request.status);
+
+    if (isCompletedDispatchStatus(requestStatus) || isCompletedDispatchStatus(slotStatus)) {
+        return 'completed';
+    }
+
+    if (!slot?.technician_company_user_id) {
+        return 'unassigned';
+    }
+
+    if (['on_my_way', 'en_route', 'dispatched'].includes(slotStatus)) {
+        return 'on_my_way';
+    }
+
+    if (['arrived', 'onsite', 'on_site'].includes(slotStatus)) {
+        return 'arrived';
+    }
+
+    if (isWorkingScheduleStatus(slotStatus)) {
+        return 'working';
+    }
+
+    if (isWaitingScheduleStatus(slotStatus)) {
+        return 'waiting';
+    }
+
+    return 'assigned';
+}
+
+function compareDispatchLaneRequests(first: DispatchRequest, second: DispatchRequest, scheduleSlots: ScheduleSlot[]) {
+    const firstSlot = getCurrentRequestScheduleSlot(
+        scheduleSlots.filter((slot) => slot.company_id === first.company_id && slot.service_request_id === first.id),
+        first
+    );
+    const secondSlot = getCurrentRequestScheduleSlot(
+        scheduleSlots.filter((slot) => slot.company_id === second.company_id && slot.service_request_id === second.id),
+        second
+    );
+    const firstTime = getSortableTime(firstSlot?.start_at) || getSortableTime(first.created_at);
+    const secondTime = getSortableTime(secondSlot?.start_at) || getSortableTime(second.created_at);
+
+    if (firstTime && secondTime && firstTime !== secondTime) {
+        return firstTime - secondTime;
+    }
+
+    return getSortableTime(second.created_at) - getSortableTime(first.created_at);
+}
+
+function isCompletedDispatchStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return isCompletedStatus(normalized) || ['cancelled', 'canceled', 'archived'].includes(normalized);
+}
+
+function isWorkingScheduleStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return ['working', 'in_progress', 'in-progress', 'active', 'started', 'start_work'].includes(normalized);
+}
+
+function isWaitingScheduleStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return [
+        'estimate_needed',
+        'approval_needed',
+        'needs_approval',
+        'waiting',
+        'waiting_on_customer',
+        'waiting_on_parts',
+        'parts_needed',
+        'need_parts',
+        'assistance_needed',
+        'needs_assistance',
+        'help_needed',
+        'needs_help',
+        'blocked',
+        'on_hold',
+        'paused',
+        'running_late',
+        'custom',
+    ].includes(normalized);
+}
+
 function getCurrentRequestScheduleSlot(slots: ScheduleSlot[], request: DispatchRequest) {
     if (slots.length === 0) return null;
     const activeSlots = slots.filter(isActiveScheduleSlot);
     const currentFutureSlots = activeSlots.filter(isCurrentOrFutureScheduleSlot);
+    const latestSlot = [...slots].sort((first, second) => {
+        const firstUpdated = getSortableTime(first.updated_at) || getSortableTime(first.start_at);
+        const secondUpdated = getSortableTime(second.updated_at) || getSortableTime(second.start_at);
+
+        return secondUpdated - firstUpdated;
+    })[0] || null;
 
     if (currentFutureSlots.length > 0) {
         return sortScheduleSlots(currentFutureSlots)[0] || null;
     }
 
-    if (isCompletedStatus(request.status) || ['cancelled', 'canceled', 'archived'].includes(normalizeStatus(request.status))) {
-        return [...slots].sort((first, second) => {
-            const firstUpdated = getSortableTime(first.updated_at) || getSortableTime(first.start_at);
-            const secondUpdated = getSortableTime(second.updated_at) || getSortableTime(second.start_at);
-
-            return secondUpdated - firstUpdated;
-        })[0] || null;
+    if (isCompletedDispatchStatus(request.status)) {
+        return latestSlot;
     }
 
     return activeSlots.length > 0
@@ -2696,7 +3268,7 @@ function getCurrentRequestScheduleSlot(slots: ScheduleSlot[], request: DispatchR
 
             return secondUpdated - firstUpdated;
         })[0] || null
-        : null;
+        : latestSlot;
 }
 
 function isCurrentOrFutureScheduleSlot(slot: ScheduleSlot) {
@@ -2725,8 +3297,12 @@ function formatTechOSStatusLabel(status?: string | null) {
         scheduled: 'Scheduled',
         on_my_way: 'On My Way',
         arrived: 'Arrived',
+        working: 'Working',
         in_progress: 'In Progress',
         estimate_needed: 'Estimate Needed',
+        approval_needed: 'Approval Needed',
+        assistance_needed: 'Assistance Needed',
+        parts_needed: 'Parts Needed',
         completed: 'Completed',
         running_late: 'Running Late',
         available: 'Available',
@@ -2734,6 +3310,34 @@ function formatTechOSStatusLabel(status?: string | null) {
     };
 
     return labels[normalized] || formatLabel(status);
+}
+
+function getRiskBorderColor(state: DispatchRiskResult['state'], fallback: string) {
+    if (state === 'RUNNING_LATE') return '#7C3AED';
+    if (state === 'AT_RISK') return '#C4B5FD';
+
+    return fallback;
+}
+
+function getRiskBackgroundColor(state: DispatchRiskResult['state'], fallback: string) {
+    if (state === 'RUNNING_LATE') return 'rgba(124, 58, 237, 0.12)';
+    if (state === 'AT_RISK') return 'rgba(196, 181, 253, 0.16)';
+
+    return fallback;
+}
+
+function getRiskBadgeBackground(state: DispatchRiskResult['state'], fallback: string) {
+    if (state === 'RUNNING_LATE') return 'rgba(124, 58, 237, 0.22)';
+    if (state === 'AT_RISK') return 'rgba(196, 181, 253, 0.32)';
+
+    return fallback;
+}
+
+function getRiskTextColor(state: DispatchRiskResult['state'], fallback: string) {
+    if (state === 'RUNNING_LATE') return '#4C1D95';
+    if (state === 'AT_RISK') return '#5B21B6';
+
+    return fallback;
 }
 
 function formatTime(value?: string | null) {
@@ -2812,6 +3416,49 @@ const countBadgeStyle = {
     paddingVertical: 6,
     fontSize: 12,
     fontWeight: '900' as const,
+};
+
+const riskBadgeStyle = {
+    borderRadius: 999,
+    overflow: 'hidden' as const,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const dispatchWallStyle = {
+    alignItems: 'flex-start' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const dispatchLaneStyle = {
+    flexGrow: 1,
+    flexShrink: 1,
+    marginBottom: 18,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+};
+
+const needsAttentionPanelStyle = {
+    borderWidth: 1,
+    marginBottom: 16,
+};
+
+const attentionItemListStyle = {
+    gap: 10,
+};
+
+const attentionItemStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    padding: 10,
 };
 
 const requestGridStyle = {
