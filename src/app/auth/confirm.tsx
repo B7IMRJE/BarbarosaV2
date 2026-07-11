@@ -1,3 +1,4 @@
+import type { Session, User } from '@supabase/supabase-js';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
@@ -31,16 +32,19 @@ export default function AuthConfirmScreen() {
         tokenHash?: string | string[];
         type?: string | string[];
         next?: string | string[];
+        redirect_to?: string | string[];
+        redirectTo?: string | string[];
         error?: string | string[];
         error_code?: string | string[];
         error_description?: string | string[];
     }>();
     const pendingInvite = getPendingCompanyInviteState();
-    const urlNextRoute = resolveSafeNext(firstParam(params.next));
+    const urlNextRoute = resolveInviteNext(firstParam(params.next));
+    const redirectNextRoute = resolveInviteNext(firstParam(params.redirect_to) || firstParam(params.redirectTo));
     const pendingNextRoute = pendingInvite && readInviteCodeFromNextPath(pendingInvite.nextPath)
         ? pendingInvite.nextPath
         : null;
-    const nextRoute = urlNextRoute || pendingNextRoute;
+    const nextRoute = urlNextRoute || redirectNextRoute || pendingNextRoute;
     const pendingInviteEmail = pendingInvite?.nextPath === nextRoute ? pendingInvite.invitedEmail : null;
     const isCompanyInviteConfirmation = nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true;
     const isCustomerInviteConfirmation = nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE) === true;
@@ -78,25 +82,32 @@ export default function AuthConfirmScreen() {
         const type = normalizeOtpType(firstParam(params.type));
 
         if (confirmationCode) {
-            const { error } = await supabase.auth.exchangeCodeForSession(confirmationCode);
+            const { data, error } = await supabase.auth.exchangeCodeForSession(confirmationCode);
 
             if (error) {
                 setFailed(true);
-                setMessage(isExpiredOtpError(error)
-                    ? expiredConfirmationMessage(nextRoute)
+                if (isExpiredOtpError(error)) {
+                    setMessage(expiredConfirmationMessage(nextRoute));
+                    return;
+                }
+
+                if (isPkceVerifierMissingError(error) && nextRoute) {
+                    replacePendingCompanyInviteFromNextPath(nextRoute, pendingInviteEmail);
+                    setMessage('Email confirmed. Sign in to continue accepting the invitation.');
+                    router.replace({
+                        pathname: '/auth/login',
+                        params: buildLoginParams(nextRoute, pendingInviteEmail || confirmationEmail),
+                    } as any);
+                    return;
+                }
+
+                setMessage(isPkceVerifierMissingError(error)
+                    ? 'This older confirmation link was opened in a browser that did not start signup. Request a new confirmation email to continue accepting the invitation.'
                     : `Email confirmation failed: ${readErrorMessage(error)}`);
                 return;
             }
 
-            if (!nextRoute) {
-                setFailed(true);
-                setMessage('Email confirmed, but this link does not include a usable invitation code. Enter your current invite code or sign in again.');
-                return;
-            }
-
-            replacePendingCompanyInviteFromNextPath(nextRoute, pendingInviteEmail);
-            setMessage('Opening company invitation...');
-            router.replace(nextRoute as any);
+            await finishConfirmedEmail(data.user, data.session);
             return;
         }
 
@@ -106,7 +117,7 @@ export default function AuthConfirmScreen() {
             return;
         }
 
-        const { error } = await supabase.auth.verifyOtp({
+        const { data, error } = await supabase.auth.verifyOtp({
             token_hash: tokenHash,
             type,
         });
@@ -119,15 +130,31 @@ export default function AuthConfirmScreen() {
             return;
         }
 
-        if (!nextRoute) {
+        await finishConfirmedEmail(data.user, data.session);
+    }
+
+    async function finishConfirmedEmail(user: User | null, session: Session | null) {
+        const recoveredNextRoute = nextRoute || readInviteRouteFromAuthUser(user) || await readInviteRouteFromCurrentUser();
+        const recoveredEmail = pendingInviteEmail || readEmailFromAuthUser(user) || await readEmailFromCurrentUser();
+
+        if (!recoveredNextRoute) {
             setFailed(true);
             setMessage('Email confirmed, but this link does not include a usable invitation code. Enter your current invite code or sign in again.');
             return;
         }
 
-        replacePendingCompanyInviteFromNextPath(nextRoute, pendingInviteEmail);
+        replacePendingCompanyInviteFromNextPath(recoveredNextRoute, recoveredEmail);
         setMessage('Opening company invitation...');
-        router.replace(nextRoute as any);
+
+        if (session || await hasCurrentSession()) {
+            router.replace(recoveredNextRoute as any);
+            return;
+        }
+
+        router.replace({
+            pathname: '/auth/login',
+            params: buildLoginParams(recoveredNextRoute, recoveredEmail),
+        } as any);
     }
 
     async function resendConfirmationEmail() {
@@ -324,6 +351,35 @@ function isExpiredOtpError(error: unknown) {
     return code === 'otp_expired' || message.includes('expired') || message.includes('already used');
 }
 
+function isPkceVerifierMissingError(error: unknown) {
+    const message = readErrorMessage(error).toLowerCase();
+
+    return message.includes('code verifier') || message.includes('pkce');
+}
+
+function resolveInviteNext(value: string | undefined, depth = 0): string | null {
+    if (!value) return null;
+    if (depth > 2) return null;
+
+    const directNext = resolveSafeNext(value);
+    if (directNext) return directNext;
+
+    try {
+        const parsed = new URL(value, 'https://app.local');
+        const nestedNext = resolveInviteNext(parsed.searchParams.get('next') || undefined, depth + 1);
+        if (nestedNext) return nestedNext;
+
+        return resolveInviteNext(
+            parsed.searchParams.get('redirect_to') ||
+            parsed.searchParams.get('redirectTo') ||
+            undefined,
+            depth + 1
+        );
+    } catch {
+        return null;
+    }
+}
+
 function resolveSafeNext(value: string | undefined) {
     if (!value) return null;
 
@@ -336,12 +392,74 @@ function resolveSafeNext(value: string | undefined) {
         ) {
             return `${parsed.pathname}${parsed.search}`;
         }
-
     } catch {
         return null;
     }
 
     return null;
+}
+
+function readInviteRouteFromAuthUser(user: User | null) {
+    const metadata = readMetadataRecord(user);
+    if (!metadata) return null;
+
+    const storedRoute = readMetadataString(metadata.pending_invite_route);
+    const routeFromMetadata = resolveInviteNext(storedRoute);
+    if (routeFromMetadata) return routeFromMetadata;
+
+    const customerInviteCode = readMetadataString(metadata.pending_customer_invite_code);
+    if (customerInviteCode) {
+        return `${CUSTOMER_INVITE_ROUTE}?code=${encodeURIComponent(customerInviteCode)}`;
+    }
+
+    const genericInviteCode = readMetadataString(metadata.pending_invite_code);
+    const inviteType = readMetadataString(metadata.pending_invite_type);
+
+    if (genericInviteCode && inviteType === 'customer_company_connection') {
+        return `${CUSTOMER_INVITE_ROUTE}?code=${encodeURIComponent(genericInviteCode)}`;
+    }
+
+    if (genericInviteCode && inviteType === 'company_user') {
+        return `${COMPANY_INVITE_ROUTE}?code=${encodeURIComponent(genericInviteCode)}`;
+    }
+
+    return null;
+}
+
+async function readInviteRouteFromCurrentUser() {
+    const { data } = await supabase.auth.getUser();
+
+    return readInviteRouteFromAuthUser(data.user);
+}
+
+function readEmailFromAuthUser(user: User | null) {
+    const email = String(user?.email || '').trim().toLowerCase();
+
+    return email || null;
+}
+
+async function readEmailFromCurrentUser() {
+    const { data } = await supabase.auth.getUser();
+
+    return readEmailFromAuthUser(data.user);
+}
+
+async function hasCurrentSession() {
+    const { data } = await supabase.auth.getSession();
+
+    return Boolean(data.session);
+}
+
+function readMetadataRecord(user: User | null): Record<string, unknown> | null {
+    const metadata = user?.user_metadata;
+
+    return metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? metadata as Record<string, unknown>
+        : null;
+}
+
+function readMetadataString(value: unknown) {
+    return typeof value === 'string' ? value.trim() : '';
 }
 
 function buildConfirmRedirect(nextRoute: string | null) {

@@ -51,11 +51,13 @@ export default function RegisterScreen() {
     const [message, setMessage] = useState('');
 
     useEffect(() => {
-        if (!workAccountMode) return;
+        if (!confirmNextRoute) return;
 
-        setEmail(invitedEmail);
-        replacePendingCompanyInviteFromNextPath(nextRoute, invitedEmail);
-    }, [invitedEmail, nextRoute, workAccountMode]);
+        if (invitedEmail) {
+            setEmail(invitedEmail);
+        }
+        replacePendingCompanyInviteFromNextPath(confirmNextRoute, invitedEmail);
+    }, [confirmNextRoute, invitedEmail]);
 
     async function handleRegister() {
         const cleanName = fullName.trim();
@@ -81,6 +83,7 @@ export default function RegisterScreen() {
         setMessage('');
 
         const profileRole = workAccountMode ? WORK_PROFILE_ROLE : HOMEOWNER_PROFILE_ROLE;
+        const inviteMetadata = buildInviteUserMetadata(confirmNextRoute);
 
         const { data, error } = await supabase.auth.signUp({
             email: cleanEmail,
@@ -91,6 +94,7 @@ export default function RegisterScreen() {
                     full_name: cleanName,
                     phone: cleanPhone,
                     role: profileRole,
+                    ...inviteMetadata,
                 },
             },
         });
@@ -132,11 +136,7 @@ export default function RegisterScreen() {
 
         if (data.user) {
             setConfirmationEmail(cleanEmail);
-            setMessage(
-                workAccountMode
-                    ? 'Work account created. Confirm your work account email. After confirming, your company invite will continue automatically.'
-                    : 'Account created. A confirmation email was sent. Confirm your email before logging in with your original password. Check spam or junk if you do not see it.'
-            );
+            setMessage(confirmationCreatedMessage(confirmNextRoute, workAccountMode));
             return;
         }
 
@@ -170,9 +170,7 @@ export default function RegisterScreen() {
         }
 
         setMessage(
-            workAccountMode
-                ? 'Confirmation email sent. After confirming your ManagementOS work account, your company invite will continue automatically.'
-                : 'Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.'
+            confirmationResentMessage(confirmNextRoute, workAccountMode)
         );
     }
 
@@ -216,9 +214,7 @@ export default function RegisterScreen() {
                 ) : (
                     <>
                         <Text style={subtitleStyle}>
-                            {workAccountMode
-                                ? 'Create your ManagementOS work account. After confirming your email, your company invite will continue automatically.'
-                                : 'Create your HomeOS account.'}
+                            {registrationSubtitle(confirmNextRoute, workAccountMode)}
                         </Text>
 
                         <TextInput
@@ -404,6 +400,74 @@ function buildProfileUpsertPayload(
 
 function buildConfirmRedirect(nextRoute: string | null) {
     return buildCompanyInviteAuthConfirmRedirect(nextRoute);
+}
+
+type InviteUserMetadata = {
+    pending_invite_route?: string;
+    pending_invite_code?: string;
+    pending_customer_invite_code?: string;
+    pending_invite_type?: 'company_user' | 'customer_company_connection';
+};
+
+function buildInviteUserMetadata(nextRoute: string | null): InviteUserMetadata {
+    const inviteCode = readInviteCodeFromNextPath(nextRoute);
+
+    if (!nextRoute || !inviteCode) return {};
+
+    if (nextRoute.startsWith(CUSTOMER_INVITE_ROUTE)) {
+        return {
+            pending_invite_route: nextRoute,
+            pending_invite_code: inviteCode,
+            pending_customer_invite_code: inviteCode,
+            pending_invite_type: 'customer_company_connection',
+        };
+    }
+
+    if (nextRoute.startsWith(COMPANY_INVITE_ROUTE)) {
+        return {
+            pending_invite_route: nextRoute,
+            pending_invite_code: inviteCode,
+            pending_invite_type: 'company_user',
+        };
+    }
+
+    return {};
+}
+
+function registrationSubtitle(nextRoute: string | null, workAccountMode: boolean) {
+    if (nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE)) {
+        return 'Create your HomeOS account. After confirming your email, your company invitation will continue automatically.';
+    }
+
+    if (workAccountMode) {
+        return 'Create your ManagementOS work account. After confirming your email, your company invite will continue automatically.';
+    }
+
+    return 'Create your HomeOS account.';
+}
+
+function confirmationCreatedMessage(nextRoute: string | null, workAccountMode: boolean) {
+    if (nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE)) {
+        return 'Account created. Confirm your email. After confirming, your company invitation will continue automatically.';
+    }
+
+    if (workAccountMode) {
+        return 'Work account created. Confirm your work account email. After confirming, your company invite will continue automatically.';
+    }
+
+    return 'Account created. A confirmation email was sent. Confirm your email before logging in with your original password. Check spam or junk if you do not see it.';
+}
+
+function confirmationResentMessage(nextRoute: string | null, workAccountMode: boolean) {
+    if (nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE)) {
+        return 'Confirmation email sent. After confirming your email, your company invitation will continue automatically.';
+    }
+
+    if (workAccountMode) {
+        return 'Confirmation email sent. After confirming your ManagementOS work account, your company invite will continue automatically.';
+    }
+
+    return 'Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.';
 }
 
 function isEmailRateLimitError(error: unknown) {

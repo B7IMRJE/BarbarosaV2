@@ -46,12 +46,14 @@ export default function LoginScreen() {
     const [unconfirmedEmail, setUnconfirmedEmail] = useState('');
 
     useEffect(() => {
-        if (!workAccountMode) return;
+        if (!confirmNextRoute) return;
 
-        setEmail(invitedEmail);
-        replacePendingCompanyInviteFromNextPath(nextRoute, invitedEmail);
+        if (invitedEmail) {
+            setEmail(invitedEmail);
+        }
+        replacePendingCompanyInviteFromNextPath(confirmNextRoute, invitedEmail);
         setUnconfirmedEmail('');
-    }, [invitedEmail, nextRoute, workAccountMode]);
+    }, [confirmNextRoute, invitedEmail]);
 
     async function handleLogin() {
         if (!email.trim() || !password) {
@@ -94,9 +96,7 @@ export default function LoginScreen() {
 
             if (errorCode === 'email_not_confirmed') {
                 setUnconfirmedEmail(cleanEmail);
-                setMessage(workAccountMode
-                    ? 'Confirm your work account email before logging in. Your company invite will continue after confirmation.'
-                    : 'Please confirm your email before logging in. Your original password has not been changed.');
+                setMessage(unconfirmedEmailMessage(confirmNextRoute, workAccountMode));
                 return;
             }
 
@@ -167,9 +167,7 @@ export default function LoginScreen() {
             return;
         }
 
-        setMessage(workAccountMode
-            ? 'Confirmation email sent. After confirming your ManagementOS work account, your company invite will continue automatically.'
-            : 'Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.');
+        setMessage(confirmationResentMessage(confirmNextRoute, workAccountMode));
     }
 
     return (
@@ -319,6 +317,30 @@ function buildAuthNavParams(nextRoute: string | null, workAccountMode: boolean, 
 
 function buildConfirmRedirect(nextRoute: string | null) {
     return buildCompanyInviteAuthConfirmRedirect(nextRoute);
+}
+
+function unconfirmedEmailMessage(nextRoute: string | null, workAccountMode: boolean) {
+    if (nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE)) {
+        return 'Confirm your email before logging in. Your company invitation will continue after confirmation.';
+    }
+
+    if (workAccountMode) {
+        return 'Confirm your work account email before logging in. Your company invite will continue after confirmation.';
+    }
+
+    return 'Please confirm your email before logging in. Your original password has not been changed.';
+}
+
+function confirmationResentMessage(nextRoute: string | null, workAccountMode: boolean) {
+    if (nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE)) {
+        return 'Confirmation email sent. After confirming your email, your company invitation will continue automatically.';
+    }
+
+    if (workAccountMode) {
+        return 'Confirmation email sent. After confirming your ManagementOS work account, your company invite will continue automatically.';
+    }
+
+    return 'Confirmation email sent. Check your inbox, spam, or junk folder before logging in with your original password.';
 }
 
 function isEmailRateLimitError(error: unknown) {
