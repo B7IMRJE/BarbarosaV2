@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { Alert, AppState, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import AdminNavBar from '../components/AdminNavBar';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -24,6 +24,12 @@ import {
     queueHomeownerDelayNotification,
     queueTechnicianAssignmentNotification,
 } from '../lib/serviceNotifications';
+import {
+    closeServiceVisit,
+    getServiceVisitOutcomeLabel,
+    SERVICE_VISIT_CLOSEOUT_OPTIONS,
+    type ServiceVisitOutcome,
+} from '../lib/serviceVisitCloseout';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -50,7 +56,18 @@ type DispatchCompanyAccessResult = {
     isPlatformAdmin: boolean;
 };
 
-type DispatchRequest = CompanyDispatchRequest;
+type DispatchRequest = CompanyDispatchRequest & {
+    closeout_outcome?: string | null;
+    closeout_notes?: string | null;
+    homeowner_closeout_note?: string | null;
+    next_action_at?: string | null;
+    closed_at?: string | null;
+    cancelled_at?: string | null;
+    cancel_reason?: string | null;
+    archived_at?: string | null;
+    archive_reason?: string | null;
+    closeout_metadata?: Record<string, unknown>;
+};
 
 type CompanyBrand = {
     id: string;
@@ -89,6 +106,11 @@ type ScheduleSlot = {
     priority: string | null;
     notes: string | null;
     tech_status_note: string | null;
+    visit_outcome: string | null;
+    visit_closed_at: string | null;
+    closeout_notes: string | null;
+    homeowner_closeout_note: string | null;
+    closeout_metadata: Record<string, unknown>;
     updated_at: string | null;
 };
 
@@ -116,13 +138,39 @@ type ScheduleRequestForm = {
     notes: string;
     cancelReason: string;
     archiveReason: string;
+    closeoutOutcome: ServiceVisitOutcome | '';
+    closeoutNotes: string;
+    closeoutHomeownerNote: string;
+    closeoutNextActionDate: string;
+    closeoutNotifyHomeowner: boolean;
+    closeoutPartsDescription: string;
+    closeoutOrderReference: string;
 };
 
 type DispatchBoardView = 'activity' | 'schedule';
-type DispatchLaneKey = 'unassigned' | 'assigned' | 'on_my_way' | 'arrived' | 'working' | 'waiting' | 'completed';
+type DispatchLaneGroup = 'active' | 'needs_action' | 'closed' | 'archived';
+type WorkQueueCategory = Exclude<DispatchLaneGroup, 'active'>;
+type WorkQueueSort = 'next_action' | 'newest' | 'oldest' | 'customer' | 'address' | 'status';
+type DispatchLaneKey =
+    | 'unassigned'
+    | 'assigned'
+    | 'on_my_way'
+    | 'arrived'
+    | 'working'
+    | 'waiting'
+    | 'needs_follow_up'
+    | 'return_visit'
+    | 'waiting_for_parts'
+    | 'on_hold'
+    | 'missed_no_show'
+    | 'unable_to_complete'
+    | 'completed'
+    | 'cancelled'
+    | 'archived';
 type DispatchLane = {
     key: DispatchLaneKey;
     title: string;
+    group: DispatchLaneGroup;
     requests: DispatchRequest[];
 };
 type DispatchAttentionItem = {
@@ -130,17 +178,48 @@ type DispatchAttentionItem = {
     slot: ScheduleSlot;
     risk: DispatchRiskResult;
 };
+type WorkQueueRecord = {
+    request: DispatchRequest;
+    slot: ScheduleSlot | null;
+    requestSlots: ScheduleSlot[];
+    laneKey: DispatchLaneKey;
+    category: WorkQueueCategory;
+    technician: CompanyUser | null;
+};
 type DurationMode = '30' | '60' | '90' | '120' | 'custom';
 type ArrivalWindowMode = '0' | '1' | '2' | '3' | 'custom';
 
-const DISPATCH_LANE_DEFINITIONS: Array<{ key: DispatchLaneKey; title: string }> = [
-    { key: 'unassigned', title: 'Unassigned' },
-    { key: 'assigned', title: 'Assigned / Scheduled' },
-    { key: 'on_my_way', title: 'On My Way' },
-    { key: 'arrived', title: 'Arrived' },
-    { key: 'working', title: 'Working' },
-    { key: 'waiting', title: 'Waiting / Assistance Needed' },
-    { key: 'completed', title: 'Completed' },
+const DISPATCH_LANE_DEFINITIONS: Array<{ key: DispatchLaneKey; title: string; group: DispatchLaneGroup }> = [
+    { key: 'unassigned', title: 'Unassigned', group: 'active' },
+    { key: 'assigned', title: 'Assigned / Scheduled', group: 'active' },
+    { key: 'on_my_way', title: 'On My Way', group: 'active' },
+    { key: 'arrived', title: 'Arrived', group: 'active' },
+    { key: 'working', title: 'Working', group: 'active' },
+    { key: 'waiting', title: 'Waiting / Assistance Needed', group: 'active' },
+    { key: 'needs_follow_up', title: 'Needs Follow-Up', group: 'needs_action' },
+    { key: 'return_visit', title: 'Return Visit', group: 'needs_action' },
+    { key: 'waiting_for_parts', title: 'Waiting for Parts', group: 'needs_action' },
+    { key: 'on_hold', title: 'On Hold', group: 'needs_action' },
+    { key: 'missed_no_show', title: 'Missed / No-Show', group: 'needs_action' },
+    { key: 'unable_to_complete', title: 'Unable to Complete', group: 'needs_action' },
+    { key: 'completed', title: 'Completed', group: 'closed' },
+    { key: 'cancelled', title: 'Cancelled', group: 'closed' },
+    { key: 'archived', title: 'Archived', group: 'archived' },
+];
+
+const WORK_QUEUE_CATEGORIES: Array<{ key: WorkQueueCategory; label: string }> = [
+    { key: 'needs_action', label: 'Needs Action' },
+    { key: 'closed', label: 'Closed' },
+    { key: 'archived', label: 'Archived' },
+];
+
+const WORK_QUEUE_SORT_OPTIONS: Array<{ key: WorkQueueSort; label: string }> = [
+    { key: 'next_action', label: 'Next Action Due' },
+    { key: 'newest', label: 'Newest' },
+    { key: 'oldest', label: 'Oldest' },
+    { key: 'customer', label: 'Customer' },
+    { key: 'address', label: 'Address' },
+    { key: 'status', label: 'Status' },
 ];
 
 const QUICK_DURATION_OPTIONS: Array<{ label: string; value: Exclude<DurationMode, 'custom'> }> = [
@@ -173,6 +252,13 @@ function createDefaultScheduleForm(): ScheduleRequestForm {
         notes: '',
         cancelReason: '',
         archiveReason: '',
+        closeoutOutcome: '',
+        closeoutNotes: '',
+        closeoutHomeownerNote: '',
+        closeoutNextActionDate: '',
+        closeoutNotifyHomeowner: false,
+        closeoutPartsDescription: '',
+        closeoutOrderReference: '',
     };
 }
 
@@ -242,13 +328,24 @@ export default function DispatchBoardScreen() {
     const [scheduleFormByRequestId, setScheduleFormByRequestId] = useState<Record<string, ScheduleRequestForm>>({});
     const [requestActionMessageById, setRequestActionMessageById] = useState<Record<string, string>>({});
     const [activeBoardView, setActiveBoardView] = useState<DispatchBoardView>('activity');
+    const [workQueueCategory, setWorkQueueCategory] = useState<WorkQueueCategory>('needs_action');
+    const [workQueueStatusFilter, setWorkQueueStatusFilter] = useState<DispatchLaneKey | 'all'>('all');
+    const [workQueueSearch, setWorkQueueSearch] = useState('');
+    const [workQueueSort, setWorkQueueSort] = useState<WorkQueueSort>('next_action');
+    const [workQueueFiltersOpen, setWorkQueueFiltersOpen] = useState(false);
+    const [workQueueLimit, setWorkQueueLimit] = useState(5);
     const dispatchRefreshInFlight = useRef(false);
     const requestsRef = useRef<DispatchRequest[]>([]);
 
     const dispatchLanes = useMemo(() => buildDispatchLanes(requests, scheduleSlots), [requests, scheduleSlots]);
+    const activeDispatchLanes = useMemo(() => dispatchLanes.filter((lane) => lane.group === 'active'), [dispatchLanes]);
+    const activeDispatchCount = useMemo(() => activeDispatchLanes.reduce((count, lane) => count + lane.requests.length, 0), [activeDispatchLanes]);
     const attentionItems = useMemo(() => buildDispatchAttentionItems(requests, scheduleSlots), [requests, scheduleSlots]);
+    const selectedDetailRequest = useMemo(
+        () => requests.find((request) => request.id === expandedRequestId) || null,
+        [expandedRequestId, requests]
+    );
     const laneBasis: ViewStyle['flexBasis'] = viewportWidth <= 700 ? '100%' : viewportWidth <= 1100 ? '48%' : '31.8%';
-    const expandedLaneBasis: ViewStyle['flexBasis'] = viewportWidth <= 900 ? '100%' : '65%';
 
     useEffect(() => {
         loadDispatchBoard();
@@ -257,6 +354,36 @@ export default function DispatchBoardScreen() {
     useEffect(() => {
         requestsRef.current = requests;
     }, [requests]);
+
+    useEffect(() => {
+        if (!expandedRequestId || typeof window === 'undefined') return;
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                collapseExpandedRequest();
+            }
+        };
+        const handlePopState = () => {
+            collapseExpandedRequest();
+        };
+
+        window.history.pushState(
+            {
+                ...(typeof window.history.state === 'object' && window.history.state ? window.history.state : {}),
+                dispatchDetailRequestId: expandedRequestId,
+            },
+            '',
+            window.location.href
+        );
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('popstate', handlePopState);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('popstate', handlePopState);
+        };
+    }, [expandedRequestId]);
 
     useEffect(() => {
         const companyIdToRefresh = companyAccess?.company_id;
@@ -434,7 +561,7 @@ export default function DispatchBoardScreen() {
 
     async function loadDispatchRequests(companyIdToLoad: string): Promise<DispatchRequest[]> {
         try {
-            const loadedRequests = await getCompanyDispatchRequests(companyIdToLoad);
+            const loadedRequests = await loadDispatchRequestsWithCloseoutFields(companyIdToLoad);
 
             requestsRef.current = loadedRequests;
             setRequests(loadedRequests);
@@ -478,7 +605,7 @@ export default function DispatchBoardScreen() {
 
         const windowResult = await supabase
             .from('job_schedule_slots')
-            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, updated_at')
+            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
             .eq('company_id', companyIdToLoad)
             .gte('start_at', windowStart.toISOString())
             .lte('start_at', windowEnd.toISOString())
@@ -487,7 +614,7 @@ export default function DispatchBoardScreen() {
         const requestResult = requestIds.length > 0
             ? await supabase
                 .from('job_schedule_slots')
-                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, updated_at')
+                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
                 .eq('company_id', companyIdToLoad)
                 .in('service_request_id', requestIds)
                 .order('start_at', { ascending: true })
@@ -613,7 +740,37 @@ export default function DispatchBoardScreen() {
     }
 
     function collapseExpandedRequest() {
+        const requestIdToFocus = expandedRequestId;
         setExpandedRequestId(null);
+
+        if (requestIdToFocus && typeof document !== 'undefined' && typeof window !== 'undefined') {
+            window.requestAnimationFrame(() => {
+                document.getElementById(`dispatch-work-queue-row-${requestIdToFocus}`)?.focus();
+            });
+        }
+    }
+
+    function openDispatchWallBoard() {
+        const companyIdForWall = companyAccess?.company_id || requestedCompanyId;
+
+        if (!companyIdForWall) {
+            setMessage('Choose a company before opening the Activity Board.');
+            return;
+        }
+
+        const wallboardPath = `/dispatch-wall?companyId=${encodeURIComponent(companyIdForWall)}`;
+
+        if (Platform.OS === 'web') {
+            const windowLike = globalThis as {
+                open?: (url?: string, target?: string, features?: string) => Window | null;
+            };
+
+            const openedWindow = windowLike.open?.(wallboardPath, '_blank', 'noopener,noreferrer');
+
+            if (openedWindow) return;
+        }
+
+        router.push(wallboardPath as any);
     }
 
     async function handleScheduleRequest(request: DispatchRequest) {
@@ -843,12 +1000,30 @@ export default function DispatchBoardScreen() {
         setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Cancelling request...' }));
 
         try {
-            await updateRequestClosedStatus({
-                requestId: request.id,
-                companyId: request.company_id,
-                status: 'cancelled',
-                reason: form.cancelReason.trim(),
-            });
+            const currentScheduleSlot = getCurrentRequestScheduleSlot(
+                scheduleSlots.filter((slot) => slot.company_id === request.company_id && slot.service_request_id === request.id),
+                request
+            );
+
+            if (currentScheduleSlot) {
+                await closeServiceVisit({
+                    companyId: request.company_id,
+                    serviceRequestId: request.id,
+                    scheduleSlotId: currentScheduleSlot.id,
+                    outcome: 'cancelled',
+                    notes: form.cancelReason.trim(),
+                    homeownerNote: '',
+                    notifyHomeowner: true,
+                    metadata: { dispatch_cancel_action: true },
+                });
+            } else {
+                await updateRequestClosedStatus({
+                    requestId: request.id,
+                    companyId: request.company_id,
+                    status: 'cancelled',
+                    reason: form.cancelReason.trim(),
+                });
+            }
             await recordCompanyAuditEvent({
                 companyId: request.company_id,
                 action: 'dispatch_request_cancelled',
@@ -919,13 +1094,136 @@ export default function DispatchBoardScreen() {
         }
     }
 
+    async function handleRestoreRequest(request: DispatchRequest) {
+        const confirmed = await confirmRequestAction('Restore this archived request?');
+
+        if (!confirmed) return;
+
+        setActionRequestId(request.id);
+        setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Restoring request...' }));
+
+        try {
+            const { error } = await supabase.rpc('restore_service_request', {
+                p_company_id: request.company_id,
+                p_service_request_id: request.id,
+                p_status: 'acknowledged',
+            });
+
+            if (error) {
+                throw new Error(error.message);
+            }
+
+            await recordCompanyAuditEvent({
+                companyId: request.company_id,
+                action: 'dispatch_request_restored',
+                targetType: 'service_request',
+                targetId: request.id,
+                targetLabel: getRequestAuditLabel(request),
+                beforeData: requestToAuditRecord(request),
+                afterData: safeAuditRecord({
+                    status: 'acknowledged',
+                }),
+            });
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Request restored.' }));
+            const loadedRequests = await loadDispatchRequests(request.company_id);
+            await loadScheduleSlots(request.company_id, loadedRequests);
+        } catch (error) {
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: `Could not restore request: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            }));
+        } finally {
+            setActionRequestId(null);
+        }
+    }
+
+    async function handleCloseVisit(request: DispatchRequest) {
+        const form = scheduleFormByRequestId[request.id] || createDefaultScheduleForm();
+        const requestScheduleSlots = scheduleSlots.filter((slot) => (
+            slot.company_id === request.company_id &&
+            slot.service_request_id === request.id
+        ));
+        const currentScheduleSlot = getCurrentRequestScheduleSlot(requestScheduleSlots, request);
+        const outcome = form.closeoutOutcome;
+
+        if (!currentScheduleSlot) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'No scheduled visit was found to close.' }));
+            return;
+        }
+
+        if (!outcome) {
+            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Choose a visit outcome before closing.' }));
+            return;
+        }
+
+        const nextActionAt = parseCloseoutDate(form.closeoutNextActionDate)?.toISOString() || null;
+        const outcomeOption = SERVICE_VISIT_CLOSEOUT_OPTIONS.find((option) => option.outcome === outcome) || null;
+
+        setActionRequestId(request.id);
+        setRequestActionMessageById((current) => ({
+            ...current,
+            [request.id]: `Closing visit as ${getServiceVisitOutcomeLabel(outcome)}...`,
+        }));
+
+        try {
+            const result = await closeServiceVisit({
+                companyId: request.company_id,
+                serviceRequestId: request.id,
+                scheduleSlotId: currentScheduleSlot.id,
+                outcome,
+                notes: form.closeoutNotes || form.notes,
+                homeownerNote: form.closeoutHomeownerNote,
+                nextActionAt,
+                notifyHomeowner: form.closeoutNotifyHomeowner || Boolean(outcomeOption?.homeownerDefault),
+                metadata: {
+                    parts_description: form.closeoutPartsDescription.trim() || null,
+                    order_reference: form.closeoutOrderReference.trim() || null,
+                    dispatch_closeout: true,
+                },
+            });
+
+            await recordCompanyAuditEvent({
+                companyId: request.company_id,
+                action: 'dispatch_visit_closed',
+                targetType: 'service_request',
+                targetId: request.id,
+                targetLabel: getRequestAuditLabel(request),
+                beforeData: requestToAuditRecord(request),
+                afterData: safeAuditRecord({
+                    status: result.service_request_status,
+                    schedule_slot_id: result.schedule_slot_id,
+                    schedule_slot_status: result.schedule_slot_status,
+                    visit_outcome: result.visit_outcome,
+                }),
+                metadata: safeAuditRecord({
+                    notes_present: Boolean(form.closeoutNotes.trim()),
+                    next_action_at: nextActionAt,
+                    homeowner_event_recorded: result.homeowner_event_recorded,
+                }),
+            });
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: `Visit closed: ${getServiceVisitOutcomeLabel(result.visit_outcome)}.`,
+            }));
+            const loadedRequests = await loadDispatchRequests(request.company_id);
+            await loadScheduleSlots(request.company_id, loadedRequests);
+        } catch (error) {
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: `Close visit failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            }));
+        } finally {
+            setActionRequestId(null);
+        }
+    }
+
     async function handleNotifyHomeownerDelay(request: DispatchRequest) {
         const requestScheduleSlots = scheduleSlots.filter((slot) => (
             slot.company_id === request.company_id &&
             slot.service_request_id === request.id
         ));
         const currentScheduleSlot = getCurrentRequestScheduleSlot(requestScheduleSlots, request);
-        const risk = calculateDispatchRisk(currentScheduleSlot, scheduleSlots);
+        const risk = calculateRequestDispatchRisk(request, currentScheduleSlot, scheduleSlots);
 
         if (!currentScheduleSlot) {
             setRequestActionMessageById((current) => ({ ...current, [request.id]: 'No scheduled assignment was found for this request.' }));
@@ -981,7 +1279,7 @@ export default function DispatchBoardScreen() {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: 20, paddingBottom: 44, alignItems: 'center' }}
+            contentContainerStyle={{ padding: viewportWidth <= 760 ? 12 : 20, paddingBottom: viewportWidth <= 760 ? 112 : 64, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 1120 }}>
                 <HomeHeader />
@@ -1002,10 +1300,11 @@ export default function DispatchBoardScreen() {
                     <View style={buttonRowStyle}>
                         <ThemedButton title="Refresh" onPress={loadDispatchBoard} style={buttonStyle} />
                         <ThemedButton title="Back Home" variant="secondary" onPress={() => router.push('/' as any)} style={buttonStyle} />
+                        <ThemedButton title="Activity Board" variant="secondary" onPress={openDispatchWallBoard} style={buttonStyle} />
                     </View>
                     <View style={buttonRowStyle}>
                         <ThemedButton
-                            title="Activity Board"
+                            title="Work Queue"
                             variant={activeBoardView === 'activity' ? 'primary' : 'secondary'}
                             onPress={() => setActiveBoardView('activity')}
                             style={buttonStyle}
@@ -1062,38 +1361,133 @@ export default function DispatchBoardScreen() {
                         </ThemedCard>
                     ) : (
                         <>
-                            <DispatchNeedsAttentionPanel
-                                items={attentionItems}
-                                companyUsers={companyUsers}
-                                onNotifyHomeownerDelay={handleNotifyHomeownerDelay}
-                            />
-                            <View style={dispatchWallStyle}>
-                                {dispatchLanes.map((lane) => (
-                                    <DispatchSection
-                                        key={lane.key}
-                                        title={lane.title}
-                                        requests={lane.requests}
-                                        totalRequests={requests.length}
-                                        eventsByRequestId={eventsByRequestId}
-                                        scheduleSlots={scheduleSlots}
-                                        actionRequestId={actionRequestId}
-                                        expandedRequestId={expandedRequestId}
-                                        laneBasis={lane.requests.some((request) => request.id === expandedRequestId) ? expandedLaneBasis : laneBasis}
-                                        onToggleRequest={toggleExpandedRequest}
-                                        onCollapseRequest={collapseExpandedRequest}
-                                        onAcknowledge={handleAcknowledge}
-                                        companyUsers={companyUsers}
-                                        activeTechnicians={activeTechnicians}
-                                        scheduleFormByRequestId={scheduleFormByRequestId}
-                                        requestActionMessageById={requestActionMessageById}
-                                        onUpdateScheduleForm={updateScheduleForm}
-                                        onScheduleRequest={handleScheduleRequest}
-                                        onCancelRequest={handleCancelRequest}
-                                        onArchiveRequest={handleArchiveRequest}
-                                        onNotifyHomeownerDelay={handleNotifyHomeownerDelay}
-                                    />
-                                ))}
+                            <View style={dispatchQueueGroupStyle}>
+                                <View style={sectionHeaderStyle}>
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={[activeOperationsTitleStyle, { color: theme.colors.text }]}>Active Operations</Text>
+                                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                            Current operational work only. Post-visit records are in Work Queue below.
+                                        </Text>
+                                    </View>
+                                    <View style={activeOperationsHeaderBadgesStyle}>
+                                        {attentionItems.length > 0 ? (
+                                            <Text style={[countBadgeStyle, { color: '#4C1D95', backgroundColor: 'rgba(124, 58, 237, 0.18)' }]}>
+                                                Needs Attention {attentionItems.length}
+                                            </Text>
+                                        ) : null}
+                                        <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                                            {activeDispatchCount}
+                                        </Text>
+                                    </View>
+                                </View>
+                                {activeDispatchCount === 0 ? (
+                                    <ActiveOperationsEmptySummary lanes={activeDispatchLanes} />
+                                ) : (
+                                    <View style={dispatchWallStyle}>
+                                        {activeDispatchLanes
+                                            .filter((lane) => lane.requests.length > 0)
+                                            .map((lane) => (
+                                                <DispatchSection
+                                                    key={lane.key}
+                                                    title={lane.title}
+                                                    requests={lane.requests}
+                                                    eventsByRequestId={eventsByRequestId}
+                                                    scheduleSlots={scheduleSlots}
+                                                    actionRequestId={actionRequestId}
+                                                    laneBasis={laneBasis}
+                                                    onToggleRequest={toggleExpandedRequest}
+                                                    onCollapseRequest={collapseExpandedRequest}
+                                                    onAcknowledge={handleAcknowledge}
+                                                    companyUsers={companyUsers}
+                                                    activeTechnicians={activeTechnicians}
+                                                    scheduleFormByRequestId={scheduleFormByRequestId}
+                                                    requestActionMessageById={requestActionMessageById}
+                                                    onUpdateScheduleForm={updateScheduleForm}
+                                                    onScheduleRequest={handleScheduleRequest}
+                                                    onCloseVisit={handleCloseVisit}
+                                                    onCancelRequest={handleCancelRequest}
+                                                    onArchiveRequest={handleArchiveRequest}
+                                                    onRestoreRequest={handleRestoreRequest}
+                                                    onNotifyHomeownerDelay={handleNotifyHomeownerDelay}
+                                                />
+                                            ))}
+                                    </View>
+                                )}
                             </View>
+                            <DispatchWorkQueue
+                                requests={requests}
+                                scheduleSlots={scheduleSlots}
+                                companyUsers={companyUsers}
+                                viewportWidth={viewportWidth}
+                                category={workQueueCategory}
+                                statusFilter={workQueueStatusFilter}
+                                search={workQueueSearch}
+                                sort={workQueueSort}
+                                filtersOpen={workQueueFiltersOpen}
+                                limit={workQueueLimit}
+                                onSelectCategory={(nextCategory) => {
+                                    setWorkQueueCategory(nextCategory);
+                                    setWorkQueueStatusFilter('all');
+                                    setWorkQueueSort(getDefaultWorkQueueSort(nextCategory));
+                                    setWorkQueueLimit(5);
+                                }}
+                                onSelectStatusFilter={(nextStatus) => {
+                                    setWorkQueueStatusFilter(nextStatus);
+                                    setWorkQueueLimit(5);
+                                }}
+                                onChangeSearch={(nextSearch) => {
+                                    setWorkQueueSearch(nextSearch);
+                                    setWorkQueueLimit(5);
+                                }}
+                                onChangeSort={setWorkQueueSort}
+                                onToggleFilters={() => setWorkQueueFiltersOpen((current) => !current)}
+                                onShowMore={() => setWorkQueueLimit((current) => current + 5)}
+                                onViewAll={(total) => setWorkQueueLimit(total)}
+                                onOpenRequest={toggleExpandedRequest}
+                                selectedRequestId={expandedRequestId}
+                            />
+                            <DispatchRequestDetailDrawer
+                                request={selectedDetailRequest}
+                                events={selectedDetailRequest ? eventsByRequestId[selectedDetailRequest.id] || [] : []}
+                                scheduleSlots={selectedDetailRequest
+                                    ? scheduleSlots.filter((slot) => slot.company_id === selectedDetailRequest.company_id && slot.service_request_id === selectedDetailRequest.id)
+                                    : []}
+                                allScheduleSlots={scheduleSlots}
+                                actionRequestId={actionRequestId}
+                                companyUsers={companyUsers}
+                                activeTechnicians={activeTechnicians}
+                                scheduleForm={selectedDetailRequest
+                                    ? scheduleFormByRequestId[selectedDetailRequest.id] || createScheduleFormFromSlot(getCurrentRequestScheduleSlot(
+                                        scheduleSlots.filter((slot) => slot.company_id === selectedDetailRequest.company_id && slot.service_request_id === selectedDetailRequest.id),
+                                        selectedDetailRequest
+                                    ))
+                                    : createDefaultScheduleForm()}
+                                actionMessage={selectedDetailRequest ? requestActionMessageById[selectedDetailRequest.id] || '' : ''}
+                                viewportWidth={viewportWidth}
+                                onClose={collapseExpandedRequest}
+                                onAcknowledge={handleAcknowledge}
+                                onUpdateScheduleForm={(updates) => {
+                                    if (selectedDetailRequest) updateScheduleForm(selectedDetailRequest.id, updates);
+                                }}
+                                onScheduleRequest={() => {
+                                    if (selectedDetailRequest) handleScheduleRequest(selectedDetailRequest);
+                                }}
+                                onCloseVisit={() => {
+                                    if (selectedDetailRequest) handleCloseVisit(selectedDetailRequest);
+                                }}
+                                onCancelRequest={() => {
+                                    if (selectedDetailRequest) handleCancelRequest(selectedDetailRequest);
+                                }}
+                                onArchiveRequest={() => {
+                                    if (selectedDetailRequest) handleArchiveRequest(selectedDetailRequest);
+                                }}
+                                onRestoreRequest={() => {
+                                    if (selectedDetailRequest) handleRestoreRequest(selectedDetailRequest);
+                                }}
+                                onNotifyHomeownerDelay={() => {
+                                    if (selectedDetailRequest) handleNotifyHomeownerDelay(selectedDetailRequest);
+                                }}
+                            />
                         </>
                     )
                 )}
@@ -1161,14 +1555,35 @@ function DispatchNeedsAttentionPanel({
     );
 }
 
+function ActiveOperationsEmptySummary({ lanes }: { lanes: DispatchLane[] }) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={[activeOperationsEmptySummaryStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+            <Text style={[bodyTextStyle, { color: theme.colors.text, fontWeight: '900' }]}>No active jobs right now.</Text>
+            <View style={activeOperationsCountPillRowStyle}>
+                {lanes.map((lane) => (
+                    <Text
+                        key={lane.key}
+                        style={[
+                            activeOperationsCountPillStyle,
+                            { color: theme.colors.mutedText, backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+                        ]}
+                    >
+                        {lane.title} {lane.requests.length}
+                    </Text>
+                ))}
+            </View>
+        </View>
+    );
+}
+
 function DispatchSection({
     title,
     requests,
-    totalRequests,
     eventsByRequestId,
     scheduleSlots,
     actionRequestId,
-    expandedRequestId,
     laneBasis,
     onToggleRequest,
     onCollapseRequest,
@@ -1179,17 +1594,17 @@ function DispatchSection({
     requestActionMessageById,
     onUpdateScheduleForm,
     onScheduleRequest,
+    onCloseVisit,
     onCancelRequest,
     onArchiveRequest,
+    onRestoreRequest,
     onNotifyHomeownerDelay,
 }: {
     title: string;
     requests: DispatchRequest[];
-    totalRequests: number;
     eventsByRequestId: Record<string, ServiceRequestEvent[]>;
     scheduleSlots: ScheduleSlot[];
     actionRequestId: string | null;
-    expandedRequestId: string | null;
     laneBasis: ViewStyle['flexBasis'];
     onToggleRequest: (requestId: string) => void;
     onCollapseRequest: () => void;
@@ -1200,8 +1615,10 @@ function DispatchSection({
     requestActionMessageById: Record<string, string>;
     onUpdateScheduleForm: (requestId: string, updates: Partial<ScheduleRequestForm>) => void;
     onScheduleRequest: (request: DispatchRequest) => void;
+    onCloseVisit: (request: DispatchRequest) => void;
     onCancelRequest: (request: DispatchRequest) => void;
     onArchiveRequest: (request: DispatchRequest) => void;
+    onRestoreRequest: (request: DispatchRequest) => void;
     onNotifyHomeownerDelay: (request: DispatchRequest) => void;
 }) {
     const { theme } = useTheme();
@@ -1209,21 +1626,16 @@ function DispatchSection({
     return (
         <View style={[dispatchLaneStyle, { flexBasis: laneBasis }]}>
             <View style={sectionHeaderStyle}>
-                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>{title}</Text>
-                <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                        {requests.length}
-                    </Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Showing {requests.length} of {totalRequests}
-                    </Text>
-                </View>
+                <Text style={[activeLaneTitleStyle, { color: theme.colors.text }]}>{title}</Text>
+                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                    {requests.length}
+                </Text>
             </View>
 
             {requests.length === 0 ? (
-                <ThemedCard>
-                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>No requests in this lane.</Text>
-                </ThemedCard>
+                <View style={[compactEmptyLaneStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{title} 0</Text>
+                </View>
             ) : (
                 <View style={requestGridStyle}>
                     {requests.map((request) => {
@@ -1241,7 +1653,7 @@ function DispatchSection({
                                 scheduleSlots={requestScheduleSlots}
                                 allScheduleSlots={scheduleSlots}
                                 acknowledging={actionRequestId === request.id}
-                                expanded={expandedRequestId === request.id}
+                                expanded={false}
                                 cardBasis="100%"
                                 expandedCardBasis="100%"
                                 onToggle={() => onToggleRequest(request.id)}
@@ -1253,8 +1665,10 @@ function DispatchSection({
                                 actionMessage={requestActionMessageById[request.id] || ''}
                                 onUpdateScheduleForm={(updates) => onUpdateScheduleForm(request.id, updates)}
                                 onScheduleRequest={() => onScheduleRequest(request)}
+                                onCloseVisit={() => onCloseVisit(request)}
                                 onCancelRequest={() => onCancelRequest(request)}
                                 onArchiveRequest={() => onArchiveRequest(request)}
+                                onRestoreRequest={() => onRestoreRequest(request)}
                                 onNotifyHomeownerDelay={() => onNotifyHomeownerDelay(request)}
                             />
                         );
@@ -1262,6 +1676,443 @@ function DispatchSection({
                 </View>
             )}
         </View>
+    );
+}
+
+function DispatchWorkQueue({
+    requests,
+    scheduleSlots,
+    companyUsers,
+    viewportWidth,
+    category,
+    statusFilter,
+    search,
+    sort,
+    filtersOpen,
+    limit,
+    onSelectCategory,
+    onSelectStatusFilter,
+    onChangeSearch,
+    onChangeSort,
+    onToggleFilters,
+    onShowMore,
+    onViewAll,
+    onOpenRequest,
+    selectedRequestId,
+}: {
+    requests: DispatchRequest[];
+    scheduleSlots: ScheduleSlot[];
+    companyUsers: CompanyUser[];
+    viewportWidth: number;
+    category: WorkQueueCategory;
+    statusFilter: DispatchLaneKey | 'all';
+    search: string;
+    sort: WorkQueueSort;
+    filtersOpen: boolean;
+    limit: number;
+    onSelectCategory: (category: WorkQueueCategory) => void;
+    onSelectStatusFilter: (status: DispatchLaneKey | 'all') => void;
+    onChangeSearch: (search: string) => void;
+    onChangeSort: (sort: WorkQueueSort) => void;
+    onToggleFilters: () => void;
+    onShowMore: () => void;
+    onViewAll: (total: number) => void;
+    onOpenRequest: (requestId: string) => void;
+    selectedRequestId: string | null;
+}) {
+    const { theme } = useTheme();
+    const records = useMemo(
+        () => buildWorkQueueRecords(requests, scheduleSlots, companyUsers),
+        [requests, scheduleSlots, companyUsers]
+    );
+    const categoryCounts = useMemo(() => getWorkQueueCategoryCounts(records), [records]);
+    const relevantStatuses = getWorkQueueStatusOptions(category);
+    const statusCounts = useMemo(() => getWorkQueueStatusCounts(records, category), [records, category]);
+    const filteredRecords = useMemo(
+        () => filterAndSortWorkQueueRecords(records, category, statusFilter, search, sort),
+        [records, category, statusFilter, search, sort]
+    );
+    const visibleRecords = filteredRecords.slice(0, limit);
+    const sortLabel = WORK_QUEUE_SORT_OPTIONS.find((option) => option.key === sort)?.label || 'Sort';
+    const searchTrimmed = search.trim();
+
+    return (
+        <ThemedCard style={workQueueCardStyle}>
+            <View style={sectionHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Work Queue</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Post-visit action, closed, and archived records in one searchable list.
+                    </Text>
+                </View>
+                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                    {records.length} total records
+                </Text>
+            </View>
+
+            <View style={workQueueControlRowStyle}>
+                <TextInput
+                    value={search}
+                    onChangeText={onChangeSearch}
+                    placeholder="Search job code, customer, address, ZIP, or technician"
+                    placeholderTextColor={theme.colors.mutedText}
+                    style={[
+                        workQueueSearchInputStyle,
+                        viewportWidth <= 760 ? workQueueSearchInputMobileStyle : null,
+                        {
+                            borderColor: theme.colors.border,
+                            color: theme.colors.text,
+                            backgroundColor: theme.colors.surface,
+                        },
+                    ]}
+                />
+                <ThemedButton
+                    title={filtersOpen ? 'Hide Filters' : 'Filters'}
+                    variant={filtersOpen ? 'primary' : 'secondary'}
+                    onPress={onToggleFilters}
+                    style={workQueueControlButtonStyle}
+                    textStyle={{ fontSize: 12 }}
+                />
+                <ThemedButton
+                    title={`Sort: ${sortLabel}`}
+                    variant="secondary"
+                    onPress={() => onChangeSort(getNextWorkQueueSort(sort))}
+                    style={workQueueSortButtonStyle}
+                    textStyle={{ fontSize: 12 }}
+                />
+            </View>
+
+            <View style={workQueueCategoryRowStyle}>
+                {WORK_QUEUE_CATEGORIES.map((item) => (
+                    <ThemedButton
+                        key={item.key}
+                        title={`${item.label} ${categoryCounts[item.key] || 0}`}
+                        variant={category === item.key ? 'primary' : 'secondary'}
+                        onPress={() => onSelectCategory(item.key)}
+                        style={workQueueCategoryButtonStyle}
+                        textStyle={{ fontSize: 12 }}
+                    />
+                ))}
+            </View>
+
+            {filtersOpen && (
+                <View style={[workQueueFilterTrayStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                    <ThemedButton
+                        title={`All ${categoryCounts[category] || 0}`}
+                        variant={statusFilter === 'all' ? 'primary' : 'secondary'}
+                        onPress={() => onSelectStatusFilter('all')}
+                        style={workQueueFilterButtonStyle}
+                        textStyle={{ fontSize: 12 }}
+                    />
+                    {relevantStatuses.map((status) => (
+                        <ThemedButton
+                            key={status}
+                            title={`${getDispatchLaneTitle(status)} ${statusCounts[status] || 0}`}
+                            variant={statusFilter === status ? 'primary' : 'secondary'}
+                            onPress={() => onSelectStatusFilter(status)}
+                            style={workQueueFilterButtonStyle}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                    ))}
+                </View>
+            )}
+
+            <View style={workQueueResultSummaryStyle}>
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    Showing {visibleRecords.length} of {filteredRecords.length}
+                    {searchTrimmed ? ` for "${searchTrimmed}"` : ''}
+                </Text>
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    Total records: {records.length}
+                </Text>
+            </View>
+
+            {filteredRecords.length === 0 ? (
+                <View style={[workQueueEmptyStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        No work queue records match this view.
+                    </Text>
+                </View>
+            ) : (
+                <View style={workQueueListStyle}>
+                    {visibleRecords.map((record) => (
+                        <WorkQueueRow
+                            key={`${record.request.id}:${record.laneKey}`}
+                            record={record}
+                            selected={record.request.id === selectedRequestId}
+                            onOpen={() => onOpenRequest(record.request.id)}
+                        />
+                    ))}
+                </View>
+            )}
+
+            {filteredRecords.length > visibleRecords.length && (
+                <View style={compactActionRowStyle}>
+                    <ThemedButton
+                        title="Show More"
+                        variant="secondary"
+                        onPress={onShowMore}
+                        style={compactActionButtonStyle}
+                        textStyle={{ fontSize: 12 }}
+                    />
+                    <ThemedButton
+                        title="View All"
+                        variant="secondary"
+                        onPress={() => onViewAll(filteredRecords.length)}
+                        style={compactActionButtonStyle}
+                        textStyle={{ fontSize: 12 }}
+                    />
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
+function WorkQueueRow({ record, selected, onOpen }: { record: WorkQueueRecord; selected: boolean; onOpen: () => void }) {
+    const { theme } = useTheme();
+    const identifier = getWorkQueueIdentifier(record.request);
+    const address = abbreviateAddress(record.request);
+    const title = record.request.customer_display_name || record.request.property_display_name || 'Homeowner';
+    const statusLabel = getDispatchLaneTitle(record.laneKey);
+    const detailLine = getWorkQueueDetailLine(record);
+    const technician = record.technician ? getMemberDisplayName(record.technician) : '';
+
+    return (
+        <View
+            style={[
+                workQueueRowPressableStyle,
+                workQueueRowStyle,
+                {
+                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: selected ? theme.colors.background : theme.colors.surface,
+                },
+            ]}
+        >
+            <Pressable
+                nativeID={`dispatch-work-queue-row-${record.request.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Toggle job details for ${identifier}`}
+                onPress={onOpen}
+                style={workQueueRowMainPressableStyle}
+            >
+                <View style={workQueuePrimaryLineStyle}>
+                    <Text
+                        style={[
+                            workQueueDisplayCodeBadgeStyle,
+                            {
+                                color: theme.colors.primary,
+                                backgroundColor: theme.colors.background,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                        numberOfLines={1}
+                    >
+                        {identifier}
+                    </Text>
+                    <Text style={[requestTypeStyle, { color: theme.colors.text, flex: 1, minWidth: 0 }]} numberOfLines={1}>
+                        {address}
+                    </Text>
+                </View>
+                <Text style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]} numberOfLines={1}>
+                    {title} · {statusLabel}
+                </Text>
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                    {detailLine}
+                    {technician ? ` · ${technician}` : ''}
+                </Text>
+            </Pressable>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Toggle job details for ${identifier}`}
+                onPress={onOpen}
+                style={({ pressed }) => [
+                    workQueueExpandButtonStyle,
+                    {
+                        borderColor: theme.colors.border,
+                        backgroundColor: pressed ? theme.colors.secondaryButton : theme.colors.background,
+                    },
+                ]}
+            >
+                <Text style={[workQueueOpenButtonTextStyle, { color: theme.colors.primary }]}>Open ›</Text>
+            </Pressable>
+        </View>
+    );
+}
+
+function DispatchRequestDetailDrawer({
+    request,
+    events,
+    scheduleSlots,
+    allScheduleSlots,
+    actionRequestId,
+    companyUsers,
+    activeTechnicians,
+    scheduleForm,
+    actionMessage,
+    viewportWidth,
+    onClose,
+    onAcknowledge,
+    onUpdateScheduleForm,
+    onScheduleRequest,
+    onCloseVisit,
+    onCancelRequest,
+    onArchiveRequest,
+    onRestoreRequest,
+    onNotifyHomeownerDelay,
+}: {
+    request: DispatchRequest | null;
+    events: ServiceRequestEvent[];
+    scheduleSlots: ScheduleSlot[];
+    allScheduleSlots: ScheduleSlot[];
+    actionRequestId: string | null;
+    companyUsers: CompanyUser[];
+    activeTechnicians: CompanyUser[];
+    scheduleForm: ScheduleRequestForm;
+    actionMessage: string;
+    viewportWidth: number;
+    onClose: () => void;
+    onAcknowledge: (request: DispatchRequest) => void;
+    onUpdateScheduleForm: (updates: Partial<ScheduleRequestForm>) => void;
+    onScheduleRequest: () => void;
+    onCloseVisit: () => void;
+    onCancelRequest: () => void;
+    onArchiveRequest: () => void;
+    onRestoreRequest: () => void;
+    onNotifyHomeownerDelay: () => void;
+}) {
+    const { theme } = useTheme();
+    const detailBodyRef = useRef<ScrollView | null>(null);
+    const requestId = request?.id || null;
+
+    useEffect(() => {
+        if (!requestId) return;
+
+        const resetScroll = () => {
+            detailBodyRef.current?.scrollTo({ y: 0, animated: false });
+        };
+
+        resetScroll();
+        if (typeof requestAnimationFrame !== 'undefined') {
+            requestAnimationFrame(resetScroll);
+        } else {
+            setTimeout(resetScroll, 0);
+        }
+    }, [requestId]);
+
+    if (!request) return null;
+
+    const isNarrow = viewportWidth <= 760;
+    const identifier = getWorkQueueIdentifier(request);
+    const title = request.customer_display_name || request.property_display_name || request.issue_summary || 'Job details';
+
+    return (
+        <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+            <View style={detailDrawerBackdropStyle}>
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Close job details backdrop"
+                    onPress={onClose}
+                    style={detailDrawerBackdropPressableStyle}
+                />
+                <View
+                    style={[
+                        detailDrawerPanelStyle,
+                        isNarrow ? detailDrawerPanelMobileStyle : null,
+                        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+                    ]}
+                >
+                    <View style={[detailDrawerHeaderStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+                        {isNarrow ? (
+                            <>
+                                <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Close job details"
+                                    onPress={onClose}
+                                    style={({ pressed }) => [
+                                        detailDrawerCloseButtonStyle,
+                                        {
+                                            borderColor: theme.colors.border,
+                                            backgroundColor: pressed ? theme.colors.text : theme.colors.primary,
+                                        },
+                                    ]}
+                                >
+                                    <Text style={[detailDrawerCloseButtonTextStyle, { color: theme.colors.primaryText }]}>
+                                        ← Close
+                                    </Text>
+                                </Pressable>
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text style={[requestTypeStyle, { color: theme.colors.primary }]} numberOfLines={1}>
+                                        {identifier}
+                                    </Text>
+                                    <Text style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]} numberOfLines={1}>
+                                        {title}
+                                    </Text>
+                                </View>
+                            </>
+                        ) : (
+                            <>
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text style={[requestTypeStyle, { color: theme.colors.primary }]} numberOfLines={1}>
+                                        Job Details · {identifier}
+                                    </Text>
+                                    <Text style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]} numberOfLines={1}>
+                                        {title}
+                                    </Text>
+                                </View>
+                                <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel="Close job details"
+                                    onPress={onClose}
+                                    style={({ pressed }) => [
+                                        detailDrawerCloseButtonStyle,
+                                        {
+                                            borderColor: theme.colors.border,
+                                            backgroundColor: pressed ? theme.colors.text : theme.colors.primary,
+                                        },
+                                    ]}
+                                >
+                                    <Text style={[detailDrawerCloseButtonTextStyle, { color: theme.colors.primaryText }]}>
+                                        ✕ Close
+                                    </Text>
+                                </Pressable>
+                            </>
+                        )}
+                    </View>
+                    <ScrollView
+                        key={`dispatch-detail-body-${request.id}`}
+                        ref={detailBodyRef}
+                        showsVerticalScrollIndicator={false}
+                        style={detailDrawerScrollStyle}
+                        contentContainerStyle={detailDrawerScrollContentStyle}
+                    >
+                        <DispatchRequestCard
+                            request={request}
+                            events={events}
+                            scheduleSlots={scheduleSlots}
+                            allScheduleSlots={allScheduleSlots}
+                            acknowledging={actionRequestId === request.id}
+                            expanded
+                            cardBasis="100%"
+                            expandedCardBasis="100%"
+                            onToggle={onClose}
+                            onCollapse={onClose}
+                            onAcknowledge={onAcknowledge}
+                            companyUsers={companyUsers}
+                            activeTechnicians={activeTechnicians}
+                            scheduleForm={scheduleForm}
+                            actionMessage={actionMessage}
+                            onUpdateScheduleForm={onUpdateScheduleForm}
+                            onScheduleRequest={onScheduleRequest}
+                            onCloseVisit={onCloseVisit}
+                            onCancelRequest={onCancelRequest}
+                            onArchiveRequest={onArchiveRequest}
+                            onRestoreRequest={onRestoreRequest}
+                            onNotifyHomeownerDelay={onNotifyHomeownerDelay}
+                        />
+                    </ScrollView>
+                </View>
+            </View>
+        </Modal>
     );
 }
 
@@ -1569,8 +2420,10 @@ function DispatchRequestCard({
     actionMessage,
     onUpdateScheduleForm,
     onScheduleRequest,
+    onCloseVisit,
     onCancelRequest,
     onArchiveRequest,
+    onRestoreRequest,
     onNotifyHomeownerDelay,
 }: {
     request: DispatchRequest;
@@ -1590,8 +2443,10 @@ function DispatchRequestCard({
     actionMessage: string;
     onUpdateScheduleForm: (updates: Partial<ScheduleRequestForm>) => void;
     onScheduleRequest: () => void;
+    onCloseVisit: () => void;
     onCancelRequest: () => void;
     onArchiveRequest: () => void;
+    onRestoreRequest: () => void;
     onNotifyHomeownerDelay: () => void;
 }) {
     const { theme } = useTheme();
@@ -1622,11 +2477,16 @@ function DispatchRequestCard({
     const arrivalWindowPreview = getArrivalWindowPreview(scheduleForm);
     const selectedDateLabel = formatSelectedScheduleDate(scheduleForm.date);
     const selectedStartLabel = formatSelectedScheduleTime(scheduleForm.startTime);
-    const risk = calculateDispatchRisk(currentScheduleSlot, allScheduleSlots);
+    const risk = calculateRequestDispatchRisk(request, currentScheduleSlot, allScheduleSlots);
+    const attentionReason = getCompactAttentionReason(request, currentScheduleSlot, risk);
+    const operationalStatusLabel = formatRequestOperationalStatus(request, currentScheduleSlot);
+    const priorityLabel = formatLabel(request.priority || request.request_type || 'Normal');
+    const statusBadgeLabel = risk.state !== 'ON_TIME' ? risk.label : operationalStatusLabel;
+    const issueLine = request.issue_summary || 'No description provided.';
+    const scheduleLine = `${formatSlotArrivalWindow(currentScheduleSlot)} · ${assignedTechnicianLabel}`;
 
     return (
         <ThemedCard
-            onPress={expanded ? undefined : onToggle}
             style={[
                 requestCardStyle,
                 {
@@ -1638,101 +2498,83 @@ function DispatchRequestCard({
                 },
             ]}
         >
-            <View style={requestTopRowStyle}>
-                <Text style={[requestTypeStyle, { color: theme.colors.primary }]}>{formatCallType(request)}</Text>
-                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {formatLabel(request.priority)}
-                </Text>
-            </View>
-            <View style={compactActionRowStyle}>
-                <Text style={[
-                    riskBadgeStyle,
-                    {
-                        color: getRiskTextColor(risk.state, theme.colors.text),
-                        backgroundColor: getRiskBadgeBackground(risk.state, theme.colors.secondaryButton),
-                    },
-                ]}>
-                    {risk.label}
-                </Text>
-                {risk.state !== 'ON_TIME' && (
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText, flex: 1 }]} numberOfLines={2}>
-                        {risk.reason}
+            <View style={compactActiveRowTopStyle}>
+                <View style={compactActiveBadgeRowStyle}>
+                    <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                        {priorityLabel}
                     </Text>
-                )}
-            </View>
-
-            <Text style={[requestTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
-                {displayName}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                {request.issue_summary || 'No description provided.'}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                Property: {formatPropertyAddress(request)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Request #{shortId(request.id)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Status: {formatLabel(request.status)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Created: {formatDateTime(request.created_at)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Priority: {formatLabel(request.priority)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Assigned tech: {assignedTechnicianLabel}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Scheduled: {formatScheduleStart(currentScheduleSlot)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Arrival window: {formatSlotArrivalWindow(currentScheduleSlot)}
-            </Text>
-            {!!currentScheduleSlot && (
-                <View style={[techStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                    <View style={requestTopRowStyle}>
-                        <Text style={[requestTypeStyle, { color: theme.colors.text }]}>TechOS Status</Text>
-                        <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                            {formatTechOSStatusLabel(currentScheduleSlot.status)}
-                        </Text>
-                    </View>
-                    {!!currentScheduleSlot.tech_status_note && (
-                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                            {currentScheduleSlot.tech_status_note}
-                        </Text>
-                    )}
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Updated: {formatDateTime(currentScheduleSlot.updated_at)}
+                    <Text
+                        style={[
+                            riskBadgeStyle,
+                            {
+                                color: risk.state !== 'ON_TIME'
+                                    ? getRiskTextColor(risk.state, theme.colors.text)
+                                    : theme.colors.secondaryButtonText,
+                                backgroundColor: risk.state !== 'ON_TIME'
+                                    ? getRiskBadgeBackground(risk.state, theme.colors.secondaryButton)
+                                    : theme.colors.secondaryButton,
+                            },
+                        ]}
+                    >
+                        {statusBadgeLabel}
                     </Text>
                 </View>
-            )}
-            <View style={compactActionRowStyle}>
-                <ThemedButton
-                    title={expanded ? 'Collapse' : 'Expand'}
-                    variant={expanded ? 'ghost' : 'secondary'}
+                <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={expanded ? 'Collapse request details' : 'Open request details'}
                     onPress={expanded ? onCollapse : onToggle}
-                    style={compactActionButtonStyle}
-                    textStyle={{ fontSize: 12 }}
-                />
-                <ThemedButton
-                    title="Open Customer"
-                    variant="secondary"
-                    onPress={() => router.push(`/super-admin/company/${request.company_id}/client/${request.property_id}` as any)}
-                    style={compactActionButtonStyle}
-                    textStyle={{ fontSize: 12 }}
-                />
-                <ThemedButton
-                    title="Open Client HomeOS"
-                    variant="secondary"
-                    onPress={() => router.push(`/super-admin/company/${request.company_id}/client/${request.property_id}/homeos` as any)}
-                    style={compactActionButtonStyle}
-                    textStyle={{ fontSize: 12 }}
-                />
+                    style={({ pressed }) => [
+                        compactExpandButtonStyle,
+                        compactActivePressableButtonStyle,
+                        {
+                            borderColor: theme.colors.border,
+                            backgroundColor: pressed ? theme.colors.secondaryButton : theme.colors.surface,
+                        },
+                    ]}
+                >
+                    <Text style={[compactActiveButtonTextStyle, { color: theme.colors.secondaryButtonText }]}>
+                        {expanded ? 'Collapse' : 'Open'}
+                    </Text>
+                </Pressable>
             </View>
-            {!!latestUpdateRequest && (
+
+            <Text style={[compactActiveCustomerLineStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                {displayName} · {abbreviateAddress(request)}
+            </Text>
+            <Text style={[compactActiveMetaLineStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                {issueLine} · {scheduleLine}
+            </Text>
+            {(!!attentionReason || risk.state === 'RUNNING_LATE') && (
+                <View style={compactAttentionRowStyle}>
+                {!!attentionReason && (
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText, flex: 1 }]} numberOfLines={1}>
+                        {attentionReason}
+                    </Text>
+                )}
+                    {risk.state === 'RUNNING_LATE' ? (
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Notify homeowner"
+                            disabled={acknowledging}
+                            onPress={onNotifyHomeownerDelay}
+                            style={({ pressed }) => [
+                                compactNotifyButtonStyle,
+                                compactActivePressableButtonStyle,
+                                {
+                                    borderColor: theme.colors.primary,
+                                    backgroundColor: pressed ? theme.colors.text : theme.colors.primary,
+                                    opacity: acknowledging ? 0.55 : 1,
+                                },
+                            ]}
+                        >
+                            <Text style={[compactActiveButtonTextStyle, { color: theme.colors.primaryText }]}>
+                                Notify Homeowner
+                            </Text>
+                        </Pressable>
+                    ) : null}
+                </View>
+            )}
+            {expanded && !!latestUpdateRequest && (
                 <Text style={[eventNoticeStyle, { color: theme.colors.primary }]}>
                     Homeowner requested update
                 </Text>
@@ -1751,6 +2593,15 @@ function DispatchRequestCard({
                         {request.issue_summary || 'No summary available.'}
                     </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Job code: {getWorkQueueIdentifier(request)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Status: {formatLabel(request.status)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Created: {formatDateTime(request.created_at)}
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Property: {formatPropertyAddress(request)}
                     </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
@@ -1759,6 +2610,49 @@ function DispatchRequestCard({
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Arrival window: {formatSlotArrivalWindow(currentScheduleSlot)}
                     </Text>
+                    {!!currentScheduleSlot && (
+                        <View style={[techStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                            <View style={requestTopRowStyle}>
+                                <Text style={[requestTypeStyle, { color: theme.colors.text }]}>
+                                    {isActiveDispatchRequestForRisk(request, currentScheduleSlot) ? 'TechOS Status' : 'Visit Status'}
+                                </Text>
+                                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                                    {isActiveDispatchRequestForRisk(request, currentScheduleSlot)
+                                        ? formatTechOSStatusLabel(currentScheduleSlot.status)
+                                        : formatRequestOperationalStatus(request, currentScheduleSlot)}
+                                </Text>
+                            </View>
+                            {!!currentScheduleSlot.visit_outcome && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                                    Visit outcome: {getServiceVisitOutcomeLabel(currentScheduleSlot.visit_outcome)}
+                                </Text>
+                            )}
+                            {!!currentScheduleSlot.tech_status_note && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                                    {currentScheduleSlot.tech_status_note}
+                                </Text>
+                            )}
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                Updated: {formatDateTime(currentScheduleSlot.updated_at)}
+                            </Text>
+                        </View>
+                    )}
+                    <View style={compactActionRowStyle}>
+                        <ThemedButton
+                            title="Open Customer"
+                            variant="secondary"
+                            onPress={() => router.push(`/super-admin/company/${request.company_id}/client/${request.property_id}` as any)}
+                            style={compactActionButtonStyle}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                        <ThemedButton
+                            title="Open Client HomeOS"
+                            variant="secondary"
+                            onPress={() => router.push(`/super-admin/company/${request.company_id}/client/${request.property_id}/homeos` as any)}
+                            style={compactActionButtonStyle}
+                            textStyle={{ fontSize: 12 }}
+                        />
+                    </View>
                     {risk.state !== 'ON_TIME' && (
                         <View style={[secondaryActionPanelStyle, { borderColor: getRiskBorderColor(risk.state, theme.colors.border) }]}>
                             <Text style={[requestTypeStyle, { color: getRiskTextColor(risk.state, theme.colors.text) }]}>
@@ -2060,6 +2954,86 @@ function DispatchRequestCard({
                             textStyle={{ fontSize: 12 }}
                         />
                     </View>
+                    <View style={[secondaryActionPanelStyle, { borderColor: theme.colors.border }]}>
+                        <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Close Visit / Finish Visit</Text>
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            Choose how this scheduled visit ended. The request will move to the right active, needs-action, or closed queue.
+                        </Text>
+                        <View style={compactActionRowStyle}>
+                            {SERVICE_VISIT_CLOSEOUT_OPTIONS.map((option) => (
+                                <ThemedButton
+                                    key={option.outcome}
+                                    title={option.label}
+                                    variant={scheduleForm.closeoutOutcome === option.outcome ? 'primary' : 'secondary'}
+                                    disabled={acknowledging}
+                                    onPress={() => onUpdateScheduleForm({
+                                        closeoutOutcome: option.outcome,
+                                        closeoutNotifyHomeowner: option.homeownerDefault,
+                                    })}
+                                    style={closeoutOutcomeButtonStyle}
+                                    textStyle={{ fontSize: 11 }}
+                                />
+                            ))}
+                        </View>
+                        {!!scheduleForm.closeoutOutcome && (
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                {SERVICE_VISIT_CLOSEOUT_OPTIONS.find((option) => option.outcome === scheduleForm.closeoutOutcome)?.description}
+                            </Text>
+                        )}
+                        <View style={scheduleFieldGridStyle}>
+                            <ScheduleInput
+                                label={getCloseoutNotesLabel(scheduleForm.closeoutOutcome)}
+                                value={scheduleForm.closeoutNotes}
+                                placeholder="Internal close-out notes"
+                                onChangeText={(closeoutNotes) => onUpdateScheduleForm({ closeoutNotes })}
+                            />
+                            <ScheduleInput
+                                label="Next Action Date"
+                                value={scheduleForm.closeoutNextActionDate}
+                                placeholder="YYYY-MM-DD when needed"
+                                onChangeText={(closeoutNextActionDate) => onUpdateScheduleForm({ closeoutNextActionDate })}
+                            />
+                            {scheduleForm.closeoutOutcome === 'waiting_for_parts' && (
+                                <>
+                                    <ScheduleInput
+                                        label="Parts / Materials"
+                                        value={scheduleForm.closeoutPartsDescription}
+                                        placeholder="Part, quantity, vendor note"
+                                        onChangeText={(closeoutPartsDescription) => onUpdateScheduleForm({ closeoutPartsDescription })}
+                                    />
+                                    <ScheduleInput
+                                        label="Order / Reference"
+                                        value={scheduleForm.closeoutOrderReference}
+                                        placeholder="Optional order number"
+                                        onChangeText={(closeoutOrderReference) => onUpdateScheduleForm({ closeoutOrderReference })}
+                                    />
+                                </>
+                            )}
+                            <ScheduleInput
+                                label="Homeowner Message"
+                                value={scheduleForm.closeoutHomeownerNote}
+                                placeholder="Optional customer-safe note"
+                                onChangeText={(closeoutHomeownerNote) => onUpdateScheduleForm({ closeoutHomeownerNote })}
+                            />
+                        </View>
+                        <View style={compactActionRowStyle}>
+                            <ThemedButton
+                                title={scheduleForm.closeoutNotifyHomeowner ? 'Homeowner Update On' : 'Homeowner Update Off'}
+                                variant={scheduleForm.closeoutNotifyHomeowner ? 'primary' : 'secondary'}
+                                disabled={acknowledging}
+                                onPress={() => onUpdateScheduleForm({ closeoutNotifyHomeowner: !scheduleForm.closeoutNotifyHomeowner })}
+                                style={compactActionButtonStyle}
+                                textStyle={{ fontSize: 12 }}
+                            />
+                            <ThemedButton
+                                title={acknowledging ? 'Closing Visit...' : 'Close Visit'}
+                                disabled={acknowledging || !scheduleForm.closeoutOutcome}
+                                onPress={onCloseVisit}
+                                style={compactActionButtonStyle}
+                                textStyle={{ fontSize: 12 }}
+                            />
+                        </View>
+                    </View>
                     <View style={scheduleFieldGridStyle}>
                         <ScheduleInput
                             label="Cancel Reason"
@@ -2091,11 +3065,21 @@ function DispatchRequestCard({
                         <ThemedButton
                             title="Archive Request"
                             variant="secondary"
-                            disabled={acknowledging}
+                            disabled={acknowledging || isArchivedDispatchStatus(request.status)}
                             onPress={onArchiveRequest}
                             style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 10 }}
                             textStyle={{ fontSize: 12 }}
                         />
+                        {isArchivedDispatchStatus(request.status) && (
+                            <ThemedButton
+                                title="Restore Request"
+                                variant="secondary"
+                                disabled={acknowledging}
+                                onPress={onRestoreRequest}
+                                style={{ alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 12, paddingVertical: 10 }}
+                                textStyle={{ fontSize: 12 }}
+                            />
+                        )}
                     </View>
                 </View>
             )}
@@ -2225,7 +3209,7 @@ async function loadTechnicianScheduleSlots({
 }) {
     const { data, error } = await supabase
         .from('job_schedule_slots')
-        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, updated_at')
+        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
         .eq('company_id', companyId)
         .eq('technician_company_user_id', technicianCompanyUserId)
         .lt('start_at', endAt.toISOString())
@@ -2258,6 +3242,11 @@ function normalizeScheduleSlots(data: unknown): ScheduleSlot[] {
                 priority: readStringField(record, 'priority'),
                 notes: readStringField(record, 'notes'),
                 tech_status_note: readStringField(record, 'tech_status_note'),
+                visit_outcome: readStringField(record, 'visit_outcome'),
+                visit_closed_at: readStringField(record, 'visit_closed_at'),
+                closeout_notes: readStringField(record, 'closeout_notes'),
+                homeowner_closeout_note: readStringField(record, 'homeowner_closeout_note'),
+                closeout_metadata: readRecordField(record, 'closeout_metadata'),
                 updated_at: readStringField(record, 'updated_at'),
             };
         })
@@ -2336,7 +3325,23 @@ function hasScheduleSlotOverlap(slot: ScheduleSlot, newStart: Date, newEnd: Date
 }
 
 function isActiveScheduleSlot(slot: ScheduleSlot) {
-    return !['cancelled', 'canceled', 'completed', 'archived'].includes(normalizeStatus(slot.status));
+    return ![
+        'cancelled',
+        'canceled',
+        'completed',
+        'complete',
+        'closed',
+        'done',
+        'archived',
+        'void',
+        'waiting_for_parts',
+        'needs_follow_up',
+        'return_visit_required',
+        'on_hold',
+        'customer_no_show',
+        'missed_no_show',
+        'unable_to_complete',
+    ].includes(normalizeStatus(slot.status));
 }
 
 function formatScheduleConflictRange(slot: ScheduleSlot) {
@@ -2345,7 +3350,7 @@ function formatScheduleConflictRange(slot: ScheduleSlot) {
 
 function formatScheduleConflictMessage(slot: ScheduleSlot, technician: CompanyUser | null) {
     const technicianName = technician ? getMemberDisplayName(technician) : 'This technician';
-    const requestLabel = slot.service_request_id ? ` Request #${shortId(slot.service_request_id)}.` : '';
+    const requestLabel = slot.service_request_id ? ' Existing scheduled request.' : '';
 
     return `Schedule conflict: ${technicianName} is already booked from ${formatScheduleConflictRange(slot)}.${requestLabel} Status: ${formatTechOSStatusLabel(slot.status)}.`;
 }
@@ -2386,6 +3391,49 @@ async function updateRequestClosedStatus({
     if (updateError) {
         throw new Error(`${error.message}; direct status update failed: ${updateError.message}`);
     }
+}
+
+async function loadDispatchRequestsWithCloseoutFields(companyId: string): Promise<DispatchRequest[]> {
+    const baseRequests = await getCompanyDispatchRequests(companyId);
+    const requestIds = baseRequests.map((request) => request.id).filter(Boolean);
+
+    if (requestIds.length === 0) return baseRequests;
+
+    const { data, error } = await supabase
+        .from('service_requests')
+        .select('id, closeout_outcome, closeout_notes, homeowner_closeout_note, next_action_at, closed_at, cancelled_at, cancel_reason, archived_at, archive_reason, closeout_metadata')
+        .eq('company_id', companyId)
+        .in('id', requestIds);
+
+    if (error) {
+        return baseRequests;
+    }
+
+    const closeoutById = new Map<string, Partial<DispatchRequest>>();
+    (Array.isArray(data) ? data : []).forEach((row) => {
+        const record = row && typeof row === 'object' ? row as Record<string, unknown> : {};
+        const id = readStringField(record, 'id');
+
+        if (!id) return;
+
+        closeoutById.set(id, {
+            closeout_outcome: readStringField(record, 'closeout_outcome'),
+            closeout_notes: readStringField(record, 'closeout_notes'),
+            homeowner_closeout_note: readStringField(record, 'homeowner_closeout_note'),
+            next_action_at: readStringField(record, 'next_action_at'),
+            closed_at: readStringField(record, 'closed_at'),
+            cancelled_at: readStringField(record, 'cancelled_at'),
+            cancel_reason: readStringField(record, 'cancel_reason'),
+            archived_at: readStringField(record, 'archived_at'),
+            archive_reason: readStringField(record, 'archive_reason'),
+            closeout_metadata: readRecordField(record, 'closeout_metadata'),
+        });
+    });
+
+    return baseRequests.map((request) => ({
+        ...request,
+        ...(closeoutById.get(request.id) || {}),
+    }));
 }
 
 async function recordCompanyAuditEvent(input: Parameters<typeof logCompanyAuditEvent>[0]) {
@@ -2466,7 +3514,7 @@ async function queueAssignmentNotifications({
 }
 
 function getRequestAuditLabel(request: DispatchRequest) {
-    return `${formatCallType(request)} ${shortId(request.id)}`;
+    return `${formatCallType(request)} ${getWorkQueueIdentifier(request)}`;
 }
 
 function requestToAuditRecord(request: DispatchRequest) {
@@ -2956,6 +4004,61 @@ function formatCallType(request: DispatchRequest) {
     return formatLabel(request.request_type || 'Other');
 }
 
+function formatRequestOperationalStatus(request: DispatchRequest, slot: ScheduleSlot | null) {
+    if (slot?.visit_outcome) return getServiceVisitOutcomeLabel(slot.visit_outcome);
+    if (isNeedsFollowUpStatus(request.status)) return 'Needs Follow-Up';
+    if (isReturnVisitStatus(request.status)) return 'Return Visit';
+    if (isWaitingForPartsStatus(request.status)) return 'Waiting for Parts';
+    if (isOnHoldStatus(request.status)) return 'On Hold';
+    if (isMissedNoShowStatus(request.status)) return 'Missed / No-Show';
+    if (isUnableToCompleteStatus(request.status)) return 'Unable to Complete';
+    if (isCancelledDispatchStatus(request.status)) return 'Cancelled';
+    if (isArchivedDispatchStatus(request.status)) return 'Archived';
+    if (isCompletedDispatchStatus(request.status)) return 'Completed';
+    if (slot?.status) return formatTechOSStatusLabel(slot.status);
+
+    return formatLabel(request.status || 'Unassigned');
+}
+
+function getCompactAttentionReason(
+    request: DispatchRequest,
+    slot: ScheduleSlot | null,
+    risk: DispatchRiskResult
+) {
+    if (risk.state !== 'ON_TIME') return risk.reason;
+    if (slot?.tech_status_note) return slot.tech_status_note;
+    if (slot?.visit_outcome) return getServiceVisitOutcomeLabel(slot.visit_outcome);
+    if (isClosedOrInactiveDispatchStatus(request.status)) return formatRequestOperationalStatus(request, slot);
+
+    return '';
+}
+
+function getCloseoutNotesLabel(outcome: ServiceVisitOutcome | '') {
+    if (outcome === 'completed_successfully') return 'Work Performed / Completion Notes';
+    if (outcome === 'follow_up_required') return 'Follow-Up Reason / Notes';
+    if (outcome === 'return_visit_required') return 'Return Visit Reason';
+    if (outcome === 'waiting_for_parts') return 'Parts Status / Internal Notes';
+    if (outcome === 'paused_on_hold') return 'On-Hold Reason';
+    if (outcome === 'customer_no_show') return 'Contact Attempts / Access Notes';
+    if (outcome === 'cancelled') return 'Cancellation Reason';
+    if (outcome === 'unable_to_complete') return 'Unable to Complete Reason';
+    if (outcome === 'duplicate_or_void') return 'Void / Duplicate Reason';
+
+    return 'Close-Out Notes';
+}
+
+function parseCloseoutDate(value: string) {
+    const trimmed = value.trim();
+
+    if (!trimmed) return null;
+
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+        ? new Date(`${trimmed}T09:00:00`)
+        : new Date(trimmed);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function isMissingAssignmentBackendMessage(message: string) {
     return (
         message.includes('schema cache') ||
@@ -3134,9 +4237,10 @@ function buildDispatchAttentionItems(requests: DispatchRequest[], scheduleSlots:
             ));
             const currentSlot = getCurrentRequestScheduleSlot(requestSlots, request);
 
+            if (!isActiveDispatchRequestForRisk(request, currentSlot)) return null;
             if (!currentSlot) return null;
 
-            const risk = calculateDispatchRisk(currentSlot, scheduleSlots);
+            const risk = calculateRequestDispatchRisk(request, currentSlot, scheduleSlots);
 
             return risk.state === 'ON_TIME'
                 ? null
@@ -3156,16 +4260,344 @@ function buildDispatchAttentionItems(requests: DispatchRequest[], scheduleSlots:
         });
 }
 
+function buildWorkQueueRecords(
+    requests: DispatchRequest[],
+    scheduleSlots: ScheduleSlot[],
+    companyUsers: CompanyUser[]
+): WorkQueueRecord[] {
+    return requests
+        .map((request) => {
+            const requestSlots = scheduleSlots.filter((slot) => (
+                slot.company_id === request.company_id &&
+                slot.service_request_id === request.id
+            ));
+            const currentSlot = getCurrentRequestScheduleSlot(requestSlots, request);
+            const laneKey = getDispatchLaneKey(request, currentSlot);
+            const category = getWorkQueueCategoryForLaneKey(laneKey);
+
+            if (!category) return null;
+
+            const technician = currentSlot
+                ? findCompanyUserById(companyUsers, currentSlot.technician_company_user_id)
+                : null;
+
+            return {
+                request,
+                slot: currentSlot,
+                requestSlots,
+                laneKey,
+                category,
+                technician,
+            };
+        })
+        .filter((record): record is WorkQueueRecord => Boolean(record));
+}
+
+function getWorkQueueCategoryForLaneKey(laneKey: DispatchLaneKey): WorkQueueCategory | null {
+    const definition = DISPATCH_LANE_DEFINITIONS.find((lane) => lane.key === laneKey);
+
+    return definition && definition.group !== 'active' ? definition.group : null;
+}
+
+function getWorkQueueCategoryCounts(records: WorkQueueRecord[]) {
+    return WORK_QUEUE_CATEGORIES.reduce<Record<WorkQueueCategory, number>>((counts, category) => {
+        counts[category.key] = records.filter((record) => record.category === category.key).length;
+        return counts;
+    }, {
+        needs_action: 0,
+        closed: 0,
+        archived: 0,
+    });
+}
+
+function getWorkQueueStatusCounts(records: WorkQueueRecord[], category: WorkQueueCategory) {
+    return records
+        .filter((record) => record.category === category)
+        .reduce<Partial<Record<DispatchLaneKey, number>>>((counts, record) => {
+            counts[record.laneKey] = (counts[record.laneKey] || 0) + 1;
+            return counts;
+        }, {});
+}
+
+function getWorkQueueStatusOptions(category: WorkQueueCategory): DispatchLaneKey[] {
+    return DISPATCH_LANE_DEFINITIONS
+        .filter((lane) => lane.group === category)
+        .map((lane) => lane.key);
+}
+
+function filterAndSortWorkQueueRecords(
+    records: WorkQueueRecord[],
+    category: WorkQueueCategory,
+    statusFilter: DispatchLaneKey | 'all',
+    search: string,
+    sort: WorkQueueSort
+) {
+    const query = normalizeStatus(search);
+
+    return records
+        .filter((record) => record.category === category)
+        .filter((record) => statusFilter === 'all' || record.laneKey === statusFilter)
+        .filter((record) => !query || getWorkQueueSearchText(record).includes(query))
+        .sort((first, second) => compareWorkQueueRecords(first, second, sort));
+}
+
+function compareWorkQueueRecords(first: WorkQueueRecord, second: WorkQueueRecord, sort: WorkQueueSort) {
+    if (sort === 'oldest') {
+        return getWorkQueueNewestTime(first) - getWorkQueueNewestTime(second);
+    }
+
+    if (sort === 'customer') {
+        return getWorkQueueCustomerLabel(first.request).localeCompare(getWorkQueueCustomerLabel(second.request));
+    }
+
+    if (sort === 'address') {
+        return abbreviateAddress(first.request).localeCompare(abbreviateAddress(second.request));
+    }
+
+    if (sort === 'status') {
+        return getDispatchLaneTitle(first.laneKey).localeCompare(getDispatchLaneTitle(second.laneKey));
+    }
+
+    if (sort === 'next_action') {
+        return getWorkQueueNextActionTime(first) - getWorkQueueNextActionTime(second);
+    }
+
+    return getWorkQueueNewestTime(second) - getWorkQueueNewestTime(first);
+}
+
+function getWorkQueueSearchText(record: WorkQueueRecord) {
+    return normalizeStatus([
+        normalizeDisplayCode(record.request.display_code),
+        getServiceRequestDisplayCode(record.request),
+        record.request.id,
+        shortId(record.request.id),
+        getWorkQueueIdentifier(record.request),
+        record.request.customer_display_name,
+        record.request.property_display_name,
+        record.request.property_address,
+        record.request.property_city,
+        record.request.property_postal_code,
+        record.technician ? getMemberDisplayName(record.technician) : '',
+        record.technician?.email,
+    ].filter(Boolean).join(' '));
+}
+
+function getWorkQueueNextActionTime(record: WorkQueueRecord) {
+    const explicitNextAction = getSortableTime(record.request.next_action_at);
+    const nextActiveSlot = findNextActiveScheduleSlot(record.requestSlots);
+
+    if (explicitNextAction) return explicitNextAction;
+    if (nextActiveSlot) return getSortableTime(nextActiveSlot.start_at) || Number.MAX_SAFE_INTEGER;
+
+    const newest = getWorkQueueNewestTime(record);
+    return newest || Number.MAX_SAFE_INTEGER;
+}
+
+function getWorkQueueNewestTime(record: WorkQueueRecord) {
+    return (
+        getSortableTime(record.request.archived_at) ||
+        getSortableTime(record.request.closed_at) ||
+        getSortableTime(record.request.cancelled_at) ||
+        getSortableTime(record.slot?.visit_closed_at) ||
+        getSortableTime(record.slot?.updated_at) ||
+        getSortableTime(record.request.created_at)
+    );
+}
+
+function getDefaultWorkQueueSort(category: WorkQueueCategory): WorkQueueSort {
+    return category === 'needs_action' ? 'next_action' : 'newest';
+}
+
+function getNextWorkQueueSort(current: WorkQueueSort): WorkQueueSort {
+    const currentIndex = WORK_QUEUE_SORT_OPTIONS.findIndex((option) => option.key === current);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % WORK_QUEUE_SORT_OPTIONS.length : 0;
+
+    return WORK_QUEUE_SORT_OPTIONS[nextIndex].key;
+}
+
+function getDispatchLaneTitle(laneKey: DispatchLaneKey) {
+    return DISPATCH_LANE_DEFINITIONS.find((lane) => lane.key === laneKey)?.title || formatLabel(laneKey);
+}
+
+function getWorkQueueIdentifier(request: DispatchRequest) {
+    return getServiceRequestDisplayCode(request);
+}
+
+function getServiceRequestDisplayCode(request: DispatchRequest) {
+    return normalizeDisplayCode(request.display_code) || shortId(request.id);
+}
+
+function normalizeDisplayCode(value?: string | null) {
+    return String(value || '').trim().toUpperCase();
+}
+
+function getWorkQueueCustomerLabel(request: DispatchRequest) {
+    return request.customer_display_name || request.property_display_name || 'Homeowner';
+}
+
+function abbreviateAddress(request: DispatchRequest) {
+    const street = String(request.property_address || '').trim();
+
+    if (street) return street;
+    return request.property_display_name || 'Address not available';
+}
+
+function getWorkQueueDetailLine(record: WorkQueueRecord) {
+    const nextActionDate = record.request.next_action_at;
+    const slot = record.slot;
+    const nextActiveSlot = findNextActiveScheduleSlot(record.requestSlots);
+
+    if (record.laneKey === 'needs_follow_up') {
+        return nextActionDate
+            ? `Follow up due ${formatDateTime(nextActionDate)}`
+            : 'Follow-up needed';
+    }
+
+    if (record.laneKey === 'return_visit') {
+        return nextActiveSlot
+            ? `Return scheduled ${formatScheduleStart(nextActiveSlot)} · ${formatSlotArrivalWindow(nextActiveSlot)}`
+            : 'Return visit not scheduled';
+    }
+
+    if (record.laneKey === 'waiting_for_parts') {
+        const part = readMetadataString(slot?.closeout_metadata || record.request.closeout_metadata || {}, 'parts_description');
+        const expected = nextActionDate ? ` · expected ${formatDate(nextActionDate)}` : '';
+
+        return `${part || 'Parts status pending'}${expected}`;
+    }
+
+    if (record.laneKey === 'on_hold') {
+        return nextActionDate
+            ? `Resume ${formatDate(nextActionDate)}`
+            : 'On hold until Dispatch resumes';
+    }
+
+    if (record.laneKey === 'missed_no_show') {
+        return nextActionDate
+            ? `Reschedule follow-up ${formatDate(nextActionDate)}`
+            : 'Reschedule required';
+    }
+
+    if (record.laneKey === 'unable_to_complete') {
+        return nextActionDate
+            ? `Next action ${formatDate(nextActionDate)}`
+            : 'Next action required';
+    }
+
+    if (record.laneKey === 'completed') {
+        return `Completed ${formatDateTime(record.request.closed_at || slot?.visit_closed_at || slot?.updated_at || record.request.created_at)}`;
+    }
+
+    if (record.laneKey === 'cancelled') {
+        return `Cancelled ${formatDateTime(record.request.cancelled_at || record.request.closed_at || slot?.visit_closed_at || record.request.created_at)}`;
+    }
+
+    if (record.laneKey === 'archived') {
+        const priorOutcome = record.request.closeout_outcome || slot?.visit_outcome;
+        const priorLabel = priorOutcome ? getServiceVisitOutcomeLabel(priorOutcome) : 'Prior outcome not set';
+
+        return `${priorLabel} · archived ${formatDateTime(record.request.archived_at || slot?.updated_at || record.request.created_at)}`;
+    }
+
+    return formatRequestOperationalStatus(record.request, slot);
+}
+
+function findNextActiveScheduleSlot(slots: ScheduleSlot[]) {
+    return sortScheduleSlots(slots.filter((slot) => isActiveScheduleSlot(slot) && isCurrentOrFutureScheduleSlot(slot)))[0] || null;
+}
+
+function calculateRequestDispatchRisk(
+    request: DispatchRequest,
+    slot: ScheduleSlot | null,
+    scheduleSlots: ScheduleSlot[]
+): DispatchRiskResult {
+    if (!isActiveDispatchRequestForRisk(request, slot)) {
+        return {
+            state: 'ON_TIME',
+            label: 'No Active Risk',
+            reason: 'Request is closed or waiting in a non-active action queue.',
+            latestDepartureAt: null,
+            estimatedArrivalAt: null,
+            estimatedDelayMinutes: null,
+            needsReassignment: false,
+            suggestedActions: [],
+        };
+    }
+
+    return calculateDispatchRisk(
+        slot ? { ...slot, request_status: getRiskRequestStatus(request, slot) } : null,
+        scheduleSlots
+    );
+}
+
 function getDispatchLaneKey(request: DispatchRequest, slot: ScheduleSlot | null): DispatchLaneKey {
     const requestStatus = normalizeStatus(request.status);
     const slotStatus = normalizeStatus(slot?.status || request.status);
+
+    if (isArchivedDispatchStatus(requestStatus) || isArchivedDispatchStatus(slotStatus)) {
+        return 'archived';
+    }
+
+    if (isCancelledDispatchStatus(requestStatus) || isCancelledDispatchStatus(slotStatus)) {
+        return 'cancelled';
+    }
 
     if (isCompletedDispatchStatus(requestStatus) || isCompletedDispatchStatus(slotStatus)) {
         return 'completed';
     }
 
     if (!slot?.technician_company_user_id) {
+        if (isNeedsFollowUpStatus(requestStatus)) {
+            return 'needs_follow_up';
+        }
+
+        if (isReturnVisitStatus(requestStatus)) {
+            return 'return_visit';
+        }
+
+        if (isWaitingForPartsStatus(requestStatus)) {
+            return 'waiting_for_parts';
+        }
+
+        if (isOnHoldStatus(requestStatus)) {
+            return 'on_hold';
+        }
+
+        if (isMissedNoShowStatus(requestStatus)) {
+            return 'missed_no_show';
+        }
+
+        if (isUnableToCompleteStatus(requestStatus)) {
+            return 'unable_to_complete';
+        }
+
         return 'unassigned';
+    }
+
+    if (!isActiveScheduleSlot(slot)) {
+        if (isNeedsFollowUpStatus(requestStatus)) {
+            return 'needs_follow_up';
+        }
+
+        if (isReturnVisitStatus(requestStatus)) {
+            return 'return_visit';
+        }
+
+        if (isWaitingForPartsStatus(requestStatus)) {
+            return 'waiting_for_parts';
+        }
+
+        if (isOnHoldStatus(requestStatus)) {
+            return 'on_hold';
+        }
+
+        if (isMissedNoShowStatus(requestStatus)) {
+            return 'missed_no_show';
+        }
+
+        if (isUnableToCompleteStatus(requestStatus)) {
+            return 'unable_to_complete';
+        }
     }
 
     if (['on_my_way', 'en_route', 'dispatched'].includes(slotStatus)) {
@@ -3209,7 +4641,84 @@ function compareDispatchLaneRequests(first: DispatchRequest, second: DispatchReq
 function isCompletedDispatchStatus(status?: string | null) {
     const normalized = normalizeStatus(status);
 
-    return isCompletedStatus(normalized) || ['cancelled', 'canceled', 'archived'].includes(normalized);
+    return isCompletedStatus(normalized);
+}
+
+function isCancelledDispatchStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return ['cancelled', 'canceled'].includes(normalized);
+}
+
+function isArchivedDispatchStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return ['archived', 'void', 'duplicate_or_void'].includes(normalized);
+}
+
+function isNeedsFollowUpStatus(status?: string | null) {
+    return normalizeStatus(status) === 'needs_follow_up';
+}
+
+function isReturnVisitStatus(status?: string | null) {
+    return normalizeStatus(status) === 'return_visit_required';
+}
+
+function isWaitingForPartsStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return ['waiting_for_parts', 'parts_needed', 'waiting_on_parts'].includes(normalized);
+}
+
+function isOnHoldStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return ['on_hold', 'paused', 'paused_on_hold'].includes(normalized);
+}
+
+function isMissedNoShowStatus(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return ['customer_no_show', 'missed_no_show', 'no_show'].includes(normalized);
+}
+
+function isUnableToCompleteStatus(status?: string | null) {
+    return normalizeStatus(status) === 'unable_to_complete';
+}
+
+function isClosedOrInactiveDispatchStatus(status?: string | null) {
+    return (
+        isCompletedDispatchStatus(status) ||
+        isCancelledDispatchStatus(status) ||
+        isArchivedDispatchStatus(status) ||
+        isNeedsFollowUpStatus(status) ||
+        isReturnVisitStatus(status) ||
+        isWaitingForPartsStatus(status) ||
+        isOnHoldStatus(status) ||
+        isMissedNoShowStatus(status) ||
+        isUnableToCompleteStatus(status)
+    );
+}
+
+function isActiveDispatchRequestForRisk(request: DispatchRequest, slot: ScheduleSlot | null) {
+    if (isTerminalDispatchStatus(request.status)) return false;
+    if (!slot || !isActiveScheduleSlot(slot)) return false;
+
+    return true;
+}
+
+function isTerminalDispatchStatus(status?: string | null) {
+    return (
+        isCompletedDispatchStatus(status) ||
+        isCancelledDispatchStatus(status) ||
+        isArchivedDispatchStatus(status)
+    );
+}
+
+function getRiskRequestStatus(request: DispatchRequest, slot: ScheduleSlot | null) {
+    return slot && isActiveScheduleSlot(slot) && !isTerminalDispatchStatus(request.status)
+        ? null
+        : request.status;
 }
 
 function isWorkingScheduleStatus(status?: string | null) {
@@ -3303,7 +4812,19 @@ function formatTechOSStatusLabel(status?: string | null) {
         approval_needed: 'Approval Needed',
         assistance_needed: 'Assistance Needed',
         parts_needed: 'Parts Needed',
+        waiting_for_parts: 'Waiting for Parts',
+        needs_follow_up: 'Needs Follow-Up',
+        return_visit_required: 'Return Visit Required',
+        on_hold: 'On Hold',
+        paused_on_hold: 'On Hold',
+        customer_no_show: 'Customer No-Show',
+        missed_no_show: 'Missed / No-Show',
+        unable_to_complete: 'Unable to Complete',
         completed: 'Completed',
+        closed: 'Closed',
+        cancelled: 'Cancelled',
+        canceled: 'Cancelled',
+        archived: 'Archived',
         running_late: 'Running Late',
         available: 'Available',
         custom: 'Custom',
@@ -3409,6 +4930,16 @@ const sectionTitleStyle = {
     fontWeight: '900' as const,
 };
 
+const activeOperationsTitleStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const activeLaneTitleStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
 const countBadgeStyle = {
     borderRadius: 999,
     overflow: 'hidden' as const,
@@ -3434,12 +4965,55 @@ const dispatchWallStyle = {
     gap: 12,
 };
 
+const dispatchQueueGroupStyle = {
+    marginBottom: 12,
+};
+
 const dispatchLaneStyle = {
     flexGrow: 1,
     flexShrink: 1,
-    marginBottom: 18,
+    marginBottom: 10,
     maxWidth: '100%' as const,
     minWidth: 0,
+};
+
+const activeOperationsHeaderBadgesStyle = {
+    alignItems: 'flex-end' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+    justifyContent: 'flex-end' as const,
+};
+
+const activeOperationsEmptySummaryStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 8,
+    marginBottom: 10,
+    padding: 12,
+};
+
+const activeOperationsCountPillRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+};
+
+const activeOperationsCountPillStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    overflow: 'hidden' as const,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const compactEmptyLaneStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
 };
 
 const needsAttentionPanelStyle = {
@@ -3464,15 +5038,329 @@ const attentionItemStyle = {
 const requestGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const workQueueCardStyle = {
+    marginBottom: 18,
+};
+
+const workQueueControlRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 10,
+};
+
+const workQueueSearchInputStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    flexBasis: 320,
+    flexGrow: 1,
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: '800' as const,
+    minWidth: 180,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const workQueueSearchInputMobileStyle = {
+    flexBasis: '100%' as const,
+    width: '100%' as const,
+};
+
+const workQueueControlButtonStyle = {
+    flexBasis: 110,
+    flexGrow: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+};
+
+const workQueueSortButtonStyle = {
+    flexBasis: 190,
+    flexGrow: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+};
+
+const workQueueCategoryRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 10,
+};
+
+const workQueueCategoryButtonStyle = {
+    flexBasis: 140,
+    flexGrow: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+};
+
+const workQueueFilterTrayStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 10,
+    padding: 10,
+};
+
+const workQueueFilterButtonStyle = {
+    flexBasis: 130,
+    flexGrow: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+};
+
+const workQueueResultSummaryStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+    marginTop: 8,
+};
+
+const workQueueListStyle = {
+    gap: 8,
+    marginTop: 10,
+};
+
+const workQueueRowStyle = {
+    alignItems: 'center' as const,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    gap: 10,
+    minHeight: 78,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const workQueueRowPressableStyle = {
+    borderRadius: 18,
+    maxWidth: '100%' as const,
+    minWidth: 0,
+};
+
+const workQueueRowMainPressableStyle = {
+    flex: 1,
+    minWidth: 0,
+};
+
+const workQueuePrimaryLineStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 8,
+    minWidth: 0,
+};
+
+const workQueueDisplayCodeBadgeStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+    overflow: 'hidden' as const,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const workQueueExpandButtonStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: 'center' as const,
+    minHeight: 42,
+    minWidth: 72,
+    paddingHorizontal: 12,
+};
+
+const workQueueOpenButtonTextStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const workQueueEmptyStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 10,
+    padding: 14,
+};
+
+const detailDrawerBackdropStyle = {
+    alignItems: 'flex-end' as const,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    flex: 1,
+    justifyContent: 'center' as const,
+    padding: Platform.OS === 'web' ? 16 : 12,
+    position: Platform.OS === 'web' ? ('fixed' as ViewStyle['position']) : ('absolute' as const),
+    bottom: 0,
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 1000,
+};
+
+const detailDrawerBackdropPressableStyle = {
+    bottom: 0,
+    left: 0,
+    position: 'absolute' as const,
+    right: 0,
+    top: 0,
+    zIndex: 1000,
+};
+
+const detailDrawerPanelStyle = {
+    borderRadius: 18,
+    borderWidth: 1,
+    elevation: 14,
+    height: Platform.OS === 'web' ? ('calc(100vh - 32px)' as ViewStyle['height']) : ('100%' as const),
+    maxHeight: Platform.OS === 'web' ? ('calc(100vh - 32px)' as ViewStyle['maxHeight']) : ('100%' as const),
+    maxWidth: 680,
+    minWidth: 420,
+    overflow: 'hidden' as const,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.24,
+    shadowRadius: 26,
+    width: '42%' as const,
+    zIndex: 1001,
+};
+
+const detailDrawerPanelMobileStyle = {
+    borderRadius: Platform.OS === 'web' ? 14 : 0,
+    height: Platform.OS === 'web' ? ('calc(100vh - 24px)' as ViewStyle['height']) : ('100%' as const),
+    maxHeight: Platform.OS === 'web' ? ('calc(100vh - 24px)' as ViewStyle['maxHeight']) : ('100%' as const),
+    maxWidth: '100%' as const,
+    minWidth: 0,
+    width: '100%' as const,
+};
+
+const detailDrawerHeaderStyle = {
+    alignItems: 'center' as const,
+    borderBottomWidth: 1,
+    elevation: 8,
+    flexDirection: 'row' as const,
     gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    zIndex: 1002,
+};
+
+const detailDrawerCloseButtonStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: 'center' as const,
+    minHeight: 44,
+    minWidth: 96,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+};
+
+const detailDrawerCloseButtonTextStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const detailDrawerScrollStyle = {
+    flex: 1,
+};
+
+const detailDrawerScrollContentStyle = {
+    padding: 12,
+    paddingBottom: 96,
 };
 
 const requestCardStyle = {
     flexGrow: 0,
     flexShrink: 0,
     maxWidth: '100%' as const,
-    minHeight: 178,
+    minHeight: 96,
     minWidth: 0,
+    padding: 10,
+};
+
+const compactActiveRowTopStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+    marginBottom: 6,
+};
+
+const compactActiveBadgeRowStyle = {
+    alignItems: 'center' as const,
+    flex: 1,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+    minWidth: 0,
+};
+
+const compactActiveCustomerLineStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+    lineHeight: 18,
+};
+
+const compactActiveMetaLineStyle = {
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 16,
+    marginTop: 2,
+};
+
+const compactAttentionRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 6,
+};
+
+const compactCardHeaderActionsStyle = {
+    alignItems: 'flex-end' as const,
+    gap: 6,
+};
+
+const compactExpandButtonStyle = {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+};
+
+const compactNotifyButtonStyle = {
+    flexGrow: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+};
+
+const compactActivePressableButtonStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center' as const,
+    minHeight: 34,
+};
+
+const compactActiveButtonTextStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const compactMetaGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+    marginTop: 6,
 };
 
 const techStatusPanelStyle = {
@@ -3573,6 +5461,13 @@ const compactActionButtonStyle = {
     flexBasis: 130,
     paddingHorizontal: 10,
     paddingVertical: 10,
+};
+
+const closeoutOutcomeButtonStyle = {
+    flexBasis: 150,
+    flexGrow: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
 };
 
 const technicianPickerStyle = {

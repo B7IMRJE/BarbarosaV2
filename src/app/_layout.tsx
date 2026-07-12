@@ -32,6 +32,7 @@ const ONBOARDING_COMPLETE_ROUTE = '/onboarding/complete';
 const ONBOARDING_THEME_ROUTE = '/onboarding/theme';
 const PROFILE_CHANGE_PASSWORD_ROUTE = '/profile/change-password';
 const DISPATCH_ROUTE = '/dispatch';
+const DISPATCH_WALL_ROUTE = '/dispatch-wall';
 const SCHEDULE_ROUTE = '/schedule';
 const ESTIMATE_ROUTE = '/estimate';
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
@@ -151,6 +152,11 @@ export default function Layout() {
       const isLoggedIn = !!sessionResult.data.session;
 
       if (isPublicAuthPage || currentPath === COMPANY_INVITE_ROUTE || currentPath === CUSTOMER_INVITE_ROUTE) {
+        finishCheck(runId);
+        return;
+      }
+
+      if (isDispatchWallPath(currentPath)) {
         finishCheck(runId);
         return;
       }
@@ -367,6 +373,10 @@ function isDispatchPath(pathname: string) {
   return pathname === DISPATCH_ROUTE || pathname.startsWith(`${DISPATCH_ROUTE}/`);
 }
 
+function isDispatchWallPath(pathname: string) {
+  return pathname === DISPATCH_WALL_ROUTE || pathname.startsWith(`${DISPATCH_WALL_ROUTE}/`);
+}
+
 function isSchedulePath(pathname: string) {
   return pathname === SCHEDULE_ROUTE || pathname.startsWith(`${SCHEDULE_ROUTE}/`);
 }
@@ -445,6 +455,7 @@ function resolveRedirectForPath(
       isProviderModeEstimatePath(pathname, routeParams) ||
       isTechOSPath(pathname) ||
       isDispatchPath(pathname) ||
+      isDispatchWallPath(pathname) ||
       isSchedulePath(pathname) ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {
@@ -464,6 +475,7 @@ function resolveRedirectForPath(
       isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
       isTechOSPath(pathname) ||
       isDispatchPath(pathname) ||
+      isDispatchWallPath(pathname) ||
       isSchedulePath(pathname) ||
       isEstimatePath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||

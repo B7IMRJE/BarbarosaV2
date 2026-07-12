@@ -5,6 +5,8 @@ export const LEAD_ALERT_REFRESH_MS = 30_000;
 
 export type CompanyDispatchRequest = {
     id: string;
+    display_sequence: number | null;
+    display_code: string | null;
     company_id: string;
     property_id: string;
     company_property_client_id: string | null;
@@ -145,6 +147,8 @@ function parseCompanyDispatchRequest(row: unknown): CompanyDispatchRequest | nul
 
     return {
         id,
+        display_sequence: readOptionalNumber(record.display_sequence),
+        display_code: readOptionalString(record.display_code)?.toUpperCase() || null,
         company_id: companyId,
         property_id: propertyId,
         company_property_client_id: readOptionalString(record.company_property_client_id),
@@ -173,4 +177,12 @@ function readOptionalString(value: unknown) {
     const text = readString(value);
 
     return text || null;
+}
+
+function readOptionalNumber(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
 }

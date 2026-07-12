@@ -18,7 +18,7 @@ type NavigationLink = {
     preserveProvider?: boolean;
 };
 
-const hiddenRoutePrefixes = ['/auth', '/onboarding', '/super-admin'];
+const hiddenRoutePrefixes = ['/auth', '/onboarding', '/super-admin', '/dispatch-wall'];
 
 const primaryTabs: NavigationLink[] = [
     { label: 'Home', route: '/' },

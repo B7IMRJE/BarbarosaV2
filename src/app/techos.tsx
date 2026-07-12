@@ -15,7 +15,12 @@ import {
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { recordHomeownerStatusUpdate, recordServiceRequestEvent } from '../lib/serviceRequestActivity';
-import { queueHomeownerCompletionNotification } from '../lib/serviceNotifications';
+import {
+    closeServiceVisit,
+    getServiceVisitOutcomeLabel,
+    getTechnicianCloseoutOptions,
+    type ServiceVisitOutcome,
+} from '../lib/serviceVisitCloseout';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -109,6 +114,10 @@ type TechScheduleSlot = {
     priority: string | null;
     notes: string | null;
     tech_status_note: string | null;
+    visit_outcome: string | null;
+    visit_closed_at: string | null;
+    closeout_notes: string | null;
+    homeowner_closeout_note: string | null;
     created_at: string | null;
     updated_at: string | null;
 };
@@ -131,6 +140,14 @@ type TechAssignedScheduleJob = {
     slot: TechScheduleSlot;
     request: TechServiceRequest | null;
     property: PropertyRecord | null;
+};
+
+type TechCloseoutForm = {
+    outcome: ServiceVisitOutcome | '';
+    notes: string;
+    homeownerNote: string;
+    nextActionDate: string;
+    notifyHomeowner: boolean;
 };
 
 type TechOSScheduleDiagnostics = {
@@ -184,7 +201,6 @@ const TECH_WORKFLOW_ACTIONS: TechWorkflowAction[] = [
     { key: 'arrived', label: 'Arrived', status: 'arrived' },
     { key: 'in_progress', label: 'Started / In progress', status: 'in_progress' },
     { key: 'estimate_needed', label: 'Need approval / estimate needed', status: 'estimate_needed' },
-    { key: 'completed', label: 'Completed', status: 'completed' },
 ];
 const TECH_CUSTOM_STATUS_ACTION: TechWorkflowAction = { key: 'custom', label: 'Set custom message', status: 'custom' };
 const TECH_MORE_STATUS_ACTIONS: TechWorkflowAction[] = [
@@ -233,6 +249,8 @@ export default function TechOSScreen() {
     const [workflowStatusBySlotId, setWorkflowStatusBySlotId] = useState<Record<string, string>>({});
     const [workflowMessageBySlotId, setWorkflowMessageBySlotId] = useState<Record<string, string>>({});
     const [customStatusNoteBySlotId, setCustomStatusNoteBySlotId] = useState<Record<string, string>>({});
+    const [closeoutFormBySlotId, setCloseoutFormBySlotId] = useState<Record<string, TechCloseoutForm>>({});
+    const [closingVisitSlotId, setClosingVisitSlotId] = useState('');
     const [timingEstimateBySlotId, setTimingEstimateBySlotId] = useState<Record<string, string>>({});
     const [timingPromptMessageBySlotId, setTimingPromptMessageBySlotId] = useState<Record<string, string>>({});
     const [timingPromptAnsweredBySlotId, setTimingPromptAnsweredBySlotId] = useState<Record<string, boolean>>({});
@@ -562,7 +580,7 @@ export default function TechOSScreen() {
 
         const { data, error } = await supabase
             .from('job_schedule_slots')
-            .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, updated_at, created_at')
+            .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
             .eq('company_id', companyIdToLoad)
             .eq('technician_company_user_id', technicianCompanyUserId)
             .gte('start_at', windowStart.toISOString())
@@ -911,6 +929,17 @@ export default function TechOSScreen() {
         setSelectedAssignedJobId('');
     }
 
+    function updateTechCloseoutForm(slotId: string, updates: Partial<TechCloseoutForm>) {
+        setCloseoutFormBySlotId((current) => ({
+            ...current,
+            [slotId]: {
+                ...createDefaultTechCloseoutForm(),
+                ...(current[slotId] || {}),
+                ...updates,
+            },
+        }));
+    }
+
     function handleOpenFullAssignedJob(job: TechAssignedScheduleJob) {
         if (!job.slot.job_id) return;
 
@@ -918,6 +947,94 @@ export default function TechOSScreen() {
             pathname: '/techos/job/[jobId]',
             params: { jobId: job.slot.job_id, companyId: job.slot.company_id },
         } as any);
+    }
+
+    async function handleCloseServiceVisit(job: TechAssignedScheduleJob) {
+        const slotId = job.slot.id;
+        const form = closeoutFormBySlotId[slotId] || createDefaultTechCloseoutForm();
+        const outcome = form.outcome;
+
+        if (!job.request?.id) {
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: 'Close visit failed: this assigned job is missing its service request.',
+            }));
+            return;
+        }
+
+        if (!outcome) {
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: 'Choose a visit outcome before closing.',
+            }));
+            return;
+        }
+
+        const nextActionAt = parseCloseoutDate(form.nextActionDate)?.toISOString() || null;
+
+        setClosingVisitSlotId(slotId);
+        setWorkflowMessageBySlotId((current) => ({
+            ...current,
+            [slotId]: `Closing visit as ${getServiceVisitOutcomeLabel(outcome)}...`,
+        }));
+
+        try {
+            const result = await closeServiceVisit({
+                companyId: job.slot.company_id,
+                serviceRequestId: job.request.id,
+                scheduleSlotId: slotId,
+                outcome,
+                notes: form.notes,
+                homeownerNote: form.homeownerNote,
+                nextActionAt,
+                notifyHomeowner: form.notifyHomeowner,
+                metadata: {
+                    techos_closeout: true,
+                    technician_name: membership?.full_name || authEmail || null,
+                },
+            });
+
+            setAssignedScheduleSlots((current) => current.map((slot) => (
+                slot.id === slotId
+                    ? {
+                        ...slot,
+                        status: result.schedule_slot_status,
+                        visit_outcome: result.visit_outcome,
+                        visit_closed_at: new Date().toISOString(),
+                        closeout_notes: form.notes.trim() || null,
+                        homeowner_closeout_note: form.homeownerNote.trim() || null,
+                        tech_status_note: null,
+                        updated_at: new Date().toISOString(),
+                    }
+                    : slot
+            )));
+            setServiceRequestsById((current) => ({
+                ...current,
+                [job.request!.id]: {
+                    ...job.request!,
+                    status: result.service_request_status,
+                },
+            }));
+            setWorkflowStatusBySlotId((current) => ({
+                ...current,
+                [slotId]: result.schedule_slot_status,
+            }));
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: `Visit closed: ${getServiceVisitOutcomeLabel(result.visit_outcome)}.`,
+            }));
+
+            if (activeCompanyId && membership?.id) {
+                await loadAssignedScheduleJobs(activeCompanyId, membership.id, { subtle: true });
+            }
+        } catch (error) {
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: `Close visit failed: ${normalizeServiceErrorMessage(getErrorMessage(error))}`,
+            }));
+        } finally {
+            setClosingVisitSlotId('');
+        }
     }
 
     async function handleTechWorkflowAction(job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) {
@@ -987,26 +1104,17 @@ export default function TechOSScreen() {
                     : `Status updated: ${action.label}.`,
             }));
             if (job.request?.id) {
-                const customerUpdateResult = normalizedStatus === 'completed'
-                    ? await queueHomeownerCompletionNotification({
-                        companyId: job.slot.company_id,
-                        serviceRequestId: job.request.id,
-                        scheduleSlotId: slotId,
-                        companyName: company?.public_name || company?.name || 'your service company',
-                        technicianName: membership?.full_name || authEmail || 'your technician',
-                        completionDateLabel: formatDateTime(new Date().toISOString()),
-                    })
-                    : await recordHomeownerStatusUpdate({
-                        companyId: job.slot.company_id,
-                        serviceRequestId: job.request.id,
-                        scheduleSlotId: slotId,
-                        status: action.status,
-                        statusNote: nextStatusNote,
-                        technicianName: membership?.full_name || authEmail || null,
-                        metadata: {
-                            techos_status: action.status,
-                        },
-                    });
+                const customerUpdateResult = await recordHomeownerStatusUpdate({
+                    companyId: job.slot.company_id,
+                    serviceRequestId: job.request.id,
+                    scheduleSlotId: slotId,
+                    status: action.status,
+                    statusNote: nextStatusNote,
+                    technicianName: membership?.full_name || authEmail || null,
+                    metadata: {
+                        techos_status: action.status,
+                    },
+                });
 
                 if (customerUpdateResult.status === 'pending' && normalizeStatus(action.status) !== 'running_late') {
                     setWorkflowMessageBySlotId((current) => ({
@@ -1236,6 +1344,8 @@ export default function TechOSScreen() {
                         scheduleDiagnostics={scheduleDiagnostics}
                         selectedJob={selectedAssignedJob}
                         todayJobs={todayAssignedScheduleJobs}
+                        closeoutFormBySlotId={closeoutFormBySlotId}
+                        closingVisitSlotId={closingVisitSlotId}
                         customStatusNoteBySlotId={customStatusNoteBySlotId}
                         onRefresh={() => {
                             if (activeCompanyId && membership?.id) {
@@ -1251,6 +1361,8 @@ export default function TechOSScreen() {
                                 [slotId]: note,
                             }));
                         }}
+                        onChangeCloseoutForm={updateTechCloseoutForm}
+                        onCloseServiceVisit={handleCloseServiceVisit}
                         onOpenDetails={handleOpenAssignedJobDetails}
                         onOpenFullJob={handleOpenFullAssignedJob}
                         onRunWorkflowAction={handleTechWorkflowAction}
@@ -1368,6 +1480,7 @@ function TechTimingPromptCard({
         'Need 30 more minutes',
         'Need 60 more minutes',
         'Not sure yet',
+        'Cannot make it',
     ];
 
     return (
@@ -1745,10 +1858,14 @@ function TechOSDashboardContent({
     scheduleDiagnostics,
     selectedJob,
     todayJobs,
+    closeoutFormBySlotId,
+    closingVisitSlotId,
     customStatusNoteBySlotId,
     onRefresh,
     onCloseDetails,
+    onChangeCloseoutForm,
     onChangeCustomStatusNote,
+    onCloseServiceVisit,
     onOpenDetails,
     onOpenFullJob,
     onRunWorkflowAction,
@@ -1767,10 +1884,14 @@ function TechOSDashboardContent({
     scheduleDiagnostics: TechOSScheduleDiagnostics | null;
     selectedJob: TechAssignedScheduleJob | null;
     todayJobs: TechAssignedScheduleJob[];
+    closeoutFormBySlotId: Record<string, TechCloseoutForm>;
+    closingVisitSlotId: string;
     customStatusNoteBySlotId: Record<string, string>;
     onRefresh: () => void;
     onCloseDetails: () => void;
+    onChangeCloseoutForm: (slotId: string, updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (slotId: string, note: string) => void;
+    onCloseServiceVisit: (job: TechAssignedScheduleJob) => void;
     onOpenDetails: (job: TechAssignedScheduleJob) => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
@@ -1782,14 +1903,17 @@ function TechOSDashboardContent({
         return (
             <TechOSAssignedJobDetail
                 backLabel={getAssignedJobDetailBackLabel(activeView)}
+                closeoutForm={closeoutFormBySlotId[selectedJob.slot.id] || createDefaultTechCloseoutForm()}
                 customStatusNote={customStatusNoteBySlotId[selectedJob.slot.id] ?? selectedJob.slot.tech_status_note ?? ''}
                 job={selectedJob}
                 message={workflowMessageBySlotId[selectedJob.slot.id] || ''}
                 onBack={onCloseDetails}
+                onChangeCloseoutForm={(updates) => onChangeCloseoutForm(selectedJob.slot.id, updates)}
                 onChangeCustomStatusNote={(note) => onChangeCustomStatusNote(selectedJob.slot.id, note)}
+                onCloseServiceVisit={() => onCloseServiceVisit(selectedJob)}
                 onOpenFullJob={onOpenFullJob}
                 onRunWorkflowAction={onRunWorkflowAction}
-                updating={updatingWorkflowSlotId === selectedJob.slot.id}
+                updating={updatingWorkflowSlotId === selectedJob.slot.id || closingVisitSlotId === selectedJob.slot.id}
                 workflowStatus={workflowStatusBySlotId[selectedJob.slot.id] || selectedJob.slot.status || selectedJob.request?.status || 'scheduled'}
             />
         );
@@ -2245,22 +2369,28 @@ function AssignedScheduleJobCard({
 
 function TechOSAssignedJobDetail({
     backLabel,
+    closeoutForm,
     customStatusNote,
     job,
     message,
     onBack,
+    onChangeCloseoutForm,
     onChangeCustomStatusNote,
+    onCloseServiceVisit,
     onOpenFullJob,
     onRunWorkflowAction,
     updating,
     workflowStatus,
 }: {
     backLabel: string;
+    closeoutForm: TechCloseoutForm;
     customStatusNote: string;
     job: TechAssignedScheduleJob;
     message: string;
     onBack: () => void;
+    onChangeCloseoutForm: (updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (note: string) => void;
+    onCloseServiceVisit: () => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
     updating: boolean;
@@ -2296,6 +2426,9 @@ function TechOSAssignedJobDetail({
                 <TechJobDetailInfo label="Home / Request" value={location} />
                 {!!job.slot.tech_status_note && (
                     <TechJobDetailInfo label="Tech Status Note" value={job.slot.tech_status_note} />
+                )}
+                {!!job.slot.visit_outcome && (
+                    <TechJobDetailInfo label="Visit Outcome" value={getServiceVisitOutcomeLabel(job.slot.visit_outcome)} />
                 )}
             </View>
 
@@ -2366,6 +2499,98 @@ function TechOSAssignedJobDetail({
                     style={assignedJobActionButtonStyle}
                     textStyle={techWorkflowActionButtonTextStyle}
                 />
+            </View>
+
+            <View style={[techMoreStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Finish Visit</Text>
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    Choose the real visit outcome. This closes the current appointment and moves the request to the right queue.
+                </Text>
+                <View style={techWorkflowActionGridStyle}>
+                    {getTechnicianCloseoutOptions().map((option) => (
+                        <ThemedButton
+                            key={option.outcome}
+                            title={option.label}
+                            variant={closeoutForm.outcome === option.outcome ? 'primary' : 'secondary'}
+                            disabled={updating || !isActiveScheduleSlot(job.slot.status)}
+                            onPress={() => onChangeCloseoutForm({
+                                outcome: option.outcome,
+                                notifyHomeowner: option.homeownerDefault,
+                            })}
+                            style={techWorkflowActionButtonStyle}
+                            textStyle={techWorkflowActionButtonTextStyle}
+                        />
+                    ))}
+                </View>
+                {!!closeoutForm.outcome && (
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        {getServiceVisitOutcomeLabel(closeoutForm.outcome)}
+                    </Text>
+                )}
+                <TextInput
+                    value={closeoutForm.notes}
+                    onChangeText={(notes) => onChangeCloseoutForm({ notes })}
+                    placeholder="Work performed, reason, parts, or next action"
+                    placeholderTextColor={theme.colors.mutedText}
+                    multiline
+                    style={[
+                        techCustomStatusInputStyle,
+                        {
+                            borderColor: theme.colors.border,
+                            color: theme.colors.text,
+                        },
+                    ]}
+                />
+                <TextInput
+                    value={closeoutForm.nextActionDate}
+                    onChangeText={(nextActionDate) => onChangeCloseoutForm({ nextActionDate })}
+                    placeholder="Next action date, optional YYYY-MM-DD"
+                    placeholderTextColor={theme.colors.mutedText}
+                    style={[
+                        techCustomStatusInputStyle,
+                        {
+                            borderColor: theme.colors.border,
+                            color: theme.colors.text,
+                            minHeight: 46,
+                        },
+                    ]}
+                />
+                <TextInput
+                    value={closeoutForm.homeownerNote}
+                    onChangeText={(homeownerNote) => onChangeCloseoutForm({ homeownerNote })}
+                    placeholder="Optional homeowner-safe update"
+                    placeholderTextColor={theme.colors.mutedText}
+                    multiline
+                    style={[
+                        techCustomStatusInputStyle,
+                        {
+                            borderColor: theme.colors.border,
+                            color: theme.colors.text,
+                        },
+                    ]}
+                />
+                <View style={techWorkflowActionGridStyle}>
+                    <ThemedButton
+                        title={closeoutForm.notifyHomeowner ? 'Homeowner Update On' : 'Homeowner Update Off'}
+                        variant={closeoutForm.notifyHomeowner ? 'primary' : 'secondary'}
+                        disabled={updating}
+                        onPress={() => onChangeCloseoutForm({ notifyHomeowner: !closeoutForm.notifyHomeowner })}
+                        style={techWorkflowActionButtonStyle}
+                        textStyle={techWorkflowActionButtonTextStyle}
+                    />
+                    <ThemedButton
+                        title={updating ? 'Closing Visit...' : 'Close Visit'}
+                        disabled={updating || !closeoutForm.outcome || !isActiveScheduleSlot(job.slot.status)}
+                        onPress={onCloseServiceVisit}
+                        style={techWorkflowActionButtonStyle}
+                        textStyle={techWorkflowActionButtonTextStyle}
+                    />
+                </View>
+                {!isActiveScheduleSlot(job.slot.status) && (
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        This visit is already closed.
+                    </Text>
+                )}
             </View>
 
             {!!job.slot.job_id && (
@@ -2905,6 +3130,10 @@ function normalizeScheduleSlots(data: unknown): TechScheduleSlot[] {
                 priority: readStringField(record, 'priority'),
                 notes: readStringField(record, 'notes'),
                 tech_status_note: readStringField(record, 'tech_status_note'),
+                visit_outcome: readStringField(record, 'visit_outcome'),
+                visit_closed_at: readStringField(record, 'visit_closed_at'),
+                closeout_notes: readStringField(record, 'closeout_notes'),
+                homeowner_closeout_note: readStringField(record, 'homeowner_closeout_note'),
                 created_at: readStringField(record, 'created_at'),
                 updated_at: readStringField(record, 'updated_at'),
             };
@@ -3069,6 +3298,16 @@ function formatTechOSStatusLabel(status?: string | null) {
         in_progress: 'In Progress',
         estimate_needed: 'Estimate Needed',
         completed: 'Completed',
+        closed: 'Closed',
+        cancelled: 'Cancelled',
+        canceled: 'Cancelled',
+        archived: 'Archived',
+        waiting_for_parts: 'Waiting for Parts',
+        needs_follow_up: 'Needs Follow-Up',
+        return_visit_required: 'Return Visit Required',
+        on_hold: 'On Hold',
+        customer_no_show: 'Customer No-Show',
+        unable_to_complete: 'Unable to Complete',
         running_late: 'Running Late',
         available: 'Available',
         custom: 'Custom',
@@ -3204,6 +3443,9 @@ function isActiveUpcomingScheduleJob(slot: TechScheduleSlot) {
 
 function findUpcomingTimingPromptJob(jobs: TechAssignedScheduleJob[]) {
     const now = new Date();
+
+    if (isBeforeTechnicianTimingPromptStart(now)) return null;
+
     const activeCurrentJob = jobs.find((job) => (
         isCurrentTechnicianActiveStatus(job.slot.status) &&
         isJobInProgressWindow(job.slot, now)
@@ -3219,6 +3461,10 @@ function findUpcomingTimingPromptJob(jobs: TechAssignedScheduleJob[]) {
             isJobApproachingWithinHours(job.slot, now, 2)
         ))
         .sort((first, second) => getSortableTime(first.slot.arrival_window_start || first.slot.start_at) - getSortableTime(second.slot.arrival_window_start || second.slot.start_at))[0] || null;
+}
+
+function isBeforeTechnicianTimingPromptStart(now: Date) {
+    return now.getHours() < 10;
 }
 
 function isCurrentTechnicianActiveStatus(status?: string | null) {
@@ -3250,7 +3496,45 @@ function isJobApproachingWithinHours(slot: TechScheduleSlot, now: Date, hours: n
 function isActiveScheduleSlot(status?: string | null) {
     const normalized = normalizeStatus(status);
 
-    return !['cancelled', 'canceled', 'completed', 'complete', 'closed', 'archived'].includes(normalized);
+    return ![
+        'cancelled',
+        'canceled',
+        'completed',
+        'complete',
+        'closed',
+        'done',
+        'archived',
+        'void',
+        'waiting_for_parts',
+        'needs_follow_up',
+        'return_visit_required',
+        'on_hold',
+        'customer_no_show',
+        'missed_no_show',
+        'unable_to_complete',
+    ].includes(normalized);
+}
+
+function createDefaultTechCloseoutForm(): TechCloseoutForm {
+    return {
+        outcome: '',
+        notes: '',
+        homeownerNote: '',
+        nextActionDate: '',
+        notifyHomeowner: false,
+    };
+}
+
+function parseCloseoutDate(value: string) {
+    const trimmed = value.trim();
+
+    if (!trimmed) return null;
+
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(trimmed)
+        ? new Date(`${trimmed}T09:00:00`)
+        : new Date(trimmed);
+
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function getAssignedJobTitle(job: TechAssignedScheduleJob) {
@@ -3374,12 +3658,24 @@ function isOpenScheduleSlotStatus(status?: string | null) {
 
 function isPausedJobStatus(status?: string | null) {
     const normalized = normalizeStatus(status);
-    return ['paused', 'on_hold', 'waiting', 'waiting_on_customer', 'blocked'].includes(normalized);
+    return [
+        'paused',
+        'on_hold',
+        'waiting',
+        'waiting_on_customer',
+        'blocked',
+        'needs_follow_up',
+        'return_visit_required',
+        'waiting_for_parts',
+        'customer_no_show',
+        'missed_no_show',
+        'unable_to_complete',
+    ].includes(normalized);
 }
 
 function isClosedJobStatus(status?: string | null) {
     const normalized = normalizeStatus(status);
-    return ['completed', 'complete', 'closed', 'done', 'cancelled', 'canceled'].includes(normalized);
+    return ['completed', 'complete', 'closed', 'done', 'cancelled', 'canceled', 'archived', 'void'].includes(normalized);
 }
 
 function countOpenJobsForClient(jobs: TechOSJob[], client: CompanyClient) {
