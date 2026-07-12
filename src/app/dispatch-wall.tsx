@@ -805,7 +805,7 @@ function DispatchWallCard({
     const visibleRiskText = item.risk.needsReassignment ? 'Reassign' : riskText;
     const showRiskChip = item.risk.state !== 'ON_TIME';
     const showEmergencyChip = item.sectionKey !== 'emergency' && isEmergencyDispatchRequest(request);
-    const showStatusChip = showRiskChip || ['available', 'in_progress', 'closed_today', 'emergency'].includes(item.sectionKey);
+    const showStatusChip = showEmergencyChip || showRiskChip || ['available', 'in_progress', 'closed_today', 'emergency'].includes(item.sectionKey);
 
     if (previewSlot) {
         return (
@@ -833,25 +833,31 @@ function DispatchWallCard({
                         <Text style={[wallPreviewCardAddressStyle, { color: config.mutedColor }]} numberOfLines={1}>{address}</Text>
                     </View>
                     <View style={wallPreviewCardRightStyle}>
-                        {showRiskChip ? (
+                        {showRiskChip || showEmergencyChip ? (
                             <View style={wallPreviewChipRowStyle}>
                                 {showEmergencyChip && (
                                     <View style={wallPreviewEmergencyBadgeStyle}>
                                         <Text style={wallPreviewRiskBadgeTextStyle} numberOfLines={1}>Emergency</Text>
                                     </View>
                                 )}
-                                <View style={[
-                                    wallPreviewRiskBadgeStyle,
-                                    item.risk.needsReassignment ? wallPreviewReassignmentBadgeStyle : null,
-                                ]}>
-                                    <Text
-                                        {...getWebTitleProps(riskText || visibleRiskText)}
-                                        style={wallPreviewRiskBadgeTextStyle}
-                                        numberOfLines={1}
-                                    >
-                                        {visibleRiskText}
-                                    </Text>
-                                </View>
+                                {showRiskChip ? (
+                                    <View style={[
+                                        wallPreviewRiskBadgeStyle,
+                                        item.risk.needsReassignment ? wallPreviewReassignmentBadgeStyle : null,
+                                    ]}>
+                                        <Text
+                                            {...getWebTitleProps(riskText || visibleRiskText)}
+                                            style={wallPreviewRiskBadgeTextStyle}
+                                            numberOfLines={1}
+                                        >
+                                            {visibleRiskText}
+                                        </Text>
+                                    </View>
+                                ) : (
+                                    <View style={[wallPreviewRiskBadgeStyle, { borderColor: config.cardBorderColor, backgroundColor: config.badgeColor }]}>
+                                        <Text style={wallPreviewRiskBadgeTextStyle} numberOfLines={1}>{item.statusLabel}</Text>
+                                    </View>
+                                )}
                             </View>
                         ) : (
                             <Text style={[wallPreviewCardIssueStyle, { color: config.textColor }]} numberOfLines={1}>{issue}</Text>
@@ -1585,6 +1591,7 @@ function getTerminalOutcomeLabel(item: DispatchWallItem) {
     const requestStatus = item.request.status;
     const slotStatus = item.slot?.status;
 
+    if (item.statusLabel && item.statusLabel !== 'Closed') return item.statusLabel;
     if (isTerminalDisplayStatus(requestStatus)) return formatWallStatusLabel(requestStatus);
     if (isTerminalDisplayStatus(slotStatus)) return formatWallStatusLabel(slotStatus);
     if (item.slot?.visit_outcome) return formatLabel(item.slot.visit_outcome);
@@ -1595,7 +1602,7 @@ function getTerminalOutcomeLabel(item: DispatchWallItem) {
 function isTerminalDisplayStatus(status?: string | null) {
     const normalized = String(status || '').trim().toLowerCase();
 
-    return ['completed', 'resolved', 'closed', 'done', 'cancelled', 'canceled', 'archived', 'void', 'duplicate_or_void'].includes(normalized);
+    return ['completed', 'completed_successfully', 'resolved', 'closed', 'done', 'cancelled', 'canceled', 'archived', 'void', 'voided', 'duplicate_or_void'].includes(normalized);
 }
 
 function getWallTimingSummary(item: DispatchWallItem) {

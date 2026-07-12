@@ -84,6 +84,12 @@ export type DispatchWallTechnicianAvailability = {
 
 export type DispatchWallSections = Record<DispatchWallSectionKey, DispatchWallItem[]>;
 
+type DispatchWallEffectiveState = {
+    requestTerminal: boolean;
+    terminalLabel: string | null;
+    terminalTime: number;
+};
+
 const WALL_SECTION_KEYS: DispatchWallSectionKey[] = [
     'emergency',
     'emergency_leads',
@@ -154,54 +160,53 @@ export function classifyDispatchWallRequest(
 ): DispatchWallSectionKey | null {
     const slotStatus = normalizeStatus(slot?.status);
     const emergency = isEmergencyDispatchRequest(request);
+    const effectiveState = resolveDispatchWallEffectiveState(request, slot);
     const currentDayOperational = isCurrentDayOperationalItem(request, slot, now);
     const runningLateCandidate = isWallRunningLateCandidate(request, slot, risk, slotStatus, now);
+    const activeAssignedSlot = Boolean(slot?.technician_company_user_id && slot && isActiveWallScheduleSlot(slot));
+    const leadCandidate = isNewLeadStatus(request.status) && !activeAssignedSlot;
 
-    if (isClosedTodayCandidate(request, slot)) {
-        return isClosedDuringToday(request, slot, now) ? 'closed_today' : null;
+    if (effectiveState.requestTerminal) {
+        return isEffectiveStateClosedDuringToday(effectiveState, now) ? 'closed_today' : null;
     }
 
-    if (emergency && isNewLeadStatus(request.status)) {
+    if (emergency && leadCandidate) {
         return 'emergency_leads';
+    }
+
+    if (leadCandidate) {
+        return 'regular_leads';
     }
 
     if (hasCriticalImmediateAssistanceAlert(request, slot, timingEvent) && currentDayOperational) {
         return 'emergency';
     }
 
-    if (runningLateCandidate && risk.needsReassignment) {
-        return 'running_late';
-    }
-
-    if (emergency) {
-        return currentDayOperational ? 'emergency' : null;
-    }
-
-    if (runningLateCandidate) {
-        return 'running_late';
-    }
-
-    if (isNewLeadStatus(request.status)) {
-        return 'regular_leads';
-    }
-
     if (!currentDayOperational) {
         return null;
     }
 
-    if (!slot?.technician_company_user_id || !isActiveWallScheduleSlot(slot)) {
-        return 'unassigned';
+    if (activeAssignedSlot) {
+        if (isInProgressStatus(slotStatus) || isFieldWaitingStatus(slotStatus) || isActiveCustomFieldStatus(slot)) {
+            return 'in_progress';
+        }
+
+        if (isOnMyWayStatus(slotStatus)) {
+            return 'on_my_way';
+        }
+
+        if (runningLateCandidate) {
+            return 'running_late';
+        }
+
+        return 'assigned_ready';
     }
 
-    if (isOnMyWayStatus(slotStatus)) {
-        return 'on_my_way';
+    if (emergency) {
+        return 'emergency';
     }
 
-    if (isInProgressStatus(slotStatus) || isWaitingStatus(slotStatus)) {
-        return 'in_progress';
-    }
-
-    return 'assigned_ready';
+    return 'unassigned';
 }
 
 export function getCurrentWallScheduleSlot(
@@ -242,13 +247,17 @@ export function getCurrentWallScheduleSlot(
 export function isActiveWallScheduleSlot(slot: DispatchWallScheduleSlot) {
     const status = normalizeStatus(slot.status);
 
+    if (slot.visit_outcome || slot.visit_closed_at) return false;
+
     return ![
         'completed',
+        'completed_successfully',
         'closed',
         'cancelled',
         'canceled',
         'archived',
         'void',
+        'voided',
         'duplicate_or_void',
         'available',
     ].includes(status);
@@ -257,11 +266,11 @@ export function isActiveWallScheduleSlot(slot: DispatchWallScheduleSlot) {
 export function isTerminalWallStatus(status?: string | null) {
     const normalized = normalizeStatus(status);
 
-    return isCompletedWallStatus(normalized) || ['cancelled', 'canceled', 'archived', 'void', 'duplicate_or_void'].includes(normalized);
+    return isCompletedWallStatus(normalized) || ['completed_successfully', 'cancelled', 'canceled', 'archived', 'void', 'voided', 'duplicate_or_void'].includes(normalized);
 }
 
 export function isCompletedWallStatus(status?: string | null) {
-    return ['completed', 'resolved', 'closed', 'done', 'converted_to_job'].includes(normalizeStatus(status));
+    return ['completed', 'completed_successfully', 'resolved', 'closed', 'done', 'converted_to_job'].includes(normalizeStatus(status));
 }
 
 export function formatWallStatusLabel(status?: string | null) {
@@ -743,35 +752,91 @@ function isCurrentDayOperationalItem(
     return true;
 }
 
-function isClosedDuringToday(
-    request: DispatchWallRequest,
-    slot: DispatchWallScheduleSlot | null,
-    now: Date
-) {
-    const closedTime = (
-        getTimeValue(request.closed_at) ||
-        getTimeValue(request.cancelled_at) ||
-        getTimeValue(request.archived_at) ||
-        getTimeValue(slot?.visit_closed_at) ||
-        getTimeValue(slot?.updated_at)
-    );
-
-    if (!closedTime) return false;
-
-    return closedTime >= startOfLocalDay(now).getTime() && closedTime <= endOfLocalDay(now).getTime();
-}
-
-function isClosedTodayCandidate(
+export function resolveDispatchWallEffectiveState(
     request: DispatchWallRequest,
     slot: DispatchWallScheduleSlot | null
-) {
+): DispatchWallEffectiveState {
+    const requestTerminalLabel = getTerminalRequestLabel(request);
+    const slotTerminalLabel = getTerminalSlotLabel(slot);
+    const requestTerminal = Boolean(requestTerminalLabel);
+
+    if (requestTerminal) {
+        return {
+            requestTerminal: true,
+            terminalLabel: requestTerminalLabel,
+            terminalTime: (
+                getTimeValue(request.closed_at) ||
+                getTimeValue(request.cancelled_at) ||
+                getTimeValue(request.archived_at) ||
+                getTimeValue(slot?.visit_closed_at) ||
+                getTimeValue(slot?.updated_at) ||
+                getTimeValue(request.created_at)
+            ),
+        };
+    }
+
+    return {
+        requestTerminal: false,
+        terminalLabel: slotTerminalLabel,
+        terminalTime: (
+            getTimeValue(slot?.visit_closed_at) ||
+            getTimeValue(slot?.updated_at) ||
+            getTimeValue(request.closed_at) ||
+            getTimeValue(request.cancelled_at) ||
+            getTimeValue(request.archived_at) ||
+            getTimeValue(request.created_at)
+        ),
+    };
+}
+
+function isEffectiveStateClosedDuringToday(effectiveState: DispatchWallEffectiveState, now: Date) {
+    if (!effectiveState.terminalTime) return false;
+
+    return effectiveState.terminalTime >= startOfLocalDay(now).getTime() && effectiveState.terminalTime <= endOfLocalDay(now).getTime();
+}
+
+function getTerminalRequestLabel(request: DispatchWallRequest) {
     const requestStatus = normalizeStatus(request.status);
+    const closeoutOutcome = normalizeStatus(request.closeout_outcome);
+
+    if (isTerminalWallStatus(requestStatus)) return getTerminalStatusLabel(requestStatus);
+    if (isTerminalCloseoutOutcome(closeoutOutcome)) return getTerminalStatusLabel(closeoutOutcome);
+    if (request.cancelled_at) return 'Cancelled';
+    if (request.archived_at) return 'Archived';
+    if (request.closed_at) return closeoutOutcome ? getTerminalStatusLabel(closeoutOutcome) : 'Completed';
+
+    return null;
+}
+
+function getTerminalSlotLabel(slot: DispatchWallScheduleSlot | null) {
     const slotStatus = normalizeStatus(slot?.status);
+    const visitOutcome = normalizeStatus(slot?.visit_outcome);
 
-    if (slot && isActiveWallScheduleSlot(slot)) return false;
-    if (!isTerminalWallStatus(requestStatus) && !isTerminalWallStatus(slotStatus)) return false;
+    if (isTerminalWallStatus(slotStatus)) return getTerminalStatusLabel(slotStatus);
+    if (isTerminalCloseoutOutcome(visitOutcome)) return getTerminalStatusLabel(visitOutcome);
+    if (slot?.visit_closed_at) return visitOutcome ? getTerminalStatusLabel(visitOutcome) : 'Completed';
 
-    return true;
+    return null;
+}
+
+function isTerminalCloseoutOutcome(outcome: string) {
+    return [
+        'completed_successfully',
+        'cancelled',
+        'canceled',
+        'archived',
+        'void',
+        'voided',
+        'duplicate_or_void',
+    ].includes(outcome);
+}
+
+function getTerminalStatusLabel(status: string) {
+    if (['cancelled', 'canceled'].includes(status)) return 'Cancelled';
+    if (status === 'archived') return 'Archived';
+    if (['void', 'voided', 'duplicate_or_void'].includes(status)) return 'Voided';
+
+    return 'Completed';
 }
 
 function isWallRunningLateCandidate(
@@ -893,7 +958,7 @@ function isInProgressStatus(status: string) {
     return ['arrived', 'onsite', 'on_site', 'working', 'in_progress', 'in-progress', 'active', 'started', 'start_work'].includes(status);
 }
 
-function isWaitingStatus(status: string) {
+function isFieldWaitingStatus(status: string) {
     return [
         'estimate_needed',
         'approval_needed',
@@ -910,15 +975,49 @@ function isWaitingStatus(status: string) {
         'blocked',
         'on_hold',
         'paused',
-        'running_late',
-        'custom',
     ].includes(status);
 }
 
+function isActiveCustomFieldStatus(slot: DispatchWallScheduleSlot | null) {
+    if (normalizeStatus(slot?.status) !== 'custom') return false;
+
+    const customText = normalizeStatus(slot?.tech_status_note);
+    if (!customText || isTerminalWallStatus(customText) || isTerminalCloseoutOutcome(customText)) return false;
+
+    return (
+        [
+            'diagnosing',
+            'diagnosis',
+            'testing',
+            'cleaning_up',
+            'cleaning up',
+            'active_assistance',
+            'active assistance',
+            'waiting_for_approval',
+            'waiting for approval',
+            'customer approval',
+            'approval_needed',
+            'approval needed',
+            'working',
+            'work in progress',
+            'in_progress',
+            'in progress',
+        ].includes(customText) ||
+        customText.includes('diagnos') ||
+        customText.includes('testing') ||
+        customText.includes('cleaning up') ||
+        customText.includes('approval') ||
+        customText.includes('active assistance')
+    );
+}
+
 function getWallStatusLabel(request: DispatchWallRequest, slot: DispatchWallScheduleSlot | null, risk: DispatchRiskResult) {
+    const effectiveState = resolveDispatchWallEffectiveState(request, slot);
+
+    if (effectiveState.requestTerminal && effectiveState.terminalLabel) return effectiveState.terminalLabel;
     if (risk.state === 'AT_RISK') return 'At Risk';
     if (risk.state === 'RUNNING_LATE') return risk.needsReassignment ? 'Needs Reassignment' : 'Running Late';
-    if (isTerminalWallStatus(request.status)) return formatWallStatusLabel(request.status);
+    if (effectiveState.terminalLabel) return effectiveState.terminalLabel;
     if (isTerminalWallStatus(slot?.status)) return formatWallStatusLabel(slot?.status);
 
     return formatWallStatusLabel(slot?.status || request.status);
