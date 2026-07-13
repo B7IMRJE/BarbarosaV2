@@ -35,6 +35,9 @@ function clientHomeOSRoutePreservesProviderAndReturnContext() {
     assert(route.params.companyId === 'company-1', 'Client HomeOS route should preserve company id.');
     assert(route.params.propertyId === 'property-1', 'Client HomeOS route should preserve property id.');
     assert(route.params.returnTo === '/techos?companyId=company-1&slotId=slot-1', 'Client HomeOS route should preserve current-job return context.');
+    assert(route.params.serviceRequestId === 'request-1', 'Client HomeOS route should preserve service request context.');
+    assert(route.params.scheduleSlotId === 'slot-1', 'Client HomeOS route should preserve schedule slot context.');
+    assert(route.params.jobId === 'job-1', 'Client HomeOS route should preserve job context.');
 }
 
 function currentJobReturnRouteTargetsTheSelectedTechOSJob() {

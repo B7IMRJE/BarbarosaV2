@@ -26,7 +26,7 @@ import {
     loadCurrentCompanyPermissionAccess,
     type CompanyPermissionAccess,
 } from '../../lib/companyPermissions';
-import { addItemToEstimateDraft, loadEstimateDraft } from '../../lib/estimateDraft';
+import { addItemToEstimateDraft, loadEstimateDraft, saveEstimateDraftContext } from '../../lib/estimateDraft';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import {
     calculateNextDueDate,
@@ -44,7 +44,6 @@ import {
 } from '../../lib/maintenanceTimers';
 import {
     providerModePath,
-    providerModeItemPath,
     providerModeQueryParams,
     readProviderModeParams,
     validateProviderModeAccess,
@@ -399,6 +398,9 @@ export default function ItemScreen() {
         mode?: string | string[];
         providerMode?: string | string[];
         returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
     const slug = firstParam(routeParams.slug);
     const managementCompanyId = firstParam(routeParams.companyId);
@@ -1827,6 +1829,19 @@ export default function ItemScreen() {
         }, draftScope);
 
         if (providerModeContext) {
+            await saveEstimateDraftContext({
+                company_id: estimateCompanyId,
+                property_id: estimatePropertyId || item.property_id || null,
+                customer_home_name: `Client HomeOS ${shortId(estimatePropertyId)}`,
+                service_request_id: providerModeContext.serviceRequestId || null,
+                job_id: providerModeContext.jobId || null,
+                schedule_slot_id: providerModeContext.scheduleSlotId || null,
+                technician_company_user_id: estimateAccess.companyUserId || null,
+                technician_name: null,
+                issue_summary: null,
+                source: 'provider_mode',
+                updated_at: new Date().toISOString(),
+            }, draftScope);
             setMessage('Item added to estimate.');
             return;
         }
@@ -2458,13 +2473,16 @@ export default function ItemScreen() {
                                     onPress={() => router.push({
                                         pathname: '/estimate',
                                         params: {
-                                            companyId: estimateAccess?.companyId || managementCompanyId || providerModeContext?.companyId || '',
-                                            propertyId: item.property_id || managementPropertyId || providerModeContext?.propertyId || '',
                                             mode: isManagementMode ? 'management' : '',
-                                            providerMode: providerModeContext ? '1' : '',
-                                            returnTo: providerModeContext
-                                                ? String(providerModeItemPath(item.item_slug || String(slug), providerModeContext))
-                                                : '',
+                                            itemSlug: item.item_slug || String(slug),
+                                            ...(providerModeContext
+                                                ? {
+                                                    ...providerModeQueryParams(providerModeContext),
+                                                }
+                                                : {
+                                                    companyId: estimateAccess?.companyId || managementCompanyId || '',
+                                                    propertyId: item.property_id || managementPropertyId || '',
+                                                }),
                                         },
                                     } as never)}
                                     style={scaleStyle(buttonStyle)}
@@ -3886,13 +3904,16 @@ export default function ItemScreen() {
                                     onPress={() => router.push({
                                         pathname: '/estimate',
                                         params: {
-                                            companyId: estimateAccess?.companyId || managementCompanyId || providerModeContext?.companyId || '',
-                                            propertyId: providerModeContext?.propertyId || item.property_id || managementPropertyId || '',
                                             mode: isManagementMode ? 'management' : '',
-                                            providerMode: providerModeContext ? '1' : '',
-                                            returnTo: providerModeContext
-                                                ? String(providerModeItemPath(item.item_slug || String(slug), providerModeContext))
-                                                : '',
+                                            itemSlug: item.item_slug || String(slug),
+                                            ...(providerModeContext
+                                                ? {
+                                                    ...providerModeQueryParams(providerModeContext),
+                                                }
+                                                : {
+                                                    companyId: estimateAccess?.companyId || managementCompanyId || '',
+                                                    propertyId: item.property_id || managementPropertyId || '',
+                                                }),
                                         },
                                     } as never)}
                                     style={scaleStyle(buttonStyle)}

@@ -16,6 +16,10 @@ import {
     readProviderModeParams,
 } from '../../../../lib/providerMode';
 import {
+    formatDirectItemsEmptyMessage,
+    resolveAreaVisibleItems,
+} from '../../../../lib/providerItemVisibility';
+import {
     getAreaIcon,
     getBroadZoneDefinition,
     getSuggestedChildAreas,
@@ -79,6 +83,8 @@ export default function AreaScreen() {
     const [starterRecoveryPreview, setStarterRecoveryPreview] = useState<StarterHomeSetupPlanResult | null>(null);
     const [starterRecoveryConfirmationVisible, setStarterRecoveryConfirmationVisible] = useState(false);
     const [recoveringStarterSetup, setRecoveringStarterSetup] = useState(false);
+    const [returnedHomeItemRowCount, setReturnedHomeItemRowCount] = useState<number | null>(null);
+    const [homeItemsQueryFailed, setHomeItemsQueryFailed] = useState(false);
     const [loading, setLoading] = useState(true);
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
@@ -110,6 +116,8 @@ export default function AreaScreen() {
             setSuggestedChildAreas([]);
             setStarterRecoveryPlan([]);
             setStarterRecoveryPreview(null);
+            setReturnedHomeItemRowCount(null);
+            setHomeItemsQueryFailed(true);
             setMessage(activePropertyErrorMessage(error));
             setLoading(false);
 
@@ -137,34 +145,29 @@ export default function AreaScreen() {
             setSuggestedChildAreas([]);
             setStarterRecoveryPlan([]);
             setStarterRecoveryPreview(null);
-            setMessage(`Could not load items: ${error.message}`);
+            setReturnedHomeItemRowCount(null);
+            setHomeItemsQueryFailed(true);
+            setMessage(providerModeContext
+                ? `Could not load client HomeOS items: ${error.message}`
+                : `Could not load items: ${error.message}`
+            );
             setLoading(false);
             return;
         }
 
         const rows = (data || []) as AreaHomeItem[];
-        const systemRows = rows.filter((item) => sameText(item.system, systemName));
-        const nextCurrentAreaRecord = systemRows.find((item) => isCurrentAreaRecord(item, areaName, parentAreaName)) || null;
-        const savedChildAreas = systemRows.filter(
-            (item) =>
-                sameText(item.category, 'Area') &&
-                sameText(item.parent_area, areaName)
-        );
+        const visibleRows = resolveAreaVisibleItems(rows, {
+            systemName,
+            areaName,
+            parentAreaName,
+        });
+        const savedChildAreas = visibleRows.childAreas;
         const broadZoneDefinition = getBroadZoneDefinition(areaName);
         const nextBroadZoneMode = !parentAreaName && (!!broadZoneDefinition || savedChildAreas.length > 0);
         const savedChildNames = new Set(savedChildAreas.map((item) => normalizeAreaName(item.name)));
         const nextSuggestedChildAreas = nextBroadZoneMode
             ? getSuggestedChildAreas(areaName).filter((childArea) => !savedChildNames.has(normalizeAreaName(childArea)))
             : [];
-        const nextItems = rows.filter((item) => {
-            if (sameText(item.category, 'Area')) return false;
-
-            if (parentAreaName) {
-                return sameText(item.location, areaName) && sameText(item.parent_area, parentAreaName);
-            }
-
-            return isDirectItemInArea(item, areaName);
-        });
         const propertyType = await loadPropertyType(activeProperty.propertyId);
         const nextStarterRecoveryPlan = buildDefaultStarterHomePlan(propertyType);
         const nextStarterRecoveryPreview = buildStarterHomeSetupPreview({
@@ -178,14 +181,16 @@ export default function AreaScreen() {
             starterSetupHasMissingRecords(nextStarterRecoveryPreview);
 
         setChildAreas(sortAreaRecords(savedChildAreas));
-        setCurrentAreaRecord(nextCurrentAreaRecord);
+        setCurrentAreaRecord(visibleRows.currentAreaRecord);
         setSuggestedChildAreas(nextSuggestedChildAreas);
         setStarterRecoveryPlan(showStarterRecovery ? nextStarterRecoveryPlan : []);
         setStarterRecoveryPreview(showStarterRecovery ? nextStarterRecoveryPreview : null);
+        setReturnedHomeItemRowCount(rows.length);
+        setHomeItemsQueryFailed(false);
         setItems(
             sortAreaItems(
                 areaName,
-                nextItems
+                visibleRows.directItems
             )
         );
         if (!options.preserveMessage) setMessage('');
@@ -650,7 +655,11 @@ export default function AreaScreen() {
                                 {items.length === 0 ? (
                                     <ThemedCard style={[emptyStateCardStyle, { marginBottom: 16 }]}>
                                         <Text style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900', textAlign: 'center' }}>
-                                            No direct items yet.
+                                            {formatDirectItemsEmptyMessage({
+                                                providerMode: !!providerModeContext,
+                                                queryFailed: homeItemsQueryFailed,
+                                                returnedRowCount: returnedHomeItemRowCount,
+                                            })}
                                         </Text>
                                     </ThemedCard>
                                 ) : (
@@ -758,17 +767,6 @@ function sameText(a?: string | null, b?: string | null) {
     return normalizeAreaName(a) === normalizeAreaName(b);
 }
 
-function isCurrentAreaRecord(item: AreaHomeItem, areaName: string, parentAreaName: string) {
-    if (!sameText(item.category, 'Area')) return false;
-    if (!sameText(item.name || item.location, areaName)) return false;
-
-    if (parentAreaName) {
-        return sameText(item.parent_area, parentAreaName);
-    }
-
-    return !String(item.parent_area || '').trim();
-}
-
 function decodeRouteParam(value?: string | string[] | null) {
     const rawValue = Array.isArray(value) ? value[0] : value;
     const text = String(rawValue || '').trim();
@@ -796,11 +794,6 @@ async function loadPropertyType(propertyId: string) {
     if (error) return null;
 
     return String((data as { property_type?: string | null } | null)?.property_type || '').trim() || null;
-}
-
-function isDirectItemInArea(item: AreaHomeItem, areaName: string) {
-    if (sameText(item.location, areaName)) return true;
-    return !String(item.location || '').trim() && sameText(item.parent_area, areaName);
 }
 
 function isChildOfAreaRecord(item: AreaHomeItem, areaName: string, parentAreaName: string) {

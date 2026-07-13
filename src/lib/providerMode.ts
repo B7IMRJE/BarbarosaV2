@@ -12,6 +12,9 @@ export type ProviderModeParams = {
     companyId: string;
     propertyId: string;
     returnTo: string;
+    serviceRequestId: string;
+    scheduleSlotId: string;
+    jobId: string;
 };
 
 export type ProviderModeAccess = {
@@ -37,6 +40,9 @@ type ProviderRouteParams = {
     companyId?: RouteParamValue;
     propertyId?: RouteParamValue;
     returnTo?: RouteParamValue;
+    serviceRequestId?: RouteParamValue;
+    scheduleSlotId?: RouteParamValue;
+    jobId?: RouteParamValue;
 };
 
 type PlatformProfile = {
@@ -71,16 +77,22 @@ export function readProviderModeParams(params: ProviderRouteParams): ProviderMod
         companyId,
         propertyId,
         returnTo: firstParam(params.returnTo),
+        serviceRequestId: firstParam(params.serviceRequestId),
+        scheduleSlotId: firstParam(params.scheduleSlotId),
+        jobId: firstParam(params.jobId),
     };
 }
 
 export function providerModeQueryParams(context: ProviderModeParams) {
-    return {
+    return compactRouteParams({
         providerMode: '1',
         companyId: context.companyId,
         propertyId: context.propertyId,
-        ...(context.returnTo ? { returnTo: context.returnTo } : {}),
-    };
+        returnTo: context.returnTo,
+        serviceRequestId: context.serviceRequestId,
+        scheduleSlotId: context.scheduleSlotId,
+        jobId: context.jobId,
+    });
 }
 
 export function providerModePath(pathname: string, context: ProviderModeParams) {
@@ -257,6 +269,16 @@ function isPlatformAdminProfile(profile?: PlatformProfile | null) {
 
 function firstParam(value?: RouteParamValue) {
     return Array.isArray(value) ? value[0] || '' : value || '';
+}
+
+function compactRouteParams(values: Record<string, string | null | undefined>) {
+    return Object.entries(values).reduce<Record<string, string>>((accumulator, [key, value]) => {
+        const text = String(value || '').trim();
+
+        if (text) accumulator[key] = text;
+
+        return accumulator;
+    }, {});
 }
 
 function isProviderModeValue(value: string) {

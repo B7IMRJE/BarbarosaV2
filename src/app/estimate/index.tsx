@@ -46,18 +46,29 @@ type EstimateChoice = {
 };
 
 export default function EstimateScreen() {
-    const { companyId, propertyId, mode, providerMode, returnTo } = useLocalSearchParams<{
+    const { companyId, propertyId, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId } = useLocalSearchParams<{
         companyId?: string | string[];
         propertyId?: string | string[];
         mode?: string | string[];
         providerMode?: string | string[];
         returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
     const requestedCompanyId = firstParam(companyId);
     const requestedPropertyId = firstParam(propertyId);
     const requestedMode = firstParam(mode);
     const requestedReturnTo = firstParam(returnTo);
-    const providerModeContext = readProviderModeParams({ providerMode, companyId, propertyId, returnTo });
+    const providerModeContext = readProviderModeParams({
+        providerMode,
+        companyId,
+        propertyId,
+        returnTo,
+        serviceRequestId,
+        scheduleSlotId,
+        jobId,
+    });
     const [items, setItems] = useState<EstimateDraftItem[]>([]);
     const [message, setMessage] = useState('Loading estimate draft...');
     const [checkingAccess, setCheckingAccess] = useState(true);
@@ -96,13 +107,6 @@ export default function EstimateScreen() {
                 status: providerAccess.access.status,
                 permissions: providerAccess.access.permissions,
             };
-
-            if (!access.permissions.can_add_item_to_estimate) {
-                setEstimateAccess(null);
-                setCheckingAccess(false);
-                setMessage('Estimate access unavailable: You do not have permission to add estimates.');
-                return;
-            }
 
             setEstimateAccess(access);
             setCheckingAccess(false);
