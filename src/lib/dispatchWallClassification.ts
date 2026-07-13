@@ -165,6 +165,7 @@ export function classifyDispatchWallRequest(
     const currentDayOperational = isCurrentDayOperationalItem(request, slot, now);
     const runningLateCandidate = isWallRunningLateCandidate(request, slot, risk, slotStatus, now);
     const activeAssignedSlot = Boolean(slot?.technician_company_user_id && slot && isActiveWallScheduleSlot(slot));
+    const explicitOperationalSection = getExplicitWallOperationalSection(slot, slotStatus);
     const leadCandidate = isNewLeadStatus(request.status) && !activeAssignedSlot;
 
     if (effectiveState.terminal) {
@@ -180,6 +181,10 @@ export function classifyDispatchWallRequest(
     }
 
     if (activeAssignedSlot) {
+        if (explicitOperationalSection) {
+            return explicitOperationalSection;
+        }
+
         if (!currentDayOperational) {
             return 'assigned_ready';
         }
@@ -965,6 +970,31 @@ function isInProgressStatus(status: string) {
     return ['arrived', 'onsite', 'on_site', 'working', 'in_progress', 'in-progress', 'active', 'started', 'start_work'].includes(status);
 }
 
+function isRunningLateStatus(status: string) {
+    return status === 'running_late';
+}
+
+function getExplicitWallOperationalSection(
+    slot: DispatchWallScheduleSlot | null,
+    slotStatus: string
+): DispatchWallSectionKey | null {
+    if (!slot?.technician_company_user_id || !isActiveWallScheduleSlot(slot)) return null;
+
+    if (isInProgressStatus(slotStatus) || isFieldWaitingStatus(slotStatus) || isActiveCustomFieldStatus(slot)) {
+        return 'in_progress';
+    }
+
+    if (isOnMyWayStatus(slotStatus)) {
+        return 'on_my_way';
+    }
+
+    if (isRunningLateStatus(slotStatus)) {
+        return 'running_late';
+    }
+
+    return null;
+}
+
 function isFieldWaitingStatus(status: string) {
     return [
         'estimate_needed',
@@ -1020,8 +1050,11 @@ function isActiveCustomFieldStatus(slot: DispatchWallScheduleSlot | null) {
 
 function getWallStatusLabel(request: DispatchWallRequest, slot: DispatchWallScheduleSlot | null, risk: DispatchRiskResult) {
     const effectiveState = resolveDispatchWallEffectiveState(request, slot);
+    const slotStatus = normalizeStatus(slot?.status);
+    const explicitOperationalSection = getExplicitWallOperationalSection(slot, slotStatus);
 
     if (effectiveState.terminalLabel) return effectiveState.terminalLabel;
+    if (explicitOperationalSection) return formatWallStatusLabel(slot?.status);
     if (risk.state === 'AT_RISK') return 'At Risk';
     if (risk.state === 'RUNNING_LATE') return risk.needsReassignment ? 'Needs Reassignment' : 'Running Late';
     if (isTerminalWallStatus(slot?.status)) return formatWallStatusLabel(slot?.status);

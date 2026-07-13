@@ -24,13 +24,16 @@ runDispatchWallClassificationRegressions();
 export function runDispatchWallClassificationRegressions() {
     emergencyUnassignedRequestAppearsInEmergency();
     futureAssignedEmergencyMovesToAssignedReady();
-    futureAssignedRequestCannotEnterActiveLivePanels();
+    futureScheduledAssignedRequestStaysOutOfLivePanels();
+    futureAssignedOnMyWayMovesForward();
+    futureAssignedLiveWorkMovesForward();
     futureAssignedTechnicianRehydratesConsistently();
     currentDayOperationalStatesRemainUnchanged();
     completedEmergencyVisitFromYesterdayIsExcluded();
     completedEmergencyVisitFromTodayIsClosedToday();
-    olderCompletedVisitDoesNotOverrideNewerActiveVisit();
+    olderCompletedVisitDoesNotOverrideNewerOnMyWayVisit();
     terminalSelectedVisitDoesNotEnterActivePanels();
+    classifiedRequestsDoNotDuplicateAcrossSections();
 }
 
 function emergencyUnassignedRequestAppearsInEmergency() {
@@ -59,13 +62,11 @@ function futureAssignedEmergencyMovesToAssignedReady() {
     );
 }
 
-function futureAssignedRequestCannotEnterActiveLivePanels() {
+function futureScheduledAssignedRequestStaysOutOfLivePanels() {
     [
         { status: 'scheduled', note: null },
-        { status: 'running_late', note: null },
-        { status: 'on_my_way', note: null },
-        { status: 'arrived', note: null },
-        { status: 'custom', note: 'working' },
+        { status: 'assigned', note: null },
+        { status: 'custom', note: 'confirm with office' },
     ].forEach(({ status, note }) => {
         const request = createEmergencyScheduledRequest(`future-${status}`);
         const slot = createFutureAssignedSlot(request.id, {
@@ -76,12 +77,61 @@ function futureAssignedRequestCannotEnterActiveLivePanels() {
         const sections = buildDispatchWallSections([request], [slot], [createTechnician('tech-2', 'tech 2')], now);
         const item = getSingleRequestItem(sections, request.id);
 
-        assert(item.sectionKey === 'assigned_ready', `Future ${status} slot should stay assigned_ready until it is operational today.`);
+        assert(item.sectionKey === 'assigned_ready', `Future ${status} slot should stay assigned_ready until an explicit live state exists.`);
         assertRequestNotInSections(
             sections,
             request.id,
             ['emergency', 'running_late', 'unassigned', 'on_my_way', 'in_progress'],
             `Future ${status} slot should not enter emergency or live-state panels.`
+        );
+    });
+}
+
+function futureAssignedOnMyWayMovesForward() {
+    const request = createEmergencyScheduledRequest('a0008-future-on-my-way');
+    const slot = createFutureAssignedSlot(request.id, {
+        id: 'a0008-future-on-my-way-slot',
+        status: 'on_my_way',
+    });
+    const sections = buildDispatchWallSections([request], [slot], [createTechnician('tech-2', 'tech 2')], now);
+    const item = getSingleRequestItem(sections, request.id);
+
+    assert(item.sectionKey === 'on_my_way', 'Future On My Way request should move to the On My Way wallboard section.');
+    assert(item.statusLabel === 'On My Way', 'Future On My Way request label should match the wallboard section.');
+    assert(item.request.priority === 'Emergency', 'Future On My Way request should keep Emergency as priority badge source.');
+    assert(item.technician?.full_name === 'tech 2', 'Future On My Way request should keep the assigned technician.');
+    assertRequestNotInSections(
+        sections,
+        request.id,
+        ['emergency', 'assigned_ready', 'unassigned', 'in_progress'],
+        'Future On My Way request should leave earlier wallboard sections.'
+    );
+}
+
+function futureAssignedLiveWorkMovesForward() {
+    [
+        { status: 'arrived', note: null, expectedLabel: 'Arrived' },
+        { status: 'working', note: null, expectedLabel: 'Working' },
+        { status: 'in_progress', note: null, expectedLabel: 'In Progress' },
+        { status: 'assistance_needed', note: null, expectedLabel: 'Assistance Needed' },
+        { status: 'custom', note: 'working', expectedLabel: 'Custom' },
+    ].forEach(({ status, note, expectedLabel }) => {
+        const request = createEmergencyScheduledRequest(`future-live-${status}`);
+        const slot = createFutureAssignedSlot(request.id, {
+            id: `future-live-${status}-slot`,
+            status,
+            tech_status_note: note,
+        });
+        const sections = buildDispatchWallSections([request], [slot], [createTechnician('tech-2', 'tech 2')], now);
+        const item = getSingleRequestItem(sections, request.id);
+
+        assert(item.sectionKey === 'in_progress', `Future ${status} slot should move to in_progress after an explicit live state.`);
+        assert(item.statusLabel === expectedLabel, `Future ${status} label should come from the explicit operational state.`);
+        assertRequestNotInSections(
+            sections,
+            request.id,
+            ['emergency', 'assigned_ready', 'unassigned', 'on_my_way'],
+            `Future ${status} slot should leave earlier wallboard sections.`
         );
     });
 }
@@ -168,7 +218,7 @@ function completedEmergencyVisitFromTodayIsClosedToday() {
     assertRequestNotInActiveSections(sections, request.id, 'Completed emergency visit from today should not enter active panels.');
 }
 
-function olderCompletedVisitDoesNotOverrideNewerActiveVisit() {
+function olderCompletedVisitDoesNotOverrideNewerOnMyWayVisit() {
     const request = createEmergencyScheduledRequest('newer-active');
     const completedSlot = createSlot({
         id: 'older-completed-slot',
@@ -185,7 +235,7 @@ function olderCompletedVisitDoesNotOverrideNewerActiveVisit() {
     const activeSlot = createSlot({
         id: 'newer-active-slot',
         service_request_id: request.id,
-        status: 'scheduled',
+        status: 'on_my_way',
         start_at: localIso(0, 15),
         end_at: localIso(0, 16),
         arrival_window_start: localIso(0, 15),
@@ -197,7 +247,8 @@ function olderCompletedVisitDoesNotOverrideNewerActiveVisit() {
     const item = getSingleRequestItem(sections, request.id);
 
     assert(item?.slot?.id === activeSlot.id, 'Newer active visit should remain the selected wallboard slot.');
-    assert(item.sectionKey === 'assigned_ready', 'Newer active visit should control the operational classification.');
+    assert(item.sectionKey === 'on_my_way', 'Newer On My Way visit should control the operational classification.');
+    assert(item.statusLabel === 'On My Way', 'Newer On My Way visit label should match the selected slot state.');
 }
 
 function terminalSelectedVisitDoesNotEnterActivePanels() {
@@ -222,6 +273,41 @@ function terminalSelectedVisitDoesNotEnterActivePanels() {
 
         assert(item?.sectionKey === 'closed_today', `${status} terminal visit should be closed_today.`);
         assertRequestNotInActiveSections(sections, request.id, `${status} terminal visit should not enter active panels.`);
+    });
+}
+
+function classifiedRequestsDoNotDuplicateAcrossSections() {
+    const scheduledRequest = createEmergencyScheduledRequest('single-section-scheduled');
+    const onMyWayRequest = createEmergencyScheduledRequest('single-section-on-my-way');
+    const inProgressRequest = createEmergencyScheduledRequest('single-section-in-progress');
+    const closedRequest = createEmergencyScheduledRequest('single-section-closed');
+    const sections = buildDispatchWallSections(
+        [scheduledRequest, onMyWayRequest, inProgressRequest, closedRequest],
+        [
+            createFutureAssignedSlot(scheduledRequest.id, { id: 'single-section-scheduled-slot' }),
+            createFutureAssignedSlot(onMyWayRequest.id, { id: 'single-section-on-my-way-slot', status: 'on_my_way' }),
+            createFutureAssignedSlot(inProgressRequest.id, { id: 'single-section-in-progress-slot', status: 'working' }),
+            createSlot({
+                id: 'single-section-closed-slot',
+                service_request_id: closedRequest.id,
+                status: 'on_my_way',
+                start_at: localIso(0, 8),
+                end_at: localIso(0, 9),
+                arrival_window_start: localIso(0, 8),
+                arrival_window_end: localIso(0, 9),
+                visit_outcome: 'completed_successfully',
+                visit_closed_at: localIso(0, 9),
+                updated_at: localIso(0, 9),
+            }),
+        ],
+        [createTechnician('tech-2', 'tech 2')],
+        now
+    );
+
+    [scheduledRequest, onMyWayRequest, inProgressRequest, closedRequest].forEach((request) => {
+        const items = getRequestItems(sections, request.id);
+
+        assert(items.length === 1, `${request.id} should resolve into exactly one wallboard section.`);
     });
 }
 
