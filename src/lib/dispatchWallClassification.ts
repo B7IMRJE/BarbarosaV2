@@ -85,6 +85,7 @@ export type DispatchWallTechnicianAvailability = {
 export type DispatchWallSections = Record<DispatchWallSectionKey, DispatchWallItem[]>;
 
 type DispatchWallEffectiveState = {
+    terminal: boolean;
     requestTerminal: boolean;
     terminalLabel: string | null;
     terminalTime: number;
@@ -166,7 +167,7 @@ export function classifyDispatchWallRequest(
     const activeAssignedSlot = Boolean(slot?.technician_company_user_id && slot && isActiveWallScheduleSlot(slot));
     const leadCandidate = isNewLeadStatus(request.status) && !activeAssignedSlot;
 
-    if (effectiveState.requestTerminal) {
+    if (effectiveState.terminal) {
         return isEffectiveStateClosedDuringToday(effectiveState, now) ? 'closed_today' : null;
     }
 
@@ -762,6 +763,7 @@ export function resolveDispatchWallEffectiveState(
 
     if (requestTerminal) {
         return {
+            terminal: true,
             requestTerminal: true,
             terminalLabel: requestTerminalLabel,
             terminalTime: (
@@ -776,6 +778,7 @@ export function resolveDispatchWallEffectiveState(
     }
 
     return {
+        terminal: Boolean(slotTerminalLabel),
         requestTerminal: false,
         terminalLabel: slotTerminalLabel,
         terminalTime: (
@@ -1014,10 +1017,9 @@ function isActiveCustomFieldStatus(slot: DispatchWallScheduleSlot | null) {
 function getWallStatusLabel(request: DispatchWallRequest, slot: DispatchWallScheduleSlot | null, risk: DispatchRiskResult) {
     const effectiveState = resolveDispatchWallEffectiveState(request, slot);
 
-    if (effectiveState.requestTerminal && effectiveState.terminalLabel) return effectiveState.terminalLabel;
+    if (effectiveState.terminalLabel) return effectiveState.terminalLabel;
     if (risk.state === 'AT_RISK') return 'At Risk';
     if (risk.state === 'RUNNING_LATE') return risk.needsReassignment ? 'Needs Reassignment' : 'Running Late';
-    if (effectiveState.terminalLabel) return effectiveState.terminalLabel;
     if (isTerminalWallStatus(slot?.status)) return formatWallStatusLabel(slot?.status);
 
     return formatWallStatusLabel(slot?.status || request.status);
