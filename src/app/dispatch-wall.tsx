@@ -1,13 +1,23 @@
 import { router, useLocalSearchParams } from 'expo-router';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import {
     getCompanyDispatchRequests,
     isEmergencyDispatchRequest,
-    LEAD_ALERT_REFRESH_MS,
     type CompanyDispatchRequest,
 } from '../lib/companyLeadAlerts';
 import { canAccessDispatch } from '../lib/companyPermissions';
+import {
+    DISPATCH_WALL_FALLBACK_REFRESH_MS,
+    getDispatchWallConnectionStatus,
+    getDispatchWallReconnectPlan,
+    normalizeDispatchWallRealtimeStatus,
+    shouldRefreshAfterDispatchWallRealtimeSubscribe,
+    shouldRefreshDispatchWallForEvent,
+    type DispatchWallRealtimeState,
+    type DispatchWallStatusTone,
+} from '../lib/dispatchWallLifecycle';
 import {
     buildDispatchWallSections,
     formatWallStatusLabel,
@@ -258,6 +268,13 @@ export default function DispatchWallScreen() {
     const demoMode = isDevelopmentMode() && firstParam(params.demo).trim() === '1';
     const { width, height } = useWindowDimensions();
     const refreshInFlight = useRef(false);
+    const activeWallCompanyIdRef = useRef('');
+    const onlineRef = useRef(isBrowserOnline());
+    const lastLifecycleRefreshRequestAtRef = useRef(0);
+    const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const realtimeChannelsRef = useRef<RealtimeChannel[]>([]);
+    const realtimeGenerationRef = useRef(0);
+    const realtimeReconnectAttemptRef = useRef(0);
     const [clockNow, setClockNow] = useState(() => new Date());
     const [dataNow, setDataNow] = useState(() => new Date());
     const [companyAccess, setCompanyAccess] = useState<WallCompanyAccess | null>(null);
@@ -268,8 +285,13 @@ export default function DispatchWallScreen() {
     const [timingEvents, setTimingEvents] = useState<DispatchWallTimingEvent[]>([]);
     const [companyUsers, setCompanyUsers] = useState<DispatchWallCompanyUser[]>([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [message, setMessage] = useState('');
+    const [lastRefreshError, setLastRefreshError] = useState('');
     const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+    const [realtimeState, setRealtimeState] = useState<DispatchWallRealtimeState>('idle');
+    const [reconnectAttempt, setReconnectAttempt] = useState(0);
+    const [isOnline, setIsOnline] = useState(() => isBrowserOnline());
     const [expandedSectionKey, setExpandedSectionKey] = useState<DispatchWallSectionKey | null>(null);
     const [detailItem, setDetailItem] = useState<DispatchWallItem | null>(null);
     const [fullscreenMessage, setFullscreenMessage] = useState('');
@@ -320,69 +342,160 @@ export default function DispatchWallScreen() {
     useEffect(() => {
         const activeCompanyId = companyAccess?.company_id;
 
-        if (!activeCompanyId || demoMode) return;
+        activeWallCompanyIdRef.current = activeCompanyId || '';
 
-        const refreshQuietly = () => {
-            void refreshWallboard(activeCompanyId);
+        if (!activeCompanyId || demoMode) {
+            clearWallReconnectTimer(reconnectTimeoutRef);
+            realtimeGenerationRef.current += 1;
+            removeWallRealtimeChannels(realtimeChannelsRef);
+            setRealtimeState('idle');
+            setReconnectAttempt(0);
+            realtimeReconnectAttemptRef.current = 0;
+            return;
+        }
+
+        let disposed = false;
+
+        const requestLifecycleRefresh = (force = false) => {
+            const nowMs = Date.now();
+
+            if (!shouldRefreshDispatchWallForEvent({
+                nowMs,
+                lastRefreshRequestAtMs: lastLifecycleRefreshRequestAtRef.current,
+                refreshInFlight: refreshInFlight.current,
+                online: onlineRef.current,
+                force,
+            })) {
+                return;
+            }
+
+            lastLifecycleRefreshRequestAtRef.current = nowMs;
+            void refreshWallboard(activeWallCompanyIdRef.current || activeCompanyId);
         };
 
-        const intervalId = setInterval(refreshQuietly, LEAD_ALERT_REFRESH_MS);
-        const requestChannel = supabase
-            .channel(`dispatch-wall-service-requests:${activeCompanyId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'service_requests',
-                    filter: `company_id=eq.${activeCompanyId}`,
-                },
-                refreshQuietly
-            )
-            .subscribe();
-        const slotChannel = supabase
-            .channel(`dispatch-wall-job-slots:${activeCompanyId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'job_schedule_slots',
-                    filter: `company_id=eq.${activeCompanyId}`,
-                },
-                refreshQuietly
-            )
-            .subscribe();
-        const eventChannel = supabase
-            .channel(`dispatch-wall-service-request-events:${activeCompanyId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'service_request_events',
-                    filter: `company_id=eq.${activeCompanyId}`,
-                },
-                refreshQuietly
-            )
-            .subscribe();
+        const subscribeRealtime = (source: 'initial' | 'retry' | 'online' = 'initial') => {
+            if (disposed || !activeWallCompanyIdRef.current) return;
+
+            const generation = realtimeGenerationRef.current + 1;
+            realtimeGenerationRef.current = generation;
+            clearWallReconnectTimer(reconnectTimeoutRef);
+            removeWallRealtimeChannels(realtimeChannelsRef);
+
+            if (!onlineRef.current) {
+                setRealtimeState('offline');
+                return;
+            }
+
+            const companyId = activeWallCompanyIdRef.current;
+            setRealtimeState(source === 'initial' ? 'connecting' : 'reconnecting');
+
+            const refreshFromRealtimeChange = () => requestLifecycleRefresh(false);
+            const handleSubscribeStatus = (status: string, error?: Error) => {
+                if (disposed || realtimeGenerationRef.current !== generation) return;
+
+                const normalizedStatus = normalizeDispatchWallRealtimeStatus(status);
+
+                if (shouldRefreshAfterDispatchWallRealtimeSubscribe(status)) {
+                    realtimeReconnectAttemptRef.current = 0;
+                    setReconnectAttempt(0);
+                    setLastRefreshError('');
+                    setRealtimeState('subscribed');
+                    requestLifecycleRefresh(true);
+                    return;
+                }
+
+                setRealtimeState(normalizedStatus);
+
+                const nextAttempt = realtimeReconnectAttemptRef.current + 1;
+                const reconnectPlan = getDispatchWallReconnectPlan({
+                    realtimeStatus: status,
+                    attempt: nextAttempt,
+                    online: onlineRef.current,
+                });
+
+                if (!reconnectPlan.shouldReconnect) return;
+
+                realtimeReconnectAttemptRef.current = nextAttempt;
+                setReconnectAttempt(nextAttempt);
+                setRealtimeState('reconnecting');
+                if (error?.message) setLastRefreshError(error.message);
+                clearWallReconnectTimer(reconnectTimeoutRef);
+                reconnectTimeoutRef.current = setTimeout(() => subscribeRealtime('retry'), reconnectPlan.delayMs);
+            };
+
+            realtimeChannelsRef.current = [
+                createDispatchWallRealtimeChannel(
+                    `dispatch-wall-service-requests:${companyId}`,
+                    'service_requests',
+                    companyId,
+                    refreshFromRealtimeChange,
+                    handleSubscribeStatus
+                ),
+                createDispatchWallRealtimeChannel(
+                    `dispatch-wall-job-slots:${companyId}`,
+                    'job_schedule_slots',
+                    companyId,
+                    refreshFromRealtimeChange,
+                    handleSubscribeStatus
+                ),
+                createDispatchWallRealtimeChannel(
+                    `dispatch-wall-service-request-events:${companyId}`,
+                    'service_request_events',
+                    companyId,
+                    refreshFromRealtimeChange,
+                    handleSubscribeStatus
+                ),
+            ];
+        };
+
+        const intervalId = setInterval(() => requestLifecycleRefresh(false), DISPATCH_WALL_FALLBACK_REFRESH_MS);
         const appStateSubscription = AppState.addEventListener('change', (state) => {
-            if (state === 'active') refreshQuietly();
+            if (state === 'active') requestLifecycleRefresh(false);
         });
         const focusTarget = globalThis as {
-            addEventListener?: (type: 'focus', listener: () => void) => void;
-            removeEventListener?: (type: 'focus', listener: () => void) => void;
+            addEventListener?: (type: 'focus' | 'online' | 'offline', listener: () => void) => void;
+            removeEventListener?: (type: 'focus' | 'online' | 'offline', listener: () => void) => void;
+        };
+        const documentTarget = Platform.OS === 'web'
+            ? globalThis.document as Document | undefined
+            : undefined;
+        const handleFocus = () => requestLifecycleRefresh(false);
+        const handleVisibilityChange = () => {
+            if (documentTarget?.visibilityState === 'visible') requestLifecycleRefresh(false);
+        };
+        const handleOnline = () => {
+            onlineRef.current = true;
+            setIsOnline(true);
+            setLastRefreshError('');
+            subscribeRealtime('online');
+            requestLifecycleRefresh(true);
+        };
+        const handleOffline = () => {
+            onlineRef.current = false;
+            setIsOnline(false);
+            setRealtimeState('offline');
+            clearWallReconnectTimer(reconnectTimeoutRef);
         };
 
-        focusTarget.addEventListener?.('focus', refreshQuietly);
+        onlineRef.current = isBrowserOnline();
+        setIsOnline(onlineRef.current);
+        subscribeRealtime('initial');
+        focusTarget.addEventListener?.('focus', handleFocus);
+        focusTarget.addEventListener?.('online', handleOnline);
+        focusTarget.addEventListener?.('offline', handleOffline);
+        documentTarget?.addEventListener('visibilitychange', handleVisibilityChange);
 
         return () => {
+            disposed = true;
+            realtimeGenerationRef.current += 1;
             clearInterval(intervalId);
-            void supabase.removeChannel(requestChannel);
-            void supabase.removeChannel(slotChannel);
-            void supabase.removeChannel(eventChannel);
+            clearWallReconnectTimer(reconnectTimeoutRef);
+            removeWallRealtimeChannels(realtimeChannelsRef);
             appStateSubscription.remove();
-            focusTarget.removeEventListener?.('focus', refreshQuietly);
+            focusTarget.removeEventListener?.('focus', handleFocus);
+            focusTarget.removeEventListener?.('online', handleOnline);
+            focusTarget.removeEventListener?.('offline', handleOffline);
+            documentTarget?.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [companyAccess?.company_id, demoMode]);
 
@@ -410,6 +523,16 @@ export default function DispatchWallScreen() {
     ), [requests, scheduleSlots, companyUsers, dataNow, timingEvents]);
     const companyName = getCompanyName(company) || (demoMode ? 'Bravo Dispatch' : 'Dispatch');
     const expandedItems = expandedSectionKey ? sections[expandedSectionKey] : [];
+    const connectionStatus = getDispatchWallConnectionStatus({
+        lastSuccessfulLoadAtMs: lastUpdatedAt ? Date.parse(lastUpdatedAt) : null,
+        nowMs: dataNow.getTime(),
+        realtimeState: demoMode ? 'subscribed' : realtimeState,
+        online: demoMode ? true : isOnline,
+        loading,
+        refreshInFlight: refreshing,
+        reconnectAttempt,
+        lastError: lastRefreshError,
+    });
 
     async function loadWallboard() {
         setLoading(true);
@@ -432,6 +555,7 @@ export default function DispatchWallScreen() {
             setCompanyChoices([]);
             setDataNow(new Date());
             setLastUpdatedAt(new Date().toISOString());
+            setLastRefreshError('');
             setMessage('');
             setLoading(false);
             return;
@@ -489,9 +613,14 @@ export default function DispatchWallScreen() {
     }
 
     async function refreshWallboard(companyId: string, options: { showErrors?: boolean } = {}) {
-        if (refreshInFlight.current) return;
+        if (refreshInFlight.current) return false;
+        if (!onlineRef.current) {
+            setRealtimeState('offline');
+            return false;
+        }
 
         refreshInFlight.current = true;
+        setRefreshing(true);
 
         try {
             const [loadedCompany, loadedUsers, loadedRequests] = await Promise.all([
@@ -511,13 +640,19 @@ export default function DispatchWallScreen() {
             setTimingEvents(loadedTimingEvents);
             setDataNow(new Date());
             setLastUpdatedAt(new Date().toISOString());
+            setLastRefreshError('');
             setMessage('');
+            return true;
         } catch (error) {
+            const errorMessage = getErrorMessage(error);
+            setLastRefreshError(errorMessage);
             if (options.showErrors) {
-                setMessage(`Could not load Dispatch Activity Board: ${getErrorMessage(error)}`);
+                setMessage(`Could not load Dispatch Activity Board: ${errorMessage}`);
             }
+            return false;
         } finally {
             refreshInFlight.current = false;
+            setRefreshing(false);
         }
     }
 
@@ -648,8 +783,8 @@ export default function DispatchWallScreen() {
             </View>
 
             <View style={wallStatusRowStyle}>
-                <Text style={liveStatusStyle}>
-                    ● Live{lastUpdatedAt ? ` · Updated ${formatShortTime(lastUpdatedAt)}` : ''}
+                <Text style={[liveStatusStyle, getWallStatusToneStyle(connectionStatus.tone)]}>
+                    {connectionStatus.label}
                     {demoMode ? ' · Demo data' : ''}
                 </Text>
                 {!!fullscreenMessage && <Text style={wallHintTextStyle}>{fullscreenMessage}</Text>}
@@ -1075,6 +1210,58 @@ function DetailRow({ label, value }: { label: string; value: string }) {
             <Text style={detailValueStyle}>{value}</Text>
         </View>
     );
+}
+
+function createDispatchWallRealtimeChannel(
+    channelName: string,
+    tableName: 'service_requests' | 'job_schedule_slots' | 'service_request_events',
+    companyId: string,
+    onChange: () => void,
+    onStatus: (status: string, error?: Error) => void
+) {
+    return supabase
+        .channel(channelName)
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: tableName,
+                filter: `company_id=eq.${companyId}`,
+            },
+            onChange
+        )
+        .subscribe(onStatus);
+}
+
+function clearWallReconnectTimer(timerRef: { current: ReturnType<typeof setTimeout> | null }) {
+    if (!timerRef.current) return;
+
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+}
+
+function removeWallRealtimeChannels(channelsRef: { current: RealtimeChannel[] }) {
+    const channels = channelsRef.current;
+
+    channelsRef.current = [];
+    channels.forEach((channel) => {
+        void supabase.removeChannel(channel);
+    });
+}
+
+function isBrowserOnline() {
+    if (typeof navigator === 'undefined') return true;
+
+    return navigator.onLine !== false;
+}
+
+function getWallStatusToneStyle(tone: DispatchWallStatusTone) {
+    if (tone === 'offline') return liveStatusOfflineStyle;
+    if (tone === 'warning') return liveStatusWarningStyle;
+    if (tone === 'loading') return liveStatusLoadingStyle;
+
+    return null;
 }
 
 async function resolveWallCompanyAccess(userId: string, requestedCompanyId: string): Promise<WallAccessResult> {
@@ -1984,6 +2171,18 @@ const liveStatusStyle = {
     color: '#86EFAC',
     fontSize: 13,
     fontWeight: '900' as const,
+};
+
+const liveStatusWarningStyle = {
+    color: '#FACC15',
+};
+
+const liveStatusOfflineStyle = {
+    color: '#F87171',
+};
+
+const liveStatusLoadingStyle = {
+    color: '#93C5FD',
 };
 
 const wallHintTextStyle = {
