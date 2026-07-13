@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -13,6 +13,10 @@ import {
     normalizeCompanyStatus,
 } from '../lib/companyPermissions';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
+import {
+    loadEstimateDraft,
+    saveEstimateDraftContext,
+} from '../lib/estimateDraft';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { recordHomeownerStatusUpdate, recordServiceRequestEvent } from '../lib/serviceRequestActivity';
 import {
@@ -30,6 +34,18 @@ import {
     type TechnicianNextJobStatusAction,
     type TechWorkflowAction,
 } from '../lib/techosWorkflow';
+import {
+    buildTechOSCurrentJobRoute,
+    buildTechOSEstimateRoute,
+    buildTechOSProviderHomeRoute,
+    getTechOSEstimateActionLabel,
+    hasTechOSClientHomeContext,
+    resolveTechOSDashboardVariant,
+    resolveTechOSJobDetailVariant,
+    type TechOSClientJobContext,
+    type TechOSDashboardVisualKey,
+    type TechOSJobDetailVisualKey,
+} from '../lib/techosClientAccess';
 import { useTheme } from '../theme/useTheme';
 
 declare const __DEV__: boolean;
@@ -199,7 +215,7 @@ const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check con
 const TECHOS_ASSIGNMENT_REFRESH_MS = 30_000;
 
 export default function TechOSScreen() {
-    const { companyId } = useLocalSearchParams<{ companyId?: string }>();
+    const { companyId, slotId } = useLocalSearchParams<{ companyId?: string | string[]; slotId?: string | string[] }>();
     const { width: viewportWidth } = useWindowDimensions();
     const { theme } = useTheme();
     const isPhoneLayout = viewportWidth <= 640;
@@ -245,10 +261,12 @@ export default function TechOSScreen() {
     const [timingPromptMessageBySlotId, setTimingPromptMessageBySlotId] = useState<Record<string, string>>({});
     const [timingPromptAnsweredBySlotId, setTimingPromptAnsweredBySlotId] = useState<Record<string, boolean>>({});
     const [updatingWorkflowSlotId, setUpdatingWorkflowSlotId] = useState('');
+    const [estimateDraftCountByPropertyId, setEstimateDraftCountByPropertyId] = useState<Record<string, number>>({});
     const [scheduleDiagnostics, setScheduleDiagnostics] = useState<TechOSScheduleDiagnostics | null>(null);
     const knownAssignedSlotIdsRef = useRef<Set<string>>(new Set());
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
+    const requestedSlotId = useMemo(() => firstParam(slotId), [slotId]);
     const visibleClients = useMemo(
         () => clients.filter((client) => normalizeStatus(client.status) !== 'archived'),
         [clients]
@@ -314,10 +332,31 @@ export default function TechOSScreen() {
         () => findUpcomingTimingPromptJob(currentFutureAssignedScheduleJobs.filter((job) => !timingPromptAnsweredBySlotId[job.slot.id])),
         [currentFutureAssignedScheduleJobs, timingPromptAnsweredBySlotId]
     );
+    const assignedEstimatePropertyIds = useMemo(
+        () => Array.from(new Set(
+            assignedScheduleJobs
+                .map((job) => job.request?.property_id || '')
+                .filter(Boolean)
+        )).sort(),
+        [assignedScheduleJobs]
+    );
+    const assignedEstimatePropertyKey = assignedEstimatePropertyIds.join('|');
 
     useEffect(() => {
         loadTechOSAccess();
     }, [requestedCompanyId]);
+
+    useEffect(() => {
+        if (!requestedSlotId) return;
+
+        if (assignedScheduleJobs.some((job) => job.slot.id === requestedSlotId)) {
+            setSelectedAssignedJobId(requestedSlotId);
+        }
+    }, [assignedScheduleJobs, requestedSlotId]);
+
+    useEffect(() => {
+        void loadAssignedEstimateDraftCounts();
+    }, [activeCompanyId, assignedEstimatePropertyKey, authUserId]);
 
     useEffect(() => {
         const technicianCompanyUserId = techOSMode === 'technician' ? membership?.id || '' : '';
@@ -397,6 +436,7 @@ export default function TechOSScreen() {
         setTimingPromptMessageBySlotId({});
         setTimingPromptAnsweredBySlotId({});
         setUpdatingWorkflowSlotId('');
+        setEstimateDraftCountByPropertyId({});
         setScheduleDiagnostics(null);
         knownAssignedSlotIdsRef.current = new Set();
 
@@ -940,6 +980,77 @@ export default function TechOSScreen() {
         } as any);
     }
 
+    function handleOpenClientHomeOS(job: TechAssignedScheduleJob) {
+        const context = getTechOSClientJobContext(job);
+
+        if (!hasTechOSClientHomeContext(context)) return;
+
+        router.push(buildTechOSProviderHomeRoute(context) as any);
+    }
+
+    async function handleOpenEstimateForAssignedJob(job: TechAssignedScheduleJob) {
+        const context = getTechOSClientJobContext(job);
+
+        if (context.propertyId && authUserId) {
+            await saveEstimateDraftContext({
+                company_id: context.companyId,
+                property_id: context.propertyId,
+                customer_home_name: getAssignedJobLocation(job),
+                service_request_id: context.serviceRequestId || null,
+                job_id: context.jobId || null,
+                schedule_slot_id: context.scheduleSlotId || null,
+                technician_company_user_id: job.slot.technician_company_user_id || null,
+                technician_name: membership?.full_name || authEmail || null,
+                issue_summary: job.request?.issue_summary || job.slot.notes || null,
+                source: 'techos',
+                updated_at: new Date().toISOString(),
+            }, {
+                userId: authUserId,
+                companyId: context.companyId,
+                propertyId: context.propertyId,
+            });
+
+            await loadAssignedEstimateDraftCounts();
+        }
+
+        router.push(buildTechOSEstimateRoute(context) as any);
+    }
+
+    function handleOpenEstimateWorkspace() {
+        const selectedCompanyId = activeCompanyId || membership?.company_id || requestedCompanyId;
+
+        if (!selectedCompanyId) return;
+
+        router.push({
+            pathname: '/estimate',
+            params: {
+                companyId: selectedCompanyId,
+                mode: 'techos',
+            },
+        } as any);
+    }
+
+    async function loadAssignedEstimateDraftCounts() {
+        if (!authUserId || !activeCompanyId || assignedEstimatePropertyIds.length === 0) {
+            setEstimateDraftCountByPropertyId({});
+            return;
+        }
+
+        const entries = await Promise.all(
+            assignedEstimatePropertyIds.map(async (propertyId) => {
+                const draftItems = await loadEstimateDraft({
+                    userId: authUserId,
+                    companyId: activeCompanyId,
+                    propertyId,
+                });
+
+                return [propertyId, draftItems.length] as const;
+            })
+        );
+
+        setEstimateDraftCountByPropertyId(Object.fromEntries(entries));
+    }
+
     async function handleCloseServiceVisit(job: TechAssignedScheduleJob) {
         const slotId = job.slot.id;
         const form = closeoutFormBySlotId[slotId] || createDefaultTechCloseoutForm();
@@ -1351,6 +1462,8 @@ export default function TechOSScreen() {
                         message={scheduleMessage}
                         scheduleDiagnostics={scheduleDiagnostics}
                         selectedJob={selectedAssignedJob}
+                        activeCompanyId={activeCompanyId}
+                        estimateDraftCountByPropertyId={estimateDraftCountByPropertyId}
                         technicianStatusMessageBySlotId={technicianStatusMessageBySlotId}
                         todayJobs={todayAssignedScheduleJobs}
                         closeoutFormBySlotId={closeoutFormBySlotId}
@@ -1364,6 +1477,11 @@ export default function TechOSScreen() {
                             }
                         }}
                         onCloseDetails={handleCloseAssignedJobDetails}
+                        onOpenClientHomeOS={handleOpenClientHomeOS}
+                        onOpenEstimateForAssignedJob={(job) => {
+                            void handleOpenEstimateForAssignedJob(job);
+                        }}
+                        onOpenEstimateWorkspace={handleOpenEstimateWorkspace}
                         onChangeCustomStatusNote={(slotId, note) => {
                             setCustomStatusNoteBySlotId((current) => ({
                                 ...current,
@@ -1830,6 +1948,7 @@ function TechOSDashboardCards({
         <View style={dashboardGridStyle}>
             {cards.map((card) => {
                 const active = activeView === card.key;
+                const variant = resolveTechOSDashboardVariant(card.key as TechOSDashboardVisualKey);
 
                 return (
                     <ThemedCard
@@ -1837,15 +1956,19 @@ function TechOSDashboardCards({
                         onPress={() => onSelectView(card.key)}
                         style={[
                             dashboardCardStyle,
+                            {
+                                backgroundColor: variant.backgroundColor,
+                                borderColor: variant.borderColor,
+                            },
                             card.priority && {
-                                borderColor: theme.colors.primary,
+                                borderColor: active ? theme.colors.primary : variant.borderColor,
                             },
                             active && {
                                 borderColor: theme.colors.primary,
-                                backgroundColor: theme.colors.secondaryButton,
                             },
                         ]}
                     >
+                        <View style={[dashboardCardAccentStyle, { backgroundColor: variant.accentColor }]} />
                         <Text style={[dashboardCardValueStyle, { color: theme.colors.text }]}>{card.value}</Text>
                         <Text style={[dashboardCardTitleStyle, { color: theme.colors.text }]}>{card.title}</Text>
                         <Text style={[dashboardCardNoteStyle, { color: theme.colors.mutedText }]}>{card.note}</Text>
@@ -1857,9 +1980,11 @@ function TechOSDashboardCards({
 }
 
 function TechOSDashboardContent({
+    activeCompanyId,
     activeJobs,
     activeView,
     calendarGroups,
+    estimateDraftCountByPropertyId,
     futureJobs,
     historyJobs,
     jobStats,
@@ -1877,7 +2002,10 @@ function TechOSDashboardContent({
     onChangeCloseoutForm,
     onChangeCustomStatusNote,
     onCloseServiceVisit,
+    onOpenClientHomeOS,
     onOpenDetails,
+    onOpenEstimateForAssignedJob,
+    onOpenEstimateWorkspace,
     onOpenFullJob,
     onRunTechnicianNextJobStatusAction,
     onRunWorkflowAction,
@@ -1885,9 +2013,11 @@ function TechOSDashboardContent({
     workflowMessageBySlotId,
     workflowStatusBySlotId,
 }: {
+    activeCompanyId: string;
     activeJobs: TechAssignedScheduleJob[];
     activeView: TechDashboardView;
     calendarGroups: Array<{ key: string; label: string; jobs: TechAssignedScheduleJob[] }>;
+    estimateDraftCountByPropertyId: Record<string, number>;
     futureJobs: TechAssignedScheduleJob[];
     historyJobs: TechAssignedScheduleJob[];
     jobStats: { closed: number; open: number; paused: number };
@@ -1905,7 +2035,10 @@ function TechOSDashboardContent({
     onChangeCloseoutForm: (slotId: string, updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (slotId: string, note: string) => void;
     onCloseServiceVisit: (job: TechAssignedScheduleJob) => void;
+    onOpenClientHomeOS: (job: TechAssignedScheduleJob) => void;
     onOpenDetails: (job: TechAssignedScheduleJob) => void;
+    onOpenEstimateForAssignedJob: (job: TechAssignedScheduleJob) => void;
+    onOpenEstimateWorkspace: () => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
     onRunTechnicianNextJobStatusAction: (job: TechAssignedScheduleJob, action: TechnicianNextJobStatusAction, currentVisitStatus: string) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
@@ -1920,11 +2053,14 @@ function TechOSDashboardContent({
                 closeoutForm={closeoutFormBySlotId[selectedJob.slot.id] || createDefaultTechCloseoutForm()}
                 customStatusNote={customStatusNoteBySlotId[selectedJob.slot.id] ?? selectedJob.slot.tech_status_note ?? ''}
                 job={selectedJob}
+                estimateDraftCount={selectedJob.request?.property_id ? estimateDraftCountByPropertyId[selectedJob.request.property_id] || 0 : 0}
                 message={workflowMessageBySlotId[selectedJob.slot.id] || ''}
                 onBack={onCloseDetails}
                 onChangeCloseoutForm={(updates) => onChangeCloseoutForm(selectedJob.slot.id, updates)}
                 onChangeCustomStatusNote={(note) => onChangeCustomStatusNote(selectedJob.slot.id, note)}
                 onCloseServiceVisit={() => onCloseServiceVisit(selectedJob)}
+                onOpenClientHomeOS={() => onOpenClientHomeOS(selectedJob)}
+                onOpenEstimate={() => onOpenEstimateForAssignedJob(selectedJob)}
                 onOpenFullJob={onOpenFullJob}
                 onRunTechnicianNextJobStatusAction={onRunTechnicianNextJobStatusAction}
                 onRunWorkflowAction={onRunWorkflowAction}
@@ -1984,9 +2120,9 @@ function TechOSDashboardContent({
 
     if (activeView === 'estimates') {
         return (
-            <TechOSModulePlaceholder
-                title="Estimates & Invoices"
-                message="Estimate and invoice workflow will open here after job scope, pricing, and approval are connected."
+            <TechOSEstimateWorkspacePanel
+                activeCompanyId={activeCompanyId}
+                onOpenEstimateWorkspace={onOpenEstimateWorkspace}
             />
         );
     }
@@ -2055,6 +2191,47 @@ function TechOSModulePlaceholder({ title, message }: { title: string; message: s
                 <Text style={[clientNameStyle, { color: theme.colors.text }]}>Coming soon</Text>
                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
             </View>
+        </ThemedCard>
+    );
+}
+
+function TechOSEstimateWorkspacePanel({
+    activeCompanyId,
+    onOpenEstimateWorkspace,
+}: {
+    activeCompanyId: string;
+    onOpenEstimateWorkspace: () => void;
+}) {
+    const { theme } = useTheme();
+    const variant = resolveTechOSDashboardVariant('estimates');
+
+    return (
+        <ThemedCard
+            style={[
+                assignedJobsSectionStyle,
+                {
+                    backgroundColor: variant.backgroundColor,
+                    borderColor: variant.borderColor,
+                },
+            ]}
+        >
+            <View style={[techSectionAccentStyle, { backgroundColor: variant.accentColor }]} />
+            <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>Estimates & Invoices</Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                Open the existing estimate draft workspace for the current company. Job-scoped estimates start from an assigned job detail.
+            </Text>
+            <ThemedButton
+                title="Open Estimate / Quote Workspace"
+                variant="secondary"
+                disabled={!activeCompanyId}
+                onPress={onOpenEstimateWorkspace}
+                style={assignedJobActionButtonStyle}
+            />
+            {!activeCompanyId && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    Company context is required before estimates can open.
+                </Text>
+            )}
         </ThemedCard>
     );
 }
@@ -2387,12 +2564,15 @@ function TechOSAssignedJobDetail({
     backLabel,
     closeoutForm,
     customStatusNote,
+    estimateDraftCount,
     job,
     message,
     onBack,
     onChangeCloseoutForm,
     onChangeCustomStatusNote,
     onCloseServiceVisit,
+    onOpenClientHomeOS,
+    onOpenEstimate,
     onOpenFullJob,
     onRunTechnicianNextJobStatusAction,
     onRunWorkflowAction,
@@ -2403,12 +2583,15 @@ function TechOSAssignedJobDetail({
     backLabel: string;
     closeoutForm: TechCloseoutForm;
     customStatusNote: string;
+    estimateDraftCount: number;
     job: TechAssignedScheduleJob;
     message: string;
     onBack: () => void;
     onChangeCloseoutForm: (updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (note: string) => void;
     onCloseServiceVisit: () => void;
+    onOpenClientHomeOS: () => void;
+    onOpenEstimate: () => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
     onRunTechnicianNextJobStatusAction: (job: TechAssignedScheduleJob, action: TechnicianNextJobStatusAction, currentVisitStatus: string) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
@@ -2420,6 +2603,9 @@ function TechOSAssignedJobDetail({
     const title = getAssignedJobTitle(job);
     const location = getAssignedJobLocation(job);
     const trimmedCustomStatusNote = customStatusNote.trim();
+    const clientContext = getTechOSClientJobContext(job);
+    const canOpenClientHomeOS = hasTechOSClientHomeContext(clientContext);
+    const estimateActionLabel = getTechOSEstimateActionLabel(estimateDraftCount);
 
     return (
         <View style={[techJobDetailStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
@@ -2439,28 +2625,70 @@ function TechOSAssignedJobDetail({
                 />
             </View>
 
-            <View style={techJobDetailInfoGridStyle}>
-                <TechJobDetailInfo label="Arrival Window" value={formatArrivalWindow(job.slot)} />
-                <TechJobDetailInfo label="Status" value={formatTechOSStatusLabel(workflowStatus)} />
-                <TechJobDetailInfo label="Priority" value={formatLabel(job.slot.priority || job.request?.priority || 'normal')} />
-                <TechJobDetailInfo label="Home / Request" value={location} />
-                {!!job.slot.tech_status_note && (
-                    <TechJobDetailInfo label="Tech Status Note" value={job.slot.tech_status_note} />
+            <TechOSDetailSection
+                title="Customer / Home Information"
+                description="Client HomeOS opens in provider mode for this company and property."
+                variantKey="customer"
+            >
+                <View style={techJobDetailInfoGridStyle}>
+                    <TechJobDetailInfo label="Home / Request" value={location} />
+                    <TechJobDetailInfo label="Arrival Window" value={formatArrivalWindow(job.slot)} />
+                    <TechJobDetailInfo label="Status" value={formatTechOSStatusLabel(workflowStatus)} />
+                    <TechJobDetailInfo label="Priority" value={formatLabel(job.slot.priority || job.request?.priority || 'normal')} />
+                    {!!job.request?.property_id && (
+                        <TechJobDetailInfo label="Property" value={shortId(job.request.property_id)} />
+                    )}
+                    {!!job.request?.id && (
+                        <TechJobDetailInfo label="Request" value={shortId(job.request.id)} />
+                    )}
+                    {!!job.slot.tech_status_note && (
+                        <TechJobDetailInfo label="Tech Status Note" value={job.slot.tech_status_note} />
+                    )}
+                    {!!job.slot.visit_outcome && (
+                        <TechJobDetailInfo label="Visit Outcome" value={getServiceVisitOutcomeLabel(job.slot.visit_outcome)} />
+                    )}
+                </View>
+                <View style={techWorkflowActionGridStyle}>
+                    <ThemedButton
+                        title="Open Client HomeOS"
+                        variant="secondary"
+                        disabled={!canOpenClientHomeOS}
+                        onPress={onOpenClientHomeOS}
+                        style={techWorkflowActionButtonStyle}
+                        textStyle={techWorkflowActionButtonTextStyle}
+                    />
+                    {!!job.slot.job_id && (
+                        <ThemedButton
+                            title="Open Full Job"
+                            variant="secondary"
+                            onPress={() => onOpenFullJob(job)}
+                            style={techWorkflowActionButtonStyle}
+                            textStyle={techWorkflowActionButtonTextStyle}
+                        />
+                    )}
+                </View>
+                {!canOpenClientHomeOS && (
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        Client HomeOS needs an assigned request with a property id.
+                    </Text>
                 )}
-                {!!job.slot.visit_outcome && (
-                    <TechJobDetailInfo label="Visit Outcome" value={getServiceVisitOutcomeLabel(job.slot.visit_outcome)} />
-                )}
-            </View>
+            </TechOSDetailSection>
 
-            <View style={[techJobDetailSummaryStyle, { borderColor: theme.colors.border }]}>
-                <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Request Summary</Text>
+            <TechOSDetailSection
+                title="Request Summary"
+                description="The homeowner or dispatch request context for this appointment."
+                variantKey="request"
+            >
                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                     {job.request?.issue_summary || job.slot.notes || 'No request summary provided.'}
                 </Text>
-            </View>
+            </TechOSDetailSection>
 
-            <View style={[techMoreStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Technician Status / Next Job</Text>
+            <TechOSDetailSection
+                title="Technician Status / Next Job"
+                description="These controls are technician-level signals. They do not change this customer's visit status."
+                variantKey="status"
+            >
                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                     These controls are technician-level signals. They do not change this customer's visit status.
                 </Text>
@@ -2482,29 +2710,37 @@ function TechOSAssignedJobDetail({
                         {technicianStatusMessage}
                     </Text>
                 )}
-            </View>
+            </TechOSDetailSection>
 
-            <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Technician Workflow</Text>
-            <View style={techWorkflowActionGridStyle}>
-                {TECH_WORKFLOW_ACTIONS.map((action) => {
-                    const active = normalizeStatus(workflowStatus) === normalizeStatus(action.status);
+            <TechOSDetailSection
+                title="Technician Workflow"
+                description="Current-visit status actions for this assigned appointment."
+                variantKey="workflow"
+            >
+                <View style={techWorkflowActionGridStyle}>
+                    {TECH_WORKFLOW_ACTIONS.map((action) => {
+                        const active = normalizeStatus(workflowStatus) === normalizeStatus(action.status);
 
-                    return (
-                        <ThemedButton
-                            key={action.key}
-                            title={updating && !active ? 'Updating...' : action.label}
-                            variant={active ? 'primary' : 'secondary'}
-                            disabled={updating}
-                            onPress={() => onRunWorkflowAction(job, action)}
-                            style={techWorkflowActionButtonStyle}
-                            textStyle={techWorkflowActionButtonTextStyle}
-                        />
-                    );
-                })}
-            </View>
+                        return (
+                            <ThemedButton
+                                key={action.key}
+                                title={updating && !active ? 'Updating...' : action.label}
+                                variant={active ? 'primary' : 'secondary'}
+                                disabled={updating}
+                                onPress={() => onRunWorkflowAction(job, action)}
+                                style={techWorkflowActionButtonStyle}
+                                textStyle={techWorkflowActionButtonTextStyle}
+                            />
+                        );
+                    })}
+                </View>
+            </TechOSDetailSection>
 
-            <View style={[techMoreStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Job Status Note</Text>
+            <TechOSDetailSection
+                title="Job Status Note"
+                description="Optional field note for dispatch and job coordination."
+                variantKey="note"
+            >
                 <TextInput
                     value={customStatusNote}
                     onChangeText={onChangeCustomStatusNote}
@@ -2527,10 +2763,43 @@ function TechOSAssignedJobDetail({
                     style={assignedJobActionButtonStyle}
                     textStyle={techWorkflowActionButtonTextStyle}
                 />
-            </View>
+            </TechOSDetailSection>
 
-            <View style={[techMoreStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Finish Visit</Text>
+            <TechOSDetailSection
+                title="Estimate / Quote Actions"
+                description="Open the existing estimate draft for this company, property, and job context."
+                variantKey="estimate"
+            >
+                <View style={techWorkflowActionGridStyle}>
+                    <ThemedButton
+                        title={estimateActionLabel}
+                        variant="secondary"
+                        disabled={!clientContext.companyId || !clientContext.propertyId}
+                        onPress={onOpenEstimate}
+                        style={techWorkflowActionButtonStyle}
+                        textStyle={techWorkflowActionButtonTextStyle}
+                    />
+                    <ThemedButton
+                        title="Open Client HomeOS"
+                        variant="secondary"
+                        disabled={!canOpenClientHomeOS}
+                        onPress={onOpenClientHomeOS}
+                        style={techWorkflowActionButtonStyle}
+                        textStyle={techWorkflowActionButtonTextStyle}
+                    />
+                </View>
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    {estimateDraftCount > 0
+                        ? `${estimateDraftCount} item${estimateDraftCount === 1 ? '' : 's'} already in this draft.`
+                        : 'No items have been added to this job estimate yet.'}
+                </Text>
+            </TechOSDetailSection>
+
+            <TechOSDetailSection
+                title="Finish Visit"
+                description="Choose the real visit outcome. This closes the current appointment and moves the request to the right queue."
+                variantKey="finish"
+            >
                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                     Choose the real visit outcome. This closes the current appointment and moves the request to the right queue.
                 </Text>
@@ -2619,16 +2888,7 @@ function TechOSAssignedJobDetail({
                         This visit is already closed.
                     </Text>
                 )}
-            </View>
-
-            {!!job.slot.job_id && (
-                <ThemedButton
-                    title="Open Full Job"
-                    variant="secondary"
-                    onPress={() => onOpenFullJob(job)}
-                    style={assignedJobActionButtonStyle}
-                />
-            )}
+            </TechOSDetailSection>
 
             {!!message && (
                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
@@ -2644,6 +2904,38 @@ function TechJobDetailInfo({ label, value }: { label: string; value: string }) {
         <View style={[techJobDetailInfoStyle, { borderColor: theme.colors.border }]}>
             <Text style={[techJobDetailInfoLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
             <Text style={[techJobDetailInfoValueStyle, { color: theme.colors.text }]} numberOfLines={2}>{value}</Text>
+        </View>
+    );
+}
+
+function TechOSDetailSection({
+    children,
+    description,
+    title,
+    variantKey,
+}: {
+    children: ReactNode;
+    description: string;
+    title: string;
+    variantKey: TechOSJobDetailVisualKey;
+}) {
+    const { theme } = useTheme();
+    const variant = resolveTechOSJobDetailVariant(variantKey);
+
+    return (
+        <View
+            style={[
+                techJobDetailSectionStyle,
+                {
+                    backgroundColor: variant.backgroundColor,
+                    borderColor: variant.borderColor,
+                },
+            ]}
+        >
+            <View style={[techSectionAccentStyle, { backgroundColor: variant.accentColor }]} />
+            <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>{title}</Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{description}</Text>
+            {children}
         </View>
     );
 }
@@ -3582,6 +3874,16 @@ function getAssignedJobLocation(job: TechAssignedScheduleJob) {
     return 'Assigned schedule slot';
 }
 
+function getTechOSClientJobContext(job: TechAssignedScheduleJob): TechOSClientJobContext {
+    return {
+        companyId: job.slot.company_id || job.request?.company_id || '',
+        propertyId: job.request?.property_id || null,
+        serviceRequestId: job.request?.id || job.slot.service_request_id || null,
+        scheduleSlotId: job.slot.id || null,
+        jobId: job.slot.job_id || job.request?.converted_job_id || null,
+    };
+}
+
 function formatScheduleRange(slot: TechScheduleSlot) {
     const start = formatDateTime(slot.start_at);
     const end = formatTime(slot.end_at);
@@ -4004,6 +4306,13 @@ const dashboardCardStyle = {
     padding: 13,
 };
 
+const dashboardCardAccentStyle = {
+    borderRadius: 999,
+    height: 4,
+    marginBottom: 10,
+    width: 44,
+};
+
 const dashboardCardValueStyle = {
     fontSize: 24,
     fontWeight: '900' as const,
@@ -4124,6 +4433,13 @@ const techJobDetailStyle = {
     padding: 14,
 };
 
+const techSectionAccentStyle = {
+    borderRadius: 999,
+    height: 4,
+    marginBottom: 10,
+    width: 54,
+};
+
 const techJobDetailHeaderStyle = {
     alignItems: 'center' as const,
     flexDirection: 'row' as const,
@@ -4171,7 +4487,7 @@ const techJobDetailInfoValueStyle = {
     marginTop: 3,
 };
 
-const techJobDetailSummaryStyle = {
+const techJobDetailSectionStyle = {
     borderRadius: 14,
     borderWidth: 1,
     marginBottom: 14,
@@ -4199,13 +4515,6 @@ const techWorkflowActionButtonStyle = {
 const techWorkflowActionButtonTextStyle = {
     fontSize: 12,
     lineHeight: 16,
-};
-
-const techMoreStatusPanelStyle = {
-    borderRadius: 16,
-    borderWidth: 1,
-    marginTop: 14,
-    padding: 12,
 };
 
 const techCustomStatusInputStyle = {

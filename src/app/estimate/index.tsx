@@ -9,6 +9,8 @@ import {
 } from '../../lib/companyPermissions';
 import {
     EstimateDraftItem,
+    EstimateDraftContext,
+    loadEstimateDraftContext,
     loadEstimateDraft,
     removeItemFromEstimateDraft,
 } from '../../lib/estimateDraft';
@@ -17,6 +19,7 @@ import {
     readProviderModeParams,
     validateProviderModeAccess,
 } from '../../lib/providerMode';
+import { getProviderReturnActionLabel } from '../../lib/techosClientAccess';
 
 const estimateFoundationSections = [
     {
@@ -59,6 +62,7 @@ export default function EstimateScreen() {
     const [message, setMessage] = useState('Loading estimate draft...');
     const [checkingAccess, setCheckingAccess] = useState(true);
     const [estimateAccess, setEstimateAccess] = useState<CompanyPermissionAccess | null>(null);
+    const [draftContext, setDraftContext] = useState<EstimateDraftContext | null>(null);
     const [selectedChoiceId, setSelectedChoiceId] = useState('');
 
     useEffect(() => {
@@ -68,6 +72,7 @@ export default function EstimateScreen() {
     async function checkAccess() {
         setCheckingAccess(true);
         setEstimateAccess(null);
+        setDraftContext(null);
         setItems([]);
         setMessage('Loading estimate draft...');
 
@@ -122,13 +127,18 @@ export default function EstimateScreen() {
     }
 
     async function loadDraft(access: CompanyPermissionAccess) {
-        const draftItems = await loadEstimateDraft({
+        const scope = {
             userId: access.userId,
             companyId: access.companyId,
             propertyId: requestedPropertyId,
-        });
+        };
+        const [draftItems, nextDraftContext] = await Promise.all([
+            loadEstimateDraft(scope),
+            loadEstimateDraftContext(scope),
+        ]);
 
         setItems(draftItems);
+        setDraftContext(nextDraftContext);
         setMessage(providerModeContext && draftItems.length === 0
             ? 'No provider estimate draft found.'
             : ''
@@ -266,7 +276,11 @@ export default function EstimateScreen() {
                                 onPress={goBackToItem}
                                 style={secondaryButtonStyle}
                             >
-                                <Text style={secondaryButtonTextStyle}>Back to Item</Text>
+                                <Text style={secondaryButtonTextStyle}>
+                                    {getProviderReturnActionLabel(requestedReturnTo) === 'Back to Current Job'
+                                        ? 'Back to Current Job'
+                                        : 'Back to Item'}
+                                </Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity
@@ -306,11 +320,20 @@ export default function EstimateScreen() {
                 <View style={sectionStyle}>
                     {renderSectionHeader('Customer / Home', 'Provider drafts stay scoped to this company and property.')}
                     <View style={infoGridStyle}>
+                        {!!draftContext?.customer_home_name && renderInfoChip('Home', draftContext.customer_home_name)}
                         {renderInfoChip('Company', shortId(estimateAccess.companyId))}
                         {renderInfoChip('Property', shortId(requestedPropertyId))}
                         {renderInfoChip('Context', providerModeContext ? 'Provider Mode' : requestedMode || 'ManagementOS')}
+                        {!!draftContext?.service_request_id && renderInfoChip('Request', shortId(draftContext.service_request_id))}
+                        {!!draftContext?.job_id && renderInfoChip('Job', shortId(draftContext.job_id))}
+                        {!!draftContext?.technician_name && renderInfoChip('Technician', draftContext.technician_name)}
                         {renderInfoChip('Pricing', 'Price book coming soon')}
                     </View>
+                    {!!draftContext?.issue_summary && (
+                        <Text style={contextSummaryStyle}>
+                            {draftContext.issue_summary}
+                        </Text>
+                    )}
                 </View>
 
                 {!!message && (
@@ -596,6 +619,14 @@ const secondaryButtonTextStyle = {
 
 const sectionStyle = {
     marginBottom: 18,
+};
+
+const contextSummaryStyle = {
+    color: '#637083',
+    fontSize: 14,
+    fontWeight: '800' as const,
+    lineHeight: 20,
+    marginTop: 10,
 };
 
 const messageBoxStyle = {

@@ -28,6 +28,20 @@ export type EstimateDraftItem = {
     created_at: string | null;
 };
 
+export type EstimateDraftContext = {
+    company_id: string;
+    property_id: string | null;
+    customer_home_name: string | null;
+    service_request_id: string | null;
+    job_id: string | null;
+    schedule_slot_id: string | null;
+    technician_company_user_id: string | null;
+    technician_name: string | null;
+    issue_summary: string | null;
+    source: 'techos' | 'provider_mode' | 'management' | 'homeos';
+    updated_at: string;
+};
+
 function isEstimateDraftItem(value: unknown): value is EstimateDraftItem {
     if (!value || typeof value !== 'object') return false;
 
@@ -48,6 +62,10 @@ function draftStorageKey(scope?: EstimateDraftScope | null) {
     const propertyKey = scope.propertyId ? String(scope.propertyId).trim() : 'company';
 
     return `${ESTIMATE_DRAFT_KEY}_${scope.userId}_${scope.companyId}_${propertyKey}`;
+}
+
+function draftContextStorageKey(scope?: EstimateDraftScope | null) {
+    return `${draftStorageKey(scope)}_context`;
 }
 
 function normalizeDraftItem(item: EstimateDraftItem): EstimateDraftItem {
@@ -112,4 +130,62 @@ export async function removeItemFromEstimateDraft(id: string, scope?: EstimateDr
 
 export async function clearEstimateDraft(scope?: EstimateDraftScope | null) {
     await AsyncStorage.removeItem(draftStorageKey(scope));
+    await AsyncStorage.removeItem(draftContextStorageKey(scope));
+}
+
+export async function loadEstimateDraftContext(scope?: EstimateDraftScope | null) {
+    const rawContext = await AsyncStorage.getItem(draftContextStorageKey(scope));
+
+    if (!rawContext) return null;
+
+    try {
+        return normalizeEstimateDraftContext(JSON.parse(rawContext));
+    } catch {
+        return null;
+    }
+}
+
+export async function saveEstimateDraftContext(context: EstimateDraftContext, scope?: EstimateDraftScope | null) {
+    await AsyncStorage.setItem(draftContextStorageKey(scope), JSON.stringify(normalizeEstimateDraftContext(context)));
+}
+
+function normalizeEstimateDraftContext(value: unknown): EstimateDraftContext | null {
+    if (!value || typeof value !== 'object') return null;
+
+    const record = value as Partial<EstimateDraftContext>;
+    const companyId = readText(record.company_id);
+
+    if (!companyId) return null;
+
+    return {
+        company_id: companyId,
+        property_id: readNullableText(record.property_id),
+        customer_home_name: readNullableText(record.customer_home_name),
+        service_request_id: readNullableText(record.service_request_id),
+        job_id: readNullableText(record.job_id),
+        schedule_slot_id: readNullableText(record.schedule_slot_id),
+        technician_company_user_id: readNullableText(record.technician_company_user_id),
+        technician_name: readNullableText(record.technician_name),
+        issue_summary: readNullableText(record.issue_summary),
+        source: normalizeEstimateDraftContextSource(record.source),
+        updated_at: readText(record.updated_at) || new Date().toISOString(),
+    };
+}
+
+function normalizeEstimateDraftContextSource(value: unknown): EstimateDraftContext['source'] {
+    const source = readText(value);
+
+    return ['techos', 'provider_mode', 'management', 'homeos'].includes(source)
+        ? source as EstimateDraftContext['source']
+        : 'techos';
+}
+
+function readNullableText(value: unknown) {
+    const text = readText(value);
+
+    return text || null;
+}
+
+function readText(value: unknown) {
+    return String(value || '').trim();
 }

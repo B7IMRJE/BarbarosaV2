@@ -26,6 +26,7 @@ import {
   providerModeQueryParams,
   readProviderModeParams,
 } from '../lib/providerMode';
+import { getProviderReturnActionLabel } from '../lib/techosClientAccess';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -657,7 +658,7 @@ export default function HomeScreen() {
                     textStyle={{ fontSize: scaleFont(12) }}
                   />
                   <ThemedButton
-                    title="Customer Detail"
+                    title={getProviderReturnActionLabel(providerModeContext.returnTo)}
                     onPress={() => router.replace((providerModeContext.returnTo || `/super-admin/company/${providerModeContext.companyId}/client/${providerModeContext.propertyId}`) as any)}
                     style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(12) }}
                     textStyle={{ fontSize: scaleFont(12) }}

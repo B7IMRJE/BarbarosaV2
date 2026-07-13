@@ -49,6 +49,7 @@ import {
     readProviderModeParams,
     validateProviderModeAccess,
 } from '../../lib/providerMode';
+import { getProviderReturnActionLabel } from '../../lib/techosClientAccess';
 import {
     addProviderStagedWork,
     clearProviderStagedWorkForItem,
@@ -3506,7 +3507,7 @@ export default function ItemScreen() {
                                     textStyle={scaleStyle(providerModeButtonTextStyle)}
                                 />
                                 <ThemedButton
-                                    title="Customer Detail"
+                                    title={getProviderReturnActionLabel(providerModeContext.returnTo)}
                                     onPress={() => router.replace((providerModeContext.returnTo || `/super-admin/company/${providerModeContext.companyId}/client/${providerModeContext.propertyId}`) as any)}
                                     style={scaleStyle(providerModeButtonStyle)}
                                     textStyle={scaleStyle(providerModeButtonTextStyle)}
