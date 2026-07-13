@@ -46,6 +46,16 @@ import {
     type TechOSDashboardVisualKey,
     type TechOSJobDetailVisualKey,
 } from '../lib/techosClientAccess';
+import {
+    resolveTechOSTheme,
+    techOSThemeOptions,
+    type TechOSThemeId,
+    type TechOSThemePalette,
+} from '../lib/techosAppearance';
+import {
+    loadTechOSThemePreference,
+    saveTechOSThemePreference,
+} from '../lib/techosAppearancePreference';
 import { useTheme } from '../theme/useTheme';
 
 declare const __DEV__: boolean;
@@ -262,6 +272,9 @@ export default function TechOSScreen() {
     const [timingPromptAnsweredBySlotId, setTimingPromptAnsweredBySlotId] = useState<Record<string, boolean>>({});
     const [updatingWorkflowSlotId, setUpdatingWorkflowSlotId] = useState('');
     const [estimateDraftCountByPropertyId, setEstimateDraftCountByPropertyId] = useState<Record<string, number>>({});
+    const [techOSThemeId, setTechOSThemeId] = useState<TechOSThemeId>('professional');
+    const [showAppearancePanel, setShowAppearancePanel] = useState(false);
+    const [appearanceMessage, setAppearanceMessage] = useState('');
     const [scheduleDiagnostics, setScheduleDiagnostics] = useState<TechOSScheduleDiagnostics | null>(null);
     const knownAssignedSlotIdsRef = useRef<Set<string>>(new Set());
 
@@ -341,6 +354,7 @@ export default function TechOSScreen() {
         [assignedScheduleJobs]
     );
     const assignedEstimatePropertyKey = assignedEstimatePropertyIds.join('|');
+    const techOSTheme = useMemo(() => resolveTechOSTheme(techOSThemeId), [techOSThemeId]);
 
     useEffect(() => {
         loadTechOSAccess();
@@ -357,6 +371,10 @@ export default function TechOSScreen() {
     useEffect(() => {
         void loadAssignedEstimateDraftCounts();
     }, [activeCompanyId, assignedEstimatePropertyKey, authUserId]);
+
+    useEffect(() => {
+        void loadStoredTechOSTheme();
+    }, [authUserId]);
 
     useEffect(() => {
         const technicianCompanyUserId = techOSMode === 'technician' ? membership?.id || '' : '';
@@ -1051,6 +1069,22 @@ export default function TechOSScreen() {
         setEstimateDraftCountByPropertyId(Object.fromEntries(entries));
     }
 
+    async function loadStoredTechOSTheme() {
+        const nextThemeId = await loadTechOSThemePreference(authUserId);
+
+        setTechOSThemeId(nextThemeId);
+        setAppearanceMessage('');
+    }
+
+    async function handleSelectTechOSTheme(themeId: TechOSThemeId) {
+        setTechOSThemeId(themeId);
+        setAppearanceMessage(`${resolveTechOSTheme(themeId).label} selected.`);
+
+        if (authUserId) {
+            await saveTechOSThemePreference(authUserId, themeId);
+        }
+    }
+
     async function handleCloseServiceVisit(job: TechAssignedScheduleJob) {
         const slotId = job.slot.id;
         const form = closeoutFormBySlotId[slotId] || createDefaultTechCloseoutForm();
@@ -1362,7 +1396,7 @@ export default function TechOSScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            style={{ flex: 1, backgroundColor: techOSTheme.screenBackgroundColor || theme.colors.background }}
             contentContainerStyle={{ padding: pagePadding, paddingBottom: 36, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 980, minWidth: 0 }}>
@@ -1384,8 +1418,8 @@ export default function TechOSScreen() {
                     signingOut={signingOut}
                 />
 
-                {!!dispatchCompanyId && (
-                    <View style={techQuickActionRowStyle}>
+                <View style={techQuickActionRowStyle}>
+                    {!!dispatchCompanyId && (
                         <ThemedButton
                             title="Open Dispatch"
                             variant="secondary"
@@ -1393,7 +1427,24 @@ export default function TechOSScreen() {
                             style={techQuickActionButtonStyle}
                             textStyle={{ fontSize: 14 }}
                         />
-                    </View>
+                    )}
+                    <ThemedButton
+                        title={showAppearancePanel ? 'Hide Appearance' : 'Appearance'}
+                        variant="secondary"
+                        onPress={() => setShowAppearancePanel((current) => !current)}
+                        style={techQuickActionButtonStyle}
+                        textStyle={{ fontSize: 14 }}
+                    />
+                </View>
+
+                {showAppearancePanel && (
+                    <TechOSAppearancePanel
+                        message={appearanceMessage}
+                        selectedThemeId={techOSTheme.id}
+                        onSelectTheme={(themeId) => {
+                            void handleSelectTechOSTheme(themeId);
+                        }}
+                    />
                 )}
 
                 {!isTechnicianWorkspace && (
@@ -1442,6 +1493,7 @@ export default function TechOSScreen() {
                         setDashboardView(view);
                     }}
                     scheduleCount={calendarScheduleGroups.length}
+                    techOSTheme={techOSTheme}
                     todayCount={dashboardTodayCount}
                     upcomingCount={dashboardFutureCount}
                 />
@@ -1464,6 +1516,7 @@ export default function TechOSScreen() {
                         selectedJob={selectedAssignedJob}
                         activeCompanyId={activeCompanyId}
                         estimateDraftCountByPropertyId={estimateDraftCountByPropertyId}
+                        techOSTheme={techOSTheme}
                         technicianStatusMessageBySlotId={technicianStatusMessageBySlotId}
                         todayJobs={todayAssignedScheduleJobs}
                         closeoutFormBySlotId={closeoutFormBySlotId}
@@ -1746,6 +1799,74 @@ function TechOSProfileHeader({
     );
 }
 
+function TechOSAppearancePanel({
+    message,
+    selectedThemeId,
+    onSelectTheme,
+}: {
+    message: string;
+    selectedThemeId: TechOSThemeId;
+    onSelectTheme: (themeId: TechOSThemeId) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard style={techAppearancePanelStyle}>
+            <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>TechOS Appearance</Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                Choose a technician display palette. This does not change the homeowner HomeOS theme.
+            </Text>
+
+            <View style={techAppearanceGridStyle}>
+                {techOSThemeOptions.map((option) => {
+                    const selected = option.id === selectedThemeId;
+
+                    return (
+                        <TouchableOpacity
+                            key={option.id}
+                            activeOpacity={0.84}
+                            onPress={() => onSelectTheme(option.id)}
+                            style={[
+                                techAppearanceOptionStyle,
+                                {
+                                    backgroundColor: option.panelBackgroundColor,
+                                    borderColor: selected ? option.activeBorderColor : option.panelBorderColor,
+                                },
+                                selected && techAppearanceOptionSelectedStyle,
+                            ]}
+                        >
+                            <View style={[dashboardCardAccentStyle, { backgroundColor: option.activeBorderColor }]} />
+                            <Text style={[jobTitleStyle, { color: option.textColor }]}>{option.label}</Text>
+                            <Text style={[clientMetaTextStyle, { color: option.mutedTextColor }]}>{option.description}</Text>
+                            <View style={techAppearanceSwatchRowStyle}>
+                                {[
+                                    option.dashboard.jobs.accentColor,
+                                    option.dashboard.schedule.accentColor,
+                                    option.dashboard.estimates.accentColor,
+                                    option.dashboard.messages.accentColor,
+                                    option.jobDetail.finish.accentColor,
+                                ].map((color, index) => (
+                                    <View
+                                        key={`${option.id}-${color}-${index}`}
+                                        style={[techAppearanceSwatchStyle, { backgroundColor: color, borderColor: option.panelBorderColor }]}
+                                    />
+                                ))}
+                            </View>
+                            <Text style={[jobNumberStyle, { color: option.mutedTextColor }]}>
+                                {selected ? 'Selected' : 'Tap to select'}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+
+            {!!message && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText, marginTop: 10 }]}>{message}</Text>
+            )}
+        </ThemedCard>
+    );
+}
+
 function AccessMessage({
     title,
     message,
@@ -1877,6 +1998,7 @@ function TechOSDashboardCards({
     jobsCount,
     onSelectView,
     scheduleCount,
+    techOSTheme,
     todayCount,
     upcomingCount,
 }: {
@@ -1885,6 +2007,7 @@ function TechOSDashboardCards({
     jobsCount: number;
     onSelectView: (view: TechDashboardView) => void;
     scheduleCount: number;
+    techOSTheme: TechOSThemePalette;
     todayCount: number;
     upcomingCount: number;
 }) {
@@ -1942,13 +2065,11 @@ function TechOSDashboardCards({
             note: 'placeholder',
         },
     ];
-    const { theme } = useTheme();
-
     return (
         <View style={dashboardGridStyle}>
             {cards.map((card) => {
                 const active = activeView === card.key;
-                const variant = resolveTechOSDashboardVariant(card.key as TechOSDashboardVisualKey);
+                const variant = resolveTechOSDashboardVariant(card.key as TechOSDashboardVisualKey, techOSTheme.id);
 
                 return (
                     <ThemedCard
@@ -1961,17 +2082,17 @@ function TechOSDashboardCards({
                                 borderColor: variant.borderColor,
                             },
                             card.priority && {
-                                borderColor: active ? theme.colors.primary : variant.borderColor,
+                                borderColor: active ? techOSTheme.activeBorderColor : variant.borderColor,
                             },
                             active && {
-                                borderColor: theme.colors.primary,
+                                borderColor: techOSTheme.activeBorderColor,
                             },
                         ]}
                     >
                         <View style={[dashboardCardAccentStyle, { backgroundColor: variant.accentColor }]} />
-                        <Text style={[dashboardCardValueStyle, { color: theme.colors.text }]}>{card.value}</Text>
-                        <Text style={[dashboardCardTitleStyle, { color: theme.colors.text }]}>{card.title}</Text>
-                        <Text style={[dashboardCardNoteStyle, { color: theme.colors.mutedText }]}>{card.note}</Text>
+                        <Text style={[dashboardCardValueStyle, { color: techOSTheme.textColor }]}>{card.value}</Text>
+                        <Text style={[dashboardCardTitleStyle, { color: techOSTheme.textColor }]}>{card.title}</Text>
+                        <Text style={[dashboardCardNoteStyle, { color: techOSTheme.mutedTextColor }]}>{card.note}</Text>
                     </ThemedCard>
                 );
             })}
@@ -1992,6 +2113,7 @@ function TechOSDashboardContent({
     message,
     scheduleDiagnostics,
     selectedJob,
+    techOSTheme,
     technicianStatusMessageBySlotId,
     todayJobs,
     closeoutFormBySlotId,
@@ -2025,6 +2147,7 @@ function TechOSDashboardContent({
     message: string;
     scheduleDiagnostics: TechOSScheduleDiagnostics | null;
     selectedJob: TechAssignedScheduleJob | null;
+    techOSTheme: TechOSThemePalette;
     technicianStatusMessageBySlotId: Record<string, string>;
     todayJobs: TechAssignedScheduleJob[];
     closeoutFormBySlotId: Record<string, TechCloseoutForm>;
@@ -2055,6 +2178,7 @@ function TechOSDashboardContent({
                 job={selectedJob}
                 estimateDraftCount={selectedJob.request?.property_id ? estimateDraftCountByPropertyId[selectedJob.request.property_id] || 0 : 0}
                 message={workflowMessageBySlotId[selectedJob.slot.id] || ''}
+                techOSTheme={techOSTheme}
                 onBack={onCloseDetails}
                 onChangeCloseoutForm={(updates) => onChangeCloseoutForm(selectedJob.slot.id, updates)}
                 onChangeCustomStatusNote={(note) => onChangeCustomStatusNote(selectedJob.slot.id, note)}
@@ -2122,6 +2246,7 @@ function TechOSDashboardContent({
         return (
             <TechOSEstimateWorkspacePanel
                 activeCompanyId={activeCompanyId}
+                techOSTheme={techOSTheme}
                 onOpenEstimateWorkspace={onOpenEstimateWorkspace}
             />
         );
@@ -2197,13 +2322,14 @@ function TechOSModulePlaceholder({ title, message }: { title: string; message: s
 
 function TechOSEstimateWorkspacePanel({
     activeCompanyId,
+    techOSTheme,
     onOpenEstimateWorkspace,
 }: {
     activeCompanyId: string;
+    techOSTheme: TechOSThemePalette;
     onOpenEstimateWorkspace: () => void;
 }) {
-    const { theme } = useTheme();
-    const variant = resolveTechOSDashboardVariant('estimates');
+    const variant = resolveTechOSDashboardVariant('estimates', techOSTheme.id);
 
     return (
         <ThemedCard
@@ -2216,8 +2342,8 @@ function TechOSEstimateWorkspacePanel({
             ]}
         >
             <View style={[techSectionAccentStyle, { backgroundColor: variant.accentColor }]} />
-            <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>Estimates & Invoices</Text>
-            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+            <Text style={[sectionTitleStyle, { color: techOSTheme.textColor, marginBottom: 4 }]}>Estimates & Invoices</Text>
+            <Text style={[bodyTextStyle, { color: techOSTheme.mutedTextColor }]}>
                 Open the existing estimate draft workspace for the current company. Job-scoped estimates start from an assigned job detail.
             </Text>
             <ThemedButton
@@ -2228,7 +2354,7 @@ function TechOSEstimateWorkspacePanel({
                 style={assignedJobActionButtonStyle}
             />
             {!activeCompanyId && (
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     Company context is required before estimates can open.
                 </Text>
             )}
@@ -2567,6 +2693,7 @@ function TechOSAssignedJobDetail({
     estimateDraftCount,
     job,
     message,
+    techOSTheme,
     onBack,
     onChangeCloseoutForm,
     onChangeCustomStatusNote,
@@ -2586,6 +2713,7 @@ function TechOSAssignedJobDetail({
     estimateDraftCount: number;
     job: TechAssignedScheduleJob;
     message: string;
+    techOSTheme: TechOSThemePalette;
     onBack: () => void;
     onChangeCloseoutForm: (updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (note: string) => void;
@@ -2608,14 +2736,14 @@ function TechOSAssignedJobDetail({
     const estimateActionLabel = getTechOSEstimateActionLabel(estimateDraftCount);
 
     return (
-        <View style={[techJobDetailStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+        <View style={[techJobDetailStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
             <View style={techJobDetailHeaderStyle}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[jobNumberStyle, { color: theme.colors.mutedText }]}>Job Details</Text>
-                    <Text style={[jobTitleStyle, { color: theme.colors.text, marginBottom: 4 }]} numberOfLines={2}>
+                    <Text style={[jobNumberStyle, { color: techOSTheme.mutedTextColor }]}>Job Details</Text>
+                    <Text style={[jobTitleStyle, { color: techOSTheme.textColor, marginBottom: 4 }]} numberOfLines={2}>
                         {title}
                     </Text>
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{formatScheduleRange(job.slot)}</Text>
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{formatScheduleRange(job.slot)}</Text>
                 </View>
                 <ThemedButton
                     title={backLabel}
@@ -2628,24 +2756,25 @@ function TechOSAssignedJobDetail({
             <TechOSDetailSection
                 title="Customer / Home Information"
                 description="Client HomeOS opens in provider mode for this company and property."
+                techOSTheme={techOSTheme}
                 variantKey="customer"
             >
                 <View style={techJobDetailInfoGridStyle}>
-                    <TechJobDetailInfo label="Home / Request" value={location} />
-                    <TechJobDetailInfo label="Arrival Window" value={formatArrivalWindow(job.slot)} />
-                    <TechJobDetailInfo label="Status" value={formatTechOSStatusLabel(workflowStatus)} />
-                    <TechJobDetailInfo label="Priority" value={formatLabel(job.slot.priority || job.request?.priority || 'normal')} />
+                    <TechJobDetailInfo label="Home / Request" value={location} techOSTheme={techOSTheme} />
+                    <TechJobDetailInfo label="Arrival Window" value={formatArrivalWindow(job.slot)} techOSTheme={techOSTheme} />
+                    <TechJobDetailInfo label="Status" value={formatTechOSStatusLabel(workflowStatus)} techOSTheme={techOSTheme} />
+                    <TechJobDetailInfo label="Priority" value={formatLabel(job.slot.priority || job.request?.priority || 'normal')} techOSTheme={techOSTheme} />
                     {!!job.request?.property_id && (
-                        <TechJobDetailInfo label="Property" value={shortId(job.request.property_id)} />
+                        <TechJobDetailInfo label="Property" value={shortId(job.request.property_id)} techOSTheme={techOSTheme} />
                     )}
                     {!!job.request?.id && (
-                        <TechJobDetailInfo label="Request" value={shortId(job.request.id)} />
+                        <TechJobDetailInfo label="Request" value={shortId(job.request.id)} techOSTheme={techOSTheme} />
                     )}
                     {!!job.slot.tech_status_note && (
-                        <TechJobDetailInfo label="Tech Status Note" value={job.slot.tech_status_note} />
+                        <TechJobDetailInfo label="Tech Status Note" value={job.slot.tech_status_note} techOSTheme={techOSTheme} />
                     )}
                     {!!job.slot.visit_outcome && (
-                        <TechJobDetailInfo label="Visit Outcome" value={getServiceVisitOutcomeLabel(job.slot.visit_outcome)} />
+                        <TechJobDetailInfo label="Visit Outcome" value={getServiceVisitOutcomeLabel(job.slot.visit_outcome)} techOSTheme={techOSTheme} />
                     )}
                 </View>
                 <View style={techWorkflowActionGridStyle}>
@@ -2668,7 +2797,7 @@ function TechOSAssignedJobDetail({
                     )}
                 </View>
                 {!canOpenClientHomeOS && (
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                         Client HomeOS needs an assigned request with a property id.
                     </Text>
                 )}
@@ -2677,9 +2806,10 @@ function TechOSAssignedJobDetail({
             <TechOSDetailSection
                 title="Request Summary"
                 description="The homeowner or dispatch request context for this appointment."
+                techOSTheme={techOSTheme}
                 variantKey="request"
             >
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     {job.request?.issue_summary || job.slot.notes || 'No request summary provided.'}
                 </Text>
             </TechOSDetailSection>
@@ -2687,9 +2817,10 @@ function TechOSAssignedJobDetail({
             <TechOSDetailSection
                 title="Technician Status / Next Job"
                 description="These controls are technician-level signals. They do not change this customer's visit status."
+                techOSTheme={techOSTheme}
                 variantKey="status"
             >
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     These controls are technician-level signals. They do not change this customer's visit status.
                 </Text>
                 <View style={techWorkflowActionGridStyle}>
@@ -2706,7 +2837,7 @@ function TechOSAssignedJobDetail({
                     ))}
                 </View>
                 {!!technicianStatusMessage && (
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                         {technicianStatusMessage}
                     </Text>
                 )}
@@ -2715,6 +2846,7 @@ function TechOSAssignedJobDetail({
             <TechOSDetailSection
                 title="Technician Workflow"
                 description="Current-visit status actions for this assigned appointment."
+                techOSTheme={techOSTheme}
                 variantKey="workflow"
             >
                 <View style={techWorkflowActionGridStyle}>
@@ -2739,19 +2871,20 @@ function TechOSAssignedJobDetail({
             <TechOSDetailSection
                 title="Job Status Note"
                 description="Optional field note for dispatch and job coordination."
+                techOSTheme={techOSTheme}
                 variantKey="note"
             >
                 <TextInput
                     value={customStatusNote}
                     onChangeText={onChangeCustomStatusNote}
                     placeholder="On my way to the store"
-                    placeholderTextColor={theme.colors.mutedText}
+                    placeholderTextColor={techOSTheme.mutedTextColor}
                     multiline
                     style={[
                         techCustomStatusInputStyle,
                         {
-                            borderColor: theme.colors.border,
-                            color: theme.colors.text,
+                            borderColor: techOSTheme.panelBorderColor,
+                            color: techOSTheme.textColor,
                         },
                     ]}
                 />
@@ -2768,6 +2901,7 @@ function TechOSAssignedJobDetail({
             <TechOSDetailSection
                 title="Estimate / Quote Actions"
                 description="Open the existing estimate draft for this company, property, and job context."
+                techOSTheme={techOSTheme}
                 variantKey="estimate"
             >
                 <View style={techWorkflowActionGridStyle}>
@@ -2788,7 +2922,7 @@ function TechOSAssignedJobDetail({
                         textStyle={techWorkflowActionButtonTextStyle}
                     />
                 </View>
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     {estimateDraftCount > 0
                         ? `${estimateDraftCount} item${estimateDraftCount === 1 ? '' : 's'} already in this draft.`
                         : 'No items have been added to this job estimate yet.'}
@@ -2798,9 +2932,10 @@ function TechOSAssignedJobDetail({
             <TechOSDetailSection
                 title="Finish Visit"
                 description="Choose the real visit outcome. This closes the current appointment and moves the request to the right queue."
+                techOSTheme={techOSTheme}
                 variantKey="finish"
             >
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     Choose the real visit outcome. This closes the current appointment and moves the request to the right queue.
                 </Text>
                 <View style={techWorkflowActionGridStyle}>
@@ -2820,7 +2955,7 @@ function TechOSAssignedJobDetail({
                     ))}
                 </View>
                 {!!closeoutForm.outcome && (
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                         {getServiceVisitOutcomeLabel(closeoutForm.outcome)}
                     </Text>
                 )}
@@ -2828,13 +2963,13 @@ function TechOSAssignedJobDetail({
                     value={closeoutForm.notes}
                     onChangeText={(notes) => onChangeCloseoutForm({ notes })}
                     placeholder="Work performed, reason, parts, or next action"
-                    placeholderTextColor={theme.colors.mutedText}
+                    placeholderTextColor={techOSTheme.mutedTextColor}
                     multiline
                     style={[
                         techCustomStatusInputStyle,
                         {
-                            borderColor: theme.colors.border,
-                            color: theme.colors.text,
+                            borderColor: techOSTheme.panelBorderColor,
+                            color: techOSTheme.textColor,
                         },
                     ]}
                 />
@@ -2842,12 +2977,12 @@ function TechOSAssignedJobDetail({
                     value={closeoutForm.nextActionDate}
                     onChangeText={(nextActionDate) => onChangeCloseoutForm({ nextActionDate })}
                     placeholder="Next action date, optional YYYY-MM-DD"
-                    placeholderTextColor={theme.colors.mutedText}
+                    placeholderTextColor={techOSTheme.mutedTextColor}
                     style={[
                         techCustomStatusInputStyle,
                         {
-                            borderColor: theme.colors.border,
-                            color: theme.colors.text,
+                            borderColor: techOSTheme.panelBorderColor,
+                            color: techOSTheme.textColor,
                             minHeight: 46,
                         },
                     ]}
@@ -2856,13 +2991,13 @@ function TechOSAssignedJobDetail({
                     value={closeoutForm.homeownerNote}
                     onChangeText={(homeownerNote) => onChangeCloseoutForm({ homeownerNote })}
                     placeholder="Optional homeowner-safe update"
-                    placeholderTextColor={theme.colors.mutedText}
+                    placeholderTextColor={techOSTheme.mutedTextColor}
                     multiline
                     style={[
                         techCustomStatusInputStyle,
                         {
-                            borderColor: theme.colors.border,
-                            color: theme.colors.text,
+                            borderColor: techOSTheme.panelBorderColor,
+                            color: techOSTheme.textColor,
                         },
                     ]}
                 />
@@ -2884,26 +3019,32 @@ function TechOSAssignedJobDetail({
                     />
                 </View>
                 {!isActiveScheduleSlot(job.slot.status) && (
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                         This visit is already closed.
                     </Text>
                 )}
             </TechOSDetailSection>
 
             {!!message && (
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{message}</Text>
             )}
         </View>
     );
 }
 
-function TechJobDetailInfo({ label, value }: { label: string; value: string }) {
-    const { theme } = useTheme();
-
+function TechJobDetailInfo({
+    label,
+    techOSTheme,
+    value,
+}: {
+    label: string;
+    techOSTheme: TechOSThemePalette;
+    value: string;
+}) {
     return (
-        <View style={[techJobDetailInfoStyle, { borderColor: theme.colors.border }]}>
-            <Text style={[techJobDetailInfoLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
-            <Text style={[techJobDetailInfoValueStyle, { color: theme.colors.text }]} numberOfLines={2}>{value}</Text>
+        <View style={[techJobDetailInfoStyle, { borderColor: techOSTheme.panelBorderColor }]}>
+            <Text style={[techJobDetailInfoLabelStyle, { color: techOSTheme.mutedTextColor }]}>{label}</Text>
+            <Text style={[techJobDetailInfoValueStyle, { color: techOSTheme.textColor }]} numberOfLines={2}>{value}</Text>
         </View>
     );
 }
@@ -2911,16 +3052,17 @@ function TechJobDetailInfo({ label, value }: { label: string; value: string }) {
 function TechOSDetailSection({
     children,
     description,
+    techOSTheme,
     title,
     variantKey,
 }: {
     children: ReactNode;
     description: string;
+    techOSTheme: TechOSThemePalette;
     title: string;
     variantKey: TechOSJobDetailVisualKey;
 }) {
-    const { theme } = useTheme();
-    const variant = resolveTechOSJobDetailVariant(variantKey);
+    const variant = resolveTechOSJobDetailVariant(variantKey, techOSTheme.id);
 
     return (
         <View
@@ -2933,8 +3075,8 @@ function TechOSDetailSection({
             ]}
         >
             <View style={[techSectionAccentStyle, { backgroundColor: variant.accentColor }]} />
-            <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>{title}</Text>
-            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{description}</Text>
+            <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>{title}</Text>
+            <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{description}</Text>
             {children}
         </View>
     );
@@ -4222,6 +4364,45 @@ const techQuickActionButtonStyle = {
     minWidth: 0,
     paddingHorizontal: 14,
     paddingVertical: 10,
+};
+
+const techAppearancePanelStyle = {
+    marginBottom: 16,
+};
+
+const techAppearanceGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginTop: 14,
+};
+
+const techAppearanceOptionStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    flexBasis: 220,
+    flexGrow: 1,
+    gap: 8,
+    minWidth: 190,
+    padding: 12,
+};
+
+const techAppearanceOptionSelectedStyle = {
+    borderWidth: 2,
+};
+
+const techAppearanceSwatchRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+    marginTop: 2,
+};
+
+const techAppearanceSwatchStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 18,
+    width: 18,
 };
 
 const messageCardStyle = {

@@ -21,6 +21,16 @@ import {
     getSuggestedChildAreas,
     normalizeAreaName,
 } from '../../../../lib/systemDefaults';
+import {
+    buildDefaultStarterHomePlan,
+    buildStarterHomeSetupPreview,
+    createMissingStarterHomeItems,
+    formatStarterSetupResult,
+    starterPlanContainsArea,
+    starterSetupHasMissingRecords,
+    type StarterHomeArea,
+    type StarterHomeSetupPlanResult,
+} from '../../../../lib/starterHomeSetup';
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -59,6 +69,9 @@ export default function AreaScreen() {
     const [childAreas, setChildAreas] = useState<AreaHomeItem[]>([]);
     const [currentAreaRecord, setCurrentAreaRecord] = useState<AreaHomeItem | null>(null);
     const [suggestedChildAreas, setSuggestedChildAreas] = useState<string[]>([]);
+    const [starterRecoveryPlan, setStarterRecoveryPlan] = useState<StarterHomeArea[]>([]);
+    const [starterRecoveryPreview, setStarterRecoveryPreview] = useState<StarterHomeSetupPlanResult | null>(null);
+    const [recoveringStarterSetup, setRecoveringStarterSetup] = useState(false);
     const [loading, setLoading] = useState(true);
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
@@ -83,6 +96,8 @@ export default function AreaScreen() {
             setChildAreas([]);
             setCurrentAreaRecord(null);
             setSuggestedChildAreas([]);
+            setStarterRecoveryPlan([]);
+            setStarterRecoveryPreview(null);
             setMessage(activePropertyErrorMessage(error));
             setLoading(false);
 
@@ -108,6 +123,8 @@ export default function AreaScreen() {
             setChildAreas([]);
             setCurrentAreaRecord(null);
             setSuggestedChildAreas([]);
+            setStarterRecoveryPlan([]);
+            setStarterRecoveryPreview(null);
             setMessage(`Could not load items: ${error.message}`);
             setLoading(false);
             return;
@@ -127,7 +144,7 @@ export default function AreaScreen() {
         const nextSuggestedChildAreas = nextBroadZoneMode
             ? getSuggestedChildAreas(areaName).filter((childArea) => !savedChildNames.has(normalizeAreaName(childArea)))
             : [];
-        const nextItems = systemRows.filter((item) => {
+        const nextItems = rows.filter((item) => {
             if (sameText(item.category, 'Area')) return false;
 
             if (parentAreaName) {
@@ -136,10 +153,23 @@ export default function AreaScreen() {
 
             return isDirectItemInArea(item, areaName);
         });
+        const propertyType = await loadPropertyType(activeProperty.propertyId);
+        const nextStarterRecoveryPlan = buildDefaultStarterHomePlan(propertyType);
+        const nextStarterRecoveryPreview = buildStarterHomeSetupPreview({
+            userId: activeProperty.userId,
+            propertyId: activeProperty.propertyId,
+            plan: nextStarterRecoveryPlan,
+            existingItems: rows,
+        });
+        const showStarterRecovery =
+            starterPlanContainsArea(nextStarterRecoveryPlan, areaName, parentAreaName) &&
+            starterSetupHasMissingRecords(nextStarterRecoveryPreview);
 
         setChildAreas(sortAreaRecords(savedChildAreas));
         setCurrentAreaRecord(nextCurrentAreaRecord);
         setSuggestedChildAreas(nextSuggestedChildAreas);
+        setStarterRecoveryPlan(showStarterRecovery ? nextStarterRecoveryPlan : []);
+        setStarterRecoveryPreview(showStarterRecovery ? nextStarterRecoveryPreview : null);
         setItems(
             sortAreaItems(
                 areaName,
@@ -148,6 +178,70 @@ export default function AreaScreen() {
         );
         setMessage('');
         setLoading(false);
+    }
+
+    function confirmAddMissingStarterEquipment() {
+        if (!starterRecoveryPreview) return;
+
+        if (providerModeContext) {
+            setMessage('Provider mode starter recovery must use an approved provider publishing workflow. Nothing was changed in this customer HomeOS.');
+            return;
+        }
+
+        Alert.alert(
+            'Add missing starter equipment?',
+            'This creates unconfirmed checklist cards only. It will not overwrite existing items, and it will not add model numbers, serial numbers, photos, documents, or history.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Add Missing Cards',
+                    onPress: () => {
+                        void addMissingStarterEquipment();
+                    },
+                },
+            ]
+        );
+    }
+
+    async function addMissingStarterEquipment() {
+        if (recoveringStarterSetup || starterRecoveryPlan.length === 0) return;
+
+        setRecoveringStarterSetup(true);
+        setMessage('Checking starter equipment...');
+
+        let activeProperty;
+
+        try {
+            activeProperty = await requireActivePropertyMembership();
+        } catch (error) {
+            setMessage(activePropertyErrorMessage(error));
+            setRecoveringStarterSetup(false);
+
+            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                router.replace('/auth/login' as any);
+            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                router.replace('/onboarding/create-home' as any);
+            }
+
+            return;
+        }
+
+        try {
+            const result = await createMissingStarterHomeItems(
+                {
+                    userId: activeProperty.userId,
+                    propertyId: activeProperty.propertyId,
+                },
+                starterRecoveryPlan
+            );
+
+            setMessage(formatStarterSetupResult(result));
+            await loadAreaItems();
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Starter equipment could not be created.');
+        } finally {
+            setRecoveringStarterSetup(false);
+        }
     }
 
     function createSuggestedItem(category: string, name?: string) {
@@ -458,6 +552,34 @@ export default function AreaScreen() {
                     </View>
                 </ThemedCard>
 
+                {!!starterRecoveryPreview && (
+                    <ThemedCard style={actionCardStyle}>
+                        <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                            Add Missing Starter Equipment
+                        </Text>
+                        <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800', lineHeight: scaleFont(20), marginTop: scaleIcon(8) }}>
+                            Create unconfirmed checklist cards for this home. Existing homeowner items stay untouched.
+                        </Text>
+                        <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '800', marginTop: scaleIcon(8) }}>
+                            Missing now: {starterRecoveryPreview.createdItemRows} card{starterRecoveryPreview.createdItemRows === 1 ? '' : 's'} and {starterRecoveryPreview.createdAreaRows} area{starterRecoveryPreview.createdAreaRows === 1 ? '' : 's'}.
+                        </Text>
+                        <View style={actionRowStyle}>
+                            <ThemedButton
+                                title={providerModeContext
+                                    ? 'Provider Recovery Requires Approved Workflow'
+                                    : recoveringStarterSetup
+                                        ? 'Adding Missing Cards...'
+                                        : 'Add Missing Starter Equipment'}
+                                variant="secondary"
+                                disabled={recoveringStarterSetup}
+                                onPress={confirmAddMissingStarterEquipment}
+                                style={{ minWidth: scaleIcon(230), paddingVertical: scaleIcon(12) }}
+                                textStyle={{ fontSize: scaleFont(14) }}
+                            />
+                        </View>
+                    </ThemedCard>
+                )}
+
                 {loading ? (
                     <ThemedCard style={loadingCardStyle}>
                         <Text style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>
@@ -598,6 +720,22 @@ function decodeRouteParam(value?: string | string[] | null) {
     } catch {
         return text;
     }
+}
+
+async function loadPropertyType(propertyId: string) {
+    const cleanPropertyId = propertyId.trim();
+
+    if (!cleanPropertyId) return null;
+
+    const { data, error } = await supabase
+        .from('properties')
+        .select('property_type')
+        .eq('id', cleanPropertyId)
+        .maybeSingle();
+
+    if (error) return null;
+
+    return String((data as { property_type?: string | null } | null)?.property_type || '').trim() || null;
 }
 
 function isDirectItemInArea(item: AreaHomeItem, areaName: string) {
@@ -840,12 +978,18 @@ function getPreferredItemOrder(areaName: string) {
 
     return [
         'kitchen faucet',
+        'kitchen sink',
         'garbage disposal',
-        'dishwasher connection',
-        'hot angle stop',
-        'cold angle stop',
-        'air gap',
+        'dishwasher',
+        'dishwasher supply line',
+        'dishwasher drain line',
+        'dishwasher air gap',
+        'kitchen drain / p-trap',
+        'kitchen hot angle stop',
+        'kitchen cold angle stop',
         'refrigerator water line',
+        'stove / range',
+        'kitchen gfci / outlets',
         'reverse osmosis',
         'sink drain',
         'p-trap',

@@ -1,4 +1,8 @@
 import { supabase } from './supabase';
+import {
+    buildDefaultStarterHomePlan,
+    createMissingStarterHomeItems,
+} from './starterHomeSetup';
 
 export type PropertyType =
     | 'HOUSE'
@@ -113,6 +117,11 @@ export async function loadHomeIdentityForProperty(propertyId: string, options: {
 }
 
 export async function createFirstHomeIdentity(input: HomeIdentityInput) {
+    const {
+        data: { user },
+        error: userError,
+    } = await supabase.auth.getUser();
+
     const { data, error } = await supabase.rpc('create_homeowner_first_property', buildHomeIdentityRpcPayload(input));
 
     if (error) {
@@ -125,6 +134,16 @@ export async function createFirstHomeIdentity(input: HomeIdentityInput) {
 
     if (!propertyId) {
         throw new Error('We could not confirm your home was created. Please try again.');
+    }
+
+    if (!userError && user?.id) {
+        await createMissingStarterHomeItems(
+            {
+                userId: user.id,
+                propertyId,
+            },
+            buildDefaultStarterHomePlan(input.propertyType)
+        );
     }
 
     return propertyId;

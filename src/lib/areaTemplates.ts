@@ -65,27 +65,28 @@ export const areaTemplates: AreaTemplate[] = [
         starterItems: {
             Plumbing: [
                 item('Kitchen Faucet', 'Plumbing', 'Fixture'),
+                item('Kitchen Sink', 'Plumbing', 'Fixture'),
                 item('Garbage Disposal', 'Plumbing', 'Equipment'),
-                item('Dishwasher Connection', 'Plumbing', 'Fixture'),
-                item('Hot Angle Stop', 'Plumbing', 'Component'),
-                item('Cold Angle Stop', 'Plumbing', 'Component'),
-                item('Air Gap', 'Plumbing', 'Component'),
+                item('Dishwasher Supply Line', 'Plumbing', 'Component'),
+                item('Dishwasher Air Gap', 'Plumbing', 'Component'),
+                item('Kitchen Hot Angle Stop', 'Plumbing', 'Component'),
+                item('Kitchen Cold Angle Stop', 'Plumbing', 'Component'),
                 item('Refrigerator Water Line', 'Plumbing', 'Component'),
             ],
             'Water Quality': [
                 item('Reverse Osmosis', 'Water Quality', 'Equipment'),
             ],
             'Drains / Sewer': [
-                item('Sink Drain', 'Drains / Sewer', 'Fixture'),
-                item('P-Trap', 'Drains / Sewer', 'Component'),
+                item('Dishwasher Drain Line', 'Drains / Sewer', 'Component'),
+                item('Kitchen Drain / P-Trap', 'Drains / Sewer', 'Fixture'),
             ],
             Appliances: [
-                item('Stove', 'Appliances', 'Equipment'),
+                item('Stove / Range', 'Appliances', 'Equipment'),
                 item('Dishwasher', 'Appliances', 'Equipment'),
                 item('Refrigerator', 'Appliances', 'Equipment'),
             ],
             Electrical: [
-                item('GFCI Outlet', 'Electrical', 'Component', notInspected),
+                item('Kitchen GFCI / Outlets', 'Electrical', 'Fixture', notInspected),
                 item('Garbage Disposal Switch', 'Electrical', 'Component', notInspected),
             ],
         },
