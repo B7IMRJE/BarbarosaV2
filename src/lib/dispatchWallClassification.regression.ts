@@ -1,5 +1,6 @@
 import {
     buildDispatchWallSections,
+    type DispatchWallCompanyUser,
     type DispatchWallRequest,
     type DispatchWallScheduleSlot,
     type DispatchWallSectionKey,
@@ -21,10 +22,107 @@ const activeSectionKeys: DispatchWallSectionKey[] = [
 runDispatchWallClassificationRegressions();
 
 export function runDispatchWallClassificationRegressions() {
+    emergencyUnassignedRequestAppearsInEmergency();
+    futureAssignedEmergencyMovesToAssignedReady();
+    futureAssignedRequestCannotEnterActiveLivePanels();
+    futureAssignedTechnicianRehydratesConsistently();
+    currentDayOperationalStatesRemainUnchanged();
     completedEmergencyVisitFromYesterdayIsExcluded();
     completedEmergencyVisitFromTodayIsClosedToday();
     olderCompletedVisitDoesNotOverrideNewerActiveVisit();
     terminalSelectedVisitDoesNotEnterActivePanels();
+}
+
+function emergencyUnassignedRequestAppearsInEmergency() {
+    const request = createEmergencyScheduledRequest('a0008-unassigned');
+    const sections = buildDispatchWallSections([request], [], [], now);
+    const item = getSingleRequestItem(sections, request.id);
+
+    assert(item.sectionKey === 'emergency', 'Unassigned emergency request should appear in Emergency.');
+}
+
+function futureAssignedEmergencyMovesToAssignedReady() {
+    const request = createEmergencyScheduledRequest('a0008-future-assigned');
+    const slot = createFutureAssignedSlot(request.id, { id: 'a0008-future-assigned-slot' });
+    const sections = buildDispatchWallSections([request], [slot], [createTechnician('tech-2', 'tech 2')], now);
+    const item = getSingleRequestItem(sections, request.id);
+
+    assert(item.sectionKey === 'assigned_ready', 'Future assigned emergency request should appear in Assigned / Ready.');
+    assert(item.statusLabel === 'Scheduled', 'Future assigned emergency status label should remain Scheduled.');
+    assert(item.request.priority === 'Emergency', 'Assigned card should keep Emergency as a priority badge source.');
+    assert(item.technician?.full_name === 'tech 2', 'Future assigned emergency should carry the assigned technician.');
+    assertRequestNotInSections(
+        sections,
+        request.id,
+        ['emergency', 'running_late', 'unassigned', 'on_my_way', 'in_progress'],
+        'Future assigned emergency should not remain in active emergency or live-state panels.'
+    );
+}
+
+function futureAssignedRequestCannotEnterActiveLivePanels() {
+    [
+        { status: 'scheduled', note: null },
+        { status: 'running_late', note: null },
+        { status: 'on_my_way', note: null },
+        { status: 'arrived', note: null },
+        { status: 'custom', note: 'working' },
+    ].forEach(({ status, note }) => {
+        const request = createEmergencyScheduledRequest(`future-${status}`);
+        const slot = createFutureAssignedSlot(request.id, {
+            id: `future-${status}-slot`,
+            status,
+            tech_status_note: note,
+        });
+        const sections = buildDispatchWallSections([request], [slot], [createTechnician('tech-2', 'tech 2')], now);
+        const item = getSingleRequestItem(sections, request.id);
+
+        assert(item.sectionKey === 'assigned_ready', `Future ${status} slot should stay assigned_ready until it is operational today.`);
+        assertRequestNotInSections(
+            sections,
+            request.id,
+            ['emergency', 'running_late', 'unassigned', 'on_my_way', 'in_progress'],
+            `Future ${status} slot should not enter emergency or live-state panels.`
+        );
+    });
+}
+
+function futureAssignedTechnicianRehydratesConsistently() {
+    const request = createEmergencyScheduledRequest('future-tech-rehydrate');
+    const slot = createFutureAssignedSlot(request.id, { id: 'future-tech-rehydrate-slot' });
+    const technician = createTechnician('tech-2', 'tech 2');
+    const firstSections = buildDispatchWallSections([request], [slot], [technician], now);
+    const reopenedSections = buildDispatchWallSections([request], [slot], [technician], now);
+    const firstItem = getSingleRequestItem(firstSections, request.id);
+    const reopenedItem = getSingleRequestItem(reopenedSections, request.id);
+
+    assert(firstItem.technician?.id === 'tech-2', 'Future assigned technician should load on the first wallboard build.');
+    assert(reopenedItem.technician?.id === 'tech-2', 'Future assigned technician should load after a refresh-shaped rebuild.');
+    assert(reopenedItem.slot?.technician_company_user_id === reopenedItem.technician?.id, 'Card and detail data should identify the same technician from the selected slot.');
+}
+
+function currentDayOperationalStatesRemainUnchanged() {
+    [
+        { id: 'today-assigned', status: 'scheduled', hour: 15, expected: 'assigned_ready' as const },
+        { id: 'today-on-my-way', status: 'on_my_way', hour: 15, expected: 'on_my_way' as const },
+        { id: 'today-in-progress', status: 'arrived', hour: 15, expected: 'in_progress' as const },
+        { id: 'today-running-late', status: 'scheduled', hour: 10, expected: 'running_late' as const },
+    ].forEach(({ id, status, hour, expected }) => {
+        const request = createEmergencyScheduledRequest(id);
+        const slot = createSlot({
+            id: `${id}-slot`,
+            service_request_id: request.id,
+            status,
+            start_at: localIso(0, hour),
+            end_at: localIso(0, hour + 1),
+            arrival_window_start: localIso(0, hour),
+            arrival_window_end: localIso(0, hour + 1),
+            updated_at: localIso(0, 11),
+        });
+        const sections = buildDispatchWallSections([request], [slot], [createTechnician('tech-2', 'tech 2')], now);
+        const item = getSingleRequestItem(sections, request.id);
+
+        assert(item.sectionKey === expected, `${id} should remain classified as ${expected}.`);
+    });
 }
 
 function completedEmergencyVisitFromYesterdayIsExcluded() {
@@ -177,6 +275,35 @@ function createSlot(overrides: Partial<DispatchWallScheduleSlot>): DispatchWallS
     };
 }
 
+function createFutureAssignedSlot(
+    requestId: string,
+    overrides: Partial<DispatchWallScheduleSlot> = {}
+): DispatchWallScheduleSlot {
+    return createSlot({
+        id: 'future-assigned-slot',
+        service_request_id: requestId,
+        technician_company_user_id: 'tech-2',
+        status: 'scheduled',
+        start_at: localIso(1, 8),
+        end_at: localIso(1, 9),
+        arrival_window_start: localIso(1, 8),
+        arrival_window_end: localIso(1, 9),
+        updated_at: localIso(0, 11),
+        ...overrides,
+    });
+}
+
+function createTechnician(id: string, fullName: string): DispatchWallCompanyUser {
+    return {
+        id,
+        company_id: 'company-1',
+        full_name: fullName,
+        email: `${id}@example.test`,
+        role: 'technician',
+        status: 'active',
+    };
+}
+
 function getSingleRequestItem(sections: DispatchWallSections, requestId: string) {
     const items = getRequestItems(sections, requestId);
 
@@ -193,6 +320,17 @@ function assertRequestNotInActiveSections(sections: DispatchWallSections, reques
     const activeItems = activeSectionKeys.flatMap((sectionKey) => sections[sectionKey]).filter((item) => item.request.id === requestId);
 
     assert(activeItems.length === 0, message);
+}
+
+function assertRequestNotInSections(
+    sections: DispatchWallSections,
+    requestId: string,
+    sectionKeys: DispatchWallSectionKey[],
+    message: string
+) {
+    const sectionItems = sectionKeys.flatMap((sectionKey) => sections[sectionKey]).filter((item) => item.request.id === requestId);
+
+    assert(sectionItems.length === 0, message);
 }
 
 function getRequestItems(sections: DispatchWallSections, requestId: string) {

@@ -716,11 +716,24 @@ export default function DispatchBoardScreen() {
         setMessage('Request acknowledged.');
     }
 
+    function createScheduleFormForRequestId(requestId: string) {
+        const request = requestsRef.current.find((candidate) => candidate.id === requestId);
+
+        if (!request) return createDefaultScheduleForm();
+
+        const requestScheduleSlots = scheduleSlots.filter((slot) => (
+            slot.company_id === request.company_id &&
+            slot.service_request_id === request.id
+        ));
+
+        return createScheduleFormFromSlot(getCurrentRequestScheduleSlot(requestScheduleSlots, request));
+    }
+
     function updateScheduleForm(requestId: string, updates: Partial<ScheduleRequestForm>) {
         setScheduleFormByRequestId((current) => ({
             ...current,
             [requestId]: {
-                ...createDefaultScheduleForm(),
+                ...createScheduleFormForRequestId(requestId),
                 ...(current[requestId] || {}),
                 ...updates,
             },
@@ -733,7 +746,7 @@ export default function DispatchBoardScreen() {
                 ? current
                 : {
                     ...current,
-                    [requestId]: createDefaultScheduleForm(),
+                    [requestId]: createScheduleFormForRequestId(requestId),
                 }
         ));
         setExpandedRequestId((current) => (current === requestId ? null : requestId));
@@ -2454,8 +2467,11 @@ function DispatchRequestCard({
     const latestUpdateRequest = events.find((event) => normalizeStatus(event.event_type) === 'update_requested');
     const latestTimingResponse = events.find((event) => normalizeStatus(event.event_type) === 'technician_timing_response');
     const displayName = request.customer_display_name || request.property_display_name || 'Homeowner';
-    const selectedTechnician = activeTechnicians.find((technician) => technician.id === scheduleForm.technicianCompanyUserId) || null;
     const currentScheduleSlot = getCurrentRequestScheduleSlot(scheduleSlots, request);
+    const selectedTechnicianId = scheduleForm.technicianCompanyUserId || currentScheduleSlot?.technician_company_user_id || '';
+    const selectedTechnician = activeTechnicians.find((technician) => technician.id === selectedTechnicianId) ||
+        companyUsers.find((technician) => technician.id === selectedTechnicianId) ||
+        null;
     const assignedTechnician = currentScheduleSlot
         ? companyUsers.find((member) => member.id === currentScheduleSlot.technician_company_user_id) ||
             activeTechnicians.find((technician) => technician.id === currentScheduleSlot.technician_company_user_id) ||
@@ -2724,7 +2740,7 @@ function DispatchRequestCard({
                             ) : (
                                 <View style={technicianPickerStyle}>
                                     {visibleTechnicians.slice(0, 6).map((technician) => {
-                                        const selected = scheduleForm.technicianCompanyUserId === technician.id;
+                                        const selected = selectedTechnicianId === technician.id;
 
                                         return (
                                             <ThemedButton

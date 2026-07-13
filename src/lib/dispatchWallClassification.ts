@@ -179,15 +179,11 @@ export function classifyDispatchWallRequest(
         return 'regular_leads';
     }
 
-    if (hasCriticalImmediateAssistanceAlert(request, slot, timingEvent) && currentDayOperational) {
-        return 'emergency';
-    }
-
-    if (!currentDayOperational) {
-        return null;
-    }
-
     if (activeAssignedSlot) {
+        if (!currentDayOperational) {
+            return 'assigned_ready';
+        }
+
         if (isInProgressStatus(slotStatus) || isFieldWaitingStatus(slotStatus) || isActiveCustomFieldStatus(slot)) {
             return 'in_progress';
         }
@@ -201,6 +197,14 @@ export function classifyDispatchWallRequest(
         }
 
         return 'assigned_ready';
+    }
+
+    if (hasCriticalImmediateAssistanceAlert(request, slot, timingEvent) && currentDayOperational) {
+        return 'emergency';
+    }
+
+    if (!currentDayOperational) {
+        return null;
     }
 
     if (emergency) {
