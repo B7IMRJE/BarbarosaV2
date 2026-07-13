@@ -237,7 +237,7 @@ export function formatStarterSetupResult(result: StarterHomeSetupPlanResult) {
 
     return [
         `Created ${createdParts.join(' and ')}.`,
-        `${result.alreadyPresentItemRows} starter card${result.alreadyPresentItemRows === 1 ? '' : 's'} already present.`,
+        `${result.alreadyPresentItemRows} starter card${result.alreadyPresentItemRows === 1 ? '' : 's'} and ${result.alreadyPresentAreaRows} area${result.alreadyPresentAreaRows === 1 ? '' : 's'} already present.`,
         `${result.skippedDuplicateRows} duplicate${result.skippedDuplicateRows === 1 ? '' : 's'} skipped.`,
     ].join(' ');
 }

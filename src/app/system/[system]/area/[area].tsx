@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { getStatusCardStyle } from '../../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
@@ -25,12 +25,18 @@ import {
     buildDefaultStarterHomePlan,
     buildStarterHomeSetupPreview,
     createMissingStarterHomeItems,
-    formatStarterSetupResult,
     starterPlanContainsArea,
     starterSetupHasMissingRecords,
     type StarterHomeArea,
     type StarterHomeSetupPlanResult,
 } from '../../../../lib/starterHomeSetup';
+import {
+    STARTER_RECOVERY_CONFIRMATION_BODY,
+    STARTER_RECOVERY_CONFIRMATION_TITLE,
+    STARTER_RECOVERY_CREATING_MESSAGE,
+    resolveStarterRecoveryOpenAction,
+    runStarterRecoverySubmission,
+} from '../../../../lib/starterRecoveryConfirmation';
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -71,17 +77,23 @@ export default function AreaScreen() {
     const [suggestedChildAreas, setSuggestedChildAreas] = useState<string[]>([]);
     const [starterRecoveryPlan, setStarterRecoveryPlan] = useState<StarterHomeArea[]>([]);
     const [starterRecoveryPreview, setStarterRecoveryPreview] = useState<StarterHomeSetupPlanResult | null>(null);
+    const [starterRecoveryConfirmationVisible, setStarterRecoveryConfirmationVisible] = useState(false);
     const [recoveringStarterSetup, setRecoveringStarterSetup] = useState(false);
     const [loading, setLoading] = useState(true);
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
+    const starterRecoverySubmittingRef = useRef(false);
     const itemSections = groupItemsBySystem(items);
 
     useEffect(() => {
         loadAreaItems();
     }, [systemName, areaName, parentAreaName, refreshKey, providerModeContext?.companyId, providerModeContext?.propertyId]);
 
-    async function loadAreaItems() {
+    useEffect(() => {
+        if (!starterRecoveryPreview) setStarterRecoveryConfirmationVisible(false);
+    }, [starterRecoveryPreview]);
+
+    async function loadAreaItems(options: { preserveMessage?: boolean } = {}) {
         let activeProperty;
 
         setLoading(true);
@@ -176,72 +188,67 @@ export default function AreaScreen() {
                 nextItems
             )
         );
-        setMessage('');
+        if (!options.preserveMessage) setMessage('');
         setLoading(false);
     }
 
     function confirmAddMissingStarterEquipment() {
-        if (!starterRecoveryPreview) return;
+        const action = resolveStarterRecoveryOpenAction({
+            hasPreview: !!starterRecoveryPreview,
+            providerMode: !!providerModeContext,
+            recovering: starterRecoverySubmittingRef.current || recoveringStarterSetup,
+        });
 
-        if (providerModeContext) {
-            setMessage('Provider mode starter recovery must use an approved provider publishing workflow. Nothing was changed in this customer HomeOS.');
+        if (action.type === 'provider_blocked') {
+            setMessage(action.message);
             return;
         }
 
-        Alert.alert(
-            'Add missing starter equipment?',
-            'This creates unconfirmed checklist cards only. It will not overwrite existing items, and it will not add model numbers, serial numbers, photos, documents, or history.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Add Missing Cards',
-                    onPress: () => {
-                        void addMissingStarterEquipment();
-                    },
-                },
-            ]
-        );
+        if (action.type === 'open_confirmation') {
+            setMessage('');
+            setStarterRecoveryConfirmationVisible(true);
+        }
     }
 
     async function addMissingStarterEquipment() {
-        if (recoveringStarterSetup || starterRecoveryPlan.length === 0) return;
+        await runStarterRecoverySubmission({
+            closeConfirmation: () => setStarterRecoveryConfirmationVisible(false),
+            create: async () => {
+                let activeProperty;
 
-        setRecoveringStarterSetup(true);
-        setMessage('Checking starter equipment...');
+                try {
+                    activeProperty = await requireActivePropertyMembership();
+                } catch (error) {
+                    const errorMessage = activePropertyErrorMessage(error);
 
-        let activeProperty;
+                    if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                        router.replace('/auth/login' as any);
+                    } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                        router.replace('/onboarding/create-home' as any);
+                    }
 
-        try {
-            activeProperty = await requireActivePropertyMembership();
-        } catch (error) {
-            setMessage(activePropertyErrorMessage(error));
-            setRecoveringStarterSetup(false);
+                    throw new Error(errorMessage);
+                }
 
-            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
-                router.replace('/auth/login' as any);
-            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
-                router.replace('/onboarding/create-home' as any);
-            }
+                setMessage(STARTER_RECOVERY_CREATING_MESSAGE);
 
-            return;
-        }
-
-        try {
-            const result = await createMissingStarterHomeItems(
-                {
-                    userId: activeProperty.userId,
-                    propertyId: activeProperty.propertyId,
-                },
-                starterRecoveryPlan
-            );
-
-            setMessage(formatStarterSetupResult(result));
-            await loadAreaItems();
-        } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'Starter equipment could not be created.');
-        } finally {
-            setRecoveringStarterSetup(false);
-        }
+                return createMissingStarterHomeItems(
+                    {
+                        userId: activeProperty.userId,
+                        propertyId: activeProperty.propertyId,
+                    },
+                    starterRecoveryPlan
+                );
+            },
+            isSubmitting: () => starterRecoverySubmittingRef.current,
+            planCount: starterRecoveryPlan.length,
+            reload: () => loadAreaItems({ preserveMessage: true }),
+            setMessage,
+            setSubmitting: (submitting) => {
+                starterRecoverySubmittingRef.current = submitting;
+                setRecoveringStarterSetup(submitting);
+            },
+        });
     }
 
     function createSuggestedItem(category: string, name?: string) {
@@ -464,17 +471,18 @@ export default function AreaScreen() {
     }
 
     return (
-        <ScrollView
-            style={{
-                flex: 1,
-                backgroundColor: theme.colors.background,
-            }}
-            contentContainerStyle={{
-                padding: scaleIcon(20),
-                paddingBottom: scaleIcon(40),
-                alignItems: 'center',
-            }}
-        >
+        <>
+            <ScrollView
+                style={{
+                    flex: 1,
+                    backgroundColor: theme.colors.background,
+                }}
+                contentContainerStyle={{
+                    padding: scaleIcon(20),
+                    paddingBottom: scaleIcon(40),
+                    alignItems: 'center',
+                }}
+            >
             <View
                 style={{
                     width: '100%',
@@ -690,7 +698,59 @@ export default function AreaScreen() {
                     </ThemedCard>
                 )}
             </View>
-        </ScrollView>
+            </ScrollView>
+
+            <Modal
+                animationType="fade"
+                transparent
+                visible={starterRecoveryConfirmationVisible}
+                onRequestClose={() => {
+                    if (!recoveringStarterSetup) setStarterRecoveryConfirmationVisible(false);
+                }}
+            >
+                <View style={starterRecoveryModalBackdropStyle}>
+                    <ThemedCard style={starterRecoveryModalCardStyle}>
+                        <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
+                            {STARTER_RECOVERY_CONFIRMATION_TITLE}
+                        </Text>
+                        <Text style={[starterRecoveryModalBodyStyle, { color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20) }]}>
+                            {STARTER_RECOVERY_CONFIRMATION_BODY}
+                        </Text>
+                        {!!starterRecoveryPreview && (
+                            <Text style={[starterRecoveryModalMetaStyle, { color: theme.colors.mutedText, fontSize: scaleFont(13) }]}>
+                                Missing now: {starterRecoveryPreview.createdItemRows} card{starterRecoveryPreview.createdItemRows === 1 ? '' : 's'} and {starterRecoveryPreview.createdAreaRows} area{starterRecoveryPreview.createdAreaRows === 1 ? '' : 's'}.
+                            </Text>
+                        )}
+                        {!!message && (
+                            <View style={[starterRecoveryModalMessageStyle, { borderColor: theme.colors.border }]}>
+                                <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '900', lineHeight: scaleFont(18) }}>
+                                    {message}
+                                </Text>
+                            </View>
+                        )}
+                        <View style={starterRecoveryModalActionsStyle}>
+                            <ThemedButton
+                                title="Cancel"
+                                variant="secondary"
+                                disabled={recoveringStarterSetup}
+                                onPress={() => setStarterRecoveryConfirmationVisible(false)}
+                                style={starterRecoveryModalButtonStyle}
+                                textStyle={{ fontSize: scaleFont(14) }}
+                            />
+                            <ThemedButton
+                                title={recoveringStarterSetup ? 'Creating Starter Equipment...' : 'Add Missing Cards'}
+                                disabled={recoveringStarterSetup}
+                                onPress={() => {
+                                    void addMissingStarterEquipment();
+                                }}
+                                style={starterRecoveryModalButtonStyle}
+                                textStyle={{ fontSize: scaleFont(14) }}
+                            />
+                        </View>
+                    </ThemedCard>
+                </View>
+            </Modal>
+        </>
     );
 }
 
@@ -1215,4 +1275,48 @@ const emptyStateCardStyle = {
     maxWidth: 280,
     paddingVertical: 12,
     paddingHorizontal: 16,
+};
+
+const starterRecoveryModalBackdropStyle = {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.42)',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    padding: 18,
+};
+
+const starterRecoveryModalCardStyle = {
+    width: '100%' as const,
+    maxWidth: 520,
+};
+
+const starterRecoveryModalBodyStyle = {
+    marginTop: 12,
+    fontWeight: '800' as const,
+};
+
+const starterRecoveryModalMetaStyle = {
+    marginTop: 12,
+    fontWeight: '900' as const,
+};
+
+const starterRecoveryModalMessageStyle = {
+    marginTop: 14,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+};
+
+const starterRecoveryModalActionsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'flex-end' as const,
+    gap: 12,
+    marginTop: 18,
+};
+
+const starterRecoveryModalButtonStyle = {
+    minWidth: 150,
+    paddingVertical: 11,
 };
