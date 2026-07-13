@@ -48,6 +48,10 @@ import {
     readProviderModeParams,
     validateProviderModeAccess,
 } from '../../lib/providerMode';
+import {
+    buildProviderHomeItemsRpcArgs,
+    hasAssignedProviderHomeItemsContext,
+} from '../../lib/providerHomeItems';
 import { getProviderReturnActionLabel } from '../../lib/techosClientAccess';
 import {
     addProviderStagedWork,
@@ -82,6 +86,11 @@ type ItemFile = {
 
 type GalleryPhoto = ItemFile & {
     isMainPhoto?: boolean;
+};
+
+type HomeItemRow = Record<string, unknown> & {
+    id?: string | null;
+    item_slug?: string | null;
 };
 
 type PlatformProfile = {
@@ -1165,39 +1174,66 @@ export default function ItemScreen() {
 
         await loadEstimateAccessForCurrentContext(providerModeContext?.companyId);
 
-        const { data, error } = await supabase
-            .from('home_items')
-            .select('*')
-            .eq('item_slug', String(slug))
-            .eq('property_id', activeProperty.propertyId)
-            .maybeSingle();
+        let itemRow: HomeItemRow | null = null;
+        let loadErrorMessage = '';
 
-        if (error) {
-            setMessage(`Item load failed: ${error.message}`);
+        if (providerModeContext) {
+            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+                loadErrorMessage = 'Client HomeOS requires an assigned request, visit, or job context.';
+            } else {
+                const { data, error } = await supabase.rpc(
+                    'get_provider_homeos_items',
+                    buildProviderHomeItemsRpcArgs(providerModeContext, { itemSlug: String(slug) })
+                );
+
+                if (error) {
+                    loadErrorMessage = error.message;
+                } else {
+                    itemRow = ((data || []) as HomeItemRow[])[0] || null;
+                }
+            }
+        } else {
+            const { data, error } = await supabase
+                .from('home_items')
+                .select('*')
+                .eq('item_slug', String(slug))
+                .eq('property_id', activeProperty.propertyId)
+                .maybeSingle();
+
+            if (error) {
+                loadErrorMessage = error.message;
+            } else {
+                itemRow = (data || null) as HomeItemRow | null;
+            }
+        }
+
+        if (loadErrorMessage) {
+            setMessage(`Item load failed: ${loadErrorMessage}`);
             setItem(null);
             setFiles([]);
             setMaintenanceTasks([]);
-        } else if (!data) {
+        } else if (!itemRow) {
             setMessage('Item not found.');
             setItem(null);
             setFiles([]);
             setMaintenanceTasks([]);
         } else {
-            setItem(data);
+            setItem(itemRow);
             setMessage('');
             if (providerModeContext) {
                 setFiles([]);
+                setMaintenanceTasks([]);
             } else {
                 await loadFiles({
                     propertyId: activeProperty.propertyId,
-                    homeItemId: String(data.id || ''),
-                    itemSlug: data.item_slug || String(slug),
+                    homeItemId: String(itemRow.id || ''),
+                    itemSlug: itemRow.item_slug || String(slug),
+                });
+                await loadMaintenanceTasks({
+                    propertyId: activeProperty.propertyId,
+                    homeItemId: String(itemRow.id || ''),
                 });
             }
-            await loadMaintenanceTasks({
-                propertyId: activeProperty.propertyId,
-                homeItemId: String(data.id || ''),
-            });
         }
 
         setLoading(false);

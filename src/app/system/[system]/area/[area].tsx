@@ -16,6 +16,10 @@ import {
     readProviderModeParams,
 } from '../../../../lib/providerMode';
 import {
+    buildProviderHomeItemsRpcArgs,
+    hasAssignedProviderHomeItemsContext,
+} from '../../../../lib/providerHomeItems';
+import {
     formatDirectItemsEmptyMessage,
     resolveAreaVisibleItems,
 } from '../../../../lib/providerItemVisibility';
@@ -130,15 +134,41 @@ export default function AreaScreen() {
             return;
         }
 
-        const { data, error } = await supabase
-            .from('home_items')
-            .select('id, name, system, item_slug, category, status, location, parent_area')
-            .eq('property_id', activeProperty.propertyId)
-            .or('archived.eq.false,archived.is.null')
-            .order('system', { ascending: true })
-            .order('name', { ascending: true });
+        let rows: AreaHomeItem[] = [];
+        let loadErrorMessage = '';
 
-        if (error) {
+        if (providerModeContext) {
+            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+                loadErrorMessage = 'Client HomeOS requires an assigned request, visit, or job context.';
+            } else {
+                const { data, error } = await supabase.rpc(
+                    'get_provider_homeos_items',
+                    buildProviderHomeItemsRpcArgs(providerModeContext)
+                );
+
+                if (error) {
+                    loadErrorMessage = error.message;
+                } else {
+                    rows = (data || []) as AreaHomeItem[];
+                }
+            }
+        } else {
+            const { data, error } = await supabase
+                .from('home_items')
+                .select('id, name, system, item_slug, category, status, location, parent_area')
+                .eq('property_id', activeProperty.propertyId)
+                .or('archived.eq.false,archived.is.null')
+                .order('system', { ascending: true })
+                .order('name', { ascending: true });
+
+            if (error) {
+                loadErrorMessage = error.message;
+            } else {
+                rows = (data || []) as AreaHomeItem[];
+            }
+        }
+
+        if (loadErrorMessage) {
             setItems([]);
             setChildAreas([]);
             setCurrentAreaRecord(null);
@@ -148,14 +178,13 @@ export default function AreaScreen() {
             setReturnedHomeItemRowCount(null);
             setHomeItemsQueryFailed(true);
             setMessage(providerModeContext
-                ? `Could not load client HomeOS items: ${error.message}`
-                : `Could not load items: ${error.message}`
+                ? `Could not load client HomeOS items: ${loadErrorMessage}`
+                : `Could not load items: ${loadErrorMessage}`
             );
             setLoading(false);
             return;
         }
 
-        const rows = (data || []) as AreaHomeItem[];
         const visibleRows = resolveAreaVisibleItems(rows, {
             systemName,
             areaName,
