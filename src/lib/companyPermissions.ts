@@ -167,6 +167,12 @@ export function canAccessDispatch(subject?: CompanyAccessSubject | null) {
     return ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'].includes(normalizeCompanyRole(subject.role));
 }
 
+export function canUseCompanyEstimateWorkflow(subject?: CompanyAccessSubject | null) {
+    if (!subject || !isActiveCompanyStatus(subject.status)) return false;
+
+    return ['owner', 'admin', 'manager', 'technician'].includes(normalizeCompanyRole(subject.role));
+}
+
 export async function loadCurrentCompanyPermissionAccess(
     permission: CompanyPermissionKey,
     options: { companyId?: string | null } = {}
@@ -195,6 +201,35 @@ export async function loadCurrentCompanyPermissionAccess(
     }
 
     return loadPermissionAccessFromCompanyUsers(userId, permission, options.companyId || null);
+}
+
+export async function loadCurrentCompanyEstimateAccess(
+    options: { companyId?: string | null } = {}
+): Promise<CompanyPermissionLookupResult> {
+    let userId = '';
+
+    try {
+        const {
+            data: { user },
+            error: userError,
+        } = await supabase.auth.getUser();
+
+        if (userError || !user) {
+            return { access: null, error: normalizeServiceErrorMessage(userError?.message || 'Not authenticated.') };
+        }
+
+        userId = user.id;
+    } catch (error) {
+        return { access: null, error: normalizeServiceErrorMessage(getErrorMessage(error)) };
+    }
+
+    const rpcAccess = await loadEstimateAccessFromRpc(userId, options.companyId || null);
+
+    if (rpcAccess.access || !rpcAccess.shouldFallback) {
+        return { access: rpcAccess.access, error: rpcAccess.error };
+    }
+
+    return loadEstimateAccessFromCompanyUsers(userId, options.companyId || null);
 }
 
 type RpcPermissionAccessResult = CompanyPermissionLookupResult & {
@@ -256,6 +291,44 @@ async function loadPermissionAccessFromRpc(
     }
 }
 
+async function loadEstimateAccessFromRpc(
+    userId: string,
+    companyId: string | null
+): Promise<RpcPermissionAccessResult> {
+    try {
+        const { data, error } = await supabase.rpc('get_my_company_permissions', {
+            p_company_id: companyId,
+        });
+
+        if (error) {
+            return {
+                access: null,
+                error: normalizeServiceErrorMessage(error.message),
+                shouldFallback: !isFetchFailureMessage(error.message),
+            };
+        }
+
+        const rows = ((data || []) as unknown[]).map(readCompanyPermissionRow);
+        const access = rows
+            .map((row) => resolvePermissionAccessFromRow(userId, row))
+            .find((candidate): candidate is CompanyPermissionAccess =>
+                Boolean(candidate && canUseCompanyEstimateWorkflow(candidate))
+            ) || null;
+
+        return {
+            access,
+            error: access ? null : 'This work account is not authorized to create estimates for this company.',
+            shouldFallback: false,
+        };
+    } catch (error) {
+        return {
+            access: null,
+            error: normalizeServiceErrorMessage(getErrorMessage(error)),
+            shouldFallback: false,
+        };
+    }
+}
+
 async function loadPermissionAccessFromCompanyUsers(
     userId: string,
     permission: CompanyPermissionKey,
@@ -279,6 +352,31 @@ async function loadPermissionAccessFromCompanyUsers(
     return {
         access,
         error: access ? null : 'No active company membership has this permission.',
+    };
+}
+
+async function loadEstimateAccessFromCompanyUsers(
+    userId: string,
+    companyId: string | null
+): Promise<CompanyPermissionLookupResult> {
+    const withPermissions = await queryCompanyUsers(userId, companyId, true);
+    const result = withPermissions.error
+        ? await queryCompanyUsers(userId, companyId, false)
+        : withPermissions;
+
+    if (result.error) {
+        return { access: null, error: result.error };
+    }
+
+    const access = result.rows
+        .map((row) => resolvePermissionAccessFromRow(userId, row))
+        .find((candidate): candidate is CompanyPermissionAccess =>
+            Boolean(candidate && canUseCompanyEstimateWorkflow(candidate))
+        ) || null;
+
+    return {
+        access,
+        error: access ? null : 'This work account is not authorized to create estimates for this company.',
     };
 }
 

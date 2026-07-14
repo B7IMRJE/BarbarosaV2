@@ -29,6 +29,7 @@ export type EstimateDraftItem = {
 };
 
 export type EstimateDraftContext = {
+    estimate_session_id?: string | null;
     company_id: string;
     property_id: string | null;
     customer_home_name: string | null;
@@ -158,6 +159,7 @@ function normalizeEstimateDraftContext(value: unknown): EstimateDraftContext | n
     if (!companyId) return null;
 
     return {
+        estimate_session_id: readNullableText(record.estimate_session_id),
         company_id: companyId,
         property_id: readNullableText(record.property_id),
         customer_home_name: readNullableText(record.customer_home_name),

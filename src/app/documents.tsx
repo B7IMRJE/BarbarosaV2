@@ -29,12 +29,18 @@ export default function DocumentsScreen() {
         companyId?: string | string[];
         propertyId?: string | string[];
         returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
     const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
         routeParams.providerMode,
         routeParams.companyId,
         routeParams.propertyId,
         routeParams.returnTo,
+        routeParams.serviceRequestId,
+        routeParams.scheduleSlotId,
+        routeParams.jobId,
     ]);
 
     function scaleStyle<T extends Record<string, unknown>>(style: T): T {
@@ -83,7 +89,13 @@ export default function DocumentsScreen() {
         }
 
         loadDocuments();
-    }, [providerModeContext?.companyId, providerModeContext?.propertyId]);
+    }, [
+        providerModeContext?.companyId,
+        providerModeContext?.propertyId,
+        providerModeContext?.serviceRequestId,
+        providerModeContext?.scheduleSlotId,
+        providerModeContext?.jobId,
+    ]);
 
     async function loadDocuments() {
         setLoading(true);

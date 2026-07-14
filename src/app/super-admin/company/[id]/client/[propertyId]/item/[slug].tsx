@@ -5,10 +5,13 @@ import AdminNavBar from '../../../../../../../components/AdminNavBar';
 import ThemedButton from '../../../../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../../../../components/theme/ThemedCard';
 import {
+    loadCurrentCompanyEstimateAccess,
     loadCurrentCompanyPermissionAccess,
     type CompanyPermissionAccess,
 } from '../../../../../../../lib/companyPermissions';
-import { addItemToEstimateDraft } from '../../../../../../../lib/estimateDraft';
+import { addItemToEstimateDraft, saveEstimateDraftContext } from '../../../../../../../lib/estimateDraft';
+import { inferEstimateCategoryFromDraft } from '../../../../../../../lib/estimateOptions';
+import { resolveEstimateOptionSession } from '../../../../../../../lib/estimateSessions';
 import { supabase } from '../../../../../../../lib/supabase';
 import { useTheme } from '../../../../../../../theme/useTheme';
 
@@ -137,7 +140,7 @@ export default function CompanyClientItemScreen() {
         }
 
         setEstimateAccess(access.estimateAccess);
-        setEstimatePermissionMessage(!access.estimateAccess && access.estimateError ? 'Estimate permission unavailable.' : '');
+        setEstimatePermissionMessage(!access.estimateAccess && access.estimateError ? access.estimateError : '');
 
         const [companyResult, clientResult, propertyResult] = await Promise.all([
             supabase
@@ -206,7 +209,7 @@ export default function CompanyClientItemScreen() {
 
         const [viewLookup, estimateLookup, platformAdmin] = await Promise.all([
             loadCurrentCompanyPermissionAccess('can_view_customers', { companyId: targetCompanyId }),
-            loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', { companyId: targetCompanyId }),
+            loadCurrentCompanyEstimateAccess({ companyId: targetCompanyId }),
             isPlatformAdmin(user.id),
         ]);
 
@@ -262,7 +265,7 @@ export default function CompanyClientItemScreen() {
             return;
         }
 
-        await addItemToEstimateDraft({
+        const draftItem = {
             id: item.id,
             property_id: item.property_id || clientPropertyId,
             customer_home_name: homeName,
@@ -276,8 +279,46 @@ export default function CompanyClientItemScreen() {
             install_state: item.install_state || null,
             company_id: estimateAccess.companyId,
             company_user_id: estimateAccess.companyUserId,
-            source: 'management',
+            source: 'management' as const,
             created_at: new Date().toISOString(),
+        };
+        const draftContext = {
+            company_id: estimateAccess.companyId,
+            property_id: item.property_id || clientPropertyId,
+            customer_home_name: homeName,
+            service_request_id: null,
+            job_id: null,
+            schedule_slot_id: null,
+            technician_company_user_id: estimateAccess.companyUserId,
+            technician_name: null,
+            issue_summary: null,
+            source: 'management' as const,
+            updated_at: new Date().toISOString(),
+        };
+        const sessionResult = await resolveEstimateOptionSession({
+            companyId: estimateAccess.companyId,
+            propertyId: item.property_id || clientPropertyId,
+            serviceRequestId: null,
+            jobId: null,
+            scheduleSlotId: null,
+            homeItemId: item.id,
+            category: inferEstimateCategoryFromDraft([draftItem], draftContext),
+            source: 'management',
+        });
+
+        if (!sessionResult.session) {
+            setMessage(`Estimate session unavailable: ${sessionResult.error || 'Could not create estimate session.'}`);
+            return;
+        }
+
+        await addItemToEstimateDraft(draftItem, {
+            userId: estimateAccess.userId,
+            companyId: estimateAccess.companyId,
+            propertyId: item.property_id || clientPropertyId,
+        });
+        await saveEstimateDraftContext({
+            ...draftContext,
+            estimate_session_id: sessionResult.session.id,
         }, {
             userId: estimateAccess.userId,
             companyId: estimateAccess.companyId,

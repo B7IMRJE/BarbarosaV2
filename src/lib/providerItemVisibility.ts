@@ -56,7 +56,8 @@ export function isDirectItemVisibleInArea(
     if (sameAreaText(item.category, 'Area')) return false;
 
     if (parentAreaName) {
-        return sameAreaText(item.location, areaName) && sameAreaText(item.parent_area, parentAreaName);
+        return sameAreaText(item.parent_area, areaName) ||
+            (sameAreaText(item.location, areaName) && sameAreaText(item.parent_area, parentAreaName));
     }
 
     return sameAreaText(item.location, areaName) ||

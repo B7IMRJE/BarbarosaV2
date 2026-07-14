@@ -83,6 +83,14 @@ export function readProviderModeParams(params: ProviderRouteParams): ProviderMod
     };
 }
 
+export function hasProviderModeRouteSignal(params: ProviderRouteParams) {
+    if (isProviderModeValue(firstParam(params.providerMode))) return true;
+    if (firstParam(params.serviceRequestId) || firstParam(params.scheduleSlotId) || firstParam(params.jobId)) return true;
+    if (firstParam(params.returnTo).startsWith('/techos')) return true;
+
+    return false;
+}
+
 export function providerModeQueryParams(context: ProviderModeParams) {
     return compactRouteParams({
         providerMode: '1',

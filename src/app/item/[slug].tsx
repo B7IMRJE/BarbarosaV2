@@ -23,10 +23,14 @@ import {
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
 import {
+    canUseCompanyEstimateWorkflow,
+    loadCurrentCompanyEstimateAccess,
     loadCurrentCompanyPermissionAccess,
     type CompanyPermissionAccess,
 } from '../../lib/companyPermissions';
 import { addItemToEstimateDraft, loadEstimateDraft, saveEstimateDraftContext } from '../../lib/estimateDraft';
+import { inferEstimateCategoryFromDraft } from '../../lib/estimateOptions';
+import { resolveEstimateOptionSession } from '../../lib/estimateSessions';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import {
     calculateNextDueDate,
@@ -45,6 +49,7 @@ import {
 import {
     providerModePath,
     providerModeQueryParams,
+    hasProviderModeRouteSignal,
     readProviderModeParams,
     validateProviderModeAccess,
 } from '../../lib/providerMode';
@@ -416,6 +421,7 @@ export default function ItemScreen() {
     const managementPropertyId = firstParam(routeParams.propertyId);
     const isManagementMode = firstParam(routeParams.mode) === 'management' && !!managementCompanyId && !!managementPropertyId;
     const providerModeContext = readProviderModeParams(routeParams);
+    const providerContextIncomplete = hasProviderModeRouteSignal(routeParams) && !providerModeContext;
     const [item, setItem] = useState<any>(null);
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
@@ -477,7 +483,18 @@ export default function ItemScreen() {
 
     useEffect(() => {
         void loadItem();
-    }, [slug, isManagementMode, managementCompanyId, managementPropertyId, providerModeContext?.companyId, providerModeContext?.propertyId]);
+    }, [
+        slug,
+        isManagementMode,
+        managementCompanyId,
+        managementPropertyId,
+        providerContextIncomplete,
+        providerModeContext?.companyId,
+        providerModeContext?.propertyId,
+        providerModeContext?.serviceRequestId,
+        providerModeContext?.scheduleSlotId,
+        providerModeContext?.jobId,
+    ]);
 
     useEffect(() => {
         if (!providerModeContext || !item) {
@@ -1100,8 +1117,13 @@ export default function ItemScreen() {
 
                 if (!providerAccess.access) {
                     setEstimatePermissionMessage(
-                        `Estimate permission unavailable: ${providerAccess.error || 'Provider mode access could not be confirmed.'}`
+                        providerAccess.error || 'Provider mode access could not be confirmed.'
                     );
+                    return;
+                }
+
+                if (!canUseCompanyEstimateWorkflow(providerAccess.access)) {
+                    setEstimatePermissionMessage('This work account is not authorized to create estimates for this company.');
                     return;
                 }
 
@@ -1113,23 +1135,18 @@ export default function ItemScreen() {
                     status: providerAccess.access.status,
                     permissions: providerAccess.access.permissions,
                 });
-
-                setEstimatePermissionMessage(
-                    providerAccess.access.permissions.can_add_item_to_estimate
-                        ? ''
-                        : 'Estimate permission unavailable: can_add_item_to_estimate is not enabled for this role. Provider mode company access is active, so provider estimate drafts are still available.'
-                );
+                setEstimatePermissionMessage('');
                 return;
             }
 
-            const estimatePermission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', {
+            const estimatePermission = await loadCurrentCompanyEstimateAccess({
                 companyId,
             });
 
             setEstimateAccess(estimatePermission.access);
             setEstimatePermissionMessage(estimatePermission.access
                 ? ''
-                : `Estimate permission unavailable: ${estimatePermission.error || 'You do not have permission to add estimates.'}`
+                : estimatePermission.error || 'This work account is not authorized to create estimates for this company.'
             );
         } finally {
             setCheckingEstimateAccess(false);
@@ -1143,6 +1160,15 @@ export default function ItemScreen() {
         setCheckingEstimateAccess(false);
         setFiles([]);
         setMaintenanceTasks([]);
+
+        if (providerContextIncomplete) {
+            setMessage('Provider context is incomplete. Use Back to Current Job and reopen Client HomeOS.');
+            setItem(null);
+            setFiles([]);
+            setMaintenanceTasks([]);
+            setLoading(false);
+            return;
+        }
 
         if (isManagementMode && managementCompanyId && managementPropertyId) {
             await loadManagementItem(managementCompanyId, managementPropertyId);
@@ -1255,7 +1281,7 @@ export default function ItemScreen() {
 
         const [viewLookup, estimateLookup, platformAdmin] = await Promise.all([
             loadCurrentCompanyPermissionAccess('can_view_customers', { companyId: targetCompanyId }),
-            loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', { companyId: targetCompanyId }),
+            loadCurrentCompanyEstimateAccess({ companyId: targetCompanyId }),
             isPlatformAdmin(user.id),
         ]);
 
@@ -1269,7 +1295,7 @@ export default function ItemScreen() {
         setEstimateAccess(estimateLookup.access);
         setEstimatePermissionMessage(estimateLookup.access
             ? ''
-            : `Estimate permission unavailable: ${estimateLookup.error || 'You do not have permission to add estimates.'}`
+            : (estimateLookup.error || 'This work account is not authorized to create estimates for this company.')
         );
 
         const { data: clientData, error: clientError } = await supabase
@@ -1826,25 +1852,13 @@ export default function ItemScreen() {
 
         const estimateCompanyId = providerModeContext?.companyId || estimateAccess.companyId;
         const estimatePropertyId = providerModeContext?.propertyId || item.property_id || managementPropertyId || '';
-        const estimateSource = providerModeContext ? 'provider_mode' : isManagementMode ? 'management' : 'homeos';
+        const estimateSource: 'provider_mode' | 'management' | 'homeos' = providerModeContext
+            ? 'provider_mode'
+            : isManagementMode
+                ? 'management'
+                : 'homeos';
         const draftItemId = String(item.id || item.item_slug || slug);
-        const draftScope = {
-            userId: estimateAccess.userId,
-            companyId: estimateCompanyId,
-            propertyId: estimatePropertyId || null,
-        };
-
-        if (providerModeContext) {
-            const existingDraft = await loadEstimateDraft(draftScope);
-            const alreadyInDraft = existingDraft.some((draftItem) => draftItem.id === draftItemId);
-
-            if (alreadyInDraft) {
-                setMessage('Item is already in estimate.');
-                return;
-            }
-        }
-
-        await addItemToEstimateDraft({
+        const draftItem = {
             id: draftItemId,
             property_id: estimatePropertyId || item.property_id || null,
             customer_home_name: providerModeContext
@@ -1862,10 +1876,59 @@ export default function ItemScreen() {
             company_user_id: estimateAccess.companyUserId,
             source: estimateSource,
             created_at: new Date().toISOString(),
-        }, draftScope);
+        };
+        const draftScope = {
+            userId: estimateAccess.userId,
+            companyId: estimateCompanyId,
+            propertyId: estimatePropertyId || null,
+        };
+
+        if (providerModeContext) {
+            const existingDraft = await loadEstimateDraft(draftScope);
+            const alreadyInDraft = existingDraft.some((draftItem) => draftItem.id === draftItemId);
+
+            if (alreadyInDraft) {
+                setMessage('Item is already in estimate.');
+                return;
+            }
+        }
+
+        const draftContext = {
+            company_id: estimateCompanyId,
+            property_id: estimatePropertyId || item.property_id || null,
+            customer_home_name: providerModeContext
+                ? `Client HomeOS ${shortId(estimatePropertyId)}`
+                : null,
+            service_request_id: providerModeContext?.serviceRequestId || null,
+            job_id: providerModeContext?.jobId || null,
+            schedule_slot_id: providerModeContext?.scheduleSlotId || null,
+            technician_company_user_id: estimateAccess.companyUserId || null,
+            technician_name: null,
+            issue_summary: null,
+            source: estimateSource,
+            updated_at: new Date().toISOString(),
+        };
+        const sessionResult = await resolveEstimateOptionSession({
+            companyId: estimateCompanyId,
+            propertyId: draftContext.property_id,
+            serviceRequestId: draftContext.service_request_id,
+            jobId: draftContext.job_id,
+            scheduleSlotId: draftContext.schedule_slot_id,
+            homeItemId: draftItemId,
+            category: inferEstimateCategoryFromDraft([draftItem], draftContext),
+            source: estimateSource,
+        });
+
+        if (!sessionResult.session) {
+            setMessage(`Estimate session unavailable: ${sessionResult.error || 'Could not create estimate session.'}`);
+            return;
+        }
+
+        await addItemToEstimateDraft(draftItem, draftScope);
 
         if (providerModeContext) {
             await saveEstimateDraftContext({
+                estimate_session_id: sessionResult.session.id,
                 company_id: estimateCompanyId,
                 property_id: estimatePropertyId || item.property_id || null,
                 customer_home_name: `Client HomeOS ${shortId(estimatePropertyId)}`,
@@ -1879,8 +1942,20 @@ export default function ItemScreen() {
                 updated_at: new Date().toISOString(),
             }, draftScope);
             setMessage('Item added to estimate.');
+            router.push({
+                pathname: '/estimate',
+                params: {
+                    itemSlug: item.item_slug || String(slug),
+                    ...providerModeQueryParams(providerModeContext),
+                },
+            } as any);
             return;
         }
+
+        await saveEstimateDraftContext({
+            ...draftContext,
+            estimate_session_id: sessionResult.session.id,
+        }, draftScope);
 
         router.push({
             pathname: '/estimate',

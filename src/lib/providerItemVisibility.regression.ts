@@ -1,4 +1,7 @@
 import {
+    buildHomeDashboardSystemTiles,
+} from '../components/homeos/HomeDashboardView';
+import {
     formatDirectItemsEmptyMessage,
     resolveAreaVisibleItems,
 } from './providerItemVisibility';
@@ -14,6 +17,9 @@ export function runProviderItemVisibilityRegressions() {
     providerCannotTreatAnotherPropertyAsVisibleRows();
     providerRecoveryRemainsBlocked();
     providerQueryFailureIsNotDisplayedAsEmptyList();
+    providerDashboardShowsCustomTopLevelAreas();
+    childContainerDoesNotBecomeDuplicateRootTile();
+    nestedContainerShowsDirectItems();
 }
 
 function homeownerKitchenQueryFindsPlumbingKitchenFaucet() {
@@ -109,6 +115,31 @@ function providerQueryFailureIsNotDisplayedAsEmptyList() {
     assert(!noRowsMessage.toLowerCase().includes('no direct items yet'), 'Provider zero visible rows should not use the homeowner empty list copy.');
 }
 
+function providerDashboardShowsCustomTopLevelAreas() {
+    const tiles = buildHomeDashboardSystemTiles(customHierarchyItems);
+
+    assert(tiles.some((tile) => tile.key === 'Main Home'), 'Provider dashboard should show Main Home as a custom top-level hierarchy.');
+}
+
+function childContainerDoesNotBecomeDuplicateRootTile() {
+    const tiles = buildHomeDashboardSystemTiles(customHierarchyItems);
+
+    assert(!tiles.some((tile) => tile.key === 'Repipe'), 'Child Repipe container should not become a duplicate root dashboard tile.');
+}
+
+function nestedContainerShowsDirectItems() {
+    const result = resolveAreaVisibleItems(customHierarchyItems, {
+        systemName: 'Main Home',
+        areaName: 'Repipe',
+        parentAreaName: 'Main Home',
+    });
+
+    assert(
+        result.directItems.some((item) => item.id === 'whole-house-repipe'),
+        'Nested Repipe container should show Whole House Repipe as a direct item.'
+    );
+}
+
 function itemIds(items: Array<{ id?: string | null }>) {
     return items.map((item) => item.id || '').filter(Boolean).sort().join('|');
 }
@@ -173,6 +204,39 @@ const homeItems = [
         category: 'Fixture',
         location: 'Kitchen',
         parent_area: '',
+    },
+];
+
+const customHierarchyItems = [
+    {
+        id: 'main-home-root',
+        property_id: 'property-1',
+        name: 'Main Home',
+        system: 'Main Home',
+        item_slug: 'main-home',
+        category: 'Area',
+        location: 'Main Home',
+        parent_area: '',
+    },
+    {
+        id: 'repipe-container',
+        property_id: 'property-1',
+        name: 'Repipe',
+        system: 'Main Home',
+        item_slug: 'main-home-repipe',
+        category: 'Area',
+        location: 'Main Home',
+        parent_area: 'Main Home',
+    },
+    {
+        id: 'whole-house-repipe',
+        property_id: 'property-1',
+        name: 'Whole House Repipe',
+        system: 'Main Home',
+        item_slug: 'main-home-repipe-whole-house-repipe',
+        category: 'Service',
+        location: 'Main Home',
+        parent_area: 'Repipe',
     },
 ];
 

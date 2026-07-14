@@ -17,6 +17,8 @@ import {
     loadEstimateDraft,
     saveEstimateDraftContext,
 } from '../lib/estimateDraft';
+import { inferEstimateCategoryFromDraft } from '../lib/estimateOptions';
+import { resolveEstimateOptionSession } from '../lib/estimateSessions';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { recordHomeownerStatusUpdate, recordServiceRequestEvent } from '../lib/serviceRequestActivity';
 import {
@@ -1010,7 +1012,7 @@ export default function TechOSScreen() {
         const context = getTechOSClientJobContext(job);
 
         if (context.propertyId && authUserId) {
-            await saveEstimateDraftContext({
+            const nextDraftContext = {
                 company_id: context.companyId,
                 property_id: context.propertyId,
                 customer_home_name: getAssignedJobLocation(job),
@@ -1020,8 +1022,28 @@ export default function TechOSScreen() {
                 technician_company_user_id: job.slot.technician_company_user_id || null,
                 technician_name: membership?.full_name || authEmail || null,
                 issue_summary: job.request?.issue_summary || job.slot.notes || null,
-                source: 'techos',
+                source: 'techos' as const,
                 updated_at: new Date().toISOString(),
+            };
+            const sessionResult = await resolveEstimateOptionSession({
+                companyId: context.companyId,
+                propertyId: context.propertyId,
+                serviceRequestId: context.serviceRequestId || null,
+                jobId: context.jobId || null,
+                scheduleSlotId: context.scheduleSlotId || null,
+                homeItemId: null,
+                category: inferEstimateCategoryFromDraft([], nextDraftContext),
+                source: 'techos',
+            });
+
+            if (!sessionResult.session) {
+                setMessage(`Estimate session unavailable: ${sessionResult.error || 'Could not create estimate session.'}`);
+                return;
+            }
+
+            await saveEstimateDraftContext({
+                ...nextDraftContext,
+                estimate_session_id: sessionResult.session.id,
             }, {
                 userId: authUserId,
                 companyId: context.companyId,

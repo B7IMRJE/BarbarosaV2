@@ -26,6 +26,10 @@ import {
   providerModeQueryParams,
   readProviderModeParams,
 } from '../lib/providerMode';
+import {
+  buildProviderHomeItemsRpcArgs,
+  hasAssignedProviderHomeItemsContext,
+} from '../lib/providerHomeItems';
 import { getProviderReturnActionLabel } from '../lib/techosClientAccess';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
@@ -84,12 +88,18 @@ export default function HomeScreen() {
     companyId?: string | string[];
     propertyId?: string | string[];
     returnTo?: string | string[];
+    serviceRequestId?: string | string[];
+    scheduleSlotId?: string | string[];
+    jobId?: string | string[];
   }>();
   const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
     routeParams.providerMode,
     routeParams.companyId,
     routeParams.propertyId,
     routeParams.returnTo,
+    routeParams.serviceRequestId,
+    routeParams.scheduleSlotId,
+    routeParams.jobId,
   ]);
   const { width: viewportWidth } = useWindowDimensions();
   const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 900);
@@ -191,11 +201,37 @@ export default function HomeScreen() {
       await loadHomeServiceRequests(activeProperty.propertyId);
     }
 
-    const { data: items } = await supabase
-      .from('home_items')
-      .select('*')
-      .eq('property_id', activeProperty.propertyId)
-      .or('archived.eq.false,archived.is.null');
+    let items: HomeDashboardItem[] = [];
+    let itemLoadMessage = '';
+
+    if (providerModeContext) {
+      if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+        itemLoadMessage = 'Provider context is missing the assigned request, visit, or job. Use Back to Current Job and reopen Client HomeOS.';
+      } else {
+        const { data, error } = await supabase.rpc(
+          'get_provider_homeos_items',
+          buildProviderHomeItemsRpcArgs(providerModeContext)
+        );
+
+        if (error) {
+          itemLoadMessage = `Client HomeOS items could not be loaded: ${error.message}`;
+        } else {
+          items = (data || []) as HomeDashboardItem[];
+        }
+      }
+    } else {
+      const { data, error } = await supabase
+        .from('home_items')
+        .select('*')
+        .eq('property_id', activeProperty.propertyId)
+        .or('archived.eq.false,archived.is.null');
+
+      if (error) {
+        itemLoadMessage = `HomeOS items could not be loaded: ${error.message}`;
+      } else {
+        items = (data || []) as HomeDashboardItem[];
+      }
+    }
 
     const { data: emergencies } = await supabase
       .from('home_emergencies')
@@ -218,8 +254,9 @@ export default function HomeScreen() {
       setMaintenanceReminderMessage('');
     }
 
-    setHomeItems((items || []) as HomeDashboardItem[]);
+    setHomeItems(items);
     setActiveEmergencies((emergencies || []) as HomeHealthEmergency[]);
+    if (itemLoadMessage) setServiceRequestMessage(itemLoadMessage);
   }, [providerModeContext]);
 
   useEffect(() => {
@@ -231,6 +268,27 @@ export default function HomeScreen() {
       loadHomeHealthData();
     }, [loadHomeHealthData])
   );
+
+  useEffect(() => {
+    if (!providerModeContext || typeof window === 'undefined') return;
+
+    const refreshFromLifecycle = () => {
+      void loadHomeHealthData();
+    };
+    const refreshWhenVisible = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        refreshFromLifecycle();
+      }
+    };
+
+    window.addEventListener('focus', refreshFromLifecycle);
+    document?.addEventListener?.('visibilitychange', refreshWhenVisible);
+
+    return () => {
+      window.removeEventListener('focus', refreshFromLifecycle);
+      document?.removeEventListener?.('visibilitychange', refreshWhenVisible);
+    };
+  }, [providerModeContext, loadHomeHealthData]);
 
   useEffect(() => {
     if (!activePropertyId || providerModeContext) return;
@@ -643,6 +701,13 @@ export default function HomeScreen() {
                   </Text>
                 </View>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), justifyContent: 'flex-end' }}>
+                  <ThemedButton
+                    title="Refresh"
+                    variant="secondary"
+                    onPress={loadHomeHealthData}
+                    style={{ paddingVertical: scaleIcon(10), paddingHorizontal: scaleIcon(12) }}
+                    textStyle={{ fontSize: scaleFont(12) }}
+                  />
                   <ThemedButton
                     title="Client Home"
                     variant="secondary"

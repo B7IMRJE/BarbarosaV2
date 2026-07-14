@@ -2,9 +2,28 @@ import HomeHeader from '../../components/HomeHeader';
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
-    loadCurrentCompanyPermissionAccess,
+    buildApprovedAiReferenceContext,
+    buildEstimateOptionWorkspace,
+    formatMoney,
+    getEstimateCategoryTemplate,
+    inferEstimateCategoryFromDraft,
+    toHomeownerPresentationChoice,
+    validateAiEstimateDraftResponse,
+    type AiEstimateDraftChoice,
+    type EstimateAnswerSet,
+    type EstimateChoice as Phase1EstimateChoice,
+    type EstimateOptionCategory,
+    type EstimateQuestionDefinition,
+} from '../../lib/estimateOptions';
+import {
+    loadCompanyPriceBook,
+    type CompanyPriceBookItem,
+} from '../../lib/companyPriceBook';
+import {
+    canUseCompanyEstimateWorkflow,
+    loadCurrentCompanyEstimateAccess,
     type CompanyPermissionAccess,
 } from '../../lib/companyPermissions';
 import {
@@ -13,12 +32,22 @@ import {
     loadEstimateDraftContext,
     loadEstimateDraft,
     removeItemFromEstimateDraft,
+    saveEstimateDraftContext,
 } from '../../lib/estimateDraft';
 import {
+    buildDraftEstimateOptionsRequest,
+    resolveEstimateOptionSession,
+    type EstimateOptionSession,
+    type EstimateSessionSource,
+} from '../../lib/estimateSessions';
+import {
+    hasProviderModeRouteSignal,
+    providerModeItemPath,
     providerModePath,
     readProviderModeParams,
     validateProviderModeAccess,
 } from '../../lib/providerMode';
+import { supabase, supabaseAnonKey, supabaseUrl } from '../../lib/supabase';
 import { getProviderReturnActionLabel } from '../../lib/techosClientAccess';
 
 const estimateFoundationSections = [
@@ -31,18 +60,15 @@ const estimateFoundationSections = [
         description: 'Recommended repairs or replacements will be written here before customer review.',
     },
     {
-        title: 'Price Book Coming Soon',
-        description: 'Pricing is not configured yet. No fake prices are generated.',
+        title: 'Price Book / Approved Catalog',
+        description: 'Pricing setup is required before homeowner choices can be presented.',
     },
 ];
 
-type EstimateChoice = {
-    id: string;
-    kind: 'option' | 'bundle';
-    name: string;
-    description: string;
-    items: EstimateDraftItem[];
-    systems: string[];
+type EditableChoiceCopy = {
+    title: string;
+    shortSummary: string;
+    homeownerExplanation: string;
 };
 
 export default function EstimateScreen() {
@@ -60,7 +86,7 @@ export default function EstimateScreen() {
     const requestedPropertyId = firstParam(propertyId);
     const requestedMode = firstParam(mode);
     const requestedReturnTo = firstParam(returnTo);
-    const providerModeContext = readProviderModeParams({
+    const providerRouteParams = {
         providerMode,
         companyId,
         propertyId,
@@ -68,24 +94,61 @@ export default function EstimateScreen() {
         serviceRequestId,
         scheduleSlotId,
         jobId,
-    });
+    };
+    const providerModeContext = readProviderModeParams(providerRouteParams);
+    const providerContextIncomplete = hasProviderModeRouteSignal(providerRouteParams) && !providerModeContext;
     const [items, setItems] = useState<EstimateDraftItem[]>([]);
     const [message, setMessage] = useState('Loading estimate draft...');
     const [checkingAccess, setCheckingAccess] = useState(true);
     const [estimateAccess, setEstimateAccess] = useState<CompanyPermissionAccess | null>(null);
     const [draftContext, setDraftContext] = useState<EstimateDraftContext | null>(null);
+    const [estimateSession, setEstimateSession] = useState<EstimateOptionSession | null>(null);
     const [selectedChoiceId, setSelectedChoiceId] = useState('');
+    const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
+    const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
+    const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
+    const [answers, setAnswers] = useState<EstimateAnswerSet>({});
+    const [technicianApproved, setTechnicianApproved] = useState(false);
+    const [presentationMode, setPresentationMode] = useState(false);
+    const [aiDrafting, setAiDrafting] = useState(false);
+    const [aiValidationErrors, setAiValidationErrors] = useState<string[]>([]);
+    const [aiDraftsByChoiceId, setAiDraftsByChoiceId] = useState<Record<string, AiEstimateDraftChoice>>({});
+    const [editableCopyByChoiceId, setEditableCopyByChoiceId] = useState<Record<string, EditableChoiceCopy>>({});
 
     useEffect(() => {
         void checkAccess();
-    }, [requestedCompanyId, requestedPropertyId, providerModeContext?.providerMode]);
+    }, [
+        requestedCompanyId,
+        requestedPropertyId,
+        providerContextIncomplete,
+        providerModeContext?.providerMode,
+        providerModeContext?.companyId,
+        providerModeContext?.propertyId,
+        providerModeContext?.serviceRequestId,
+        providerModeContext?.scheduleSlotId,
+        providerModeContext?.jobId,
+    ]);
 
     async function checkAccess() {
         setCheckingAccess(true);
         setEstimateAccess(null);
         setDraftContext(null);
+        setEstimateSession(null);
         setItems([]);
+        setPriceBookItems([]);
+        setPriceBookMessage('Price book loading...');
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setAiValidationErrors([]);
+        setAiDraftsByChoiceId({});
+        setEditableCopyByChoiceId({});
         setMessage('Loading estimate draft...');
+
+        if (providerContextIncomplete) {
+            setCheckingAccess(false);
+            setMessage('Provider context is incomplete. Use Back to Current Job and reopen the estimate from the assigned job.');
+            return;
+        }
 
         if (providerModeContext) {
             const providerAccess = await validateProviderModeAccess(
@@ -95,7 +158,13 @@ export default function EstimateScreen() {
 
             if (!providerAccess.access) {
                 setCheckingAccess(false);
-                setMessage(`Estimate permission unavailable: ${providerAccess.error || 'Provider mode access could not be confirmed.'}`);
+                setMessage(providerAccess.error || 'Provider mode access could not be confirmed.');
+                return;
+            }
+
+            if (!canUseCompanyEstimateWorkflow(providerAccess.access)) {
+                setCheckingAccess(false);
+                setMessage('This work account is not authorized to create estimates for this company.');
                 return;
             }
 
@@ -114,14 +183,14 @@ export default function EstimateScreen() {
             return;
         }
 
-        const permission = await loadCurrentCompanyPermissionAccess('can_add_item_to_estimate', {
+        const permission = await loadCurrentCompanyEstimateAccess({
             companyId: requestedCompanyId,
         });
 
         if (!permission.access) {
             setEstimateAccess(null);
             setCheckingAccess(false);
-            setMessage(permission.error || '');
+            setMessage(permission.error || 'This work account is not authorized to create estimates for this company.');
             return;
         }
 
@@ -140,13 +209,32 @@ export default function EstimateScreen() {
             loadEstimateDraft(scope),
             loadEstimateDraftContext(scope),
         ]);
+        const inferredCategory = inferEstimateCategoryFromDraft(draftItems, nextDraftContext);
 
         setItems(draftItems);
         setDraftContext(nextDraftContext);
-        setMessage(providerModeContext && draftItems.length === 0
+        setEstimateSession(null);
+        setSelectedCategory(inferredCategory);
+        setAnswers({});
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setAiValidationErrors([]);
+        setAiDraftsByChoiceId({});
+        setEditableCopyByChoiceId({});
+        setMessage(providerModeContext && draftItems.length === 0 && !nextDraftContext
             ? 'No provider estimate draft found.'
             : ''
         );
+
+        try {
+            const priceBook = await loadCompanyPriceBook(access.companyId);
+
+            setPriceBookItems(priceBook.items);
+            setPriceBookMessage(priceBook.backendStatus.message);
+        } catch (error) {
+            setPriceBookItems([]);
+            setPriceBookMessage(`Price book unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
     }
 
     async function removeItem(id: string) {
@@ -159,20 +247,32 @@ export default function EstimateScreen() {
         });
 
         setItems(nextItems);
-        if (!buildEstimateChoices(nextItems).some((choice) => choice.id === selectedChoiceId)) {
+        if (!buildEstimateOptionWorkspace({
+            companyId: estimateAccess.companyId,
+            draftItems: nextItems,
+            draftContext,
+            category: selectedCategory,
+            answers,
+            priceBookItems,
+            technicianApproved,
+            aiValidationFailed: aiValidationErrors.length > 0,
+        }).choices.some((choice) => choice.id === selectedChoiceId)) {
             setSelectedChoiceId('');
         }
+        setSelectedCategory(inferEstimateCategoryFromDraft(nextItems, draftContext));
+        setTechnicianApproved(false);
+        setPresentationMode(false);
         setMessage('Item removed from estimate.');
     }
 
-    function selectChoice(choice: EstimateChoice) {
+    function selectChoice(choice: Phase1EstimateChoice) {
         setSelectedChoiceId(choice.id);
-        setMessage(`${choice.name} selected. Price book pricing is not configured yet.`);
+        setMessage(`${choice.title} selected for technician review.`);
     }
 
-    function viewChoiceDetails(choice: EstimateChoice) {
+    function viewChoiceDetails(choice: Phase1EstimateChoice) {
         setSelectedChoiceId(choice.id);
-        setMessage(`${choice.name} includes ${choice.items.map((item) => item.name).join(', ')}.`);
+        setMessage(`${choice.title} includes ${choice.pricingResult.lineItems.map((line) => line.name).join(', ')}.`);
     }
 
     function providerClientHomeOsPath() {
@@ -210,24 +310,256 @@ export default function EstimateScreen() {
     }
 
     function openDraftItem(item: EstimateDraftItem) {
-        const itemSlug = encodeURIComponent(item.item_slug);
+        const itemSlug = item.item_slug;
         const routeCompanyId = item.company_id || estimateAccess?.companyId || requestedCompanyId || '';
         const routePropertyId = item.property_id || requestedPropertyId || '';
         const queryParams = new URLSearchParams();
 
+        if (providerModeContext) {
+            router.push(providerModeItemPath(itemSlug, providerModeContext) as never);
+            return;
+        }
+
         if (routeCompanyId) queryParams.set('companyId', routeCompanyId);
         if (routePropertyId) queryParams.set('propertyId', routePropertyId);
-        if (providerModeContext) {
-            queryParams.set('providerMode', '1');
-            queryParams.set('returnTo', providerClientHomeOsPath());
-        } else if (requestedMode === 'management' || (routeCompanyId && routePropertyId)) {
+
+        if (requestedMode === 'management' || (routeCompanyId && routePropertyId)) {
             queryParams.set('mode', 'management');
         }
 
         const queryString = queryParams.toString();
-        const itemRoute = `/item/${itemSlug}${queryString ? `?${queryString}` : ''}`;
+        const itemRoute = `/item/${encodeURIComponent(itemSlug)}${queryString ? `?${queryString}` : ''}`;
 
         router.push(itemRoute as never);
+    }
+
+    function updateAnswer(question: EstimateQuestionDefinition, value: string | number | boolean) {
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setAnswers((current) => ({
+            ...current,
+            [question.id]: value,
+        }));
+    }
+
+    function toggleMultiAnswer(question: EstimateQuestionDefinition, value: string) {
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setAnswers((current) => {
+            const currentValues = Array.isArray(current[question.id]) ? current[question.id] as string[] : [];
+            const nextValues = currentValues.includes(value)
+                ? currentValues.filter((entry) => entry !== value)
+                : [...currentValues, value];
+
+            return {
+                ...current,
+                [question.id]: nextValues,
+            };
+        });
+    }
+
+    function markRequirementComplete(key: string) {
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setAnswers((current) => ({
+            ...current,
+            [key]: true,
+        }));
+    }
+
+    function updateChoiceCopy(choiceId: string, field: keyof EditableChoiceCopy, value: string) {
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setEditableCopyByChoiceId((current) => {
+            const currentCopy = current[choiceId] || {
+                title: '',
+                shortSummary: '',
+                homeownerExplanation: '',
+            };
+
+            return {
+                ...current,
+                [choiceId]: {
+                    ...currentCopy,
+                    [field]: value,
+                },
+            };
+        });
+    }
+
+    function approveForPresentation(workspaceChoices: Phase1EstimateChoice[]) {
+        if (workspaceChoices.length === 0) {
+            setMessage('Pricing setup required before presentation.');
+            return;
+        }
+
+        setTechnicianApproved(true);
+        setMessage('Technician review marked complete.');
+    }
+
+    async function resolveSessionForDraft(category: EstimateOptionCategory) {
+        if (!estimateAccess) return null;
+
+        const primaryItem = items[0] || null;
+        const source = resolveEstimateSessionSource(providerModeContext ? 'provider_mode' : draftContext?.source || requestedMode);
+        const propertyId =
+            providerModeContext?.propertyId ||
+            draftContext?.property_id ||
+            requestedPropertyId ||
+            primaryItem?.property_id ||
+            null;
+        const result = await resolveEstimateOptionSession({
+            sessionId: estimateSession?.id || draftContext?.estimate_session_id || null,
+            companyId: estimateAccess.companyId,
+            propertyId,
+            serviceRequestId: providerModeContext?.serviceRequestId || draftContext?.service_request_id || null,
+            jobId: providerModeContext?.jobId || draftContext?.job_id || null,
+            scheduleSlotId: providerModeContext?.scheduleSlotId || draftContext?.schedule_slot_id || null,
+            homeItemId: primaryItem?.id || null,
+            category,
+            source,
+        });
+
+        if (!result.session) {
+            setMessage(`Estimate session unavailable: ${result.error || 'Session could not be resolved.'}`);
+            return null;
+        }
+
+        setEstimateSession(result.session);
+
+        const nextDraftContext: EstimateDraftContext = {
+            estimate_session_id: result.session.id,
+            company_id: result.session.companyId,
+            property_id: result.session.propertyId,
+            customer_home_name: draftContext?.customer_home_name || primaryItem?.customer_home_name || null,
+            service_request_id: result.session.serviceRequestId,
+            job_id: result.session.jobId,
+            schedule_slot_id: result.session.scheduleSlotId,
+            technician_company_user_id: draftContext?.technician_company_user_id || estimateAccess.companyUserId || null,
+            technician_name: draftContext?.technician_name || null,
+            issue_summary: draftContext?.issue_summary || null,
+            source: result.session.source,
+            updated_at: new Date().toISOString(),
+        };
+
+        setDraftContext(nextDraftContext);
+        await saveEstimateDraftContext(nextDraftContext, {
+            userId: estimateAccess.userId,
+            companyId: estimateAccess.companyId,
+            propertyId: result.session.propertyId,
+        });
+
+        return result.session;
+    }
+
+    async function draftWithAi(workspaceChoices: Phase1EstimateChoice[]) {
+        if (!estimateAccess) return;
+
+        if (workspaceChoices.length < 2) {
+            setMessage('At least two deterministic priced options are required before AI drafting.');
+            return;
+        }
+
+        setAiDrafting(true);
+        setAiValidationErrors([]);
+        setMessage('Drafting option copy...');
+
+        try {
+            const {
+                data: { session },
+                error: sessionError,
+            } = await supabase.auth.getSession();
+
+            if (sessionError || !session) {
+                setMessage(`AI drafting unavailable: ${sessionError?.message || 'Sign in again.'}`);
+                return;
+            }
+
+            const resolvedSession = await resolveSessionForDraft(selectedCategory);
+
+            if (!resolvedSession) {
+                return;
+            }
+
+            const referenceContext = buildApprovedAiReferenceContext(workspaceChoices);
+            const payload = buildDraftEstimateOptionsRequest(resolvedSession.id, {
+                homeowner_preferred_first_name: readPreferredFirstName(draftContext),
+                answered_questions: answers,
+                technician_notes: draftContext?.issue_summary || '',
+                approved_product_candidates: referenceContext.productIds.map((id) => ({ id, label: labelForReference(id, workspaceChoices) })),
+                approved_scope_combinations: referenceContext.scopeIds.map((id) => ({ id, label: labelForReference(id, workspaceChoices) })),
+                deterministic_price_results: workspaceChoices.map((choice) => ({
+                    id: choice.pricingResult.id,
+                    choice_id: choice.id,
+                    kind: choice.kind,
+                    total_amount: choice.pricingResult.totalAmount,
+                    scope_ids: choice.scopeIds,
+                    product_ids: choice.productIds,
+                    warranty_ids: choice.warrantyIds,
+                    inclusion_ids: choice.inclusionIds,
+                    exclusion_ids: choice.exclusionIds,
+                })),
+                warranties: referenceContext.warrantyIds.map((id) => ({ id, label: labelForReference(id, workspaceChoices) })),
+                inclusions: referenceContext.inclusionIds.map((id) => ({ id, label: labelForReference(id, workspaceChoices) })),
+                exclusions: referenceContext.exclusionIds.map((id) => ({ id, label: labelForReference(id, workspaceChoices) })),
+                warnings: workspaceChoices.flatMap((choice) => choice.pricingResult.warnings),
+                company_tone_rules: [
+                    'Professional',
+                    'Brief',
+                    'No unsupported savings, lifespan, financing, or performance claims',
+                ],
+            });
+            const response = await fetch(`${supabaseUrl}/functions/v1/draft-estimate-options`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${session.access_token}`,
+                    apikey: supabaseAnonKey,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+            const data = await readFunctionJson(response);
+
+            if (!response.ok) {
+                const messageText = readFunctionMessage(data, response.status);
+
+                setAiValidationErrors([messageText]);
+                setMessage(messageText);
+                return;
+            }
+
+            const validation = validateAiEstimateDraftResponse(data, referenceContext);
+
+            if (!validation.valid) {
+                setAiValidationErrors(validation.errors);
+                setMessage(`AI draft validation failed: ${validation.errors[0] || 'Invalid structured output.'}`);
+                return;
+            }
+
+            const nextDrafts = validation.choices.reduce<Record<string, AiEstimateDraftChoice>>((accumulator, draft) => {
+                accumulator[draft.sourceChoiceId] = draft;
+                return accumulator;
+            }, {});
+            const nextEditableCopy = validation.choices.reduce<Record<string, EditableChoiceCopy>>((accumulator, draft) => {
+                accumulator[draft.sourceChoiceId] = {
+                    title: draft.title,
+                    shortSummary: draft.shortSummary,
+                    homeownerExplanation: draft.homeownerExplanation,
+                };
+                return accumulator;
+            }, {});
+
+            setAiDraftsByChoiceId(nextDrafts);
+            setEditableCopyByChoiceId((current) => ({
+                ...current,
+                ...nextEditableCopy,
+            }));
+            setMessage('AI drafts ready for technician review.');
+        } catch (error) {
+            setMessage(`AI drafting unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setAiDrafting(false);
+        }
     }
 
     if (checkingAccess) {
@@ -249,9 +581,21 @@ export default function EstimateScreen() {
         );
     }
 
-    const estimateChoices = buildEstimateChoices(items);
-    const optionChoices = estimateChoices.filter((choice) => choice.kind === 'option');
-    const bundleChoices = estimateChoices.filter((choice) => choice.kind === 'bundle');
+    const phase1Workspace = buildEstimateOptionWorkspace({
+        companyId: estimateAccess.companyId,
+        draftItems: items,
+        draftContext,
+        category: selectedCategory,
+        answers,
+        priceBookItems,
+        technicianApproved,
+        aiValidationFailed: aiValidationErrors.length > 0,
+    });
+    const estimateChoices = phase1Workspace.choices.map((choice) =>
+        applyEditableChoiceCopy(choice, aiDraftsByChoiceId[choice.id], editableCopyByChoiceId[choice.id])
+    );
+    const optionChoices = estimateChoices.filter((choice) => choice.kind === 'individual');
+    const bundleChoices = estimateChoices.filter((choice) => choice.kind === 'package');
     const selectedChoice = estimateChoices.find((choice) => choice.id === selectedChoiceId) || null;
 
     return (
@@ -315,9 +659,9 @@ export default function EstimateScreen() {
                     {renderSectionHeader('Estimate Header', 'Draft builder for selected client HomeOS items.')}
                     <View style={summaryGridStyle}>
                         {renderSummaryCard('Draft Items', String(items.length), 'Selected HomeOS records')}
-                        {renderSummaryCard('Options', String(optionChoices.length), 'Auto-built from item order')}
-                        {renderSummaryCard('Bundles', String(bundleChoices.length), items.length > 4 ? 'Created after option cap' : 'Starts after 4 items')}
-                        {renderSummaryCard('Selected', selectedChoice?.name || 'None', 'No customer approval yet')}
+                        {renderSummaryCard('Options', String(optionChoices.length), '2 to 4 individual choices')}
+                        {renderSummaryCard('Packages', String(bundleChoices.length), 'Up to 2 broader packages')}
+                        {renderSummaryCard('Status', phase1Workspace.statusMessage, 'Technician review gate')}
                     </View>
                 </View>
 
@@ -331,7 +675,9 @@ export default function EstimateScreen() {
                         {!!draftContext?.service_request_id && renderInfoChip('Request', shortId(draftContext.service_request_id))}
                         {!!draftContext?.job_id && renderInfoChip('Job', shortId(draftContext.job_id))}
                         {!!draftContext?.technician_name && renderInfoChip('Technician', draftContext.technician_name)}
-                        {renderInfoChip('Pricing', 'Price book coming soon')}
+                        {renderInfoChip('Pricing', phase1Workspace.pricingSetupRequired ? 'Pricing setup required' : 'Deterministic')}
+                        {renderInfoChip('Price Book', priceBookMessage)}
+                        {renderInfoChip('Category', phase1Workspace.template.label)}
                     </View>
                     {!!draftContext?.issue_summary && (
                         <Text style={contextSummaryStyle}>
@@ -347,10 +693,111 @@ export default function EstimateScreen() {
                 )}
 
                 <View style={sectionStyle}>
-                    {renderSectionHeader('Estimate Options', 'Options are generated from the current draft item order.')}
+                    {renderSectionHeader('Category Questions', phase1Workspace.template.label)}
+                    <View style={categoryTabRowStyle}>
+                        {(['toilet_replacement', 'water_heater', 'garbage_disposal', 'faucet_replacement', 'whole_home_repipe'] as EstimateOptionCategory[]).map((category) => (
+                            <TouchableOpacity
+                                key={category}
+                                onPress={() => {
+                                    setSelectedCategory(category);
+                                    setAnswers({});
+                                    setTechnicianApproved(false);
+                                    setPresentationMode(false);
+                                }}
+                                style={selectedCategory === category ? [categoryButtonStyle, selectedCategoryButtonStyle] : categoryButtonStyle}
+                            >
+                                <Text style={selectedCategory === category ? selectedCategoryButtonTextStyle : categoryButtonTextStyle}>
+                                    {getEstimateCategoryTemplate(category).label}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+
+                    <View style={questionGridStyle}>
+                        {phase1Workspace.template.questions.map((question) => renderQuestion(question, answers, updateAnswer, toggleMultiAnswer))}
+                    </View>
+
+                    <View style={requirementGridStyle}>
+                        {phase1Workspace.template.requiredPhotoLabels.map((label) => renderRequirementPill(`photo:${label}`, label, answers, markRequirementComplete))}
+                        {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderRequirementPill(`measurement:${label}`, label, answers, markRequirementComplete))}
+                    </View>
+                </View>
+
+                <View style={sectionStyle}>
+                    {renderSectionHeader('Deterministic Pricing', phase1Workspace.statusMessage)}
+                    {phase1Workspace.pricingSetupRequired ? (
+                        <View style={smallEmptyStyle}>
+                            <Text style={smallEmptyTitleStyle}>Pricing setup required</Text>
+                            <Text style={smallEmptyTextStyle}>
+                                Add active company price-book entries before generating homeowner choices.
+                            </Text>
+                        </View>
+                    ) : (
+                        <View style={foundationGridStyle}>
+                            {phase1Workspace.pricingResults.slice(0, 4).map((pricingResult) => (
+                                <View key={pricingResult.id} style={foundationCardStyle}>
+                                    <Text style={foundationTitleStyle}>{formatMoney(pricingResult.totalAmount)}</Text>
+                                    <Text style={foundationTextStyle}>
+                                        {pricingResult.lineItems.map((line) => line.name).join(', ')}
+                                    </Text>
+                                    {pricingResult.missingPricingInputs.length > 0 && (
+                                        <Text style={warningTextStyle}>
+                                            {pricingResult.missingPricingInputs[0]}
+                                        </Text>
+                                    )}
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                </View>
+
+                <View style={sectionStyle}>
+                    {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
+                    <View style={compactActionRowStyle}>
+                        <TouchableOpacity
+                            onPress={() => draftWithAi(estimateChoices)}
+                            style={aiDrafting ? mutedButtonStyle : compactPrimaryButtonStyle}
+                            disabled={aiDrafting}
+                        >
+                            <Text style={compactPrimaryButtonTextStyle}>
+                                {aiDrafting ? 'Drafting...' : 'Draft with AI'}
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => approveForPresentation(estimateChoices)}
+                            style={compactSecondaryButtonStyle}
+                        >
+                            <Text style={compactSecondaryButtonTextStyle}>Approve Set</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => setPresentationMode((current) => !current)}
+                            style={compactSecondaryButtonStyle}
+                        >
+                            <Text style={compactSecondaryButtonTextStyle}>
+                                {presentationMode ? 'Back to Edit' : 'Present to Homeowner'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {phase1Workspace.presentationGate.blockers.length > 0 && (
+                        <View style={warningBoxStyle}>
+                            {phase1Workspace.presentationGate.blockers.slice(0, 6).map((blocker) => (
+                                <Text key={blocker} style={warningTextStyle}>{blocker}</Text>
+                            ))}
+                        </View>
+                    )}
+
+                    {aiValidationErrors.length > 0 && (
+                        <View style={warningBoxStyle}>
+                            {aiValidationErrors.slice(0, 4).map((error) => (
+                                <Text key={error} style={warningTextStyle}>{error}</Text>
+                            ))}
+                        </View>
+                    )}
+
                     {estimateChoices.length === 0 ? (
                         <View style={smallEmptyStyle}>
-                            <Text style={smallEmptyTextStyle}>Add an item to create Option 1.</Text>
+                            <Text style={smallEmptyTextStyle}>Pricing setup required before choices can be generated.</Text>
                         </View>
                     ) : (
                         <View style={choiceGridStyle}>
@@ -362,31 +809,40 @@ export default function EstimateScreen() {
                                         : choiceCardStyle}
                                 >
                                     <View style={choiceTitleRowStyle}>
-                                        <Text style={choiceTitleStyle}>{choice.name}</Text>
-                                        <Text style={choiceCountStyle}>{choice.items.length} items</Text>
+                                        <Text style={choiceTitleStyle}>{choice.title}</Text>
+                                        <Text style={choiceCountStyle}>{formatMoney(choice.pricingResult.totalAmount)}</Text>
                                     </View>
-                                    <Text style={choiceDescriptionStyle}>{choice.description}</Text>
+                                    <Text style={choiceDescriptionStyle}>{choice.shortSummary}</Text>
                                     <View style={chipRowStyle}>
-                                        {choice.items.slice(0, 4).map((item) => (
-                                            <Text key={`${choice.id}-${item.id}`} style={itemChipStyle}>
-                                                {item.name}
+                                        {choice.pricingResult.lineItems.slice(0, 4).map((line) => (
+                                            <Text key={`${choice.id}-${line.id}`} style={itemChipStyle}>
+                                                {line.name}
                                             </Text>
                                         ))}
-                                        {choice.items.length > 4 && (
-                                            <Text style={itemChipStyle}>+{choice.items.length - 4} more</Text>
+                                        {choice.pricingResult.lineItems.length > 4 && (
+                                            <Text style={itemChipStyle}>+{choice.pricingResult.lineItems.length - 4} more</Text>
                                         )}
                                     </View>
-                                    <Text style={systemsTextStyle}>
-                                        Systems: {choice.systems.join(', ')}
-                                    </Text>
-                                    <Text style={pricePlaceholderStyle}>Price book coming soon</Text>
+                                    <TextInput
+                                        value={choice.title}
+                                        onChangeText={(value) => updateChoiceCopy(choice.id, 'title', value)}
+                                        style={copyInputStyle}
+                                        placeholder="Option title"
+                                    />
+                                    <TextInput
+                                        value={choice.homeownerExplanation}
+                                        onChangeText={(value) => updateChoiceCopy(choice.id, 'homeownerExplanation', value)}
+                                        style={copyTextAreaStyle}
+                                        multiline
+                                        placeholder="Homeowner explanation"
+                                    />
                                     <View style={compactActionRowStyle}>
                                         <TouchableOpacity
                                             onPress={() => selectChoice(choice)}
                                             style={compactPrimaryButtonStyle}
                                         >
                                             <Text style={compactPrimaryButtonTextStyle}>
-                                                {choice.kind === 'bundle' ? 'Select Bundle' : 'Select Option'}
+                                                {choice.kind === 'package' ? 'Select Package' : 'Select Option'}
                                             </Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
@@ -398,6 +854,27 @@ export default function EstimateScreen() {
                                     </View>
                                 </View>
                             ))}
+                        </View>
+                    )}
+                </View>
+
+                <View style={sectionStyle}>
+                    {renderSectionHeader('Homeowner Presentation', phase1Workspace.presentationGate.canPresent ? 'Ready' : 'Blocked')}
+                    {!presentationMode ? (
+                        <View style={smallEmptyStyle}>
+                            <Text style={smallEmptyTextStyle}>
+                                Presentation preview is available after technician review.
+                            </Text>
+                        </View>
+                    ) : !phase1Workspace.presentationGate.canPresent ? (
+                        <View style={warningBoxStyle}>
+                            {phase1Workspace.presentationGate.blockers.map((blocker) => (
+                                <Text key={blocker} style={warningTextStyle}>{blocker}</Text>
+                            ))}
+                        </View>
+                    ) : (
+                        <View style={presentationGridStyle}>
+                            {estimateChoices.map((choice) => renderPresentationChoice(choice))}
                         </View>
                     )}
                 </View>
@@ -501,52 +978,188 @@ function shortId(value?: string | null) {
     return value.slice(0, 8).toUpperCase();
 }
 
-function buildEstimateChoices(items: EstimateDraftItem[]): EstimateChoice[] {
-    const choices: EstimateChoice[] = [];
-    const optionCount = Math.min(items.length, 4);
-
-    for (let index = 0; index < optionCount; index += 1) {
-        const optionItems = items.slice(0, index + 1);
-
-        choices.push({
-            id: `option-${index + 1}`,
-            kind: 'option',
-            name: `Option ${index + 1}`,
-            description: index === 0
-                ? 'Focused starter option from the first selected item.'
-                : `Includes the first ${index + 1} selected items.`,
-            items: optionItems,
-            systems: uniqueSystems(optionItems),
-        });
-    }
-
-    if (items.length > 4) {
-        choices.push({
-            id: 'bundle-all',
-            kind: 'bundle',
-            name: 'Package / Bundle',
-            description: 'Includes all selected items after the four-option cap.',
-            items,
-            systems: uniqueSystems(items),
-        });
-    }
-
-    return choices;
-}
-
-function uniqueSystems(items: EstimateDraftItem[]) {
-    const systems = new Set<string>();
-
-    items.forEach((item) => {
-        const systemName = item.system.trim();
-        systems.add(systemName || 'Unspecified');
-    });
-
-    return Array.from(systems);
-}
-
 function itemLocation(item: EstimateDraftItem) {
     return item.location || item.parent_area || 'Whole Home';
+}
+
+function applyEditableChoiceCopy(
+    choice: Phase1EstimateChoice,
+    aiDraft?: AiEstimateDraftChoice,
+    editableCopy?: EditableChoiceCopy
+): Phase1EstimateChoice {
+    return {
+        ...choice,
+        title: editableCopy?.title || aiDraft?.title || choice.title,
+        shortSummary: editableCopy?.shortSummary || aiDraft?.shortSummary || choice.shortSummary,
+        homeownerExplanation: editableCopy?.homeownerExplanation || aiDraft?.homeownerExplanation || choice.homeownerExplanation,
+        keyBenefits: aiDraft?.keyBenefits?.length ? aiDraft.keyBenefits : choice.keyBenefits,
+        whyItDiffers: aiDraft?.whyItDiffers || choice.whyItDiffers,
+        recommendedReason: aiDraft?.recommendedReason || choice.recommendedReason,
+    };
+}
+
+function renderQuestion(
+    question: EstimateQuestionDefinition,
+    answers: EstimateAnswerSet,
+    updateAnswer: (question: EstimateQuestionDefinition, value: string | number | boolean) => void,
+    toggleMultiAnswer: (question: EstimateQuestionDefinition, value: string) => void
+) {
+    const currentAnswer = answers[question.id];
+
+    return (
+        <View key={question.id} style={questionCardStyle}>
+            <View style={choiceTitleRowStyle}>
+                <Text style={questionLabelStyle}>{question.label}</Text>
+                {question.required && <Text style={requiredPillStyle}>Required</Text>}
+            </View>
+
+            {question.type === 'single_select' || question.type === 'yes_no' ? (
+                <View style={chipRowStyle}>
+                    {(question.allowedAnswers || ['yes', 'no']).map((answer) => (
+                        <TouchableOpacity
+                            key={`${question.id}-${answer}`}
+                            onPress={() => updateAnswer(question, answer)}
+                            style={currentAnswer === answer ? [answerButtonStyle, selectedAnswerButtonStyle] : answerButtonStyle}
+                        >
+                            <Text style={currentAnswer === answer ? selectedAnswerButtonTextStyle : answerButtonTextStyle}>
+                                {answer}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            ) : question.type === 'multi_select' ? (
+                <View style={chipRowStyle}>
+                    {(question.allowedAnswers || []).map((answer) => {
+                        const selected = Array.isArray(currentAnswer) && currentAnswer.includes(answer);
+
+                        return (
+                            <TouchableOpacity
+                                key={`${question.id}-${answer}`}
+                                onPress={() => toggleMultiAnswer(question, answer)}
+                                style={selected ? [answerButtonStyle, selectedAnswerButtonStyle] : answerButtonStyle}
+                            >
+                                <Text style={selected ? selectedAnswerButtonTextStyle : answerButtonTextStyle}>
+                                    {answer}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            ) : question.type === 'measurement' || question.type === 'counter' ? (
+                <View style={counterRowStyle}>
+                    <TouchableOpacity
+                        onPress={() => updateAnswer(question, Math.max(0, Number(currentAnswer || 0) - 1))}
+                        style={counterButtonStyle}
+                    >
+                        <Text style={counterButtonTextStyle}>-</Text>
+                    </TouchableOpacity>
+                    <Text style={counterValueStyle}>{Number(currentAnswer || 0)}</Text>
+                    <TouchableOpacity
+                        onPress={() => updateAnswer(question, Number(currentAnswer || 0) + 1)}
+                        style={counterButtonStyle}
+                    >
+                        <Text style={counterButtonTextStyle}>+</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : (
+                <TextInput
+                    value={typeof currentAnswer === 'string' ? currentAnswer : ''}
+                    onChangeText={(value) => updateAnswer(question, value)}
+                    style={copyTextAreaStyle}
+                    multiline
+                    placeholder="Notes"
+                />
+            )}
+        </View>
+    );
+}
+
+function renderRequirementPill(
+    key: string,
+    label: string,
+    answers: EstimateAnswerSet,
+    markRequirementComplete: (key: string) => void
+) {
+    const complete = answers[key] === true;
+
+    return (
+        <TouchableOpacity
+            key={key}
+            onPress={() => markRequirementComplete(key)}
+            style={complete ? [requirementPillStyle, completeRequirementPillStyle] : requirementPillStyle}
+        >
+            <Text style={complete ? completeRequirementPillTextStyle : requirementPillTextStyle}>
+                {label}
+            </Text>
+        </TouchableOpacity>
+    );
+}
+
+function renderPresentationChoice(choice: Phase1EstimateChoice) {
+    const presentationChoice = toHomeownerPresentationChoice(choice);
+
+    return (
+        <View key={presentationChoice.id} style={presentationCardStyle}>
+            <View style={choiceTitleRowStyle}>
+                <Text style={presentationTitleStyle}>{presentationChoice.title}</Text>
+                {presentationChoice.recommended && <Text style={recommendedPillStyle}>Recommended</Text>}
+            </View>
+            <Text style={presentationPriceStyle}>{formatMoney(presentationChoice.totalAmount)}</Text>
+            <Text style={choiceDescriptionStyle}>{presentationChoice.homeownerExplanation}</Text>
+            <View style={chipRowStyle}>
+                {presentationChoice.keyBenefits.map((benefit) => (
+                    <Text key={`${presentationChoice.id}-${benefit}`} style={itemChipStyle}>{benefit}</Text>
+                ))}
+            </View>
+            <Text style={systemsTextStyle}>Full Details: {presentationChoice.inclusionIds.join(', ') || 'Included scope reviewed'}</Text>
+            <Text style={systemsTextStyle}>Compare Options: {presentationChoice.whyItDiffers}</Text>
+        </View>
+    );
+}
+
+function labelForReference(id: string, choices: Phase1EstimateChoice[]) {
+    for (const choice of choices) {
+        const line = choice.pricingResult.lineItems.find((candidate) =>
+            candidate.priceBookEntryId === id || candidate.code === id
+        );
+
+        if (line) return line.name;
+    }
+
+    return id;
+}
+
+function readPreferredFirstName(context: EstimateDraftContext | null) {
+    const homeName = String(context?.customer_home_name || '').trim();
+
+    if (!homeName || /^client homeos/i.test(homeName)) return '';
+
+    return homeName.split(/\s+/)[0] || '';
+}
+
+function resolveEstimateSessionSource(value?: string | null): EstimateSessionSource {
+    const normalized = String(value || '').trim().toLowerCase();
+
+    return ['techos', 'provider_mode', 'management', 'homeos'].includes(normalized)
+        ? normalized as EstimateSessionSource
+        : 'techos';
+}
+
+async function readFunctionJson(response: Response) {
+    const text = await response.text();
+
+    try {
+        return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+        return { message: text };
+    }
+}
+
+function readFunctionMessage(data: Record<string, unknown>, status: number) {
+    const message = typeof data.message === 'string' ? data.message : '';
+    const detail = typeof data.detail === 'string' ? data.detail : '';
+
+    return message || detail || `AI drafting failed with status ${status}.`;
 }
 
 function renderSectionHeader(title: string, description: string) {
@@ -623,6 +1236,255 @@ const secondaryButtonTextStyle = {
 
 const sectionStyle = {
     marginBottom: 18,
+};
+
+const categoryTabRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginBottom: 12,
+};
+
+const categoryButtonStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#D8E0EA',
+};
+
+const selectedCategoryButtonStyle = {
+    backgroundColor: '#071B33',
+    borderColor: '#071B33',
+};
+
+const categoryButtonTextStyle = {
+    color: '#071B33',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const selectedCategoryButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const questionGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const questionCardStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+    width: 280,
+    minHeight: 118,
+};
+
+const questionLabelStyle = {
+    color: '#071B33',
+    fontSize: 14,
+    fontWeight: '900' as const,
+    flex: 1,
+};
+
+const requiredPillStyle = {
+    color: '#8A4B00',
+    backgroundColor: '#FFF4DD',
+    borderRadius: 999,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    fontSize: 10,
+    fontWeight: '900' as const,
+};
+
+const answerButtonStyle = {
+    backgroundColor: '#F3F6FA',
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+};
+
+const selectedAnswerButtonStyle = {
+    backgroundColor: '#E8F7F0',
+    borderColor: '#1F7A55',
+};
+
+const answerButtonTextStyle = {
+    color: '#071B33',
+    fontSize: 12,
+    fontWeight: '800' as const,
+};
+
+const selectedAnswerButtonTextStyle = {
+    color: '#14533A',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const counterRowStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+    marginTop: 10,
+};
+
+const counterButtonStyle = {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#071B33',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+};
+
+const counterButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const counterValueStyle = {
+    color: '#071B33',
+    fontSize: 18,
+    fontWeight: '900' as const,
+    minWidth: 28,
+    textAlign: 'center' as const,
+};
+
+const requirementGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 12,
+};
+
+const requirementPillStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#D8E0EA',
+};
+
+const completeRequirementPillStyle = {
+    backgroundColor: '#E8F7F0',
+    borderColor: '#1F7A55',
+};
+
+const requirementPillTextStyle = {
+    color: '#637083',
+    fontSize: 12,
+    fontWeight: '800' as const,
+};
+
+const completeRequirementPillTextStyle = {
+    color: '#14533A',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const warningBoxStyle = {
+    backgroundColor: '#FFF8E8',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#F2D18B',
+    marginTop: 12,
+    marginBottom: 12,
+};
+
+const warningTextStyle = {
+    color: '#8A4B00',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '800' as const,
+};
+
+const mutedButtonStyle = {
+    backgroundColor: '#8390A2',
+    borderRadius: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 11,
+    alignItems: 'center' as const,
+};
+
+const copyInputStyle = {
+    backgroundColor: '#F8FAFD',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+    color: '#071B33',
+    fontSize: 13,
+    fontWeight: '900' as const,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginTop: 10,
+};
+
+const copyTextAreaStyle = {
+    backgroundColor: '#F8FAFD',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+    color: '#071B33',
+    fontSize: 13,
+    lineHeight: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginTop: 10,
+    minHeight: 68,
+    textAlignVertical: 'top' as const,
+};
+
+const presentationGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 14,
+};
+
+const presentationCardStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#D8E0EA',
+    width: 320,
+    minHeight: 260,
+};
+
+const presentationTitleStyle = {
+    color: '#071B33',
+    fontSize: 20,
+    lineHeight: 25,
+    fontWeight: '900' as const,
+    flex: 1,
+};
+
+const presentationPriceStyle = {
+    color: '#14533A',
+    fontSize: 28,
+    fontWeight: '900' as const,
+    marginTop: 10,
+};
+
+const recommendedPillStyle = {
+    color: '#14533A',
+    backgroundColor: '#E8F7F0',
+    borderRadius: 999,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    fontSize: 11,
+    fontWeight: '900' as const,
 };
 
 const contextSummaryStyle = {

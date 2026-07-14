@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 
 const PRICE_BOOK_STORAGE_KEY = 'homeos_company_price_book_v1';
+const COMPANY_PRICE_BOOK_RPC_NAMES = ['get_company_price_book_v2', 'get_company_price_book'] as const;
+const COMPANY_PRICE_BOOK_UPSERT_RPC_NAME = 'upsert_company_price_book_item';
 
 export type CompanyPriceBookUnit =
     | 'each'
@@ -33,6 +35,28 @@ export type CompanyPriceBookItem = {
     created_at: string | null;
     updated_at: string | null;
     source: 'backend' | 'local' | 'template';
+    service_category?: string | null;
+    internal_description?: string | null;
+    homeowner_description?: string | null;
+    base_labor_install_price?: number | null;
+    estimated_labor_hours?: number | null;
+    internal_labor_cost?: number | null;
+    internal_material_cost?: number | null;
+    recommended_selling_price?: number | null;
+    minimum_permitted_selling_price?: number | null;
+    maximum_permitted_selling_price?: number | null;
+    required_minimum_gross_margin?: number | null;
+    tax_behavior?: string | null;
+    effective_at?: string | null;
+    version_label?: string | null;
+    included_warranty?: string | null;
+    eligible_extended_warranties?: string[];
+    required_add_on_price_keys?: string[];
+    incompatible_price_keys?: string[];
+    applicable_systems?: string[];
+    applicable_areas?: string[];
+    applicable_categories?: string[];
+    management_notes?: string | null;
 };
 
 export type CompanyPriceBookDraft = Omit<CompanyPriceBookItem, 'id' | 'company_id' | 'created_at' | 'updated_at' | 'source'> & {
@@ -75,6 +99,14 @@ export const priceBookUnits: CompanyPriceBookUnit[] = [
     'service call',
     'other',
 ];
+
+export function getCompanyPriceBookRpcNames() {
+    return [...COMPANY_PRICE_BOOK_RPC_NAMES];
+}
+
+export function getCompanyPriceBookUpsertRpcName() {
+    return COMPANY_PRICE_BOOK_UPSERT_RPC_NAME;
+}
 
 export async function loadCompanyPriceBook(companyId: string): Promise<CompanyPriceBookLoadResult> {
     const backendItems = await loadCompanyPriceBookFromBackend(companyId);
@@ -156,23 +188,31 @@ function mergePriceBookItems(backendItems: CompanyPriceBookItem[], localItems: C
 
 async function loadCompanyPriceBookFromBackend(companyId: string) {
     try {
-        const { data, error } = await supabase.rpc('get_company_price_book', {
-            p_company_id: companyId,
-        });
+        for (const rpcName of COMPANY_PRICE_BOOK_RPC_NAMES) {
+            const { data, error } = await supabase.rpc(rpcName, {
+                p_company_id: companyId,
+            });
 
-        if (error) {
-            if (await shouldUseLocalFallbackForBackendError(error)) {
-                return null;
+            if (error) {
+                if (await shouldUseLocalFallbackForBackendError(error)) {
+                    if (rpcName !== COMPANY_PRICE_BOOK_RPC_NAMES[COMPANY_PRICE_BOOK_RPC_NAMES.length - 1]) {
+                        continue;
+                    }
+
+                    return null;
+                }
+
+                throw new Error(`Could not load company price book: ${getSupabaseErrorText(error)}`);
             }
 
-            throw new Error(`Could not load company price book: ${getSupabaseErrorText(error)}`);
+            return sortPriceBookItems(
+                (Array.isArray(data) ? data : [])
+                    .map((row) => readPriceBookItem(row, 'backend'))
+                    .filter((item): item is CompanyPriceBookItem => Boolean(item))
+            );
         }
 
-        return sortPriceBookItems(
-            (Array.isArray(data) ? data : [])
-                .map((row) => readPriceBookItem(row, 'backend'))
-                .filter((item): item is CompanyPriceBookItem => Boolean(item))
-        );
+        return null;
     } catch (error) {
         if (await shouldUseLocalFallbackForBackendError(error)) {
             return null;
@@ -184,7 +224,7 @@ async function loadCompanyPriceBookFromBackend(companyId: string) {
 
 async function upsertCompanyPriceBookItemInBackend(companyId: string, draft: CompanyPriceBookDraft) {
     try {
-        const { data, error } = await supabase.rpc('upsert_company_price_book_item', {
+        const { data, error } = await supabase.rpc(COMPANY_PRICE_BOOK_UPSERT_RPC_NAME, {
             p_company_id: companyId,
             p_price_key: draft.price_key,
             p_name: draft.name,
@@ -327,7 +367,33 @@ function readPriceBookItem(value: unknown, source: 'backend' | 'local'): Company
         created_at: readNullableString(row.created_at),
         updated_at: readNullableString(row.updated_at),
         source,
+        service_category: readNullableString(row.service_category),
+        internal_description: readNullableString(row.internal_description),
+        homeowner_description: readNullableString(row.homeowner_description),
+        base_labor_install_price: readNullableNumber(row.base_labor_install_price),
+        estimated_labor_hours: readNullableNumber(row.estimated_labor_hours),
+        internal_labor_cost: readNullableNumber(row.internal_labor_cost),
+        internal_material_cost: readNullableNumber(row.internal_material_cost),
+        recommended_selling_price: readNullableNumber(row.recommended_selling_price),
+        minimum_permitted_selling_price: readNullableNumber(row.minimum_permitted_selling_price),
+        maximum_permitted_selling_price: readNullableNumber(row.maximum_permitted_selling_price),
+        required_minimum_gross_margin: readNullableNumber(row.required_minimum_gross_margin),
+        tax_behavior: readNullableString(row.tax_behavior),
+        effective_at: readNullableString(row.effective_at),
+        version_label: readNullableString(row.version_label),
+        included_warranty: readNullableString(row.included_warranty),
+        eligible_extended_warranties: readTextArray(row.eligible_extended_warranties),
+        required_add_on_price_keys: readTextArray(row.required_add_on_price_keys),
+        incompatible_price_keys: readTextArray(row.incompatible_price_keys),
+        applicable_systems: readTextArray(row.applicable_systems),
+        applicable_areas: readTextArray(row.applicable_areas),
+        applicable_categories: readTextArray(row.applicable_categories),
+        management_notes: readNullableString(row.management_notes),
     };
+}
+
+export function readCompanyPriceBookRpcRowForRegression(value: unknown, source: 'backend' | 'local' = 'backend') {
+    return readPriceBookItem(value, source);
 }
 
 function sortPriceBookItems(items: CompanyPriceBookItem[]) {
@@ -361,6 +427,14 @@ function readNullableNumber(value: unknown) {
     const parsedValue = Number.parseFloat(value.trim());
 
     return Number.isFinite(parsedValue) ? parsedValue : null;
+}
+
+function readTextArray(value: unknown) {
+    if (!Array.isArray(value)) return [];
+
+    return value
+        .map((entry) => typeof entry === 'string' ? entry.trim() : '')
+        .filter((entry) => entry.length > 0);
 }
 
 function normalizeNullableString(value?: string | null) {

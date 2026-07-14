@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
 import { getStatusCardStyle } from '../../../components/cards/SystemStatusCard';
@@ -17,6 +17,10 @@ import {
     providerModeQueryParams,
     readProviderModeParams,
 } from '../../../lib/providerMode';
+import {
+    buildProviderHomeItemsRpcArgs,
+    hasAssignedProviderHomeItemsContext,
+} from '../../../lib/providerHomeItems';
 import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
@@ -34,6 +38,9 @@ export default function SystemAreasScreen() {
         companyId?: string | string[];
         propertyId?: string | string[];
         returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
     const { system } = routeParams;
     const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
@@ -41,6 +48,9 @@ export default function SystemAreasScreen() {
         routeParams.companyId,
         routeParams.propertyId,
         routeParams.returnTo,
+        routeParams.serviceRequestId,
+        routeParams.scheduleSlotId,
+        routeParams.jobId,
     ]);
     const [search, setSearch] = useState('');
     const [homeItems, setHomeItems] = useState<SystemAreaItem[]>([]);
@@ -53,9 +63,17 @@ export default function SystemAreasScreen() {
     const isCustomSystem = !getSystemDefinition(systemName);
     const systemDefaults = useMemo(() => getSystemDefaults(systemName), [systemName]);
 
-    const savedAreas = useMemo(
-        () => getSavedAreasForSystem(homeItems, systemName),
+    const systemItems = useMemo(
+        () => homeItems.filter((item) => sameText(item.system, systemName)),
         [homeItems, systemName]
+    );
+    const customRootAreaName = useMemo(
+        () => getCustomRootAreaName(systemItems),
+        [systemItems]
+    );
+    const savedAreas = useMemo(
+        () => getSavedAreasForSystem(homeItems, systemName, customRootAreaName),
+        [homeItems, systemName, customRootAreaName]
     );
     const areaChoices = useMemo(
         () => isCustomSystem && savedAreas.length > 0
@@ -68,13 +86,9 @@ export default function SystemAreasScreen() {
             area.toLowerCase().includes(search.toLowerCase())
         );
     }, [areaChoices, search]);
-    const systemItems = useMemo(
-        () => homeItems.filter((item) => sameText(item.system, systemName)),
-        [homeItems, systemName]
-    );
     const topLevelAreaRecords = useMemo(
-        () => getTopLevelAreaRecords(systemItems, systemName),
-        [systemItems, systemName]
+        () => getTopLevelAreaRecords(systemItems, systemName, customRootAreaName),
+        [systemItems, systemName, customRootAreaName]
     );
     const topLevelAreaByName = useMemo(() => {
         const recordsByName = new Map<string, SystemAreaItem>();
@@ -119,20 +133,49 @@ export default function SystemAreasScreen() {
             return;
         }
 
-        const { data, error } = await supabase
-            .from('home_items')
-            .select('id, name, item_slug, status, install_state, system, location, parent_area, category')
-            .eq('property_id', activeProperty.propertyId)
-            .or('archived.eq.false,archived.is.null');
+        let rows: SystemAreaItem[] = [];
+        let loadErrorMessage = '';
 
-        if (error) {
+        if (providerModeContext) {
+            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+                loadErrorMessage = 'Provider context is missing the assigned request, visit, or job. Use Back to Current Job and reopen Client HomeOS.';
+            } else {
+                const { data, error } = await supabase.rpc(
+                    'get_provider_homeos_items',
+                    buildProviderHomeItemsRpcArgs(providerModeContext)
+                );
+
+                if (error) {
+                    loadErrorMessage = error.message;
+                } else {
+                    rows = (data || []) as SystemAreaItem[];
+                }
+            }
+        } else {
+            const { data, error } = await supabase
+                .from('home_items')
+                .select('id, name, item_slug, status, install_state, system, location, parent_area, category')
+                .eq('property_id', activeProperty.propertyId)
+                .or('archived.eq.false,archived.is.null');
+
+            if (error) {
+                loadErrorMessage = error.message;
+            } else {
+                rows = (data || []) as SystemAreaItem[];
+            }
+        }
+
+        if (loadErrorMessage) {
             setHomeItems([]);
-            setMessage(`Could not load area status: ${error.message}`);
+            setMessage(providerModeContext
+                ? `Could not load client HomeOS areas: ${loadErrorMessage}`
+                : `Could not load area status: ${loadErrorMessage}`
+            );
             setLoading(false);
             return;
         }
 
-        setHomeItems((data || []) as SystemAreaItem[]);
+        setHomeItems(rows);
         setMessage('');
         setLoading(false);
     }, [providerModeContext]);
@@ -142,6 +185,27 @@ export default function SystemAreasScreen() {
             loadAreaHealth();
         }, [loadAreaHealth])
     );
+
+    useEffect(() => {
+        if (!providerModeContext || typeof window === 'undefined') return;
+
+        const refreshFromLifecycle = () => {
+            void loadAreaHealth();
+        };
+        const refreshWhenVisible = () => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                refreshFromLifecycle();
+            }
+        };
+
+        window.addEventListener('focus', refreshFromLifecycle);
+        document?.addEventListener?.('visibilitychange', refreshWhenVisible);
+
+        return () => {
+            window.removeEventListener('focus', refreshFromLifecycle);
+            document?.removeEventListener?.('visibilitychange', refreshWhenVisible);
+        };
+    }, [providerModeContext, loadAreaHealth]);
 
     function createRootArea() {
         if (providerModeContext) {
@@ -172,12 +236,13 @@ export default function SystemAreasScreen() {
         } as any);
     }
 
-    function openArea(areaName: string) {
+    function openArea(areaName: string, parentAreaName = '') {
         router.push({
             pathname: '/system/[system]/area/[area]',
             params: {
                 system: systemName,
                 area: areaName,
+                ...(parentAreaName ? { parentArea: parentAreaName } : {}),
                 ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
@@ -467,7 +532,7 @@ export default function SystemAreasScreen() {
                                         key={area}
                                         title={area}
                                         status={statusForCard(areaSummary)}
-                                        onPress={() => openArea(area)}
+                                        onPress={() => openArea(area, areaRecord?.parent_area || '')}
                                         onArchive={areaRecord ? () => confirmArchiveArea(areaRecord) : undefined}
                                         archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Area'}
                                         archiveDisabled={!!archivingRecordId}
@@ -527,25 +592,37 @@ export default function SystemAreasScreen() {
     );
 }
 
-function getSavedAreasForSystem(items: SystemAreaItem[], systemName: string) {
+function getSavedAreasForSystem(items: SystemAreaItem[], systemName: string, customRootAreaName = '') {
     return items
         .filter((item) =>
             sameText(item.category, 'Area') &&
             sameText(item.system, systemName) &&
-            !String(item.parent_area || '').trim() &&
+            isVisibleTopLevelArea(item, customRootAreaName) &&
             !isCustomServiceRoot(item)
         )
         .map((item) => item.name || item.location || item.parent_area || '')
         .filter((area) => !!area.trim());
 }
 
-function getTopLevelAreaRecords(items: SystemAreaItem[], systemName: string) {
+function getTopLevelAreaRecords(items: SystemAreaItem[], systemName: string, customRootAreaName = '') {
     return items.filter((item) =>
         sameText(item.category, 'Area') &&
         sameText(item.system, systemName) &&
-        !String(item.parent_area || '').trim() &&
+        isVisibleTopLevelArea(item, customRootAreaName) &&
         !isCustomServiceRoot(item)
     );
+}
+
+function getCustomRootAreaName(items: SystemAreaItem[]) {
+    const root = items.find((item) => isCustomServiceRoot(item));
+
+    return root?.name || root?.location || '';
+}
+
+function isVisibleTopLevelArea(item: SystemAreaItem, customRootAreaName = '') {
+    if (customRootAreaName) return sameText(item.parent_area, customRootAreaName);
+
+    return !String(item.parent_area || '').trim();
 }
 
 function isDirectSystemItem(item: SystemAreaItem) {

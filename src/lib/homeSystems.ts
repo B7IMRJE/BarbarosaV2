@@ -143,7 +143,7 @@ export function isCustomServiceRoot(row: HomeSystemRecord) {
     if (!sameSystemText(row.category, 'Area')) return false;
     if (normalizeSystemText(row.parent_area)) return false;
 
-    return sameSystemText(row.name, 'Whole Home') || sameSystemText(row.location, 'Whole Home');
+    return true;
 }
 
 function sameSystemText(a?: string | null, b?: string | null) {

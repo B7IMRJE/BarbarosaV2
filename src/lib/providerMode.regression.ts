@@ -1,4 +1,5 @@
 import {
+    hasProviderModeRouteSignal,
     providerModeItemPath,
     providerModePath,
     providerModeQueryParams,
@@ -13,6 +14,8 @@ export function runProviderModeRegressions() {
     providerModeItemPathPreservesEstimateContext();
     providerModePathKeepsBackToCurrentJob();
     providerContextDoesNotInventOptionalIds();
+    missingProviderContextIsDetected();
+    providerEstimateRouteParamsRemainIntact();
 }
 
 function providerModeParamsPreserveTechOSJobContext() {
@@ -67,6 +70,27 @@ function providerContextDoesNotInventOptionalIds() {
     assert(!('serviceRequestId' in params), 'Empty provider service request id should not be added to route params.');
     assert(!('scheduleSlotId' in params), 'Empty provider schedule slot id should not be added to route params.');
     assert(!('jobId' in params), 'Empty provider job id should not be added to route params.');
+}
+
+function missingProviderContextIsDetected() {
+    const partialContext = {
+        serviceRequestId: 'request-1',
+        companyId: 'company-1',
+    };
+
+    assert(hasProviderModeRouteSignal(partialContext), 'Partial provider params should be detected as provider context.');
+    assert(!readProviderModeParams(partialContext), 'Partial provider params should not silently become a usable provider context.');
+}
+
+function providerEstimateRouteParamsRemainIntact() {
+    const params = providerModeQueryParams(createContext());
+
+    assert(params.providerMode === '1', 'Provider estimate route should keep provider mode marker.');
+    assert(params.companyId === 'company-1', 'Provider estimate route should keep company id.');
+    assert(params.propertyId === 'property-1', 'Provider estimate route should keep property id.');
+    assert(params.serviceRequestId === 'request-1', 'Provider estimate route should keep service request id.');
+    assert(params.scheduleSlotId === 'slot-1', 'Provider estimate route should keep schedule slot id.');
+    assert(params.jobId === 'job-1', 'Provider estimate route should keep job id.');
 }
 
 function createContext() {

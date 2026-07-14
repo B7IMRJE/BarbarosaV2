@@ -1,5 +1,5 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { getStatusCardStyle } from '../../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../../components/theme/ThemedButton';
@@ -70,6 +70,9 @@ export default function AreaScreen() {
         companyId?: string | string[];
         propertyId?: string | string[];
         returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
     const { system, area, parentArea, refresh } = routeParams;
     const providerModeContext = readProviderModeParams(routeParams);
@@ -97,7 +100,64 @@ export default function AreaScreen() {
 
     useEffect(() => {
         loadAreaItems();
-    }, [systemName, areaName, parentAreaName, refreshKey, providerModeContext?.companyId, providerModeContext?.propertyId]);
+    }, [
+        systemName,
+        areaName,
+        parentAreaName,
+        refreshKey,
+        providerModeContext?.companyId,
+        providerModeContext?.propertyId,
+        providerModeContext?.serviceRequestId,
+        providerModeContext?.scheduleSlotId,
+        providerModeContext?.jobId,
+    ]);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!providerModeContext) return;
+
+            void loadAreaItems({ preserveMessage: true });
+        }, [
+            systemName,
+            areaName,
+            parentAreaName,
+            providerModeContext?.companyId,
+            providerModeContext?.propertyId,
+            providerModeContext?.serviceRequestId,
+            providerModeContext?.scheduleSlotId,
+            providerModeContext?.jobId,
+        ])
+    );
+
+    useEffect(() => {
+        if (!providerModeContext || typeof window === 'undefined') return;
+
+        const refreshFromLifecycle = () => {
+            void loadAreaItems({ preserveMessage: true });
+        };
+        const refreshWhenVisible = () => {
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                refreshFromLifecycle();
+            }
+        };
+
+        window.addEventListener('focus', refreshFromLifecycle);
+        document?.addEventListener?.('visibilitychange', refreshWhenVisible);
+
+        return () => {
+            window.removeEventListener('focus', refreshFromLifecycle);
+            document?.removeEventListener?.('visibilitychange', refreshWhenVisible);
+        };
+    }, [
+        systemName,
+        areaName,
+        parentAreaName,
+        providerModeContext?.companyId,
+        providerModeContext?.propertyId,
+        providerModeContext?.serviceRequestId,
+        providerModeContext?.scheduleSlotId,
+        providerModeContext?.jobId,
+    ]);
 
     useEffect(() => {
         if (!starterRecoveryPreview) setStarterRecoveryConfirmationVisible(false);

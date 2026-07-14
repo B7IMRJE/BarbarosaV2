@@ -7,12 +7,14 @@ import {
     type EstimateDraftItem,
     type EstimateDraftScope,
 } from './estimateDraft';
+import { inferEstimateCategoryFromDraft } from './estimateOptions';
 
 void runEstimateDraftRegressions();
 
 export async function runEstimateDraftRegressions() {
     await addSameItemTwiceDoesNotDuplicateDraftEntry();
     await estimateDraftContextPreservesProviderJobIds();
+    serviceRequestRepipeDraftDoesNotRequireHomeOsItem();
 }
 
 async function addSameItemTwiceDoesNotDuplicateDraftEntry() {
@@ -55,6 +57,24 @@ async function estimateDraftContextPreservesProviderJobIds() {
     assert(context?.job_id === 'job-1', 'Estimate draft context should preserve job id.');
     assert(context?.schedule_slot_id === 'slot-1', 'Estimate draft context should preserve schedule slot id.');
     assert(context?.source === 'provider_mode', 'Estimate draft context should preserve provider mode source.');
+}
+
+function serviceRequestRepipeDraftDoesNotRequireHomeOsItem() {
+    const category = inferEstimateCategoryFromDraft([], {
+        company_id: 'company-1',
+        property_id: 'property-1',
+        customer_home_name: 'Client HomeOS PROPERTY',
+        service_request_id: 'request-1',
+        job_id: 'job-1',
+        schedule_slot_id: 'slot-1',
+        technician_company_user_id: 'company-user-1',
+        technician_name: 'Tech User',
+        issue_summary: 'Whole house repipe estimate for Alfredo Paz',
+        source: 'techos',
+        updated_at: '2026-07-13T12:00:00.000Z',
+    });
+
+    assert(category === 'whole_home_repipe', 'Service-request repipe estimates should start without a HomeOS item.');
 }
 
 function createScope(): EstimateDraftScope {
