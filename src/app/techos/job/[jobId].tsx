@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
+import ServiceRequestMediaGallery from '../../../components/serviceRequests/ServiceRequestMediaGallery';
 import ThemedButton from '../../../components/theme/ThemedButton';
 import ThemedCard from '../../../components/theme/ThemedCard';
 import { supabase } from '../../../lib/supabase';
@@ -125,6 +126,7 @@ export default function TechOSJobDetailScreen() {
     const [job, setJob] = useState<TechOSJobDetail | null>(null);
     const [client, setClient] = useState<CompanyClient | null>(null);
     const [property, setProperty] = useState<PropertyRecord | null>(null);
+    const [jobServiceRequestId, setJobServiceRequestId] = useState('');
     const [assignableUsers, setAssignableUsers] = useState<CompanyUser[]>([]);
     const [assignments, setAssignments] = useState<JobAssignment[]>([]);
     const [assignmentPickerOpen, setAssignmentPickerOpen] = useState(false);
@@ -146,6 +148,7 @@ export default function TechOSJobDetailScreen() {
         setJob(null);
         setClient(null);
         setProperty(null);
+        setJobServiceRequestId('');
         setAssignableUsers([]);
         setAssignments([]);
         setAssignmentPickerOpen(false);
@@ -207,6 +210,7 @@ export default function TechOSJobDetailScreen() {
         setJob(loadedJob);
         setClient(buildClientFromJob(loadedJob));
         setProperty(buildPropertyFromJob(loadedJob));
+        await loadLinkedServiceRequestId(loadedJob);
         setMessage('');
 
         await Promise.all([
@@ -280,6 +284,29 @@ export default function TechOSJobDetailScreen() {
         }
 
         setAssignments(normalizeAssignments(data));
+    }
+
+    async function loadLinkedServiceRequestId(loadedJob: TechOSJobDetail) {
+        if (!loadedJob.company_id || !loadedJob.id) {
+            setJobServiceRequestId('');
+            return;
+        }
+
+        const { data, error } = await supabase
+            .from('service_requests')
+            .select('id')
+            .eq('company_id', loadedJob.company_id)
+            .eq('converted_job_id', loadedJob.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (error || !data) {
+            setJobServiceRequestId('');
+            return;
+        }
+
+        setJobServiceRequestId(String((data as { id?: string | null }).id || ''));
     }
 
     async function handleAssignTechnician(member: CompanyUser) {
@@ -394,6 +421,11 @@ export default function TechOSJobDetailScreen() {
                             <DetailCard title="Client Status" value={formatStatus(client?.status)} body={`Source: ${formatSource(client?.source)}`} />
                             <DetailCard title="Linked" value={formatDate(linkedAt)} body="Basic company client relationship for this assigned job." />
                         </View>
+
+                        <ServiceRequestMediaGallery
+                            serviceRequestId={jobServiceRequestId}
+                            title="Request photos and videos"
+                        />
 
                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Job Workflow</Text>
                         <View style={workflowGridStyle}>

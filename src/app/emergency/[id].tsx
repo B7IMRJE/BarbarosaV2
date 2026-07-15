@@ -1,4 +1,3 @@
-import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -11,6 +10,7 @@ import {
     View,
 } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
+import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
@@ -88,10 +88,6 @@ function makeHistoryEntry(kind: EmergencyHistoryEntry['kind'], message: string) 
         message,
         created_at: new Date().toISOString(),
     };
-}
-
-function cleanFileName(value: string) {
-    return value.replace(/[^a-zA-Z0-9._-]/g, '-');
 }
 
 function normalizeHistory(value: EmergencyRecord['history']) {
@@ -215,105 +211,6 @@ export default function EmergencyDetailScreen() {
         } catch (error) {
             setPreferredProvider(null);
             setServiceRequestMessage(`Could not load preferred provider: ${getErrorMessage(error)}`);
-        }
-    }
-
-    async function uploadPhoto(userId: string, emergencyId: string, asset: ImagePicker.ImagePickerAsset) {
-        const response = await fetch(asset.uri);
-        const arrayBuffer = await response.arrayBuffer();
-        const fallbackName = `emergency-${Date.now()}.jpg`;
-        const fileName = cleanFileName(asset.fileName || fallbackName);
-        const filePath = `users/${userId}/emergencies/${emergencyId}/${Date.now()}-${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from('item-files')
-            .upload(filePath, arrayBuffer, {
-                contentType: asset.mimeType || 'image/jpeg',
-                upsert: true,
-            });
-
-        if (uploadError) {
-            throw new Error(uploadError.message);
-        }
-
-        const { data } = supabase.storage.from('item-files').getPublicUrl(filePath);
-        return data.publicUrl;
-    }
-
-    async function addPhotos() {
-        if (!emergency) return;
-
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-        if (!permission.granted) {
-            setMessage('Photo library permission is required.');
-            return;
-        }
-
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsMultipleSelection: true,
-            quality: 0.8,
-        });
-
-        if (result.canceled) return;
-
-        setSaving(true);
-        setMessage('Uploading photos...');
-
-        try {
-            let activeProperty;
-
-            try {
-                activeProperty = await requireActivePropertyMembership();
-            } catch (error) {
-                setMessage(activePropertyErrorMessage(error));
-
-                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
-                    router.replace('/auth/login' as any);
-                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
-                    router.replace('/onboarding/create-home' as any);
-                }
-
-                return;
-            }
-
-            const uploadedUrls: string[] = [];
-
-            for (const asset of result.assets) {
-                uploadedUrls.push(await uploadPhoto(activeProperty.userId, emergency.id, asset));
-            }
-
-            const nextPhotoUrls = [...normalizePhotos(emergency.photo_urls), ...uploadedUrls];
-            const nextHistory = [
-                ...normalizeHistory(emergency.history),
-                makeHistoryEntry(
-                    'photo',
-                    `${uploadedUrls.length} photo${uploadedUrls.length === 1 ? '' : 's'} added.`
-                ),
-            ];
-
-            const { error } = await supabase
-                .from('home_emergencies')
-                .update({
-                    photo_urls: nextPhotoUrls,
-                    history: nextHistory,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', emergency.id)
-                .eq('property_id', activeProperty.propertyId);
-
-            if (error) {
-                setMessage(`Photo update failed: ${error.message}`);
-                return;
-            }
-
-            setMessage('Photos added.');
-            await loadEmergency({ preserveMessages: true });
-        } catch (error) {
-            setMessage(`Photo upload failed: ${getErrorMessage(error)}`);
-        } finally {
-            setSaving(false);
         }
     }
 
@@ -741,28 +638,14 @@ export default function EmergencyDetailScreen() {
                         {emergency.description}
                     </Text>
 
-                    <Text
-                        style={{
-                            color: theme.colors.mutedText,
-                            fontWeight: '900',
-                            marginTop: 18,
-                        }}
-                    >
-                        Videos
-                    </Text>
-                    <Text style={{ color: theme.colors.mutedText, marginTop: 6 }}>
-                        Video uploads are planned for a later phase.
-                    </Text>
                 </ThemedCard>
 
+                <ServiceRequestMediaGallery
+                    serviceRequestId={currentServiceRequestId}
+                    title="Request photos and videos"
+                />
+
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
-                    <ThemedButton
-                        title={saving ? 'Working...' : 'Add Photos'}
-                        disabled={saving}
-                        variant="secondary"
-                        onPress={addPhotos}
-                        style={{ flexGrow: 1, minWidth: 160 }}
-                    />
                     {emergency.status !== 'Resolved' && (
                         <ThemedButton
                             title="Mark Resolved"

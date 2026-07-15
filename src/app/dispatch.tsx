@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import AdminNavBar from '../components/AdminNavBar';
 import HomeHeader from '../components/HomeHeader';
+import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import { logCompanyAuditEvent, safeAuditRecord } from '../lib/companyAuditLogs';
@@ -2620,6 +2621,10 @@ function DispatchRequestCard({
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Property: {formatPropertyAddress(request)}
                     </Text>
+                    <ServiceRequestMediaGallery
+                        serviceRequestId={request.id}
+                        title="Request photos and videos"
+                    />
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Scheduled: {formatScheduleStart(currentScheduleSlot)}
                     </Text>

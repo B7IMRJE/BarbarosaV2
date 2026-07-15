@@ -1,8 +1,6 @@
-import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-    Image,
     ScrollView,
     Text,
     TextInput,
@@ -10,6 +8,7 @@ import {
     View,
 } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
+import ServiceRequestMediaPicker from '../../components/serviceRequests/ServiceRequestMediaPicker';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
@@ -24,6 +23,11 @@ import {
 } from '../../lib/homeServiceRequests';
 import { loadPreferredProviderForProperty, type PreferredProvider } from '../../lib/preferredProviders';
 import { addProviderStagedWork } from '../../lib/providerStagedWork';
+import {
+    hasUnresolvedServiceRequestMedia,
+    uploadPendingServiceRequestMedia,
+    type ServiceRequestMediaDraft,
+} from '../../lib/serviceRequestMedia';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -34,6 +38,12 @@ type EmergencyHistoryEntry = {
     kind: 'created' | 'photo' | 'note' | 'status';
     message: string;
     created_at: string;
+};
+
+type PendingEmergencySubmission = {
+    emergencyId: string;
+    serviceRequest: CreatedServiceRequestReceipt | null;
+    history: EmergencyHistoryEntry[];
 };
 
 const emergencyTypes = [
@@ -70,66 +80,15 @@ function makeHistoryEntry(kind: EmergencyHistoryEntry['kind'], message: string) 
     };
 }
 
-function cleanFileName(value: string) {
-    return value.replace(/[^a-zA-Z0-9._-]/g, '-');
-}
-
 export default function CreateEmergencyScreen() {
     const { theme } = useTheme();
     const [emergencyType, setEmergencyType] = useState(emergencyTypes[0]);
     const [area, setArea] = useState(areas[0]);
     const [description, setDescription] = useState('');
-    const [photos, setPhotos] = useState<ImagePicker.ImagePickerAsset[]>([]);
+    const [media, setMedia] = useState<ServiceRequestMediaDraft[]>([]);
+    const [pendingEmergency, setPendingEmergency] = useState<PendingEmergencySubmission | null>(null);
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
-
-    async function addPhotos() {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-        if (!permission.granted) {
-            setMessage('Photo library permission is required.');
-            return;
-        }
-
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsMultipleSelection: true,
-            quality: 0.8,
-        });
-
-        if (result.canceled) return;
-
-        setPhotos((current) => [...current, ...result.assets]);
-        setMessage('');
-    }
-
-    async function uploadPhotos(userId: string, emergencyId: string) {
-        const urls: string[] = [];
-
-        for (const asset of photos) {
-            const response = await fetch(asset.uri);
-            const arrayBuffer = await response.arrayBuffer();
-            const fallbackName = `emergency-${Date.now()}.jpg`;
-            const fileName = cleanFileName(asset.fileName || fallbackName);
-            const filePath = `users/${userId}/emergencies/${emergencyId}/${Date.now()}-${fileName}`;
-
-            const { error: uploadError } = await supabase.storage
-                .from('item-files')
-                .upload(filePath, arrayBuffer, {
-                    contentType: asset.mimeType || 'image/jpeg',
-                    upsert: true,
-                });
-
-            if (uploadError) {
-                throw new Error(uploadError.message);
-            }
-
-            const { data } = supabase.storage.from('item-files').getPublicUrl(filePath);
-            urls.push(data.publicUrl);
-        }
-
-        return urls;
-    }
 
     async function submitEmergency() {
         if (!description.trim()) {
@@ -137,8 +96,13 @@ export default function CreateEmergencyScreen() {
             return;
         }
 
+        if (hasUnresolvedServiceRequestMedia(media)) {
+            setMessage('Wait for the current media action to finish before saving the emergency.');
+            return;
+        }
+
         setSaving(true);
-        setMessage('Saving emergency...');
+        setMessage(pendingEmergency ? 'Retrying emergency media upload...' : 'Saving emergency...');
 
         try {
             let activeProperty;
@@ -165,69 +129,47 @@ export default function CreateEmergencyScreen() {
                 preferredProvider = null;
             }
 
-            const now = new Date().toISOString();
-            const status: EmergencyStatus = 'Reported';
-            const history = [
-                makeHistoryEntry(
-                    'created',
-                    `${emergencyType} reported for ${area}.`
-                ),
-                ...(preferredProvider
-                    ? [makeHistoryEntry('status', `Preferred company at save: ${preferredProvider.companyName}.`)]
-                    : []),
-            ];
+            let emergencyId = pendingEmergency?.emergencyId || '';
+            let currentHistory = pendingEmergency?.history || [];
+            let serviceRequest = pendingEmergency?.serviceRequest || null;
 
-            const { data: created, error: insertError } = await supabase
-                .from('home_emergencies')
-                .insert({
-                    user_id: activeProperty.userId,
-                    property_id: activeProperty.propertyId,
-                    emergency_type: emergencyType,
-                    area,
-                    description: description.trim(),
-                    status,
-                    photo_urls: [],
-                    video_urls: [],
-                    history,
-                    created_at: now,
-                    updated_at: now,
-                })
-                .select('id')
-                .single();
-
-            if (insertError || !created) {
-                setMessage(`Save emergency failed: ${insertError?.message || 'Emergency was not created.'}`);
-                return;
-            }
-
-            const emergencyId = String(created.id);
-            let currentHistory = history;
-            let photoUrls: string[] = [];
-
-            if (photos.length > 0) {
-                setMessage('Uploading photos...');
-                photoUrls = await uploadPhotos(activeProperty.userId, emergencyId);
-                const nextHistory = [
-                    ...currentHistory,
-                    makeHistoryEntry('photo', `${photoUrls.length} photo${photoUrls.length === 1 ? '' : 's'} added.`),
+            if (!emergencyId) {
+                const now = new Date().toISOString();
+                const status: EmergencyStatus = 'Reported';
+                currentHistory = [
+                    makeHistoryEntry(
+                        'created',
+                        `${emergencyType} reported for ${area}.`
+                    ),
+                    ...(preferredProvider
+                        ? [makeHistoryEntry('status', `Preferred company at save: ${preferredProvider.companyName}.`)]
+                        : []),
                 ];
 
-                const { error: updateError } = await supabase
+                const { data: created, error: insertError } = await supabase
                     .from('home_emergencies')
-                    .update({
-                        photo_urls: photoUrls,
-                        history: nextHistory,
-                        updated_at: new Date().toISOString(),
+                    .insert({
+                        user_id: activeProperty.userId,
+                        property_id: activeProperty.propertyId,
+                        emergency_type: emergencyType,
+                        area,
+                        description: description.trim(),
+                        status,
+                        photo_urls: [],
+                        video_urls: [],
+                        history: currentHistory,
+                        created_at: now,
+                        updated_at: now,
                     })
-                    .eq('id', emergencyId)
-                    .eq('property_id', activeProperty.propertyId);
+                    .select('id')
+                    .single();
 
-                if (updateError) {
-                    setMessage(`Save emergency failed: Emergency created but photos were not saved: ${updateError.message}`);
+                if (insertError || !created) {
+                    setMessage(`Save emergency failed: ${insertError?.message || 'Emergency was not created.'}`);
                     return;
                 }
 
-                currentHistory = nextHistory;
+                emergencyId = String(created.id);
             }
 
             if (!preferredProvider) {
@@ -236,20 +178,64 @@ export default function CreateEmergencyScreen() {
                 return;
             }
 
-            setMessage(`Emergency saved. Sending to ${preferredProvider.companyName}...`);
-            const sendResult = await sendEmergencyToPreferredCompany({
+            if (!serviceRequest) {
+                setMessage(`Emergency saved. Sending to ${preferredProvider.companyName}...`);
+                try {
+                    serviceRequest = await createHomeownerServiceRequest({
+                        propertyId: activeProperty.propertyId,
+                        companyId: preferredProvider.companyId,
+                        requestType: 'emergency',
+                        issueSummary: buildServiceRequestSummary(emergencyType, area, description),
+                        priority: 'emergency',
+                    });
+                } catch (error) {
+                    const staged = await stageEmergencyForPreferredCompany({
+                        activeProperty,
+                        emergencyId,
+                        preferredProvider,
+                        mediaCount: media.length,
+                        sendError: getErrorMessage(error),
+                    });
+
+                    setMessage(staged ? COMPANY_INTAKE_NOT_CONNECTED_MESSAGE : `Emergency saved, but company intake failed: ${getErrorMessage(error)}`);
+                    setTimeout(() => router.replace(`/emergency/${emergencyId}` as any), 900);
+                    return;
+                }
+            }
+
+            if (media.length > 0) {
+                setPendingEmergency({ emergencyId, serviceRequest, history: currentHistory });
+                setMessage('Uploading emergency photos and videos...');
+                try {
+                    await uploadPendingServiceRequestMedia({
+                        companyId: serviceRequest.companyId,
+                        propertyId: serviceRequest.propertyId,
+                        serviceRequestId: serviceRequest.id,
+                        items: media,
+                        onItemChange: updateMediaDraft,
+                    });
+                } catch (error) {
+                    setMessage(`Emergency ${shortId(emergencyId)} was saved, but media upload failed: ${getErrorMessage(error)}. Remove or retry the failed file to finish sending media.`);
+                    return;
+                }
+
+                currentHistory = [
+                    ...currentHistory,
+                    makeHistoryEntry('photo', `${media.length} media attachment${media.length === 1 ? '' : 's'} added to service request ${shortId(serviceRequest.id)}.`),
+                ];
+            }
+
+            await linkSavedEmergencyToServiceRequest({
                 activeProperty,
                 emergencyId,
                 preferredProvider,
-                photoCount: photoUrls.length,
+                serviceRequest,
                 history: currentHistory,
             });
 
-            setMessage(
-                sendResult.sent
-                    ? 'Emergency saved and sent to preferred company.'
-                    : COMPANY_INTAKE_NOT_CONNECTED_MESSAGE
-            );
+            setPendingEmergency(null);
+            setMedia([]);
+            setMessage('Emergency saved and sent to preferred company.');
             setTimeout(() => router.replace(`/emergency/${emergencyId}` as any), 900);
         } catch (error) {
             setMessage(`Save emergency failed: ${getErrorMessage(error)}`);
@@ -258,48 +244,10 @@ export default function CreateEmergencyScreen() {
         }
     }
 
-    async function sendEmergencyToPreferredCompany({
-        activeProperty,
-        emergencyId,
-        preferredProvider,
-        photoCount,
-        history,
-    }: {
-        activeProperty: { userId: string; propertyId: string };
-        emergencyId: string;
-        preferredProvider: PreferredProvider;
-        photoCount: number;
-        history: EmergencyHistoryEntry[];
-    }) {
-        try {
-            const serviceRequest = await createHomeownerServiceRequest({
-                propertyId: activeProperty.propertyId,
-                companyId: preferredProvider.companyId,
-                requestType: 'emergency',
-                issueSummary: buildServiceRequestSummary(emergencyType, area, description),
-                priority: 'emergency',
-            });
-
-            await linkSavedEmergencyToServiceRequest({
-                activeProperty,
-                emergencyId,
-                preferredProvider,
-                serviceRequest,
-                history,
-            });
-
-            return { sent: true };
-        } catch (error) {
-            const staged = await stageEmergencyForPreferredCompany({
-                activeProperty,
-                emergencyId,
-                preferredProvider,
-                photoCount,
-                sendError: getErrorMessage(error),
-            });
-
-            return { sent: staged };
-        }
+    function updateMediaDraft(localId: string, updates: Partial<ServiceRequestMediaDraft>) {
+        setMedia((current) => current.map((item) => (
+            item.localId === localId ? { ...item, ...updates } : item
+        )));
     }
 
     async function linkSavedEmergencyToServiceRequest({
@@ -340,13 +288,13 @@ export default function CreateEmergencyScreen() {
         activeProperty,
         emergencyId,
         preferredProvider,
-        photoCount,
+        mediaCount,
         sendError,
     }: {
         activeProperty: { userId: string; propertyId: string };
         emergencyId: string;
         preferredProvider: PreferredProvider;
-        photoCount: number;
+        mediaCount: number;
         sendError: string;
     }) {
         try {
@@ -368,7 +316,7 @@ export default function CreateEmergencyScreen() {
                     emergency_type: emergencyType,
                     area,
                     description: description.trim(),
-                    photo_count: photoCount,
+                    media_count: mediaCount,
                     service_request_error: sendError,
                 },
             });
@@ -401,6 +349,11 @@ export default function CreateEmergencyScreen() {
                 >
                     Document the emergency in HomeOS. If a preferred company is connected, HomeOS will try to send the emergency to that company during save.
                 </Text>
+                <ThemedCard style={{ marginBottom: 14, borderColor: theme.colors.status.activeEmergency.border, backgroundColor: theme.colors.status.activeEmergency.background }}>
+                    <Text style={{ color: theme.colors.text, fontWeight: '900', lineHeight: 20 }}>
+                        If there is immediate danger, fire, gas odor, electrical danger, or a medical emergency, call 911. If safe, shut off the affected water or gas supply.
+                    </Text>
+                </ThemedCard>
 
                 <Text style={[labelStyle, { color: theme.colors.text }]}>Emergency Type</Text>
                 <OptionRow options={emergencyTypes} value={emergencyType} onChange={setEmergencyType} />
@@ -427,36 +380,22 @@ export default function CreateEmergencyScreen() {
                     ]}
                 />
 
-                <Text style={[labelStyle, { color: theme.colors.text }]}>Photos</Text>
-                <ThemedButton title="Add Photos" variant="secondary" onPress={addPhotos} />
+                <ServiceRequestMediaPicker
+                    items={media}
+                    disabled={saving}
+                    onChange={setMedia}
+                    onMessage={setMessage}
+                />
 
-                {photos.length > 0 && (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
-                        {photos.map((photo, index) => (
-                            <Image
-                                key={`${photo.uri}-${index}`}
-                                source={{ uri: photo.uri }}
-                                style={{
-                                    width: 96,
-                                    height: 96,
-                                    borderRadius: 14,
-                                    backgroundColor: theme.colors.surfaceAlt,
-                                }}
-                            />
-                        ))}
-                    </View>
-                )}
-
-                <Text style={[labelStyle, { color: theme.colors.text, marginTop: 18 }]}>Videos</Text>
-                <ThemedCard>
-                    <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>
-                        Video uploads are planned for a later phase.
+                {!!pendingEmergency && (
+                    <Text style={{ color: theme.colors.mutedText, fontWeight: '900', lineHeight: 20, marginTop: 6 }}>
+                        Emergency {shortId(pendingEmergency.emergencyId)} is waiting for media to finish. Retrying will use the same request.
                     </Text>
-                </ThemedCard>
+                )}
 
                 <ThemedButton
                     title={saving ? 'Saving...' : 'Save HomeOS Emergency'}
-                    disabled={saving}
+                    disabled={saving || hasUnresolvedServiceRequestMedia(media)}
                     onPress={submitEmergency}
                     style={{ marginTop: 20 }}
                 />

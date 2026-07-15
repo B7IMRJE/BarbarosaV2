@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
+import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import {
@@ -2834,6 +2835,10 @@ function TechOSAssignedJobDetail({
                 <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     {job.request?.issue_summary || job.slot.notes || 'No request summary provided.'}
                 </Text>
+                <ServiceRequestMediaGallery
+                    serviceRequestId={job.request?.id || job.slot.service_request_id}
+                    title="Homeowner photos and videos"
+                />
             </TechOSDetailSection>
 
             <TechOSDetailSection

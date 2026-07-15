@@ -7,6 +7,8 @@ import HomeDashboardView, {
   type HomeDashboardItem,
   type HomeDashboardMaintenanceReminder,
 } from '../components/homeos/HomeDashboardView';
+import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
+import ServiceRequestMediaPicker from '../components/serviceRequests/ServiceRequestMediaPicker';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import {
@@ -18,6 +20,11 @@ import {
   loadHomeownerServiceRequestTimeline,
   type ServiceRequestActivityEvent,
 } from '../lib/serviceRequestActivity';
+import {
+  hasUnresolvedServiceRequestMedia,
+  uploadPendingServiceRequestMedia,
+  type ServiceRequestMediaDraft,
+} from '../lib/serviceRequestMedia';
 import type { HomeHealthEmergency } from '../lib/homeHealth';
 import { loadActiveHomeIdentity, loadHomeIdentityForProperty, type HomeIdentity } from '../lib/homeIdentity';
 import {
@@ -131,6 +138,8 @@ export default function HomeScreen() {
   const [serviceRequestNoteById, setServiceRequestNoteById] = useState<Record<string, string>>({});
   const [serviceRequestActionId, setServiceRequestActionId] = useState<string | null>(null);
   const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
+  const [pendingServiceRequest, setPendingServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
+  const [serviceRequestMedia, setServiceRequestMedia] = useState<ServiceRequestMediaDraft[]>([]);
   const [showServiceRequestForm, setShowServiceRequestForm] = useState(false);
   const [showHealthLegend, setShowHealthLegend] = useState(false);
   const [providerCompanyName, setProviderCompanyName] = useState('');
@@ -565,36 +574,73 @@ export default function HomeScreen() {
       return;
     }
 
-    setSubmittingServiceRequest(true);
-    setServiceRequestMessage('Sending service request...');
-
-    const { data, error } = await supabase.rpc('create_homeowner_service_request', {
-      p_property_id: activePropertyId,
-      p_company_id: preferredProvider.companyId,
-      p_request_type: serviceRequestType,
-      p_issue_summary: issueSummary,
-      p_priority: serviceRequestType === 'emergency' ? 'emergency' : 'normal',
-    });
-
-    setSubmittingServiceRequest(false);
-
-    if (error) {
-      setServiceRequestMessage(`Could not send service request: ${error.message}`);
+    if (hasUnresolvedServiceRequestMedia(serviceRequestMedia)) {
+      setServiceRequestMessage('Wait for the current media action to finish before sending the request.');
       return;
     }
 
-    const confirmedRequest = parseCreatedServiceRequest(data);
+    setSubmittingServiceRequest(true);
+    setServiceRequestMessage(pendingServiceRequest ? 'Retrying media upload...' : 'Sending service request...');
+
+    let confirmedRequest = pendingServiceRequest;
 
     if (!confirmedRequest) {
+      const { data, error } = await supabase.rpc('create_homeowner_service_request', {
+        p_property_id: activePropertyId,
+        p_company_id: preferredProvider.companyId,
+        p_request_type: serviceRequestType,
+        p_issue_summary: issueSummary,
+        p_priority: serviceRequestType === 'emergency' ? 'emergency' : 'normal',
+      });
+
+      if (error) {
+        setSubmittingServiceRequest(false);
+        setServiceRequestMessage(`Could not send service request: ${error.message}`);
+        return;
+      }
+
+      confirmedRequest = parseCreatedServiceRequest(data);
+    }
+
+    if (!confirmedRequest) {
+      setSubmittingServiceRequest(false);
       setServiceRequestMessage('Could not confirm service request: Supabase did not return a service_request_id.');
       return;
     }
 
+    try {
+      if (serviceRequestMedia.length > 0) {
+        setPendingServiceRequest(confirmedRequest);
+        setServiceRequestMessage('Uploading request media...');
+        await uploadPendingServiceRequestMedia({
+          companyId: confirmedRequest.companyId,
+          propertyId: confirmedRequest.propertyId,
+          serviceRequestId: confirmedRequest.id,
+          items: serviceRequestMedia,
+          onItemChange: updateServiceRequestMediaDraft,
+        });
+      }
+    } catch (error) {
+      setPendingServiceRequest(confirmedRequest);
+      setSubmittingServiceRequest(false);
+      setServiceRequestMessage(`Request ${shortId(confirmedRequest.id)} was created, but media upload failed: ${getErrorMessage(error)}. Remove or retry the failed file to finish attaching media.`);
+      return;
+    }
+
+    setSubmittingServiceRequest(false);
     setLastCreatedServiceRequest(confirmedRequest);
+    setPendingServiceRequest(null);
+    setServiceRequestMedia([]);
     setServiceIssueSummary('');
     setServiceRequestType('regular');
     setServiceRequestMessage(`Service request sent. Reference ${shortId(confirmedRequest.id)}.`);
     await loadHomeServiceRequests(activePropertyId);
+  }
+
+  function updateServiceRequestMediaDraft(localId: string, updates: Partial<ServiceRequestMediaDraft>) {
+    setServiceRequestMedia((current) => current.map((item) => (
+      item.localId === localId ? { ...item, ...updates } : item
+    )));
   }
 
   async function handleRefreshHomeServiceRequests() {
@@ -761,14 +807,20 @@ export default function HomeScreen() {
         />
 
         {providerModeContext ? (
-          <ThemedCard style={{ marginTop: scaleIcon(18) }}>
-            <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900', marginBottom: scaleIcon(8) }}>
-              Company Tools
-            </Text>
-            <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800', lineHeight: scaleFont(20) }}>
-              Open an item to add estimates, company notes, findings, job photos, or staged client updates. Homeowner service requests and provider selection are hidden in provider mode.
-            </Text>
-          </ThemedCard>
+          <>
+            <ThemedCard style={{ marginTop: scaleIcon(18) }}>
+              <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900', marginBottom: scaleIcon(8) }}>
+                Company Tools
+              </Text>
+              <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800', lineHeight: scaleFont(20) }}>
+                Open an item to add estimates, company notes, findings, job photos, or staged client updates. Homeowner service requests and provider selection are hidden in provider mode.
+              </Text>
+            </ThemedCard>
+            <ServiceRequestMediaGallery
+              serviceRequestId={providerModeContext.serviceRequestId}
+              title="Current job photos and videos"
+            />
+          </>
         ) : (
         <>
           <View style={actionCardGridStyle}>
@@ -1017,10 +1069,45 @@ export default function HomeScreen() {
             }}
           />
 
+          {serviceRequestType === 'emergency' && (
+            <Text
+              style={{
+                fontSize: scaleFont(13),
+                color: theme.colors.mutedText,
+                lineHeight: scaleFont(19),
+                marginBottom: scaleIcon(10),
+                fontWeight: '800',
+              }}
+            >
+              If there is immediate danger, fire, gas odor, electrical danger, or a medical emergency, call 911. If safe, shut off the affected water or gas supply.
+            </Text>
+          )}
+
+          <ServiceRequestMediaPicker
+            items={serviceRequestMedia}
+            disabled={submittingServiceRequest}
+            onChange={setServiceRequestMedia}
+            onMessage={setServiceRequestMessage}
+          />
+
+          {!!pendingServiceRequest && (
+            <Text
+              style={{
+                fontSize: scaleFont(13),
+                color: theme.colors.mutedText,
+                lineHeight: scaleFont(19),
+                marginBottom: scaleIcon(10),
+                fontWeight: '900',
+              }}
+            >
+              Request {shortId(pendingServiceRequest.id)} is waiting for media to finish. Retrying will use the same request.
+            </Text>
+          )}
+
           <ThemedButton
             title={submittingServiceRequest ? 'Sending...' : serviceRequestType === 'emergency' ? 'Request Emergency Service' : 'Request Service'}
             onPress={handleCreateServiceRequest}
-            disabled={submittingServiceRequest || !preferredProvider}
+            disabled={submittingServiceRequest || !preferredProvider || hasUnresolvedServiceRequestMedia(serviceRequestMedia)}
             style={{ alignSelf: 'flex-start', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(16) }}
             textStyle={{ fontSize: scaleFont(14) }}
           />
@@ -1094,6 +1181,12 @@ export default function HomeScreen() {
                     <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
                       {request.issue_summary || 'No summary available.'}
                     </Text>
+
+                    <ServiceRequestMediaGallery
+                      serviceRequestId={request.id}
+                      title="Request photos and videos"
+                      compact
+                    />
 
                     <View
                       style={{
