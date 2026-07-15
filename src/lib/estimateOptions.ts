@@ -5,6 +5,9 @@ export type EstimateOptionCategory =
     | 'faucet_replacement'
     | 'whole_home_repipe';
 
+const FAUCET_REINSTALL_EXISTING_PRICE_KEY = 'faucet-reinstall-existing';
+const FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY = 'faucet-install-company-approved';
+
 export type EstimateRequirementPhotoAnswer = {
     kind: 'requirement_photo';
     requirementId: string;
@@ -51,6 +54,28 @@ export type CompanyPriceBookItemLike = {
     created_at: string | null;
     updated_at: string | null;
     source?: string | null;
+    service_category?: string | null;
+    internal_description?: string | null;
+    homeowner_description?: string | null;
+    base_labor_install_price?: number | null;
+    estimated_labor_hours?: number | null;
+    internal_labor_cost?: number | null;
+    internal_material_cost?: number | null;
+    recommended_selling_price?: number | null;
+    minimum_permitted_selling_price?: number | null;
+    maximum_permitted_selling_price?: number | null;
+    required_minimum_gross_margin?: number | null;
+    tax_behavior?: string | null;
+    effective_at?: string | null;
+    version_label?: string | null;
+    included_warranty?: string | null;
+    eligible_extended_warranties?: string[];
+    required_add_on_price_keys?: string[];
+    incompatible_price_keys?: string[];
+    applicable_systems?: string[];
+    applicable_areas?: string[];
+    applicable_categories?: string[];
+    management_notes?: string | null;
 };
 
 export type EstimateDraftItemLike = {
@@ -989,10 +1014,11 @@ export function buildEstimateOptionWorkspace(input: {
     const approvedProducts = filterApprovedActiveProducts(input.approvedProducts || [], input.companyId, template);
     const priceBookEntries = input.priceBookItems.map(mapCompanyPriceBookItemToEstimateEntry);
     const eligiblePriceBookEntries = selectEligiblePriceBookEntries(priceBookEntries, input.companyId, template);
-    const pricingSetupRequired = eligiblePriceBookEntries.length === 0;
-    const pricingResults = pricingSetupRequired
+    const priceBookEntriesUnavailable = eligiblePriceBookEntries.length === 0;
+    const pricingResults = priceBookEntriesUnavailable
         ? []
-        : buildPricingResults(input.companyId, eligiblePriceBookEntries, template);
+        : buildPricingResults(input.companyId, eligiblePriceBookEntries, template, input.category, input.answers);
+    const pricingSetupRequired = priceBookEntriesUnavailable || pricingResults.length === 0;
     const choices = buildDeterministicChoices({
         category: input.category,
         template,
@@ -1093,7 +1119,17 @@ export function formatMoney(amount: number | null | undefined) {
     })}`;
 }
 
-function buildPricingResults(companyId: string, entries: EstimatePriceBookEntry[], template: EstimateCategoryTemplate) {
+function buildPricingResults(
+    companyId: string,
+    entries: EstimatePriceBookEntry[],
+    template: EstimateCategoryTemplate,
+    category: EstimateOptionCategory,
+    answers: EstimateAnswerSet
+) {
+    if (category === 'faucet_replacement') {
+        return buildFaucetPricingResults(companyId, entries, answers);
+    }
+
     const cappedEntries = entries.slice(0, 4);
 
     return cappedEntries.map((entry, index) => {
@@ -1116,6 +1152,64 @@ function buildPricingResults(companyId: string, entries: EstimatePriceBookEntry[
     });
 }
 
+function buildFaucetPricingResults(
+    companyId: string,
+    entries: EstimatePriceBookEntry[],
+    answers: EstimateAnswerSet
+) {
+    return selectCompatibleFaucetEntries(entries, answers).map((entry, index) =>
+        calculateEstimateOptionPrice({
+            id: `faucet-pricing-${index + 1}`,
+            companyId,
+            priceBookEntries: entries,
+            lineInputs: [{
+                priceBookEntryId: entry.id,
+                quantity: 1,
+                source: 'base_installation',
+                required: true,
+                removable: false,
+            }],
+            priceBookVersion: createPriceBookVersion(entries),
+        })
+    );
+}
+
+function selectCompatibleFaucetEntries(entries: EstimatePriceBookEntry[], answers: EstimateAnswerSet) {
+    const fixtureSource = normalizeText(readAnswerText(answers.customer_supplied));
+    const holeSpreadAnswer = normalizeText(readAnswerText(answers.hole_spread));
+    const holeSpreadMeasurement = answers[measurementRequirementAnswerKey('Hole spread')];
+    const holeSpreadValue = isMeasurementRequirementAnswer(holeSpreadMeasurement)
+        ? holeSpreadMeasurement.value
+        : null;
+    const sourceNeedsCompanyApproved = fixtureSource === 'company approved product';
+    const sourceAllowsExistingOrSupplied = fixtureSource === 'customer supplied' ||
+        fixtureSource === 'company approved product' ||
+        fixtureSource === 'needs product approval';
+    const approvedProductFitKnown = sourceNeedsCompanyApproved &&
+        holeSpreadValue !== null &&
+        !['unknown', 'wall mount'].includes(holeSpreadAnswer);
+    const compatibleKeys = new Set<string>();
+
+    if (sourceAllowsExistingOrSupplied) compatibleKeys.add(normalizeText(FAUCET_REINSTALL_EXISTING_PRICE_KEY));
+    if (approvedProductFitKnown) compatibleKeys.add(normalizeText(FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY));
+
+    return entries.filter((entry) =>
+        compatibleKeys.has(normalizeText(entry.code)) &&
+        faucetEntrySupportsSelectedHoleSpread(entry, holeSpreadAnswer)
+    );
+}
+
+function faucetEntrySupportsSelectedHoleSpread(entry: EstimatePriceBookEntry, holeSpreadAnswer: string) {
+    if (!holeSpreadAnswer) return true;
+
+    const supportedApplications = entry.applicableCategories.map(normalizeText);
+
+    if (supportedApplications.length === 0) return true;
+    if (supportedApplications.includes('faucet replacement')) return true;
+
+    return supportedApplications.some((application) => application.includes(holeSpreadAnswer));
+}
+
 function buildDeterministicChoices(input: {
     category: EstimateOptionCategory;
     template: EstimateCategoryTemplate;
@@ -1124,6 +1218,11 @@ function buildDeterministicChoices(input: {
     draftContext: EstimateDraftContextLike | null;
 }) {
     const validPricingResults = input.pricingResults.filter((result) => result.missingPricingInputs.length === 0);
+
+    if (input.category === 'faucet_replacement') {
+        return buildFaucetDeterministicChoices(validPricingResults, input.products);
+    }
+
     const individualResults = validPricingResults.slice(0, 4);
     const homeownerName = preferredHomeownerFirstName(input.draftContext);
     const choices: EstimateChoice[] = individualResults.map((pricingResult, index) => {
@@ -1185,6 +1284,62 @@ function buildDeterministicChoices(input: {
     }
 
     return choices.slice(0, 6);
+}
+
+function buildFaucetDeterministicChoices(
+    pricingResults: EstimatePricingResult[],
+    products: EstimateApprovedProduct[]
+) {
+    const choices: EstimateChoice[] = [];
+
+    pricingResults.forEach((pricingResult) => {
+        const primaryLine = pricingResult.lineItems[0];
+        const code = normalizeText(primaryLine?.code || '');
+
+        if (code === normalizeText(FAUCET_REINSTALL_EXISTING_PRICE_KEY)) {
+            choices.push({
+                id: 'individual-faucet-reinstall-existing',
+                kind: 'individual',
+                title: 'Reinstall Existing Faucet',
+                shortSummary: 'Remove, clean, reseat, secure, reconnect, and test the existing or homeowner-supplied faucet.',
+                homeownerExplanation: 'This option keeps the existing or homeowner-supplied faucet and covers removing it as needed, cleaning the mounting area, reseating and securing it, reconnecting usable supply and drain components, minor reconnect materials, and testing operation. Fixture warranty is not included for existing or homeowner-supplied fixtures.',
+                keyBenefits: ['Keeps existing fixture', 'Labor and minor reconnect materials included', 'Operation tested before completion'],
+                whyItDiffers: 'Uses the existing or homeowner-supplied faucet instead of installing a company-approved replacement.',
+                recommendedReason: null,
+                productIds: [],
+                scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+                warrantyIds: [],
+                inclusionIds: pricingResult.lineItems.map((line) => line.code),
+                exclusionIds: ['fixture-warranty'],
+                pricingResult,
+                recommended: false,
+                displayOrder: 1,
+            });
+        }
+
+        if (code === normalizeText(FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY)) {
+            choices.push({
+                id: 'individual-faucet-company-approved',
+                kind: 'individual',
+                title: 'Install Company-Approved Faucet',
+                shortSummary: 'Remove the existing faucet, install an approved replacement with a $200 faucet allowance, reconnect applicable components, and test operation.',
+                homeownerExplanation: 'This option removes the existing faucet and installs a company-approved replacement that matches the captured sink layout. It includes reconnecting applicable supply and drain components, testing operation, a configurable $200 faucet allowance, workmanship warranty, and manufacturer warranty where applicable. Approved faucet cost above the allowance must be added through deterministic pricing.',
+                keyBenefits: ['Company-approved replacement', '$200 faucet allowance included', 'Workmanship plus applicable manufacturer warranty'],
+                whyItDiffers: 'Includes a company-approved replacement fixture instead of reusing the existing or homeowner-supplied faucet.',
+                recommendedReason: 'Best fit when the homeowner wants a reviewed replacement path with deterministic company pricing.',
+                productIds: products.slice(0, 1).map((product) => product.id),
+                scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+                warrantyIds: [],
+                inclusionIds: pricingResult.lineItems.map((line) => line.code),
+                exclusionIds: ['manufacturer-claims-not-configured'],
+                pricingResult,
+                recommended: true,
+                displayOrder: 2,
+            });
+        }
+    });
+
+    return choices.sort((first, second) => first.displayOrder - second.displayOrder);
 }
 
 function buildPresentationGate(input: {
@@ -1421,6 +1576,10 @@ function preferredHomeownerFirstName(context: EstimateDraftContextLike | null) {
     if (!name || /^client homeos/i.test(name)) return '';
 
     return name.split(/\s+/)[0] || '';
+}
+
+function readAnswerText(value: EstimateAnswerValue | undefined) {
+    return typeof value === 'string' ? value : '';
 }
 
 export function isAnswerComplete(value: EstimateAnswerValue | undefined) {

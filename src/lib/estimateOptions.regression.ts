@@ -57,6 +57,11 @@ export function runEstimateOptionsRegressions() {
     failedPhotoUploadDoesNotMarkRequirementDone();
     faucetChecklistCompletionClearsAnswerGate();
     completedFaucetRequirementsLeavePricingAsOnlyMissingSetupBlocker();
+    completeFaucetRequirementsWithTwoPricedEntriesClearPricingSetup();
+    faucetPricedEntriesGenerateMateriallyDifferentChoices();
+    inactiveOrIncompatibleFaucetEntriesDoNotCount();
+    faucetSourceSelectionFiltersApprovedProductScope();
+    technicianApprovalRemainsRequiredAfterFaucetPricingSucceeds();
     rulesFilterIncompatibleProducts();
     doubleVanityCountsTwoHotAndTwoCold();
     toiletCountsOneColdPoint();
@@ -320,6 +325,63 @@ function completedFaucetRequirementsLeavePricingAsOnlyMissingSetupBlocker() {
 
     assert(workspace.presentationGate.blockers.length === 1, 'Complete faucet requirements with empty price book should leave only one blocker.');
     assert(workspace.presentationGate.blockers[0] === 'Pricing setup required.', 'Pricing setup should be the remaining blocker.');
+}
+
+function completeFaucetRequirementsWithTwoPricedEntriesClearPricingSetup() {
+    const workspace = faucetWorkspace();
+
+    assert(!workspace.pricingSetupRequired, 'Two compatible faucet entries should clear pricing setup.');
+    assert(!workspace.presentationGate.blockers.includes('Pricing setup required.'), 'Faucet pricing entries should remove the setup blocker.');
+}
+
+function faucetPricedEntriesGenerateMateriallyDifferentChoices() {
+    const workspace = faucetWorkspace();
+    const individualTitles = workspace.individualOptions.map((choice) => choice.title);
+    const individualTotals = workspace.individualOptions.map((choice) => choice.pricingResult.totalAmount).sort((first, second) => first - second);
+    const approvedChoice = workspace.individualOptions.find((choice) => choice.title === 'Install Company-Approved Faucet');
+
+    assert(workspace.individualOptions.length >= 2, 'Faucet pricing should produce at least two individual choices.');
+    assert(individualTitles.includes('Reinstall Existing Faucet'), 'Existing-faucet reinstall option should be generated.');
+    assert(individualTitles.includes('Install Company-Approved Faucet'), 'Company-approved faucet option should be generated.');
+    assert(individualTotals[0] === 375 && individualTotals[1] === 725, 'Faucet choices should use the provisional Bravo deterministic prices.');
+    assert(approvedChoice?.homeownerExplanation.includes('$200 faucet allowance'), 'Company-approved faucet option should disclose the allowance.');
+    assert(workspace.individualOptions[0]?.pricingResult.totalAmount !== workspace.individualOptions[1]?.pricingResult.totalAmount, 'Faucet options should have materially different deterministic totals.');
+}
+
+function inactiveOrIncompatibleFaucetEntriesDoNotCount() {
+    const inactiveApproved = faucetPriceBookItem('faucet-install-company-approved', 725, {
+        active: false,
+    });
+    const incompatibleApproved = faucetPriceBookItem('faucet-install-company-approved', 725, {
+        applicable_categories: ['wall mount'],
+    });
+    const inactiveWorkspace = faucetWorkspace({ priceBookItems: [faucetPriceBookItem('faucet-reinstall-existing', 375), inactiveApproved] });
+    const incompatibleWorkspace = faucetWorkspace({ priceBookItems: [faucetPriceBookItem('faucet-reinstall-existing', 375), incompatibleApproved] });
+
+    assert(inactiveWorkspace.individualOptions.length === 1, 'Inactive faucet entry should not count as a valid option.');
+    assert(incompatibleWorkspace.individualOptions.length === 1, 'Hole-spread-incompatible faucet entry should not count as a valid option.');
+    assert(inactiveWorkspace.presentationGate.blockers.includes('At least two materially different individual options are required.'), 'Inactive entry should leave the two-option gate blocked.');
+    assert(incompatibleWorkspace.presentationGate.blockers.includes('At least two materially different individual options are required.'), 'Incompatible entry should leave the two-option gate blocked.');
+}
+
+function faucetSourceSelectionFiltersApprovedProductScope() {
+    const customerSuppliedAnswers = {
+        ...completeAnswers('faucet_replacement'),
+        customer_supplied: 'customer supplied',
+    };
+    const companyApprovedWorkspace = faucetWorkspace();
+    const customerSuppliedWorkspace = faucetWorkspace({ answers: customerSuppliedAnswers });
+
+    assert(companyApprovedWorkspace.individualOptions.some((choice) => choice.title === 'Install Company-Approved Faucet'), 'Company-approved fixture source should include approved faucet install scope.');
+    assert(!customerSuppliedWorkspace.individualOptions.some((choice) => choice.title === 'Install Company-Approved Faucet'), 'Customer-supplied fixture source should not include company-approved faucet install scope.');
+    assert(customerSuppliedWorkspace.individualOptions.some((choice) => choice.title === 'Reinstall Existing Faucet'), 'Customer-supplied fixture source should still allow existing/supplied faucet reinstall scope.');
+}
+
+function technicianApprovalRemainsRequiredAfterFaucetPricingSucceeds() {
+    const workspace = faucetWorkspace({ technicianApproved: false });
+
+    assert(!workspace.pricingSetupRequired, 'Faucet pricing should be available before technician approval.');
+    assert(workspace.presentationGate.blockers.includes('Technician approval is required before presentation.'), 'Technician approval should still gate presentation after faucet pricing succeeds.');
 }
 
 function rulesFilterIncompatibleProducts() {
@@ -598,6 +660,19 @@ function buildWorkspace(options: {
     });
 }
 
+function faucetWorkspace(options: {
+    answers?: EstimateAnswerSet;
+    priceBookItems?: CompanyPriceBookItemLike[];
+    technicianApproved?: boolean;
+} = {}) {
+    return buildWorkspace({
+        category: 'faucet_replacement',
+        answers: options.answers || completeAnswers('faucet_replacement'),
+        priceBookItems: options.priceBookItems || faucetPriceBookItems(),
+        technicianApproved: options.technicianApproved ?? false,
+    });
+}
+
 function completeAnswers(category: EstimateOptionCategory): EstimateAnswerSet {
     const template = getEstimateCategoryTemplate(category);
     const answers: EstimateAnswerSet = {};
@@ -668,6 +743,63 @@ function pricedItems() {
         priceBookItem('company-a', 3, 'Toilets', 200),
         priceBookItem('company-a', 4, 'Toilets', 250),
     ];
+}
+
+function faucetPriceBookItems() {
+    return [
+        faucetPriceBookItem('faucet-reinstall-existing', 375),
+        faucetPriceBookItem('faucet-install-company-approved', 725),
+    ];
+}
+
+function faucetPriceBookItem(
+    priceKey: string,
+    price: number,
+    overrides: Partial<CompanyPriceBookItemLike> = {}
+): CompanyPriceBookItemLike {
+    const approved = priceKey === 'faucet-install-company-approved';
+
+    return {
+        id: `company-a-${priceKey}`,
+        company_id: 'company-a',
+        price_key: priceKey,
+        name: approved ? 'Install Company-Approved Faucet' : 'Reinstall Existing Faucet',
+        system: 'Plumbing',
+        category: 'Faucets / Sinks',
+        unit: 'each',
+        base_price: price,
+        labor_hours: approved ? 2.2 : 1.2,
+        material_cost: approved ? 200 : 35,
+        customer_description: approved
+            ? 'Remove existing faucet, install approved replacement with a $200 faucet allowance, reconnect applicable supply and drain components, and test operation.'
+            : 'Remove, clean, reseat, secure, reconnect, and test the existing or homeowner-supplied faucet with minor reconnect materials.',
+        internal_notes: approved
+            ? 'Company-approved replacement path. Includes a configurable $200 faucet allowance; faucet cost above allowance must be added deterministically.'
+            : 'Labor and minor reconnect materials only. No fixture warranty on homeowner-supplied or existing faucet.',
+        active: true,
+        created_at: '2026-07-14T00:00:00.000Z',
+        updated_at: '2026-07-14T00:00:00.000Z',
+        source: 'backend',
+        service_category: 'Faucets / Sinks',
+        homeowner_description: approved
+            ? 'Install an approved replacement faucet with a $200 faucet allowance and test operation.'
+            : 'Reinstall and test the existing or supplied faucet. Fixture warranty is not included.',
+        base_labor_install_price: price,
+        estimated_labor_hours: approved ? 2.2 : 1.2,
+        internal_material_cost: approved ? 200 : 35,
+        recommended_selling_price: price,
+        included_warranty: approved
+            ? 'Company-approved faucet: workmanship warranty plus manufacturer warranty where applicable.'
+            : 'Existing/homeowner-supplied faucet: no fixture warranty.',
+        applicable_systems: ['Plumbing'],
+        applicable_categories: approved
+            ? ['faucet replacement', 'single hole', '4 in centerset', '8 in widespread']
+            : ['faucet replacement', 'single hole', '4 in centerset', '8 in widespread', 'wall mount', 'unknown'],
+        management_notes: approved
+            ? 'Company-approved fixture source only.'
+            : 'Existing or homeowner-supplied faucet source.',
+        ...overrides,
+    };
 }
 
 function priceBookItem(companyId: string, index: number, category: string, price: number): CompanyPriceBookItemLike {
