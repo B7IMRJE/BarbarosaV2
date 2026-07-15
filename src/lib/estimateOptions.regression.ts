@@ -8,6 +8,9 @@ import {
     filterApprovedActiveProducts,
     filterRuleCompatibleProducts,
     getEstimateCategoryTemplate,
+    isPhotoRequirementComplete,
+    measurementRequirementAnswerKey,
+    photoRequirementAnswerKey,
     isProductSelectable,
     mapCompanyPriceBookItemToEstimateEntry,
     resolveEstimatePresentationLayout,
@@ -21,6 +24,8 @@ import {
     type EstimateDraftContextLike,
     type EstimateDraftItemLike,
     type EstimateOptionCategory,
+    type EstimateRequirementMeasurementAnswer,
+    type EstimateRequirementPhotoAnswer,
     type EstimatePriceBookEntry,
     type RepipeRoomBlock,
     type RepipeStructureInput,
@@ -44,7 +49,14 @@ export function runEstimateOptionsRegressions() {
     disposalRequiredQuestionsAreEnforced();
     waterHeaterChecklistIsEnforced();
     faucetSelectionsClearQuestionRequirementsBeforeChecklistIsComplete();
+    faucetPhotosRequirePersistedAttachmentMetadata();
+    eachFaucetPhotoClearsOnlyItsMatchingBlocker();
+    validHoleSpreadInputClearsMeasurementBlocker();
+    completedFaucetRequirementsSurviveJsonRoundTrip();
+    removingFaucetPhotoMakesRequirementIncompleteAgain();
+    failedPhotoUploadDoesNotMarkRequirementDone();
     faucetChecklistCompletionClearsAnswerGate();
+    completedFaucetRequirementsLeavePricingAsOnlyMissingSetupBlocker();
     rulesFilterIncompatibleProducts();
     doubleVanityCountsTwoHotAndTwoCold();
     toiletCountsOneColdPoint();
@@ -225,6 +237,67 @@ function faucetSelectionsClearQuestionRequirementsBeforeChecklistIsComplete() {
     assert(!validation.complete, 'Faucet validation should remain incomplete until checklist requirements are complete.');
 }
 
+function faucetPhotosRequirePersistedAttachmentMetadata() {
+    const validation = validateEstimateAnswers(getEstimateCategoryTemplate('faucet_replacement'), {
+        ...faucetQuestionAnswers(),
+        [photoRequirementAnswerKey('Existing faucet')]: true,
+    });
+
+    assert(validation.missingRequiredPhotoLabels.includes('Existing faucet'), 'Boolean photo completion should not satisfy a persisted photo requirement.');
+}
+
+function eachFaucetPhotoClearsOnlyItsMatchingBlocker() {
+    const validation = validateEstimateAnswers(getEstimateCategoryTemplate('faucet_replacement'), {
+        ...faucetQuestionAnswers(),
+        [photoRequirementAnswerKey('Existing faucet')]: photoAnswer('Existing faucet'),
+    });
+
+    assert(!validation.missingRequiredPhotoLabels.includes('Existing faucet'), 'Persisted existing-faucet photo should clear its matching blocker.');
+    assert(validation.missingRequiredPhotoLabels.includes('Under-sink connections'), 'Existing faucet photo should not clear under-sink photo blocker.');
+    assert(validation.missingRequiredPhotoLabels.includes('Sink hole layout'), 'Existing faucet photo should not clear sink-hole photo blocker.');
+}
+
+function validHoleSpreadInputClearsMeasurementBlocker() {
+    const blankValidation = validateEstimateAnswers(getEstimateCategoryTemplate('faucet_replacement'), {
+        ...faucetQuestionAnswers(),
+        [measurementRequirementAnswerKey('Hole spread')]: {
+            kind: 'requirement_measurement',
+            value: 0,
+            unit: 'in',
+            capturedAt: '2026-07-14T00:00:00.000Z',
+        },
+    });
+    const validValidation = validateEstimateAnswers(getEstimateCategoryTemplate('faucet_replacement'), {
+        ...faucetQuestionAnswers(),
+        [measurementRequirementAnswerKey('Hole spread')]: measurementAnswer(8, 'in'),
+    });
+
+    assert(blankValidation.missingRequiredMeasurementLabels.includes('Hole spread'), 'Non-positive hole spread should remain blocked.');
+    assert(!validValidation.missingRequiredMeasurementLabels.includes('Hole spread'), 'Positive hole spread should clear the measurement blocker.');
+}
+
+function completedFaucetRequirementsSurviveJsonRoundTrip() {
+    const restoredAnswers = JSON.parse(JSON.stringify(completeAnswers('faucet_replacement'))) as EstimateAnswerSet;
+    const validation = validateEstimateAnswers(getEstimateCategoryTemplate('faucet_replacement'), restoredAnswers);
+
+    assert(validation.complete, 'Persisted JSON photo and measurement answers should restore completed faucet requirements.');
+}
+
+function removingFaucetPhotoMakesRequirementIncompleteAgain() {
+    const answers = completeAnswers('faucet_replacement');
+
+    delete answers[photoRequirementAnswerKey('Existing faucet')];
+
+    const validation = validateEstimateAnswers(getEstimateCategoryTemplate('faucet_replacement'), answers);
+
+    assert(validation.missingRequiredPhotoLabels.includes('Existing faucet'), 'Removing a persisted photo should make that requirement incomplete again.');
+}
+
+function failedPhotoUploadDoesNotMarkRequirementDone() {
+    assert(!isPhotoRequirementComplete(null), 'Missing photo answer should not be done after a failed upload.');
+    assert(!isPhotoRequirementComplete(false), 'Failed upload flags should not satisfy photo requirements.');
+}
+
 function faucetChecklistCompletionClearsAnswerGate() {
     const validation = validateEstimateAnswers(
         getEstimateCategoryTemplate('faucet_replacement'),
@@ -235,6 +308,18 @@ function faucetChecklistCompletionClearsAnswerGate() {
     assert(validation.missingRequiredQuestionIds.length === 0, 'No faucet questions should remain missing.');
     assert(validation.missingRequiredPhotoLabels.length === 0, 'No faucet photos should remain missing.');
     assert(validation.missingRequiredMeasurementLabels.length === 0, 'No faucet measurements should remain missing.');
+}
+
+function completedFaucetRequirementsLeavePricingAsOnlyMissingSetupBlocker() {
+    const workspace = buildWorkspace({
+        category: 'faucet_replacement',
+        answers: completeAnswers('faucet_replacement'),
+        priceBookItems: [],
+        technicianApproved: false,
+    });
+
+    assert(workspace.presentationGate.blockers.length === 1, 'Complete faucet requirements with empty price book should leave only one blocker.');
+    assert(workspace.presentationGate.blockers[0] === 'Pricing setup required.', 'Pricing setup should be the remaining blocker.');
 }
 
 function rulesFilterIncompatibleProducts() {
@@ -531,13 +616,49 @@ function completeAnswers(category: EstimateOptionCategory): EstimateAnswerSet {
     });
 
     template.requiredPhotoLabels.forEach((label) => {
-        answers[`photo:${label}`] = true;
+        answers[photoRequirementAnswerKey(label)] = photoAnswer(label);
     });
     template.requiredMeasurementLabels.forEach((label) => {
-        answers[`measurement:${label}`] = 1;
+        answers[measurementRequirementAnswerKey(label)] = measurementAnswer(1, label.toLowerCase().includes('size') ? 'sq ft' : 'in');
     });
 
     return answers;
+}
+
+function faucetQuestionAnswers(): EstimateAnswerSet {
+    return {
+        fixture_area: 'kitchen',
+        hole_spread: '8 in widespread',
+        customer_supplied: 'company approved product',
+        shutoff_condition: 'replace required',
+        supply_lines: 'yes',
+        pop_up_or_drain: 'yes',
+    };
+}
+
+function photoAnswer(label: string): EstimateRequirementPhotoAnswer {
+    const requirementId = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+    return {
+        kind: 'requirement_photo',
+        requirementId,
+        attachmentId: `${requirementId}-attachment`,
+        bucket: 'estimate-requirement-files',
+        storagePath: `company-a/session-a/${requirementId}/${requirementId}-attachment/photo.jpg`,
+        fileName: 'photo.jpg',
+        contentType: 'image/jpeg',
+        sizeBytes: 100,
+        uploadedAt: '2026-07-14T00:00:00.000Z',
+    };
+}
+
+function measurementAnswer(value: number, unit: string): EstimateRequirementMeasurementAnswer {
+    return {
+        kind: 'requirement_measurement',
+        value,
+        unit,
+        capturedAt: '2026-07-14T00:00:00.000Z',
+    };
 }
 
 function pricedItems() {

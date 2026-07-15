@@ -5,7 +5,33 @@ export type EstimateOptionCategory =
     | 'faucet_replacement'
     | 'whole_home_repipe';
 
-export type EstimateAnswerValue = string | number | boolean | string[] | null;
+export type EstimateRequirementPhotoAnswer = {
+    kind: 'requirement_photo';
+    requirementId: string;
+    attachmentId: string;
+    bucket: string;
+    storagePath: string;
+    fileName: string;
+    contentType: string | null;
+    sizeBytes: number | null;
+    uploadedAt: string;
+};
+
+export type EstimateRequirementMeasurementAnswer = {
+    kind: 'requirement_measurement';
+    value: number;
+    unit: string;
+    capturedAt: string;
+};
+
+export type EstimateAnswerValue =
+    | string
+    | number
+    | boolean
+    | string[]
+    | EstimateRequirementPhotoAnswer
+    | EstimateRequirementMeasurementAnswer
+    | null;
 export type EstimateAnswerSet = Record<string, EstimateAnswerValue>;
 
 export type CompanyPriceBookItemLike = {
@@ -615,10 +641,10 @@ export function validateEstimateAnswers(template: EstimateCategoryTemplate, answ
     const missingRequiredQuestionLabels = missingRequiredQuestions.map((question) => question.label);
 
     const missingRequiredPhotoLabels = template.requiredPhotoLabels.filter((label) =>
-        !isAnswerComplete(answers[`photo:${label}`])
+        !isPhotoRequirementComplete(answers[photoRequirementAnswerKey(label)])
     );
     const missingRequiredMeasurementLabels = template.requiredMeasurementLabels.filter((label) =>
-        !isAnswerComplete(answers[`measurement:${label}`])
+        !isMeasurementRequirementComplete(answers[measurementRequirementAnswerKey(label)])
     );
     const blockingConditions = missingRequiredQuestionIds.length > 0 ||
         missingRequiredPhotoLabels.length > 0 ||
@@ -1176,14 +1202,27 @@ function buildPresentationGate(input: {
     if (!input.answerValidation.complete) {
         blockers.push(...formatMissingAnswerBlockers(input.answerValidation));
     }
-    if (input.pricingSetupRequired) blockers.push('Pricing setup required.');
+
+    if (input.pricingSetupRequired) {
+        blockers.push('Pricing setup required.');
+
+        return {
+            canPresent: false,
+            blockers,
+            warnings,
+        };
+    }
+
     if (input.pricingResults.some((result) => result.missingPricingInputs.length > 0)) blockers.push('Pricing inputs are missing.');
     if (input.pricingResults.some((result) => result.requiredManagementApproval)) blockers.push('Management approval is required for pricing guardrails.');
     if (input.aiValidationFailed) blockers.push('AI validation failed.');
-    if (input.choices.filter((choice) => choice.kind === 'individual').length < 2) blockers.push('At least two materially different individual options are required.');
+    const individualChoiceCount = input.choices.filter((choice) => choice.kind === 'individual').length;
+    const hasEnoughIndividualChoices = individualChoiceCount >= 2;
+
+    if (!hasEnoughIndividualChoices) blockers.push('At least two materially different individual options are required.');
     if (input.choices.filter((choice) => choice.kind === 'package').length > 2) blockers.push('No more than two packages may be presented.');
     if (input.choices.length > 6) blockers.push('No more than six homeowner-facing choices may be presented.');
-    if (!input.technicianApproved) blockers.push('Technician approval is required before presentation.');
+    if (hasEnoughIndividualChoices && !input.technicianApproved) blockers.push('Technician approval is required before presentation.');
     if (input.approvedProducts.some((product) => !product.approved || !product.active)) blockers.push('Unapproved or inactive product selected.');
 
     input.pricingResults.forEach((result) => {
@@ -1389,8 +1428,56 @@ export function isAnswerComplete(value: EstimateAnswerValue | undefined) {
     if (typeof value === 'string') return value.trim().length > 0;
     if (typeof value === 'number') return Number.isFinite(value);
     if (typeof value === 'boolean') return true;
+    if (isPhotoRequirementAnswer(value)) return isPhotoRequirementComplete(value);
+    if (isMeasurementRequirementAnswer(value)) return isMeasurementRequirementComplete(value);
 
     return false;
+}
+
+export function photoRequirementAnswerKey(label: string) {
+    return `photo:${label}`;
+}
+
+export function measurementRequirementAnswerKey(label: string) {
+    return `measurement:${label}`;
+}
+
+export function estimateRequirementId(label: string) {
+    const normalized = label
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+
+    return normalized || 'requirement';
+}
+
+export function isPhotoRequirementAnswer(value: EstimateAnswerValue | undefined): value is EstimateRequirementPhotoAnswer {
+    const record = readRecord(value);
+
+    return record?.kind === 'requirement_photo' &&
+        readText(record.requirementId).length > 0 &&
+        readText(record.attachmentId).length > 0 &&
+        readText(record.bucket).length > 0 &&
+        readText(record.storagePath).length > 0;
+}
+
+export function isMeasurementRequirementAnswer(value: EstimateAnswerValue | undefined): value is EstimateRequirementMeasurementAnswer {
+    const record = readRecord(value);
+    const amount = typeof record?.value === 'number' ? record.value : Number(record?.value);
+
+    return record?.kind === 'requirement_measurement' &&
+        Number.isFinite(amount) &&
+        amount > 0 &&
+        readText(record.unit).length > 0;
+}
+
+export function isPhotoRequirementComplete(value: EstimateAnswerValue | undefined) {
+    return isPhotoRequirementAnswer(value);
+}
+
+export function isMeasurementRequirementComplete(value: EstimateAnswerValue | undefined) {
+    return isMeasurementRequirementAnswer(value);
 }
 
 function formatMissingAnswerBlockers(validation: EstimateAnswerValidation) {

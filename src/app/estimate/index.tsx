@@ -2,22 +2,39 @@ import HomeHeader from '../../components/HomeHeader';
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
+    estimateRequirementId,
     formatMoney,
     getEstimateCategoryTemplate,
     inferEstimateCategoryFromDraft,
     isAnswerComplete,
+    isMeasurementRequirementAnswer,
+    isMeasurementRequirementComplete,
+    isPhotoRequirementAnswer,
+    isPhotoRequirementComplete,
+    measurementRequirementAnswerKey,
+    photoRequirementAnswerKey,
     toHomeownerPresentationChoice,
     validateAiEstimateDraftResponse,
     type AiEstimateDraftChoice,
     type EstimateAnswerSet,
+    type EstimateAnswerValue,
     type EstimateChoice as Phase1EstimateChoice,
     type EstimateOptionCategory,
     type EstimateQuestionDefinition,
+    type EstimateRequirementMeasurementAnswer,
 } from '../../lib/estimateOptions';
+import {
+    createEstimateRequirementPhotoPreview,
+    deleteEstimateSessionAnswer,
+    loadEstimateSessionAnswers,
+    removeEstimateRequirementPhotoFile,
+    saveEstimateSessionAnswer,
+    uploadEstimateRequirementPhoto,
+} from '../../lib/estimateRequirementPersistence';
 import {
     loadCompanyPriceBook,
     type CompanyPriceBookItem,
@@ -72,6 +89,11 @@ type EditableChoiceCopy = {
     homeownerExplanation: string;
 };
 
+type RequirementUploadState = {
+    uploading: boolean;
+    error: string | null;
+};
+
 export default function EstimateScreen() {
     const { companyId, propertyId, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId } = useLocalSearchParams<{
         companyId?: string | string[];
@@ -109,6 +131,10 @@ export default function EstimateScreen() {
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
     const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
     const [answers, setAnswers] = useState<EstimateAnswerSet>({});
+    const [photoPreviewByKey, setPhotoPreviewByKey] = useState<Record<string, string>>({});
+    const [requirementUploadByKey, setRequirementUploadByKey] = useState<Record<string, RequirementUploadState>>({});
+    const [measurementDraftByKey, setMeasurementDraftByKey] = useState<Record<string, string>>({});
+    const [measurementErrorByKey, setMeasurementErrorByKey] = useState<Record<string, string>>({});
     const [technicianApproved, setTechnicianApproved] = useState(false);
     const [presentationMode, setPresentationMode] = useState(false);
     const [aiDrafting, setAiDrafting] = useState(false);
@@ -143,6 +169,10 @@ export default function EstimateScreen() {
         setAiValidationErrors([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
+        setPhotoPreviewByKey({});
+        setRequirementUploadByKey({});
+        setMeasurementDraftByKey({});
+        setMeasurementErrorByKey({});
         setMessage('Loading estimate draft...');
 
         if (providerContextIncomplete) {
@@ -217,6 +247,10 @@ export default function EstimateScreen() {
         setEstimateSession(null);
         setSelectedCategory(inferredCategory);
         setAnswers({});
+        setPhotoPreviewByKey({});
+        setRequirementUploadByKey({});
+        setMeasurementDraftByKey({});
+        setMeasurementErrorByKey({});
         setTechnicianApproved(false);
         setPresentationMode(false);
         setAiValidationErrors([]);
@@ -227,6 +261,10 @@ export default function EstimateScreen() {
             : ''
         );
 
+        if (nextDraftContext?.estimate_session_id) {
+            await loadPersistedAnswers(nextDraftContext.estimate_session_id);
+        }
+
         try {
             const priceBook = await loadCompanyPriceBook(access.companyId);
 
@@ -236,6 +274,38 @@ export default function EstimateScreen() {
             setPriceBookItems([]);
             setPriceBookMessage(`Price book unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+    }
+
+    async function loadPersistedAnswers(sessionId: string) {
+        try {
+            const persistedAnswers = await loadEstimateSessionAnswers(sessionId);
+
+            setAnswers(persistedAnswers);
+            setMeasurementDraftByKey(createMeasurementDrafts(persistedAnswers));
+            await loadPhotoPreviews(persistedAnswers);
+        } catch (error) {
+            setMessage(`Estimate requirements could not be restored: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    async function loadPhotoPreviews(nextAnswers: EstimateAnswerSet) {
+        const previewEntries = await Promise.all(
+            Object.entries(nextAnswers).map(async ([key, value]) => {
+                if (!isPhotoRequirementAnswer(value)) return null;
+
+                const previewUrl = await createEstimateRequirementPhotoPreview(value);
+
+                return previewUrl ? [key, previewUrl] as const : null;
+            })
+        );
+
+        setPhotoPreviewByKey(previewEntries.reduce<Record<string, string>>((previews, entry) => {
+            if (!entry) return previews;
+
+            previews[entry[0]] = entry[1];
+
+            return previews;
+        }, {}));
     }
 
     async function removeItem(id: string) {
@@ -341,31 +411,256 @@ export default function EstimateScreen() {
             ...current,
             [question.id]: value,
         }));
+        void persistAnswerIfSessionReady(question.id, value);
     }
 
     function toggleMultiAnswer(question: EstimateQuestionDefinition, value: string) {
         setTechnicianApproved(false);
         setPresentationMode(false);
-        setAnswers((current) => {
-            const currentValues = Array.isArray(current[question.id]) ? current[question.id] as string[] : [];
-            const nextValues = currentValues.includes(value)
-                ? currentValues.filter((entry) => entry !== value)
-                : [...currentValues, value];
+        const currentValues = Array.isArray(answers[question.id]) ? answers[question.id] as string[] : [];
+        const nextValues = currentValues.includes(value)
+            ? currentValues.filter((entry) => entry !== value)
+            : [...currentValues, value];
 
-            return {
-                ...current,
-                [question.id]: nextValues,
-            };
-        });
-    }
-
-    function markRequirementComplete(key: string) {
-        setTechnicianApproved(false);
-        setPresentationMode(false);
         setAnswers((current) => ({
             ...current,
-            [key]: true,
+            [question.id]: nextValues,
         }));
+        void persistAnswerIfSessionReady(question.id, nextValues);
+    }
+
+    async function persistAnswerIfSessionReady(key: string, value: EstimateAnswerValue) {
+        const sessionId = estimateSession?.id || draftContext?.estimate_session_id || null;
+
+        if (!sessionId) return;
+
+        try {
+            await saveEstimateSessionAnswer(sessionId, key, value);
+        } catch (error) {
+            setMessage(`Estimate answer could not be saved: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    async function chooseRequirementPhoto(label: string, capture: boolean) {
+        if (!estimateAccess) return;
+
+        const key = photoRequirementAnswerKey(label);
+        let file: File | null = null;
+
+        try {
+            file = await pickEstimateRequirementPhoto(capture);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Photo picker could not be opened.';
+
+            setRequirementUploadByKey((current) => ({
+                ...current,
+                [key]: { uploading: false, error: errorMessage },
+            }));
+            setMessage(errorMessage);
+            return;
+        }
+
+        if (!file) return;
+
+        let uploadedAnswer: EstimateAnswerValue = null;
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setRequirementUploadByKey((current) => ({
+            ...current,
+            [key]: { uploading: true, error: null },
+        }));
+        setMessage(`Uploading ${label} photo...`);
+
+        try {
+            const resolvedSession = await resolveSessionForDraft(selectedCategory);
+
+            if (!resolvedSession) {
+                throw new Error('Estimate session could not be resolved for this requirement.');
+            }
+
+            uploadedAnswer = await uploadEstimateRequirementPhoto({
+                companyId: resolvedSession.companyId,
+                sessionId: resolvedSession.id,
+                requirementLabel: label,
+                file,
+            });
+            await saveEstimateSessionAnswer(resolvedSession.id, key, uploadedAnswer);
+
+            setAnswers((current) => ({
+                ...current,
+                [key]: uploadedAnswer,
+            }));
+            setPhotoPreviewByKey((current) => ({
+                ...current,
+                [key]: createLocalPhotoPreview(file) || current[key] || '',
+            }));
+            setRequirementUploadByKey((current) => ({
+                ...current,
+                [key]: { uploading: false, error: null },
+            }));
+            setMessage(`${label} photo saved.`);
+        } catch (error) {
+            if (uploadedAnswer) {
+                try {
+                    await removeEstimateRequirementPhotoFile(uploadedAnswer);
+                } catch {
+                    // Best effort cleanup; the visible requirement remains incomplete.
+                }
+            }
+
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+            setRequirementUploadByKey((current) => ({
+                ...current,
+                [key]: { uploading: false, error: errorMessage },
+            }));
+            setMessage(`${label} photo could not be saved: ${errorMessage}`);
+        }
+    }
+
+    async function removeRequirementPhoto(label: string) {
+        const key = photoRequirementAnswerKey(label);
+        const answer = answers[key];
+        const session = await resolveSessionForDraft(selectedCategory);
+
+        if (!session) return;
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setRequirementUploadByKey((current) => ({
+            ...current,
+            [key]: { uploading: true, error: null },
+        }));
+
+        try {
+            await removeEstimateRequirementPhotoFile(answer);
+            await deleteEstimateSessionAnswer(session.id, key);
+            setAnswers((current) => {
+                const next = { ...current };
+
+                delete next[key];
+
+                return next;
+            });
+            setPhotoPreviewByKey((current) => {
+                const next = { ...current };
+
+                delete next[key];
+
+                return next;
+            });
+            setRequirementUploadByKey((current) => ({
+                ...current,
+                [key]: { uploading: false, error: null },
+            }));
+            setMessage(`${label} photo removed.`);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+            setRequirementUploadByKey((current) => ({
+                ...current,
+                [key]: { uploading: false, error: errorMessage },
+            }));
+            setMessage(`${label} photo could not be removed: ${errorMessage}`);
+        }
+    }
+
+    function updateMeasurementDraft(label: string, value: string) {
+        const key = measurementRequirementAnswerKey(label);
+
+        setMeasurementDraftByKey((current) => ({
+            ...current,
+            [key]: value,
+        }));
+        setMeasurementErrorByKey((current) => ({
+            ...current,
+            [key]: '',
+        }));
+    }
+
+    async function saveRequirementMeasurement(label: string) {
+        const key = measurementRequirementAnswerKey(label);
+        const validation = validateRequirementMeasurement(label, measurementDraftByKey[key] || '');
+
+        if (validation.error) {
+            setMeasurementErrorByKey((current) => ({
+                ...current,
+                [key]: validation.error || '',
+            }));
+            return;
+        }
+
+        const session = await resolveSessionForDraft(selectedCategory);
+
+        if (!session || validation.value === null) return;
+
+        const answer: EstimateRequirementMeasurementAnswer = {
+            kind: 'requirement_measurement',
+            value: validation.value,
+            unit: validation.unit,
+            capturedAt: new Date().toISOString(),
+        };
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+
+        try {
+            await saveEstimateSessionAnswer(session.id, key, answer);
+            setAnswers((current) => ({
+                ...current,
+                [key]: answer,
+            }));
+            setMeasurementErrorByKey((current) => ({
+                ...current,
+                [key]: '',
+            }));
+            setMessage(`${label} measurement saved.`);
+        } catch (error) {
+            setMeasurementErrorByKey((current) => ({
+                ...current,
+                [key]: error instanceof Error ? error.message : 'Measurement could not be saved.',
+            }));
+        }
+    }
+
+    async function clearRequirementMeasurement(label: string) {
+        const key = measurementRequirementAnswerKey(label);
+        const session = await resolveSessionForDraft(selectedCategory);
+
+        if (!session) return;
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+
+        try {
+            await deleteEstimateSessionAnswer(session.id, key);
+            setAnswers((current) => {
+                const next = { ...current };
+
+                delete next[key];
+
+                return next;
+            });
+            setMeasurementDraftByKey((current) => ({
+                ...current,
+                [key]: '',
+            }));
+            setMeasurementErrorByKey((current) => ({
+                ...current,
+                [key]: '',
+            }));
+            setMessage(`${label} measurement cleared.`);
+        } catch (error) {
+            setMeasurementErrorByKey((current) => ({
+                ...current,
+                [key]: error instanceof Error ? error.message : 'Measurement could not be cleared.',
+            }));
+        }
+    }
+
+    function hasRequirementUploadInProgress() {
+        return Object.values(requirementUploadByKey).some((state) => state.uploading);
     }
 
     function updateChoiceCopy(choiceId: string, field: keyof EditableChoiceCopy, value: string) {
@@ -449,12 +744,26 @@ export default function EstimateScreen() {
             companyId: estimateAccess.companyId,
             propertyId: result.session.propertyId,
         });
+        await persistLocalAnswersToSession(result.session.id);
 
         return result.session;
     }
 
+    async function persistLocalAnswersToSession(sessionId: string) {
+        await Promise.all(Object.entries(answers).map(async ([key, value]) => {
+            if (value === null || value === undefined) return;
+
+            await saveEstimateSessionAnswer(sessionId, key, value);
+        }));
+    }
+
     async function draftWithAi(workspaceChoices: Phase1EstimateChoice[]) {
         if (!estimateAccess) return;
+
+        if (hasRequirementUploadInProgress()) {
+            setMessage('Wait for photo uploads to finish before drafting with AI.');
+            return;
+        }
 
         if (workspaceChoices.length < 2) {
             setMessage('At least two deterministic priced options are required before AI drafting.');
@@ -598,6 +907,7 @@ export default function EstimateScreen() {
     const optionChoices = estimateChoices.filter((choice) => choice.kind === 'individual');
     const bundleChoices = estimateChoices.filter((choice) => choice.kind === 'package');
     const selectedChoice = estimateChoices.find((choice) => choice.id === selectedChoiceId) || null;
+    const requirementUploadInProgress = hasRequirementUploadInProgress();
 
     return (
         <ScrollView
@@ -702,6 +1012,10 @@ export default function EstimateScreen() {
                                 onPress={() => {
                                     setSelectedCategory(category);
                                     setAnswers({});
+                                    setPhotoPreviewByKey({});
+                                    setRequirementUploadByKey({});
+                                    setMeasurementDraftByKey({});
+                                    setMeasurementErrorByKey({});
                                     setTechnicianApproved(false);
                                     setPresentationMode(false);
                                 }}
@@ -719,8 +1033,23 @@ export default function EstimateScreen() {
                     </View>
 
                     <View style={requirementGridStyle}>
-                        {phase1Workspace.template.requiredPhotoLabels.map((label) => renderRequirementPill(`photo:${label}`, label, answers, markRequirementComplete))}
-                        {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderRequirementPill(`measurement:${label}`, label, answers, markRequirementComplete))}
+                        {phase1Workspace.template.requiredPhotoLabels.map((label) => renderPhotoRequirementCard({
+                            label,
+                            answers,
+                            previewByKey: photoPreviewByKey,
+                            uploadByKey: requirementUploadByKey,
+                            choosePhoto: chooseRequirementPhoto,
+                            removePhoto: removeRequirementPhoto,
+                        }))}
+                        {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderMeasurementRequirementCard({
+                            label,
+                            answers,
+                            measurementDraftByKey,
+                            measurementErrorByKey,
+                            updateMeasurementDraft,
+                            saveMeasurement: saveRequirementMeasurement,
+                            clearMeasurement: clearRequirementMeasurement,
+                        }))}
                     </View>
 
                     {!phase1Workspace.answerValidation.complete && (
@@ -777,11 +1106,11 @@ export default function EstimateScreen() {
                     <View style={compactActionRowStyle}>
                         <TouchableOpacity
                             onPress={() => draftWithAi(estimateChoices)}
-                            style={aiDrafting ? mutedButtonStyle : compactPrimaryButtonStyle}
-                            disabled={aiDrafting}
+                            style={aiDrafting || requirementUploadInProgress ? mutedButtonStyle : compactPrimaryButtonStyle}
+                            disabled={aiDrafting || requirementUploadInProgress}
                         >
                             <Text style={compactPrimaryButtonTextStyle}>
-                                {aiDrafting ? 'Drafting...' : 'Draft with AI'}
+                                {aiDrafting ? 'Drafting...' : requirementUploadInProgress ? 'Uploading...' : 'Draft with AI'}
                             </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
@@ -1100,24 +1429,145 @@ function renderQuestion(
     );
 }
 
-function renderRequirementPill(
-    key: string,
-    label: string,
-    answers: EstimateAnswerSet,
-    markRequirementComplete: (key: string) => void
-) {
-    const complete = answers[key] === true;
+function renderPhotoRequirementCard(input: {
+    label: string;
+    answers: EstimateAnswerSet;
+    previewByKey: Record<string, string>;
+    uploadByKey: Record<string, RequirementUploadState>;
+    choosePhoto: (label: string, capture: boolean) => void;
+    removePhoto: (label: string) => void;
+}) {
+    const key = photoRequirementAnswerKey(input.label);
+    const answer = input.answers[key];
+    const complete = isPhotoRequirementComplete(answer);
+    const previewUrl = input.previewByKey[key] || '';
+    const uploadState = input.uploadByKey[key] || { uploading: false, error: null };
 
     return (
-        <TouchableOpacity
-            key={key}
-            onPress={() => markRequirementComplete(key)}
-            style={complete ? [requirementPillStyle, completeRequirementPillStyle] : requirementPillStyle}
-        >
-            <Text style={complete ? completeRequirementPillTextStyle : requirementPillTextStyle}>
-                {complete ? `Done: ${label}` : `Required: ${label}`}
-            </Text>
-        </TouchableOpacity>
+        <View key={key} style={requirementCardStyle}>
+            <View style={choiceTitleRowStyle}>
+                <Text style={requirementTitleStyle}>{input.label}</Text>
+                <Text style={complete ? donePillStyle : requiredPillStyle}>
+                    {complete ? 'Done' : 'Required'}
+                </Text>
+            </View>
+
+            {previewUrl ? (
+                <Image
+                    source={{ uri: previewUrl }}
+                    style={requirementPreviewStyle}
+                    resizeMode="cover"
+                />
+            ) : (
+                <View style={requirementPreviewPlaceholderStyle}>
+                    <Text style={requirementPreviewPlaceholderTextStyle}>
+                        No photo saved
+                    </Text>
+                </View>
+            )}
+
+            <View style={compactActionRowStyle}>
+                <TouchableOpacity
+                    onPress={() => input.choosePhoto(input.label, true)}
+                    style={uploadState.uploading ? mutedButtonStyle : compactPrimaryButtonStyle}
+                    disabled={uploadState.uploading}
+                >
+                    <Text style={compactPrimaryButtonTextStyle}>
+                        {complete ? 'Replace' : 'Take Photo'}
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => input.choosePhoto(input.label, false)}
+                    style={uploadState.uploading ? mutedButtonStyle : compactSecondaryButtonStyle}
+                    disabled={uploadState.uploading}
+                >
+                    <Text style={uploadState.uploading ? compactPrimaryButtonTextStyle : compactSecondaryButtonTextStyle}>
+                        Choose Photo
+                    </Text>
+                </TouchableOpacity>
+                {complete && (
+                    <TouchableOpacity
+                        onPress={() => input.removePhoto(input.label)}
+                        style={uploadState.uploading ? mutedButtonStyle : compactDangerButtonStyle}
+                        disabled={uploadState.uploading}
+                    >
+                        <Text style={uploadState.uploading ? compactPrimaryButtonTextStyle : compactDangerButtonTextStyle}>
+                            Remove
+                        </Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {uploadState.uploading && (
+                <Text style={requirementProgressTextStyle}>Uploading...</Text>
+            )}
+            {!!uploadState.error && (
+                <Text style={requirementErrorTextStyle}>{uploadState.error}</Text>
+            )}
+        </View>
+    );
+}
+
+function renderMeasurementRequirementCard(input: {
+    label: string;
+    answers: EstimateAnswerSet;
+    measurementDraftByKey: Record<string, string>;
+    measurementErrorByKey: Record<string, string>;
+    updateMeasurementDraft: (label: string, value: string) => void;
+    saveMeasurement: (label: string) => void;
+    clearMeasurement: (label: string) => void;
+}) {
+    const key = measurementRequirementAnswerKey(input.label);
+    const answer = input.answers[key];
+    const complete = isMeasurementRequirementComplete(answer);
+    const unit = isMeasurementRequirementAnswer(answer) ? answer.unit : defaultMeasurementUnit(input.label);
+    const draftValue = input.measurementDraftByKey[key] ??
+        (isMeasurementRequirementAnswer(answer) ? String(answer.value) : '');
+    const error = input.measurementErrorByKey[key] || '';
+
+    return (
+        <View key={key} style={requirementCardStyle}>
+            <View style={choiceTitleRowStyle}>
+                <Text style={requirementTitleStyle}>{input.label}</Text>
+                <Text style={complete ? donePillStyle : requiredPillStyle}>
+                    {complete ? 'Done' : 'Required'}
+                </Text>
+            </View>
+
+            <View style={measurementInputRowStyle}>
+                <TextInput
+                    value={draftValue}
+                    onChangeText={(value) => input.updateMeasurementDraft(input.label, value)}
+                    style={measurementInputStyle}
+                    keyboardType="decimal-pad"
+                    placeholder="0"
+                />
+                <Text style={measurementUnitStyle}>{unit}</Text>
+            </View>
+
+            <View style={compactActionRowStyle}>
+                <TouchableOpacity
+                    onPress={() => input.saveMeasurement(input.label)}
+                    style={compactPrimaryButtonStyle}
+                >
+                    <Text style={compactPrimaryButtonTextStyle}>
+                        {complete ? 'Update' : 'Save'}
+                    </Text>
+                </TouchableOpacity>
+                {complete && (
+                    <TouchableOpacity
+                        onPress={() => input.clearMeasurement(input.label)}
+                        style={compactSecondaryButtonStyle}
+                    >
+                        <Text style={compactSecondaryButtonTextStyle}>Clear</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {!!error && (
+                <Text style={requirementErrorTextStyle}>{error}</Text>
+            )}
+        </View>
     );
 }
 
@@ -1186,6 +1636,93 @@ function readFunctionMessage(data: Record<string, unknown>, status: number) {
     const detail = typeof data.detail === 'string' ? data.detail : '';
 
     return message || detail || `AI drafting failed with status ${status}.`;
+}
+
+function pickEstimateRequirementPhoto(capture: boolean) {
+    if (typeof document === 'undefined') {
+        return Promise.reject(new Error('Photo picker is available in the web app for this release.'));
+    }
+
+    return new Promise<File | null>((resolve) => {
+        const input = document.createElement('input');
+
+        input.type = 'file';
+        input.accept = 'image/*';
+        if (capture) input.setAttribute('capture', 'environment');
+        input.style.display = 'none';
+
+        input.onchange = () => {
+            resolve(input.files?.[0] || null);
+            input.remove();
+        };
+        input.oncancel = () => {
+            resolve(null);
+            input.remove();
+        };
+
+        document.body.appendChild(input);
+        input.click();
+    });
+}
+
+function createLocalPhotoPreview(file: File) {
+    if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return '';
+
+    return URL.createObjectURL(file);
+}
+
+function createMeasurementDrafts(answers: EstimateAnswerSet) {
+    return Object.entries(answers).reduce<Record<string, string>>((drafts, [key, value]) => {
+        if (isMeasurementRequirementAnswer(value)) drafts[key] = String(value.value);
+
+        return drafts;
+    }, {});
+}
+
+function validateRequirementMeasurement(label: string, rawValue: string) {
+    const trimmed = rawValue.trim();
+
+    if (!trimmed) {
+        return {
+            value: null,
+            unit: defaultMeasurementUnit(label),
+            error: `${label} is required.`,
+        };
+    }
+
+    const value = Number(trimmed);
+
+    if (!Number.isFinite(value)) {
+        return {
+            value: null,
+            unit: defaultMeasurementUnit(label),
+            error: `${label} must be a valid number.`,
+        };
+    }
+
+    if (value <= 0) {
+        return {
+            value: null,
+            unit: defaultMeasurementUnit(label),
+            error: `${label} must be greater than zero.`,
+        };
+    }
+
+    return {
+        value,
+        unit: defaultMeasurementUnit(label),
+        error: '',
+    };
+}
+
+function defaultMeasurementUnit(label: string) {
+    const requirementId = estimateRequirementId(label);
+
+    if (requirementId.includes('home-size')) return 'sq ft';
+    if (requirementId.includes('tankless-demand')) return 'gpm';
+    if (requirementId.includes('tank-size')) return 'gal';
+
+    return 'in';
 }
 
 function renderSectionHeader(title: string, description: string) {
@@ -1401,6 +1938,91 @@ const requirementGridStyle = {
     flexWrap: 'wrap' as const,
     gap: 8,
     marginTop: 12,
+};
+
+const requirementCardStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+    width: 280,
+    minHeight: 190,
+    gap: 10,
+};
+
+const requirementTitleStyle = {
+    color: '#071B33',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900' as const,
+    flex: 1,
+};
+
+const requirementPreviewStyle = {
+    width: '100%' as const,
+    height: 118,
+    borderRadius: 10,
+    backgroundColor: '#F3F6FA',
+};
+
+const requirementPreviewPlaceholderStyle = {
+    width: '100%' as const,
+    height: 118,
+    borderRadius: 10,
+    backgroundColor: '#F3F6FA',
+    borderWidth: 1,
+    borderColor: '#D8E0EA',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+};
+
+const requirementPreviewPlaceholderTextStyle = {
+    color: '#637083',
+    fontSize: 12,
+    fontWeight: '800' as const,
+};
+
+const requirementProgressTextStyle = {
+    color: '#0B5CAD',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const requirementErrorTextStyle = {
+    color: '#9D2B2B',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800' as const,
+};
+
+const measurementInputRowStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+};
+
+const measurementInputStyle = {
+    flex: 1,
+    backgroundColor: '#F8FAFD',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E3E8EF',
+    color: '#071B33',
+    fontSize: 15,
+    fontWeight: '900' as const,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+};
+
+const measurementUnitStyle = {
+    color: '#071B33',
+    backgroundColor: '#E8F7F0',
+    borderRadius: 999,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    fontSize: 12,
+    fontWeight: '900' as const,
 };
 
 const requirementPillStyle = {
