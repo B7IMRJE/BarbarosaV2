@@ -83,6 +83,8 @@ type EditorForm = {
     customerDescription: string;
     internalNotes: string;
     active: boolean;
+    originalUnsupportedUnit: string;
+    unitCorrectionRequired: boolean;
 };
 
 type CalculatorForm = {
@@ -561,9 +563,11 @@ export default function CompanyPriceBookScreen() {
             customerDescription: item.customer_description || '',
             internalNotes: removePriceBookMetadataFromNotes(item.internal_notes || ''),
             active: item.active,
+            originalUnsupportedUnit: item.unsupported_unit || '',
+            unitCorrectionRequired: Boolean(item.unsupported_unit),
         });
         setEditorOpen(true);
-        setMessage(`Editing: ${item.name}`);
+        setMessage(item.unit_validation_message || `Editing: ${item.name}`);
     }
 
     function addCustomItem() {
@@ -596,6 +600,11 @@ export default function CompanyPriceBookScreen() {
 
         if (!editorForm.name.trim()) {
             setMessage('Add an item or service name before saving.');
+            return;
+        }
+
+        if (editorForm.unitCorrectionRequired) {
+            setMessage(`This item was loaded with unsupported unit "${editorForm.originalUnsupportedUnit}". Select one of the supported units before saving.`);
             return;
         }
 
@@ -1223,6 +1232,8 @@ export default function CompanyPriceBookScreen() {
                 customerDescription: draft.customer_description || '',
                 internalNotes: removePriceBookMetadataFromNotes(draft.internal_notes || ''),
                 active: draft.active,
+                originalUnsupportedUnit: '',
+                unitCorrectionRequired: false,
             });
             setView('custom');
             setEditorOpen(true);
@@ -1474,7 +1485,7 @@ export default function CompanyPriceBookScreen() {
                                 onSave={saveEditor}
                                 onCancel={() => setEditorOpen(false)}
                                 onChangeField={updateEditor}
-                                onChangeUnit={(unit) => setEditorForm((current) => ({ ...current, unit }))}
+                                onChangeUnit={updateEditorUnit}
                                 onToggleActive={() => setEditorForm((current) => ({ ...current, active: !current.active }))}
                                 onBackToArea={() => {
                                     setView('area');
@@ -1502,7 +1513,7 @@ export default function CompanyPriceBookScreen() {
                                     openAllItems();
                                 }}
                                 onChangeField={updateEditor}
-                                onChangeUnit={(unit) => setEditorForm((current) => ({ ...current, unit }))}
+                                onChangeUnit={updateEditorUnit}
                                 onToggleActive={() => setEditorForm((current) => ({ ...current, active: !current.active }))}
                                 onBackToArea={openAllItems}
                                 onBackToSystem={openSystems}
@@ -1726,6 +1737,15 @@ export default function CompanyPriceBookScreen() {
                 : current.priceKey,
         }));
     }
+
+    function updateEditorUnit(unit: CompanyPriceBookUnit) {
+        setEditorForm((current) => ({
+            ...current,
+            unit,
+            originalUnsupportedUnit: '',
+            unitCorrectionRequired: false,
+        }));
+    }
 }
 
 function PriceBookItemCard({
@@ -1914,6 +1934,11 @@ function PriceBookItemDetail({
             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                 {item.system} / {getPriceBookItemArea(item)} / {item.category}
             </Text>
+            {item.unit_validation_message ? (
+                <Text style={[metaTextStyle, { color: '#B42318' }]}>
+                    {item.unit_validation_message}
+                </Text>
+            ) : null}
 
             <View style={filterRowStyle}>
                 <ThemedButton
@@ -1962,6 +1987,11 @@ function PriceBookItemDetail({
                             />
                         ))}
                     </View>
+                    {form.unitCorrectionRequired ? (
+                        <Text style={[metaTextStyle, { color: '#B42318' }]}>
+                            Stored unit "{form.originalUnsupportedUnit}" is not supported by the live price-book schema. Select a supported unit before saving.
+                        </Text>
+                    ) : null}
 
                     <EditorField label="Package Discount Note" value={form.packageDiscountNote} onChangeText={(value) => onChangeField('packageDiscountNote', value)} multiline />
                     <EditorField label="Customer-Facing Description" value={form.customerDescription} onChangeText={(value) => onChangeField('customerDescription', value)} multiline />
@@ -3421,6 +3451,8 @@ function buildEditorFormFromImportRow(row: PriceResearchImportRow): EditorForm {
         customerDescription: row.draft.customer_description || '',
         internalNotes: removePriceBookMetadataFromNotes(row.draft.internal_notes || ''),
         active: row.draft.active,
+        originalUnsupportedUnit: '',
+        unitCorrectionRequired: false,
     };
 }
 
@@ -3496,6 +3528,8 @@ function buildCatalogDisplayItem(
         created_at: savedItem?.created_at || null,
         updated_at: savedItem?.updated_at || null,
         source: savedItem?.source || 'template',
+        unsupported_unit: savedItem?.unsupported_unit || null,
+        unit_validation_message: savedItem?.unit_validation_message || null,
     };
 }
 
@@ -4214,6 +4248,8 @@ function emptyEditorForm(seed: Partial<EditorForm> = {}): EditorForm {
         customerDescription: seed.customerDescription || '',
         internalNotes: seed.internalNotes || '',
         active: seed.active ?? true,
+        originalUnsupportedUnit: seed.originalUnsupportedUnit || '',
+        unitCorrectionRequired: seed.unitCorrectionRequired ?? false,
     };
 }
 

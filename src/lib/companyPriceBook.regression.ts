@@ -1,7 +1,11 @@
 import {
+    companyPriceBookUnitConstraintValues,
     getCompanyPriceBookRpcNames,
     getCompanyPriceBookUpsertRpcName,
+    priceBookUnits,
     readCompanyPriceBookRpcRowForRegression,
+    validateCompanyPriceBookDraftUnit,
+    type CompanyPriceBookDraft,
 } from './companyPriceBook';
 import { mapCompanyPriceBookItemToEstimateEntry } from './estimateOptions';
 
@@ -10,6 +14,11 @@ runCompanyPriceBookRegressions();
 export function runCompanyPriceBookRegressions() {
     estimateLoaderPrefersVersionedRpcWithLegacyFallback();
     adminPriceBookWritesKeepLegacyUpsertRpc();
+    priceBookUnitsMatchDatabaseConstraint();
+    unsupportedUnitsAreRejectedBeforeBackendSave();
+    eachUnitPassesSaveValidation();
+    validHistoricalUnitsContinueLoading();
+    unsupportedLegacyUnitShowsCorrectionMessage();
     legacyRpcShapeStillMapsForExistingCallers();
     versionedRpcShapeSuppliesEstimateOptionFields();
 }
@@ -26,6 +35,80 @@ function adminPriceBookWritesKeepLegacyUpsertRpc() {
         getCompanyPriceBookUpsertRpcName() === 'upsert_company_price_book_item',
         'Existing price-book editor writes should keep the legacy upsert RPC with production parameter defaults.'
     );
+}
+
+function priceBookUnitsMatchDatabaseConstraint() {
+    const databaseUnits = ['each', 'hour', 'linear foot', 'package', 'inspection', 'other'];
+
+    assert(JSON.stringify(priceBookUnits) === JSON.stringify(databaseUnits), 'UI price-book units should match the live database constraint.');
+    assert(JSON.stringify(companyPriceBookUnitConstraintValues) === JSON.stringify(databaseUnits), 'Shared price-book unit source should match the live database constraint.');
+    assert(!(priceBookUnits as readonly string[]).includes('install'), 'Unsupported install unit should not be exposed in the UI.');
+}
+
+function unsupportedUnitsAreRejectedBeforeBackendSave() {
+    let rejected = false;
+
+    try {
+        validateCompanyPriceBookDraftUnit({ unit: 'install' } as unknown as Pick<CompanyPriceBookDraft, 'unit'>);
+    } catch (error) {
+        rejected = error instanceof Error && error.message.includes('Unsupported price-book unit "install"');
+    }
+
+    assert(rejected, 'Unsupported unit should be rejected before calling the backend RPC.');
+}
+
+function eachUnitPassesSaveValidation() {
+    validateCompanyPriceBookDraftUnit({ unit: 'each' });
+}
+
+function validHistoricalUnitsContinueLoading() {
+    priceBookUnits.forEach((unit) => {
+        const item = readCompanyPriceBookRpcRowForRegression({
+            id: `price-${unit.replace(/\s+/g, '-')}`,
+            company_id: 'company-1',
+            price_key: `valid-${unit.replace(/\s+/g, '-')}`,
+            name: `Valid ${unit}`,
+            system: 'Plumbing',
+            category: 'General',
+            unit,
+            base_price: 100,
+            labor_hours: 1,
+            material_cost: 10,
+            customer_description: null,
+            internal_notes: null,
+            active: true,
+            created_at: '2026-07-14T12:00:00.000Z',
+            updated_at: '2026-07-14T12:00:00.000Z',
+        });
+
+        assert(item?.unit === unit, `Valid historical unit ${unit} should load unchanged.`);
+        assert(!item?.unit_validation_message, `Valid historical unit ${unit} should not show a correction message.`);
+    });
+}
+
+function unsupportedLegacyUnitShowsCorrectionMessage() {
+    const item = readCompanyPriceBookRpcRowForRegression({
+        id: 'price-unsupported-unit',
+        company_id: 'company-1',
+        price_key: 'legacy-install-unit',
+        name: 'Legacy Install Unit',
+        system: 'Plumbing',
+        category: 'General',
+        unit: 'install',
+        base_price: 100,
+        labor_hours: 1,
+        material_cost: 10,
+        customer_description: null,
+        internal_notes: null,
+        active: true,
+        created_at: '2026-07-14T12:00:00.000Z',
+        updated_at: '2026-07-14T12:00:00.000Z',
+    });
+
+    assert(item, 'Unsupported legacy unit row should still load for correction.');
+    assert(item.unit === 'other', 'Unsupported legacy unit should display with a safe supported fallback unit.');
+    assert(item.unsupported_unit === 'install', 'Unsupported legacy unit should preserve the original value.');
+    assert(item.unit_validation_message?.includes('Choose one of'), 'Unsupported legacy unit should show a clear correction message.');
 }
 
 function legacyRpcShapeStillMapsForExistingCallers() {

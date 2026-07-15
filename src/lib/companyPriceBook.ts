@@ -5,18 +5,16 @@ const PRICE_BOOK_STORAGE_KEY = 'homeos_company_price_book_v1';
 const COMPANY_PRICE_BOOK_RPC_NAMES = ['get_company_price_book_v2', 'get_company_price_book'] as const;
 const COMPANY_PRICE_BOOK_UPSERT_RPC_NAME = 'upsert_company_price_book_item';
 
-export type CompanyPriceBookUnit =
-    | 'each'
-    | 'hour'
-    | 'linear foot'
-    | 'package'
-    | 'inspection'
-    | 'diagnostic'
-    | 'install'
-    | 'repair'
-    | 'replacement'
-    | 'service call'
-    | 'other';
+export const companyPriceBookUnitConstraintValues = [
+    'each',
+    'hour',
+    'linear foot',
+    'package',
+    'inspection',
+    'other',
+] as const;
+
+export type CompanyPriceBookUnit = typeof companyPriceBookUnitConstraintValues[number];
 
 export type CompanyPriceBookItem = {
     id: string;
@@ -57,9 +55,14 @@ export type CompanyPriceBookItem = {
     applicable_areas?: string[];
     applicable_categories?: string[];
     management_notes?: string | null;
+    unsupported_unit?: string | null;
+    unit_validation_message?: string | null;
 };
 
-export type CompanyPriceBookDraft = Omit<CompanyPriceBookItem, 'id' | 'company_id' | 'created_at' | 'updated_at' | 'source'> & {
+export type CompanyPriceBookDraft = Omit<
+    CompanyPriceBookItem,
+    'id' | 'company_id' | 'created_at' | 'updated_at' | 'source' | 'unsupported_unit' | 'unit_validation_message'
+> & {
     id?: string;
 };
 
@@ -86,19 +89,22 @@ type SupabaseErrorLike = {
     hint?: unknown;
 };
 
-export const priceBookUnits: CompanyPriceBookUnit[] = [
-    'each',
-    'hour',
-    'linear foot',
-    'package',
-    'inspection',
-    'diagnostic',
-    'install',
-    'repair',
-    'replacement',
-    'service call',
-    'other',
-];
+export const priceBookUnits: CompanyPriceBookUnit[] = [...companyPriceBookUnitConstraintValues];
+
+export function isCompanyPriceBookUnit(value: unknown): value is CompanyPriceBookUnit {
+    return typeof value === 'string' &&
+        (companyPriceBookUnitConstraintValues as readonly string[]).includes(value);
+}
+
+export function getUnsupportedCompanyPriceBookUnitMessage(value: string) {
+    const unit = value.trim() || 'blank';
+
+    return `Unsupported price-book unit "${unit}". Choose one of: ${priceBookUnits.join(', ')}.`;
+}
+
+export function validateCompanyPriceBookDraftUnit(draft: Pick<CompanyPriceBookDraft, 'unit'>) {
+    normalizeCompanyPriceBookUnit(draft.unit);
+}
 
 export function getCompanyPriceBookRpcNames() {
     return [...COMPANY_PRICE_BOOK_RPC_NAMES];
@@ -157,6 +163,10 @@ export async function upsertCompanyPriceBookItem(companyId: string, draft: Compa
 }
 
 export async function archiveCompanyPriceBookItem(companyId: string, item: CompanyPriceBookItem) {
+    if (item.unsupported_unit) {
+        throw new Error(item.unit_validation_message || getUnsupportedCompanyPriceBookUnitMessage(item.unsupported_unit));
+    }
+
     const nextDraft: CompanyPriceBookDraft = {
         id: item.id,
         price_key: item.price_key,
@@ -327,7 +337,7 @@ function normalizeDraft(draft: CompanyPriceBookDraft): CompanyPriceBookDraft {
         name: draft.name.trim() || 'Untitled price item',
         system: draft.system.trim() || 'Other',
         category: draft.category.trim() || 'Service',
-        unit: priceBookUnits.includes(draft.unit) ? draft.unit : 'each',
+        unit: normalizeCompanyPriceBookUnit(draft.unit),
         base_price: normalizeNullableNumber(draft.base_price),
         labor_hours: normalizeNullableNumber(draft.labor_hours),
         material_cost: normalizeNullableNumber(draft.material_cost),
@@ -347,6 +357,7 @@ function readPriceBookItem(value: unknown, source: 'backend' | 'local'): Company
     const system = readString(row.system);
     const category = readString(row.category);
     const priceKey = readString(row.price_key) || slugify([system, category, name].filter(Boolean).join(' '));
+    const unitState = readUnit(row.unit);
 
     if (!id || !companyId || !name || !system || !category || !priceKey) return null;
 
@@ -357,7 +368,7 @@ function readPriceBookItem(value: unknown, source: 'backend' | 'local'): Company
         name,
         system,
         category,
-        unit: readUnit(row.unit),
+        unit: unitState.unit,
         base_price: readNullableNumber(row.base_price),
         labor_hours: readNullableNumber(row.labor_hours),
         material_cost: readNullableNumber(row.material_cost),
@@ -389,6 +400,8 @@ function readPriceBookItem(value: unknown, source: 'backend' | 'local'): Company
         applicable_areas: readTextArray(row.applicable_areas),
         applicable_categories: readTextArray(row.applicable_categories),
         management_notes: readNullableString(row.management_notes),
+        unsupported_unit: unitState.unsupportedUnit,
+        unit_validation_message: unitState.validationMessage,
     };
 }
 
@@ -404,10 +417,42 @@ function sortPriceBookItems(items: CompanyPriceBookItem[]) {
     );
 }
 
-function readUnit(value: unknown): CompanyPriceBookUnit {
-    return typeof value === 'string' && priceBookUnits.includes(value as CompanyPriceBookUnit)
-        ? value as CompanyPriceBookUnit
-        : 'each';
+function normalizeCompanyPriceBookUnit(value: unknown): CompanyPriceBookUnit {
+    const unit = readString(value);
+
+    if (isCompanyPriceBookUnit(unit)) return unit;
+
+    throw new Error(getUnsupportedCompanyPriceBookUnitMessage(unit));
+}
+
+function readUnit(value: unknown): {
+    unit: CompanyPriceBookUnit;
+    unsupportedUnit: string | null;
+    validationMessage: string | null;
+} {
+    const unit = readString(value);
+
+    if (!unit) {
+        return {
+            unit: 'each',
+            unsupportedUnit: null,
+            validationMessage: null,
+        };
+    }
+
+    if (isCompanyPriceBookUnit(unit)) {
+        return {
+            unit,
+            unsupportedUnit: null,
+            validationMessage: null,
+        };
+    }
+
+    return {
+        unit: 'other',
+        unsupportedUnit: unit,
+        validationMessage: getUnsupportedCompanyPriceBookUnitMessage(unit),
+    };
 }
 
 function readString(value: unknown) {
