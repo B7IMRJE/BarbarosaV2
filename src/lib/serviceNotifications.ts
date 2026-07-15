@@ -7,6 +7,8 @@ import {
 
 export type ServiceNotificationChannel = 'in_app' | 'push' | 'email' | 'sms';
 
+const HOMEOWNER_DELIVERY_CHANNELS: ServiceNotificationChannel[] = ['in_app', 'push', 'sms', 'email'];
+
 export type QueueServiceNotificationInput = {
     companyId: string;
     serviceRequestId: string;
@@ -103,7 +105,7 @@ export async function queueTechnicianAssignmentNotification(input: {
         audience: 'technician',
         eventVisibility: 'internal',
         dedupeKey: `${input.removed ? 'tech-removed' : 'tech-assigned'}:${input.scheduleSlotId}`,
-        channels: ['in_app'],
+        channels: HOMEOWNER_DELIVERY_CHANNELS,
         metadata: {
             customer_name: input.customerName,
             service_address: input.serviceAddressLabel,
@@ -143,7 +145,7 @@ export async function queueHomeownerDelayNotification(input: {
         audience: 'homeowner',
         eventVisibility: 'system_homeowner_update',
         dedupeKey: `homeowner-delay:${input.scheduleSlotId}:${input.estimatedArrivalLabel || 'no-eta'}`,
-        channels: ['in_app'],
+        channels: HOMEOWNER_DELIVERY_CHANNELS,
         metadata: {
             technician_name: input.technicianName,
             arrival_window: input.arrivalWindowLabel,
@@ -170,7 +172,7 @@ export async function queueHomeownerCompletionNotification(input: {
         audience: 'homeowner',
         eventVisibility: 'system_homeowner_update',
         dedupeKey: `homeowner-completion:${input.scheduleSlotId}`,
-        channels: ['in_app'],
+        channels: HOMEOWNER_DELIVERY_CHANNELS,
         metadata: {
             company_name: input.companyName,
             technician_name: input.technicianName,

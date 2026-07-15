@@ -21,7 +21,11 @@ import {
 import { inferEstimateCategoryFromDraft } from '../lib/estimateOptions';
 import { resolveEstimateOptionSession } from '../lib/estimateSessions';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
-import { recordHomeownerStatusUpdate, recordServiceRequestEvent } from '../lib/serviceRequestActivity';
+import { recordServiceRequestEvent } from '../lib/serviceRequestActivity';
+import {
+    createStatusTransitionIdempotencyKey,
+    recordServiceRequestVisitStatus,
+} from '../lib/serviceRequestStatusNotifications';
 import {
     closeServiceVisit,
     getServiceVisitOutcomeLabel,
@@ -1225,21 +1229,52 @@ export default function TechOSScreen() {
 
         try {
             const nextStatusNote = normalizedStatus === 'custom' ? trimmedStatusNote : null;
-            const { data, error } = await supabase
-                .from('job_schedule_slots')
-                .update({ status: action.status, tech_status_note: nextStatusNote })
-                .eq('id', slotId)
-                .eq('company_id', job.slot.company_id)
-                .eq('technician_company_user_id', job.slot.technician_company_user_id)
-                .select('id, status, tech_status_note, updated_at')
-                .maybeSingle();
+            let updatedAt = new Date().toISOString();
 
-            if (error) {
-                throw new Error(error.message);
-            }
+            if (job.request?.id && normalizedStatus !== 'custom') {
+                const result = await recordServiceRequestVisitStatus({
+                    companyId: job.slot.company_id,
+                    serviceRequestId: job.request.id,
+                    scheduleSlotId: slotId,
+                    status: action.status,
+                    statusNote: nextStatusNote,
+                    idempotencyKey: createStatusTransitionIdempotencyKey({
+                        scheduleSlotId: slotId,
+                        status: action.status,
+                    }),
+                    metadata: {
+                        source: 'techos',
+                        technician_company_user_id: job.slot.technician_company_user_id,
+                    },
+                });
 
-            if (!data) {
-                throw new Error('No assigned job was updated. Confirm this job is assigned to your technician profile.');
+                updatedAt = new Date().toISOString();
+                setServiceRequestsById((current) => ({
+                    ...current,
+                    [job.request!.id]: {
+                        ...job.request!,
+                        status: result.service_request_status,
+                    },
+                }));
+            } else {
+                const { data, error } = await supabase
+                    .from('job_schedule_slots')
+                    .update({ status: action.status, tech_status_note: nextStatusNote })
+                    .eq('id', slotId)
+                    .eq('company_id', job.slot.company_id)
+                    .eq('technician_company_user_id', job.slot.technician_company_user_id)
+                    .select('id, status, tech_status_note, updated_at')
+                    .maybeSingle();
+
+                if (error) {
+                    throw new Error(error.message);
+                }
+
+                if (!data) {
+                    throw new Error('No assigned job was updated. Confirm this job is assigned to your technician profile.');
+                }
+
+                updatedAt = readStringField(data as Record<string, unknown>, 'updated_at') || updatedAt;
             }
 
             setAssignedScheduleSlots((current) => current.map((slot) => (
@@ -1248,7 +1283,7 @@ export default function TechOSScreen() {
                         ...slot,
                         status: action.status,
                         tech_status_note: nextStatusNote,
-                        updated_at: readStringField(data as Record<string, unknown>, 'updated_at') || new Date().toISOString(),
+                        updated_at: updatedAt,
                     }
                     : slot
             )));
@@ -1262,25 +1297,11 @@ export default function TechOSScreen() {
                     ? `Custom status updated: ${trimmedStatusNote}.`
                     : `Status updated: ${action.label}.`,
             }));
-            if (job.request?.id) {
-                const customerUpdateResult = await recordHomeownerStatusUpdate({
-                    companyId: job.slot.company_id,
-                    serviceRequestId: job.request.id,
-                    scheduleSlotId: slotId,
-                    status: action.status,
-                    statusNote: nextStatusNote,
-                    technicianName: membership?.full_name || authEmail || null,
-                    metadata: {
-                        techos_status: action.status,
-                    },
-                });
-
-                if (customerUpdateResult.status === 'pending' && normalizeStatus(action.status) !== 'running_late') {
-                    setWorkflowMessageBySlotId((current) => ({
-                        ...current,
-                        [slotId]: `${current[slotId] || `Status updated: ${action.label}.`} Homeowner timeline event is pending backend setup.`,
-                    }));
-                }
+            if (!job.request?.id) {
+                setWorkflowMessageBySlotId((current) => ({
+                    ...current,
+                    [slotId]: `${current[slotId] || `Status updated: ${action.label}.`} This assignment is not linked to a homeowner request yet.`,
+                }));
             }
         } catch (error) {
             setWorkflowMessageBySlotId((current) => ({

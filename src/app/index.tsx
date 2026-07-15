@@ -1,6 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import PendingCustomerInvitesCard from '../components/PendingCustomerInvitesCard';
 import HomeDashboardView, {
   type DashboardSystemTile,
@@ -18,6 +18,7 @@ import {
 import { requestHomeownerServiceRequestUpdate } from '../lib/homeServiceRequests';
 import {
   loadHomeownerServiceRequestTimeline,
+  markHomeownerServiceNotificationRead,
   type ServiceRequestActivityEvent,
 } from '../lib/serviceRequestActivity';
 import {
@@ -135,6 +136,7 @@ export default function HomeScreen() {
   const [homeServiceRequests, setHomeServiceRequests] = useState<HomeServiceRequest[]>([]);
   const [serviceRequestTimelineById, setServiceRequestTimelineById] = useState<Record<string, ServiceRequestActivityEvent[]>>({});
   const [serviceRequestTimelineMessage, setServiceRequestTimelineMessage] = useState('');
+  const [selectedServiceRequestId, setSelectedServiceRequestId] = useState('');
   const [serviceRequestNoteById, setServiceRequestNoteById] = useState<Record<string, string>>({});
   const [serviceRequestActionId, setServiceRequestActionId] = useState<string | null>(null);
   const [lastCreatedServiceRequest, setLastCreatedServiceRequest] = useState<CreatedServiceRequestReceipt | null>(null);
@@ -143,6 +145,15 @@ export default function HomeScreen() {
   const [showServiceRequestForm, setShowServiceRequestForm] = useState(false);
   const [showHealthLegend, setShowHealthLegend] = useState(false);
   const [providerCompanyName, setProviderCompanyName] = useState('');
+  const homeownerServiceNotifications = useMemo(
+    () => Object.values(serviceRequestTimelineById)
+      .flat()
+      .filter((event) => event.audience === 'homeowner')
+      .sort((first, second) => getTimeValue(second.created_at) - getTimeValue(first.created_at))
+      .slice(0, 5),
+    [serviceRequestTimelineById]
+  );
+  const unreadServiceNotificationCount = homeownerServiceNotifications.filter((event) => !event.read_at).length;
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
@@ -167,6 +178,7 @@ export default function HomeScreen() {
       setHomeServiceRequests([]);
       setServiceRequestTimelineById({});
       setServiceRequestTimelineMessage('');
+      setSelectedServiceRequestId('');
       setServiceRequestNoteById({});
       setLastCreatedServiceRequest(null);
 
@@ -559,6 +571,40 @@ export default function HomeScreen() {
       return accumulator;
     }, {}));
     setServiceRequestTimelineMessage(firstError ? `Could not load some appointment updates: ${firstError}` : '');
+  }
+
+  async function handleOpenServiceNotification(event: ServiceRequestActivityEvent) {
+    setSelectedServiceRequestId(event.service_request_id);
+
+    if (event.read_at) return;
+
+    try {
+      const markedRead = await markHomeownerServiceNotificationRead(event.id);
+
+      if (!markedRead) return;
+
+      const readAt = new Date().toISOString();
+      setServiceRequestTimelineById((current) => {
+        const events = current[event.service_request_id] || [];
+
+        return {
+          ...current,
+          [event.service_request_id]: events.map((item) => (
+            item.id === event.id
+              ? {
+                ...item,
+                read_at: readAt,
+                notification_delivery_status: item.notification_delivery_status === 'sent'
+                  ? 'delivered'
+                  : item.notification_delivery_status,
+              }
+              : item
+          )),
+        };
+      });
+    } catch (error) {
+      setServiceRequestTimelineMessage(`Could not update notification read state: ${getErrorMessage(error)}`);
+    }
   }
 
   async function handleCreateServiceRequest() {
@@ -1152,19 +1198,81 @@ export default function HomeScreen() {
             </Text>
           )}
 
+          {homeownerServiceNotifications.length > 0 && (
+            <View
+              style={{
+                borderWidth: 1,
+                borderColor: theme.colors.border,
+                borderRadius: theme.radii.card,
+                padding: scaleIcon(10),
+                marginTop: scaleIcon(14),
+                backgroundColor: theme.colors.background,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: scaleIcon(8) }}>
+                <Text style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>
+                  Notifications
+                </Text>
+                {unreadServiceNotificationCount > 0 && (
+                  <View
+                    style={{
+                      borderRadius: 999,
+                      paddingHorizontal: scaleIcon(9),
+                      paddingVertical: scaleIcon(4),
+                      backgroundColor: theme.colors.primary,
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.primaryText, fontSize: scaleFont(12), fontWeight: '900' }}>
+                      {unreadServiceNotificationCount} unread
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <View style={{ gap: scaleIcon(8), marginTop: scaleIcon(8) }}>
+                {homeownerServiceNotifications.map((event) => (
+                  <TouchableOpacity
+                    key={event.id}
+                    activeOpacity={0.78}
+                    onPress={() => handleOpenServiceNotification(event)}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: selectedServiceRequestId === event.service_request_id
+                        ? theme.colors.primary
+                        : theme.colors.border,
+                      borderRadius: theme.radii.card,
+                      padding: scaleIcon(10),
+                      backgroundColor: event.read_at ? theme.colors.surface : theme.colors.background,
+                    }}
+                  >
+                    <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '900' }}>
+                      {formatServiceTimelineTitle(event.event_type)}
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(18), marginTop: scaleIcon(2) }}>
+                      {event.message || 'Appointment update'}
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '700', marginTop: scaleIcon(4) }}>
+                      {formatDateTime(event.created_at)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
           {homeServiceRequests.length > 0 && (
             <View style={{ marginTop: scaleIcon(16), gap: scaleIcon(10) }}>
               {homeServiceRequests.map((request) => {
                 const isActiveRequest = !['converted_to_job', 'cancelled', 'canceled'].includes(normalizeText(request.status));
                 const isActing = serviceRequestActionId === request.id;
                 const timelineEvents = serviceRequestTimelineById[request.id] || [];
+                const selected = selectedServiceRequestId === request.id;
 
                 return (
                   <View
                     key={request.id}
                     style={{
                       borderWidth: 1,
-                      borderColor: theme.colors.border,
+                      borderColor: selected ? theme.colors.primary : theme.colors.border,
                       borderRadius: theme.radii.card,
                       padding: scaleIcon(12),
                       backgroundColor: theme.colors.surface,
@@ -1354,6 +1462,8 @@ function formatServiceTimelineTitle(eventType?: string | null) {
     technician_assigned: 'Technician Assigned',
     technician_reassigned: 'Technician Reassigned',
     technician_on_the_way: 'Technician On the Way',
+    technician_delayed: 'Technician Delayed',
+    technician_arriving_soon: 'Technician Arriving Soon',
     technician_arrived: 'Technician Arrived',
     work_in_progress: 'Work in Progress',
     waiting_for_customer_approval: 'Waiting for Customer Approval',
@@ -1363,6 +1473,14 @@ function formatServiceTimelineTitle(eventType?: string | null) {
   };
 
   return labels[normalized] || formatLabel(eventType);
+}
+
+function getTimeValue(value?: string | null) {
+  if (!value) return 0;
+
+  const time = new Date(value).getTime();
+
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function shortId(value?: string | null) {

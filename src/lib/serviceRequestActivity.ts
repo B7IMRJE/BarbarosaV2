@@ -17,6 +17,8 @@ export type ServiceRequestActivityEvent = {
     metadata: Record<string, unknown>;
     notification_status: string | null;
     notification_channels: string[];
+    read_at: string | null;
+    notification_delivery_status: string | null;
     created_at: string | null;
 };
 
@@ -125,6 +127,28 @@ export async function loadHomeownerServiceRequestTimeline(serviceRequestId: stri
     return normalizeServiceRequestActivityEvents(data);
 }
 
+export async function markHomeownerServiceNotificationRead(eventId: string) {
+    const notificationEventId = eventId.trim();
+
+    if (!notificationEventId) return false;
+
+    const { data, error } = await supabase.rpc('mark_homeowner_service_notification_read', {
+        p_event_id: notificationEventId,
+    });
+
+    if (error) {
+        const normalized = normalizeStatus(error.message);
+
+        if (isServiceRequestActivityBackendMissing(normalized)) {
+            return false;
+        }
+
+        throw new Error(error.message);
+    }
+
+    return data === true;
+}
+
 export async function recordServiceRequestEvent(input: RecordServiceRequestEventInput): Promise<ServiceRequestEventWriteResult> {
     const companyId = input.companyId.trim();
     const serviceRequestId = input.serviceRequestId.trim();
@@ -231,6 +255,8 @@ export function normalizeServiceRequestActivityEvents(data: unknown): ServiceReq
                 metadata: readRecordField(record, 'metadata'),
                 notification_status: readStringField(record, 'notification_status'),
                 notification_channels: readStringArrayField(record, 'notification_channels'),
+                read_at: readStringField(record, 'read_at'),
+                notification_delivery_status: readStringField(record, 'notification_delivery_status'),
                 created_at: readStringField(record, 'created_at'),
             };
         })
