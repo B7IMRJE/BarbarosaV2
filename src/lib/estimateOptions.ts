@@ -241,6 +241,7 @@ export type EstimatePresentationGate = {
 export type EstimateAnswerValidation = {
     complete: boolean;
     missingRequiredQuestionIds: string[];
+    missingRequiredQuestionLabels: string[];
     missingRequiredPhotoLabels: string[];
     missingRequiredMeasurementLabels: string[];
     blockingConditions: string[];
@@ -608,9 +609,10 @@ export function inferEstimateCategoryFromDraft(
 }
 
 export function validateEstimateAnswers(template: EstimateCategoryTemplate, answers: EstimateAnswerSet): EstimateAnswerValidation {
-    const missingRequiredQuestionIds = template.questions
-        .filter((question) => question.required && !isAnswerComplete(answers[question.id]))
-        .map((question) => question.id);
+    const missingRequiredQuestions = template.questions
+        .filter((question) => question.required && !isAnswerComplete(answers[question.id]));
+    const missingRequiredQuestionIds = missingRequiredQuestions.map((question) => question.id);
+    const missingRequiredQuestionLabels = missingRequiredQuestions.map((question) => question.label);
 
     const missingRequiredPhotoLabels = template.requiredPhotoLabels.filter((label) =>
         !isAnswerComplete(answers[`photo:${label}`])
@@ -629,6 +631,7 @@ export function validateEstimateAnswers(template: EstimateCategoryTemplate, answ
             missingRequiredPhotoLabels.length === 0 &&
             missingRequiredMeasurementLabels.length === 0,
         missingRequiredQuestionIds,
+        missingRequiredQuestionLabels,
         missingRequiredPhotoLabels,
         missingRequiredMeasurementLabels,
         blockingConditions,
@@ -1170,7 +1173,9 @@ function buildPresentationGate(input: {
     const blockers: string[] = [];
     const warnings: string[] = [];
 
-    if (!input.answerValidation.complete) blockers.push('Required questions, photos, or measurements are unanswered.');
+    if (!input.answerValidation.complete) {
+        blockers.push(...formatMissingAnswerBlockers(input.answerValidation));
+    }
     if (input.pricingSetupRequired) blockers.push('Pricing setup required.');
     if (input.pricingResults.some((result) => result.missingPricingInputs.length > 0)) blockers.push('Pricing inputs are missing.');
     if (input.pricingResults.some((result) => result.requiredManagementApproval)) blockers.push('Management approval is required for pricing guardrails.');
@@ -1379,13 +1384,31 @@ function preferredHomeownerFirstName(context: EstimateDraftContextLike | null) {
     return name.split(/\s+/)[0] || '';
 }
 
-function isAnswerComplete(value: EstimateAnswerValue | undefined) {
+export function isAnswerComplete(value: EstimateAnswerValue | undefined) {
     if (Array.isArray(value)) return value.length > 0;
     if (typeof value === 'string') return value.trim().length > 0;
     if (typeof value === 'number') return Number.isFinite(value);
     if (typeof value === 'boolean') return true;
 
     return false;
+}
+
+function formatMissingAnswerBlockers(validation: EstimateAnswerValidation) {
+    const blockers: string[] = [];
+
+    if (validation.missingRequiredQuestionLabels.length > 0) {
+        blockers.push(`Required questions still missing: ${validation.missingRequiredQuestionLabels.join(', ')}.`);
+    }
+
+    if (validation.missingRequiredPhotoLabels.length > 0) {
+        blockers.push(`Required photos still missing: ${validation.missingRequiredPhotoLabels.join(', ')}.`);
+    }
+
+    if (validation.missingRequiredMeasurementLabels.length > 0) {
+        blockers.push(`Required measurements still missing: ${validation.missingRequiredMeasurementLabels.join(', ')}.`);
+    }
+
+    return blockers;
 }
 
 function selectQuestion(id: string, label: string, required: boolean, allowedAnswers: string[]): EstimateQuestionDefinition {

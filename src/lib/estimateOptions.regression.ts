@@ -43,6 +43,8 @@ export function runEstimateOptionsRegressions() {
     toiletRequiredQuestionsAreEnforced();
     disposalRequiredQuestionsAreEnforced();
     waterHeaterChecklistIsEnforced();
+    faucetSelectionsClearQuestionRequirementsBeforeChecklistIsComplete();
+    faucetChecklistCompletionClearsAnswerGate();
     rulesFilterIncompatibleProducts();
     doubleVanityCountsTwoHotAndTwoCold();
     toiletCountsOneColdPoint();
@@ -189,6 +191,7 @@ function toiletRequiredQuestionsAreEnforced() {
     assert(validation.missingRequiredQuestionIds.includes('rough_in'), 'Toilet rough-in question should be required.');
     assert(validation.missingRequiredQuestionIds.includes('bowl_shape'), 'Toilet shape question should be required.');
     assert(validation.missingRequiredQuestionIds.includes('height'), 'Toilet height question should be required.');
+    assert(validation.missingRequiredQuestionLabels.includes('Rough-in'), 'Missing required question warnings should use display labels.');
 }
 
 function disposalRequiredQuestionsAreEnforced() {
@@ -204,6 +207,34 @@ function waterHeaterChecklistIsEnforced() {
     assert(validation.missingRequiredQuestionIds.includes('fuel_type'), 'Water-heater fuel type should be required.');
     assert(validation.missingRequiredQuestionIds.includes('venting'), 'Water-heater venting should be required.');
     assert(validation.missingRequiredQuestionIds.includes('tp_discharge'), 'Water-heater T&P discharge should be required.');
+}
+
+function faucetSelectionsClearQuestionRequirementsBeforeChecklistIsComplete() {
+    const validation = validateEstimateAnswers(getEstimateCategoryTemplate('faucet_replacement'), {
+        fixture_area: 'kitchen',
+        hole_spread: '8 in widespread',
+        customer_supplied: 'company approved product',
+        shutoff_condition: 'replace required',
+        supply_lines: 'yes',
+        pop_up_or_drain: 'yes',
+    });
+
+    assert(validation.missingRequiredQuestionIds.length === 0, 'Selected faucet chips should satisfy required question cards.');
+    assert(validation.missingRequiredPhotoLabels.includes('Existing faucet'), 'Faucet photos should remain separately required.');
+    assert(validation.missingRequiredMeasurementLabels.includes('Hole spread'), 'Faucet hole-spread measurement should remain separately required.');
+    assert(!validation.complete, 'Faucet validation should remain incomplete until checklist requirements are complete.');
+}
+
+function faucetChecklistCompletionClearsAnswerGate() {
+    const validation = validateEstimateAnswers(
+        getEstimateCategoryTemplate('faucet_replacement'),
+        completeAnswers('faucet_replacement')
+    );
+
+    assert(validation.complete, 'Complete faucet questions, photos, and measurements should clear the answer gate.');
+    assert(validation.missingRequiredQuestionIds.length === 0, 'No faucet questions should remain missing.');
+    assert(validation.missingRequiredPhotoLabels.length === 0, 'No faucet photos should remain missing.');
+    assert(validation.missingRequiredMeasurementLabels.length === 0, 'No faucet measurements should remain missing.');
 }
 
 function rulesFilterIncompatibleProducts() {

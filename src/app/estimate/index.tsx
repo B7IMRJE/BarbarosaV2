@@ -9,6 +9,7 @@ import {
     formatMoney,
     getEstimateCategoryTemplate,
     inferEstimateCategoryFromDraft,
+    isAnswerComplete,
     toHomeownerPresentationChoice,
     validateAiEstimateDraftResponse,
     type AiEstimateDraftChoice,
@@ -721,6 +722,26 @@ export default function EstimateScreen() {
                         {phase1Workspace.template.requiredPhotoLabels.map((label) => renderRequirementPill(`photo:${label}`, label, answers, markRequirementComplete))}
                         {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderRequirementPill(`measurement:${label}`, label, answers, markRequirementComplete))}
                     </View>
+
+                    {!phase1Workspace.answerValidation.complete && (
+                        <View style={missingAnswerBoxStyle}>
+                            {phase1Workspace.answerValidation.missingRequiredQuestionLabels.length > 0 && (
+                                <Text style={missingAnswerTextStyle}>
+                                    Questions still needed: {phase1Workspace.answerValidation.missingRequiredQuestionLabels.join(', ')}
+                                </Text>
+                            )}
+                            {phase1Workspace.answerValidation.missingRequiredPhotoLabels.length > 0 && (
+                                <Text style={missingAnswerTextStyle}>
+                                    Photos still needed: {phase1Workspace.answerValidation.missingRequiredPhotoLabels.join(', ')}
+                                </Text>
+                            )}
+                            {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.length > 0 && (
+                                <Text style={missingAnswerTextStyle}>
+                                    Measurements still needed: {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.join(', ')}
+                                </Text>
+                            )}
+                        </View>
+                    )}
                 </View>
 
                 <View style={sectionStyle}>
@@ -1005,12 +1026,17 @@ function renderQuestion(
     toggleMultiAnswer: (question: EstimateQuestionDefinition, value: string) => void
 ) {
     const currentAnswer = answers[question.id];
+    const complete = isAnswerComplete(currentAnswer);
 
     return (
         <View key={question.id} style={questionCardStyle}>
             <View style={choiceTitleRowStyle}>
                 <Text style={questionLabelStyle}>{question.label}</Text>
-                {question.required && <Text style={requiredPillStyle}>Required</Text>}
+                {question.required && (
+                    <Text style={complete ? donePillStyle : requiredPillStyle}>
+                        {complete ? 'Done' : 'Required'}
+                    </Text>
+                )}
             </View>
 
             {question.type === 'single_select' || question.type === 'yes_no' ? (
@@ -1089,7 +1115,7 @@ function renderRequirementPill(
             style={complete ? [requirementPillStyle, completeRequirementPillStyle] : requirementPillStyle}
         >
             <Text style={complete ? completeRequirementPillTextStyle : requirementPillTextStyle}>
-                {label}
+                {complete ? `Done: ${label}` : `Required: ${label}`}
             </Text>
         </TouchableOpacity>
     );
@@ -1304,6 +1330,16 @@ const requiredPillStyle = {
     fontWeight: '900' as const,
 };
 
+const donePillStyle = {
+    color: '#14533A',
+    backgroundColor: '#E8F7F0',
+    borderRadius: 999,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    fontSize: 10,
+    fontWeight: '900' as const,
+};
+
 const answerButtonStyle = {
     backgroundColor: '#F3F6FA',
     borderRadius: 999,
@@ -1391,6 +1427,22 @@ const completeRequirementPillTextStyle = {
     color: '#14533A',
     fontSize: 12,
     fontWeight: '900' as const,
+};
+
+const missingAnswerBoxStyle = {
+    backgroundColor: '#FFF8E8',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#F0D18A',
+    padding: 10,
+    marginTop: 12,
+    gap: 4,
+};
+
+const missingAnswerTextStyle = {
+    color: '#8A4B00',
+    fontSize: 12,
+    fontWeight: '800' as const,
 };
 
 const warningBoxStyle = {
