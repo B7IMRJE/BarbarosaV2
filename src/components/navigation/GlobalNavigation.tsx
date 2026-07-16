@@ -4,8 +4,12 @@ import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'reac
 import { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { providerModePath, readProviderModeParams } from '../../lib/providerMode';
+import {
+    shouldShowHomeownerActiveRequestStatus,
+} from '../../lib/homeownerActiveRequests';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
+import HomeownerActiveRequestStatus from '../serviceRequests/HomeownerActiveRequestStatus';
 
 type GlobalNavigationProps = {
     children: ReactNode;
@@ -58,6 +62,10 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const isTechOSRoute = currentPath === '/techos' || currentPath.startsWith('/techos/');
     const appLabel = isTechOSRoute ? 'TechOS' : providerModeContext ? 'Client HomeOS' : 'HomeOS';
     const shouldHideNavigation = hiddenRoutePrefixes.some((prefix) => currentPath.startsWith(prefix));
+    const shouldShowActiveRequestStatus = shouldShowHomeownerActiveRequestStatus({
+        pathname: currentPath,
+        providerModeActive: Boolean(providerModeContext),
+    });
 
     useEffect(() => {
         loadDrawerAccess();
@@ -199,6 +207,10 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
             <View style={{ flex: 1 }}>
                 {children}
             </View>
+
+            {shouldShowActiveRequestStatus && (
+                <HomeownerActiveRequestStatus bottomOffset={insets.bottom + scaleIcon(78)} />
+            )}
 
             {!isTechOSRoute && (
                 <View

@@ -26,6 +26,9 @@ import {
     requestHomeownerServiceRequestUpdate,
 } from '../../lib/homeServiceRequests';
 import {
+    getHomeownerFacingStatusLabel,
+} from '../../lib/homeownerActiveRequests';
+import {
     loadHomeServiceReviewsForEmergency,
     saveHomeServiceReview,
     type HomeServiceReview,
@@ -576,7 +579,7 @@ export default function EmergencyDetailScreen() {
                     </Text>
                     {hasDispatchRequest && (
                         <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '900' }}>
-                            Status: {formatLabel(sentServiceRequestStatus) || 'Unknown'}
+                            Status: {getHomeownerFacingStatusLabel(sentServiceRequestStatus) || 'Unknown'}
                         </Text>
                     )}
                     <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>

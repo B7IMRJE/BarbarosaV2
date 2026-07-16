@@ -20,6 +20,10 @@ import {
   requestHomeownerServiceRequestUpdate,
 } from '../lib/homeServiceRequests';
 import {
+  getHomeownerFacingStatusLabel,
+  isActiveHomeownerServiceRequest,
+} from '../lib/homeownerActiveRequests';
+import {
   loadHomeownerServiceRequestTimeline,
   markHomeownerServiceNotificationRead,
   type ServiceRequestActivityEvent,
@@ -1096,7 +1100,7 @@ export default function HomeScreen() {
           >
             Company: {preferredProvider?.companyName || 'Not selected'}
             {lastCreatedServiceRequest
-              ? ` / Last confirmed ${formatServiceRequestReference(lastCreatedServiceRequest)} (${formatLabel(lastCreatedServiceRequest.status)})`
+              ? ` / Last confirmed ${formatServiceRequestReference(lastCreatedServiceRequest)} (${getHomeownerFacingStatusLabel(lastCreatedServiceRequest.status)})`
               : ''}
           </Text>
 
@@ -1284,9 +1288,11 @@ export default function HomeScreen() {
           {homeServiceRequests.length > 0 && (
             <View style={{ marginTop: scaleIcon(16), gap: scaleIcon(10) }}>
               {homeServiceRequests.map((request) => {
-                const isActiveRequest = !['converted_to_job', 'cancelled', 'canceled'].includes(normalizeText(request.status));
                 const isActing = serviceRequestActionId === request.id;
                 const timelineEvents = serviceRequestTimelineById[request.id] || [];
+                const latestTimelineEvent = timelineEvents[timelineEvents.length - 1] || null;
+                const isActiveRequest = isActiveHomeownerServiceRequest(request);
+                const statusLabel = getHomeownerFacingStatusLabel(request.status, latestTimelineEvent?.event_type);
                 const selected = selectedServiceRequestId === request.id;
 
                 return (
@@ -1301,7 +1307,7 @@ export default function HomeScreen() {
                     }}
                   >
                     <Text style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900' }}>
-                      {formatLabel(request.request_type)} request / {formatLabel(request.status)}
+                      {formatLabel(request.request_type)} request / {statusLabel}
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
                       Provider company: {preferredProvider?.companyName || 'Provider company on file'}
