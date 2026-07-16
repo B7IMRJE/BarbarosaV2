@@ -1,5 +1,11 @@
 import {
     createTechnicianNextJobStatusNotice,
+    formatTechWorkflowProgressState,
+    getNextJobAvailabilitySectionState,
+    getTechJobDetailSectionOrder,
+    getTechWorkflowStatusFeedback,
+    isSecondaryTechWorkflowAction,
+    resolveTechWorkflowActionPresentation,
     resolveTechWorkflowTransition,
     TECH_CUSTOM_STATUS_ACTION,
     TECH_WORKFLOW_ACTIONS,
@@ -7,13 +13,18 @@ import {
     type TechnicianNextJobStatusAction,
 } from './techosWorkflow';
 import { buildDispatchWallSections, type DispatchWallRequest, type DispatchWallScheduleSlot } from './dispatchWallClassification';
-import { getHomeownerFacingStatusKey } from './homeownerActiveRequests';
+import { getHomeownerStatusTemplate } from './serviceRequestStatusNotifications';
 
 runTechOSWorkflowRegressions();
 
 export function runTechOSWorkflowRegressions() {
     currentJobWorkflowContainsExpectedVisitActions();
     currentJobWorkflowExcludesTechnicianLevelActions();
+    assignedJobDetailOrdersCurrentJobBeforeAvailability();
+    currentJobAndAvailabilityLabelsStayDistinct();
+    incompleteNextJobAvailabilityControlsStayHidden();
+    onlyValidNextWorkflowActionIsPrimary();
+    workflowStatusFeedbackIsVisibleAndSpecific();
     technicianNextJobActionsDoNotChangeCurrentVisitStatus();
     eachWorkflowButtonTargetsBackendTransition();
     slotRequestIdFallbackKeepsWorkflowOnRpcPath();
@@ -31,10 +42,10 @@ export function runTechOSWorkflowRegressions() {
 function currentJobWorkflowContainsExpectedVisitActions() {
     const labels = getCurrentJobWorkflowLabels();
 
-    assert(labels.includes('On my way'), 'On My Way should remain a current-job workflow action.');
-    assert(labels.includes('Arrived'), 'Arrived should remain a current-job workflow action.');
-    assert(labels.includes('Started / In progress'), 'Started / In Progress should remain a current-job workflow action.');
-    assert(labels.includes('Need approval / estimate needed'), 'Need Approval / Estimate Needed should remain a current-job workflow action.');
+    assert(labels.includes('On My Way'), 'On My Way should remain a current-job workflow action.');
+    assert(labels.includes("I've Arrived"), "I've Arrived should remain a current-job workflow action.");
+    assert(labels.includes('Start Work'), 'Start Work should remain a current-job workflow action.');
+    assert(labels.includes('Request Approval / Create Estimate'), 'Request Approval / Create Estimate should remain a current-job workflow action.');
 }
 
 function currentJobWorkflowExcludesTechnicianLevelActions() {
@@ -42,8 +53,59 @@ function currentJobWorkflowExcludesTechnicianLevelActions() {
 
     assert(!labels.includes('Available'), 'Available should be absent from current-job workflow controls.');
     assert(!labels.includes('Available for Next Job'), 'Available for Next Job should be outside current-job workflow controls.');
+    assert(!labels.includes('Available After This Job'), 'Available After This Job should be outside current-job workflow controls.');
     assert(!labels.includes('Running Late for Next Job'), 'Running Late for Next Job should be outside current-job workflow controls.');
     assert(!labels.includes('Running late'), 'Ambiguous Running Late should be absent from current-job workflow controls.');
+}
+
+function assignedJobDetailOrdersCurrentJobBeforeAvailability() {
+    const order = getTechJobDetailSectionOrder();
+
+    assert(order.indexOf('current_job_status') < order.indexOf('next_job_availability'), 'Current Job Status should render before next-job availability.');
+    assert(order.join('|') === 'customer_summary|homeowner_media|current_job_status|job_notes|estimate_approval|finish_visit|next_job_availability', 'Assigned-job detail should keep the intended MVP hierarchy.');
+}
+
+function currentJobAndAvailabilityLabelsStayDistinct() {
+    const currentLabels = new Set(getCurrentJobWorkflowLabels());
+    const nextJobLabels = getNextJobAvailabilitySectionState().controlLabels;
+
+    nextJobLabels.forEach((label) => {
+        assert(!currentLabels.has(label), `${label} should not appear as a current customer workflow action.`);
+    });
+}
+
+function incompleteNextJobAvailabilityControlsStayHidden() {
+    const section = getNextJobAvailabilitySectionState();
+
+    assert(section.title === 'Next-Job Availability - Coming Soon', 'Incomplete next-job availability should be visibly marked Coming Soon.');
+    assert(section.controlLabels.includes('Available After This Job'), 'Next-job availability should use the clearer available-after-this-job label.');
+    assert(section.controlLabels.includes('Clear Next-Job Delay'), 'Next-job availability should use the clearer delay-clearing label.');
+    assert(section.comingSoon, 'Next-job availability should remain explicitly marked as coming soon.');
+    assert(section.controlsVisible === false, 'Incomplete next-job availability controls should be hidden for the MVP.');
+}
+
+function onlyValidNextWorkflowActionIsPrimary() {
+    const assignedPresentation = resolveTechWorkflowActionPresentation('assigned');
+    const onMyWayPresentation = resolveTechWorkflowActionPresentation('on_my_way');
+    const arrivedPresentation = resolveTechWorkflowActionPresentation('arrived');
+
+    assert(getPrimaryActionLabels(assignedPresentation).join(',') === 'On My Way', 'Assigned jobs should make only On My Way primary.');
+    assert(getPrimaryActionLabels(onMyWayPresentation).join(',') === "I've Arrived", 'On My Way jobs should make only Arrived primary.');
+    assert(getPrimaryActionLabels(arrivedPresentation).join(',') === 'Start Work', 'Arrived jobs should make only Start Work primary.');
+    assert(formatTechWorkflowProgressState(assignedPresentation[0].progressState) === 'Next action', 'Primary next action should have clear progression language.');
+    assert(assignedPresentation.filter((action) => action.primary).length === 1, 'Only one current-job workflow action should be primary.');
+    assert(!assignedPresentation[0].disabled, 'The valid next workflow action should be enabled.');
+    assert(assignedPresentation.slice(1).every((action) => action.disabled), 'Future workflow actions should not be primary inline controls.');
+    assert(
+        assignedPresentation.filter(isSecondaryTechWorkflowAction).map((action) => action.label).join('|') === "I've Arrived|Start Work",
+        'More Actions should expose direct arrival and early work start, not every future action.'
+    );
+}
+
+function workflowStatusFeedbackIsVisibleAndSpecific() {
+    const feedback = getTechWorkflowStatusFeedback('on_my_way');
+
+    assert(feedback === 'Status updated: Technician is on the way. The homeowner and Dispatch were notified.', 'On My Way should produce visible homeowner/dispatch notification feedback.');
 }
 
 function technicianNextJobActionsDoNotChangeCurrentVisitStatus() {
@@ -104,14 +166,14 @@ function workflowOrderingRequiresConfirmation() {
 
 function workflowStatusesUpdateHomeownerTrackerLanguage() {
     const expected = [
-        ['on_my_way', 'on_my_way'],
-        ['arrived', 'arrived'],
-        ['in_progress', 'in_progress'],
-        ['estimate_needed', 'waiting_for_approval'],
+        ['on_my_way', 'technician_on_the_way'],
+        ['arrived', 'technician_arrived'],
+        ['in_progress', 'work_in_progress'],
+        ['estimate_needed', 'waiting_for_customer_approval'],
     ];
 
     expected.forEach(([status, homeownerKey]) => {
-        assert(getHomeownerFacingStatusKey('scheduled', status === 'estimate_needed' ? 'waiting_for_customer_approval' : statusToEventType(status)) === homeownerKey, `${status} should map to ${homeownerKey}.`);
+        assert(getHomeownerStatusTemplate(status)?.status === homeownerKey, `${status} should map to ${homeownerKey}.`);
     });
 }
 
@@ -209,6 +271,10 @@ function getCurrentJobWorkflowLabels() {
     return [...TECH_WORKFLOW_ACTIONS, TECH_CUSTOM_STATUS_ACTION].map((action) => action.label);
 }
 
+function getPrimaryActionLabels(actions: ReturnType<typeof resolveTechWorkflowActionPresentation>) {
+    return actions.filter((action) => action.primary).map((action) => action.label);
+}
+
 function createNotice(action: TechnicianNextJobStatusAction, currentVisitStatus: string) {
     return createTechnicianNextJobStatusNotice(action, {
         companyId: 'company-1',
@@ -232,16 +298,6 @@ function resolveTransition(
         currentStatus: overrides.currentStatus || 'assigned',
         pendingConfirmationKey: overrides.pendingConfirmationKey || null,
     });
-}
-
-function statusToEventType(status: string) {
-    const eventTypes: Record<string, string> = {
-        on_my_way: 'technician_on_the_way',
-        arrived: 'technician_arrived',
-        in_progress: 'work_in_progress',
-    };
-
-    return eventTypes[status] || status;
 }
 
 function createRequest(id: string): DispatchWallRequest {

@@ -35,12 +35,16 @@ import {
 import { supabase } from '../lib/supabase';
 import {
     createTechnicianNextJobStatusNotice,
+    formatTechWorkflowProgressState,
+    getNextJobAvailabilitySectionState,
+    getTechWorkflowStatusFeedback,
+    isSecondaryTechWorkflowAction,
+    resolveTechWorkflowActionPresentation,
     resolveTechWorkflowTransition,
     TECH_CUSTOM_STATUS_ACTION,
-    TECH_WORKFLOW_ACTIONS,
-    TECHNICIAN_NEXT_JOB_STATUS_ACTIONS,
     type TechnicianNextJobStatusAction,
     type TechWorkflowAction,
+    type TechWorkflowActionPresentation,
 } from '../lib/techosWorkflow';
 import {
     buildTechOSCurrentJobRoute,
@@ -1326,12 +1330,12 @@ export default function TechOSScreen() {
                 ...current,
                 [slotId]: normalizedStatus === 'custom'
                     ? `Custom status updated: ${trimmedStatusNote}.`
-                    : `Status updated: ${action.label}.`,
+                    : getTechWorkflowStatusFeedback(action.status),
             }));
             if (!transition.serviceRequestId) {
                 setWorkflowMessageBySlotId((current) => ({
                     ...current,
-                    [slotId]: `${current[slotId] || `Status updated: ${action.label}.`} This assignment is not linked to a homeowner request yet.`,
+                    [slotId]: `${current[slotId] || getTechWorkflowStatusFeedback(action.status)} This assignment is not linked to a homeowner request yet.`,
                 }));
             }
 
@@ -2265,9 +2269,7 @@ function TechOSDashboardContent({
                 onOpenClientHomeOS={() => onOpenClientHomeOS(selectedJob)}
                 onOpenEstimate={() => onOpenEstimateForAssignedJob(selectedJob)}
                 onOpenFullJob={onOpenFullJob}
-                onRunTechnicianNextJobStatusAction={onRunTechnicianNextJobStatusAction}
                 onRunWorkflowAction={onRunWorkflowAction}
-                technicianStatusMessage={technicianStatusMessageBySlotId[selectedJob.slot.id] || ''}
                 updating={updatingWorkflowSlotId === selectedJob.slot.id || closingVisitSlotId === selectedJob.slot.id}
                 workflowStatus={workflowStatusBySlotId[selectedJob.slot.id] || selectedJob.slot.status || selectedJob.request?.status || 'scheduled'}
             />
@@ -2780,9 +2782,7 @@ function TechOSAssignedJobDetail({
     onOpenClientHomeOS,
     onOpenEstimate,
     onOpenFullJob,
-    onRunTechnicianNextJobStatusAction,
     onRunWorkflowAction,
-    technicianStatusMessage,
     updating,
     workflowStatus,
 }: {
@@ -2800,19 +2800,21 @@ function TechOSAssignedJobDetail({
     onOpenClientHomeOS: () => void;
     onOpenEstimate: () => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
-    onRunTechnicianNextJobStatusAction: (job: TechAssignedScheduleJob, action: TechnicianNextJobStatusAction, currentVisitStatus: string) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
-    technicianStatusMessage: string;
     updating: boolean;
     workflowStatus: string;
 }) {
-    const { theme } = useTheme();
     const title = getAssignedJobTitle(job);
     const location = getAssignedJobLocation(job);
     const trimmedCustomStatusNote = customStatusNote.trim();
     const clientContext = getTechOSClientJobContext(job);
     const canOpenClientHomeOS = hasTechOSClientHomeContext(clientContext);
     const estimateActionLabel = getTechOSEstimateActionLabel(estimateDraftCount);
+    const [showMoreWorkflowActions, setShowMoreWorkflowActions] = useState(false);
+    const workflowActionPresentation = resolveTechWorkflowActionPresentation(workflowStatus);
+    const primaryWorkflowActions = workflowActionPresentation.filter((action) => action.primary);
+    const moreWorkflowActions = workflowActionPresentation.filter(isSecondaryTechWorkflowAction);
+    const nextJobAvailability = getNextJobAvailabilitySectionState();
 
     return (
         <View style={[techJobDetailStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
@@ -2833,8 +2835,8 @@ function TechOSAssignedJobDetail({
             </View>
 
             <TechOSDetailSection
-                title="Customer / Home Information"
-                description="Client HomeOS opens in provider mode for this company and property."
+                title="Customer and Appointment Summary"
+                description="Customer, timing, and request context for this appointment."
                 techOSTheme={techOSTheme}
                 variantKey="customer"
             >
@@ -2856,6 +2858,9 @@ function TechOSAssignedJobDetail({
                         <TechJobDetailInfo label="Visit Outcome" value={getServiceVisitOutcomeLabel(job.slot.visit_outcome)} techOSTheme={techOSTheme} />
                     )}
                 </View>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 10 }]}>
+                    {job.request?.issue_summary || job.slot.notes || 'No request summary provided.'}
+                </Text>
                 <View style={techWorkflowActionGridStyle}>
                     <ThemedButton
                         title="Open Client HomeOS"
@@ -2883,14 +2888,11 @@ function TechOSAssignedJobDetail({
             </TechOSDetailSection>
 
             <TechOSDetailSection
-                title="Request Summary"
-                description="The homeowner or dispatch request context for this appointment."
+                title="Homeowner Photos and Videos"
+                description="Media uploaded with this customer request."
                 techOSTheme={techOSTheme}
                 variantKey="request"
             >
-                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
-                    {job.request?.issue_summary || job.slot.notes || 'No request summary provided.'}
-                </Text>
                 <ServiceRequestMediaGallery
                     serviceRequestId={job.request?.id || job.slot.service_request_id}
                     title="Homeowner photos and videos"
@@ -2898,57 +2900,71 @@ function TechOSAssignedJobDetail({
             </TechOSDetailSection>
 
             <TechOSDetailSection
-                title="Technician Status / Next Job"
-                description="These controls are technician-level signals. They do not change this customer's visit status."
+                title="Current Job Status"
+                description="Update what is happening at this customer's job. These updates are visible to Dispatch and the homeowner."
                 techOSTheme={techOSTheme}
-                variantKey="status"
+                variantKey="workflow"
             >
                 <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
-                    These controls are technician-level signals. They do not change this customer's visit status.
+                    Current status: {formatTechOSStatusLabel(workflowStatus)}
                 </Text>
+                {!!message && (
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 8 }]}>{message}</Text>
+                )}
+                <View style={techWorkflowProgressGridStyle}>
+                    {workflowActionPresentation.map((action) => (
+                        <TechWorkflowProgressStep
+                            key={action.key}
+                            action={action}
+                            techOSTheme={techOSTheme}
+                        />
+                    ))}
+                </View>
                 <View style={techWorkflowActionGridStyle}>
-                    {TECHNICIAN_NEXT_JOB_STATUS_ACTIONS.map((action) => (
+                    {primaryWorkflowActions.map((action) => (
                         <ThemedButton
                             key={action.key}
-                            title={action.label}
-                            variant="secondary"
+                            title={updating ? 'Updating...' : action.label}
+                            variant="primary"
                             disabled={updating}
-                            onPress={() => onRunTechnicianNextJobStatusAction(job, action, workflowStatus)}
+                            onPress={() => onRunWorkflowAction(job, action)}
                             style={techWorkflowActionButtonStyle}
                             textStyle={techWorkflowActionButtonTextStyle}
                         />
                     ))}
+                    {primaryWorkflowActions.length === 0 && (
+                        <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
+                            There is no next workflow action for the current status.
+                        </Text>
+                    )}
                 </View>
-                {!!technicianStatusMessage && (
-                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
-                        {technicianStatusMessage}
-                    </Text>
+                {moreWorkflowActions.length > 0 && (
+                    <>
+                        <ThemedButton
+                            title={showMoreWorkflowActions ? 'Hide More Actions' : 'More Actions'}
+                            variant="secondary"
+                            disabled={updating}
+                            onPress={() => setShowMoreWorkflowActions((current) => !current)}
+                            style={assignedJobActionButtonStyle}
+                            textStyle={techWorkflowActionButtonTextStyle}
+                        />
+                        {showMoreWorkflowActions && (
+                            <View style={techWorkflowActionGridStyle}>
+                                {moreWorkflowActions.map((action) => (
+                                    <ThemedButton
+                                        key={action.key}
+                                        title={action.label}
+                                        variant="secondary"
+                                        disabled={updating}
+                                        onPress={() => onRunWorkflowAction(job, action)}
+                                        style={techWorkflowActionButtonStyle}
+                                        textStyle={techWorkflowActionButtonTextStyle}
+                                    />
+                                ))}
+                            </View>
+                        )}
+                    </>
                 )}
-            </TechOSDetailSection>
-
-            <TechOSDetailSection
-                title="Technician Workflow"
-                description="Current-visit status actions for this assigned appointment."
-                techOSTheme={techOSTheme}
-                variantKey="workflow"
-            >
-                <View style={techWorkflowActionGridStyle}>
-                    {TECH_WORKFLOW_ACTIONS.map((action) => {
-                        const active = normalizeStatus(workflowStatus) === normalizeStatus(action.status);
-
-                        return (
-                            <ThemedButton
-                                key={action.key}
-                                title={updating && !active ? 'Updating...' : action.label}
-                                variant={active ? 'primary' : 'secondary'}
-                                disabled={updating}
-                                onPress={() => onRunWorkflowAction(job, action)}
-                                style={techWorkflowActionButtonStyle}
-                                textStyle={techWorkflowActionButtonTextStyle}
-                            />
-                        );
-                    })}
-                </View>
             </TechOSDetailSection>
 
             <TechOSDetailSection
@@ -3108,9 +3124,16 @@ function TechOSAssignedJobDetail({
                 )}
             </TechOSDetailSection>
 
-            {!!message && (
-                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{message}</Text>
-            )}
+            <TechOSDetailSection
+                title={nextJobAvailability.title}
+                description={nextJobAvailability.description}
+                techOSTheme={techOSTheme}
+                variantKey="status"
+            >
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
+                    Coming soon. These controls are hidden for this MVP because persistent technician availability storage is not connected yet.
+                </Text>
+            </TechOSDetailSection>
         </View>
     );
 }
@@ -3128,6 +3151,37 @@ function TechJobDetailInfo({
         <View style={[techJobDetailInfoStyle, { borderColor: techOSTheme.panelBorderColor }]}>
             <Text style={[techJobDetailInfoLabelStyle, { color: techOSTheme.mutedTextColor }]}>{label}</Text>
             <Text style={[techJobDetailInfoValueStyle, { color: techOSTheme.textColor }]} numberOfLines={2}>{value}</Text>
+        </View>
+    );
+}
+
+function TechWorkflowProgressStep({
+    action,
+    techOSTheme,
+}: {
+    action: TechWorkflowActionPresentation;
+    techOSTheme: TechOSThemePalette;
+}) {
+    const isNext = action.progressState === 'next';
+    const isCurrent = action.progressState === 'current';
+    const isCompleted = action.progressState === 'completed';
+    const borderColor = isNext || isCurrent
+        ? techOSTheme.activeBorderColor
+        : isCompleted
+            ? '#166534'
+            : techOSTheme.panelBorderColor;
+    const backgroundColor = isNext
+        ? 'rgba(15, 118, 110, 0.12)'
+        : isCompleted
+            ? 'rgba(22, 101, 52, 0.08)'
+            : 'transparent';
+
+    return (
+        <View style={[techWorkflowStepStyle, { borderColor, backgroundColor }]}>
+            <Text style={[techWorkflowStepStateStyle, { color: isNext ? techOSTheme.activeBorderColor : techOSTheme.mutedTextColor }]}>
+                {formatTechWorkflowProgressState(action.progressState)}
+            </Text>
+            <Text style={[techWorkflowStepLabelStyle, { color: techOSTheme.textColor }]}>{action.label}</Text>
         </View>
     );
 }
@@ -4764,6 +4818,38 @@ const techWorkflowActionGridStyle = {
     flexWrap: 'wrap' as const,
     gap: 10,
     marginTop: 10,
+};
+
+const techWorkflowProgressGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 12,
+};
+
+const techWorkflowStepStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    flexBasis: 128,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+};
+
+const techWorkflowStepStateStyle = {
+    fontSize: 10,
+    fontWeight: '900' as const,
+    lineHeight: 13,
+    textTransform: 'uppercase' as const,
+};
+
+const techWorkflowStepLabelStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    lineHeight: 17,
+    marginTop: 3,
 };
 
 const techWorkflowActionButtonStyle = {
