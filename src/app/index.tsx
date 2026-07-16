@@ -15,7 +15,10 @@ import {
   isActivePropertyResolutionError,
   requireActivePropertyMembership,
 } from '../lib/activeProperty';
-import { requestHomeownerServiceRequestUpdate } from '../lib/homeServiceRequests';
+import {
+  formatServiceRequestReference,
+  requestHomeownerServiceRequestUpdate,
+} from '../lib/homeServiceRequests';
 import {
   loadHomeownerServiceRequestTimeline,
   markHomeownerServiceNotificationRead,
@@ -51,6 +54,8 @@ type PreferredProvider = {
 
 type HomeServiceRequest = {
   id: string;
+  display_sequence: number | null;
+  display_code: string | null;
   company_id: string;
   property_id: string;
   request_type: string | null;
@@ -64,6 +69,8 @@ type HomeServiceRequest = {
 
 type CreatedServiceRequestReceipt = {
   id: string;
+  displayCode: string | null;
+  displaySequence: number | null;
   companyId: string;
   propertyId: string;
   requestType: string;
@@ -71,6 +78,8 @@ type CreatedServiceRequestReceipt = {
   priority: string;
   createdAt: string | null;
 };
+
+const HOMEOS_SERVICE_REQUEST_REFRESH_MS = 30_000;
 
 function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   const safeError = error as {
@@ -314,6 +323,9 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!activePropertyId || providerModeContext) return;
 
+    const refreshHomeServiceRequests = () => {
+      void loadHomeServiceRequests(activePropertyId);
+    };
     const channel = supabase
       .channel(`homeos-service-request-events:${activePropertyId}`)
       .on(
@@ -324,13 +336,23 @@ export default function HomeScreen() {
           table: 'service_request_events',
           filter: `property_id=eq.${activePropertyId}`,
         },
-        () => {
-          void loadHomeServiceRequests(activePropertyId);
-        }
+        refreshHomeServiceRequests
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'service_requests',
+          filter: `property_id=eq.${activePropertyId}`,
+        },
+        refreshHomeServiceRequests
       )
       .subscribe();
+    const fallbackRefreshId = setInterval(refreshHomeServiceRequests, HOMEOS_SERVICE_REQUEST_REFRESH_MS);
 
     return () => {
+      clearInterval(fallbackRefreshId);
       void supabase.removeChannel(channel);
     };
   }, [activePropertyId, providerModeContext]);
@@ -522,7 +544,7 @@ export default function HomeScreen() {
   async function loadHomeServiceRequests(propertyId: string) {
     const { data, error } = await supabase
       .from('service_requests')
-      .select('id, company_id, property_id, request_type, status, priority, issue_summary, created_at, updated_at, converted_job_id')
+      .select('id, display_sequence, display_code, company_id, property_id, request_type, status, priority, issue_summary, created_at, updated_at, converted_job_id')
       .eq('property_id', propertyId)
       .order('created_at', { ascending: false })
       .limit(5);
@@ -669,7 +691,7 @@ export default function HomeScreen() {
     } catch (error) {
       setPendingServiceRequest(confirmedRequest);
       setSubmittingServiceRequest(false);
-      setServiceRequestMessage(`Request ${shortId(confirmedRequest.id)} was created, but media upload failed: ${getErrorMessage(error)}. Remove or retry the failed file to finish attaching media.`);
+      setServiceRequestMessage(`${formatServiceRequestReference(confirmedRequest)} was created, but media upload failed: ${getErrorMessage(error)}. Remove or retry the failed file to finish attaching media.`);
       return;
     }
 
@@ -679,7 +701,7 @@ export default function HomeScreen() {
     setServiceRequestMedia([]);
     setServiceIssueSummary('');
     setServiceRequestType('regular');
-    setServiceRequestMessage(`Service request sent. Reference ${shortId(confirmedRequest.id)}.`);
+    setServiceRequestMessage(`Service request sent. ${formatServiceRequestReference(confirmedRequest)}.`);
     await loadHomeServiceRequests(activePropertyId);
   }
 
@@ -1072,9 +1094,9 @@ export default function HomeScreen() {
               fontWeight: '700',
             }}
           >
-            Company ID: {preferredProvider?.companyId || 'Not selected'}
+            Company: {preferredProvider?.companyName || 'Not selected'}
             {lastCreatedServiceRequest
-              ? ` / Last confirmed request ${shortId(lastCreatedServiceRequest.id)} (${formatLabel(lastCreatedServiceRequest.status)})`
+              ? ` / Last confirmed ${formatServiceRequestReference(lastCreatedServiceRequest)} (${formatLabel(lastCreatedServiceRequest.status)})`
               : ''}
           </Text>
 
@@ -1146,7 +1168,7 @@ export default function HomeScreen() {
                 fontWeight: '900',
               }}
             >
-              Request {shortId(pendingServiceRequest.id)} is waiting for media to finish. Retrying will use the same request.
+              {formatServiceRequestReference(pendingServiceRequest)} is waiting for media to finish. Retrying will use the same request.
             </Text>
           )}
 
@@ -1282,9 +1304,9 @@ export default function HomeScreen() {
                       {formatLabel(request.request_type)} request / {formatLabel(request.status)}
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
-                      Provider company: {preferredProvider?.companyName || shortId(request.company_id)}
+                      Provider company: {preferredProvider?.companyName || 'Provider company on file'}
                       {' / '}Created {formatDate(request.created_at)}
-                      {' / '}Ref {shortId(request.id)}
+                      {' / '}{formatServiceRequestReference(request)}
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
                       {request.issue_summary || 'No summary available.'}
@@ -1458,6 +1480,7 @@ function formatDateTime(value?: string | null) {
 function formatServiceTimelineTitle(eventType?: string | null) {
   const normalized = normalizeText(eventType);
   const labels: Record<string, string> = {
+    request_acknowledged: 'Request Acknowledged',
     appointment_scheduled: 'Appointment Scheduled',
     technician_assigned: 'Technician Assigned',
     technician_reassigned: 'Technician Reassigned',
@@ -1501,6 +1524,8 @@ function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt
 
   return {
     id,
+    displayCode: readOptionalString(record.display_code)?.toUpperCase() || null,
+    displaySequence: readOptionalNumber(record.display_sequence),
     companyId,
     propertyId,
     requestType: String(record.request_type || ''),
@@ -1508,6 +1533,23 @@ function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt
     priority: String(record.priority || ''),
     createdAt: typeof record.created_at === 'string' ? record.created_at : null,
   };
+}
+
+function readOptionalString(value: unknown) {
+  const text = String(value || '').trim();
+
+  return text || null;
+}
+
+function readOptionalNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
 }
 
 function formatServiceEventError(message: string, setupMessage: string) {

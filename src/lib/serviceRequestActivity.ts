@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { buildHomeownerAcknowledgedActivity } from './serviceRequestStatusNotifications';
 
 export type ServiceRequestEventVisibility = 'internal' | 'homeowner_visible' | 'system_homeowner_update';
 export type ServiceRequestEventAudience = 'internal' | 'homeowner' | 'technician' | 'dispatch';
@@ -33,6 +34,13 @@ export type RecordServiceRequestEventInput = {
     dedupeKey?: string | null;
     metadata?: Record<string, unknown>;
     notificationChannels?: string[];
+};
+
+export type RecordHomeownerAcknowledgedUpdateInput = {
+    companyId: string;
+    serviceRequestId: string;
+    requestDisplayCode?: string | null;
+    metadata?: Record<string, unknown>;
 };
 
 export type ServiceRequestEventWriteResult = {
@@ -197,6 +205,31 @@ export async function recordServiceRequestEvent(input: RecordServiceRequestEvent
         event,
         message: 'Service request event recorded.',
     };
+}
+
+export async function recordHomeownerAcknowledgedUpdate(
+    input: RecordHomeownerAcknowledgedUpdateInput
+): Promise<ServiceRequestEventWriteResult> {
+    const activity = buildHomeownerAcknowledgedActivity({
+        serviceRequestId: input.serviceRequestId,
+        requestDisplayCode: input.requestDisplayCode,
+    });
+
+    return recordServiceRequestEvent({
+        companyId: input.companyId,
+        serviceRequestId: input.serviceRequestId,
+        eventType: activity.eventType,
+        message: activity.message,
+        eventVisibility: 'system_homeowner_update',
+        audience: 'homeowner',
+        dedupeKey: activity.dedupeKey,
+        metadata: {
+            ...activity.metadata,
+            source: 'dispatch_acknowledge',
+            ...input.metadata,
+        },
+        notificationChannels: activity.notificationChannels,
+    });
 }
 
 export async function recordHomeownerStatusUpdate(input: {

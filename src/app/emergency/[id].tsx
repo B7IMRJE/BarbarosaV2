@@ -20,6 +20,8 @@ import {
 } from '../../lib/activeProperty';
 import {
     createHomeownerServiceRequest,
+    formatServiceRequestReference,
+    getServiceRequestDisplayCode,
     linkHomeEmergencyToServiceRequest,
     requestHomeownerServiceRequestUpdate,
 } from '../../lib/homeServiceRequests';
@@ -111,6 +113,7 @@ export default function EmergencyDetailScreen() {
     const [preferredProvider, setPreferredProvider] = useState<PreferredProvider | null>(null);
     const [activePropertyId, setActivePropertyId] = useState('');
     const [sentServiceRequestId, setSentServiceRequestId] = useState('');
+    const [sentServiceRequestDisplayCode, setSentServiceRequestDisplayCode] = useState('');
     const [sentServiceRequestStatus, setSentServiceRequestStatus] = useState('');
     const [reviews, setReviews] = useState<HomeServiceReview[]>([]);
     const [activeReviewTarget, setActiveReviewTarget] = useState<HomeServiceReviewTarget | null>(null);
@@ -193,16 +196,20 @@ export default function EmergencyDetailScreen() {
     async function loadLinkedServiceRequestStatus(serviceRequestId: string) {
         const { data, error } = await supabase
             .from('service_requests')
-            .select('id, status')
+            .select('id, display_sequence, display_code, status')
             .eq('id', serviceRequestId)
             .maybeSingle();
 
         if (error || !data) {
             setSentServiceRequestStatus('');
+            setSentServiceRequestDisplayCode('');
             return;
         }
 
-        setSentServiceRequestStatus(String((data as { status?: string | null }).status || ''));
+        const record = data as { status?: string | null; display_code?: string | null; display_sequence?: number | null };
+
+        setSentServiceRequestStatus(String(record.status || ''));
+        setSentServiceRequestDisplayCode(getServiceRequestDisplayCode(record));
     }
 
     async function loadPreferredProvider(propertyId: string) {
@@ -295,8 +302,11 @@ export default function EmergencyDetailScreen() {
 
         setSaving(false);
         setSentServiceRequestId(confirmedRequest.id);
+        setSentServiceRequestDisplayCode(getServiceRequestDisplayCode(confirmedRequest));
         setSentServiceRequestStatus(confirmedRequest.status);
-        setServiceRequestMessage(`Service request sent to ${preferredProvider.companyName}. Request ID: ${shortId(confirmedRequest.id)}.`);
+        const requestReference = formatServiceRequestReference(confirmedRequest);
+
+        setServiceRequestMessage(`${requestReference} sent to ${preferredProvider.companyName}.`);
 
         if (!emergencySupportsServiceRequestLink(emergency)) {
             return;
@@ -304,7 +314,7 @@ export default function EmergencyDetailScreen() {
 
         const nextHistory = [
             ...normalizeHistory(emergency.history),
-            makeHistoryEntry('status', `Service request ${shortId(confirmedRequest.id)} sent to ${preferredProvider.companyName}.`),
+            makeHistoryEntry('status', `${requestReference} sent to ${preferredProvider.companyName}.`),
         ];
 
         const linkResult = await linkHomeEmergencyToServiceRequest({
@@ -324,7 +334,7 @@ export default function EmergencyDetailScreen() {
 
         if (!linkResult.linked || historyError) {
             setServiceRequestMessage(
-                `Service request sent to ${preferredProvider.companyName}. Request ID: ${shortId(confirmedRequest.id)}. Link update failed: ${historyError?.message || linkResult.detail}`
+                `${requestReference} sent to ${preferredProvider.companyName}. Link update failed: ${historyError?.message || linkResult.detail}`
             );
             return;
         }
@@ -561,7 +571,7 @@ export default function EmergencyDetailScreen() {
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20, fontWeight: '800' }}>
                         {hasDispatchRequest
-                            ? `Request ${shortId(currentServiceRequestId)} was sent to ${preferredProvider?.companyName || 'your provider'}.`
+                            ? `${formatServiceRequestReference({ id: currentServiceRequestId, displayCode: sentServiceRequestDisplayCode })} was sent to ${preferredProvider?.companyName || 'your provider'}.`
                             : `Send this emergency to ${preferredProvider?.companyName || 'your preferred provider'}.`}
                     </Text>
                     {hasDispatchRequest && (
@@ -961,10 +971,6 @@ function firstText(...values: Array<string | null | undefined>) {
     }
 
     return '';
-}
-
-function shortId(value?: string | null) {
-    return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
 }
 
 function formatLabel(value?: string | null) {

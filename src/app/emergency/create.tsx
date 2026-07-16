@@ -18,6 +18,7 @@ import {
 } from '../../lib/activeProperty';
 import {
     createHomeownerServiceRequest,
+    formatServiceRequestReference,
     linkHomeEmergencyToServiceRequest,
     type CreatedServiceRequestReceipt,
 } from '../../lib/homeServiceRequests';
@@ -97,12 +98,12 @@ export default function CreateEmergencyScreen() {
         }
 
         if (hasUnresolvedServiceRequestMedia(media)) {
-            setMessage('Wait for the current media action to finish before saving the emergency.');
+            setMessage('Wait for the current media action to finish before sending the emergency.');
             return;
         }
 
         setSaving(true);
-        setMessage(pendingEmergency ? 'Retrying emergency media upload...' : 'Saving emergency...');
+        setMessage(pendingEmergency ? 'Retrying emergency media upload...' : 'Sending emergency request...');
 
         try {
             let activeProperty;
@@ -215,13 +216,13 @@ export default function CreateEmergencyScreen() {
                         onItemChange: updateMediaDraft,
                     });
                 } catch (error) {
-                    setMessage(`Emergency ${shortId(emergencyId)} was saved, but media upload failed: ${getErrorMessage(error)}. Remove or retry the failed file to finish sending media.`);
+                    setMessage(`Emergency request was saved, but media upload failed: ${getErrorMessage(error)}. Remove or retry the failed file to finish sending media.`);
                     return;
                 }
 
                 currentHistory = [
                     ...currentHistory,
-                    makeHistoryEntry('photo', `${media.length} media attachment${media.length === 1 ? '' : 's'} added to service request ${shortId(serviceRequest.id)}.`),
+                    makeHistoryEntry('photo', `${media.length} media attachment${media.length === 1 ? '' : 's'} added to ${formatServiceRequestReference(serviceRequest)}.`),
                 ];
             }
 
@@ -235,7 +236,7 @@ export default function CreateEmergencyScreen() {
 
             setPendingEmergency(null);
             setMedia([]);
-            setMessage('Emergency saved and sent to preferred company.');
+            setMessage('Emergency request sent to preferred company.');
             setTimeout(() => router.replace(`/emergency/${emergencyId}` as any), 900);
         } catch (error) {
             setMessage(`Save emergency failed: ${getErrorMessage(error)}`);
@@ -271,7 +272,7 @@ export default function CreateEmergencyScreen() {
 
         const nextHistory = [
             ...history,
-            makeHistoryEntry('status', `Service request ${shortId(serviceRequest.id)} sent to ${preferredProvider.companyName}.`),
+            makeHistoryEntry('status', `${formatServiceRequestReference(serviceRequest)} sent to ${preferredProvider.companyName}.`),
         ];
 
         await supabase
@@ -389,12 +390,12 @@ export default function CreateEmergencyScreen() {
 
                 {!!pendingEmergency && (
                     <Text style={{ color: theme.colors.mutedText, fontWeight: '900', lineHeight: 20, marginTop: 6 }}>
-                        Emergency {shortId(pendingEmergency.emergencyId)} is waiting for media to finish. Retrying will use the same request.
+                        This emergency request is waiting for media to finish. Retrying will use the same request.
                     </Text>
                 )}
 
                 <ThemedButton
-                    title={saving ? 'Saving...' : 'Save HomeOS Emergency'}
+                    title={saving ? 'Sending...' : 'Send Emergency Request'}
                     disabled={saving || hasUnresolvedServiceRequestMedia(media)}
                     onPress={submitEmergency}
                     style={{ marginTop: 20 }}
@@ -464,10 +465,6 @@ function buildServiceRequestSummary(emergencyType: string, area: string, descrip
         .map((part) => part.trim())
         .filter(Boolean)
         .join('\n\n');
-}
-
-function shortId(value?: string | null) {
-    return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
 }
 
 function getErrorMessage(error: unknown) {

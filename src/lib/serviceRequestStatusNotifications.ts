@@ -22,6 +22,21 @@ export type HomeownerStatusMessageInput = {
     etaRange?: string | null;
 };
 
+export type HomeownerAcknowledgedActivityInput = {
+    serviceRequestId: string;
+    requestDisplayCode?: string | null;
+};
+
+export type HomeownerAcknowledgedActivity = {
+    eventType: 'request_acknowledged';
+    title: 'Request Acknowledged';
+    message: string;
+    homeownerStatus: 'request_acknowledged';
+    dedupeKey: string;
+    notificationChannels: string[];
+    metadata: Record<string, unknown>;
+};
+
 export type RecordServiceRequestVisitStatusInput = {
     companyId: string;
     serviceRequestId: string;
@@ -43,6 +58,8 @@ export type ServiceRequestVisitStatusResult = {
     homeowner_message: string | null;
     notification_delivery_count: number;
 };
+
+export const HOMEOWNER_STATUS_NOTIFICATION_CHANNELS = ['in_app', 'push', 'sms', 'email'] as const;
 
 const HOMEOWNER_STATUS_TEMPLATES: Record<string, HomeownerStatusTemplate> = {
     scheduled: {
@@ -190,6 +207,28 @@ export function buildHomeownerStatusMessage(input: HomeownerStatusMessageInput) 
     return 'Your appointment has been scheduled.';
 }
 
+export function buildHomeownerAcknowledgedActivity(input: HomeownerAcknowledgedActivityInput): HomeownerAcknowledgedActivity {
+    const serviceRequestId = input.serviceRequestId.trim();
+    const displayCode = normalizeDisplayCode(input.requestDisplayCode);
+    const requestReference = displayCode ? `Request ${displayCode}` : 'Your request';
+    const message = `${requestReference} has been received. Dispatch is reviewing it and will update you when the next step is scheduled.`;
+
+    return {
+        eventType: 'request_acknowledged',
+        title: 'Request Acknowledged',
+        message,
+        homeownerStatus: 'request_acknowledged',
+        dedupeKey: `homeowner-acknowledged:${serviceRequestId}`,
+        notificationChannels: [...HOMEOWNER_STATUS_NOTIFICATION_CHANNELS],
+        metadata: {
+            homeowner_status: 'request_acknowledged',
+            homeowner_status_title: 'Request Acknowledged',
+            request_display_code: displayCode || null,
+            idempotency_key: `homeowner-acknowledged:${serviceRequestId}`,
+        },
+    };
+}
+
 export function createStatusTransitionIdempotencyKey(input: {
     scheduleSlotId: string;
     status: string;
@@ -266,6 +305,10 @@ function formatTechnicianName(value?: string | null) {
 
 function normalizeStatus(value?: string | null) {
     return String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function normalizeDisplayCode(value?: string | null) {
+    return String(value || '').trim().toUpperCase();
 }
 
 function readString(record: Record<string, unknown>, key: string) {

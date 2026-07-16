@@ -9,12 +9,22 @@ const LOCAL_SERVICE_REQUEST_UPDATE_KEY = 'homeos_local_service_request_updates_v
 
 export type CreatedServiceRequestReceipt = {
     id: string;
+    displayCode: string | null;
+    displaySequence: number | null;
     companyId: string;
     propertyId: string;
     requestType: string;
     status: string;
     priority: string;
     createdAt: string | null;
+};
+
+export type ServiceRequestDisplayIdentity = {
+    id?: string | null;
+    displayCode?: string | null;
+    display_code?: string | null;
+    displaySequence?: number | null;
+    display_sequence?: number | null;
 };
 
 export type CreateHomeownerServiceRequestInput = {
@@ -65,6 +75,24 @@ export async function createHomeownerServiceRequest(
     }
 
     return confirmedRequest;
+}
+
+export function getServiceRequestDisplayCode(request?: ServiceRequestDisplayIdentity | null) {
+    if (!request) return '';
+
+    const directCode = readString(request.displayCode || request.display_code).toUpperCase();
+
+    if (directCode) return directCode;
+
+    const sequence = readOptionalNumber(request.displaySequence ?? request.display_sequence);
+
+    return sequence ? `A${String(sequence).padStart(4, '0')}` : '';
+}
+
+export function formatServiceRequestReference(request?: ServiceRequestDisplayIdentity | null) {
+    const displayCode = getServiceRequestDisplayCode(request);
+
+    return displayCode ? `Request ${displayCode}` : 'Request number pending';
 }
 
 export async function loadCompanyDispatchRequestsForProperty(input: {
@@ -258,6 +286,8 @@ function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt
 
     return {
         id,
+        displayCode: readOptionalString(record.display_code)?.toUpperCase() || null,
+        displaySequence: readOptionalNumber(record.display_sequence),
         companyId,
         propertyId,
         requestType: readString(record.request_type),
@@ -275,4 +305,15 @@ function readOptionalString(value: unknown) {
     const text = readString(value);
 
     return text || null;
+}
+
+function readOptionalNumber(value: unknown) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+        const parsed = Number(value);
+
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return null;
 }

@@ -20,6 +20,26 @@ begin
         raise exception 'mark_homeowner_service_notification_read RPC is missing.';
     end if;
 
+    if to_regprocedure('public.acknowledge_service_request(uuid,uuid)') is null then
+        raise exception 'acknowledge_service_request RPC is missing.';
+    end if;
+
+    if to_regprocedure('public.create_homeowner_service_request(uuid,uuid,text,text,text)') is null then
+        raise exception 'create_homeowner_service_request RPC is missing.';
+    end if;
+
+    if pg_get_function_result('public.create_homeowner_service_request(uuid,uuid,text,text,text)'::regprocedure) not ilike '%display_code text%' then
+        raise exception 'create_homeowner_service_request must return display_code for homeowner request references.';
+    end if;
+
+    if pg_get_functiondef('public.acknowledge_service_request(uuid,uuid)'::regprocedure) not ilike '%homeowner-acknowledged:%' then
+        raise exception 'acknowledge_service_request must dedupe homeowner acknowledge activity.';
+    end if;
+
+    if pg_get_functiondef('public.acknowledge_service_request(uuid,uuid)'::regprocedure) not ilike '%request_acknowledged%' then
+        raise exception 'acknowledge_service_request must create request_acknowledged activity.';
+    end if;
+
     if not exists (
         select 1
         from pg_trigger

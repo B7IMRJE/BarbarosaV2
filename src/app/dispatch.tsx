@@ -25,6 +25,7 @@ import {
     queueHomeownerDelayNotification,
     queueTechnicianAssignmentNotification,
 } from '../lib/serviceNotifications';
+import { recordHomeownerAcknowledgedUpdate } from '../lib/serviceRequestActivity';
 import {
     closeServiceVisit,
     getServiceVisitOutcomeLabel,
@@ -700,6 +701,26 @@ export default function DispatchBoardScreen() {
             return;
         }
 
+        let homeownerActivityMessage = '';
+
+        try {
+            const activityResult = await recordHomeownerAcknowledgedUpdate({
+                companyId: request.company_id,
+                serviceRequestId: request.id,
+                requestDisplayCode: getHomeownerRequestDisplayCode(request),
+                metadata: {
+                    dispatch_action: 'acknowledge',
+                    request_status: 'acknowledged',
+                },
+            });
+
+            if (activityResult.status === 'pending') {
+                homeownerActivityMessage = activityResult.message;
+            }
+        } catch (activityError) {
+            homeownerActivityMessage = `Homeowner activity was not recorded: ${activityError instanceof Error ? activityError.message : 'Unknown error'}`;
+        }
+
         await recordCompanyAuditEvent({
             companyId: request.company_id,
             action: 'dispatch_request_acknowledged',
@@ -714,7 +735,7 @@ export default function DispatchBoardScreen() {
         const loadedRequests = await loadDispatchRequests(request.company_id);
         await loadScheduleSlots(request.company_id, loadedRequests);
         setActionRequestId(null);
-        setMessage('Request acknowledged.');
+        setMessage(homeownerActivityMessage ? `Request acknowledged. ${homeownerActivityMessage}` : 'Request acknowledged.');
     }
 
     function createScheduleFormForRequestId(requestId: string) {
@@ -4446,6 +4467,17 @@ function getWorkQueueIdentifier(request: DispatchRequest) {
 
 function getServiceRequestDisplayCode(request: DispatchRequest) {
     return normalizeDisplayCode(request.display_code) || shortId(request.id);
+}
+
+function getHomeownerRequestDisplayCode(request: DispatchRequest) {
+    const displayCode = normalizeDisplayCode(request.display_code);
+
+    if (displayCode) return displayCode;
+    if (request.display_sequence && Number.isFinite(request.display_sequence)) {
+        return `A${String(request.display_sequence).padStart(4, '0')}`;
+    }
+
+    return '';
 }
 
 function normalizeDisplayCode(value?: string | null) {

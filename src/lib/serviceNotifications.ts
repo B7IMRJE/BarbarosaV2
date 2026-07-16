@@ -67,7 +67,7 @@ export async function queueHomeownerAssignmentNotification(input: {
         audience: 'homeowner',
         eventVisibility: 'system_homeowner_update',
         dedupeKey: `${input.reassigned ? 'homeowner-reassigned' : 'homeowner-assigned'}:${input.scheduleSlotId}`,
-        channels: ['in_app'],
+        channels: HOMEOWNER_DELIVERY_CHANNELS,
         metadata: {
             company_name: input.companyName,
             technician_name: input.technicianName,
@@ -105,7 +105,7 @@ export async function queueTechnicianAssignmentNotification(input: {
         audience: 'technician',
         eventVisibility: 'internal',
         dedupeKey: `${input.removed ? 'tech-removed' : 'tech-assigned'}:${input.scheduleSlotId}`,
-        channels: HOMEOWNER_DELIVERY_CHANNELS,
+        channels: ['in_app'],
         metadata: {
             customer_name: input.customerName,
             service_address: input.serviceAddressLabel,

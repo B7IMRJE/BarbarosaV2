@@ -1,4 +1,5 @@
 import {
+    buildHomeownerAcknowledgedActivity,
     buildHomeownerStatusMessage,
     createStatusTransitionIdempotencyKey,
     getHomeownerStatusTemplate,
@@ -7,12 +8,27 @@ import {
 runServiceRequestStatusNotificationRegressions();
 
 export function runServiceRequestStatusNotificationRegressions() {
+    acknowledgeBuildsHomeownerActivity();
     onMyWayUsesHomeownerSafeCopy();
     onMyWayEtaUsesApproximateRange();
     internalOperationalStatusesStayPrivate();
     remainingHomeownerVisibleStatusesAreMapped();
+    requestedWorkflowStatusesCreateHomeownerActivity();
     delayedCopyHidesLunchDetails();
     idempotencyKeyIncludesSlotStatusVersionAndRecipient();
+}
+
+function acknowledgeBuildsHomeownerActivity() {
+    const activity = buildHomeownerAcknowledgedActivity({
+        serviceRequestId: 'request-1',
+        requestDisplayCode: 'a002',
+    });
+
+    assert(activity.eventType === 'request_acknowledged', 'Acknowledge should create request_acknowledged homeowner activity.');
+    assert(activity.message.includes('Request A002 has been received.'), 'Acknowledge copy should use the friendly request number.');
+    assert(activity.dedupeKey === 'homeowner-acknowledged:request-1', 'Acknowledge activity should be idempotent per request.');
+    assert(activity.notificationChannels.includes('sms'), 'Acknowledge activity should request SMS fallback delivery.');
+    assert(activity.notificationChannels.includes('email'), 'Acknowledge activity should request email fallback delivery.');
 }
 
 function onMyWayUsesHomeownerSafeCopy() {
@@ -59,6 +75,23 @@ function remainingHomeownerVisibleStatusesAreMapped() {
 
     expectedStatuses.forEach((status) => {
         assert(getHomeownerStatusTemplate(status)?.notifyHomeowner, `${status} should have a homeowner-visible template.`);
+    });
+}
+
+function requestedWorkflowStatusesCreateHomeownerActivity() {
+    const expectedStatuses = [
+        ['assigned', 'technician_assigned'],
+        ['on_my_way', 'technician_on_the_way'],
+        ['arrived', 'technician_arrived'],
+        ['in_progress', 'work_in_progress'],
+        ['completed', 'work_completed'],
+    ];
+
+    expectedStatuses.forEach(([sourceStatus, homeownerStatus]) => {
+        assert(
+            getHomeownerStatusTemplate(sourceStatus)?.status === homeownerStatus,
+            `${sourceStatus} should map to ${homeownerStatus} homeowner activity.`
+        );
     });
 }
 
