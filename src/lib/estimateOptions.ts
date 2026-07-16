@@ -27,6 +27,24 @@ export type EstimateRequirementMeasurementAnswer = {
     capturedAt: string;
 };
 
+export type EstimateRequirementSkipReason =
+    | 'inaccessible'
+    | 'unsafe_to_capture'
+    | 'label_unreadable'
+    | 'customer_unavailable'
+    | 'not_applicable'
+    | 'other';
+
+export type EstimateRequirementState = 'completed' | 'skipped' | 'missing';
+
+export type EstimateRequirementSkipAnswer = {
+    kind: 'requirement_skip';
+    requirementId: string;
+    state: 'skipped';
+    reason: EstimateRequirementSkipReason | null;
+    skippedAt: string;
+};
+
 export type EstimateAnswerValue =
     | string
     | number
@@ -34,6 +52,7 @@ export type EstimateAnswerValue =
     | string[]
     | EstimateRequirementPhotoAnswer
     | EstimateRequirementMeasurementAnswer
+    | EstimateRequirementSkipAnswer
     | null;
 export type EstimateAnswerSet = Record<string, EstimateAnswerValue>;
 
@@ -289,6 +308,15 @@ export type EstimatePresentationGate = {
     warnings: string[];
 };
 
+export type EstimateDraftGate = {
+    canDraft: boolean;
+    blockers: string[];
+    warnings: string[];
+    missingBeforeFinalPresentation: string[];
+    skippedForNow: string[];
+    assumptionsUsedInDraft: string[];
+};
+
 export type EstimateAnswerValidation = {
     complete: boolean;
     missingRequiredQuestionIds: string[];
@@ -307,6 +335,7 @@ export type EstimateOptionWorkspace = {
     choices: EstimateChoice[];
     individualOptions: EstimateChoice[];
     packages: EstimateChoice[];
+    draftGate: EstimateDraftGate;
     presentationGate: EstimatePresentationGate;
     pricingSetupRequired: boolean;
     statusMessage: string;
@@ -551,9 +580,9 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('clearances', 'Clearances', true, ['acceptable', 'limited', 'blocked']),
             selectQuestion('platform', 'Platform', true, ['acceptable', 'replace / build', 'not applicable']),
             selectQuestion('recirculation', 'Recirculation', false, ['none', 'existing', 'add option', 'repair / replace']),
-            multiQuestion('code_corrections', 'Code corrections', true, ['permit', 'pan', 'straps', 'T&P', 'venting', 'gas connector', 'sediment trap', 'expansion tank']),
-            selectQuestion('desired_warranty', 'Desired warranty', true, ['standard', 'extended', 'premium']),
-            multiQuestion('homeowner_priorities', 'Homeowner priorities', true, ['lowest cost', 'reliability', 'efficiency', 'faster hot water', 'warranty', 'space saving']),
+            multiQuestion('code_corrections', 'Code corrections', true, ['None required', 'permit', 'pan', 'straps', 'T&P', 'venting', 'gas connector', 'sediment trap', 'expansion tank']),
+            selectQuestion('desired_warranty', 'Desired warranty', false, ['Not discussed yet', 'Let homeowner choose', 'standard', 'extended', 'premium']),
+            multiQuestion('homeowner_priorities', 'Homeowner priorities', false, ['lowest cost', 'reliability', 'efficiency', 'faster hot water', 'warranty', 'space saving']),
         ],
     },
     {
@@ -1028,6 +1057,15 @@ export function buildEstimateOptionWorkspace(input: {
     });
     const individualOptions = choices.filter((choice) => choice.kind === 'individual');
     const packages = choices.filter((choice) => choice.kind === 'package');
+    const draftGate = buildDraftGate({
+        answerValidation,
+        template,
+        answers: input.answers,
+        choices,
+        draftItems: input.draftItems,
+        draftContext: input.draftContext,
+        pricingSetupRequired,
+    });
     const presentationGate = buildPresentationGate({
         answerValidation,
         pricingResults,
@@ -1047,6 +1085,7 @@ export function buildEstimateOptionWorkspace(input: {
         choices,
         individualOptions,
         packages,
+        draftGate,
         presentationGate,
         pricingSetupRequired,
         statusMessage: pricingSetupRequired
@@ -1080,8 +1119,8 @@ export function validateAiEstimateDraftResponse(
     const individualCount = choices.filter((choice) => choice.kind === 'individual').length;
     const packageCount = choices.filter((choice) => choice.kind === 'package').length;
 
-    if (individualCount < 2 || individualCount > 4) {
-        errors.push('AI response must include 2 to 4 individual options.');
+    if (individualCount < 1 || individualCount > 4) {
+        errors.push('AI response must include 1 to 4 individual options.');
     }
 
     if (packageCount > 2) {
@@ -1342,6 +1381,63 @@ function buildFaucetDeterministicChoices(
     return choices.sort((first, second) => first.displayOrder - second.displayOrder);
 }
 
+function buildDraftGate(input: {
+    answerValidation: EstimateAnswerValidation;
+    template: EstimateCategoryTemplate;
+    answers: EstimateAnswerSet;
+    choices: EstimateChoice[];
+    draftItems: EstimateDraftItemLike[];
+    draftContext: EstimateDraftContextLike | null;
+    pricingSetupRequired: boolean;
+}): EstimateDraftGate {
+    const blockers: string[] = [];
+    const warnings: string[] = [];
+    const safeDraftChoices = input.choices.filter((choice) =>
+        choice.pricingResult.totalAmount > 0 &&
+        choice.pricingResult.missingPricingInputs.length === 0
+    );
+    const hasWorkDescription = Boolean(
+        readText(input.draftContext?.issue_summary) ||
+        input.draftItems.some((item) => readText(item.name))
+    );
+    const skippedForNow = collectSkippedRequirementLabels(input.template, input.answers);
+    const missingBeforeFinalPresentation = collectMissingBeforeFinalPresentation(input.answerValidation);
+    const assumptionsUsedInDraft = collectDraftAssumptions(input.template, input.answers, input.answerValidation);
+
+    if (!hasWorkDescription) {
+        blockers.push('Add a short problem or work description before drafting.');
+    }
+
+    if (input.pricingSetupRequired || safeDraftChoices.length === 0) {
+        blockers.push('Add deterministic price-book data for at least one safe draft path.');
+    }
+
+    if (input.answerValidation.missingRequiredQuestionLabels.length > 0) {
+        warnings.push(`Questions can be completed later: ${input.answerValidation.missingRequiredQuestionLabels.join(', ')}.`);
+    }
+
+    if (input.answerValidation.missingRequiredPhotoLabels.length > 0) {
+        warnings.push(`Photos can be completed before presentation: ${input.answerValidation.missingRequiredPhotoLabels.join(', ')}.`);
+    }
+
+    if (input.answerValidation.missingRequiredMeasurementLabels.length > 0) {
+        warnings.push(`Measurements can be completed before presentation: ${input.answerValidation.missingRequiredMeasurementLabels.join(', ')}.`);
+    }
+
+    if (skippedForNow.length > 0) {
+        warnings.push(`Skipped for now: ${skippedForNow.join(', ')}.`);
+    }
+
+    return {
+        canDraft: blockers.length === 0,
+        blockers,
+        warnings,
+        missingBeforeFinalPresentation,
+        skippedForNow,
+        assumptionsUsedInDraft,
+    };
+}
+
 function buildPresentationGate(input: {
     answerValidation: EstimateAnswerValidation;
     pricingResults: EstimatePricingResult[];
@@ -1593,6 +1689,41 @@ export function isAnswerComplete(value: EstimateAnswerValue | undefined) {
     return false;
 }
 
+export function toggleEstimateMultiSelectAnswer(
+    question: Pick<EstimateQuestionDefinition, 'id' | 'type'>,
+    currentValue: EstimateAnswerValue | undefined,
+    selectedValue: string
+) {
+    if (question.type !== 'multi_select') return [selectedValue];
+
+    const currentValues = Array.isArray(currentValue) ? currentValue.filter((value) => typeof value === 'string') : [];
+    const selectedIsNone = isNoneRequiredAnswer(selectedValue);
+
+    if (selectedIsNone) {
+        return currentValues.some(isNoneRequiredAnswer) ? [] : [selectedValue];
+    }
+
+    const withoutNone = currentValues.filter((value) => !isNoneRequiredAnswer(value));
+
+    return withoutNone.includes(selectedValue)
+        ? withoutNone.filter((entry) => entry !== selectedValue)
+        : [...withoutNone, selectedValue];
+}
+
+export function createEstimateRequirementSkipAnswer(
+    label: string,
+    reason: EstimateRequirementSkipReason | null = null,
+    skippedAt = new Date().toISOString()
+): EstimateRequirementSkipAnswer {
+    return {
+        kind: 'requirement_skip',
+        requirementId: estimateRequirementId(label),
+        state: 'skipped',
+        reason,
+        skippedAt,
+    };
+}
+
 export function photoRequirementAnswerKey(label: string) {
     return `photo:${label}`;
 }
@@ -1631,6 +1762,27 @@ export function isMeasurementRequirementAnswer(value: EstimateAnswerValue | unde
         readText(record.unit).length > 0;
 }
 
+export function isRequirementSkipAnswer(value: EstimateAnswerValue | undefined): value is EstimateRequirementSkipAnswer {
+    const record = readRecord(value);
+    const reason = readNullableText(record?.reason);
+
+    return record?.kind === 'requirement_skip' &&
+        record.state === 'skipped' &&
+        readText(record.requirementId).length > 0 &&
+        (!reason || isEstimateRequirementSkipReason(reason)) &&
+        readText(record.skippedAt).length > 0;
+}
+
+export function getEstimateRequirementState(
+    value: EstimateAnswerValue | undefined,
+    complete: boolean
+): EstimateRequirementState {
+    if (complete) return 'completed';
+    if (isRequirementSkipAnswer(value)) return 'skipped';
+
+    return 'missing';
+}
+
 export function isPhotoRequirementComplete(value: EstimateAnswerValue | undefined) {
     return isPhotoRequirementAnswer(value);
 }
@@ -1655,6 +1807,66 @@ function formatMissingAnswerBlockers(validation: EstimateAnswerValidation) {
     }
 
     return blockers;
+}
+
+function collectMissingBeforeFinalPresentation(validation: EstimateAnswerValidation) {
+    return [
+        ...validation.missingRequiredQuestionLabels.map((label) => `Question: ${label}`),
+        ...validation.missingRequiredPhotoLabels.map((label) => `Photo: ${label}`),
+        ...validation.missingRequiredMeasurementLabels.map((label) => `Measurement: ${label}`),
+    ];
+}
+
+function collectSkippedRequirementLabels(template: EstimateCategoryTemplate, answers: EstimateAnswerSet) {
+    return [
+        ...template.requiredPhotoLabels
+            .filter((label) => isRequirementSkipAnswer(answers[photoRequirementAnswerKey(label)]))
+            .map((label) => `Photo: ${label}`),
+        ...template.requiredMeasurementLabels
+            .filter((label) => isRequirementSkipAnswer(answers[measurementRequirementAnswerKey(label)]))
+            .map((label) => `Measurement: ${label}`),
+    ];
+}
+
+function collectDraftAssumptions(
+    template: EstimateCategoryTemplate,
+    answers: EstimateAnswerSet,
+    validation: EstimateAnswerValidation
+) {
+    const assumptions = [...template.warnings];
+
+    if (validation.missingRequiredPhotoLabels.length > 0) {
+        assumptions.push('Draft uses available site context until required photos are completed.');
+    }
+
+    if (validation.missingRequiredMeasurementLabels.length > 0) {
+        assumptions.push('Draft uses company defaults until required measurements are captured.');
+    }
+
+    if (!isAnswerComplete(answers.desired_warranty) || readAnswerText(answers.desired_warranty) === 'Not discussed yet') {
+        assumptions.push('Warranty copy uses company defaults until the homeowner chooses a warranty path.');
+    }
+
+    if (!isAnswerComplete(answers.homeowner_priorities)) {
+        assumptions.push('Homeowner priorities are not selected yet, so option copy stays neutral.');
+    }
+
+    return uniqueText(assumptions).filter(Boolean);
+}
+
+function isNoneRequiredAnswer(value: string) {
+    return normalizeText(value) === 'none required';
+}
+
+function isEstimateRequirementSkipReason(value: string): value is EstimateRequirementSkipReason {
+    return [
+        'inaccessible',
+        'unsafe to capture',
+        'label unreadable',
+        'customer unavailable',
+        'not applicable',
+        'other',
+    ].includes(normalizeText(value));
 }
 
 function selectQuestion(id: string, label: string, required: boolean, allowedAnswers: string[]): EstimateQuestionDefinition {

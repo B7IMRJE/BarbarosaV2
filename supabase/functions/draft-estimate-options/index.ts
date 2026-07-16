@@ -308,8 +308,8 @@ function readEstimateOptionDraftRequest(body: Record<string, unknown>): Estimate
 
     const deterministicPriceResults = readDeterministicPriceResults(body.deterministic_price_results);
 
-    if (deterministicPriceResults.length < 2) {
-        throw new RequestError(400, 'not_enough_options', 'validate_body', 'At least two deterministic priced options are required before AI drafting.', 'deterministic_price_results must contain at least two valid choices.');
+    if (deterministicPriceResults.length < 1) {
+        throw new RequestError(400, 'not_enough_options', 'validate_body', 'At least one deterministic priced option is required before AI drafting.', 'deterministic_price_results must contain at least one valid choice.');
     }
 
     return {
@@ -517,7 +517,7 @@ async function draftOptionsWithOpenAi(
                             'Hard rule: never invent or calculate prices, discounts, products, model numbers, warranties, rebates, code requirements, financing payments, availability, labor quantities, or required materials.',
                             'Use only provided approved product IDs, scope IDs, warranty IDs, inclusion IDs, exclusion IDs, and deterministic price result IDs.',
                             'Do not include numeric prices, amounts, costs, quantities, discounts, financing, or labor/material numbers in your JSON. The app already has deterministic prices.',
-                            'Create 2 to 4 individual options and no more than 2 packages. Total homeowner-facing choices must not exceed 6.',
+                            'Create copy for each deterministic priced choice provided. A working draft may contain 1 to 4 individual options, but final homeowner presentation still requires the app presentation gate. Create no more than 2 packages. Total homeowner-facing choices must not exceed 6.',
                             'Keep names brief, professional, and not fear-based. Use the preferred first name tastefully when provided.',
                         ].join(' '),
                     },
@@ -613,7 +613,7 @@ function estimateOptionDraftSchema() {
         properties: {
             choices: {
                 type: 'array',
-                minItems: 2,
+                minItems: 1,
                 maxItems: 6,
                 items: {
                     type: 'object',
@@ -731,7 +731,7 @@ function validateAiDraftResponse(value: unknown, payload: EstimateOptionDraftReq
     const individualCount = choices.filter((choice) => choice.kind === 'individual').length;
     const packageCount = choices.filter((choice) => choice.kind === 'package').length;
 
-    if (individualCount < 2 || individualCount > 4) errors.push('AI must return 2 to 4 individual options.');
+    if (individualCount < 1 || individualCount > 4) errors.push('AI must return 1 to 4 individual options.');
     if (packageCount > 2) errors.push('AI must return no more than 2 packages.');
     if (choices.length > 6) errors.push('AI must return no more than 6 choices.');
 

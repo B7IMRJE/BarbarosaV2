@@ -6,6 +6,25 @@ export type TechWorkflowAction = {
     status: string;
 };
 
+export type TechWorkflowTransitionContext = {
+    slotId: string | null;
+    companyId: string | null;
+    technicianCompanyUserId: string | null;
+    requestId?: string | null;
+    slotServiceRequestId?: string | null;
+    currentStatus?: string | null;
+    pendingConfirmationKey?: string | null;
+};
+
+export type TechWorkflowTransitionResolution = {
+    canRun: boolean;
+    status: string;
+    serviceRequestId: string | null;
+    requiresConfirmation: boolean;
+    confirmationKey: string;
+    message: string;
+};
+
 export type TechnicianNextJobStatusActionKey = 'available_for_next_job' | 'running_late_for_next_job' | 'clear_next_job_delay';
 
 export type TechnicianNextJobStatusAction = {
@@ -34,6 +53,62 @@ export const TECHNICIAN_NEXT_JOB_STATUS_ACTIONS: TechnicianNextJobStatusAction[]
     { key: 'clear_next_job_delay', label: 'Clear Delay' },
 ];
 
+export function resolveTechWorkflowTransition(
+    action: TechWorkflowAction,
+    context: TechWorkflowTransitionContext
+): TechWorkflowTransitionResolution {
+    const status = normalizeStatus(action.status);
+    const slotId = String(context.slotId || '').trim();
+    const companyId = String(context.companyId || '').trim();
+    const technicianCompanyUserId = String(context.technicianCompanyUserId || '').trim();
+    const serviceRequestId = String(context.requestId || context.slotServiceRequestId || '').trim() || null;
+    const confirmationKey = `${slotId}:${status}`;
+
+    if (!slotId || !companyId || !technicianCompanyUserId) {
+        return {
+            canRun: false,
+            status,
+            serviceRequestId,
+            requiresConfirmation: false,
+            confirmationKey,
+            message: 'Workflow update failed: assigned job context is missing.',
+        };
+    }
+
+    if (status !== 'custom' && !serviceRequestId) {
+        return {
+            canRun: false,
+            status,
+            serviceRequestId,
+            requiresConfirmation: false,
+            confirmationKey,
+            message: 'Workflow update failed: this assigned job is missing its service request.',
+        };
+    }
+
+    const confirmationMessage = getWorkflowOrderingConfirmationMessage(context.currentStatus, status);
+
+    if (confirmationMessage && context.pendingConfirmationKey !== confirmationKey) {
+        return {
+            canRun: false,
+            status,
+            serviceRequestId,
+            requiresConfirmation: true,
+            confirmationKey,
+            message: confirmationMessage,
+        };
+    }
+
+    return {
+        canRun: true,
+        status,
+        serviceRequestId,
+        requiresConfirmation: Boolean(confirmationMessage),
+        confirmationKey,
+        message: '',
+    };
+}
+
 export function getCurrentVisitStatusAfterTechnicianNextJobAction(
     currentVisitStatus: string | null,
     _action: TechnicianNextJobStatusAction
@@ -52,4 +127,22 @@ export function createTechnicianNextJobStatusNotice(
         persisted: false,
         message: `${action.label} is a technician-level signal. Persistent technician availability and next-job delay storage is not connected yet, so the current job remains unchanged.`,
     };
+}
+
+function getWorkflowOrderingConfirmationMessage(currentStatus: string | null | undefined, nextStatus: string) {
+    const current = normalizeStatus(currentStatus);
+
+    if (nextStatus === 'arrived' && !['on_my_way', 'arriving_soon', 'arrived', 'in_progress', 'estimate_needed'].includes(current)) {
+        return 'Tap Arrived again to confirm direct arrival without On my way.';
+    }
+
+    if (nextStatus === 'in_progress' && !['arrived', 'in_progress', 'estimate_needed'].includes(current)) {
+        return 'Tap Started / In progress again to confirm work started before Arrived.';
+    }
+
+    return '';
+}
+
+function normalizeStatus(value?: string | null) {
+    return String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 }

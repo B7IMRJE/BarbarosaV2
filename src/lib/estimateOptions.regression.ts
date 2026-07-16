@@ -4,18 +4,22 @@ import {
     calculateRepipeTotals,
     canManageEstimatePricing,
     canUseEstimatePricing,
+    createEstimateRequirementSkipAnswer,
     dedupeEstimateDraftItems,
     filterApprovedActiveProducts,
     filterRuleCompatibleProducts,
+    getEstimateRequirementState,
     getEstimateCategoryTemplate,
     isPhotoRequirementComplete,
     measurementRequirementAnswerKey,
     photoRequirementAnswerKey,
     isProductSelectable,
+    isRequirementSkipAnswer,
     mapCompanyPriceBookItemToEstimateEntry,
     resolveEstimatePresentationLayout,
     resolveProductImageState,
     toHomeownerPresentationChoice,
+    toggleEstimateMultiSelectAnswer,
     validateAiEstimateDraftResponse,
     validateEstimateAnswers,
     type EstimateApprovedProduct,
@@ -45,6 +49,13 @@ export function runEstimateOptionsRegressions() {
     productMediaRemainsCompanyScoped();
     aiCannotReferenceUnprovidedProduct();
     anotherCompanyProductNeverAppears();
+    noneRequiredIsExclusiveForCodeCorrections();
+    unansweredPrioritiesDoNotBlockAiDrafting();
+    notDiscussedWarrantyDoesNotBlockFirstDraft();
+    skippedPhotosDoNotCountAsUploadedPhotos();
+    skippedNoncriticalEvidenceAllowsDraftCreation();
+    criticalSafetyEvidenceStillBlocksPresentation();
+    incompleteDraftShowsAssumptionsAndWarnings();
     toiletRequiredQuestionsAreEnforced();
     disposalRequiredQuestionsAreEnforced();
     waterHeaterChecklistIsEnforced();
@@ -70,6 +81,7 @@ export function runEstimateOptionsRegressions() {
     technicianOverridesAreRecorded();
     repipeCalculationIsDeterministic();
     aiOutputCannotAlterNumericPrices();
+    aiCanDraftSingleWorkingOption();
     pricingCalculationIsDeterministic();
     storyAndAccessModifiersOnlyApplyWhenSelected();
     requiredSafetyLinesCannotBeRemoved();
@@ -200,6 +212,106 @@ function anotherCompanyProductNeverAppears() {
     const filtered = filterApprovedActiveProducts([product('company-b', 'foreign-product', true, true)], 'company-a', template);
 
     assert(filtered.length === 0, 'Another company product should never appear.');
+}
+
+function noneRequiredIsExclusiveForCodeCorrections() {
+    const question = getEstimateCategoryTemplate('water_heater').questions.find((candidate) => candidate.id === 'code_corrections');
+
+    assert(question?.allowedAnswers?.includes('None required'), 'Water-heater code corrections should include None required.');
+
+    const noneOnly = toggleEstimateMultiSelectAnswer(question!, ['permit', 'straps'], 'None required');
+    const correctionOnly = toggleEstimateMultiSelectAnswer(question!, ['None required'], 'permit');
+
+    assert(noneOnly.length === 1 && noneOnly[0] === 'None required', 'Selecting None required should clear code corrections.');
+    assert(correctionOnly.length === 1 && correctionOnly[0] === 'permit', 'Selecting a code correction should clear None required.');
+}
+
+function unansweredPrioritiesDoNotBlockAiDrafting() {
+    const answers = completeAnswers('water_heater');
+
+    delete answers.homeowner_priorities;
+
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers,
+        priceBookItems: pricedItems('Water Heaters'),
+    });
+
+    assert(workspace.draftGate.canDraft, 'Unanswered homeowner priorities should not block the first AI draft.');
+    assert(workspace.draftGate.assumptionsUsedInDraft.some((entry) => entry.includes('Homeowner priorities')), 'Priority gaps should be shown as draft assumptions.');
+}
+
+function notDiscussedWarrantyDoesNotBlockFirstDraft() {
+    const answers = completeAnswers('water_heater');
+
+    answers.desired_warranty = 'Not discussed yet';
+
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers,
+        priceBookItems: pricedItems('Water Heaters'),
+    });
+
+    assert(workspace.draftGate.canDraft, 'Not discussed yet warranty should not block first AI drafting.');
+    assert(!workspace.answerValidation.missingRequiredQuestionIds.includes('desired_warranty'), 'Warranty should no longer be a required first-draft question.');
+}
+
+function skippedPhotosDoNotCountAsUploadedPhotos() {
+    const skip = createEstimateRequirementSkipAnswer('Existing unit photo', 'inaccessible', '2026-07-15T12:00:00.000Z');
+
+    assert(isRequirementSkipAnswer(skip), 'Skipped requirement should save a structured skip state.');
+    assert(!isPhotoRequirementComplete(skip), 'Skipped photo requirement should not count as an uploaded photo.');
+    assert(getEstimateRequirementState(skip, isPhotoRequirementComplete(skip)) === 'skipped', 'Skipped requirement should report skipped state.');
+}
+
+function skippedNoncriticalEvidenceAllowsDraftCreation() {
+    const answers = completeAnswers('water_heater');
+
+    answers[photoRequirementAnswerKey('Existing unit photo')] = createEstimateRequirementSkipAnswer('Existing unit photo', 'customer_unavailable', '2026-07-15T12:00:00.000Z');
+
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers,
+        priceBookItems: pricedItems('Water Heaters'),
+    });
+
+    assert(workspace.draftGate.canDraft, 'Skipped noncritical evidence should still allow a working AI draft.');
+    assert(workspace.draftGate.skippedForNow.some((entry) => entry.includes('Existing unit photo')), 'Skipped evidence should be listed separately.');
+    assert(workspace.presentationGate.blockers.some((entry) => entry.includes('Required photos still missing')), 'Skipped photo evidence should still block final presentation.');
+}
+
+function criticalSafetyEvidenceStillBlocksPresentation() {
+    const answers = completeAnswers('water_heater');
+
+    delete answers.venting;
+    delete answers.tp_discharge;
+
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers,
+        priceBookItems: pricedItems('Water Heaters'),
+        technicianApproved: true,
+    });
+
+    assert(workspace.draftGate.canDraft, 'Missing safety checklist answers should be draft warnings, not draft blockers.');
+    assert(workspace.presentationGate.blockers.some((entry) => entry.includes('Venting')), 'Critical safety answers should still block presentation.');
+}
+
+function incompleteDraftShowsAssumptionsAndWarnings() {
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers: {
+            fuel_type: 'gas',
+            tank_or_tankless: '50 gallon',
+            code_corrections: ['None required'],
+        },
+        priceBookItems: [priceBookItem('company-a', 1, 'Water Heaters', 2400)],
+    });
+
+    assert(workspace.draftGate.canDraft, 'Minimum context and one deterministic price path should allow an incomplete working draft.');
+    assert(workspace.draftGate.warnings.length > 0, 'Incomplete drafts should show warnings.');
+    assert(workspace.draftGate.assumptionsUsedInDraft.length > 0, 'Incomplete drafts should show assumptions.');
+    assert(workspace.draftGate.missingBeforeFinalPresentation.length > 0, 'Incomplete drafts should list remaining presentation requirements.');
 }
 
 function toiletRequiredQuestionsAreEnforced() {
@@ -471,6 +583,14 @@ function aiOutputCannotAlterNumericPrices() {
     assert(!result.valid, 'AI numeric price fields must be rejected.');
 }
 
+function aiCanDraftSingleWorkingOption() {
+    const result = validateAiEstimateDraftResponse({
+        choices: [aiChoice()],
+    }, approvedAiContext());
+
+    assert(result.valid, 'AI may draft copy for one deterministic working option before final presentation.');
+}
+
 function pricingCalculationIsDeterministic() {
     const entry = estimateEntry('company-a', 'deterministic', 100);
     const input = {
@@ -736,12 +856,12 @@ function measurementAnswer(value: number, unit: string): EstimateRequirementMeas
     };
 }
 
-function pricedItems() {
+function pricedItems(category = 'Toilets') {
     return [
-        priceBookItem('company-a', 1, 'Toilets', 100),
-        priceBookItem('company-a', 2, 'Toilets', 150),
-        priceBookItem('company-a', 3, 'Toilets', 200),
-        priceBookItem('company-a', 4, 'Toilets', 250),
+        priceBookItem('company-a', 1, category, 100),
+        priceBookItem('company-a', 2, category, 150),
+        priceBookItem('company-a', 3, category, 200),
+        priceBookItem('company-a', 4, category, 250),
     ];
 }
 

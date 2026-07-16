@@ -35,6 +35,7 @@ import {
 import { supabase } from '../lib/supabase';
 import {
     createTechnicianNextJobStatusNotice,
+    resolveTechWorkflowTransition,
     TECH_CUSTOM_STATUS_ACTION,
     TECH_WORKFLOW_ACTIONS,
     TECHNICIAN_NEXT_JOB_STATUS_ACTIONS,
@@ -272,6 +273,7 @@ export default function TechOSScreen() {
     const [workflowMessageBySlotId, setWorkflowMessageBySlotId] = useState<Record<string, string>>({});
     const [technicianStatusMessageBySlotId, setTechnicianStatusMessageBySlotId] = useState<Record<string, string>>({});
     const [customStatusNoteBySlotId, setCustomStatusNoteBySlotId] = useState<Record<string, string>>({});
+    const [pendingWorkflowConfirmationBySlotId, setPendingWorkflowConfirmationBySlotId] = useState<Record<string, string>>({});
     const [closeoutFormBySlotId, setCloseoutFormBySlotId] = useState<Record<string, TechCloseoutForm>>({});
     const [closingVisitSlotId, setClosingVisitSlotId] = useState('');
     const [timingEstimateBySlotId, setTimingEstimateBySlotId] = useState<Record<string, string>>({});
@@ -456,6 +458,7 @@ export default function TechOSScreen() {
         setSelectedAssignedJobId('');
         setWorkflowStatusBySlotId({});
         setWorkflowMessageBySlotId({});
+        setPendingWorkflowConfirmationBySlotId({});
         setTechnicianStatusMessageBySlotId({});
         setTimingEstimateBySlotId({});
         setTimingPromptMessageBySlotId({});
@@ -1204,12 +1207,28 @@ export default function TechOSScreen() {
         const slotId = job.slot.id;
         const normalizedStatus = normalizeStatus(action.status);
         const trimmedStatusNote = String(statusNote || '').trim();
+        const currentWorkflowStatus = workflowStatusBySlotId[slotId] || job.slot.status || job.request?.status || '';
+        const transition = resolveTechWorkflowTransition(action, {
+            slotId,
+            companyId: job.slot.company_id,
+            technicianCompanyUserId: job.slot.technician_company_user_id,
+            requestId: job.request?.id || null,
+            slotServiceRequestId: job.slot.service_request_id,
+            currentStatus: currentWorkflowStatus,
+            pendingConfirmationKey: pendingWorkflowConfirmationBySlotId[slotId] || null,
+        });
 
-        if (!slotId || !job.slot.company_id || !job.slot.technician_company_user_id) {
+        if (!transition.canRun) {
             setWorkflowMessageBySlotId((current) => ({
                 ...current,
-                [slotId || 'missing']: 'Workflow update failed: assigned job context is missing.',
+                [slotId || 'missing']: transition.message,
             }));
+            if (transition.requiresConfirmation && slotId) {
+                setPendingWorkflowConfirmationBySlotId((current) => ({
+                    ...current,
+                    [slotId]: transition.confirmationKey,
+                }));
+            }
             return;
         }
 
@@ -1221,6 +1240,13 @@ export default function TechOSScreen() {
             return;
         }
 
+        setPendingWorkflowConfirmationBySlotId((current) => {
+            const next = { ...current };
+
+            delete next[slotId];
+
+            return next;
+        });
         setUpdatingWorkflowSlotId(slotId);
         setWorkflowMessageBySlotId((current) => ({
             ...current,
@@ -1230,11 +1256,12 @@ export default function TechOSScreen() {
         try {
             const nextStatusNote = normalizedStatus === 'custom' ? trimmedStatusNote : null;
             let updatedAt = new Date().toISOString();
+            const serviceRequestId = transition.serviceRequestId;
 
-            if (job.request?.id && normalizedStatus !== 'custom') {
+            if (serviceRequestId && normalizedStatus !== 'custom') {
                 const result = await recordServiceRequestVisitStatus({
                     companyId: job.slot.company_id,
-                    serviceRequestId: job.request.id,
+                    serviceRequestId,
                     scheduleSlotId: slotId,
                     status: action.status,
                     statusNote: nextStatusNote,
@@ -1251,10 +1278,14 @@ export default function TechOSScreen() {
                 updatedAt = new Date().toISOString();
                 setServiceRequestsById((current) => ({
                     ...current,
-                    [job.request!.id]: {
-                        ...job.request!,
-                        status: result.service_request_status,
-                    },
+                    ...(current[serviceRequestId] || job.request ? {
+                        [serviceRequestId]: {
+                            ...(current[serviceRequestId] || job.request!),
+                            id: serviceRequestId,
+                            company_id: job.slot.company_id,
+                            status: result.service_request_status,
+                        },
+                    } : {}),
                 }));
             } else {
                 const { data, error } = await supabase
@@ -1297,11 +1328,15 @@ export default function TechOSScreen() {
                     ? `Custom status updated: ${trimmedStatusNote}.`
                     : `Status updated: ${action.label}.`,
             }));
-            if (!job.request?.id) {
+            if (!transition.serviceRequestId) {
                 setWorkflowMessageBySlotId((current) => ({
                     ...current,
                     [slotId]: `${current[slotId] || `Status updated: ${action.label}.`} This assignment is not linked to a homeowner request yet.`,
                 }));
+            }
+
+            if (activeCompanyId && membership?.id) {
+                await loadAssignedScheduleJobs(activeCompanyId, membership.id, { subtle: true });
             }
         } catch (error) {
             setWorkflowMessageBySlotId((current) => ({

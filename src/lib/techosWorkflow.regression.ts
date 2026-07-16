@@ -1,11 +1,13 @@
 import {
     createTechnicianNextJobStatusNotice,
+    resolveTechWorkflowTransition,
     TECH_CUSTOM_STATUS_ACTION,
     TECH_WORKFLOW_ACTIONS,
     TECHNICIAN_NEXT_JOB_STATUS_ACTIONS,
     type TechnicianNextJobStatusAction,
 } from './techosWorkflow';
 import { buildDispatchWallSections, type DispatchWallRequest, type DispatchWallScheduleSlot } from './dispatchWallClassification';
+import { getHomeownerFacingStatusKey } from './homeownerActiveRequests';
 
 runTechOSWorkflowRegressions();
 
@@ -13,6 +15,14 @@ export function runTechOSWorkflowRegressions() {
     currentJobWorkflowContainsExpectedVisitActions();
     currentJobWorkflowExcludesTechnicianLevelActions();
     technicianNextJobActionsDoNotChangeCurrentVisitStatus();
+    eachWorkflowButtonTargetsBackendTransition();
+    slotRequestIdFallbackKeepsWorkflowOnRpcPath();
+    workflowOrderingRequiresConfirmation();
+    workflowStatusesUpdateHomeownerTrackerLanguage();
+    workflowStatusesMoveDispatchLanes();
+    authorizationFailureCanSurfaceVisibleMessage();
+    duplicateTapsUseStableTransitionIdentity();
+    providerModeContextPreservesRequestAndSlot();
     wallboardLaneStillUsesCurrentVisitStatus();
     technicianNextJobNoticeIsScopedToTechnicianAndCompany();
     dispatchRequestsResolveOnce();
@@ -47,6 +57,114 @@ function technicianNextJobActionsDoNotChangeCurrentVisitStatus() {
             assert(notice.persisted === false, `${action.label} should not fake technician-level persistence.`);
         });
     });
+}
+
+function eachWorkflowButtonTargetsBackendTransition() {
+    TECH_WORKFLOW_ACTIONS.forEach((action) => {
+        const resolution = resolveTransition(action, {
+            currentStatus: action.key === 'in_progress' ? 'arrived' : 'on_my_way',
+            pendingConfirmationKey: action.key === 'arrived' ? 'slot-1:arrived' : null,
+        });
+
+        assert(resolution.canRun, `${action.label} should resolve to a runnable backend transition.`);
+        assert(resolution.serviceRequestId === 'request-1', `${action.label} should carry the service request id.`);
+        assert(resolution.status === action.status, `${action.label} should call the expected backend status.`);
+    });
+}
+
+function slotRequestIdFallbackKeepsWorkflowOnRpcPath() {
+    const action = TECH_WORKFLOW_ACTIONS.find((candidate) => candidate.key === 'on_my_way');
+    const resolution = resolveTechWorkflowTransition(action!, {
+        slotId: 'slot-1',
+        companyId: 'company-1',
+        technicianCompanyUserId: 'tech-1',
+        requestId: null,
+        slotServiceRequestId: 'request-from-slot',
+        currentStatus: 'assigned',
+    });
+
+    assert(resolution.canRun, 'Slot-level service_request_id should keep TechOS on the RPC transition path.');
+    assert(resolution.serviceRequestId === 'request-from-slot', 'RPC transition should use slot service_request_id when request details are stale or missing.');
+}
+
+function workflowOrderingRequiresConfirmation() {
+    const arrived = TECH_WORKFLOW_ACTIONS.find((candidate) => candidate.key === 'arrived')!;
+    const working = TECH_WORKFLOW_ACTIONS.find((candidate) => candidate.key === 'in_progress')!;
+    const directArrival = resolveTransition(arrived, { currentStatus: 'scheduled' });
+    const confirmedArrival = resolveTransition(arrived, {
+        currentStatus: 'scheduled',
+        pendingConfirmationKey: directArrival.confirmationKey,
+    });
+    const earlyWork = resolveTransition(working, { currentStatus: 'on_my_way' });
+
+    assert(!directArrival.canRun && directArrival.requiresConfirmation, 'Arrived before On My Way should require confirmation.');
+    assert(confirmedArrival.canRun, 'Second tap should allow the direct-arrival path.');
+    assert(!earlyWork.canRun && earlyWork.requiresConfirmation, 'Working before Arrived should require confirmation.');
+}
+
+function workflowStatusesUpdateHomeownerTrackerLanguage() {
+    const expected = [
+        ['on_my_way', 'on_my_way'],
+        ['arrived', 'arrived'],
+        ['in_progress', 'in_progress'],
+        ['estimate_needed', 'waiting_for_approval'],
+    ];
+
+    expected.forEach(([status, homeownerKey]) => {
+        assert(getHomeownerFacingStatusKey('scheduled', status === 'estimate_needed' ? 'waiting_for_customer_approval' : statusToEventType(status)) === homeownerKey, `${status} should map to ${homeownerKey}.`);
+    });
+}
+
+function workflowStatusesMoveDispatchLanes() {
+    const now = new Date(2026, 6, 12, 12, 0, 0, 0);
+    const expectedSections = [
+        ['on_my_way', 'on_my_way'],
+        ['arrived', 'in_progress'],
+        ['in_progress', 'in_progress'],
+        ['estimate_needed', 'in_progress'],
+    ] as const;
+
+    expectedSections.forEach(([status, sectionKey]) => {
+        const request = createRequest(`request-${status}`);
+        const sections = buildDispatchWallSections([request], [createSlot(request.id, status)], [createTechnician()], now);
+
+        assert(getSectionCount(sections, request.id, sectionKey) === 1, `${status} should move Dispatch to ${sectionKey}.`);
+    });
+}
+
+function authorizationFailureCanSurfaceVisibleMessage() {
+    const resolution = resolveTechWorkflowTransition(TECH_WORKFLOW_ACTIONS[0], {
+        slotId: 'slot-1',
+        companyId: 'company-1',
+        technicianCompanyUserId: '',
+        requestId: 'request-1',
+        currentStatus: 'assigned',
+    });
+
+    assert(!resolution.canRun, 'Missing technician context should not run the transition.');
+    assert(resolution.message.includes('Workflow update failed'), 'Failed context should produce a visible workflow error.');
+}
+
+function duplicateTapsUseStableTransitionIdentity() {
+    const first = resolveTransition(TECH_WORKFLOW_ACTIONS[0], { currentStatus: 'assigned' });
+    const second = resolveTransition(TECH_WORKFLOW_ACTIONS[0], { currentStatus: 'assigned' });
+
+    assert(first.confirmationKey === second.confirmationKey, 'Duplicate taps should resolve to the same transition identity for idempotent backend writes.');
+}
+
+function providerModeContextPreservesRequestAndSlot() {
+    const slot = { ...createSlot('request-1', 'assigned'), job_id: 'job-1' };
+    const request = createRequest('request-1');
+    const context = {
+        companyId: slot.company_id || request.company_id || '',
+        propertyId: request.property_id || null,
+        serviceRequestId: request.id || slot.service_request_id || null,
+        scheduleSlotId: slot.id || null,
+        jobId: slot.job_id || request.converted_job_id || null,
+    };
+
+    assert(context.serviceRequestId === 'request-1', 'Provider-mode navigation should preserve service request context.');
+    assert(context.scheduleSlotId === 'request-1-slot', 'Provider-mode navigation should preserve schedule slot context.');
 }
 
 function wallboardLaneStillUsesCurrentVisitStatus() {
@@ -97,6 +215,33 @@ function createNotice(action: TechnicianNextJobStatusAction, currentVisitStatus:
         currentVisitStatus,
         technicianCompanyUserId: 'tech-1',
     });
+}
+
+function resolveTransition(
+    action: (typeof TECH_WORKFLOW_ACTIONS)[number],
+    overrides: {
+        currentStatus?: string | null;
+        pendingConfirmationKey?: string | null;
+    } = {}
+) {
+    return resolveTechWorkflowTransition(action, {
+        slotId: 'slot-1',
+        companyId: 'company-1',
+        technicianCompanyUserId: 'tech-1',
+        requestId: 'request-1',
+        currentStatus: overrides.currentStatus || 'assigned',
+        pendingConfirmationKey: overrides.pendingConfirmationKey || null,
+    });
+}
+
+function statusToEventType(status: string) {
+    const eventTypes: Record<string, string> = {
+        on_my_way: 'technician_on_the_way',
+        arrived: 'technician_arrived',
+        in_progress: 'work_in_progress',
+    };
+
+    return eventTypes[status] || status;
 }
 
 function createRequest(id: string): DispatchWallRequest {

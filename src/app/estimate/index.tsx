@@ -6,8 +6,10 @@ import { Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'reac
 import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
+    createEstimateRequirementSkipAnswer,
     estimateRequirementId,
     formatMoney,
+    getEstimateRequirementState,
     getEstimateCategoryTemplate,
     inferEstimateCategoryFromDraft,
     isAnswerComplete,
@@ -15,17 +17,21 @@ import {
     isMeasurementRequirementComplete,
     isPhotoRequirementAnswer,
     isPhotoRequirementComplete,
+    isRequirementSkipAnswer,
     measurementRequirementAnswerKey,
     photoRequirementAnswerKey,
+    toggleEstimateMultiSelectAnswer,
     toHomeownerPresentationChoice,
     validateAiEstimateDraftResponse,
     type AiEstimateDraftChoice,
     type EstimateAnswerSet,
     type EstimateAnswerValue,
     type EstimateChoice as Phase1EstimateChoice,
+    type EstimateDraftGate,
     type EstimateOptionCategory,
     type EstimateQuestionDefinition,
     type EstimateRequirementMeasurementAnswer,
+    type EstimateRequirementSkipReason,
 } from '../../lib/estimateOptions';
 import {
     createEstimateRequirementPhotoPreview,
@@ -93,6 +99,18 @@ type RequirementUploadState = {
     uploading: boolean;
     error: string | null;
 };
+
+type RequirementKind = 'photo' | 'measurement';
+
+const requirementSkipReasons: Array<{ label: string; reason: EstimateRequirementSkipReason | null }> = [
+    { label: 'Skip for now', reason: null },
+    { label: 'Inaccessible', reason: 'inaccessible' },
+    { label: 'Unsafe', reason: 'unsafe_to_capture' },
+    { label: 'Label unreadable', reason: 'label_unreadable' },
+    { label: 'Customer unavailable', reason: 'customer_unavailable' },
+    { label: 'N/A', reason: 'not_applicable' },
+    { label: 'Other', reason: 'other' },
+];
 
 export default function EstimateScreen() {
     const { companyId, propertyId, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId } = useLocalSearchParams<{
@@ -417,10 +435,7 @@ export default function EstimateScreen() {
     function toggleMultiAnswer(question: EstimateQuestionDefinition, value: string) {
         setTechnicianApproved(false);
         setPresentationMode(false);
-        const currentValues = Array.isArray(answers[question.id]) ? answers[question.id] as string[] : [];
-        const nextValues = currentValues.includes(value)
-            ? currentValues.filter((entry) => entry !== value)
-            : [...currentValues, value];
+        const nextValues = toggleEstimateMultiSelectAnswer(question, answers[question.id], value);
 
         setAnswers((current) => ({
             ...current,
@@ -563,6 +578,68 @@ export default function EstimateScreen() {
                 [key]: { uploading: false, error: errorMessage },
             }));
             setMessage(`${label} photo could not be removed: ${errorMessage}`);
+        }
+    }
+
+    async function skipRequirement(kind: RequirementKind, label: string, reason: EstimateRequirementSkipReason | null) {
+        const key = kind === 'photo'
+            ? photoRequirementAnswerKey(label)
+            : measurementRequirementAnswerKey(label);
+        const session = await resolveSessionForDraft(selectedCategory);
+
+        if (!session) return;
+
+        const answer = createEstimateRequirementSkipAnswer(label, reason);
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+
+        try {
+            await saveEstimateSessionAnswer(session.id, key, answer);
+            setAnswers((current) => ({
+                ...current,
+                [key]: answer,
+            }));
+
+            if (kind === 'photo') {
+                setPhotoPreviewByKey((current) => {
+                    const next = { ...current };
+
+                    delete next[key];
+
+                    return next;
+                });
+            }
+
+            setMessage(`${label} marked skipped for now.`);
+        } catch (error) {
+            setMessage(`${label} skip state could not be saved: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    async function clearSkippedRequirement(kind: RequirementKind, label: string) {
+        const key = kind === 'photo'
+            ? photoRequirementAnswerKey(label)
+            : measurementRequirementAnswerKey(label);
+        const session = await resolveSessionForDraft(selectedCategory);
+
+        if (!session) return;
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+
+        try {
+            await deleteEstimateSessionAnswer(session.id, key);
+            setAnswers((current) => {
+                const next = { ...current };
+
+                delete next[key];
+
+                return next;
+            });
+            setMessage(`${label} skip state cleared.`);
+        } catch (error) {
+            setMessage(`${label} skip state could not be cleared: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -757,7 +834,7 @@ export default function EstimateScreen() {
         }));
     }
 
-    async function draftWithAi(workspaceChoices: Phase1EstimateChoice[]) {
+    async function draftWithAi(workspaceChoices: Phase1EstimateChoice[], draftGate: EstimateDraftGate) {
         if (!estimateAccess) return;
 
         if (hasRequirementUploadInProgress()) {
@@ -765,8 +842,13 @@ export default function EstimateScreen() {
             return;
         }
 
-        if (workspaceChoices.length < 2) {
-            setMessage('At least two deterministic priced options are required before AI drafting.');
+        if (!draftGate.canDraft) {
+            setMessage(`AI drafting needs: ${draftGate.blockers.join(' ')}`);
+            return;
+        }
+
+        if (workspaceChoices.length < 1) {
+            setMessage('At least one deterministic priced option is required before AI drafting.');
             return;
         }
 
@@ -812,7 +894,11 @@ export default function EstimateScreen() {
                 warranties: referenceContext.warrantyIds.map((id) => ({ id, label: labelForReference(id, workspaceChoices) })),
                 inclusions: referenceContext.inclusionIds.map((id) => ({ id, label: labelForReference(id, workspaceChoices) })),
                 exclusions: referenceContext.exclusionIds.map((id) => ({ id, label: labelForReference(id, workspaceChoices) })),
-                warnings: workspaceChoices.flatMap((choice) => choice.pricingResult.warnings),
+                warnings: [
+                    ...draftGate.warnings,
+                    ...draftGate.assumptionsUsedInDraft.map((assumption) => `Assumption: ${assumption}`),
+                    ...workspaceChoices.flatMap((choice) => choice.pricingResult.warnings),
+                ],
                 company_tone_rules: [
                     'Professional',
                     'Brief',
@@ -1040,6 +1126,8 @@ export default function EstimateScreen() {
                             uploadByKey: requirementUploadByKey,
                             choosePhoto: chooseRequirementPhoto,
                             removePhoto: removeRequirementPhoto,
+                            skipRequirement: (label, reason) => skipRequirement('photo', label, reason),
+                            clearSkippedRequirement: (label) => clearSkippedRequirement('photo', label),
                         }))}
                         {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderMeasurementRequirementCard({
                             label,
@@ -1049,6 +1137,8 @@ export default function EstimateScreen() {
                             updateMeasurementDraft,
                             saveMeasurement: saveRequirementMeasurement,
                             clearMeasurement: clearRequirementMeasurement,
+                            skipRequirement: (label, reason) => skipRequirement('measurement', label, reason),
+                            clearSkippedRequirement: (label) => clearSkippedRequirement('measurement', label),
                         }))}
                     </View>
 
@@ -1069,6 +1159,33 @@ export default function EstimateScreen() {
                                     Measurements still needed: {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.join(', ')}
                                 </Text>
                             )}
+                        </View>
+                    )}
+
+                    {phase1Workspace.draftGate.missingBeforeFinalPresentation.length > 0 && (
+                        <View style={missingAnswerBoxStyle}>
+                            <Text style={smallEmptyTitleStyle}>Missing before final presentation</Text>
+                            {phase1Workspace.draftGate.missingBeforeFinalPresentation.slice(0, 8).map((entry) => (
+                                <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
+                            ))}
+                        </View>
+                    )}
+
+                    {phase1Workspace.draftGate.skippedForNow.length > 0 && (
+                        <View style={missingAnswerBoxStyle}>
+                            <Text style={smallEmptyTitleStyle}>Skipped for now</Text>
+                            {phase1Workspace.draftGate.skippedForNow.map((entry) => (
+                                <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
+                            ))}
+                        </View>
+                    )}
+
+                    {phase1Workspace.draftGate.assumptionsUsedInDraft.length > 0 && (
+                        <View style={missingAnswerBoxStyle}>
+                            <Text style={smallEmptyTitleStyle}>Assumptions used in draft</Text>
+                            {phase1Workspace.draftGate.assumptionsUsedInDraft.slice(0, 6).map((entry) => (
+                                <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
+                            ))}
                         </View>
                     )}
                 </View>
@@ -1105,8 +1222,8 @@ export default function EstimateScreen() {
                     {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
                     <View style={compactActionRowStyle}>
                         <TouchableOpacity
-                            onPress={() => draftWithAi(estimateChoices)}
-                            style={aiDrafting || requirementUploadInProgress ? mutedButtonStyle : compactPrimaryButtonStyle}
+                            onPress={() => draftWithAi(estimateChoices, phase1Workspace.draftGate)}
+                            style={aiDrafting || requirementUploadInProgress || !phase1Workspace.draftGate.canDraft ? mutedButtonStyle : compactPrimaryButtonStyle}
                             disabled={aiDrafting || requirementUploadInProgress}
                         >
                             <Text style={compactPrimaryButtonTextStyle}>
@@ -1436,10 +1553,14 @@ function renderPhotoRequirementCard(input: {
     uploadByKey: Record<string, RequirementUploadState>;
     choosePhoto: (label: string, capture: boolean) => void;
     removePhoto: (label: string) => void;
+    skipRequirement: (label: string, reason: EstimateRequirementSkipReason | null) => void;
+    clearSkippedRequirement: (label: string) => void;
 }) {
     const key = photoRequirementAnswerKey(input.label);
     const answer = input.answers[key];
     const complete = isPhotoRequirementComplete(answer);
+    const skipped = isRequirementSkipAnswer(answer);
+    const requirementState = getEstimateRequirementState(answer, complete);
     const previewUrl = input.previewByKey[key] || '';
     const uploadState = input.uploadByKey[key] || { uploading: false, error: null };
 
@@ -1448,7 +1569,7 @@ function renderPhotoRequirementCard(input: {
             <View style={choiceTitleRowStyle}>
                 <Text style={requirementTitleStyle}>{input.label}</Text>
                 <Text style={complete ? donePillStyle : requiredPillStyle}>
-                    {complete ? 'Done' : 'Required'}
+                    {formatRequirementState(requirementState)}
                 </Text>
             </View>
 
@@ -1461,7 +1582,7 @@ function renderPhotoRequirementCard(input: {
             ) : (
                 <View style={requirementPreviewPlaceholderStyle}>
                     <Text style={requirementPreviewPlaceholderTextStyle}>
-                        No photo saved
+                        {skipped ? 'Skipped for now' : 'No photo saved'}
                     </Text>
                 </View>
             )}
@@ -1496,7 +1617,33 @@ function renderPhotoRequirementCard(input: {
                         </Text>
                     </TouchableOpacity>
                 )}
+                {skipped && (
+                    <TouchableOpacity
+                        onPress={() => input.clearSkippedRequirement(input.label)}
+                        style={compactSecondaryButtonStyle}
+                    >
+                        <Text style={compactSecondaryButtonTextStyle}>
+                            Clear Skip
+                        </Text>
+                    </TouchableOpacity>
+                )}
             </View>
+
+            {!complete && !uploadState.uploading && (
+                <View style={chipRowStyle}>
+                    {requirementSkipReasons.map((skipReason) => (
+                        <TouchableOpacity
+                            key={`${key}-${skipReason.reason}`}
+                            onPress={() => input.skipRequirement(input.label, skipReason.reason)}
+                            style={answerButtonStyle}
+                        >
+                            <Text style={answerButtonTextStyle}>
+                                {skipReason.label}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            )}
 
             {uploadState.uploading && (
                 <Text style={requirementProgressTextStyle}>Uploading...</Text>
@@ -1516,10 +1663,14 @@ function renderMeasurementRequirementCard(input: {
     updateMeasurementDraft: (label: string, value: string) => void;
     saveMeasurement: (label: string) => void;
     clearMeasurement: (label: string) => void;
+    skipRequirement: (label: string, reason: EstimateRequirementSkipReason | null) => void;
+    clearSkippedRequirement: (label: string) => void;
 }) {
     const key = measurementRequirementAnswerKey(input.label);
     const answer = input.answers[key];
     const complete = isMeasurementRequirementComplete(answer);
+    const skipped = isRequirementSkipAnswer(answer);
+    const requirementState = getEstimateRequirementState(answer, complete);
     const unit = isMeasurementRequirementAnswer(answer) ? answer.unit : defaultMeasurementUnit(input.label);
     const draftValue = input.measurementDraftByKey[key] ??
         (isMeasurementRequirementAnswer(answer) ? String(answer.value) : '');
@@ -1530,7 +1681,7 @@ function renderMeasurementRequirementCard(input: {
             <View style={choiceTitleRowStyle}>
                 <Text style={requirementTitleStyle}>{input.label}</Text>
                 <Text style={complete ? donePillStyle : requiredPillStyle}>
-                    {complete ? 'Done' : 'Required'}
+                    {formatRequirementState(requirementState)}
                 </Text>
             </View>
 
@@ -1562,7 +1713,35 @@ function renderMeasurementRequirementCard(input: {
                         <Text style={compactSecondaryButtonTextStyle}>Clear</Text>
                     </TouchableOpacity>
                 )}
+                {skipped && (
+                    <TouchableOpacity
+                        onPress={() => input.clearSkippedRequirement(input.label)}
+                        style={compactSecondaryButtonStyle}
+                    >
+                        <Text style={compactSecondaryButtonTextStyle}>Clear Skip</Text>
+                    </TouchableOpacity>
+                )}
             </View>
+
+            {!complete && (
+                <View style={chipRowStyle}>
+                    {requirementSkipReasons.map((skipReason) => (
+                        <TouchableOpacity
+                            key={`${key}-${skipReason.reason}`}
+                            onPress={() => input.skipRequirement(input.label, skipReason.reason)}
+                            style={answerButtonStyle}
+                        >
+                            <Text style={answerButtonTextStyle}>
+                                {skipReason.label}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            )}
+
+            {skipped && (
+                <Text style={requirementProgressTextStyle}>Skipped for now</Text>
+            )}
 
             {!!error && (
                 <Text style={requirementErrorTextStyle}>{error}</Text>
@@ -1677,6 +1856,13 @@ function createMeasurementDrafts(answers: EstimateAnswerSet) {
 
         return drafts;
     }, {});
+}
+
+function formatRequirementState(state: 'completed' | 'skipped' | 'missing') {
+    if (state === 'completed') return 'Done';
+    if (state === 'skipped') return 'Skipped';
+
+    return 'Required';
 }
 
 function validateRequirementMeasurement(label: string, rawValue: string) {
