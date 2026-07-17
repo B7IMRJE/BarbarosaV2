@@ -29,6 +29,11 @@ import {
     type DispatchOfficeActiveFilterKey,
 } from '../lib/dispatchOffice';
 import { calculateDispatchRisk, type DispatchRiskResult } from '../lib/dispatchRisk';
+import {
+    buildDispatchWallRoute,
+    DISPATCH_WALL_OPEN_SOURCE_DISPATCH_OFFICE,
+    shouldOpenDispatchWallInCurrentStack,
+} from '../lib/dispatchWallNavigation';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import {
     queueHomeownerAssignmentNotification,
@@ -831,18 +836,12 @@ export default function DispatchBoardScreen() {
             return;
         }
 
-        const wallboardPath = `/dispatch-wall?companyId=${encodeURIComponent(companyIdForWall)}`;
+        const wallboardPath = buildDispatchWallRoute({
+            companyId: companyIdForWall,
+            source: DISPATCH_WALL_OPEN_SOURCE_DISPATCH_OFFICE,
+        });
 
-        if (Platform.OS === 'web') {
-            const windowLike = globalThis as {
-                open?: (url?: string, target?: string, features?: string) => Window | null;
-            };
-
-            const openedWindow = windowLike.open?.(wallboardPath, '_blank', 'noopener,noreferrer');
-
-            if (openedWindow) return;
-        }
-
+        if (!shouldOpenDispatchWallInCurrentStack()) return;
         router.push(wallboardPath as any);
     }
 

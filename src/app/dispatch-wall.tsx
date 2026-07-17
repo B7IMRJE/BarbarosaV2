@@ -20,6 +20,14 @@ import {
     type DispatchWallStatusTone,
 } from '../lib/dispatchWallLifecycle';
 import {
+    buildDispatchWallRoute,
+    DISPATCH_WALL_BACK_LABEL,
+    getDispatchWallBackRoute,
+    getDispatchWallFullscreenLabel,
+    normalizeDispatchWallOpenSource,
+    shouldReplaceDispatchWallWhenLeaving,
+} from '../lib/dispatchWallNavigation';
+import {
     buildDispatchWallSections,
     formatWallStatusLabel,
     getWallDisplayCode,
@@ -264,8 +272,9 @@ const TOP_SECTION_KEYS: DispatchWallSectionKey[] = ['emergency', 'emergency_lead
 const BOTTOM_SECTION_KEYS: DispatchWallSectionKey[] = ['assigned_ready', 'on_my_way', 'in_progress', 'available', 'absent', 'closed_today'];
 
 export default function DispatchWallScreen() {
-    const params = useLocalSearchParams<{ companyId?: string | string[]; demo?: string | string[] }>();
+    const params = useLocalSearchParams<{ companyId?: string | string[]; demo?: string | string[]; from?: string | string[] }>();
     const requestedCompanyId = firstParam(params.companyId);
+    const openedFrom = normalizeDispatchWallOpenSource(firstParam(params.from));
     const demoMode = isDevelopmentMode() && firstParam(params.demo).trim() === '1';
     const { width, height } = useWindowDimensions();
     const refreshInFlight = useRef(false);
@@ -540,6 +549,8 @@ export default function DispatchWallScreen() {
         tabHidden: isTabHidden,
         lastError: lastRefreshError,
     });
+    const activeCompanyId = companyAccess?.company_id || requestedCompanyId;
+    const backRoute = getDispatchWallBackRoute({ companyId: activeCompanyId, openedFrom });
 
     async function loadWallboard() {
         setLoading(true);
@@ -610,7 +621,10 @@ export default function DispatchWallScreen() {
         }
 
         if (!requestedCompanyId && accessResult.choices.length === 1) {
-            router.replace(`/dispatch-wall?companyId=${encodeURIComponent(accessResult.access.company_id)}` as never);
+            router.replace(buildDispatchWallRoute({
+                companyId: accessResult.access.company_id,
+                source: openedFrom,
+            }) as never);
         }
 
         setCompanyAccess(accessResult.access);
@@ -692,7 +706,10 @@ export default function DispatchWallScreen() {
                                 <Pressable
                                     key={choice.company_id}
                                     accessibilityRole="button"
-                                    onPress={() => router.replace(`/dispatch-wall?companyId=${encodeURIComponent(choice.company_id)}` as never)}
+                                    onPress={() => router.replace(buildDispatchWallRoute({
+                                        companyId: choice.company_id,
+                                        source: openedFrom,
+                                    }) as never)}
                                     style={companyChoiceButtonStyle}
                                 >
                                     <Text style={companyChoiceButtonTextStyle}>Open {choice.company_id.slice(0, 8)}</Text>
@@ -761,9 +778,22 @@ export default function DispatchWallScreen() {
         <View style={wallRootStyle}>
             <View style={[wallHeaderStyle, narrowLayout ? wallHeaderNarrowStyle : null]}>
                 <View style={[wallHeaderLeftStyle, narrowLayout ? wallHeaderLeftNarrowStyle : null]}>
-                    <View style={wallLogoShieldStyle}>
-                        <Text style={wallLogoTextStyle}>B</Text>
-                    </View>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={DISPATCH_WALL_BACK_LABEL}
+                        onPress={leaveDispatchWall}
+                        style={({ pressed }) => [
+                            wallBackButtonStyle,
+                            pressed ? wallBackButtonPressedStyle : null,
+                        ]}
+                    >
+                        <Text style={wallBackButtonTextStyle} numberOfLines={1}>{DISPATCH_WALL_BACK_LABEL}</Text>
+                    </Pressable>
+                    {!narrowLayout && (
+                        <View style={wallLogoShieldStyle}>
+                            <Text style={wallLogoTextStyle}>B</Text>
+                        </View>
+                    )}
                     {!narrowLayout && <View style={wallHeaderDividerStyle} />}
                     <Text style={[wallTitleStyle, { fontSize: narrowLayout ? 24 : width >= 1600 ? 42 : 34 }]} numberOfLines={1}>
                         Dispatch Activity Board
@@ -781,20 +811,18 @@ export default function DispatchWallScreen() {
                         </Text>
                     </View>
                     {!narrowLayout && <View style={wallHeaderDividerStyle} />}
-                    <View style={clockClusterStyle}>
+                    {!narrowLayout && <View style={clockClusterStyle}>
                         <Text style={[clockTextStyle, narrowLayout ? clockTextNarrowStyle : null]}>{formatClockTime(clockNow)}</Text>
                         <Text style={[dateTextStyle, narrowLayout ? dateTextNarrowStyle : null]}>{formatClockDate(clockNow)}</Text>
-                    </View>
-                    {!narrowLayout && (
-                        <Pressable
-                            accessibilityRole="button"
-                            accessibilityLabel={isFullscreen ? 'Exit full screen' : 'Open full screen'}
-                            onPress={requestFullscreen}
-                            style={fullscreenButtonStyle}
-                        >
-                            <Text style={fullscreenButtonTextStyle}>{isFullscreen ? 'Exit Full Screen' : 'Full Screen'}</Text>
-                        </Pressable>
-                    )}
+                    </View>}
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={isFullscreen ? 'Exit full screen' : 'Open full screen'}
+                        onPress={requestFullscreen}
+                        style={fullscreenButtonStyle}
+                    >
+                        <Text style={fullscreenButtonTextStyle}>{getDispatchWallFullscreenLabel(isFullscreen)}</Text>
+                    </Pressable>
                 </View>
             </View>
 
@@ -871,6 +899,21 @@ export default function DispatchWallScreen() {
             setIsFullscreen(isDocumentFullscreen(documentLike));
             setFullscreenMessage('');
         }).catch(() => setFullscreenMessage('Full screen could not be changed.'));
+    }
+
+    function leaveDispatchWall() {
+        const documentLike = getFullscreenDocument();
+
+        if (documentLike && isDocumentFullscreen(documentLike)) {
+            void exitDocumentFullscreen(documentLike).catch(() => undefined);
+        }
+
+        if (shouldReplaceDispatchWallWhenLeaving()) {
+            router.replace(backRoute as never);
+            return;
+        }
+
+        router.push(backRoute as never);
     }
 }
 
@@ -2080,10 +2123,34 @@ const wallHeaderLeftNarrowStyle: ViewStyle = {
     gap: 10,
 };
 
+const wallBackButtonStyle: ViewStyle = {
+    alignItems: 'center',
+    borderColor: '#38BDF8',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexShrink: 0,
+    justifyContent: 'center',
+    minHeight: 40,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+};
+
+const wallBackButtonPressedStyle: ViewStyle = {
+    backgroundColor: 'rgba(56, 189, 248, 0.16)',
+};
+
+const wallBackButtonTextStyle = {
+    color: '#E0F2FE',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
 const wallHeaderRightStyle: ViewStyle = {
     alignItems: 'center',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 22,
+    justifyContent: 'flex-end',
 };
 
 const wallHeaderRightNarrowStyle: ViewStyle = {
@@ -2185,6 +2252,8 @@ const fullscreenButtonStyle: ViewStyle = {
     borderColor: '#334155',
     borderRadius: 999,
     borderWidth: 1,
+    flexShrink: 0,
+    minHeight: 38,
     paddingHorizontal: 14,
     paddingVertical: 8,
 };
