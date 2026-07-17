@@ -236,6 +236,7 @@ const WORK_QUEUE_CATEGORIES: Array<{ key: WorkQueueCategory; label: string }> = 
     { key: 'closed', label: 'Closed' },
     { key: 'archived', label: 'Archived' },
 ];
+const ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE = 'Assigned technician details could not be loaded.';
 
 const WORK_QUEUE_SORT_OPTIONS: Array<{ key: WorkQueueSort; label: string }> = [
     { key: 'next_action', label: 'Next Action Due' },
@@ -634,7 +635,7 @@ export default function DispatchBoardScreen() {
 
         if (result.error) {
             setActiveTechnicians([]);
-            setMessage(`Could not load active technicians: ${result.error.message}`);
+            setMessage(`${ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE} ${result.error.message}`);
             return;
         }
 
@@ -1936,7 +1937,7 @@ function DispatchActiveJobCard({
     const identifier = getWorkQueueIdentifier(record.request);
     const title = record.request.customer_display_name || record.request.property_display_name || 'Homeowner';
     const address = abbreviateAddress(record.request);
-    const technician = record.technician ? getMemberDisplayName(record.technician) : 'Unassigned';
+    const technician = getAssignedTechnicianDisplayText(record.technician, record.slot);
     const nextAction = getDispatchActiveJobNextAction(record);
     const priority = formatLabel(record.request.priority || record.slot?.priority || 'Normal');
 
@@ -2378,7 +2379,7 @@ function WorkQueueRow({ record, selected, onOpen }: { record: WorkQueueRecord; s
     const title = record.request.customer_display_name || record.request.property_display_name || 'Homeowner';
     const statusLabel = getDispatchLaneTitle(record.laneKey);
     const detailLine = getWorkQueueDetailLine(record);
-    const technician = record.technician ? getMemberDisplayName(record.technician) : '';
+    const technician = getAssignedTechnicianDisplayText(record.technician, record.slot, '');
 
     return (
         <View
@@ -2753,8 +2754,8 @@ function ActivityScheduleFoundation({
                     ))}
                     {unknownTechnicianSlots.length > 0 && (
                         <ScheduleTechLane
-                            title="Unassigned / Unknown Tech"
-                            subtitle="Schedule rows without a matching active technician."
+                            title="Technician Details Unavailable"
+                            subtitle={ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE}
                             slots={unknownTechnicianSlots}
                             requestsById={requestsById}
                         />
@@ -4167,13 +4168,24 @@ async function loadCompanyMembers(companyId: string): Promise<{
     data: CompanyUser[];
     error: { message: string } | null;
 }> {
-    const rpcResult = await supabase.rpc('get_company_users_for_management', {
+    const dispatchRosterResult = await supabase.rpc('get_company_users_for_dispatch', {
         p_company_id: companyId,
     });
 
-    if (!rpcResult.error) {
+    if (!dispatchRosterResult.error) {
         return {
-            data: normalizeCompanyUsers(rpcResult.data),
+            data: normalizeCompanyUsers(dispatchRosterResult.data),
+            error: null,
+        };
+    }
+
+    const managementRpcResult = await supabase.rpc('get_company_users_for_management', {
+        p_company_id: companyId,
+    });
+
+    if (!managementRpcResult.error) {
+        return {
+            data: normalizeCompanyUsers(managementRpcResult.data),
             error: null,
         };
     }
@@ -4188,7 +4200,7 @@ async function loadCompanyMembers(companyId: string): Promise<{
         return {
             data: [],
             error: {
-                message: `${directResult.error.message}. Management RPC fallback also failed: ${rpcResult.error.message}`,
+                message: `${directResult.error.message}. Dispatch roster RPC failed: ${dispatchRosterResult.error.message}. Management RPC fallback also failed: ${managementRpcResult.error.message}`,
             },
         };
     }
@@ -4289,6 +4301,17 @@ function isTechnicianRole(role?: string | null) {
 
 function getMemberDisplayName(member: CompanyUser) {
     return member.full_name || member.email || `Tech ${shortId(member.auth_user_id || member.id)}`;
+}
+
+function getAssignedTechnicianDisplayText(
+    member: CompanyUser | null,
+    slot?: Pick<ScheduleSlot, 'technician_company_user_id'> | null,
+    unassignedLabel = 'Unassigned'
+) {
+    if (member) return getMemberDisplayName(member);
+    if (slot?.technician_company_user_id) return ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE;
+
+    return unassignedLabel;
 }
 
 function findCompanyUserById(companyUsers: CompanyUser[], companyUserId?: string | null) {

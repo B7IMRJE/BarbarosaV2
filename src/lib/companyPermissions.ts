@@ -1,4 +1,9 @@
 import { supabase } from './supabase';
+import {
+    canDispatchCompanyOperationsForSubject,
+    normalizeCompanyRoleValue,
+    normalizeCompanyStatusValue,
+} from './dispatcherAuthorization';
 
 const COMPANY_PERMISSION_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
@@ -104,15 +109,11 @@ const OWNER_PERMISSIONS: CompanyPermissionSet = {
 };
 
 export function normalizeCompanyRole(role?: string | null) {
-    const normalizedRole = String(role || '').trim().toLowerCase();
-
-    if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
-    if (normalizedRole === 'dispatch') return 'dispatcher';
-    return normalizedRole;
+    return normalizeCompanyRoleValue(role);
 }
 
 export function normalizeCompanyStatus(status?: string | null) {
-    return String(status || '').trim().toLowerCase();
+    return normalizeCompanyStatusValue(status);
 }
 
 export function isActiveCompanyStatus(status?: string | null) {
@@ -162,9 +163,7 @@ export function canAccessTechOS(subject: CompanyAccessSubject) {
 }
 
 export function canAccessDispatch(subject?: CompanyAccessSubject | null) {
-    if (!subject || !isActiveCompanyStatus(subject.status)) return false;
-
-    return ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'].includes(normalizeCompanyRole(subject.role));
+    return canDispatchCompanyOperationsForSubject(subject);
 }
 
 export function canUseCompanyEstimateWorkflow(subject?: CompanyAccessSubject | null) {

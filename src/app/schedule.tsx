@@ -132,12 +132,21 @@ export default function ScheduleBoardScreen() {
     }
 
     async function loadScheduleTechnicians(companyIdToLoad: string) {
-        const rpcResult = await supabase.rpc('get_company_users_for_management', {
+        const dispatchRosterResult = await supabase.rpc('get_company_users_for_dispatch', {
             p_company_id: companyIdToLoad,
         });
 
-        if (!rpcResult.error) {
-            setTechniciansById(buildTechnicianLookup(rpcResult.data));
+        if (!dispatchRosterResult.error) {
+            setTechniciansById(buildTechnicianLookup(dispatchRosterResult.data));
+            return;
+        }
+
+        const managementRpcResult = await supabase.rpc('get_company_users_for_management', {
+            p_company_id: companyIdToLoad,
+        });
+
+        if (!managementRpcResult.error) {
+            setTechniciansById(buildTechnicianLookup(managementRpcResult.data));
             return;
         }
 
@@ -148,7 +157,7 @@ export default function ScheduleBoardScreen() {
 
         if (error) {
             setTechniciansById({});
-            setMessage(`Scheduled slots loaded, but technician names could not be loaded: ${error.message}. Management RPC also failed: ${rpcResult.error.message}`);
+            setMessage(`Scheduled slots loaded, but technician names could not be loaded: ${error.message}. Dispatch roster RPC failed: ${dispatchRosterResult.error.message}. Management RPC also failed: ${managementRpcResult.error.message}`);
             return;
         }
 

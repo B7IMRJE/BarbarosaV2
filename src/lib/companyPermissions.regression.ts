@@ -1,4 +1,5 @@
 import {
+    canAccessDispatch,
     canUseCompanyEstimateWorkflow,
     hasCompanyPermission,
 } from './companyPermissions';
@@ -11,6 +12,8 @@ export function runCompanyPermissionsRegressions() {
     inactiveTechnicianCannotUseEstimateWorkflow();
     estimateWorkflowDoesNotGrantTechnicianManagementFlags();
     unrelatedCompanyRolesCannotUseEstimateWorkflow();
+    activeDispatcherCanUseDispatchWithoutManagementFlags();
+    inactiveDispatcherCannotUseDispatch();
 }
 
 function activeTechnicianCanUseEstimateWorkflow() {
@@ -70,6 +73,30 @@ function unrelatedCompanyRolesCannotUseEstimateWorkflow() {
             can_add_item_to_estimate: false,
         },
     }), 'Unrelated active company roles should not use estimate workflow.');
+}
+
+function activeDispatcherCanUseDispatchWithoutManagementFlags() {
+    const dispatcher = {
+        role: 'dispatcher',
+        status: 'active',
+        permissions: {
+            can_manage_company_users: false,
+            can_manage_company_profile: false,
+        },
+    };
+
+    assert(canAccessDispatch(dispatcher), 'Active dispatchers should be allowed into company dispatch operations.');
+    assert(hasCompanyPermission(dispatcher, 'can_view_jobs'), 'Active dispatchers should view company jobs.');
+    assert(hasCompanyPermission(dispatcher, 'can_view_customers'), 'Active dispatchers should view customer context for dispatch.');
+    assert(!hasCompanyPermission(dispatcher, 'can_manage_company_users'), 'Dispatcher operations should not grant employee management.');
+    assert(!hasCompanyPermission(dispatcher, 'can_manage_company_profile'), 'Dispatcher operations should not grant company ownership controls.');
+}
+
+function inactiveDispatcherCannotUseDispatch() {
+    assert(!canAccessDispatch({
+        role: 'dispatcher',
+        status: 'suspended',
+    }), 'Suspended dispatcher memberships should be denied Dispatch access.');
 }
 
 function assert(condition: unknown, message: string): asserts condition {

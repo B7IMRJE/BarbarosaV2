@@ -43,6 +43,8 @@ import { supabase } from '../lib/supabase';
 
 declare const __DEV__: boolean;
 
+const ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE = 'Assigned technician details could not be loaded.';
+
 type CompanyBrand = {
     id: string;
     name: string | null;
@@ -1013,7 +1015,7 @@ function DispatchWallCard({
         ? item.technician?.full_name ? 'Technician' : item.technician?.email || 'Technician'
         : formatShortAddress(request);
     const issue = getCardIssueText(item);
-    const technicianName = item.technician && !availableTechnician ? getPersonName(item.technician) : '';
+    const technicianName = getDispatchWallTechnicianDisplayText(item, availableTechnician, '');
     const relevantTime = getCardTimeText(item);
     const riskText = getWallTimingSummary(item);
     const visibleRiskText = item.risk.needsReassignment ? 'Reassign' : riskText;
@@ -1249,7 +1251,7 @@ function WallDetailOverlay({
                         <DetailRow label="Issue" value={request.issue_summary || 'Issue not provided'} />
                         <DetailRow label="Priority" value={formatLabel(request.priority)} />
                         <DetailRow label="Status" value={item.statusLabel} />
-                        <DetailRow label="Technician" value={item.technician ? getPersonName(item.technician) : 'Not assigned'} />
+                        <DetailRow label="Technician" value={getDispatchWallTechnicianDisplayText(item, availableTechnician, 'Not assigned')} />
                         {!availableTechnician && <DetailRow label="Arrival Window" value={formatArrivalWindow(item.slot)} />}
                         {!availableTechnician && <DetailRow label="Scheduled" value={item.slot?.start_at ? formatDateTime(item.slot.start_at) : 'Not scheduled'} />}
                         {availableTechnician && <DetailRow label="Availability" value={getAvailableTechnicianIssueText(item)} />}
@@ -1481,12 +1483,20 @@ async function loadWallDispatchRequests(companyId: string): Promise<DispatchWall
 }
 
 async function loadWallCompanyUsers(companyId: string): Promise<DispatchWallCompanyUser[]> {
-    const rpcResult = await supabase.rpc('get_company_users_for_management', {
+    const dispatchRosterResult = await supabase.rpc('get_company_users_for_dispatch', {
         p_company_id: companyId,
     });
 
-    if (!rpcResult.error) {
-        return normalizeWallCompanyUsers(rpcResult.data);
+    if (!dispatchRosterResult.error) {
+        return normalizeWallCompanyUsers(dispatchRosterResult.data);
+    }
+
+    const managementRpcResult = await supabase.rpc('get_company_users_for_management', {
+        p_company_id: companyId,
+    });
+
+    if (!managementRpcResult.error) {
+        return normalizeWallCompanyUsers(managementRpcResult.data);
     }
 
     const directResult = await supabase
@@ -1496,7 +1506,7 @@ async function loadWallCompanyUsers(companyId: string): Promise<DispatchWallComp
         .order('created_at', { ascending: false });
 
     if (directResult.error) {
-        throw new Error(`${directResult.error.message}. Management user RPC also failed: ${rpcResult.error.message}`);
+        throw new Error(`${directResult.error.message}. Dispatch roster RPC failed: ${dispatchRosterResult.error.message}. Management user RPC also failed: ${managementRpcResult.error.message}`);
     }
 
     return normalizeWallCompanyUsers(directResult.data);
@@ -1940,6 +1950,21 @@ function formatFullAddress(request: CompanyDispatchRequest) {
 
 function getPersonName(user: DispatchWallCompanyUser) {
     return user.full_name || user.email || 'Technician';
+}
+
+function getDispatchWallTechnicianDisplayText(
+    item: DispatchWallItem,
+    availableTechnician: boolean,
+    unassignedLabel: string
+) {
+    if (availableTechnician) {
+        return item.technician ? getPersonName(item.technician) : unassignedLabel;
+    }
+
+    if (item.technician) return getPersonName(item.technician);
+    if (item.slot?.technician_company_user_id) return ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE;
+
+    return unassignedLabel;
 }
 
 function getFullscreenDocument() {
