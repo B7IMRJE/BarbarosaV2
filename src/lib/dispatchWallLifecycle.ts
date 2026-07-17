@@ -22,6 +22,7 @@ export const DISPATCH_WALL_EVENT_REFRESH_DEBOUNCE_MS = 1_500;
 export const DISPATCH_WALL_RECONNECT_BASE_DELAY_MS = 2_000;
 export const DISPATCH_WALL_RECONNECT_MAX_DELAY_MS = 30_000;
 export const DISPATCH_WALL_RECONNECT_MAX_ATTEMPTS = 6;
+export const DISPATCH_WALL_MANUAL_REFRESH_LABEL = 'Refresh now';
 
 type RefreshDecisionInput = {
     nowMs: number;
@@ -46,6 +47,7 @@ type ConnectionStatusInput = {
     loading: boolean;
     refreshInFlight: boolean;
     reconnectAttempt: number;
+    tabHidden?: boolean;
     lastError?: string | null;
 };
 
@@ -109,6 +111,7 @@ export function getDispatchWallConnectionStatus({
     loading,
     refreshInFlight,
     reconnectAttempt,
+    tabHidden = false,
     lastError,
 }: ConnectionStatusInput): DispatchWallConnectionStatus {
     const ageMs = lastSuccessfulLoadAtMs === null ? null : Math.max(0, nowMs - lastSuccessfulLoadAtMs);
@@ -132,6 +135,14 @@ export function getDispatchWallConnectionStatus({
     }
 
     if (stale) {
+        if (tabHidden) {
+            return {
+                label: ageLabel ? `Browser tab hidden; data may be stale — last updated ${ageLabel}` : 'Browser tab hidden; data may be stale',
+                tone: 'warning',
+                stale: true,
+            };
+        }
+
         return {
             label: ageLabel ? `Data may be stale — last updated ${ageLabel}` : 'Data may be stale — reconnecting',
             tone: 'warning',

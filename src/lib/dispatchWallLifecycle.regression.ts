@@ -1,5 +1,6 @@
 import {
     DISPATCH_WALL_FALLBACK_REFRESH_MS,
+    DISPATCH_WALL_MANUAL_REFRESH_LABEL,
     DISPATCH_WALL_RECONNECT_MAX_ATTEMPTS,
     getDispatchWallConnectionStatus,
     getDispatchWallReconnectPlan,
@@ -21,6 +22,8 @@ export function runDispatchWallLifecycleRegressions() {
     successfulReconnectTriggersRefresh();
     oldRealtimeChannelsAreReplacedBeforeAnotherSubscribe();
     staleThresholdChangesLiveIndicatorToWarning();
+    hiddenTabExplainsPossibleRefreshThrottling();
+    manualRefreshActionStaysVisible();
     successfulLoadRestoresLiveState();
     repeatedFocusAndVisibilityDoNotCreateDuplicateSubscriptions();
 }
@@ -146,6 +149,26 @@ function staleThresholdChangesLiveIndicatorToWarning() {
 
     assert(status.tone === 'warning', 'Stale data should not show a green Live indicator.');
     assert(status.label.includes('Data may be stale'), 'Stale data should show a warning label.');
+}
+
+function hiddenTabExplainsPossibleRefreshThrottling() {
+    const status = getDispatchWallConnectionStatus({
+        lastSuccessfulLoadAtMs: 0,
+        nowMs: 240_000,
+        realtimeState: 'subscribed',
+        online: true,
+        loading: false,
+        refreshInFlight: false,
+        reconnectAttempt: 0,
+        tabHidden: true,
+    });
+
+    assert(status.tone === 'warning', 'Hidden stale tab should use a warning tone.');
+    assert(status.label.includes('Browser tab hidden'), 'Hidden stale tab should distinguish browser throttling from backend failure.');
+}
+
+function manualRefreshActionStaysVisible() {
+    assert(DISPATCH_WALL_MANUAL_REFRESH_LABEL === 'Refresh now', 'Activity Board should expose a visible manual refresh action.');
 }
 
 function successfulLoadRestoresLiveState() {

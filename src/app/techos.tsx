@@ -20,6 +20,10 @@ import {
 } from '../lib/estimateDraft';
 import { inferEstimateCategoryFromDraft } from '../lib/estimateOptions';
 import { resolveEstimateOptionSession } from '../lib/estimateSessions';
+import {
+    formatServiceRequestReference,
+    getServiceRequestDisplayCode,
+} from '../lib/homeServiceRequests';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { recordServiceRequestEvent } from '../lib/serviceRequestActivity';
 import {
@@ -34,11 +38,16 @@ import {
 } from '../lib/serviceVisitCloseout';
 import { supabase } from '../lib/supabase';
 import {
+    buildTechWorkflowStatusBySlotId,
     createTechnicianNextJobStatusNotice,
     formatTechWorkflowProgressState,
+    formatTechWorkflowStatusText,
+    getTechWorkflowPersistenceMismatchMessage,
     getNextJobAvailabilitySectionState,
     getTechWorkflowStatusFeedback,
     isSecondaryTechWorkflowAction,
+    resolveTechOSRouteSelection,
+    resolveTechWorkflowVisibleStatus,
     resolveTechWorkflowActionPresentation,
     resolveTechWorkflowTransition,
     TECH_CUSTOM_STATUS_ACTION,
@@ -173,6 +182,8 @@ type TechServiceRequest = {
     company_id: string;
     property_id: string | null;
     company_property_client_id: string | null;
+    display_code: string | null;
+    display_sequence: number | null;
     request_type: string | null;
     status: string | null;
     priority: string | null;
@@ -273,6 +284,8 @@ export default function TechOSScreen() {
     const [authEmail, setAuthEmail] = useState('');
     const [signingOut, setSigningOut] = useState(false);
     const [selectedAssignedJobId, setSelectedAssignedJobId] = useState('');
+    const [dismissedAssignedJobId, setDismissedAssignedJobId] = useState('');
+    const [routeOpenedAssignedJobId, setRouteOpenedAssignedJobId] = useState('');
     const [workflowStatusBySlotId, setWorkflowStatusBySlotId] = useState<Record<string, string>>({});
     const [workflowMessageBySlotId, setWorkflowMessageBySlotId] = useState<Record<string, string>>({});
     const [technicianStatusMessageBySlotId, setTechnicianStatusMessageBySlotId] = useState<Record<string, string>>({});
@@ -290,6 +303,7 @@ export default function TechOSScreen() {
     const [appearanceMessage, setAppearanceMessage] = useState('');
     const [scheduleDiagnostics, setScheduleDiagnostics] = useState<TechOSScheduleDiagnostics | null>(null);
     const knownAssignedSlotIdsRef = useRef<Set<string>>(new Set());
+    const workflowStatusBySlotIdRef = useRef<Record<string, string>>({});
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const requestedSlotId = useMemo(() => firstParam(slotId), [slotId]);
@@ -374,12 +388,28 @@ export default function TechOSScreen() {
     }, [requestedCompanyId]);
 
     useEffect(() => {
-        if (!requestedSlotId) return;
+        workflowStatusBySlotIdRef.current = workflowStatusBySlotId;
+    }, [workflowStatusBySlotId]);
 
-        if (assignedScheduleJobs.some((job) => job.slot.id === requestedSlotId)) {
-            setSelectedAssignedJobId(requestedSlotId);
+    useEffect(() => {
+        const nextSelection = resolveTechOSRouteSelection({
+            availableSlotIds: assignedScheduleJobs.map((job) => job.slot.id),
+            dismissedSlotId: dismissedAssignedJobId,
+            requestedSlotId,
+            routeOpenedSlotId: routeOpenedAssignedJobId,
+            selectedSlotId: selectedAssignedJobId,
+        });
+
+        if (nextSelection.selectedSlotId !== selectedAssignedJobId) {
+            setSelectedAssignedJobId(nextSelection.selectedSlotId);
         }
-    }, [assignedScheduleJobs, requestedSlotId]);
+        if (nextSelection.dismissedSlotId !== dismissedAssignedJobId) {
+            setDismissedAssignedJobId(nextSelection.dismissedSlotId);
+        }
+        if (nextSelection.routeOpenedSlotId !== routeOpenedAssignedJobId) {
+            setRouteOpenedAssignedJobId(nextSelection.routeOpenedSlotId);
+        }
+    }, [assignedScheduleJobs, dismissedAssignedJobId, requestedSlotId, routeOpenedAssignedJobId, selectedAssignedJobId]);
 
     useEffect(() => {
         void loadAssignedEstimateDraftCounts();
@@ -460,7 +490,10 @@ export default function TechOSScreen() {
         setAuthUserId('');
         setAuthEmail('');
         setSelectedAssignedJobId('');
+        setDismissedAssignedJobId('');
+        setRouteOpenedAssignedJobId('');
         setWorkflowStatusBySlotId({});
+        workflowStatusBySlotIdRef.current = {};
         setWorkflowMessageBySlotId({});
         setPendingWorkflowConfirmationBySlotId({});
         setTechnicianStatusMessageBySlotId({});
@@ -693,9 +726,27 @@ export default function TechOSScreen() {
             nextSlots.some((slot) => !previousSlotIds.has(slot.id) && isActiveScheduleSlot(slot.status));
 
         knownAssignedSlotIdsRef.current = nextSlotIds;
-        setAssignedScheduleSlots(nextSlots);
 
         const serviceRequestsResult = await loadScheduleServiceRequests(companyIdToLoad, nextSlots);
+        const nextWorkflowStatusBySlotId = buildTechWorkflowStatusBySlotId(
+            nextSlots,
+            serviceRequestsResult.requestsById,
+            workflowStatusBySlotIdRef.current
+        );
+        const mergedSlots = nextSlots.map((slot) => ({
+            ...slot,
+            status: nextWorkflowStatusBySlotId[slot.id] || slot.status,
+        }));
+
+        workflowStatusBySlotIdRef.current = {
+            ...workflowStatusBySlotIdRef.current,
+            ...nextWorkflowStatusBySlotId,
+        };
+        setWorkflowStatusBySlotId((current) => ({
+            ...current,
+            ...nextWorkflowStatusBySlotId,
+        }));
+        setAssignedScheduleSlots(mergedSlots);
         setServiceRequestsById(serviceRequestsResult.requestsById);
         setScheduleMessage(serviceRequestsResult.message);
 
@@ -985,10 +1036,12 @@ export default function TechOSScreen() {
     }
 
     function handleOpenAssignedJobDetails(job: TechAssignedScheduleJob) {
+        setDismissedAssignedJobId('');
         setSelectedAssignedJobId(job.slot.id);
     }
 
     function handleCloseAssignedJobDetails() {
+        setDismissedAssignedJobId(selectedAssignedJobId);
         setSelectedAssignedJobId('');
     }
 
@@ -1185,6 +1238,10 @@ export default function TechOSScreen() {
                     status: result.service_request_status,
                 },
             }));
+            workflowStatusBySlotIdRef.current = {
+                ...workflowStatusBySlotIdRef.current,
+                [slotId]: result.schedule_slot_status,
+            };
             setWorkflowStatusBySlotId((current) => ({
                 ...current,
                 [slotId]: result.schedule_slot_status,
@@ -1261,6 +1318,29 @@ export default function TechOSScreen() {
             const nextStatusNote = normalizedStatus === 'custom' ? trimmedStatusNote : null;
             let updatedAt = new Date().toISOString();
             const serviceRequestId = transition.serviceRequestId;
+            let persistedWorkflowStatus = action.status;
+            let persistenceMismatchMessage = '';
+
+            if (normalizedStatus !== 'custom') {
+                workflowStatusBySlotIdRef.current = {
+                    ...workflowStatusBySlotIdRef.current,
+                    [slotId]: action.status,
+                };
+                setWorkflowStatusBySlotId((current) => ({
+                    ...current,
+                    [slotId]: action.status,
+                }));
+                setAssignedScheduleSlots((current) => current.map((slot) => (
+                    slot.id === slotId
+                        ? {
+                            ...slot,
+                            status: action.status,
+                            tech_status_note: nextStatusNote,
+                            updated_at: updatedAt,
+                        }
+                        : slot
+                )));
+            }
 
             if (serviceRequestId && normalizedStatus !== 'custom') {
                 const result = await recordServiceRequestVisitStatus({
@@ -1280,6 +1360,11 @@ export default function TechOSScreen() {
                 });
 
                 updatedAt = new Date().toISOString();
+                persistedWorkflowStatus = resolveTechWorkflowVisibleStatus({
+                    requestStatus: result.service_request_status,
+                    slotStatus: result.schedule_slot_status,
+                }) || action.status;
+                persistenceMismatchMessage = getTechWorkflowPersistenceMismatchMessage(action.status, result);
                 setServiceRequestsById((current) => ({
                     ...current,
                     ...(current[serviceRequestId] || job.request ? {
@@ -1310,32 +1395,37 @@ export default function TechOSScreen() {
                 }
 
                 updatedAt = readStringField(data as Record<string, unknown>, 'updated_at') || updatedAt;
+                persistedWorkflowStatus = readStringField(data as Record<string, unknown>, 'status') || action.status;
             }
 
             setAssignedScheduleSlots((current) => current.map((slot) => (
                 slot.id === slotId
                     ? {
                         ...slot,
-                        status: action.status,
+                        status: persistedWorkflowStatus,
                         tech_status_note: nextStatusNote,
                         updated_at: updatedAt,
                     }
                     : slot
             )));
+            workflowStatusBySlotIdRef.current = {
+                ...workflowStatusBySlotIdRef.current,
+                [slotId]: persistedWorkflowStatus,
+            };
             setWorkflowStatusBySlotId((current) => ({
                 ...current,
-                [slotId]: action.status,
+                [slotId]: persistedWorkflowStatus,
             }));
             setWorkflowMessageBySlotId((current) => ({
                 ...current,
                 [slotId]: normalizedStatus === 'custom'
                     ? `Custom status updated: ${trimmedStatusNote}.`
-                    : getTechWorkflowStatusFeedback(action.status),
+                    : persistenceMismatchMessage || getTechWorkflowStatusFeedback(persistedWorkflowStatus),
             }));
             if (!transition.serviceRequestId) {
                 setWorkflowMessageBySlotId((current) => ({
                     ...current,
-                    [slotId]: `${current[slotId] || getTechWorkflowStatusFeedback(action.status)} This assignment is not linked to a homeowner request yet.`,
+                    [slotId]: `${current[slotId] || getTechWorkflowStatusFeedback(persistedWorkflowStatus)} This assignment is not linked to a homeowner request yet.`,
                 }));
             }
 
@@ -1343,6 +1433,22 @@ export default function TechOSScreen() {
                 await loadAssignedScheduleJobs(activeCompanyId, membership.id, { subtle: true });
             }
         } catch (error) {
+            workflowStatusBySlotIdRef.current = {
+                ...workflowStatusBySlotIdRef.current,
+                [slotId]: currentWorkflowStatus,
+            };
+            setWorkflowStatusBySlotId((current) => ({
+                ...current,
+                [slotId]: currentWorkflowStatus,
+            }));
+            setAssignedScheduleSlots((current) => current.map((slot) => (
+                slot.id === slotId
+                    ? {
+                        ...slot,
+                        status: currentWorkflowStatus,
+                    }
+                    : slot
+            )));
             setWorkflowMessageBySlotId((current) => ({
                 ...current,
                 [slotId]: `Workflow update failed: ${normalizeServiceErrorMessage(getErrorMessage(error))}`,
@@ -2271,7 +2377,11 @@ function TechOSDashboardContent({
                 onOpenFullJob={onOpenFullJob}
                 onRunWorkflowAction={onRunWorkflowAction}
                 updating={updatingWorkflowSlotId === selectedJob.slot.id || closingVisitSlotId === selectedJob.slot.id}
-                workflowStatus={workflowStatusBySlotId[selectedJob.slot.id] || selectedJob.slot.status || selectedJob.request?.status || 'scheduled'}
+                workflowStatus={resolveTechWorkflowVisibleStatus({
+                    optimisticStatus: workflowStatusBySlotId[selectedJob.slot.id],
+                    requestStatus: selectedJob.request?.status,
+                    slotStatus: selectedJob.slot.status,
+                }) || 'scheduled'}
             />
         );
     }
@@ -2714,6 +2824,8 @@ function AssignedScheduleJobCard({
     const { theme } = useTheme();
     const title = getAssignedJobTitle(job);
     const location = getAssignedJobLocation(job);
+    const visibleStatus = getAssignedJobVisibleWorkflowStatus(job);
+    const codeLabel = getTechOSAssignedJobHeaderLabel(job);
 
     return (
         <View
@@ -2727,9 +2839,9 @@ function AssignedScheduleJobCard({
             ]}
         >
             <View style={assignedJobTopRowStyle}>
-                <Text style={[jobNumberStyle, { color: theme.colors.mutedText }]}>Assigned Work</Text>
+                <Text style={[jobNumberStyle, { color: theme.colors.mutedText }]}>{codeLabel}</Text>
                 <Text style={[jobStatusBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {formatTechOSStatusLabel(job.slot.status || job.request?.status || 'scheduled')}
+                    {formatTechWorkflowStatusText(visibleStatus)}
                 </Text>
             </View>
             <Text style={[jobTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
@@ -2806,6 +2918,8 @@ function TechOSAssignedJobDetail({
 }) {
     const title = getAssignedJobTitle(job);
     const location = getAssignedJobLocation(job);
+    const requestReference = getTechOSAssignedJobRequestReference(job);
+    const headerLabel = getTechOSAssignedJobHeaderLabel(job);
     const trimmedCustomStatusNote = customStatusNote.trim();
     const clientContext = getTechOSClientJobContext(job);
     const canOpenClientHomeOS = hasTechOSClientHomeContext(clientContext);
@@ -2820,7 +2934,7 @@ function TechOSAssignedJobDetail({
         <View style={[techJobDetailStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
             <View style={techJobDetailHeaderStyle}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[jobNumberStyle, { color: techOSTheme.mutedTextColor }]}>Job Details</Text>
+                    <Text style={[jobNumberStyle, { color: techOSTheme.mutedTextColor }]}>{headerLabel}</Text>
                     <Text style={[jobTitleStyle, { color: techOSTheme.textColor, marginBottom: 4 }]} numberOfLines={2}>
                         {title}
                     </Text>
@@ -2843,14 +2957,9 @@ function TechOSAssignedJobDetail({
                 <View style={techJobDetailInfoGridStyle}>
                     <TechJobDetailInfo label="Home / Request" value={location} techOSTheme={techOSTheme} />
                     <TechJobDetailInfo label="Arrival Window" value={formatArrivalWindow(job.slot)} techOSTheme={techOSTheme} />
-                    <TechJobDetailInfo label="Status" value={formatTechOSStatusLabel(workflowStatus)} techOSTheme={techOSTheme} />
+                    <TechJobDetailInfo label="Request" value={requestReference} techOSTheme={techOSTheme} />
+                    <TechJobDetailInfo label="Status" value={formatTechWorkflowStatusText(workflowStatus)} techOSTheme={techOSTheme} />
                     <TechJobDetailInfo label="Priority" value={formatLabel(job.slot.priority || job.request?.priority || 'normal')} techOSTheme={techOSTheme} />
-                    {!!job.request?.property_id && (
-                        <TechJobDetailInfo label="Property" value={shortId(job.request.property_id)} techOSTheme={techOSTheme} />
-                    )}
-                    {!!job.request?.id && (
-                        <TechJobDetailInfo label="Request" value={shortId(job.request.id)} techOSTheme={techOSTheme} />
-                    )}
                     {!!job.slot.tech_status_note && (
                         <TechJobDetailInfo label="Tech Status Note" value={job.slot.tech_status_note} techOSTheme={techOSTheme} />
                     )}
@@ -2906,7 +3015,7 @@ function TechOSAssignedJobDetail({
                 variantKey="workflow"
             >
                 <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
-                    Current status: {formatTechOSStatusLabel(workflowStatus)}
+                    Current status: {formatTechWorkflowStatusText(workflowStatus)}
                 </Text>
                 {!!message && (
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 8 }]}>{message}</Text>
@@ -3690,7 +3799,7 @@ async function loadScheduleServiceRequests(companyId: string, slots: TechSchedul
 
     const { data, error } = await supabase
         .from('service_requests')
-        .select('id, company_id, property_id, company_property_client_id, request_type, status, priority, issue_summary, created_at, converted_job_id, converted_at')
+        .select('id, company_id, property_id, company_property_client_id, display_code, display_sequence, request_type, status, priority, issue_summary, created_at, converted_job_id, converted_at')
         .eq('company_id', companyId)
         .in('id', requestIds);
 
@@ -3750,6 +3859,8 @@ function normalizeTechServiceRequests(data: unknown): TechServiceRequest[] {
                 company_id: readStringField(record, 'company_id') || '',
                 property_id: readStringField(record, 'property_id'),
                 company_property_client_id: readStringField(record, 'company_property_client_id'),
+                display_code: readStringField(record, 'display_code')?.toUpperCase() || null,
+                display_sequence: readNumberField(record, 'display_sequence'),
                 request_type: readStringField(record, 'request_type'),
                 status: readStringField(record, 'status'),
                 priority: readStringField(record, 'priority'),
@@ -4141,6 +4252,31 @@ function getAssignedJobTitle(job: TechAssignedScheduleJob) {
     const summary = job.request?.issue_summary?.trim();
 
     return summary || requestType || 'Assigned service request';
+}
+
+function getTechOSAssignedJobCode(job: TechAssignedScheduleJob) {
+    return getServiceRequestDisplayCode(job.request);
+}
+
+function getTechOSAssignedJobRequestReference(job: TechAssignedScheduleJob) {
+    if (job.request) return formatServiceRequestReference(job.request);
+
+    return 'Request number pending';
+}
+
+function getTechOSAssignedJobHeaderLabel(job: TechAssignedScheduleJob) {
+    const code = getTechOSAssignedJobCode(job) || 'Request pending';
+    const priority = job.slot.priority || job.request?.priority || '';
+    const type = priority || job.request?.request_type || 'Service';
+
+    return `${code} · ${formatLabel(type)}`;
+}
+
+function getAssignedJobVisibleWorkflowStatus(job: TechAssignedScheduleJob) {
+    return resolveTechWorkflowVisibleStatus({
+        requestStatus: job.request?.status,
+        slotStatus: job.slot.status,
+    }) || 'scheduled';
 }
 
 function getAssignedJobLocation(job: TechAssignedScheduleJob) {

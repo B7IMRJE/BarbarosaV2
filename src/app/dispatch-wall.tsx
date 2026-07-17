@@ -10,6 +10,7 @@ import {
 import { canAccessDispatch } from '../lib/companyPermissions';
 import {
     DISPATCH_WALL_FALLBACK_REFRESH_MS,
+    DISPATCH_WALL_MANUAL_REFRESH_LABEL,
     getDispatchWallConnectionStatus,
     getDispatchWallReconnectPlan,
     normalizeDispatchWallRealtimeStatus,
@@ -292,6 +293,7 @@ export default function DispatchWallScreen() {
     const [realtimeState, setRealtimeState] = useState<DispatchWallRealtimeState>('idle');
     const [reconnectAttempt, setReconnectAttempt] = useState(0);
     const [isOnline, setIsOnline] = useState(() => isBrowserOnline());
+    const [isTabHidden, setIsTabHidden] = useState(false);
     const [expandedSectionKey, setExpandedSectionKey] = useState<DispatchWallSectionKey | null>(null);
     const [detailItem, setDetailItem] = useState<DispatchWallItem | null>(null);
     const [fullscreenMessage, setFullscreenMessage] = useState('');
@@ -461,7 +463,10 @@ export default function DispatchWallScreen() {
             : undefined;
         const handleFocus = () => requestLifecycleRefresh(false);
         const handleVisibilityChange = () => {
-            if (documentTarget?.visibilityState === 'visible') requestLifecycleRefresh(false);
+            const hidden = documentTarget?.visibilityState === 'hidden';
+
+            setIsTabHidden(hidden);
+            if (!hidden) requestLifecycleRefresh(false);
         };
         const handleOnline = () => {
             onlineRef.current = true;
@@ -479,6 +484,7 @@ export default function DispatchWallScreen() {
 
         onlineRef.current = isBrowserOnline();
         setIsOnline(onlineRef.current);
+        setIsTabHidden(documentTarget?.visibilityState === 'hidden');
         subscribeRealtime('initial');
         focusTarget.addEventListener?.('focus', handleFocus);
         focusTarget.addEventListener?.('online', handleOnline);
@@ -531,6 +537,7 @@ export default function DispatchWallScreen() {
         loading,
         refreshInFlight: refreshing,
         reconnectAttempt,
+        tabHidden: isTabHidden,
         lastError: lastRefreshError,
     });
 
@@ -654,6 +661,15 @@ export default function DispatchWallScreen() {
             refreshInFlight.current = false;
             setRefreshing(false);
         }
+    }
+
+    function refreshWallboardNow() {
+        const companyId = companyAccess?.company_id || requestedCompanyId;
+
+        if (!companyId || demoMode) return;
+
+        lastLifecycleRefreshRequestAtRef.current = Date.now();
+        void refreshWallboard(companyId, { showErrors: true });
     }
 
     function renderWallContent() {
@@ -787,6 +803,26 @@ export default function DispatchWallScreen() {
                     {connectionStatus.label}
                     {demoMode ? ' · Demo data' : ''}
                 </Text>
+                {!!lastUpdatedAt && (
+                    <Text style={wallHintTextStyle}>Last successful refresh: {formatShortTime(lastUpdatedAt)}</Text>
+                )}
+                {isTabHidden && (
+                    <Text style={wallHintTextStyle}>Browser tab hidden; refresh may be throttled.</Text>
+                )}
+                {!demoMode && companyAccess && (
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Refresh Dispatch Activity Board now"
+                        disabled={refreshing || loading}
+                        onPress={refreshWallboardNow}
+                        style={({ pressed }) => [
+                            wallRefreshButtonStyle,
+                            (pressed || refreshing) ? wallRefreshButtonPressedStyle : null,
+                        ]}
+                    >
+                        <Text style={wallRefreshButtonTextStyle}>{refreshing ? 'Refreshing...' : DISPATCH_WALL_MANUAL_REFRESH_LABEL}</Text>
+                    </Pressable>
+                )}
                 {!!fullscreenMessage && <Text style={wallHintTextStyle}>{fullscreenMessage}</Text>}
                 {!!message && (companyAccess || demoMode) && <Text style={wallHintTextStyle}>{message}</Text>}
             </View>
@@ -2162,6 +2198,7 @@ const fullscreenButtonTextStyle = {
 const wallStatusRowStyle: ViewStyle = {
     alignItems: 'center',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 16,
     minHeight: 28,
     paddingHorizontal: 10,
@@ -2189,6 +2226,24 @@ const wallHintTextStyle = {
     color: '#CBD5E1',
     fontSize: 12,
     fontWeight: '700' as const,
+};
+
+const wallRefreshButtonStyle = {
+    borderColor: '#475569',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+};
+
+const wallRefreshButtonPressedStyle = {
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
+};
+
+const wallRefreshButtonTextStyle = {
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '900' as const,
 };
 
 const wallBodyStyle: ViewStyle = {

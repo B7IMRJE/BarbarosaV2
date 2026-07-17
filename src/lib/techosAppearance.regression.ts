@@ -94,9 +94,9 @@ function workflowButtonsAndNavigationRemainUnchanged() {
         jobId: 'job-1',
     });
 
-    assert(workflowLabels.includes('On my way'), 'Workflow actions should still include On my way.');
-    assert(workflowLabels.includes('Arrived'), 'Workflow actions should still include Arrived.');
-    assert(workflowLabels.includes('Started / In progress'), 'Workflow actions should still include Started / In progress.');
+    assert(workflowLabels.includes('On My Way'), 'Workflow actions should still include On My Way.');
+    assert(workflowLabels.includes("I've Arrived"), "Workflow actions should still include I've Arrived.");
+    assert(workflowLabels.includes('Start Work'), 'Workflow actions should still include Start Work.');
     assert(getTechOSEstimateActionLabel(1) === 'Continue Estimate / Quote', 'Estimate action labels should remain unchanged.');
     assert(route.params.providerMode === '1', 'Open Client HomeOS route should remain provider mode.');
 }

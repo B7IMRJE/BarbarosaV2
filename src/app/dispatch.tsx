@@ -18,6 +18,7 @@ import {
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
 import { canAccessDispatch, normalizeCompanyRole } from '../lib/companyPermissions';
+import { getDispatchOfficePrimaryActionLabel } from '../lib/dispatchOffice';
 import { calculateDispatchRisk, type DispatchRiskResult } from '../lib/dispatchRisk';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import {
@@ -179,6 +180,13 @@ type DispatchAttentionItem = {
     request: DispatchRequest;
     slot: ScheduleSlot;
     risk: DispatchRiskResult;
+};
+type DispatchActiveJobRecord = {
+    request: DispatchRequest;
+    slot: ScheduleSlot | null;
+    requestSlots: ScheduleSlot[];
+    laneKey: DispatchLaneKey;
+    technician: CompanyUser | null;
 };
 type WorkQueueRecord = {
     request: DispatchRequest;
@@ -1322,9 +1330,9 @@ export default function DispatchBoardScreen() {
 
                 <ThemedCard style={{ marginBottom: 16 }}>
                     <Text style={[kickerStyle, { color: theme.colors.primary }]}>Service Desk</Text>
-                    <Text style={[titleStyle, { color: theme.colors.text }]}>Dispatch / Activity Board</Text>
+                    <Text style={[titleStyle, { color: theme.colors.text }]}>Dispatch Office</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        {companyName} receives homeowner service requests here before jobs are created or technicians are assigned.
+                        {companyName} receives homeowner service requests here. Use the Activity Board as the live operational wallboard.
                     </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Selected company: {companyAccess?.company_id || requestedCompanyId || 'Not selected'}
@@ -1333,23 +1341,19 @@ export default function DispatchBoardScreen() {
                     <LeadCountSummary counts={leadCounts} error={leadCountError} loading={loading} />
                     <DispatchDebugCard debug={authDebug} rpcStatusMessage={rpcStatusMessage} />
                     <View style={buttonRowStyle}>
-                        <ThemedButton title="Refresh" onPress={loadDispatchBoard} style={buttonStyle} />
-                        <ThemedButton title="Back Home" variant="secondary" onPress={() => router.push('/' as any)} style={buttonStyle} />
-                        <ThemedButton title="Activity Board" variant="secondary" onPress={openDispatchWallBoard} style={buttonStyle} />
-                    </View>
-                    <View style={buttonRowStyle}>
                         <ThemedButton
-                            title="Work Queue"
-                            variant={activeBoardView === 'activity' ? 'primary' : 'secondary'}
-                            onPress={() => setActiveBoardView('activity')}
+                            title={getDispatchOfficePrimaryActionLabel('open_activity_board')}
+                            variant="primary"
+                            onPress={openDispatchWallBoard}
                             style={buttonStyle}
                         />
                         <ThemedButton
-                            title="Schedule Board"
+                            title={getDispatchOfficePrimaryActionLabel('open_schedule')}
                             variant={activeBoardView === 'schedule' ? 'primary' : 'secondary'}
                             onPress={() => setActiveBoardView('schedule')}
                             style={buttonStyle}
                         />
+                        <ThemedButton title={getDispatchOfficePrimaryActionLabel('refresh')} variant="secondary" onPress={loadDispatchBoard} style={buttonStyle} />
                     </View>
                 </ThemedCard>
 
@@ -1383,12 +1387,30 @@ export default function DispatchBoardScreen() {
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading requests...</Text>
                     </ThemedCard>
                 ) : companyChoices.length > 1 ? null : activeBoardView === 'schedule' ? (
-                    <ActivityScheduleFoundation
-                        requests={requests}
-                        scheduleSlots={scheduleSlots}
-                        activeTechnicians={activeTechnicians}
-                        cardBasis={laneBasis}
-                    />
+                    <>
+                        <ThemedCard style={{ marginBottom: 16 }}>
+                            <View style={sectionHeaderStyle}>
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Schedule</Text>
+                                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                        Schedule planning view. Active live movement remains on the Activity Board.
+                                    </Text>
+                                </View>
+                                <ThemedButton
+                                    title="Back to Active Jobs"
+                                    variant="secondary"
+                                    onPress={() => setActiveBoardView('activity')}
+                                    style={buttonStyle}
+                                />
+                            </View>
+                        </ThemedCard>
+                        <ActivityScheduleFoundation
+                            requests={requests}
+                            scheduleSlots={scheduleSlots}
+                            activeTechnicians={activeTechnicians}
+                            cardBasis={laneBasis}
+                        />
+                    </>
                 ) : (
                     requests.length === 0 ? (
                         <ThemedCard>
@@ -1396,59 +1418,14 @@ export default function DispatchBoardScreen() {
                         </ThemedCard>
                     ) : (
                         <>
-                            <View style={dispatchQueueGroupStyle}>
-                                <View style={sectionHeaderStyle}>
-                                    <View style={{ flex: 1, minWidth: 0 }}>
-                                        <Text style={[activeOperationsTitleStyle, { color: theme.colors.text }]}>Active Operations</Text>
-                                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                            Current operational work only. Post-visit records are in Work Queue below.
-                                        </Text>
-                                    </View>
-                                    <View style={activeOperationsHeaderBadgesStyle}>
-                                        {attentionItems.length > 0 ? (
-                                            <Text style={[countBadgeStyle, { color: '#4C1D95', backgroundColor: 'rgba(124, 58, 237, 0.18)' }]}>
-                                                Needs Attention {attentionItems.length}
-                                            </Text>
-                                        ) : null}
-                                        <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                                            {activeDispatchCount}
-                                        </Text>
-                                    </View>
-                                </View>
-                                {activeDispatchCount === 0 ? (
-                                    <ActiveOperationsEmptySummary lanes={activeDispatchLanes} />
-                                ) : (
-                                    <View style={dispatchWallStyle}>
-                                        {activeDispatchLanes
-                                            .filter((lane) => lane.requests.length > 0)
-                                            .map((lane) => (
-                                                <DispatchSection
-                                                    key={lane.key}
-                                                    title={lane.title}
-                                                    requests={lane.requests}
-                                                    eventsByRequestId={eventsByRequestId}
-                                                    scheduleSlots={scheduleSlots}
-                                                    actionRequestId={actionRequestId}
-                                                    laneBasis={laneBasis}
-                                                    onToggleRequest={toggleExpandedRequest}
-                                                    onCollapseRequest={collapseExpandedRequest}
-                                                    onAcknowledge={handleAcknowledge}
-                                                    companyUsers={companyUsers}
-                                                    activeTechnicians={activeTechnicians}
-                                                    scheduleFormByRequestId={scheduleFormByRequestId}
-                                                    requestActionMessageById={requestActionMessageById}
-                                                    onUpdateScheduleForm={updateScheduleForm}
-                                                    onScheduleRequest={handleScheduleRequest}
-                                                    onCloseVisit={handleCloseVisit}
-                                                    onCancelRequest={handleCancelRequest}
-                                                    onArchiveRequest={handleArchiveRequest}
-                                                    onRestoreRequest={handleRestoreRequest}
-                                                    onNotifyHomeownerDelay={handleNotifyHomeownerDelay}
-                                                />
-                                            ))}
-                                    </View>
-                                )}
-                            </View>
+                            <DispatchActiveJobsList
+                                requests={requests}
+                                scheduleSlots={scheduleSlots}
+                                companyUsers={companyUsers}
+                                attentionCount={attentionItems.length}
+                                onOpenRequest={toggleExpandedRequest}
+                                selectedRequestId={expandedRequestId}
+                            />
                             <DispatchWorkQueue
                                 requests={requests}
                                 scheduleSlots={scheduleSlots}
@@ -1714,6 +1691,146 @@ function DispatchSection({
     );
 }
 
+function DispatchActiveJobsList({
+    requests,
+    scheduleSlots,
+    companyUsers,
+    attentionCount,
+    onOpenRequest,
+    selectedRequestId,
+}: {
+    requests: DispatchRequest[];
+    scheduleSlots: ScheduleSlot[];
+    companyUsers: CompanyUser[];
+    attentionCount: number;
+    onOpenRequest: (requestId: string) => void;
+    selectedRequestId: string | null;
+}) {
+    const { theme } = useTheme();
+    const records = useMemo(
+        () => buildDispatchActiveJobRecords(requests, scheduleSlots, companyUsers),
+        [requests, scheduleSlots, companyUsers]
+    );
+
+    return (
+        <ThemedCard style={workQueueCardStyle}>
+            <View style={sectionHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Active Jobs</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Compact office summary. The Activity Board is the authoritative live lane view.
+                    </Text>
+                </View>
+                <View style={activeOperationsHeaderBadgesStyle}>
+                    {attentionCount > 0 ? (
+                        <Text style={[countBadgeStyle, { color: '#4C1D95', backgroundColor: 'rgba(124, 58, 237, 0.18)' }]}>
+                            Needs Attention {attentionCount}
+                        </Text>
+                    ) : null}
+                    <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                        {records.length}
+                    </Text>
+                </View>
+            </View>
+
+            {records.length === 0 ? (
+                <View style={[workQueueEmptyStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        No active jobs. Open the Activity Board for the live wallboard.
+                    </Text>
+                </View>
+            ) : (
+                <View style={workQueueListStyle}>
+                    {records.map((record) => (
+                        <DispatchActiveJobRow
+                            key={`${record.request.id}:${record.laneKey}`}
+                            record={record}
+                            selected={record.request.id === selectedRequestId}
+                            onOpen={() => onOpenRequest(record.request.id)}
+                        />
+                    ))}
+                </View>
+            )}
+        </ThemedCard>
+    );
+}
+
+function DispatchActiveJobRow({
+    record,
+    selected,
+    onOpen,
+}: {
+    record: DispatchActiveJobRecord;
+    selected: boolean;
+    onOpen: () => void;
+}) {
+    const { theme } = useTheme();
+    const identifier = getWorkQueueIdentifier(record.request);
+    const title = record.request.customer_display_name || record.request.property_display_name || 'Homeowner';
+    const address = abbreviateAddress(record.request);
+    const technician = record.technician ? getMemberDisplayName(record.technician) : 'Unassigned';
+    const nextAction = getDispatchActiveJobNextAction(record);
+
+    return (
+        <View
+            style={[
+                workQueueRowPressableStyle,
+                workQueueRowStyle,
+                {
+                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: selected ? theme.colors.background : theme.colors.surface,
+                },
+            ]}
+        >
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open active job ${identifier}`}
+                onPress={onOpen}
+                style={workQueueRowMainPressableStyle}
+            >
+                <View style={workQueuePrimaryLineStyle}>
+                    <Text
+                        style={[
+                            workQueueDisplayCodeBadgeStyle,
+                            {
+                                color: theme.colors.primary,
+                                backgroundColor: theme.colors.background,
+                                borderColor: theme.colors.border,
+                            },
+                        ]}
+                        numberOfLines={1}
+                    >
+                        {identifier}
+                    </Text>
+                    <Text style={[requestTypeStyle, { color: theme.colors.text, flex: 1, minWidth: 0 }]} numberOfLines={1}>
+                        {title}
+                    </Text>
+                </View>
+                <Text style={[requestTitleStyle, { color: theme.colors.text, marginBottom: 0 }]} numberOfLines={1}>
+                    {getDispatchLaneTitle(record.laneKey)} · {technician}
+                </Text>
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                    {address} · {nextAction}
+                </Text>
+            </Pressable>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open active job ${identifier}`}
+                onPress={onOpen}
+                style={({ pressed }) => [
+                    workQueueExpandButtonStyle,
+                    {
+                        borderColor: theme.colors.border,
+                        backgroundColor: pressed ? theme.colors.secondaryButton : theme.colors.background,
+                    },
+                ]}
+            >
+                <Text style={[workQueueOpenButtonTextStyle, { color: theme.colors.primary }]}>Open ›</Text>
+            </Pressable>
+        </View>
+    );
+}
+
 function DispatchWorkQueue({
     requests,
     scheduleSlots,
@@ -1770,14 +1887,18 @@ function DispatchWorkQueue({
     const visibleRecords = filteredRecords.slice(0, limit);
     const sortLabel = WORK_QUEUE_SORT_OPTIONS.find((option) => option.key === sort)?.label || 'Sort';
     const searchTrimmed = search.trim();
+    const queueTitle = category === 'needs_action' ? 'Needs Office Action' : 'Closed / Archived Search';
+    const queueDescription = category === 'needs_action'
+        ? 'Follow-up, return visits, parts, holds, no-shows, and unable-to-complete records.'
+        : 'Closed and archived records. Active jobs stay out of this queue.';
 
     return (
         <ThemedCard style={workQueueCardStyle}>
             <View style={sectionHeaderStyle}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Work Queue</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>{queueTitle}</Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Post-visit action, closed, and archived records in one searchable list.
+                        {queueDescription}
                     </Text>
                 </View>
                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
@@ -4335,6 +4456,42 @@ function buildWorkQueueRecords(
         .filter((record): record is WorkQueueRecord => Boolean(record));
 }
 
+function buildDispatchActiveJobRecords(
+    requests: DispatchRequest[],
+    scheduleSlots: ScheduleSlot[],
+    companyUsers: CompanyUser[]
+): DispatchActiveJobRecord[] {
+    return requests
+        .map((request) => {
+            const requestSlots = scheduleSlots.filter((slot) => (
+                slot.company_id === request.company_id &&
+                slot.service_request_id === request.id
+            ));
+            const currentSlot = getCurrentRequestScheduleSlot(requestSlots, request);
+            const laneKey = getDispatchLaneKey(request, currentSlot);
+            const definition = DISPATCH_LANE_DEFINITIONS.find((lane) => lane.key === laneKey);
+
+            if (definition?.group !== 'active') return null;
+
+            const technician = currentSlot
+                ? findCompanyUserById(companyUsers, currentSlot.technician_company_user_id)
+                : null;
+
+            return {
+                request,
+                slot: currentSlot,
+                requestSlots,
+                laneKey,
+                technician,
+            };
+        })
+        .filter((record): record is DispatchActiveJobRecord => Boolean(record))
+        .sort((first, second) => (
+            getSortableTime(first.slot?.start_at) - getSortableTime(second.slot?.start_at) ||
+            getWorkQueueCustomerLabel(first.request).localeCompare(getWorkQueueCustomerLabel(second.request))
+        ));
+}
+
 function getWorkQueueCategoryForLaneKey(laneKey: DispatchLaneKey): WorkQueueCategory | null {
     const definition = DISPATCH_LANE_DEFINITIONS.find((lane) => lane.key === laneKey);
 
@@ -4448,6 +4605,18 @@ function getWorkQueueNewestTime(record: WorkQueueRecord) {
 
 function getDefaultWorkQueueSort(category: WorkQueueCategory): WorkQueueSort {
     return category === 'needs_action' ? 'next_action' : 'newest';
+}
+
+function getDispatchActiveJobNextAction(record: DispatchActiveJobRecord) {
+    if (record.slot?.arrival_window_start || record.slot?.arrival_window_end) {
+        return `Window ${formatSlotArrivalWindow(record.slot)}`;
+    }
+
+    if (record.slot?.start_at) {
+        return `Scheduled ${formatDateTime(record.slot.start_at)}`;
+    }
+
+    return 'Next action pending';
 }
 
 function getNextWorkQueueSort(current: WorkQueueSort): WorkQueueSort {

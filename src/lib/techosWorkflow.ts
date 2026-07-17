@@ -25,6 +25,41 @@ export type TechWorkflowTransitionResolution = {
     message: string;
 };
 
+export type TechWorkflowVisibleStatusInput = {
+    optimisticStatus?: string | null;
+    requestStatus?: string | null;
+    slotStatus?: string | null;
+};
+
+export type TechWorkflowStatusSlot = {
+    id: string;
+    service_request_id?: string | null;
+    status?: string | null;
+};
+
+export type TechWorkflowStatusRequest = {
+    status?: string | null;
+};
+
+export type TechWorkflowPersistenceResult = {
+    schedule_slot_status?: string | null;
+    service_request_status?: string | null;
+};
+
+export type TechOSRouteSelectionInput = {
+    availableSlotIds: string[];
+    dismissedSlotId: string;
+    requestedSlotId: string;
+    routeOpenedSlotId: string;
+    selectedSlotId: string;
+};
+
+export type TechOSRouteSelectionResult = {
+    dismissedSlotId: string;
+    routeOpenedSlotId: string;
+    selectedSlotId: string;
+};
+
 export type TechnicianNextJobStatusActionKey = 'available_for_next_job' | 'running_late_for_next_job' | 'clear_next_job_delay';
 
 export type TechnicianNextJobStatusAction = {
@@ -134,6 +169,114 @@ export function formatTechWorkflowProgressState(state: TechWorkflowProgressState
 
 export function isSecondaryTechWorkflowAction(action: TechWorkflowActionPresentation) {
     return action.progressState === 'future' && ['arrived', 'in_progress'].includes(action.key);
+}
+
+export function resolveTechWorkflowVisibleStatus({
+    optimisticStatus,
+    requestStatus,
+    slotStatus,
+}: TechWorkflowVisibleStatusInput) {
+    return chooseMostAdvancedWorkflowStatus([
+        optimisticStatus,
+        requestStatus,
+        slotStatus,
+    ]);
+}
+
+export function buildTechWorkflowStatusBySlotId(
+    slots: TechWorkflowStatusSlot[],
+    requestsById: Record<string, TechWorkflowStatusRequest | null | undefined>,
+    currentStatusBySlotId: Record<string, string> = {}
+) {
+    return slots.reduce<Record<string, string>>((statuses, slot) => {
+        const request = slot.service_request_id ? requestsById[slot.service_request_id] : null;
+
+        statuses[slot.id] = resolveTechWorkflowVisibleStatus({
+            optimisticStatus: currentStatusBySlotId[slot.id],
+            requestStatus: request?.status,
+            slotStatus: slot.status,
+        });
+
+        return statuses;
+    }, {});
+}
+
+export function getTechWorkflowPersistenceMismatchMessage(
+    requestedStatus: string,
+    result: TechWorkflowPersistenceResult
+) {
+    const requested = normalizeStatus(requestedStatus);
+    const persisted = resolveTechWorkflowVisibleStatus({
+        requestStatus: result.service_request_status,
+        slotStatus: result.schedule_slot_status,
+    });
+
+    if (!requested || requested === 'custom' || !persisted || normalizeStatus(persisted) === requested) {
+        return '';
+    }
+
+    return `Status update needs review: requested ${formatTechWorkflowStatusText(requested)}, but the saved state returned ${formatTechWorkflowStatusText(persisted)}. Refresh and try again.`;
+}
+
+export function formatTechWorkflowStatusText(status?: string | null) {
+    const normalized = normalizeStatus(status);
+    const labels: Record<string, string> = {
+        acknowledged: 'Request acknowledged',
+        assigned: 'Technician assigned',
+        scheduled: 'Appointment scheduled',
+        dispatched: 'Technician assigned',
+        on_my_way: 'Technician on the way',
+        arriving_soon: 'Technician arriving soon',
+        arrived: 'Technician arrived',
+        in_progress: 'Work in progress',
+        estimate_needed: 'Waiting for approval',
+        waiting_for_customer_approval: 'Waiting for approval',
+        completed: 'Work completed',
+        closed: 'Work completed',
+        cancelled: 'Request cancelled',
+        canceled: 'Request cancelled',
+        archived: 'Archived',
+    };
+
+    return labels[normalized] || formatWorkflowFallbackLabel(status);
+}
+
+export function resolveTechOSRouteSelection(input: TechOSRouteSelectionInput): TechOSRouteSelectionResult {
+    const availableSlotIds = new Set(input.availableSlotIds.filter(Boolean));
+    const requestedSlotId = String(input.requestedSlotId || '').trim();
+
+    if (!requestedSlotId || !availableSlotIds.has(requestedSlotId)) {
+        return {
+            dismissedSlotId: input.dismissedSlotId,
+            routeOpenedSlotId: input.routeOpenedSlotId,
+            selectedSlotId: input.selectedSlotId,
+        };
+    }
+
+    const routeChanged = input.routeOpenedSlotId !== requestedSlotId;
+    const dismissedCurrentRoute = input.dismissedSlotId === requestedSlotId && !routeChanged;
+
+    if (dismissedCurrentRoute) {
+        return {
+            dismissedSlotId: input.dismissedSlotId,
+            routeOpenedSlotId: input.routeOpenedSlotId,
+            selectedSlotId: input.selectedSlotId,
+        };
+    }
+
+    if (routeChanged || !input.routeOpenedSlotId) {
+        return {
+            dismissedSlotId: '',
+            routeOpenedSlotId: requestedSlotId,
+            selectedSlotId: requestedSlotId,
+        };
+    }
+
+    return {
+        dismissedSlotId: input.dismissedSlotId,
+        routeOpenedSlotId: input.routeOpenedSlotId,
+        selectedSlotId: input.selectedSlotId,
+    };
 }
 
 export function getTechWorkflowStatusFeedback(status?: string | null) {
@@ -266,6 +409,63 @@ function resolveWorkflowProgressState(
 
 function isTerminalWorkflowStatus(status?: string | null) {
     return ['completed', 'closed', 'cancelled', 'canceled', 'archived'].includes(normalizeStatus(status));
+}
+
+function chooseMostAdvancedWorkflowStatus(statuses: Array<string | null | undefined>) {
+    return statuses
+        .map((status, index) => ({
+            index,
+            normalized: normalizeStatus(status),
+            status: String(status || '').trim(),
+        }))
+        .filter((entry) => entry.normalized)
+        .sort((first, second) => (
+            getWorkflowStatusRank(second.normalized) - getWorkflowStatusRank(first.normalized) ||
+            first.index - second.index
+        ))[0]?.normalized || '';
+}
+
+function getWorkflowStatusRank(status?: string | null) {
+    const normalized = normalizeStatus(status);
+    const ranks: Record<string, number> = {
+        new: 0,
+        open: 0,
+        reported: 0,
+        acknowledged: 1,
+        assigned: 2,
+        scheduled: 2,
+        dispatched: 2,
+        on_my_way: 3,
+        en_route: 3,
+        arriving_soon: 4,
+        arrived: 5,
+        in_progress: 6,
+        working: 6,
+        work_started: 6,
+        estimate_needed: 7,
+        approval_needed: 7,
+        waiting_for_customer_approval: 7,
+        waiting_for_approval: 7,
+        completed: 8,
+        closed: 8,
+        cancelled: 9,
+        canceled: 9,
+        archived: 10,
+    };
+
+    return ranks[normalized] ?? 0;
+}
+
+function formatWorkflowFallbackLabel(status?: string | null) {
+    const text = String(status || '').trim();
+
+    if (!text) return 'Status unavailable';
+
+    return text
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function normalizeStatus(value?: string | null) {

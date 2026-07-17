@@ -1,18 +1,24 @@
 import {
+    buildTechWorkflowStatusBySlotId,
     createTechnicianNextJobStatusNotice,
     formatTechWorkflowProgressState,
+    formatTechWorkflowStatusText,
     getNextJobAvailabilitySectionState,
     getTechJobDetailSectionOrder,
+    getTechWorkflowPersistenceMismatchMessage,
     getTechWorkflowStatusFeedback,
     isSecondaryTechWorkflowAction,
+    resolveTechOSRouteSelection,
     resolveTechWorkflowActionPresentation,
     resolveTechWorkflowTransition,
+    resolveTechWorkflowVisibleStatus,
     TECH_CUSTOM_STATUS_ACTION,
     TECH_WORKFLOW_ACTIONS,
     TECHNICIAN_NEXT_JOB_STATUS_ACTIONS,
     type TechnicianNextJobStatusAction,
 } from './techosWorkflow';
 import { buildDispatchWallSections, type DispatchWallRequest, type DispatchWallScheduleSlot } from './dispatchWallClassification';
+import { formatServiceRequestReference, getServiceRequestDisplayCode } from './homeServiceRequests';
 import { getHomeownerStatusTemplate } from './serviceRequestStatusNotifications';
 
 runTechOSWorkflowRegressions();
@@ -25,6 +31,13 @@ export function runTechOSWorkflowRegressions() {
     incompleteNextJobAvailabilityControlsStayHidden();
     onlyValidNextWorkflowActionIsPrimary();
     workflowStatusFeedbackIsVisibleAndSpecific();
+    arrivedStatusSurvivesRefresh();
+    staleSlotStatusCannotOverwriteNewerRequestStatus();
+    persistedMismatchSurfacesVisibleError();
+    routeRefreshDoesNotReopenDismissedJob();
+    explicitDeepLinkStillOpensRequestedJob();
+    clickedJobSelectionSurvivesRefresh();
+    friendlyCodesUseCanonicalFormatter();
     technicianNextJobActionsDoNotChangeCurrentVisitStatus();
     eachWorkflowButtonTargetsBackendTransition();
     slotRequestIdFallbackKeepsWorkflowOnRpcPath();
@@ -106,6 +119,92 @@ function workflowStatusFeedbackIsVisibleAndSpecific() {
     const feedback = getTechWorkflowStatusFeedback('on_my_way');
 
     assert(feedback === 'Status updated: Technician is on the way. The homeowner and Dispatch were notified.', 'On My Way should produce visible homeowner/dispatch notification feedback.');
+    assert(formatTechWorkflowStatusText('arrived') === 'Technician arrived', 'Current Job Status should show durable technician-arrived text.');
+}
+
+function arrivedStatusSurvivesRefresh() {
+    const statuses = buildTechWorkflowStatusBySlotId(
+        [{ id: 'slot-1', service_request_id: 'request-1', status: 'arrived' }],
+        { 'request-1': { status: 'arrived' } },
+        {}
+    );
+
+    assert(statuses['slot-1'] === 'arrived', 'Arrived should remain Arrived after a clean refresh.');
+}
+
+function staleSlotStatusCannotOverwriteNewerRequestStatus() {
+    const visibleStatus = resolveTechWorkflowVisibleStatus({
+        requestStatus: 'arrived',
+        slotStatus: 'on_my_way',
+    });
+    const statuses = buildTechWorkflowStatusBySlotId(
+        [{ id: 'slot-1', service_request_id: 'request-1', status: 'on_my_way' }],
+        { 'request-1': { status: 'arrived' } },
+        {}
+    );
+
+    assert(visibleStatus === 'arrived', 'Newer request status should beat a stale slot status.');
+    assert(statuses['slot-1'] === 'arrived', 'Refresh merge should not restore the older slot status.');
+}
+
+function persistedMismatchSurfacesVisibleError() {
+    const message = getTechWorkflowPersistenceMismatchMessage('arrived', {
+        schedule_slot_status: 'on_my_way',
+        service_request_status: 'on_my_way',
+    });
+
+    assert(message.includes('requested Technician arrived'), 'Persistence mismatch should name the requested status.');
+    assert(message.includes('saved state returned Technician on the way'), 'Persistence mismatch should name the persisted status.');
+}
+
+function routeRefreshDoesNotReopenDismissedJob() {
+    const selection = resolveTechOSRouteSelection({
+        availableSlotIds: ['slot-1'],
+        dismissedSlotId: 'slot-1',
+        requestedSlotId: 'slot-1',
+        routeOpenedSlotId: 'slot-1',
+        selectedSlotId: '',
+    });
+
+    assert(selection.selectedSlotId === '', 'Refresh should not reopen a job the technician dismissed.');
+}
+
+function explicitDeepLinkStillOpensRequestedJob() {
+    const selection = resolveTechOSRouteSelection({
+        availableSlotIds: ['slot-1'],
+        dismissedSlotId: '',
+        requestedSlotId: 'slot-1',
+        routeOpenedSlotId: '',
+        selectedSlotId: '',
+    });
+
+    assert(selection.selectedSlotId === 'slot-1', 'Initial deep link should open the requested job.');
+    assert(selection.routeOpenedSlotId === 'slot-1', 'Initial deep link should be recorded as resolved.');
+}
+
+function clickedJobSelectionSurvivesRefresh() {
+    const selection = resolveTechOSRouteSelection({
+        availableSlotIds: ['slot-1', 'slot-2'],
+        dismissedSlotId: '',
+        requestedSlotId: 'slot-1',
+        routeOpenedSlotId: 'slot-1',
+        selectedSlotId: 'slot-2',
+    });
+
+    assert(selection.selectedSlotId === 'slot-2', 'Refresh should keep the technician-selected job open.');
+}
+
+function friendlyCodesUseCanonicalFormatter() {
+    const request = {
+        id: '300d72af-1111-4222-9333-444455556666',
+        display_code: 'a0003',
+        display_sequence: 3,
+    };
+    const displayCode = getServiceRequestDisplayCode(request);
+
+    assert(displayCode === 'A0003', 'TechOS should use the canonical friendly request code.');
+    assert(formatServiceRequestReference(request) === 'Request A0003', 'Friendly request reference should match HomeOS/Dispatch copy.');
+    assert(!displayCode.includes('300D72AF'), 'Friendly request code should not expose UUID fragments.');
 }
 
 function technicianNextJobActionsDoNotChangeCurrentVisitStatus() {
