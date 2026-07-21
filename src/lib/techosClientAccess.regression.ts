@@ -7,6 +7,7 @@ import {
     getProviderReturnActionLabel,
     getTechOSEstimateActionLabel,
     hasTechOSClientHomeContext,
+    resolveGlobalHomeRoute,
     resolveTechOSEstimateReturnRoute,
 } from './techosClientAccess';
 
@@ -16,6 +17,7 @@ export function runTechOSClientAccessRegressions() {
     assignedJobWithPropertyCanOpenClientHomeOS();
     clientHomeOSRoutePreservesProviderAndReturnContext();
     currentJobReturnRouteTargetsTheSelectedTechOSJob();
+    technicianHomeTargetsCompanyTechOSWorkspace();
     estimateRouteCarriesJobAndRequestContext();
     techOSEstimateBackUsesCurrentJobContext();
     techOSEstimateBackFallsBackToCompanyWorkspace();
@@ -48,6 +50,21 @@ function currentJobReturnRouteTargetsTheSelectedTechOSJob() {
     assert(
         buildTechOSCurrentJobRoute(createContext()) === '/techos?companyId=company-1&slotId=slot-1',
         'Back to Current Job should return to TechOS with company and slot context.'
+    );
+}
+
+function technicianHomeTargetsCompanyTechOSWorkspace() {
+    assert(
+        resolveGlobalHomeRoute({ pathname: '/techos', companyId: 'company-1' }) === '/techos?companyId=company-1',
+        'TechOS Home should return to the technician company workspace instead of homeowner onboarding.'
+    );
+    assert(
+        resolveGlobalHomeRoute({ pathname: '/techos/job/job-1', companyId: 'company-1' }) === '/techos?companyId=company-1',
+        'TechOS job Home should return to its company dashboard.'
+    );
+    assert(
+        resolveGlobalHomeRoute({ pathname: '/item/water-heater', companyId: 'company-1' }) === '/',
+        'Homeowner HomeOS routes should keep the homeowner Home destination.'
     );
 }
 

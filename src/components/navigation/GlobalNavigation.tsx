@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'reac
 import { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { providerModePath, readProviderModeParams } from '../../lib/providerMode';
+import { resolveGlobalHomeRoute } from '../../lib/techosClientAccess';
 import {
     shouldShowHomeownerActiveRequestStatus,
 } from '../../lib/homeownerActiveRequests';
@@ -60,6 +61,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const currentPath = normalizePath(pathname);
     const canUseBack = currentPath !== '/';
     const isTechOSRoute = currentPath === '/techos' || currentPath.startsWith('/techos/');
+    const techOSCompanyId = firstRouteParam(routeParams.companyId);
+    const homeRoute = resolveGlobalHomeRoute({ pathname: currentPath, companyId: techOSCompanyId });
     const appLabel = isTechOSRoute ? 'TechOS' : providerModeContext ? 'Client HomeOS' : 'HomeOS';
     const shouldHideNavigation = hiddenRoutePrefixes.some((prefix) => currentPath.startsWith(prefix));
     const shouldShowActiveRequestStatus = shouldShowHomeownerActiveRequestStatus({
@@ -169,7 +172,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
 
                         <TouchableOpacity
                             activeOpacity={0.82}
-                            onPress={() => goTo({ label: 'Home', route: '/' })}
+                            onPress={() => goTo({ label: 'Home', route: homeRoute })}
                             style={{
                                 backgroundColor: theme.colors.primary,
                                 borderRadius: theme.radii.pill,
@@ -394,10 +397,14 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
 }
 
 function normalizePath(pathname: string) {
-    const pathOnly = pathname.split('?')[0] || '/';
+    const pathOnly = pathname.split(/[?#]/, 1)[0] || '/';
     const withoutTrailingSlash = pathOnly.replace(/\/+$/, '');
 
     return withoutTrailingSlash || '/';
+}
+
+function firstRouteParam(value?: string | string[]) {
+    return Array.isArray(value) ? value[0] || '' : value || '';
 }
 
 function providerPrimaryTabs(companyId: string, propertyId: string): NavigationLink[] {

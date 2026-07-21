@@ -31,6 +31,20 @@ export function buildTechOSCurrentJobRoute(context: TechOSClientJobContext) {
     return `/techos${query ? `?${query}` : ''}`;
 }
 
+export function resolveGlobalHomeRoute({
+    pathname,
+    companyId,
+}: {
+    pathname: string;
+    companyId?: string | null;
+}) {
+    const currentPath = String(pathname || '').split(/[?#]/, 1)[0].replace(/\/+$/, '') || '/';
+
+    return currentPath === '/techos' || currentPath.startsWith('/techos/')
+        ? buildTechOSCurrentJobRoute({ companyId: String(companyId || '').trim() })
+        : '/';
+}
+
 export function buildTechOSProviderHomeRoute(context: TechOSClientJobContext) {
     const returnTo = buildTechOSCurrentJobRoute(context);
 
