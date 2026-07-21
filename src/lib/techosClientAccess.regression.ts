@@ -7,6 +7,7 @@ import {
     getProviderReturnActionLabel,
     getTechOSEstimateActionLabel,
     hasTechOSClientHomeContext,
+    resolveTechOSEstimateReturnRoute,
 } from './techosClientAccess';
 
 runTechOSClientAccessRegressions();
@@ -16,6 +17,9 @@ export function runTechOSClientAccessRegressions() {
     clientHomeOSRoutePreservesProviderAndReturnContext();
     currentJobReturnRouteTargetsTheSelectedTechOSJob();
     estimateRouteCarriesJobAndRequestContext();
+    techOSEstimateBackUsesCurrentJobContext();
+    techOSEstimateBackFallsBackToCompanyWorkspace();
+    nonTechOSEstimateKeepsItsExistingBackBehavior();
     existingDraftUsesContinueLabel();
     providerReturnToTechOSUsesCurrentJobLabel();
     dashboardCardsUseDistinctVisualVariants();
@@ -56,6 +60,39 @@ function estimateRouteCarriesJobAndRequestContext() {
     assert(route.params.providerMode === '1', 'Estimate route should preserve provider mode for client-scoped drafts.');
     assert(route.params.serviceRequestId === 'request-1', 'Estimate route should preserve service request context.');
     assert(route.params.jobId === 'job-1', 'Estimate route should preserve job context.');
+    assert(route.params.returnTo === '/techos?companyId=company-1&slotId=slot-1', 'Estimate route should preserve its current-job return destination.');
+}
+
+function techOSEstimateBackUsesCurrentJobContext() {
+    assert(
+        resolveTechOSEstimateReturnRoute({
+            mode: 'techos',
+            returnTo: '/techos?companyId=company-1&slotId=slot-1',
+            companyId: 'company-1',
+        }) === '/techos?companyId=company-1&slotId=slot-1',
+        'TechOS estimate Back should return to the selected job instead of browser history.'
+    );
+}
+
+function techOSEstimateBackFallsBackToCompanyWorkspace() {
+    assert(
+        resolveTechOSEstimateReturnRoute({
+            mode: 'techos',
+            returnTo: '/onboarding/create-home',
+            companyId: 'company-1',
+        }) === '/techos?companyId=company-1',
+        'Company estimate Back should return to TechOS and ignore unrelated return routes.'
+    );
+}
+
+function nonTechOSEstimateKeepsItsExistingBackBehavior() {
+    assert(
+        resolveTechOSEstimateReturnRoute({
+            mode: 'management',
+            companyId: 'company-1',
+        }) === null,
+        'Non-TechOS estimates should keep their existing back behavior.'
+    );
 }
 
 function existingDraftUsesContinueLabel() {

@@ -66,6 +66,26 @@ export function buildTechOSEstimateRoute(context: TechOSClientJobContext) {
     };
 }
 
+export function resolveTechOSEstimateReturnRoute({
+    mode,
+    returnTo,
+    companyId,
+}: {
+    mode?: string | null;
+    returnTo?: string | null;
+    companyId?: string | null;
+}) {
+    if (String(mode || '').trim().toLowerCase() !== 'techos') return null;
+
+    const requestedReturnTo = String(returnTo || '').trim();
+
+    if (requestedReturnTo === '/techos' || requestedReturnTo.startsWith('/techos?')) {
+        return requestedReturnTo;
+    }
+
+    return buildTechOSCurrentJobRoute({ companyId: String(companyId || '').trim() });
+}
+
 export function getTechOSEstimateActionLabel(draftItemCount: number) {
     return draftItemCount > 0 ? 'Continue Estimate / Quote' : 'Create Estimate / Quote';
 }

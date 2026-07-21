@@ -74,7 +74,10 @@ import {
     validateProviderModeAccess,
 } from '../../lib/providerMode';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../lib/supabase';
-import { getProviderReturnActionLabel } from '../../lib/techosClientAccess';
+import {
+    getProviderReturnActionLabel,
+    resolveTechOSEstimateReturnRoute,
+} from '../../lib/techosClientAccess';
 
 const estimateFoundationSections = [
     {
@@ -433,6 +436,21 @@ export default function EstimateScreen() {
 
     function goToCompanyDashboard() {
         router.push(providerCompanyDashboardPath() as never);
+    }
+
+    function goBackFromEstimate() {
+        const techOSReturnRoute = resolveTechOSEstimateReturnRoute({
+            mode: requestedMode,
+            returnTo: requestedReturnTo,
+            companyId: requestedCompanyId || estimateAccess?.companyId,
+        });
+
+        if (techOSReturnRoute) {
+            router.replace(techOSReturnRoute as never);
+            return;
+        }
+
+        router.back();
     }
 
     function openDraftItem(item: EstimateDraftItem) {
@@ -1126,10 +1144,12 @@ export default function EstimateScreen() {
                     ) : (
                         <View style={providerNavStyle}>
                             <TouchableOpacity
-                                onPress={() => router.back()}
+                                onPress={goBackFromEstimate}
                                 style={secondaryButtonStyle}
                             >
-                                <Text style={secondaryButtonTextStyle}>Back</Text>
+                                <Text style={secondaryButtonTextStyle}>
+                                    {requestedMode === 'techos' ? 'Back to TechOS' : 'Back'}
+                                </Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity
