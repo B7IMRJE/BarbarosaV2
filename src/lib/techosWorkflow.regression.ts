@@ -6,6 +6,7 @@ import {
     getNextJobAvailabilitySectionState,
     getTechJobDetailSectionOrder,
     getTechWorkflowPersistenceMismatchMessage,
+    getTechWorkflowNextStepMessage,
     getTechWorkflowStatusFeedback,
     isSecondaryTechWorkflowAction,
     resolveTechOSRouteSelection,
@@ -31,6 +32,7 @@ export function runTechOSWorkflowRegressions() {
     incompleteNextJobAvailabilityControlsStayHidden();
     onlyValidNextWorkflowActionIsPrimary();
     workflowStatusFeedbackIsVisibleAndSpecific();
+    estimateNeededStatusExplainsEstimateNextStep();
     arrivedStatusSurvivesRefresh();
     staleSlotStatusCannotOverwriteNewerRequestStatus();
     persistedMismatchSurfacesVisibleError();
@@ -120,6 +122,17 @@ function workflowStatusFeedbackIsVisibleAndSpecific() {
 
     assert(feedback === 'Status updated: Technician is on the way. The homeowner and Dispatch were notified.', 'On My Way should produce visible homeowner/dispatch notification feedback.');
     assert(formatTechWorkflowStatusText('arrived') === 'Technician arrived', 'Current Job Status should show durable technician-arrived text.');
+}
+
+function estimateNeededStatusExplainsEstimateNextStep() {
+    const presentation = resolveTechWorkflowActionPresentation('estimate_needed');
+    const feedback = getTechWorkflowStatusFeedback('estimate_needed');
+    const nextStep = getTechWorkflowNextStepMessage('estimate_needed');
+
+    assert(getPrimaryActionLabels(presentation).length === 0, 'Estimate-needed should remain the final current-job workflow action.');
+    assert(feedback.includes('Needs Attention'), 'Estimate-needed feedback should explain the Dispatch marker.');
+    assert(nextStep.includes('Estimate / Quote Actions'), 'Estimate-needed should point the tech to the estimate section.');
+    assert(nextStep.includes('create the customer estimate'), 'Estimate-needed next step should explain what to do after requesting approval.');
 }
 
 function arrivedStatusSurvivesRefresh() {

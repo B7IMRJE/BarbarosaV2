@@ -43,6 +43,7 @@ import {
     formatTechWorkflowProgressState,
     formatTechWorkflowStatusText,
     getTechWorkflowPersistenceMismatchMessage,
+    getTechWorkflowNextStepMessage,
     getNextJobAvailabilitySectionState,
     getTechWorkflowStatusFeedback,
     isSecondaryTechWorkflowAction,
@@ -3002,6 +3003,8 @@ function TechOSAssignedJobDetail({
     const workflowActionPresentation = resolveTechWorkflowActionPresentation(workflowStatus);
     const primaryWorkflowActions = workflowActionPresentation.filter((action) => action.primary);
     const moreWorkflowActions = workflowActionPresentation.filter(isSecondaryTechWorkflowAction);
+    const noPrimaryWorkflowActionMessage = getTechWorkflowNextStepMessage(workflowStatus) ||
+        'There is no next workflow action for the current status.';
     const nextJobAvailability = getNextJobAvailabilitySectionState();
 
     return (
@@ -3117,7 +3120,7 @@ function TechOSAssignedJobDetail({
                     ))}
                     {primaryWorkflowActions.length === 0 && (
                         <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
-                            There is no next workflow action for the current status.
+                            {noPrimaryWorkflowActionMessage}
                         </Text>
                     )}
                 </View>

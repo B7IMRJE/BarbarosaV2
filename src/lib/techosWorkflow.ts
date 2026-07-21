@@ -285,10 +285,20 @@ export function getTechWorkflowStatusFeedback(status?: string | null) {
         on_my_way: 'Status updated: Technician is on the way. The homeowner and Dispatch were notified.',
         arrived: 'Status updated: Technician has arrived. The homeowner and Dispatch were notified.',
         in_progress: 'Status updated: Work has started. The homeowner and Dispatch were notified.',
-        estimate_needed: 'Status updated: Approval is needed. The homeowner and Dispatch were notified.',
+        estimate_needed: 'Status updated: Approval is needed. Dispatch was marked Needs Attention. Next, open Estimate / Quote Actions to build the estimate.',
     };
 
     return messages[normalized] || 'Status updated. The homeowner and Dispatch were notified.';
+}
+
+export function getTechWorkflowNextStepMessage(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    if (['estimate_needed', 'approval_needed', 'waiting_for_approval', 'waiting_for_customer_approval'].includes(normalized)) {
+        return 'Next step: open Estimate / Quote Actions below to create the customer estimate. Dispatch has a Needs Attention marker while this is waiting.';
+    }
+
+    return '';
 }
 
 export function resolveTechWorkflowTransition(
