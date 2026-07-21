@@ -77,6 +77,12 @@ import {
     loadTechOSThemePreference,
     saveTechOSThemePreference,
 } from '../lib/techosAppearancePreference';
+import {
+    filterTechOSAssignmentSlots,
+    isLiveTechOSAssignmentStatus,
+    normalizeTechOSAssignmentCompanyUserIds,
+    resolveTechOSAssignmentCompanyUserIds,
+} from '../lib/techosAssignments';
 import { useTheme } from '../theme/useTheme';
 
 declare const __DEV__: boolean;
@@ -212,6 +218,7 @@ type TechOSScheduleDiagnostics = {
     authEmail: string;
     companyId: string;
     companyUserId: string;
+    companyUserIds: string[];
     role: string | null;
     status: string | null;
     queryError: string;
@@ -257,6 +264,7 @@ export default function TechOSScreen() {
     const [membership, setMembership] = useState<CompanyUserAccess | null>(null);
     const [companyChoices, setCompanyChoices] = useState<CompanyUserAccess[]>([]);
     const [isPlatformAdminAccess, setIsPlatformAdminAccess] = useState(false);
+    const [technicianCompanyUserIds, setTechnicianCompanyUserIds] = useState<string[]>([]);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
     const [clients, setClients] = useState<CompanyClient[]>([]);
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
@@ -307,6 +315,15 @@ export default function TechOSScreen() {
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const requestedSlotId = useMemo(() => firstParam(slotId), [slotId]);
+    const assignedTechnicianCompanyUserIds = useMemo(
+        () => techOSMode === 'technician'
+            ? normalizeTechOSAssignmentCompanyUserIds([
+                membership?.id,
+                ...technicianCompanyUserIds,
+            ])
+            : [],
+        [membership?.id, technicianCompanyUserIds, techOSMode]
+    );
     const visibleClients = useMemo(
         () => clients.filter((client) => normalizeStatus(client.status) !== 'archived'),
         [clients]
@@ -345,7 +362,7 @@ export default function TechOSScreen() {
         [currentFutureAssignedScheduleJobs]
     );
     const historyScheduleJobs = useMemo(
-        () => assignedScheduleJobs.filter((job) => !isActiveUpcomingScheduleJob(job.slot)),
+        () => assignedScheduleJobs.filter((job) => !isCurrentFutureActiveScheduleJob(job.slot)),
         [assignedScheduleJobs]
     );
     const assignedOpenScheduleJobs = useMemo(
@@ -420,37 +437,41 @@ export default function TechOSScreen() {
     }, [authUserId]);
 
     useEffect(() => {
-        const technicianCompanyUserId = techOSMode === 'technician' ? membership?.id || '' : '';
+        const nextTechnicianCompanyUserIds = assignedTechnicianCompanyUserIds;
         const companyIdForRefresh = activeCompanyId;
 
-        if (!companyIdForRefresh || !technicianCompanyUserId) return;
+        if (!companyIdForRefresh || nextTechnicianCompanyUserIds.length === 0) return;
 
         const refreshAssignedJobs = () => {
-            void loadAssignedScheduleJobs(companyIdForRefresh, technicianCompanyUserId, {
+            void loadAssignedScheduleJobs(companyIdForRefresh, nextTechnicianCompanyUserIds, {
                 announceNewAssignments: true,
                 subtle: true,
             });
         };
         const intervalId = setInterval(refreshAssignedJobs, TECHOS_ASSIGNMENT_REFRESH_MS);
-        const channel = supabase
-            .channel(`techos-assigned-jobs:${companyIdForRefresh}:${technicianCompanyUserId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'job_schedule_slots',
-                    filter: `technician_company_user_id=eq.${technicianCompanyUserId}`,
-                },
-                refreshAssignedJobs
-            )
-            .subscribe();
+        const channels = nextTechnicianCompanyUserIds.map((technicianCompanyUserId) => (
+            supabase
+                .channel(`techos-assigned-jobs:${companyIdForRefresh}:${technicianCompanyUserId}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'job_schedule_slots',
+                        filter: `technician_company_user_id=eq.${technicianCompanyUserId}`,
+                    },
+                    refreshAssignedJobs
+                )
+                .subscribe()
+        ));
 
         return () => {
             clearInterval(intervalId);
-            void supabase.removeChannel(channel);
+            channels.forEach((channel) => {
+                void supabase.removeChannel(channel);
+            });
         };
-    }, [activeCompanyId, membership?.id, techOSMode]);
+    }, [activeCompanyId, assignedTechnicianCompanyUserIds]);
 
     useEffect(() => {
         if (!assignmentBanner) return;
@@ -468,6 +489,7 @@ export default function TechOSScreen() {
         setMembership(null);
         setCompanyChoices([]);
         setIsPlatformAdminAccess(false);
+        setTechnicianCompanyUserIds([]);
         setCompany(null);
         setClients([]);
         setPropertiesById({});
@@ -560,16 +582,25 @@ export default function TechOSScreen() {
         }
 
         if (!selectedCompanyId && activeTechOSMemberships.length > 1) {
-            setCompanyChoices(activeTechOSMemberships);
-            setCheckingAccess(false);
-            setMessage('Choose a company to open TechOS.');
-            return;
+            const availableCompanyIds = Array.from(new Set(activeTechOSMemberships.map((companyUser) => companyUser.company_id)));
+
+            if (availableCompanyIds.length === 1) {
+                activeMembership = activeTechOSMemberships[0];
+                selectedCompanyId = activeMembership.company_id;
+                replaceTechOSCompanyRoute(selectedCompanyId);
+            } else {
+                setCompanyChoices(activeTechOSMemberships);
+                setCheckingAccess(false);
+                setMessage('Choose a company to open TechOS.');
+                return;
+            }
         }
 
         if (platformAdminCheck.isPlatformAdmin && selectedCompanyId) {
             setMembership(activeMembership);
             setIsPlatformAdminAccess(true);
             setTechOSMode('platform-preview');
+            setTechnicianCompanyUserIds([]);
             setActiveCompanyId(selectedCompanyId);
             await Promise.all([
                 loadCompanyBrand(selectedCompanyId),
@@ -596,10 +627,19 @@ export default function TechOSScreen() {
         const nextMode: TechOSMode = isTechnicianRole(activeMembership.role) ? 'technician' : 'management-preview';
         setTechOSMode(nextMode);
         setActiveCompanyId(activeMembership.company_id);
+        const nextTechnicianCompanyUserIds = nextMode === 'technician'
+            ? resolveTechOSAssignmentCompanyUserIds({
+                companyId: activeMembership.company_id,
+                eligibleCompanyUsers: activeTechOSMemberships,
+                primaryCompanyUserId: activeMembership.id,
+            })
+            : [];
+        setTechnicianCompanyUserIds(nextTechnicianCompanyUserIds);
         logTechOSDebug('resolved technician profile', {
             auth_user_id: userId,
             auth_email: userEmail,
             company_user_id: activeMembership.id,
+            company_user_ids: nextTechnicianCompanyUserIds,
             company_id: activeMembership.company_id,
             role: activeMembership.role,
             status: activeMembership.status,
@@ -608,7 +648,7 @@ export default function TechOSScreen() {
         if (nextMode === 'technician') {
             await Promise.all([
                 loadCompanyBrand(activeMembership.company_id),
-                loadAssignedScheduleJobs(activeMembership.company_id, activeMembership.id, {
+                loadAssignedScheduleJobs(activeMembership.company_id, nextTechnicianCompanyUserIds, {
                     announceNewAssignments: false,
                     authEmail: userEmail,
                     authUserId: userId,
@@ -631,7 +671,7 @@ export default function TechOSScreen() {
 
     async function loadAssignedScheduleJobs(
         companyIdToLoad: string,
-        technicianCompanyUserId: string,
+        technicianCompanyUserIdInput: string | string[],
         options: {
             announceNewAssignments?: boolean;
             authEmail?: string;
@@ -641,16 +681,23 @@ export default function TechOSScreen() {
             subtle?: boolean;
         } = {}
     ) {
+        const technicianCompanyUserIds = normalizeTechOSAssignmentCompanyUserIds(
+            Array.isArray(technicianCompanyUserIdInput)
+                ? technicianCompanyUserIdInput
+                : [technicianCompanyUserIdInput]
+        );
+        const primaryTechnicianCompanyUserId = technicianCompanyUserIds[0] || '';
         const diagnosticsContext = {
             authEmail: options.authEmail ?? authEmail,
             authUserId: options.authUserId ?? authUserId,
             companyId: companyIdToLoad,
-            companyUserId: technicianCompanyUserId,
+            companyUserId: primaryTechnicianCompanyUserId,
+            companyUserIds: technicianCompanyUserIds,
             role: options.role ?? membership?.role ?? null,
             status: options.status ?? membership?.status ?? null,
         };
 
-        if (!companyIdToLoad || !technicianCompanyUserId) {
+        if (!companyIdToLoad || technicianCompanyUserIds.length === 0) {
             setAssignedScheduleSlots([]);
             setServiceRequestsById({});
             setScheduleDiagnostics({
@@ -674,13 +721,18 @@ export default function TechOSScreen() {
         windowStart.setDate(windowStart.getDate() - 30);
         windowEnd.setDate(windowEnd.getDate() + 60);
 
-        const { data, error } = await supabase
+        const slotQuery = supabase
             .from('job_schedule_slots')
             .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
             .eq('company_id', companyIdToLoad)
-            .eq('technician_company_user_id', technicianCompanyUserId)
             .gte('start_at', windowStart.toISOString())
-            .lte('start_at', windowEnd.toISOString())
+            .lte('start_at', windowEnd.toISOString());
+
+        const filteredSlotQuery = technicianCompanyUserIds.length === 1
+            ? slotQuery.eq('technician_company_user_id', technicianCompanyUserIds[0])
+            : slotQuery.in('technician_company_user_id', technicianCompanyUserIds);
+
+        const { data, error } = await filteredSlotQuery
             .order('start_at', { ascending: true });
 
         logTechOSDebug('job_schedule_slots query result', {
@@ -709,7 +761,11 @@ export default function TechOSScreen() {
             return;
         }
 
-        const nextSlots = normalizeScheduleSlots(data);
+        const nextSlots = filterTechOSAssignmentSlots(
+            normalizeScheduleSlots(data),
+            companyIdToLoad,
+            technicianCompanyUserIds
+        );
         setScheduleDiagnostics({
             ...diagnosticsContext,
             queryError: '',
@@ -1251,8 +1307,8 @@ export default function TechOSScreen() {
                 [slotId]: `Visit closed: ${getServiceVisitOutcomeLabel(result.visit_outcome)}.`,
             }));
 
-            if (activeCompanyId && membership?.id) {
-                await loadAssignedScheduleJobs(activeCompanyId, membership.id, { subtle: true });
+            if (activeCompanyId && assignedTechnicianCompanyUserIds.length > 0) {
+                await loadAssignedScheduleJobs(activeCompanyId, assignedTechnicianCompanyUserIds, { subtle: true });
             }
         } catch (error) {
             setWorkflowMessageBySlotId((current) => ({
@@ -1429,8 +1485,8 @@ export default function TechOSScreen() {
                 }));
             }
 
-            if (activeCompanyId && membership?.id) {
-                await loadAssignedScheduleJobs(activeCompanyId, membership.id, { subtle: true });
+            if (activeCompanyId && assignedTechnicianCompanyUserIds.length > 0) {
+                await loadAssignedScheduleJobs(activeCompanyId, assignedTechnicianCompanyUserIds, { subtle: true });
             }
         } catch (error) {
             workflowStatusBySlotIdRef.current = {
@@ -1712,8 +1768,8 @@ export default function TechOSScreen() {
                         closingVisitSlotId={closingVisitSlotId}
                         customStatusNoteBySlotId={customStatusNoteBySlotId}
                         onRefresh={() => {
-                            if (activeCompanyId && membership?.id) {
-                                void loadAssignedScheduleJobs(activeCompanyId, membership.id, {
+                            if (activeCompanyId && assignedTechnicianCompanyUserIds.length > 0) {
+                                void loadAssignedScheduleJobs(activeCompanyId, assignedTechnicianCompanyUserIds, {
                                     announceNewAssignments: false,
                                 });
                             }
@@ -2600,7 +2656,14 @@ function AssignedScheduleJobsSection({
 }) {
     const { theme } = useTheme();
     const shouldShowTodayAndFuture = Boolean(todayJobs || futureJobs);
-    const groupedJobCount = (todayJobs?.length || 0) + (futureJobs?.length || 0);
+    const groupedJobIds = new Set([
+        ...(todayJobs || []),
+        ...(futureJobs || []),
+    ].map((job) => job.slot.id));
+    const activeUngroupedJobs = shouldShowTodayAndFuture
+        ? jobs.filter((job) => !groupedJobIds.has(job.slot.id))
+        : [];
+    const groupedJobCount = (todayJobs?.length || 0) + (futureJobs?.length || 0) + activeUngroupedJobs.length;
     const visibleJobCount = shouldShowTodayAndFuture ? groupedJobCount : jobs.length;
 
     return (
@@ -2657,6 +2720,13 @@ function AssignedScheduleJobsSection({
                 </View>
             ) : shouldShowTodayAndFuture ? (
                 <View style={calendarDayListStyle}>
+                    {!!activeUngroupedJobs.length && (
+                        <AssignedScheduleJobGroup
+                            title="Active Jobs"
+                            jobs={activeUngroupedJobs}
+                            onOpenDetails={onOpenDetails}
+                        />
+                    )}
                     {!!todayJobs?.length && (
                         <AssignedScheduleJobGroup
                             title="Today’s Jobs"
@@ -2724,6 +2794,7 @@ function TechOSScheduleDebugNote({
     const rows = [
         `auth_user=${shortId(diagnostics.authUserId)} email=${diagnostics.authEmail || 'unknown'}`,
         `company_id=${shortId(diagnostics.companyId)} company_user_id=${shortId(diagnostics.companyUserId)}`,
+        `company_user_ids=${diagnostics.companyUserIds.map(shortId).join(',') || 'none'}`,
         `role=${formatLabel(diagnostics.role)} status=${formatStatus(diagnostics.status)}`,
         `query_error=${diagnostics.queryError || 'none'}`,
         `raw_slots=${diagnostics.rawSlotCount} normalized_slots=${diagnostics.normalizedSlotCount}`,
@@ -4135,7 +4206,10 @@ function isFutureDate(value?: string | null) {
 }
 
 function isCurrentFutureActiveScheduleJob(slot: TechScheduleSlot) {
-    return isActiveScheduleSlot(slot.status) && (isTodayDate(slot.start_at) || isFutureDate(slot.start_at));
+    if (!isActiveScheduleSlot(slot.status)) return false;
+    if (isLiveTechOSAssignmentStatus(slot.status)) return true;
+
+    return isTodayDate(slot.start_at) || isFutureDate(slot.start_at);
 }
 
 function isActiveUpcomingScheduleJob(slot: TechScheduleSlot) {
