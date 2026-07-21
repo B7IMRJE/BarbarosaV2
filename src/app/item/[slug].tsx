@@ -3,7 +3,7 @@ import HomeHeader from '../../components/HomeHeader';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -48,15 +48,23 @@ import {
 } from '../../lib/maintenanceTimers';
 import {
     providerModePath,
+    providerModeItemPath,
     providerModeQueryParams,
     hasProviderModeRouteSignal,
     readProviderModeParams,
     validateProviderModeAccess,
 } from '../../lib/providerMode';
 import {
+    buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     hasAssignedProviderHomeItemsContext,
+    type ProviderHomeItemRpcRow,
 } from '../../lib/providerHomeItems';
+import {
+    filterChildHomeItems,
+    resolveHomeItemChildCreateContext,
+    type HomeItemHierarchyRecord,
+} from '../../lib/homeItemHierarchy';
 import { getProviderReturnActionLabel } from '../../lib/techosClientAccess';
 import {
     addProviderStagedWork,
@@ -108,6 +116,8 @@ type ProviderStagedPanel = 'none' | 'note' | 'finding' | 'edit' | 'related_item'
 type ProviderNoteDestination = 'company_only' | 'client_update';
 
 type ProviderFindingSeverity = 'low' | 'medium' | 'high' | 'urgent';
+
+type ItemActionGroupKey = 'estimate' | 'provider' | 'media' | 'item';
 
 const photoCategories = [
     'equipment_photo',
@@ -423,6 +433,7 @@ export default function ItemScreen() {
     const providerModeContext = readProviderModeParams(routeParams);
     const providerContextIncomplete = hasProviderModeRouteSignal(routeParams) && !providerModeContext;
     const [item, setItem] = useState<any>(null);
+    const [relatedItems, setRelatedItems] = useState<HomeItemHierarchyRecord[]>([]);
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
     const [loading, setLoading] = useState(true);
@@ -480,6 +491,12 @@ export default function ItemScreen() {
     const [providerRelatedCategory, setProviderRelatedCategory] = useState('');
     const [providerRelatedLocation, setProviderRelatedLocation] = useState('');
     const [providerRelatedNotes, setProviderRelatedNotes] = useState('');
+    const [expandedActionGroups, setExpandedActionGroups] = useState<Record<ItemActionGroupKey, boolean>>({
+        estimate: true,
+        provider: false,
+        media: false,
+        item: false,
+    });
 
     useEffect(() => {
         void loadItem();
@@ -568,9 +585,11 @@ export default function ItemScreen() {
         }
 
         if (panel === 'related_item') {
+            const childContext = item ? resolveHomeItemChildCreateContext(item) : { location: '', parentArea: null };
+
             setProviderRelatedName('');
-            setProviderRelatedCategory(item?.category || '');
-            setProviderRelatedLocation(item?.location || item?.parent_area || '');
+            setProviderRelatedCategory('Component');
+            setProviderRelatedLocation(childContext.location);
             setProviderRelatedNotes('');
         }
 
@@ -732,28 +751,75 @@ export default function ItemScreen() {
     async function handleSaveProviderRelatedItem() {
         const itemName = providerRelatedName.trim();
 
+        if (!providerModeContext || !item) {
+            setMessage('Provider mode item context is not available.');
+            return;
+        }
+
+        if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+            setMessage('Client HomeOS publishing requires an assigned request, visit, or job context.');
+            return;
+        }
+
         if (!itemName) {
             setMessage('Related item name is required.');
             return;
         }
 
-        const saved = await saveProviderStagedEntry(
-            'related_item',
-            {
-                name: itemName,
-                category: providerRelatedCategory.trim(),
-                location: providerRelatedLocation.trim(),
-                notes: providerRelatedNotes.trim(),
-            },
-            'Related item staged. It was not added to the client HomeOS yet.'
-        );
+        const childContext = resolveHomeItemChildCreateContext(item);
+        const childLocation = providerRelatedLocation.trim() || childContext.location;
 
-        if (saved) {
+        if (!childLocation) {
+            setMessage('The current item needs a name before a related item can be added under it.');
+            return;
+        }
+
+        setSavingProviderWork(true);
+        setMessage('Adding related item to Client HomeOS...');
+
+        try {
+            const { data, error } = await supabase.rpc(
+                'create_provider_homeos_item',
+                buildProviderHomeItemCreateRpcArgs(providerModeContext, {
+                    itemSlug: null,
+                    name: itemName,
+                    system: item.system || 'HomeOS',
+                    category: providerRelatedCategory.trim() || 'Component',
+                    location: childLocation,
+                    parentArea: childContext.parentArea,
+                    status: 'Missing Information',
+                    installState: 'Unknown',
+                    about: providerRelatedNotes.trim() || `Provider-added component under ${item.name || 'this item'}.`,
+                    brand: 'Unknown',
+                    model: 'Unknown',
+                    serial: 'Unknown',
+                })
+            );
+
+            if (error) {
+                setMessage(`Related item could not be added: ${error.message}`);
+                return;
+            }
+
+            const createdItem = ((data || []) as ProviderHomeItemRpcRow[])[0] || null;
+
             setProviderRelatedName('');
             setProviderRelatedCategory('');
             setProviderRelatedLocation('');
             setProviderRelatedNotes('');
             setProviderPanel('none');
+            setRelatedItems((currentItems) =>
+                filterChildHomeItems([...currentItems, createdItem].filter(Boolean) as HomeItemHierarchyRecord[], item)
+            );
+            setMessage(`${itemName} was added under ${item.name || 'this item'}.`);
+
+            if (createdItem?.item_slug) {
+                router.push(providerModeItemPath(createdItem.item_slug, providerModeContext) as any);
+            }
+        } catch (error) {
+            setMessage(`Related item could not be added: ${providerStagingErrorMessage(error)}`);
+        } finally {
+            setSavingProviderWork(false);
         }
     }
 
@@ -1158,12 +1224,14 @@ export default function ItemScreen() {
         setEstimateAccess(null);
         setEstimatePermissionMessage('');
         setCheckingEstimateAccess(false);
+        setRelatedItems([]);
         setFiles([]);
         setMaintenanceTasks([]);
 
         if (providerContextIncomplete) {
             setMessage('Provider context is incomplete. Use Back to Current Job and reopen Client HomeOS.');
             setItem(null);
+            setRelatedItems([]);
             setFiles([]);
             setMaintenanceTasks([]);
             setLoading(false);
@@ -1185,6 +1253,7 @@ export default function ItemScreen() {
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
             setItem(null);
+            setRelatedItems([]);
             setFiles([]);
             setMaintenanceTasks([]);
             setLoading(false);
@@ -1236,16 +1305,23 @@ export default function ItemScreen() {
         if (loadErrorMessage) {
             setMessage(`Item load failed: ${loadErrorMessage}`);
             setItem(null);
+            setRelatedItems([]);
             setFiles([]);
             setMaintenanceTasks([]);
         } else if (!itemRow) {
             setMessage('Item not found.');
             setItem(null);
+            setRelatedItems([]);
             setFiles([]);
             setMaintenanceTasks([]);
         } else {
             setItem(itemRow);
             setMessage('');
+            const nextRelatedItems = await loadRelatedItemsForCurrentItem({
+                propertyId: activeProperty.propertyId,
+                parentItem: itemRow,
+            });
+            setRelatedItems(nextRelatedItems);
             if (providerModeContext) {
                 setFiles([]);
                 setMaintenanceTasks([]);
@@ -1263,6 +1339,48 @@ export default function ItemScreen() {
         }
 
         setLoading(false);
+    }
+
+    async function loadRelatedItemsForCurrentItem({
+        propertyId,
+        parentItem,
+    }: {
+        propertyId: string;
+        parentItem: HomeItemHierarchyRecord;
+    }) {
+        let rows: HomeItemHierarchyRecord[] = [];
+
+        if (providerModeContext) {
+            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) return [];
+
+            const { data, error } = await supabase.rpc(
+                'get_provider_homeos_items',
+                buildProviderHomeItemsRpcArgs(providerModeContext)
+            );
+
+            if (error) {
+                setMessage(`Related item load failed: ${error.message}`);
+                return [];
+            }
+
+            rows = (data || []) as HomeItemHierarchyRecord[];
+        } else {
+            const { data, error } = await supabase
+                .from('home_items')
+                .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived')
+                .eq('property_id', propertyId)
+                .or('archived.eq.false,archived.is.null')
+                .order('name', { ascending: true });
+
+            if (error) {
+                setMessage(`Related item load failed: ${error.message}`);
+                return [];
+            }
+
+            rows = (data || []) as HomeItemHierarchyRecord[];
+        }
+
+        return filterChildHomeItems(rows, parentItem);
     }
 
     async function loadManagementItem(targetCompanyId: string, targetPropertyId: string) {
@@ -1833,13 +1951,15 @@ export default function ItemScreen() {
             return;
         }
 
+        const childContext = resolveHomeItemChildCreateContext(item);
+
         router.push({
             pathname: '/item/create',
             params: {
                 system: item.system || 'Plumbing',
                 category: 'Component',
-                location: item.location || '',
-                parentArea: item.parent_area || item.name || '',
+                area: childContext.location || item.name || '',
+                parentArea: childContext.parentArea || '',
             },
         } as any);
     }
@@ -2672,6 +2792,58 @@ export default function ItemScreen() {
         { label: 'Serial', value: item.serial || 'Unknown' },
     ];
 
+    function toggleActionGroup(group: ItemActionGroupKey) {
+        setExpandedActionGroups((currentGroups) => ({
+            ...currentGroups,
+            [group]: !currentGroups[group],
+        }));
+    }
+
+    function openRelatedItem(relatedItem: HomeItemHierarchyRecord) {
+        const itemSlug = relatedItem.item_slug || '';
+
+        if (!itemSlug) return;
+
+        router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
+    }
+
+    function renderActionGroup(
+        group: ItemActionGroupKey,
+        title: string,
+        subtitle: string,
+        children: ReactNode
+    ) {
+        const expanded = expandedActionGroups[group];
+
+        return (
+            <ThemedCard style={scaleStyle(actionGroupCardStyle)}>
+                <TouchableOpacity
+                    onPress={() => toggleActionGroup(group)}
+                    style={scaleStyle(actionGroupHeaderStyle)}
+                    activeOpacity={0.84}
+                >
+                    <View style={scaleStyle(actionGroupHeaderTextStyle)}>
+                        <Text style={[scaleStyle(actionGroupTitleStyle), { color: theme.colors.text }]}>
+                            {title}
+                        </Text>
+                        <Text style={[scaleStyle(actionGroupSubtitleStyle), { color: theme.colors.mutedText }]}>
+                            {subtitle}
+                        </Text>
+                    </View>
+                    <Text style={[scaleStyle(actionGroupToggleStyle), { color: theme.colors.primary }]}>
+                        {expanded ? 'Hide' : 'Open'}
+                    </Text>
+                </TouchableOpacity>
+
+                {expanded ? (
+                    <View style={scaleStyle(actionGridStyle)}>
+                        {children}
+                    </View>
+                ) : null}
+            </ThemedCard>
+        );
+    }
+
     function renderProviderWorkPanel() {
         if (!providerModeContext || providerPanel === 'none') return null;
 
@@ -2982,7 +3154,7 @@ export default function ItemScreen() {
                         Add Related Item
                     </Text>
                     <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                        Related items are staged locally and are not added to the client HomeOS yet.
+                        Add a real client HomeOS component inside {item?.name || 'this item'} for the assigned job context.
                     </Text>
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Item name</Text>
                     <TextInput
@@ -3020,7 +3192,7 @@ export default function ItemScreen() {
                     />
                     <View style={scaleStyle(providerFormActionRowStyle)}>
                         <ThemedButton
-                            title={savingProviderWork ? 'Saving...' : 'Save Related Item'}
+                            title={savingProviderWork ? 'Adding...' : 'Add to Client HomeOS'}
                             onPress={handleSaveProviderRelatedItem}
                             disabled={savingProviderWork}
                             style={scaleStyle(providerFormButtonStyle)}
@@ -3723,6 +3895,58 @@ export default function ItemScreen() {
                         </ThemedCard>
                     </View>
 
+                    <ThemedCard style={scaleStyle(relatedItemsCardStyle)}>
+                        <View style={scaleStyle(relatedItemsHeaderStyle)}>
+                            <View style={scaleStyle(relatedItemsHeaderTextStyle)}>
+                                <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0, marginBottom: 4 }]}>
+                                    Components inside {item.name || 'this item'}
+                                </Text>
+                                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                    Add valves, connectors, drains, findings, or other parts that belong to this item.
+                                </Text>
+                            </View>
+                            <ThemedButton
+                                title="+ Add Component"
+                                onPress={handleAddRelatedItem}
+                                style={scaleStyle(relatedItemsAddButtonStyle)}
+                                textStyle={scaleStyle(fileActionButtonTextStyle)}
+                            />
+                        </View>
+
+                        {relatedItems.length === 0 ? (
+                            <View style={[scaleStyle(relatedItemsEmptyStyle), { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}>
+                                <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                                    No components have been added inside this item yet.
+                                </Text>
+                            </View>
+                        ) : (
+                            <View style={scaleStyle(relatedItemsGridStyle)}>
+                                {relatedItems.map((relatedItem) => (
+                                    <TouchableOpacity
+                                        key={relatedItem.id || relatedItem.item_slug || relatedItem.name || ''}
+                                        onPress={() => openRelatedItem(relatedItem)}
+                                        activeOpacity={0.84}
+                                        style={[
+                                            relatedItemCardStyle,
+                                            {
+                                                backgroundColor: theme.colors.surfaceAlt,
+                                                borderColor: theme.colors.border,
+                                                borderRadius: theme.radii.card,
+                                            },
+                                        ]}
+                                    >
+                                        <Text style={[scaleStyle(relatedItemTitleStyle), { color: theme.colors.text }]} numberOfLines={2}>
+                                            {relatedItem.name || 'Unnamed component'}
+                                        </Text>
+                                        <Text style={[scaleStyle(relatedItemMetaStyle), { color: theme.colors.mutedText }]} numberOfLines={1}>
+                                            {relatedItem.category || 'Component'} / {relatedItem.status || relatedItem.install_state || 'Missing Information'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        )}
+                    </ThemedCard>
+
                     <ThemedCard style={scaleStyle(maintenanceCardStyle)}>
                         <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
                             Maintenance Reminders
@@ -3974,14 +4198,6 @@ export default function ItemScreen() {
                         )}
                     </ThemedCard>
 
-                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Photo Type</Text>
-                    <OptionRow
-                        options={photoCategories}
-                        value={photoCategory}
-                        onChange={setPhotoCategory}
-                        labelForOption={photoLabel}
-                    />
-
                     {checkingEstimateAccess && (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>
                             <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Estimate</Text>
@@ -4000,182 +4216,214 @@ export default function ItemScreen() {
                         </ThemedCard>
                     )}
 
-                    <View style={scaleStyle(actionGridStyle)}>
-                        {canAddItemToEstimate && (
-                            <>
-                                <ThemedButton
-                                    title="Add to Estimate"
-                                    onPress={handleAddToEstimate}
-                                    style={scaleStyle(buttonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
+                    {canAddItemToEstimate ? renderActionGroup(
+                        'estimate',
+                        'Estimate & work',
+                        'Quote this item, view the current estimate, or open the job thread.',
+                        <>
+                            <ThemedButton
+                                title="Add to Estimate"
+                                onPress={handleAddToEstimate}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+
+                            <ThemedButton
+                                title="View Estimate"
+                                onPress={() => router.push({
+                                    pathname: '/estimate',
+                                    params: {
+                                        mode: isManagementMode ? 'management' : '',
+                                        itemSlug: item.item_slug || String(slug),
+                                        ...(providerModeContext
+                                            ? {
+                                                ...providerModeQueryParams(providerModeContext),
+                                            }
+                                            : {
+                                                companyId: estimateAccess?.companyId || managementCompanyId || '',
+                                                propertyId: item.property_id || managementPropertyId || '',
+                                            }),
+                                    },
+                                } as never)}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+
+                            <ThemedButton
+                                title="Start Job Thread"
+                                onPress={handleStartJobThread}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                        </>
+                    ) : null}
+
+                    {providerModeContext ? renderActionGroup(
+                        'provider',
+                        'Provider updates',
+                        'Stage notes, findings, and client-update work without changing private HomeOS media.',
+                        <>
+                            <ThemedButton
+                                title="Add Details / Notes"
+                                variant="secondary"
+                                onPress={() => openProviderPanel('note')}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                            <ThemedButton
+                                title={mediaActionBusy ? mediaBusyTitle : 'Add Job Photo'}
+                                variant="secondary"
+                                onPress={() => captureProviderStagedPhoto('Add Job Photo', 'job_photo')}
+                                disabled={mediaActionBusy}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                            <ThemedButton
+                                title="Add Finding"
+                                variant="secondary"
+                                onPress={() => openProviderPanel('finding')}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                            <ThemedButton
+                                title="Mark for Client Update"
+                                variant="secondary"
+                                onPress={handleStageClientUpdateMark}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                            <ThemedButton
+                                title="Update Client's HomeOS"
+                                variant="secondary"
+                                onPress={() => openProviderPanel('review')}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                        </>
+                    ) : null}
+
+                    {renderActionGroup(
+                        'media',
+                        'Photos & documents',
+                        providerModeContext
+                            ? 'Provider uploads stay company-side unless a later publish step shares them.'
+                            : 'Add item photos, documents, and main-photo evidence.',
+                        <>
+                            <View style={scaleStyle(actionGroupOptionWrapStyle)}>
+                                <Text style={[scaleStyle(actionGroupInlineLabelStyle), { color: theme.colors.mutedText }]}>
+                                    Photo type
+                                </Text>
+                                <OptionRow
+                                    options={photoCategories}
+                                    value={photoCategory}
+                                    onChange={setPhotoCategory}
+                                    labelForOption={photoLabel}
                                 />
+                            </View>
 
-                                <ThemedButton
-                                    title="View Estimate"
-                                    onPress={() => router.push({
-                                        pathname: '/estimate',
-                                        params: {
-                                            mode: isManagementMode ? 'management' : '',
-                                            itemSlug: item.item_slug || String(slug),
-                                            ...(providerModeContext
-                                                ? {
-                                                    ...providerModeQueryParams(providerModeContext),
-                                                }
-                                                : {
-                                                    companyId: estimateAccess?.companyId || managementCompanyId || '',
-                                                    propertyId: item.property_id || managementPropertyId || '',
-                                                }),
-                                        },
-                                    } as never)}
-                                    style={scaleStyle(buttonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
-                                />
+                            <ThemedButton
+                                title={mediaActionBusy ? mediaBusyTitle : 'Upload Main Photo'}
+                                onPress={handleUploadMainPhoto}
+                                disabled={mediaActionBusy}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                                <ThemedButton
-                                    title="Start Job Thread"
-                                    onPress={handleStartJobThread}
-                                    style={scaleStyle(buttonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
-                                />
-                            </>
-                        )}
+                            <ThemedButton
+                                title={mediaActionBusy ? mediaBusyTitle : 'Take Main Photo'}
+                                onPress={handleTakeMainPhoto}
+                                disabled={mediaActionBusy}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        {providerModeContext ? (
-                            <>
-                                <ThemedButton
-                                    title="Add Details / Notes"
-                                    variant="secondary"
-                                    onPress={() => openProviderPanel('note')}
-                                    style={scaleStyle(buttonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
-                                />
-                                <ThemedButton
-                                    title={mediaActionBusy ? mediaBusyTitle : 'Add Job Photo'}
-                                    variant="secondary"
-                                    onPress={() => captureProviderStagedPhoto('Add Job Photo', 'job_photo')}
-                                    disabled={mediaActionBusy}
-                                    style={scaleStyle(buttonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
-                                />
-                                <ThemedButton
-                                    title="Add Finding"
-                                    variant="secondary"
-                                    onPress={() => openProviderPanel('finding')}
-                                    style={scaleStyle(buttonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
-                                />
-                                <ThemedButton
-                                    title="Mark for Client Update"
-                                    variant="secondary"
-                                    onPress={handleStageClientUpdateMark}
-                                    style={scaleStyle(buttonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
-                                />
-                                <ThemedButton
-                                    title="Update Client's HomeOS"
-                                    variant="secondary"
-                                    onPress={() => openProviderPanel('review')}
-                                    style={scaleStyle(buttonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
-                                />
-                            </>
-                        ) : null}
+                            <ThemedButton
+                                title={mediaActionBusy ? mediaBusyTitle : 'Choose Photo'}
+                                onPress={handleUploadAdditionalPhoto}
+                                disabled={mediaActionBusy}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        <ThemedButton
-                            title={mediaActionBusy ? mediaBusyTitle : 'Upload Main Photo'}
-                            onPress={handleUploadMainPhoto}
-                            disabled={mediaActionBusy}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
+                            <ThemedButton
+                                title={mediaActionBusy ? mediaBusyTitle : 'Upload Document'}
+                                onPress={handleUploadDocument}
+                                disabled={mediaActionBusy}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        <ThemedButton
-                            title={mediaActionBusy ? mediaBusyTitle : 'Take Main Photo'}
-                            onPress={handleTakeMainPhoto}
-                            disabled={mediaActionBusy}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
+                            <ThemedButton
+                                title={mediaActionBusy ? mediaBusyTitle : 'Take Photo'}
+                                onPress={handleTakeAdditionalPhoto}
+                                disabled={mediaActionBusy}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        <ThemedButton
-                            title={mediaActionBusy ? mediaBusyTitle : 'Choose Photo'}
-                            onPress={handleUploadAdditionalPhoto}
-                            disabled={mediaActionBusy}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
+                            <ThemedButton
+                                title="Location Video Coming Soon"
+                                variant="secondary"
+                                onPress={handleLocationVideoPlaceholder}
+                                disabled={mediaActionBusy}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        <ThemedButton
-                            title={mediaActionBusy ? mediaBusyTitle : 'Upload Document'}
-                            onPress={handleUploadDocument}
-                            disabled={mediaActionBusy}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
+                            <ThemedButton
+                                title="View Photos"
+                                onPress={() => setShowPhotos(true)}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        <ThemedButton
-                            title={mediaActionBusy ? mediaBusyTitle : 'Take Photo'}
-                            onPress={handleTakeAdditionalPhoto}
-                            disabled={mediaActionBusy}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
+                            <ThemedButton
+                                title="View Documents"
+                                onPress={() => {
+                                    setSelectedDocumentType(null);
+                                    setShowDocuments(true);
+                                }}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                        </>
+                    )}
 
-                        <ThemedButton
-                            title="Location Video Coming Soon"
-                            variant="secondary"
-                            onPress={handleLocationVideoPlaceholder}
-                            disabled={mediaActionBusy}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
+                    {renderActionGroup(
+                        'item',
+                        'Item management',
+                        'Edit this item, add components inside it, or request/archive work.',
+                        <>
+                            <ThemedButton
+                                title="Edit Information"
+                                onPress={handleEditInformation}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        <ThemedButton
-                            title="View Photos"
-                            onPress={() => setShowPhotos(true)}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
+                            <ThemedButton
+                                title="Add Related Item"
+                                onPress={handleAddRelatedItem}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        <ThemedButton
-                            title="View Documents"
-                            onPress={() => {
-                                setSelectedDocumentType(null);
-                                setShowDocuments(true);
-                            }}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
+                            <ThemedButton
+                                title="Request Service"
+                                onPress={() => setMessage('Request service comes next.')}
+                                style={scaleStyle(buttonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
 
-                        <ThemedButton
-                            title="Edit Information"
-                            onPress={handleEditInformation}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
-
-                        <ThemedButton
-                            title="Add Related Item"
-                            onPress={handleAddRelatedItem}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
-
-                        <ThemedButton
-                            title="Request Service"
-                            onPress={() => setMessage('Request service comes next.')}
-                            style={scaleStyle(buttonStyle)}
-                            textStyle={scaleStyle(buttonTextStyle)}
-                        />
-
-                        <ThemedButton
-                            title="Archive Item"
-                            variant="danger"
-                            onPress={confirmArchiveItem}
-                            style={scaleStyle(removeButtonStyle)}
-                            textStyle={scaleStyle(removeButtonTextStyle)}
-                        />
-                    </View>
+                            <ThemedButton
+                                title="Archive Item"
+                                variant="danger"
+                                onPress={confirmArchiveItem}
+                                style={scaleStyle(removeButtonStyle)}
+                                textStyle={scaleStyle(removeButtonTextStyle)}
+                            />
+                        </>
+                    )}
 
                     {renderProviderWorkPanel()}
                     {renderProviderStagedUpdatesPanel()}
@@ -5178,6 +5426,115 @@ const optionButtonTextStyle = {
 };
 
 const optionButtonSelectedTextStyle = {
+};
+
+const relatedItemsCardStyle = {
+    borderRadius: 20,
+    padding: 18,
+    marginTop: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+};
+
+const relatedItemsHeaderStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+};
+
+const relatedItemsHeaderTextStyle = {
+    flex: 1,
+    minWidth: 220,
+};
+
+const relatedItemsAddButtonStyle = {
+    minWidth: 170,
+    paddingVertical: 12,
+};
+
+const relatedItemsEmptyStyle = {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 14,
+};
+
+const relatedItemsGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 14,
+};
+
+const relatedItemCardStyle = {
+    borderWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    minWidth: 180,
+    maxWidth: 240,
+};
+
+const relatedItemTitleStyle = {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900' as const,
+};
+
+const relatedItemMetaStyle = {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800' as const,
+    marginTop: 4,
+};
+
+const actionGroupCardStyle = {
+    borderRadius: 18,
+    padding: 14,
+    marginTop: 10,
+    borderWidth: 1,
+};
+
+const actionGroupHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+};
+
+const actionGroupHeaderTextStyle = {
+    flex: 1,
+    minWidth: 180,
+};
+
+const actionGroupTitleStyle = {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '900' as const,
+};
+
+const actionGroupSubtitleStyle = {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800' as const,
+    marginTop: 2,
+};
+
+const actionGroupToggleStyle = {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900' as const,
+};
+
+const actionGroupInlineLabelStyle = {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900' as const,
+};
+
+const actionGroupOptionWrapStyle = {
+    width: '100%' as const,
 };
 
 const actionGridStyle = {
