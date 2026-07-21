@@ -1,4 +1,5 @@
 import {
+    collapseTechOSAssignmentSlots,
     filterTechOSAssignmentSlots,
     isLiveTechOSAssignmentStatus,
     normalizeTechOSAssignmentCompanyUserIds,
@@ -13,6 +14,9 @@ export function runTechOSAssignmentRegressions() {
     unrelatedTechnicianRowsStayHidden();
     assignmentSlotsFilterToVisibleTechnicianIdentities();
     liveWorkflowStatusesStayVisibleAsActiveAssignments();
+    duplicateScheduleSlotsForOneRequestCollapseToCurrentVisit();
+    differentRequestsRemainSeparateAfterSlotCollapse();
+    olderClosedVisitCannotDuplicateNewerActiveVisit();
 }
 
 function duplicateSameAccountTechnicianRowsLoadTogether() {
@@ -83,6 +87,79 @@ function liveWorkflowStatusesStayVisibleAsActiveAssignments() {
     ['scheduled', 'completed', 'cancelled'].forEach((status) => {
         assert(!isLiveTechOSAssignmentStatus(status), `${status} should not be treated as a live visit status.`);
     });
+}
+
+function duplicateScheduleSlotsForOneRequestCollapseToCurrentVisit() {
+    const slots = collapseTechOSAssignmentSlots([
+        {
+            id: 'older-scheduled-slot',
+            company_id: 'company-1',
+            technician_company_user_id: 'tech-current',
+            service_request_id: 'request-1',
+            status: 'scheduled',
+            start_at: '2026-07-17T15:00:00.000Z',
+            updated_at: '2026-07-17T14:00:00.000Z',
+        },
+        {
+            id: 'current-arrived-slot',
+            company_id: 'company-1',
+            technician_company_user_id: 'tech-alias',
+            service_request_id: 'request-1',
+            status: 'arrived',
+            start_at: '2026-07-17T15:00:00.000Z',
+            updated_at: '2026-07-20T23:40:00.000Z',
+        },
+    ]);
+
+    assert(slots.length === 1, 'TechOS should show one card per assigned service request.');
+    assert(slots[0].id === 'current-arrived-slot', 'TechOS should keep the current live visit when duplicate request slots exist.');
+}
+
+function differentRequestsRemainSeparateAfterSlotCollapse() {
+    const slots = collapseTechOSAssignmentSlots([
+        {
+            id: 'slot-a',
+            company_id: 'company-1',
+            technician_company_user_id: 'tech-current',
+            service_request_id: 'request-a',
+            status: 'on_my_way',
+        },
+        {
+            id: 'slot-b',
+            company_id: 'company-1',
+            technician_company_user_id: 'tech-current',
+            service_request_id: 'request-b',
+            status: 'arrived',
+        },
+    ]);
+
+    assert(slots.map((slot) => slot.id).join('|') === 'slot-a|slot-b', 'Distinct service requests should remain distinct jobs.');
+}
+
+function olderClosedVisitCannotDuplicateNewerActiveVisit() {
+    const slots = collapseTechOSAssignmentSlots([
+        {
+            id: 'older-completed-slot',
+            company_id: 'company-1',
+            technician_company_user_id: 'tech-current',
+            service_request_id: 'request-1',
+            status: 'completed',
+            visit_closed_at: '2026-07-17T18:00:00.000Z',
+            updated_at: '2026-07-17T18:00:00.000Z',
+        },
+        {
+            id: 'newer-active-slot',
+            company_id: 'company-1',
+            technician_company_user_id: 'tech-current',
+            service_request_id: 'request-1',
+            status: 'scheduled',
+            start_at: '2026-07-20T18:00:00.000Z',
+            updated_at: '2026-07-20T15:00:00.000Z',
+        },
+    ]);
+
+    assert(slots.length === 1, 'Closed and active visits for one request should not create duplicate TechOS cards.');
+    assert(slots[0].id === 'newer-active-slot', 'TechOS should keep the active visit instead of an older closed visit.');
 }
 
 function assert(condition: unknown, message: string): asserts condition {

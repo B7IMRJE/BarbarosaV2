@@ -78,6 +78,7 @@ import {
     saveTechOSThemePreference,
 } from '../lib/techosAppearancePreference';
 import {
+    collapseTechOSAssignmentSlots,
     filterTechOSAssignmentSlots,
     isLiveTechOSAssignmentStatus,
     normalizeTechOSAssignmentCompanyUserIds,
@@ -761,10 +762,12 @@ export default function TechOSScreen() {
             return;
         }
 
-        const nextSlots = filterTechOSAssignmentSlots(
-            normalizeScheduleSlots(data),
-            companyIdToLoad,
-            technicianCompanyUserIds
+        const nextSlots = collapseTechOSAssignmentSlots(
+            filterTechOSAssignmentSlots(
+                normalizeScheduleSlots(data),
+                companyIdToLoad,
+                technicianCompanyUserIds
+            )
         );
         setScheduleDiagnostics({
             ...diagnosticsContext,
