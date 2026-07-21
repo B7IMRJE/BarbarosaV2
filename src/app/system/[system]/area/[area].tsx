@@ -609,55 +609,69 @@ export default function AreaScreen() {
                     {parentAreaName ? `${systemLabel} / ${parentAreaName}` : systemLabel}
                 </Text>
 
-                <ThemedCard style={actionCardStyle}>
-                    <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                        Add to this area / container
-                    </Text>
-                    <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800' }}>
-                        Add a nested container like a closet, or add a real item inside {areaName}.
-                    </Text>
-
-                    <View style={actionRowStyle}>
+                <View style={areaActionGridStyle}>
+                    <ThemedCard style={[areaQuickActionCardStyle, areaContainerActionCardStyle]}>
+                        <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
+                            Add Area / Container
+                        </Text>
+                        <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
+                            Closet, cabinet, stove, vanity, or nested space.
+                        </Text>
                         <ThemedButton
-                            title="+ Add Area / Container"
+                            title="+ Area / Container"
                             variant="secondary"
                             onPress={() => createChildArea()}
-                            style={{ minWidth: scaleIcon(170), paddingVertical: scaleIcon(12) }}
-                            textStyle={{ fontSize: scaleFont(14) }}
+                            style={areaQuickActionButtonStyle}
+                            textStyle={areaQuickActionButtonTextStyle}
                         />
+                    </ThemedCard>
 
+                    <ThemedCard style={[areaQuickActionCardStyle, areaItemActionCardStyle]}>
+                        <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
+                            Add Item
+                        </Text>
+                        <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
+                            Faucet, valve, disposal, appliance, or fixture.
+                        </Text>
                         <ThemedButton
                             title="+ Add Item"
                             onPress={() => createSuggestedItem('Equipment')}
-                            style={{ minWidth: scaleIcon(140), paddingVertical: scaleIcon(12) }}
-                            textStyle={{ fontSize: scaleFont(14) }}
+                            style={areaQuickActionButtonStyle}
+                            textStyle={areaQuickActionButtonTextStyle}
                         />
+                    </ThemedCard>
 
-                        {currentAreaRecord?.id && (
+                    {currentAreaRecord?.id && (
+                        <ThemedCard style={[areaQuickActionCardStyle, areaArchiveActionCardStyle]}>
+                            <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
+                                Manage Area
+                            </Text>
+                            <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
+                                Archive this area or container when it is no longer active.
+                            </Text>
                             <ThemedButton
-                                title={archivingRecordId === currentAreaRecord.id ? 'Archiving...' : 'Archive This Area / Container'}
+                                title={archivingRecordId === currentAreaRecord.id ? 'Archiving...' : 'Archive'}
                                 variant="danger"
                                 disabled={!!archivingRecordId}
                                 onPress={() => confirmArchiveArea(currentAreaRecord, true)}
-                                style={{ alignSelf: 'flex-start', minWidth: scaleIcon(170), paddingVertical: scaleIcon(10) }}
-                                textStyle={{ fontSize: scaleFont(13) }}
+                                style={areaQuickActionButtonStyle}
+                                textStyle={areaQuickActionButtonTextStyle}
                             />
-                        )}
-                    </View>
-                </ThemedCard>
+                        </ThemedCard>
+                    )}
+                </View>
 
                 {!!starterRecoveryPreview && (
-                    <ThemedCard style={actionCardStyle}>
-                        <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                            Add Missing Starter Equipment
-                        </Text>
-                        <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), fontWeight: '800', lineHeight: scaleFont(20), marginTop: scaleIcon(8) }}>
-                            Create unconfirmed checklist cards for this home. Existing homeowner items stay untouched.
-                        </Text>
-                        <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '800', marginTop: scaleIcon(8) }}>
-                            Missing now: {starterRecoveryPreview.createdItemRows} card{starterRecoveryPreview.createdItemRows === 1 ? '' : 's'} and {starterRecoveryPreview.createdAreaRows} area{starterRecoveryPreview.createdAreaRows === 1 ? '' : 's'}.
-                        </Text>
-                        <View style={actionRowStyle}>
+                    <ThemedCard style={starterRecoveryBannerStyle}>
+                        <View style={starterRecoveryBannerTextStyle}>
+                            <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
+                                Starter Equipment
+                            </Text>
+                            <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
+                                Missing now: {starterRecoveryPreview.createdItemRows} card{starterRecoveryPreview.createdItemRows === 1 ? '' : 's'} and {starterRecoveryPreview.createdAreaRows} area{starterRecoveryPreview.createdAreaRows === 1 ? '' : 's'}.
+                            </Text>
+                        </View>
+                        <View style={starterRecoveryBannerActionStyle}>
                             <ThemedButton
                                 title={providerModeContext
                                     ? 'Provider Recovery Requires Approved Workflow'
@@ -667,8 +681,8 @@ export default function AreaScreen() {
                                 variant="secondary"
                                 disabled={recoveringStarterSetup}
                                 onPress={confirmAddMissingStarterEquipment}
-                                style={{ minWidth: scaleIcon(230), paddingVertical: scaleIcon(12) }}
-                                textStyle={{ fontSize: scaleFont(14) }}
+                                style={starterRecoveryButtonStyle}
+                                textStyle={areaQuickActionButtonTextStyle}
                             />
                         </View>
                     </ThemedCard>
@@ -1226,15 +1240,85 @@ const areaItemSectionOrder = [
     'Work History',
 ];
 
-const actionRowStyle = {
+const areaActionGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
-    gap: 12,
-    marginTop: 16,
+    gap: 10,
+    marginBottom: 18,
 };
 
-const actionCardStyle = {
-    marginBottom: 24,
+const areaQuickActionCardStyle = {
+    width: '31%' as const,
+    minWidth: 180,
+    minHeight: 132,
+    borderWidth: 1,
+    justifyContent: 'space-between' as const,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+};
+
+const areaContainerActionCardStyle = {
+    backgroundColor: '#EEF4FF',
+    borderColor: '#C8DAFF',
+};
+
+const areaItemActionCardStyle = {
+    backgroundColor: '#FFF8DF',
+    borderColor: '#F2DC92',
+};
+
+const areaArchiveActionCardStyle = {
+    backgroundColor: '#FFF1F4',
+    borderColor: '#F6CAD3',
+};
+
+const areaQuickActionTitleStyle = {
+    fontWeight: '900' as const,
+};
+
+const areaQuickActionTextStyle = {
+    fontWeight: '800' as const,
+    marginTop: 4,
+    marginBottom: 10,
+};
+
+const areaQuickActionButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 112,
+};
+
+const areaQuickActionButtonTextStyle = {
+    fontSize: 12,
+};
+
+const starterRecoveryBannerStyle = {
+    backgroundColor: '#ECFBF5',
+    borderColor: '#BFEEDC',
+    borderWidth: 1,
+    marginBottom: 20,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+};
+
+const starterRecoveryBannerTextStyle = {
+    flex: 1,
+    minWidth: 190,
+};
+
+const starterRecoveryBannerActionStyle = {
+    flexShrink: 0,
+};
+
+const starterRecoveryButtonStyle = {
+    minWidth: 170,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
 };
 
 const sectionListStyle = {

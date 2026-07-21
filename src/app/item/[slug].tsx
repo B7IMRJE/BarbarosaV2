@@ -119,6 +119,15 @@ type ProviderFindingSeverity = 'low' | 'medium' | 'high' | 'urgent';
 
 type ItemActionGroupKey = 'components' | 'maintenance' | 'estimate' | 'provider' | 'media' | 'item';
 
+const itemSectionTilePalettes: Record<ItemActionGroupKey, { background: string; border: string; accent: string }> = {
+    components: { background: '#FFF8DF', border: '#F2DC92', accent: '#D99214' },
+    maintenance: { background: '#ECFBF5', border: '#BFEEDC', accent: '#0F8A68' },
+    estimate: { background: '#EEF4FF', border: '#C8DAFF', accent: '#276BDC' },
+    provider: { background: '#F3EFFF', border: '#D9CCFF', accent: '#7357C8' },
+    media: { background: '#EAF9FF', border: '#BCEBFA', accent: '#2C91C9' },
+    item: { background: '#FFF1F4', border: '#F6CAD3', accent: '#C2415B' },
+};
+
 const photoCategories = [
     'equipment_photo',
     'serial_photo',
@@ -2816,6 +2825,7 @@ export default function ItemScreen() {
         meta?: string
     ) {
         const expanded = expandedActionGroups[group];
+        const palette = itemSectionTilePalettes[group];
 
         return (
             <TouchableOpacity
@@ -2825,11 +2835,20 @@ export default function ItemScreen() {
                 style={[
                     scaleStyle(sectionTileStyle),
                     {
-                        backgroundColor: expanded ? theme.colors.primary : theme.colors.surface,
-                        borderColor: expanded ? theme.colors.primary : theme.colors.border,
+                        backgroundColor: expanded ? palette.accent : palette.background,
+                        borderColor: expanded ? palette.accent : palette.border,
                     },
                 ]}
             >
+                <View
+                    style={[
+                        scaleStyle(sectionTileAccentStyle),
+                        {
+                            backgroundColor: expanded ? theme.colors.primaryText : palette.accent,
+                            opacity: expanded ? 0.95 : 1,
+                        },
+                    ]}
+                />
                 <Text
                     style={[
                         scaleStyle(sectionTileTitleStyle),
@@ -2862,7 +2881,7 @@ export default function ItemScreen() {
                     <Text
                         style={[
                             scaleStyle(sectionTileActionStyle),
-                            { color: expanded ? theme.colors.primaryText : theme.colors.primary },
+                            { color: expanded ? theme.colors.primaryText : palette.accent },
                         ]}
                     >
                         {expanded ? 'Hide' : 'Open'}
@@ -5547,6 +5566,15 @@ const sectionTileStyle = {
     borderRadius: 12,
     padding: 12,
     justifyContent: 'space-between' as const,
+    overflow: 'hidden' as const,
+};
+
+const sectionTileAccentStyle = {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 5,
 };
 
 const sectionTileTitleStyle = {

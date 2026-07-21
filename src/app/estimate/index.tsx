@@ -1246,7 +1246,7 @@ export default function EstimateScreen() {
                     ) : (
                         <View style={foundationGridStyle}>
                             {phase1Workspace.pricingResults.slice(0, 4).map((pricingResult) => (
-                                <View key={pricingResult.id} style={foundationCardStyle}>
+                                <View key={pricingResult.id} style={[foundationCardStyle, cardTone('#EEF4FF', '#C8DAFF', '#276BDC')]}>
                                     <Text style={foundationTitleStyle}>{formatMoney(pricingResult.totalAmount)}</Text>
                                     <Text style={foundationTextStyle}>
                                         {pricingResult.lineItems.map((line) => line.name).join(', ')}
@@ -1441,7 +1441,7 @@ export default function EstimateScreen() {
                     {renderSectionHeader('Findings', 'Field findings will be attached before customer review.')}
                     <View style={foundationGridStyle}>
                         {estimateFoundationSections.map((section) => (
-                            <View key={section.title} style={foundationCardStyle}>
+                            <View key={section.title} style={[foundationCardStyle, estimateFoundationTone(section.title)]}>
                                 <Text style={foundationTitleStyle}>{section.title}</Text>
                                 <Text style={foundationTextStyle}>{section.description}</Text>
                             </View>
@@ -1519,7 +1519,7 @@ function renderQuestion(
     const complete = isAnswerComplete(currentAnswer);
 
     return (
-        <View key={question.id} style={questionCardStyle}>
+        <View key={question.id} style={[questionCardStyle, estimateQuestionTone(question.id)]}>
             <View style={choiceTitleRowStyle}>
                 <Text style={questionLabelStyle}>{question.label}</Text>
                 {question.required && (
@@ -1609,7 +1609,7 @@ function renderPhotoRequirementCard(input: {
     const uploadState = input.uploadByKey[key] || { uploading: false, error: null };
 
     return (
-        <View key={key} style={requirementCardStyle}>
+        <View key={key} style={[requirementCardStyle, photoRequirementToneStyle]}>
             <View style={choiceTitleRowStyle}>
                 <Text style={requirementTitleStyle}>{input.label}</Text>
                 <Text style={complete ? donePillStyle : requiredPillStyle}>
@@ -1721,7 +1721,7 @@ function renderMeasurementRequirementCard(input: {
     const error = input.measurementErrorByKey[key] || '';
 
     return (
-        <View key={key} style={requirementCardStyle}>
+        <View key={key} style={[requirementCardStyle, measurementRequirementToneStyle]}>
             <View style={choiceTitleRowStyle}>
                 <Text style={requirementTitleStyle}>{input.label}</Text>
                 <Text style={complete ? donePillStyle : requiredPillStyle}>
@@ -1966,12 +1966,53 @@ function renderSectionHeader(title: string, description: string) {
 
 function renderSummaryCard(label: string, value: string, description: string) {
     return (
-        <View key={label} style={summaryCardStyle}>
+        <View key={label} style={[summaryCardStyle, estimateSummaryTone(label)]}>
             <Text style={summaryLabelStyle}>{label}</Text>
             <Text style={summaryValueStyle} numberOfLines={1}>{value}</Text>
             <Text style={summaryDescriptionStyle}>{description}</Text>
         </View>
     );
+}
+
+function estimateSummaryTone(label: string) {
+    const normalized = label.toLowerCase();
+
+    if (normalized.includes('draft')) return cardTone('#FFF8DF', '#F2DC92', '#D99214');
+    if (normalized.includes('option')) return cardTone('#EEF4FF', '#C8DAFF', '#276BDC');
+    if (normalized.includes('package')) return cardTone('#F3EFFF', '#D9CCFF', '#7357C8');
+    if (normalized.includes('status')) return cardTone('#ECFBF5', '#BFEEDC', '#0F8A68');
+
+    return cardTone('#FFFFFF', '#E3E8EF', '#637083');
+}
+
+function estimateQuestionTone(questionId: string) {
+    const normalized = questionId.toLowerCase();
+
+    if (normalized.includes('photo') || normalized.includes('source')) return cardTone('#EAF9FF', '#BCEBFA', '#2C91C9');
+    if (normalized.includes('spread') || normalized.includes('measurement') || normalized.includes('size')) return cardTone('#ECFBF5', '#BFEEDC', '#0F8A68');
+    if (normalized.includes('condition') || normalized.includes('shutoff')) return cardTone('#FFF8DF', '#F2DC92', '#D99214');
+    if (normalized.includes('access') || normalized.includes('unusual')) return cardTone('#F3EFFF', '#D9CCFF', '#7357C8');
+
+    return cardTone('#FFFFFF', '#E3E8EF', '#637083');
+}
+
+function estimateFoundationTone(title: string) {
+    const normalized = title.toLowerCase();
+
+    if (normalized.includes('finding')) return cardTone('#F3EFFF', '#D9CCFF', '#7357C8');
+    if (normalized.includes('recommended')) return cardTone('#FFF8DF', '#F2DC92', '#D99214');
+    if (normalized.includes('price')) return cardTone('#EEF4FF', '#C8DAFF', '#276BDC');
+
+    return cardTone('#FFFFFF', '#E3E8EF', '#637083');
+}
+
+function cardTone(backgroundColor: string, borderColor: string, accentColor: string) {
+    return {
+        backgroundColor,
+        borderColor,
+        borderTopColor: accentColor,
+        borderTopWidth: 5,
+    };
 }
 
 function renderInfoChip(label: string, value: string) {
@@ -2072,12 +2113,13 @@ const questionGridStyle = {
 
 const questionCardStyle = {
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     borderWidth: 1,
     borderColor: '#E3E8EF',
-    width: 280,
-    minHeight: 118,
+    width: 220,
+    minHeight: 124,
+    overflow: 'hidden' as const,
 };
 
 const questionLabelStyle = {
@@ -2172,14 +2214,19 @@ const requirementGridStyle = {
 
 const requirementCardStyle = {
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     borderWidth: 1,
     borderColor: '#E3E8EF',
-    width: 280,
-    minHeight: 190,
+    width: 220,
+    minHeight: 214,
     gap: 10,
+    overflow: 'hidden' as const,
 };
+
+const photoRequirementToneStyle = cardTone('#EAF9FF', '#BCEBFA', '#2C91C9');
+
+const measurementRequirementToneStyle = cardTone('#ECFBF5', '#BFEEDC', '#0F8A68');
 
 const requirementTitleStyle = {
     color: '#071B33',
@@ -2191,14 +2238,14 @@ const requirementTitleStyle = {
 
 const requirementPreviewStyle = {
     width: '100%' as const,
-    height: 118,
+    height: 104,
     borderRadius: 10,
     backgroundColor: '#F3F6FA',
 };
 
 const requirementPreviewPlaceholderStyle = {
     width: '100%' as const,
-    height: 118,
+    height: 104,
     borderRadius: 10,
     backgroundColor: '#F3F6FA',
     borderWidth: 1,
@@ -2289,22 +2336,27 @@ const missingAnswerBoxStyle = {
     padding: 10,
     marginTop: 12,
     gap: 4,
+    alignSelf: 'flex-start' as const,
+    maxWidth: 680,
 };
 
 const missingAnswerTextStyle = {
     color: '#8A4B00',
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 16,
     fontWeight: '800' as const,
 };
 
 const warningBoxStyle = {
     backgroundColor: '#FFF8E8',
-    borderRadius: 14,
+    borderRadius: 12,
     padding: 12,
     borderWidth: 1,
     borderColor: '#F2D18B',
     marginTop: 12,
     marginBottom: 12,
+    alignSelf: 'flex-start' as const,
+    maxWidth: 680,
 };
 
 const warningTextStyle = {
@@ -2438,12 +2490,13 @@ const summaryGridStyle = {
 
 const summaryCardStyle = {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
+    borderRadius: 12,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#E3E8EF',
-    width: 170,
-    minHeight: 112,
+    width: 152,
+    minHeight: 104,
+    overflow: 'hidden' as const,
 };
 
 const summaryLabelStyle = {
@@ -2506,11 +2559,11 @@ const choiceGridStyle = {
 
 const choiceCardStyle = {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+    borderRadius: 12,
     padding: 14,
     borderWidth: 1,
     borderColor: '#E3E8EF',
-    width: 260,
+    width: 242,
     minHeight: 218,
 };
 
@@ -2639,13 +2692,14 @@ const compactDangerButtonTextStyle = {
 };
 
 const smallEmptyStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
+    backgroundColor: '#FFF8DF',
+    borderRadius: 12,
+    padding: 14,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
+    borderColor: '#F2DC92',
     alignSelf: 'flex-start' as const,
-    maxWidth: 360,
+    width: 220,
+    minHeight: 112,
 };
 
 const smallEmptyTitleStyle = {
@@ -2668,13 +2722,13 @@ const draftGridStyle = {
 };
 
 const draftItemCardStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
+    backgroundColor: '#FFF8DF',
+    borderRadius: 12,
+    padding: 12,
     borderWidth: 1,
-    borderColor: '#E3E8EF',
-    width: 180,
-    minHeight: 190,
+    borderColor: '#F2DC92',
+    width: 160,
+    minHeight: 172,
 };
 
 const foundationGridStyle = {
@@ -2686,12 +2740,13 @@ const foundationGridStyle = {
 
 const foundationCardStyle = {
     backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
+    borderRadius: 12,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#E3E8EF',
-    width: 230,
-    minHeight: 128,
+    width: 184,
+    minHeight: 132,
+    overflow: 'hidden' as const,
 };
 
 const foundationTitleStyle = {
