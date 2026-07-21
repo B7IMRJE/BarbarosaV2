@@ -208,23 +208,16 @@ export default function SystemAreasScreen() {
     }, [providerModeContext, loadAreaHealth]);
 
     function createRootArea() {
-        if (providerModeContext) {
-            setMessage('Provider mode changes are staged only. Add Area / Container publishing is coming next.');
-            return;
-        }
-
         router.push({
             pathname: '/area/create',
-            params: { system: systemName },
+            params: {
+                system: systemName,
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
+            },
         } as any);
     }
 
     function createRootItem() {
-        if (providerModeContext) {
-            setMessage('Provider mode changes are staged only. Add Item publishing is coming next.');
-            return;
-        }
-
         router.push({
             pathname: '/item/create',
             params: {
@@ -232,6 +225,7 @@ export default function SystemAreasScreen() {
                 area: 'Whole Home',
                 category: 'Equipment',
                 rootItem: 'true',
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
     }

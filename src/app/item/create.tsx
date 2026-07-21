@@ -22,6 +22,16 @@ import {
     getItemSuggestions,
 } from '../../lib/itemSuggestions';
 import { getSystemDefaults, normalizeAreaName } from '../../lib/systemDefaults';
+import {
+    providerModeItemPath,
+    providerModeQueryParams,
+    readProviderModeParams,
+} from '../../lib/providerMode';
+import {
+    buildProviderHomeItemCreateRpcArgs,
+    buildProviderHomeItemsRpcArgs,
+    type ProviderHomeItemRpcRow,
+} from '../../lib/providerHomeItems';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -107,7 +117,15 @@ export default function CreateItemScreen() {
         category?: string;
         name?: string;
         rootItem?: string;
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
+    const providerModeContext = readProviderModeParams(params);
     const initialSystem = decodeParam(params.system) || 'Plumbing';
     const initialArea = decodeParam(params.area);
     const initialParentArea = decodeParam(params.parentArea).trim();
@@ -267,7 +285,10 @@ export default function CreateItemScreen() {
         let activeProperty;
 
         try {
-            activeProperty = await requireActivePropertyMembership();
+            activeProperty = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext?.propertyId,
+                companyId: providerModeContext?.companyId,
+            });
         } catch (error) {
             setMessage(activePropertyErrorMessage(error));
 
@@ -308,11 +329,15 @@ export default function CreateItemScreen() {
         setSaving(true);
         setMessage('Saving item...');
 
-        const { data: existingItems, error: duplicateCheckError } = await supabase
-            .from('home_items')
-            .select('name, system, category, location, parent_area')
-            .eq('property_id', activeProperty.propertyId)
-            .or('archived.eq.false,archived.is.null');
+        const duplicateCheckResult = providerModeContext
+            ? await supabase.rpc('get_provider_homeos_items', buildProviderHomeItemsRpcArgs(providerModeContext))
+            : await supabase
+                .from('home_items')
+                .select('name, system, category, location, parent_area')
+                .eq('property_id', activeProperty.propertyId)
+                .or('archived.eq.false,archived.is.null');
+        const existingItems = duplicateCheckResult.data;
+        const duplicateCheckError = duplicateCheckResult.error;
 
         if (duplicateCheckError) {
             console.error('Duplicate check failed', {
@@ -344,7 +369,33 @@ export default function CreateItemScreen() {
             system: insertPayload.system,
         });
 
-        const { error } = await supabase.from('home_items').insert(insertPayload);
+        const providerCreateResult = providerModeContext
+            ? await supabase.rpc(
+                'create_provider_homeos_item',
+                buildProviderHomeItemCreateRpcArgs(providerModeContext, {
+                    itemSlug: insertPayload.item_slug,
+                    name: insertPayload.name,
+                    system: insertPayload.system,
+                    category: insertPayload.category,
+                    location: insertPayload.location,
+                    parentArea: insertPayload.parent_area,
+                    status: insertPayload.status,
+                    installState: insertPayload.install_state,
+                    about: insertPayload.about,
+                    brand: insertPayload.brand,
+                    model: insertPayload.model,
+                    serial: insertPayload.serial,
+                })
+            )
+            : null;
+        const insertResult = providerModeContext
+            ? providerCreateResult
+            : await supabase.from('home_items').insert(insertPayload);
+        const error = insertResult?.error || null;
+        const createdProviderItem = providerModeContext
+            ? ((providerCreateResult?.data || []) as ProviderHomeItemRpcRow[])[0] || null
+            : null;
+        const savedSlug = createdProviderItem?.item_slug || slug;
 
         logCreateItemDebug('insert result', {
             ok: !error,
@@ -363,6 +414,7 @@ export default function CreateItemScreen() {
                 pathname: '/system/[system]',
                 params: {
                     system: initialSystem,
+                    ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
                 },
             } as any);
             return;
@@ -376,12 +428,13 @@ export default function CreateItemScreen() {
                     area: initialArea,
                     ...(initialParentArea ? { parentArea: initialParentArea } : {}),
                     refresh: String(Date.now()),
+                    ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
                 },
             } as any);
             return;
         }
 
-        router.replace(`/item/${slug}` as any);
+        router.replace(providerModeContext ? providerModeItemPath(savedSlug, providerModeContext) : `/item/${savedSlug}` as any);
     }
 
     return (

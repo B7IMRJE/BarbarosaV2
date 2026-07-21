@@ -346,11 +346,6 @@ export default function AreaScreen() {
     }
 
     function createSuggestedItem(category: string, name?: string) {
-        if (providerModeContext) {
-            setMessage('Provider mode changes are staged only. Add Item publishing is coming next.');
-            return;
-        }
-
         router.push({
             pathname: '/item/create',
             params: {
@@ -359,6 +354,7 @@ export default function AreaScreen() {
                 ...(parentAreaName ? { parentArea: parentAreaName } : {}),
                 category,
                 name: name || '',
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
     }
@@ -376,17 +372,13 @@ export default function AreaScreen() {
     }
 
     function createChildArea(childAreaName?: string) {
-        if (providerModeContext) {
-            setMessage('Provider mode changes are staged only. Add Area / Container publishing is coming next.');
-            return;
-        }
-
         router.push({
             pathname: '/area/create',
             params: {
                 system: systemName,
                 parentArea: areaName,
                 ...(childAreaName ? { areaName: childAreaName } : {}),
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
     }

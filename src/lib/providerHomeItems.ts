@@ -9,6 +9,57 @@ export type ProviderHomeItemsRpcArgs = {
     p_item_slug?: string | null;
 };
 
+export type ProviderHomeItemCreateInput = {
+    itemSlug?: string | null;
+    name: string;
+    system: string;
+    category: string;
+    location: string;
+    parentArea?: string | null;
+    status?: string | null;
+    installState?: string | null;
+    about?: string | null;
+    brand?: string | null;
+    model?: string | null;
+    serial?: string | null;
+};
+
+export type ProviderHomeItemCreateRpcArgs = ProviderHomeItemsRpcArgs & {
+    p_item_slug: string | null;
+    p_name: string;
+    p_system: string;
+    p_category: string;
+    p_location: string;
+    p_parent_area: string | null;
+    p_status: string | null;
+    p_install_state: string | null;
+    p_about: string | null;
+    p_brand: string | null;
+    p_model: string | null;
+    p_serial: string | null;
+};
+
+export type ProviderHomeItemRpcRow = {
+    id: string;
+    item_slug: string;
+    name: string;
+    system: string;
+    category: string;
+    parent_area: string | null;
+    status: string | null;
+    location: string | null;
+    about: string | null;
+    brand: string | null;
+    model: string | null;
+    serial: string | null;
+    install_date: string | null;
+    created_at: string | null;
+    install_state: string | null;
+    photo_url: string | null;
+    archived: boolean | null;
+    property_id: string;
+};
+
 export type ProviderHomeItemsReadContext = Pick<
     ProviderModeParams,
     'companyId' | 'propertyId' | 'serviceRequestId' | 'scheduleSlotId' | 'jobId'
@@ -39,6 +90,27 @@ export function buildProviderHomeItemsRpcArgs(
     }
 
     return args;
+}
+
+export function buildProviderHomeItemCreateRpcArgs(
+    context: ProviderHomeItemsReadContext,
+    input: ProviderHomeItemCreateInput
+): ProviderHomeItemCreateRpcArgs {
+    return {
+        ...buildProviderHomeItemsRpcArgs(context, { itemSlug: input.itemSlug }),
+        p_item_slug: cleanOptionalText(input.itemSlug),
+        p_name: cleanRequiredText(input.name),
+        p_system: cleanRequiredText(input.system),
+        p_category: cleanRequiredText(input.category),
+        p_location: cleanRequiredText(input.location),
+        p_parent_area: cleanOptionalText(input.parentArea),
+        p_status: cleanOptionalText(input.status),
+        p_install_state: cleanOptionalText(input.installState),
+        p_about: cleanOptionalText(input.about),
+        p_brand: cleanOptionalText(input.brand),
+        p_model: cleanOptionalText(input.model),
+        p_serial: cleanOptionalText(input.serial),
+    };
 }
 
 function cleanRequiredText(value: string) {

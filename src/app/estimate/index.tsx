@@ -53,6 +53,7 @@ import {
 import {
     EstimateDraftItem,
     EstimateDraftContext,
+    clearEstimateDraft,
     loadEstimateDraftContext,
     loadEstimateDraft,
     removeItemFromEstimateDraft,
@@ -304,6 +305,33 @@ export default function EstimateScreen() {
         } catch (error) {
             setMessage(`Estimate requirements could not be restored: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
+    }
+
+    async function clearCurrentDraft() {
+        if (!estimateAccess) return;
+
+        await clearEstimateDraft({
+            userId: estimateAccess.userId,
+            companyId: estimateAccess.companyId,
+            propertyId: requestedPropertyId,
+        });
+
+        setItems([]);
+        setDraftContext(null);
+        setEstimateSession(null);
+        setSelectedChoiceId('');
+        setSelectedCategory('faucet_replacement');
+        setAnswers({});
+        setPhotoPreviewByKey({});
+        setRequirementUploadByKey({});
+        setMeasurementDraftByKey({});
+        setMeasurementErrorByKey({});
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setAiValidationErrors([]);
+        setAiDraftsByChoiceId({});
+        setEditableCopyByChoiceId({});
+        setMessage('Estimate draft cleared. Start a fresh estimate from the assigned job or Client HomeOS item.');
     }
 
     async function loadPhotoPreviews(nextAnswers: EstimateAnswerSet) {
@@ -1041,14 +1069,30 @@ export default function EstimateScreen() {
                             >
                                 <Text style={secondaryButtonTextStyle}>Company Dashboard</Text>
                             </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={clearCurrentDraft}
+                                style={secondaryButtonStyle}
+                            >
+                                <Text style={secondaryButtonTextStyle}>Clear Draft</Text>
+                            </TouchableOpacity>
                         </View>
                     ) : (
-                        <TouchableOpacity
-                            onPress={() => router.back()}
-                            style={secondaryButtonStyle}
-                        >
-                            <Text style={secondaryButtonTextStyle}>Back</Text>
-                        </TouchableOpacity>
+                        <View style={providerNavStyle}>
+                            <TouchableOpacity
+                                onPress={() => router.back()}
+                                style={secondaryButtonStyle}
+                            >
+                                <Text style={secondaryButtonTextStyle}>Back</Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={clearCurrentDraft}
+                                style={secondaryButtonStyle}
+                            >
+                                <Text style={secondaryButtonTextStyle}>Clear Draft</Text>
+                            </TouchableOpacity>
+                        </View>
                     )}
                 </View>
 

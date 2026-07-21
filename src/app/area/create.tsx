@@ -21,6 +21,11 @@ import {
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
 import { getSystemDefinition, getSystemLabel } from '../../lib/homeSystems';
+import { providerModeQueryParams, readProviderModeParams } from '../../lib/providerMode';
+import {
+    buildProviderHomeItemCreateRpcArgs,
+    buildProviderHomeItemsRpcArgs,
+} from '../../lib/providerHomeItems';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -30,7 +35,15 @@ export default function CreateAreaScreen() {
         system?: string;
         parentArea?: string;
         areaName?: string;
+        providerMode?: string | string[];
+        companyId?: string | string[];
+        propertyId?: string | string[];
+        returnTo?: string | string[];
+        serviceRequestId?: string | string[];
+        scheduleSlotId?: string | string[];
+        jobId?: string | string[];
     }>();
+    const providerModeContext = readProviderModeParams(params);
     const system = decodeParam(params.system);
     const parentAreaName = decodeParam(params.parentArea).trim();
     const initialAreaName = decodeParam(params.areaName).trim();
@@ -70,7 +83,10 @@ export default function CreateAreaScreen() {
         let activeProperty;
 
         try {
-            activeProperty = await requireActivePropertyMembership();
+            activeProperty = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext?.propertyId,
+                companyId: providerModeContext?.companyId,
+            });
         } catch (error) {
             setSaving(false);
             setMessage(activePropertyErrorMessage(error));
@@ -84,11 +100,15 @@ export default function CreateAreaScreen() {
             return;
         }
 
-        const { data: existingRows, error: existingError } = await supabase
-            .from('home_items')
-            .select('name, system, category, location, parent_area')
-            .eq('property_id', activeProperty.propertyId)
-            .or('archived.eq.false,archived.is.null');
+        const existingResult = providerModeContext
+            ? await supabase.rpc('get_provider_homeos_items', buildProviderHomeItemsRpcArgs(providerModeContext))
+            : await supabase
+                .from('home_items')
+                .select('name, system, category, location, parent_area')
+                .eq('property_id', activeProperty.propertyId)
+                .or('archived.eq.false,archived.is.null');
+        const existingRows = existingResult.data;
+        const existingError = existingResult.error;
 
         if (existingError) {
             setSaving(false);
@@ -132,11 +152,13 @@ export default function CreateAreaScreen() {
         }
 
         if (rowsToInsert.length > 0) {
-            const { error: insertError } = await supabase.from('home_items').insert(rowsToInsert);
+            const insertError = providerModeContext
+                ? await createProviderRows(providerModeContext, rowsToInsert)
+                : (await supabase.from('home_items').insert(rowsToInsert)).error;
 
             if (insertError) {
                 setSaving(false);
-                setMessage(`Create failed: ${insertError.message}`);
+                setMessage(`Create failed: ${getSupabaseErrorMessage(insertError)}`);
                 return;
             }
         }
@@ -149,6 +171,7 @@ export default function CreateAreaScreen() {
                 system: canonicalSystem,
                 area: areaName,
                 ...(parentAreaName ? { parentArea: parentAreaName } : {}),
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
     }
@@ -284,6 +307,35 @@ function normalizeAreaText(value?: string | null) {
 
 function sameAreaText(a?: string | null, b?: string | null) {
     return normalizeAreaText(a) === normalizeAreaText(b);
+}
+
+async function createProviderRows(
+    providerModeContext: NonNullable<ReturnType<typeof readProviderModeParams>>,
+    rowsToInsert: HomeItemInsert[]
+) {
+    for (const row of rowsToInsert) {
+        const { error } = await supabase.rpc(
+            'create_provider_homeos_item',
+            buildProviderHomeItemCreateRpcArgs(providerModeContext, {
+                itemSlug: row.item_slug,
+                name: row.name,
+                system: row.system,
+                category: row.category,
+                location: row.location,
+                parentArea: row.parent_area,
+                status: row.status,
+                installState: row.install_state,
+            })
+        );
+
+        if (error) return error;
+    }
+
+    return null;
+}
+
+function getSupabaseErrorMessage(error: unknown) {
+    return String((error as { message?: unknown } | null)?.message || 'Please try again.');
 }
 
 function decodeParam(value?: string | string[] | null) {
