@@ -117,7 +117,7 @@ type ProviderNoteDestination = 'company_only' | 'client_update';
 
 type ProviderFindingSeverity = 'low' | 'medium' | 'high' | 'urgent';
 
-type ItemActionGroupKey = 'estimate' | 'provider' | 'media' | 'item';
+type ItemActionGroupKey = 'components' | 'maintenance' | 'estimate' | 'provider' | 'media' | 'item';
 
 const photoCategories = [
     'equipment_photo',
@@ -492,7 +492,9 @@ export default function ItemScreen() {
     const [providerRelatedLocation, setProviderRelatedLocation] = useState('');
     const [providerRelatedNotes, setProviderRelatedNotes] = useState('');
     const [expandedActionGroups, setExpandedActionGroups] = useState<Record<ItemActionGroupKey, boolean>>({
-        estimate: true,
+        components: false,
+        maintenance: false,
+        estimate: false,
         provider: false,
         media: false,
         item: false,
@@ -2807,6 +2809,69 @@ export default function ItemScreen() {
         router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
     }
 
+    function renderSectionTile(
+        group: ItemActionGroupKey,
+        title: string,
+        subtitle: string,
+        meta?: string
+    ) {
+        const expanded = expandedActionGroups[group];
+
+        return (
+            <TouchableOpacity
+                key={group}
+                onPress={() => toggleActionGroup(group)}
+                activeOpacity={0.84}
+                style={[
+                    scaleStyle(sectionTileStyle),
+                    {
+                        backgroundColor: expanded ? theme.colors.primary : theme.colors.surface,
+                        borderColor: expanded ? theme.colors.primary : theme.colors.border,
+                    },
+                ]}
+            >
+                <Text
+                    style={[
+                        scaleStyle(sectionTileTitleStyle),
+                        { color: expanded ? theme.colors.primaryText : theme.colors.text },
+                    ]}
+                    numberOfLines={2}
+                >
+                    {title}
+                </Text>
+                <Text
+                    style={[
+                        scaleStyle(sectionTileSubtitleStyle),
+                        { color: expanded ? theme.colors.primaryText : theme.colors.mutedText },
+                    ]}
+                    numberOfLines={3}
+                >
+                    {subtitle}
+                </Text>
+                <View style={scaleStyle(sectionTileFooterStyle)}>
+                    {!!meta && (
+                        <Text
+                            style={[
+                                scaleStyle(sectionTileMetaStyle),
+                                { color: expanded ? theme.colors.primaryText : theme.colors.mutedText },
+                            ]}
+                        >
+                            {meta}
+                        </Text>
+                    )}
+                    <Text
+                        style={[
+                            scaleStyle(sectionTileActionStyle),
+                            { color: expanded ? theme.colors.primaryText : theme.colors.primary },
+                        ]}
+                    >
+                        {expanded ? 'Hide' : 'Open'}
+                    </Text>
+                </View>
+            </TouchableOpacity>
+        );
+    }
+
     function renderActionGroup(
         group: ItemActionGroupKey,
         title: string,
@@ -2815,31 +2880,26 @@ export default function ItemScreen() {
     ) {
         const expanded = expandedActionGroups[group];
 
+        if (!expanded) return null;
+
         return (
             <ThemedCard style={scaleStyle(actionGroupCardStyle)}>
-                <TouchableOpacity
-                    onPress={() => toggleActionGroup(group)}
-                    style={scaleStyle(actionGroupHeaderStyle)}
-                    activeOpacity={0.84}
-                >
+                <View style={scaleStyle(actionGroupHeaderStyle)}>
                     <View style={scaleStyle(actionGroupHeaderTextStyle)}>
-                        <Text style={[scaleStyle(actionGroupTitleStyle), { color: theme.colors.text }]}>
-                            {title}
-                        </Text>
-                        <Text style={[scaleStyle(actionGroupSubtitleStyle), { color: theme.colors.mutedText }]}>
-                            {subtitle}
-                        </Text>
+                        <Text style={[scaleStyle(actionGroupTitleStyle), { color: theme.colors.text }]}>{title}</Text>
+                        <Text style={[scaleStyle(actionGroupSubtitleStyle), { color: theme.colors.mutedText }]}>{subtitle}</Text>
                     </View>
-                    <Text style={[scaleStyle(actionGroupToggleStyle), { color: theme.colors.primary }]}>
-                        {expanded ? 'Hide' : 'Open'}
+                    <Text
+                        style={[scaleStyle(actionGroupToggleStyle), { color: theme.colors.primary }]}
+                        onPress={() => toggleActionGroup(group)}
+                    >
+                        Hide
                     </Text>
-                </TouchableOpacity>
+                </View>
 
-                {expanded ? (
-                    <View style={scaleStyle(actionGridStyle)}>
-                        {children}
-                    </View>
-                ) : null}
+                <View style={scaleStyle(actionGridStyle)}>
+                    {children}
+                </View>
             </ThemedCard>
         );
     }
@@ -3895,14 +3955,55 @@ export default function ItemScreen() {
                         </ThemedCard>
                     </View>
 
+                    <View style={scaleStyle(sectionTileGridStyle)}>
+                        {renderSectionTile(
+                            'components',
+                            'Components',
+                            relatedItems.length > 0
+                                ? `View parts under ${item.name || 'this item'}.`
+                                : `Add parts under ${item.name || 'this item'}.`,
+                            `${relatedItems.length}`
+                        )}
+                        {renderSectionTile(
+                            'maintenance',
+                            'Maintenance',
+                            activeMaintenanceTasks.length > 0
+                                ? 'Review reminders and due work.'
+                                : 'Add or view reminders.',
+                            `${activeMaintenanceTasks.length}`
+                        )}
+                        {canAddItemToEstimate ? renderSectionTile(
+                            'estimate',
+                            'Estimate',
+                            'Quote, view draft, or start the job thread.'
+                        ) : null}
+                        {providerModeContext ? renderSectionTile(
+                            'provider',
+                            'Provider Updates',
+                            'Notes, findings, photos, and client updates.'
+                        ) : null}
+                        {renderSectionTile(
+                            'media',
+                            'Photos & Docs',
+                            'Photos, documents, and main item media.',
+                            `${galleryPhotos.length + documents.length}`
+                        )}
+                        {renderSectionTile(
+                            'item',
+                            'Item Management',
+                            'Edit, add components, request service, or archive.'
+                        )}
+                    </View>
+
+                    {expandedActionGroups.components ? (
                     <ThemedCard style={scaleStyle(relatedItemsCardStyle)}>
                         <View style={scaleStyle(relatedItemsHeaderStyle)}>
                             <View style={scaleStyle(relatedItemsHeaderTextStyle)}>
                                 <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0, marginBottom: 4 }]}>
-                                    Components inside {item.name || 'this item'}
+                                    Components
                                 </Text>
                                 <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                                    Add valves, connectors, drains, findings, or other parts that belong to this item.
+                                    Parts nested under {item.name || 'this item'}.
                                 </Text>
                             </View>
                             <ThemedButton
@@ -3946,7 +4047,9 @@ export default function ItemScreen() {
                             </View>
                         )}
                     </ThemedCard>
+                    ) : null}
 
+                    {expandedActionGroups.maintenance ? (
                     <ThemedCard style={scaleStyle(maintenanceCardStyle)}>
                         <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
                             Maintenance Reminders
@@ -4197,6 +4300,7 @@ export default function ItemScreen() {
                             </View>
                         )}
                     </ThemedCard>
+                    ) : null}
 
                     {checkingEstimateAccess && (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>
@@ -5428,10 +5532,60 @@ const optionButtonTextStyle = {
 const optionButtonSelectedTextStyle = {
 };
 
-const relatedItemsCardStyle = {
-    borderRadius: 20,
-    padding: 18,
+const sectionTileGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
     marginTop: 12,
+    marginBottom: 12,
+};
+
+const sectionTileStyle = {
+    width: 152,
+    minHeight: 132,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    justifyContent: 'space-between' as const,
+};
+
+const sectionTileTitleStyle = {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900' as const,
+};
+
+const sectionTileSubtitleStyle = {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '800' as const,
+    marginTop: 6,
+};
+
+const sectionTileFooterStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+    marginTop: 10,
+};
+
+const sectionTileMetaStyle = {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900' as const,
+};
+
+const sectionTileActionStyle = {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900' as const,
+};
+
+const relatedItemsCardStyle = {
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 4,
     marginBottom: 12,
     borderWidth: 1,
 };
@@ -5450,8 +5604,8 @@ const relatedItemsHeaderTextStyle = {
 };
 
 const relatedItemsAddButtonStyle = {
-    minWidth: 170,
-    paddingVertical: 12,
+    minWidth: 142,
+    paddingVertical: 10,
 };
 
 const relatedItemsEmptyStyle = {
@@ -5470,10 +5624,11 @@ const relatedItemsGridStyle = {
 
 const relatedItemCardStyle = {
     borderWidth: 1,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    minWidth: 180,
-    maxWidth: 240,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    width: 148,
+    minHeight: 120,
+    justifyContent: 'center' as const,
 };
 
 const relatedItemTitleStyle = {
@@ -5490,9 +5645,10 @@ const relatedItemMetaStyle = {
 };
 
 const actionGroupCardStyle = {
-    borderRadius: 18,
+    borderRadius: 12,
     padding: 14,
-    marginTop: 10,
+    marginTop: 4,
+    marginBottom: 10,
     borderWidth: 1,
 };
 
