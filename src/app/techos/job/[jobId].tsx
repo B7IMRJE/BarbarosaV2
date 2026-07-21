@@ -6,6 +6,7 @@ import ServiceRequestMediaGallery from '../../../components/serviceRequests/Serv
 import ThemedButton from '../../../components/theme/ThemedButton';
 import ThemedCard from '../../../components/theme/ThemedCard';
 import { supabase } from '../../../lib/supabase';
+import { resolveCompanyTechOSTheme } from '../../../lib/techosAppearance';
 import { useTheme } from '../../../theme/useTheme';
 
 type CompanyUserAccess = {
@@ -134,6 +135,11 @@ export default function TechOSJobDetailScreen() {
     const [assigningUserId, setAssigningUserId] = useState<string | null>(null);
     const [assignmentMessage, setAssignmentMessage] = useState('');
     const [message, setMessage] = useState('Loading job...');
+    const techOSTheme = useMemo(() => resolveCompanyTechOSTheme({
+        primaryColor: company?.primary_color,
+        secondaryColor: company?.secondary_color,
+        accentColor: company?.accent_color,
+    }), [company?.accent_color, company?.primary_color, company?.secondary_color]);
 
     useEffect(() => {
         loadJobDetail();
@@ -366,7 +372,7 @@ export default function TechOSJobDetailScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            style={{ flex: 1, backgroundColor: techOSTheme.screenBackgroundColor }}
             contentContainerStyle={{ padding: pagePadding, paddingBottom: 44, alignItems: 'center' }}
         >
             <View style={{ width: '100%', maxWidth: 1040, minWidth: 0 }}>
@@ -397,8 +403,16 @@ export default function TechOSJobDetailScreen() {
                 </View>
 
                 {!!message && (
-                    <ThemedCard style={messageCardStyle}>
-                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                    <ThemedCard
+                        style={[
+                            messageCardStyle,
+                            {
+                                backgroundColor: techOSTheme.panelBackgroundColor,
+                                borderColor: techOSTheme.panelBorderColor,
+                            },
+                        ]}
+                    >
+                        <Text style={[bodyTextStyle, { color: techOSTheme.mutedTextColor }]}>{message}</Text>
                     </ThemedCard>
                 )}
 
@@ -427,17 +441,33 @@ export default function TechOSJobDetailScreen() {
                             title="Request photos and videos"
                         />
 
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Job Workflow</Text>
+                        <Text style={[sectionTitleStyle, { color: techOSTheme.textColor }]}>Job Workflow</Text>
                         <View style={workflowGridStyle}>
-                            {jobWorkflowSections.map((section) => (
-                                <ThemedCard key={section.title} style={workflowCardStyle}>
-                                    <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>{section.title}</Text>
-                                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{section.body}</Text>
-                                    <View style={[comingSoonStyle, { backgroundColor: theme.colors.secondaryButton, borderColor: theme.colors.border }]}>
-                                        <Text style={[comingSoonTextStyle, { color: theme.colors.secondaryButtonText }]}>Coming next</Text>
-                                    </View>
-                                </ThemedCard>
-                            ))}
+                            {jobWorkflowSections.map((section, index) => {
+                                const variantKeys = ['customer', 'request', 'status', 'workflow', 'note', 'estimate'] as const;
+                                const variantKey = variantKeys[index % variantKeys.length] || 'customer';
+                                const variant = techOSTheme.jobDetail[variantKey];
+
+                                return (
+                                    <ThemedCard
+                                        key={section.title}
+                                        style={[
+                                            workflowCardStyle,
+                                            {
+                                                backgroundColor: variant.backgroundColor,
+                                                borderColor: variant.borderColor,
+                                            },
+                                        ]}
+                                    >
+                                        <View style={[workflowAccentStyle, { backgroundColor: variant.accentColor }]} />
+                                        <Text style={[workflowTitleStyle, { color: techOSTheme.textColor }]}>{section.title}</Text>
+                                        <Text style={[bodyTextStyle, { color: techOSTheme.mutedTextColor }]}>{section.body}</Text>
+                                        <View style={[comingSoonStyle, { backgroundColor: techOSTheme.panelBackgroundColor, borderColor: techOSTheme.panelBorderColor }]}>
+                                            <Text style={[comingSoonTextStyle, { color: techOSTheme.textColor }]}>Coming next</Text>
+                                        </View>
+                                    </ThemedCard>
+                                );
+                            })}
                         </View>
                     </>
                 )}
@@ -1106,6 +1136,15 @@ const workflowCardStyle = {
     maxWidth: '100%' as const,
     minHeight: 160,
     minWidth: 0,
+    overflow: 'hidden' as const,
+};
+
+const workflowAccentStyle = {
+    height: 4,
+    left: 0,
+    position: 'absolute' as const,
+    right: 0,
+    top: 0,
 };
 
 const workflowTitleStyle = {

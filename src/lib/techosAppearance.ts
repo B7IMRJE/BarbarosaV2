@@ -31,8 +31,16 @@ export type TechOSThemeId =
     | 'highContrast'
     | 'soft';
 
+export type TechOSThemePaletteId = TechOSThemeId | 'companyBrand';
+
+export type CompanyTechOSBrand = {
+    primaryColor?: string | null;
+    secondaryColor?: string | null;
+    accentColor?: string | null;
+};
+
 export type TechOSThemePalette = {
-    id: TechOSThemeId;
+    id: TechOSThemePaletteId;
     label: string;
     description: string;
     screenBackgroundColor: string;
@@ -214,6 +222,50 @@ export function resolveTechOSTheme(value?: string | null): TechOSThemePalette {
     return isTechOSThemeId(value) ? techOSThemes[value] : techOSThemes[DEFAULT_TECHOS_THEME_ID];
 }
 
+export function resolveCompanyTechOSTheme(brand?: CompanyTechOSBrand | null): TechOSThemePalette {
+    const fallback = techOSThemes[DEFAULT_TECHOS_THEME_ID];
+    const primaryColor = normalizeHexColor(brand?.primaryColor) || fallback.activeBorderColor;
+    const secondaryColor = normalizeHexColor(brand?.secondaryColor) || fallback.panelBackgroundColor;
+    const accentColor = normalizeHexColor(brand?.accentColor) || primaryColor;
+    const panelBackgroundColor = secondaryColor;
+    const screenBackgroundColor = mixHexColors(secondaryColor, primaryColor, isDarkColor(secondaryColor) ? 0.18 : 0.08);
+    const panelBorderColor = mixHexColors(secondaryColor, primaryColor, isDarkColor(secondaryColor) ? 0.52 : 0.30);
+    const textColor = getReadableTextColor(panelBackgroundColor);
+    const mutedTextColor = mixHexColors(textColor, panelBackgroundColor, isDarkColor(panelBackgroundColor) ? 0.36 : 0.42);
+    const blendColor = mixHexColors(primaryColor, accentColor, 0.5);
+
+    return {
+        id: 'companyBrand',
+        label: 'Company Brand',
+        description: 'Managed by the company brand profile.',
+        screenBackgroundColor,
+        panelBackgroundColor,
+        panelBorderColor,
+        textColor,
+        mutedTextColor,
+        activeBorderColor: accentColor,
+        dashboard: {
+            jobs: companyVariant(primaryColor, panelBackgroundColor),
+            schedule: companyVariant(accentColor, panelBackgroundColor),
+            history: companyVariant(blendColor, panelBackgroundColor),
+            estimates: companyVariant(accentColor, panelBackgroundColor),
+            sales: companyVariant(primaryColor, panelBackgroundColor),
+            messages: companyVariant(blendColor, panelBackgroundColor),
+            'time-clock': companyVariant(accentColor, panelBackgroundColor),
+            'van-inventory': companyVariant(primaryColor, panelBackgroundColor),
+        },
+        jobDetail: {
+            customer: companyVariant(primaryColor, panelBackgroundColor),
+            request: companyVariant(accentColor, panelBackgroundColor),
+            status: companyVariant(blendColor, panelBackgroundColor),
+            workflow: companyVariant(primaryColor, panelBackgroundColor),
+            note: companyVariant(blendColor, panelBackgroundColor),
+            estimate: companyVariant(accentColor, panelBackgroundColor),
+            finish: companyVariant('#B91C1C', panelBackgroundColor),
+        },
+    };
+}
+
 export function resolveTechOSDashboardVariant(key: TechOSDashboardVisualKey, themeId?: string | null) {
     return resolveTechOSTheme(themeId).dashboard[key];
 }
@@ -228,6 +280,62 @@ export function techOSThemeStorageKey(userId: string) {
 
 function variant(accentColor: string, backgroundColor: string, borderColor: string): TechOSVisualVariant {
     return { accentColor, backgroundColor, borderColor };
+}
+
+function companyVariant(accentColor: string, panelBackgroundColor: string): TechOSVisualVariant {
+    const backgroundStrength = isDarkColor(panelBackgroundColor) ? 0.22 : 0.10;
+    const borderStrength = isDarkColor(panelBackgroundColor) ? 0.60 : 0.38;
+
+    return variant(
+        accentColor,
+        mixHexColors(panelBackgroundColor, accentColor, backgroundStrength),
+        mixHexColors(panelBackgroundColor, accentColor, borderStrength)
+    );
+}
+
+function normalizeHexColor(value?: string | null) {
+    const color = String(value || '').trim();
+    const shortMatch = color.match(/^#([0-9a-f]{3})$/i);
+
+    if (shortMatch) {
+        const [red, green, blue] = shortMatch[1].split('');
+        return `#${red}${red}${green}${green}${blue}${blue}`.toUpperCase();
+    }
+
+    return /^#[0-9a-f]{6}$/i.test(color) ? color.toUpperCase() : '';
+}
+
+function mixHexColors(baseColor: string, overlayColor: string, overlayWeight: number) {
+    const base = parseHexColor(baseColor);
+    const overlay = parseHexColor(overlayColor);
+    const weight = Math.max(0, Math.min(1, overlayWeight));
+    const mixed = base.map((channel, index) => Math.round(channel * (1 - weight) + overlay[index] * weight));
+
+    return `#${mixed.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`.toUpperCase();
+}
+
+function parseHexColor(color: string) {
+    const normalized = normalizeHexColor(color) || '#000000';
+
+    return [
+        Number.parseInt(normalized.slice(1, 3), 16),
+        Number.parseInt(normalized.slice(3, 5), 16),
+        Number.parseInt(normalized.slice(5, 7), 16),
+    ];
+}
+
+function getReadableTextColor(backgroundColor: string) {
+    return isDarkColor(backgroundColor) ? '#FFFFFF' : '#102033';
+}
+
+function isDarkColor(color: string) {
+    const [red, green, blue] = parseHexColor(color).map((channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.03928 ? normalized / 12.92 : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    });
+    const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+
+    return luminance < 0.36;
 }
 
 function darkPalette(primaryAccent: string, baseBackground: string): Record<TechOSDashboardVisualKey, TechOSVisualVariant> {

@@ -2,6 +2,7 @@ import {
     DEFAULT_TECHOS_THEME_ID,
     TECHOS_DASHBOARD_VISUAL_VARIANTS,
     TECHOS_JOB_DETAIL_VISUAL_VARIANTS,
+    resolveCompanyTechOSTheme,
     resolveTechOSDashboardVariant,
     resolveTechOSJobDetailVariant,
     resolveTechOSTheme,
@@ -22,6 +23,9 @@ export function runTechOSAppearanceRegressions() {
     everyThemeHasCompleteTokens();
     themeSelectionChangesDashboardAndJobDetailVariants();
     invalidSavedThemeFallsBackToProfessional();
+    companyBrandBuildsCompleteTechOSPalette();
+    companyBrandSupportsLightAndDarkSecondaryColors();
+    invalidCompanyColorsFallBackSafely();
     themeStorageIsUserScopedAndSeparateFromHomeOS();
     workflowButtonsAndNavigationRemainUnchanged();
 }
@@ -71,6 +75,48 @@ function themeSelectionChangesDashboardAndJobDetailVariants() {
 
 function invalidSavedThemeFallsBackToProfessional() {
     assert(resolveTechOSTheme('not-a-theme').id === DEFAULT_TECHOS_THEME_ID, 'Invalid stored TechOS theme should fall back to Professional.');
+}
+
+function companyBrandBuildsCompleteTechOSPalette() {
+    const theme = resolveCompanyTechOSTheme({
+        primaryColor: '#064E3B',
+        secondaryColor: '#FFFFFF',
+        accentColor: '#D4A72C',
+    });
+
+    assert(theme.id === 'companyBrand', 'Company branding should resolve to the managed company theme.');
+    assert(theme.dashboard.jobs.accentColor === '#064E3B', 'Jobs should use the company primary color.');
+    assert(theme.dashboard.schedule.accentColor === '#D4A72C', 'Schedule should use the company accent color.');
+    dashboardKeys.forEach((key) => assertCompleteVariant(theme.dashboard[key], `companyBrand.${key}`));
+    jobDetailKeys.forEach((key) => assertCompleteVariant(theme.jobDetail[key], `companyBrand.${key}`));
+}
+
+function companyBrandSupportsLightAndDarkSecondaryColors() {
+    const lightTheme = resolveCompanyTechOSTheme({
+        primaryColor: '#C2410C',
+        secondaryColor: '#FFFFFF',
+        accentColor: '#F97316',
+    });
+    const darkTheme = resolveCompanyTechOSTheme({
+        primaryColor: '#064E3B',
+        secondaryColor: '#10231B',
+        accentColor: '#D4A72C',
+    });
+
+    assert(lightTheme.textColor === '#102033', 'Light company surfaces should use dark readable text.');
+    assert(darkTheme.textColor === '#FFFFFF', 'Dark company surfaces should use white readable text.');
+    assert(lightTheme.screenBackgroundColor !== darkTheme.screenBackgroundColor, 'Company palettes should retain their selected surfaces.');
+}
+
+function invalidCompanyColorsFallBackSafely() {
+    const theme = resolveCompanyTechOSTheme({
+        primaryColor: 'green',
+        secondaryColor: 'not-a-color',
+        accentColor: '#zzzzzz',
+    });
+
+    assert(theme.screenBackgroundColor.startsWith('#'), 'Invalid company colors should still produce a valid screen color.');
+    assert(theme.dashboard.jobs.accentColor === resolveTechOSTheme().activeBorderColor, 'Invalid primary color should use the professional fallback.');
 }
 
 function themeStorageIsUserScopedAndSeparateFromHomeOS() {

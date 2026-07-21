@@ -10,6 +10,7 @@ import {
     type CompanyLeadCounts,
 } from '../../../../lib/companyLeadAlerts';
 import { supabase } from '../../../../lib/supabase';
+import { resolveCompanyTechOSTheme, type TechOSThemePalette } from '../../../../lib/techosAppearance';
 
 type Company = {
     id: string;
@@ -131,9 +132,22 @@ const brandThemePresets = [
         secondaryColor: '#FFFFFF',
         accentColor: '#10B981',
     },
+    {
+        name: 'Green / Gold',
+        primaryColor: '#064E3B',
+        secondaryColor: '#FFFFFF',
+        accentColor: '#D4A72C',
+    },
+    {
+        name: 'Orange / Warm White',
+        primaryColor: '#C2410C',
+        secondaryColor: '#FFF7ED',
+        accentColor: '#F97316',
+    },
 ];
 const cards = [
     'Company Profile / Identity',
+    'Theme & Brand Colors',
     'Customers / Clients',
     'Leads / Requests',
     'Opportunities',
@@ -507,6 +521,11 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
+        if (card === 'Theme & Brand Colors') {
+            toggleConfigSection('theme');
+            return;
+        }
+
         if (card === 'Team / Technicians') {
             router.push(`/super-admin/company/${activeCompanyId}/users` as any);
             return;
@@ -565,6 +584,11 @@ export default function CompanyDashboardScreen() {
     const brandSecondary = brandForm.secondaryColor || '#FFFFFF';
     const brandAccent = brandForm.accentColor || '#0B5FFF';
     const brandHeaderText = getReadableColor(brandPrimary);
+    const techOSPreviewTheme = resolveCompanyTechOSTheme({
+        primaryColor: brandPrimary,
+        secondaryColor: brandSecondary,
+        accentColor: brandAccent,
+    });
 
     return (
         <ScrollView
@@ -1172,6 +1196,11 @@ export default function CompanyDashboardScreen() {
                                 onApply={updateBrandColorSlot}
                                 onSwap={swapBrandColors}
                             />
+                            <CompanyTechOSThemePreview
+                                companyName={previewName}
+                                logoUrl={brandForm.logoUrl}
+                                theme={techOSPreviewTheme}
+                            />
                             <View style={{ width: '100%', gap: 12, marginTop: 4 }}>
                                 <Text style={{ color: '#071B33', fontSize: 13, fontWeight: '900' }}>
                                     Quick theme tools
@@ -1502,6 +1531,136 @@ function BrandInfoPill({ label, value, textColor }: { label: string; value: stri
             <Text numberOfLines={1} style={{ color: textColor, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
                 {value}
             </Text>
+        </View>
+    );
+}
+
+function CompanyTechOSThemePreview({
+    companyName,
+    logoUrl,
+    theme,
+}: {
+    companyName: string;
+    logoUrl: string;
+    theme: TechOSThemePalette;
+}) {
+    const { width: viewportWidth } = useWindowDimensions();
+    const isPhoneLayout = viewportWidth <= 640;
+    const logoCanPreview = logoUrl.trim().startsWith('http');
+    const previewCards = [
+        { key: 'jobs' as const, label: 'Jobs', value: '4' },
+        { key: 'schedule' as const, label: 'Schedule', value: '3' },
+        { key: 'estimates' as const, label: 'Estimates', value: '2' },
+        { key: 'messages' as const, label: 'Messages', value: '1' },
+    ];
+
+    return (
+        <View
+            style={{
+                width: '100%',
+                backgroundColor: theme.screenBackgroundColor,
+                borderColor: theme.panelBorderColor,
+                borderRadius: 8,
+                borderWidth: 1,
+                padding: isPhoneLayout ? 12 : 16,
+            }}
+        >
+            <View
+                style={{
+                    flexDirection: 'row',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 12,
+                }}
+            >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                    {logoCanPreview ? (
+                        <Image
+                            source={{ uri: logoUrl }}
+                            style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: 8,
+                                backgroundColor: theme.panelBackgroundColor,
+                            }}
+                        />
+                    ) : (
+                        <View
+                            style={{
+                                width: 40,
+                                height: 40,
+                                borderRadius: 8,
+                                backgroundColor: theme.activeBorderColor,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                            }}
+                        >
+                            <Text style={{ color: getReadableColor(theme.activeBorderColor), fontSize: 18, fontWeight: '900' }}>
+                                {companyName.slice(0, 1).toUpperCase()}
+                            </Text>
+                        </View>
+                    )}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text numberOfLines={1} style={{ color: theme.textColor, fontSize: 16, fontWeight: '900' }}>
+                            {companyName}
+                        </Text>
+                        <Text style={{ color: theme.mutedTextColor, fontSize: 12, fontWeight: '800', marginTop: 2 }}>
+                            Company TechOS Preview
+                        </Text>
+                    </View>
+                </View>
+                <View
+                    style={{
+                        backgroundColor: theme.activeBorderColor,
+                        borderRadius: 999,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                    }}
+                >
+                    <Text style={{ color: getReadableColor(theme.activeBorderColor), fontSize: 11, fontWeight: '900' }}>
+                        Company managed
+                    </Text>
+                </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {previewCards.map((card) => {
+                    const variant = theme.dashboard[card.key];
+
+                    return (
+                        <View
+                            key={card.key}
+                            style={{
+                                width: isPhoneLayout ? '48%' : undefined,
+                                flex: isPhoneLayout ? undefined : 1,
+                                minWidth: isPhoneLayout ? 0 : 120,
+                                minHeight: 76,
+                                backgroundColor: variant.backgroundColor,
+                                borderColor: variant.borderColor,
+                                borderRadius: 8,
+                                borderWidth: 1,
+                                padding: 10,
+                                overflow: 'hidden',
+                            }}
+                        >
+                            <View
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    height: 4,
+                                    backgroundColor: variant.accentColor,
+                                }}
+                            />
+                            <Text style={{ color: theme.textColor, fontSize: 20, fontWeight: '900' }}>{card.value}</Text>
+                            <Text style={{ color: theme.textColor, fontSize: 12, fontWeight: '900', marginTop: 3 }}>{card.label}</Text>
+                        </View>
+                    );
+                })}
+            </View>
         </View>
     );
 }
