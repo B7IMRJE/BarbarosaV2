@@ -3,6 +3,7 @@ export type EstimateOptionCategory =
     | 'water_heater'
     | 'garbage_disposal'
     | 'faucet_replacement'
+    | 'water_filtration'
     | 'whole_home_repipe';
 
 const FAUCET_REINSTALL_EXISTING_PRICE_KEY = 'faucet-reinstall-existing';
@@ -636,6 +637,39 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         ],
     },
     {
+        id: 'water_filtration',
+        label: 'Water Filtration',
+        serviceCategory: 'Water Quality',
+        requiredPhotoLabels: ['Main water entry', 'Proposed installation area', 'Drain and electrical access', 'Existing treatment equipment'],
+        requiredMeasurementLabels: ['Water hardness', 'Peak service flow'],
+        productCategoryFilters: ['water filter', 'water filtration', 'water softener', 'carbon', 'UV', 'reverse osmosis'],
+        pricingCategoryFilters: ['Water Quality'],
+        requiredScopeCodes: [],
+        recommendedOptionStructures: ['Essential Filtration', 'Carbon Protection System', 'Softened Water Package', 'Well Water Protection Package'],
+        warnings: ['Final equipment sizing must follow verified water testing, service flow, pressure, and manufacturer requirements.'],
+        blockingConditions: ['Water source, treatment goals, equipment sizing, installation access, and testing must be confirmed before presentation.'],
+        questions: [
+            selectQuestion('water_source', 'Water source', true, ['municipal', 'private well', 'shared well', 'unknown']),
+            multiQuestion('treatment_goals', 'Treatment goals', true, ['sediment', 'chlorine / taste', 'chloramine', 'hardness / scale', 'iron / manganese', 'sulfur / odor', 'microbial protection', 'other']),
+            selectQuestion('water_test_status', 'Water testing', true, ['recent lab results available', 'onsite test completed', 'test required', 'customer declined testing']),
+            selectQuestion('installation_scope', 'Installation scope', true, ['whole home', 'drinking water only', 'whole home plus drinking water', 'equipment service / replacement']),
+            selectQuestion('main_line_size', 'Main water line size', true, ['3/4 in', '1 in', '1-1/4 in', '1-1/2 in', '2 in', 'unknown / measure']),
+            selectQuestion('pre_filter_size', 'Pre-filter', true, ['none', '10 in slim', '20 in slim', '10 in Big Blue', '20 in Big Blue', 'needs sizing']),
+            selectQuestion('pre_filter_micron', 'Pre-filter micron rating', true, ['1 micron', '5 micron', '10 micron', '20 micron', '50 micron', 'not applicable', 'needs water test']),
+            selectQuestion('carbon_unit_size', 'Carbon unit', true, ['none', '10 in cartridge', '20 in cartridge', '10 in Big Blue', '20 in Big Blue', 'whole-home media tank', 'needs sizing']),
+            selectQuestion('carbon_media', 'Carbon media', true, ['carbon block', 'GAC', 'catalytic carbon', 'specialty media', 'not applicable', 'needs water test']),
+            selectQuestion('softener_size', 'Water softener', true, ['none', '24,000 grain', '32,000 grain', '40,000 grain', '48,000 grain', '64,000 grain', 'twin tank', 'needs sizing']),
+            selectQuestion('post_filter_size', 'Post-filter', true, ['none', '10 in cartridge', '20 in cartridge', '10 in Big Blue', '20 in Big Blue', 'polishing filter', 'needs sizing']),
+            selectQuestion('uv_disinfection', 'UV disinfection', true, ['not required', 'add for well', '8 gpm', '12 gpm', '20 gpm', 'replace existing', 'needs water test']),
+            selectQuestion('installation_location', 'Equipment location', true, ['garage / mechanical', 'exterior enclosure', 'basement', 'crawlspace', 'utility room', 'other']),
+            selectQuestion('drain_access', 'Drain access', true, ['existing drain available', 'new drain route required', 'discharge location needs review', 'not required']),
+            selectQuestion('electrical_access', 'Electrical access', true, ['existing outlet', 'new outlet required', 'dedicated circuit review', 'not required']),
+            selectQuestion('bypass_valves', 'Bypass and isolation valves', true, ['existing good', 'include new bypass', 'replace existing', 'needs inspection']),
+            selectQuestion('maintenance_plan', 'Maintenance plan', false, ['customer maintained', 'company service plan', 'annual service', 'not discussed']),
+            noteQuestion('water_quality_notes', 'Water quality and installation notes', false),
+        ],
+    },
+    {
         id: 'whole_home_repipe',
         label: 'Whole-Home Repipe',
         serviceCategory: 'Water Service',
@@ -679,6 +713,16 @@ export function inferEstimateCategoryFromDraft(
         .join(' ')
         .toLowerCase();
 
+    if (
+        searchable.includes('water filtration') ||
+        searchable.includes('water filter') ||
+        searchable.includes('water quality') ||
+        searchable.includes('water softener') ||
+        searchable.includes('softener') ||
+        searchable.includes('reverse osmosis') ||
+        searchable.includes('whole-home filter') ||
+        searchable.includes('whole home filter')
+    ) return 'water_filtration';
     if (searchable.includes('repipe') || searchable.includes('whole home') || searchable.includes('whole-home')) return 'whole_home_repipe';
     if (searchable.includes('water heater') || searchable.includes('tankless')) return 'water_heater';
     if (searchable.includes('garbage disposal') || searchable.includes('disposal')) return 'garbage_disposal';
@@ -1504,6 +1548,7 @@ function selectEligiblePriceBookEntries(
     );
 
     if (exactMatches.length > 0) return sortPriceEntries(exactMatches);
+    if (template.id === 'water_filtration') return [];
 
     return sortPriceEntries(entries.filter((entry) =>
         entry.companyId === companyId &&
@@ -1660,6 +1705,7 @@ function buildKeyBenefits(category: EstimateOptionCategory, index: number) {
         water_heater: ['Safety checklist reviewed', 'Approved hot water scope', 'Warranty path visible'],
         garbage_disposal: ['Power and drain fit checked', 'Approved model path', 'Leak and operation check included'],
         faucet_replacement: ['Sink fit confirmed', 'Shutoffs reviewed', 'Approved fixture path'],
+        water_filtration: ['Water goals documented', 'Equipment stages sized', 'Maintenance path visible'],
         whole_home_repipe: ['Fixture point count audited', 'Access factors visible', 'Scope totals remain editable'],
     };
 

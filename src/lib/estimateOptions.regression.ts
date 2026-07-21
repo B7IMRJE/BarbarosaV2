@@ -10,6 +10,7 @@ import {
     filterRuleCompatibleProducts,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
+    inferEstimateCategoryFromDraft,
     isPhotoRequirementComplete,
     measurementRequirementAnswerKey,
     photoRequirementAnswerKey,
@@ -59,6 +60,10 @@ export function runEstimateOptionsRegressions() {
     toiletRequiredQuestionsAreEnforced();
     disposalRequiredQuestionsAreEnforced();
     waterHeaterChecklistIsEnforced();
+    waterFiltrationChecklistCoversTreatmentStages();
+    waterFiltrationIsInferredFromWaterQualityWork();
+    completeWaterFiltrationChecklistClearsAnswerGate();
+    waterFiltrationDoesNotUseUnrelatedPriceBookEntries();
     faucetSelectionsClearQuestionRequirementsBeforeChecklistIsComplete();
     faucetPhotosRequirePersistedAttachmentMetadata();
     eachFaucetPhotoClearsOnlyItsMatchingBlocker();
@@ -336,6 +341,54 @@ function waterHeaterChecklistIsEnforced() {
     assert(validation.missingRequiredQuestionIds.includes('fuel_type'), 'Water-heater fuel type should be required.');
     assert(validation.missingRequiredQuestionIds.includes('venting'), 'Water-heater venting should be required.');
     assert(validation.missingRequiredQuestionIds.includes('tp_discharge'), 'Water-heater T&P discharge should be required.');
+}
+
+function waterFiltrationChecklistCoversTreatmentStages() {
+    const template = getEstimateCategoryTemplate('water_filtration');
+    const questionById = new Map(template.questions.map((question) => [question.id, question]));
+
+    assert(template.serviceCategory === 'Water Quality', 'Water filtration should use the existing Water Quality price-book category.');
+    assert(questionById.get('pre_filter_size')?.allowedAnswers?.includes('20 in Big Blue'), 'Water filtration should include selectable pre-filter sizes.');
+    assert(questionById.get('carbon_unit_size')?.allowedAnswers?.includes('whole-home media tank'), 'Water filtration should include carbon cartridge and media-tank choices.');
+    assert(questionById.get('softener_size')?.allowedAnswers?.includes('64,000 grain'), 'Water filtration should include deterministic softener sizing choices.');
+    assert(questionById.get('post_filter_size')?.allowedAnswers?.includes('polishing filter'), 'Water filtration should include post-filter choices.');
+    assert(questionById.get('uv_disinfection')?.allowedAnswers?.includes('add for well'), 'Water filtration should include a well-water UV path.');
+    assert(template.requiredMeasurementLabels.includes('Water hardness'), 'Water hardness should be captured for treatment sizing.');
+    assert(template.requiredMeasurementLabels.includes('Peak service flow'), 'Peak service flow should be captured for treatment sizing.');
+}
+
+function waterFiltrationIsInferredFromWaterQualityWork() {
+    const category = inferEstimateCategoryFromDraft([{
+        ...draftItem('water-quality-item'),
+        name: 'Whole-home Water Softener',
+        system: 'Water Quality',
+        category: 'Water Quality',
+    }], null);
+
+    assert(category === 'water_filtration', 'Water quality and softener work should open the water-filtration checklist.');
+}
+
+function completeWaterFiltrationChecklistClearsAnswerGate() {
+    const validation = validateEstimateAnswers(
+        getEstimateCategoryTemplate('water_filtration'),
+        completeAnswers('water_filtration')
+    );
+
+    assert(validation.complete, 'Completed filtration questions, photos, and measurements should clear the answer gate.');
+    assert(validation.missingRequiredQuestionIds.length === 0, 'No filtration questions should remain after completion.');
+    assert(validation.missingRequiredPhotoLabels.length === 0, 'No filtration photos should remain after completion.');
+    assert(validation.missingRequiredMeasurementLabels.length === 0, 'No filtration measurements should remain after completion.');
+}
+
+function waterFiltrationDoesNotUseUnrelatedPriceBookEntries() {
+    const workspace = buildWorkspace({
+        category: 'water_filtration',
+        answers: completeAnswers('water_filtration'),
+        priceBookItems: pricedItems('Toilets'),
+    });
+
+    assert(workspace.eligiblePriceBookEntries.length === 0, 'Water filtration must not fall back to unrelated company price-book categories.');
+    assert(workspace.pricingSetupRequired, 'Water filtration should remain pricing-blocked until Water Quality entries exist.');
 }
 
 function faucetSelectionsClearQuestionRequirementsBeforeChecklistIsComplete() {

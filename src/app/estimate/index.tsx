@@ -7,6 +7,7 @@ import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
     createEstimateRequirementSkipAnswer,
+    estimateCategoryTemplates,
     estimateRequirementId,
     formatMoney,
     getEstimateRequirementState,
@@ -149,6 +150,8 @@ export default function EstimateScreen() {
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
     const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
+    const [expandedCategory, setExpandedCategory] = useState<EstimateOptionCategory | null>(null);
+    const [readinessExpanded, setReadinessExpanded] = useState(false);
     const [answers, setAnswers] = useState<EstimateAnswerSet>({});
     const [photoPreviewByKey, setPhotoPreviewByKey] = useState<Record<string, string>>({});
     const [requirementUploadByKey, setRequirementUploadByKey] = useState<Record<string, RequirementUploadState>>({});
@@ -181,6 +184,8 @@ export default function EstimateScreen() {
         setDraftContext(null);
         setEstimateSession(null);
         setItems([]);
+        setExpandedCategory(null);
+        setReadinessExpanded(false);
         setPriceBookItems([]);
         setPriceBookMessage('Price book loading...');
         setTechnicianApproved(false);
@@ -265,6 +270,8 @@ export default function EstimateScreen() {
         setDraftContext(nextDraftContext);
         setEstimateSession(null);
         setSelectedCategory(inferredCategory);
+        setExpandedCategory(null);
+        setReadinessExpanded(false);
         setAnswers({});
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
@@ -321,6 +328,8 @@ export default function EstimateScreen() {
         setEstimateSession(null);
         setSelectedChoiceId('');
         setSelectedCategory('faucet_replacement');
+        setExpandedCategory(null);
+        setReadinessExpanded(false);
         setAnswers({});
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
@@ -986,6 +995,28 @@ export default function EstimateScreen() {
         }
     }
 
+    function toggleCategoryPanel(category: EstimateOptionCategory) {
+        if (expandedCategory === category) {
+            setExpandedCategory(null);
+            setReadinessExpanded(false);
+            return;
+        }
+
+        if (selectedCategory !== category) {
+            setSelectedCategory(category);
+            setAnswers({});
+            setPhotoPreviewByKey({});
+            setRequirementUploadByKey({});
+            setMeasurementDraftByKey({});
+            setMeasurementErrorByKey({});
+            setTechnicianApproved(false);
+            setPresentationMode(false);
+        }
+
+        setExpandedCategory(category);
+        setReadinessExpanded(false);
+    }
+
     if (checkingAccess) {
         return (
             <StaffOnlyMessage
@@ -1022,6 +1053,21 @@ export default function EstimateScreen() {
     const bundleChoices = estimateChoices.filter((choice) => choice.kind === 'package');
     const selectedChoice = estimateChoices.find((choice) => choice.id === selectedChoiceId) || null;
     const requirementUploadInProgress = hasRequirementUploadInProgress();
+    const missingQuestionCount = phase1Workspace.answerValidation.missingRequiredQuestionLabels.length;
+    const missingPhotoCount = phase1Workspace.answerValidation.missingRequiredPhotoLabels.length;
+    const missingMeasurementCount = phase1Workspace.answerValidation.missingRequiredMeasurementLabels.length;
+    const readinessIssueLabels = [
+        missingQuestionCount > 0 ? `${missingQuestionCount} question${missingQuestionCount === 1 ? '' : 's'}` : '',
+        missingPhotoCount > 0 ? `${missingPhotoCount} photo${missingPhotoCount === 1 ? '' : 's'}` : '',
+        missingMeasurementCount > 0 ? `${missingMeasurementCount} measurement${missingMeasurementCount === 1 ? '' : 's'}` : '',
+        phase1Workspace.pricingSetupRequired ? 'pricing' : '',
+    ].filter(Boolean);
+    const readinessHeadline = readinessIssueLabels.length > 0
+        ? `${readinessIssueLabels.join(' / ')} still needed`
+        : 'Field requirements and deterministic pricing are complete';
+    const editorStatusHeadline = readinessIssueLabels.length > 0
+        ? readinessHeadline
+        : phase1Workspace.presentationGate.blockers[0] || readinessHeadline;
 
     return (
         <ScrollView
@@ -1134,102 +1180,126 @@ export default function EstimateScreen() {
                 )}
 
                 <View style={sectionStyle}>
-                    {renderSectionHeader('Category Questions', phase1Workspace.template.label)}
+                    {renderSectionHeader('Estimate Checklist', 'Open only the work category you are building. Tap it again to hide the checklist.')}
                     <View style={categoryTabRowStyle}>
-                        {(['toilet_replacement', 'water_heater', 'garbage_disposal', 'faucet_replacement', 'whole_home_repipe'] as EstimateOptionCategory[]).map((category) => (
-                            <TouchableOpacity
-                                key={category}
-                                onPress={() => {
-                                    setSelectedCategory(category);
-                                    setAnswers({});
-                                    setPhotoPreviewByKey({});
-                                    setRequirementUploadByKey({});
-                                    setMeasurementDraftByKey({});
-                                    setMeasurementErrorByKey({});
-                                    setTechnicianApproved(false);
-                                    setPresentationMode(false);
-                                }}
-                                style={selectedCategory === category ? [categoryButtonStyle, selectedCategoryButtonStyle] : categoryButtonStyle}
-                            >
-                                <Text style={selectedCategory === category ? selectedCategoryButtonTextStyle : categoryButtonTextStyle}>
-                                    {getEstimateCategoryTemplate(category).label}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
+                        {estimateCategoryTemplates.map((template) => {
+                            const open = expandedCategory === template.id;
+
+                            return (
+                                <TouchableOpacity
+                                    key={template.id}
+                                    onPress={() => toggleCategoryPanel(template.id)}
+                                    style={[
+                                        categoryButtonStyle,
+                                        estimateCategoryTone(template.id),
+                                        open ? selectedCategoryButtonStyle : null,
+                                    ]}
+                                >
+                                    <View style={categoryCardHeaderStyle}>
+                                        <Text style={categoryButtonTextStyle}>{template.label}</Text>
+                                        <Text style={open ? categoryOpenPillStyle : categoryClosedPillStyle}>
+                                            {open ? 'Hide' : 'Open'}
+                                        </Text>
+                                    </View>
+                                    <Text style={categoryButtonDescriptionStyle} numberOfLines={2}>
+                                        {estimateCategoryDescription(template.id)}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
                     </View>
 
-                    <View style={questionGridStyle}>
-                        {phase1Workspace.template.questions.map((question) => renderQuestion(question, answers, updateAnswer, toggleMultiAnswer))}
-                    </View>
+                    {expandedCategory === selectedCategory && (
+                        <View style={expandedChecklistStyle}>
+                            <View style={expandedChecklistHeaderStyle}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={expandedChecklistTitleStyle}>{phase1Workspace.template.label}</Text>
+                                    <Text style={expandedChecklistDescriptionStyle}>
+                                        Complete the field questions and required evidence for this scope.
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={() => setExpandedCategory(null)}
+                                    style={compactSecondaryButtonStyle}
+                                >
+                                    <Text style={compactSecondaryButtonTextStyle}>Hide Checklist</Text>
+                                </TouchableOpacity>
+                            </View>
 
-                    <View style={requirementGridStyle}>
-                        {phase1Workspace.template.requiredPhotoLabels.map((label) => renderPhotoRequirementCard({
-                            label,
-                            answers,
-                            previewByKey: photoPreviewByKey,
-                            uploadByKey: requirementUploadByKey,
-                            choosePhoto: chooseRequirementPhoto,
-                            removePhoto: removeRequirementPhoto,
-                            skipRequirement: (label, reason) => skipRequirement('photo', label, reason),
-                            clearSkippedRequirement: (label) => clearSkippedRequirement('photo', label),
-                        }))}
-                        {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderMeasurementRequirementCard({
-                            label,
-                            answers,
-                            measurementDraftByKey,
-                            measurementErrorByKey,
-                            updateMeasurementDraft,
-                            saveMeasurement: saveRequirementMeasurement,
-                            clearMeasurement: clearRequirementMeasurement,
-                            skipRequirement: (label, reason) => skipRequirement('measurement', label, reason),
-                            clearSkippedRequirement: (label) => clearSkippedRequirement('measurement', label),
-                        }))}
-                    </View>
+                            <View style={questionGridStyle}>
+                                {phase1Workspace.template.questions.map((question) => renderQuestion(question, answers, updateAnswer, toggleMultiAnswer))}
+                            </View>
 
-                    {!phase1Workspace.answerValidation.complete && (
-                        <View style={missingAnswerBoxStyle}>
-                            {phase1Workspace.answerValidation.missingRequiredQuestionLabels.length > 0 && (
-                                <Text style={missingAnswerTextStyle}>
-                                    Questions still needed: {phase1Workspace.answerValidation.missingRequiredQuestionLabels.join(', ')}
-                                </Text>
-                            )}
-                            {phase1Workspace.answerValidation.missingRequiredPhotoLabels.length > 0 && (
-                                <Text style={missingAnswerTextStyle}>
-                                    Photos still needed: {phase1Workspace.answerValidation.missingRequiredPhotoLabels.join(', ')}
-                                </Text>
-                            )}
-                            {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.length > 0 && (
-                                <Text style={missingAnswerTextStyle}>
-                                    Measurements still needed: {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.join(', ')}
-                                </Text>
-                            )}
-                        </View>
-                    )}
+                            <View style={requirementGridStyle}>
+                                {phase1Workspace.template.requiredPhotoLabels.map((label) => renderPhotoRequirementCard({
+                                    label,
+                                    answers,
+                                    previewByKey: photoPreviewByKey,
+                                    uploadByKey: requirementUploadByKey,
+                                    choosePhoto: chooseRequirementPhoto,
+                                    removePhoto: removeRequirementPhoto,
+                                    skipRequirement: (label, reason) => skipRequirement('photo', label, reason),
+                                    clearSkippedRequirement: (label) => clearSkippedRequirement('photo', label),
+                                }))}
+                                {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderMeasurementRequirementCard({
+                                    label,
+                                    answers,
+                                    measurementDraftByKey,
+                                    measurementErrorByKey,
+                                    updateMeasurementDraft,
+                                    saveMeasurement: saveRequirementMeasurement,
+                                    clearMeasurement: clearRequirementMeasurement,
+                                    skipRequirement: (label, reason) => skipRequirement('measurement', label, reason),
+                                    clearSkippedRequirement: (label) => clearSkippedRequirement('measurement', label),
+                                }))}
+                            </View>
 
-                    {phase1Workspace.draftGate.missingBeforeFinalPresentation.length > 0 && (
-                        <View style={missingAnswerBoxStyle}>
-                            <Text style={smallEmptyTitleStyle}>Missing before final presentation</Text>
-                            {phase1Workspace.draftGate.missingBeforeFinalPresentation.slice(0, 8).map((entry) => (
-                                <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
-                            ))}
-                        </View>
-                    )}
+                            <View style={readinessPanelStyle}>
+                                <View style={readinessHeaderStyle}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={readinessTitleStyle}>Estimate readiness</Text>
+                                        <Text style={readinessHeadlineStyle}>{readinessHeadline}</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        onPress={() => setReadinessExpanded((current) => !current)}
+                                        style={compactSecondaryButtonStyle}
+                                    >
+                                        <Text style={compactSecondaryButtonTextStyle}>
+                                            {readinessExpanded ? 'Hide Details' : 'View Details'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
 
-                    {phase1Workspace.draftGate.skippedForNow.length > 0 && (
-                        <View style={missingAnswerBoxStyle}>
-                            <Text style={smallEmptyTitleStyle}>Skipped for now</Text>
-                            {phase1Workspace.draftGate.skippedForNow.map((entry) => (
-                                <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
-                            ))}
-                        </View>
-                    )}
+                                <View style={readinessGridStyle}>
+                                    {renderReadinessCard('Questions', missingQuestionCount, '#EEF4FF', '#276BDC')}
+                                    {renderReadinessCard('Photos', missingPhotoCount, '#EAF9FF', '#2C91C9')}
+                                    {renderReadinessCard('Measurements', missingMeasurementCount, '#ECFBF5', '#0F8A68')}
+                                    {renderReadinessCard('Pricing', phase1Workspace.pricingSetupRequired ? 1 : 0, '#FFF8DF', '#D99214')}
+                                </View>
 
-                    {phase1Workspace.draftGate.assumptionsUsedInDraft.length > 0 && (
-                        <View style={missingAnswerBoxStyle}>
-                            <Text style={smallEmptyTitleStyle}>Assumptions used in draft</Text>
-                            {phase1Workspace.draftGate.assumptionsUsedInDraft.slice(0, 6).map((entry) => (
-                                <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
-                            ))}
+                                {readinessExpanded && (
+                                    <View style={readinessDetailGridStyle}>
+                                        {renderReadinessDetails(
+                                            'Still needed',
+                                            phase1Workspace.draftGate.missingBeforeFinalPresentation,
+                                            'All field requirements are complete.',
+                                            cardTone('#FFF8DF', '#F2DC92', '#D99214')
+                                        )}
+                                        {renderReadinessDetails(
+                                            'Skipped for now',
+                                            phase1Workspace.draftGate.skippedForNow,
+                                            'Nothing has been skipped.',
+                                            cardTone('#EAF9FF', '#BCEBFA', '#2C91C9')
+                                        )}
+                                        {renderReadinessDetails(
+                                            'Draft notes',
+                                            phase1Workspace.draftGate.assumptionsUsedInDraft,
+                                            'No draft assumptions are active.',
+                                            cardTone('#F3EFFF', '#D9CCFF', '#7357C8')
+                                        )}
+                                    </View>
+                                )}
+                            </View>
                         </View>
                     )}
                 </View>
@@ -1291,10 +1361,9 @@ export default function EstimateScreen() {
                     </View>
 
                     {phase1Workspace.presentationGate.blockers.length > 0 && (
-                        <View style={warningBoxStyle}>
-                            {phase1Workspace.presentationGate.blockers.slice(0, 6).map((blocker) => (
-                                <Text key={blocker} style={warningTextStyle}>{blocker}</Text>
-                            ))}
+                        <View style={editorStatusBannerStyle}>
+                            <Text style={editorStatusTitleStyle}>Not ready for homeowner presentation</Text>
+                            <Text style={editorStatusTextStyle}>{editorStatusHeadline}</Text>
                         </View>
                     )}
 
@@ -1949,6 +2018,8 @@ function defaultMeasurementUnit(label: string) {
     const requirementId = estimateRequirementId(label);
 
     if (requirementId.includes('home-size')) return 'sq ft';
+    if (requirementId.includes('water-hardness')) return 'gpg';
+    if (requirementId.includes('service-flow')) return 'gpm';
     if (requirementId.includes('tankless-demand')) return 'gpm';
     if (requirementId.includes('tank-size')) return 'gal';
 
@@ -1994,6 +2065,67 @@ function estimateQuestionTone(questionId: string) {
     if (normalized.includes('access') || normalized.includes('unusual')) return cardTone('#F3EFFF', '#D9CCFF', '#7357C8');
 
     return cardTone('#FFFFFF', '#E3E8EF', '#637083');
+}
+
+function estimateCategoryTone(category: EstimateOptionCategory) {
+    const tones: Record<EstimateOptionCategory, ReturnType<typeof cardTone>> = {
+        toilet_replacement: cardTone('#F3EFFF', '#D9CCFF', '#7357C8'),
+        water_heater: cardTone('#FFF8DF', '#F2DC92', '#D99214'),
+        garbage_disposal: cardTone('#EAF9FF', '#BCEBFA', '#2C91C9'),
+        faucet_replacement: cardTone('#ECFBF5', '#BFEEDC', '#0F8A68'),
+        water_filtration: cardTone('#E7F8F4', '#B9E8DC', '#087C6A'),
+        whole_home_repipe: cardTone('#FFF0F3', '#F5C8D0', '#C94A68'),
+    };
+
+    return tones[category];
+}
+
+function estimateCategoryDescription(category: EstimateOptionCategory) {
+    const descriptions: Record<EstimateOptionCategory, string> = {
+        toilet_replacement: 'Fit, rough-in, access, shutoff, and product choices',
+        water_heater: 'Tank or tankless sizing, safety, venting, and recirculation',
+        garbage_disposal: 'Power, drain, dishwasher, model, and removal scope',
+        faucet_replacement: 'Fixture fit, sink layout, shutoffs, and accessories',
+        water_filtration: 'Pre-filter, carbon, softener, post-filter, well, and UV',
+        whole_home_repipe: 'Rooms, fixture groups, routing, access, and patching',
+    };
+
+    return descriptions[category];
+}
+
+function renderReadinessCard(label: string, remaining: number, backgroundColor: string, accentColor: string) {
+    return (
+        <View
+            key={label}
+            style={[
+                readinessMetricCardStyle,
+                { backgroundColor, borderColor: accentColor },
+            ]}
+        >
+            <Text style={readinessMetricLabelStyle}>{label}</Text>
+            <Text style={remaining === 0 ? readinessCompleteTextStyle : readinessRemainingTextStyle}>
+                {remaining === 0 ? 'Complete' : `${remaining} left`}
+            </Text>
+        </View>
+    );
+}
+
+function renderReadinessDetails(
+    title: string,
+    entries: string[],
+    emptyMessage: string,
+    tone: ReturnType<typeof cardTone>
+) {
+    return (
+        <View key={title} style={[readinessDetailCardStyle, tone]}>
+            <Text style={readinessDetailTitleStyle}>{title}</Text>
+            {entries.length === 0 ? (
+                <Text style={readinessDetailEmptyStyle}>{emptyMessage}</Text>
+            ) : entries.slice(0, 10).map((entry) => (
+                <Text key={entry} style={readinessDetailTextStyle}>- {entry}</Text>
+            ))}
+        </View>
+    );
 }
 
 function estimateFoundationTone(title: string) {
@@ -2082,27 +2214,85 @@ const categoryTabRowStyle = {
 const categoryButtonStyle = {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#D8E0EA',
+    width: 180,
+    minHeight: 98,
+    overflow: 'hidden' as const,
 };
 
 const selectedCategoryButtonStyle = {
-    backgroundColor: '#071B33',
     borderColor: '#071B33',
+    borderWidth: 2,
 };
 
 const categoryButtonTextStyle = {
     color: '#071B33',
+    fontSize: 14,
+    fontWeight: '900' as const,
+    flex: 1,
+};
+
+const categoryCardHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+};
+
+const categoryButtonDescriptionStyle = {
+    color: '#526175',
     fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700' as const,
+    marginTop: 8,
+};
+
+const categoryClosedPillStyle = {
+    color: '#526175',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    fontSize: 10,
+    fontWeight: '900' as const,
+    overflow: 'hidden' as const,
+};
+
+const categoryOpenPillStyle = {
+    ...categoryClosedPillStyle,
+    color: '#FFFFFF',
+    backgroundColor: '#071B33',
+};
+
+const expandedChecklistStyle = {
+    borderTopWidth: 1,
+    borderTopColor: '#D8E0EA',
+    paddingTop: 16,
+    marginTop: 4,
+    gap: 12,
+};
+
+const expandedChecklistHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    justifyContent: 'space-between' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const expandedChecklistTitleStyle = {
+    color: '#071B33',
+    fontSize: 18,
     fontWeight: '900' as const,
 };
 
-const selectedCategoryButtonTextStyle = {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900' as const,
+const expandedChecklistDescriptionStyle = {
+    color: '#637083',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 3,
 };
 
 const questionGridStyle = {
@@ -2328,23 +2518,131 @@ const completeRequirementPillTextStyle = {
     fontWeight: '900' as const,
 };
 
-const missingAnswerBoxStyle = {
-    backgroundColor: '#FFF8E8',
-    borderRadius: 12,
+const readinessPanelStyle = {
+    borderTopWidth: 1,
+    borderTopColor: '#D8E0EA',
+    paddingTop: 14,
+    gap: 10,
+};
+
+const readinessHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const readinessTitleStyle = {
+    color: '#071B33',
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const readinessHeadlineStyle = {
+    color: '#637083',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+};
+
+const readinessGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const readinessMetricCardStyle = {
+    width: 144,
+    minHeight: 68,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#F0D18A',
     padding: 10,
-    marginTop: 12,
-    gap: 4,
+};
+
+const readinessMetricLabelStyle = {
+    color: '#526175',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    textTransform: 'uppercase' as const,
+};
+
+const readinessCompleteTextStyle = {
+    color: '#14533A',
+    fontSize: 14,
+    fontWeight: '900' as const,
+    marginTop: 7,
+};
+
+const readinessRemainingTextStyle = {
+    color: '#8A4B00',
+    fontSize: 14,
+    fontWeight: '900' as const,
+    marginTop: 7,
+};
+
+const readinessDetailGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const readinessDetailCardStyle = {
+    width: 270,
+    minHeight: 110,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 11,
+    overflow: 'hidden' as const,
+};
+
+const readinessDetailTitleStyle = {
+    color: '#071B33',
+    fontSize: 13,
+    fontWeight: '900' as const,
+    marginBottom: 5,
+};
+
+const readinessDetailTextStyle = {
+    color: '#526175',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700' as const,
+};
+
+const readinessDetailEmptyStyle = {
+    color: '#637083',
+    fontSize: 12,
+    lineHeight: 17,
+};
+
+const editorStatusBannerStyle = {
+    backgroundColor: '#FFF8DF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#F2DC92',
+    borderLeftWidth: 5,
+    borderLeftColor: '#D99214',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 10,
+    marginBottom: 10,
     alignSelf: 'flex-start' as const,
     maxWidth: 680,
 };
 
-const missingAnswerTextStyle = {
-    color: '#8A4B00',
-    fontSize: 11,
-    lineHeight: 16,
+const editorStatusTitleStyle = {
+    color: '#071B33',
+    fontSize: 13,
     fontWeight: '800' as const,
+};
+
+const editorStatusTextStyle = {
+    color: '#8A4B00',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700' as const,
+    marginTop: 2,
 };
 
 const warningBoxStyle = {
