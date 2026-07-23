@@ -18,6 +18,7 @@ import {
 } from './themes';
 import {
     HOMEOS_THEME_USER_METADATA_KEY,
+    isHomeOSThemeSaveConfirmed,
     readHomeOSThemeFromUserMetadata,
     resolvePersistedHomeOSTheme,
 } from '../lib/homeThemePersistence';
@@ -222,22 +223,41 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
 
     async function setThemeName(nextThemeName: HomeOSThemeName) {
-        setThemeNameState(nextThemeName);
-
         const userId = activeUserIdRef.current;
 
-        if (userId) {
-            const [, accountResult] = await Promise.all([
-                AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName),
-                supabase.auth.updateUser({
-                    data: {
-                        [HOMEOS_THEME_USER_METADATA_KEY]: nextThemeName,
-                    },
-                }),
-            ]);
+        if (!userId) {
+            throw new Error('Sign in again before saving your HomeOS theme.');
+        }
 
-            if (accountResult.error && __DEV__) {
-                console.warn('HomeOS theme account persistence failed.', accountResult.error);
+        const accountResult = await supabase.auth.updateUser({
+            data: {
+                [HOMEOS_THEME_USER_METADATA_KEY]: nextThemeName,
+            },
+        });
+
+        if (accountResult.error) {
+            throw new Error(
+                accountResult.error.message || 'HomeOS could not save your theme.'
+            );
+        }
+
+        if (
+            accountResult.data.user?.id !== userId ||
+            !isHomeOSThemeSaveConfirmed(
+                accountResult.data.user?.user_metadata,
+                nextThemeName
+            )
+        ) {
+            throw new Error('HomeOS could not confirm the saved theme. Please try again.');
+        }
+
+        setThemeNameState(nextThemeName);
+
+        try {
+            await AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName);
+        } catch (error) {
+            if (__DEV__) {
+                console.warn('HomeOS theme device cache could not be updated.', error);
             }
         }
     }

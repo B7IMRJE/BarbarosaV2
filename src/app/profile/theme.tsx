@@ -1,8 +1,9 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import { DEFAULT_APPEARANCE_PREFERENCES, DEFAULT_THEME_NAME, appearanceSizeOptions, themeOptions, type AppearanceSizeName, type HomeOSTheme } from '../../theme';
+import { DEFAULT_APPEARANCE_PREFERENCES, DEFAULT_THEME_NAME, appearanceSizeOptions, themeOptions, type AppearanceSizeName, type HomeOSTheme, type HomeOSThemeName } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
 function ThemeSwatches({ option }: { option: HomeOSTheme }) {
@@ -323,7 +324,7 @@ function AppearancePreview() {
     );
 }
 export default function ThemeScreen() {
-        const {
+    const {
         appearance,
         resetAppearance,
         setFontSize,
@@ -332,10 +333,49 @@ export default function ThemeScreen() {
         themeName,
         setThemeName,
     } = useTheme();
-    const isDefaultTheme = themeName === DEFAULT_THEME_NAME;
+    const [selectedThemeName, setSelectedThemeName] =
+        useState<HomeOSThemeName>(themeName);
+    const [isSavingTheme, setIsSavingTheme] = useState(false);
+    const [themeSaveMessage, setThemeSaveMessage] = useState<{
+        kind: 'success' | 'error';
+        text: string;
+    } | null>(null);
+    const isDefaultTheme = selectedThemeName === DEFAULT_THEME_NAME;
+    const hasUnsavedTheme = selectedThemeName !== themeName;
     const isDefaultAppearance =
         appearance.fontSize === DEFAULT_APPEARANCE_PREFERENCES.fontSize &&
         appearance.iconSize === DEFAULT_APPEARANCE_PREFERENCES.iconSize;
+
+    useEffect(() => {
+        if (!isSavingTheme) {
+            setSelectedThemeName(themeName);
+        }
+    }, [isSavingTheme, themeName]);
+
+    async function saveSelectedTheme() {
+        if (!hasUnsavedTheme || isSavingTheme) return;
+
+        setIsSavingTheme(true);
+        setThemeSaveMessage(null);
+
+        try {
+            await setThemeName(selectedThemeName);
+            setThemeSaveMessage({
+                kind: 'success',
+                text: 'Theme saved to your HomeOS account.',
+            });
+        } catch (error) {
+            setThemeSaveMessage({
+                kind: 'error',
+                text:
+                    error instanceof Error
+                        ? error.message
+                        : 'HomeOS could not save your theme. Please try again.',
+            });
+        } finally {
+            setIsSavingTheme(false);
+        }
+    }
 
     return (
         <ScrollView
@@ -504,12 +544,16 @@ export default function ThemeScreen() {
                     }}
                 >
                     {themeOptions.map((option) => {
-                        const isSelected = option.name === themeName;
+                        const isSelected = option.name === selectedThemeName;
+                        const isSaved = option.name === themeName;
 
                         return (
                             <ThemedCard
                                 key={option.name}
-                                onPress={() => setThemeName(option.name)}
+                                onPress={() => {
+                                    setSelectedThemeName(option.name);
+                                    setThemeSaveMessage(null);
+                                }}
                                 style={{
                                     flexGrow: 1,
                                     flexBasis: 290,
@@ -547,7 +591,11 @@ export default function ThemeScreen() {
                                                     fontWeight: '900',
                                                 }}
                                             >
-                                                {isSelected ? 'Selected for your account' : 'Tap to apply'}
+                                                {isSaved
+                                                    ? 'Saved for your account'
+                                                    : isSelected
+                                                      ? 'Selected, ready to save'
+                                                      : 'Tap to select'}
                                             </Text>
                                         </View>
 
@@ -589,13 +637,62 @@ export default function ThemeScreen() {
                     })}
                 </View>
 
-                <ThemedButton
-                    title="Reset To HomeOS Classic"
-                    variant="secondary"
-                    disabled={isDefaultTheme}
-                    onPress={() => setThemeName(DEFAULT_THEME_NAME)}
-                    style={{ marginTop: 18 }}
-                />
+                <View
+                    style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 12,
+                        marginTop: 18,
+                    }}
+                >
+                    <ThemedButton
+                        title={isSavingTheme ? 'Saving Theme...' : 'Save Theme'}
+                        disabled={!hasUnsavedTheme || isSavingTheme}
+                        onPress={() => {
+                            void saveSelectedTheme();
+                        }}
+                        style={{ flexGrow: 1, minWidth: 180 }}
+                    />
+
+                    <ThemedButton
+                        title="Select HomeOS Classic"
+                        variant="secondary"
+                        disabled={isDefaultTheme || isSavingTheme}
+                        onPress={() => {
+                            setSelectedThemeName(DEFAULT_THEME_NAME);
+                            setThemeSaveMessage(null);
+                        }}
+                        style={{ flexGrow: 1, minWidth: 180 }}
+                    />
+                </View>
+
+                {themeSaveMessage ? (
+                    <View
+                        style={{
+                            backgroundColor:
+                                themeSaveMessage.kind === 'success'
+                                    ? theme.colors.status.good.background
+                                    : theme.colors.status.emergency.background,
+                            borderColor:
+                                themeSaveMessage.kind === 'success'
+                                    ? theme.colors.status.good.border
+                                    : theme.colors.status.emergency.border,
+                            borderRadius: theme.radii.card,
+                            borderWidth: 1,
+                            marginTop: 12,
+                            padding: 14,
+                        }}
+                    >
+                        <Text
+                            style={{
+                                color: theme.colors.text,
+                                fontWeight: '900',
+                            }}
+                        >
+                            {themeSaveMessage.text}
+                        </Text>
+                    </View>
+                ) : null}
 
                 <ThemedButton
                     title="Back To Profile"

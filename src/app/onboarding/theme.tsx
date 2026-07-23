@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -10,8 +10,30 @@ export default function OnboardingThemeScreen() {
     const { scaleFont, scaleIcon, setThemeName, theme, themeName } = useTheme();
     const params = useLocalSearchParams<{ next?: string | string[] }>();
     const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
+    const [isSavingTheme, setIsSavingTheme] = useState(false);
+    const [themeSaveError, setThemeSaveError] = useState<string | null>(null);
+
+    async function selectTheme(nextThemeName: HomeOSTheme['name']) {
+        if (isSavingTheme) return;
+
+        setIsSavingTheme(true);
+        setThemeSaveError(null);
+
+        try {
+            await setThemeName(nextThemeName);
+        } catch (error) {
+            setThemeSaveError(
+                error instanceof Error
+                    ? error.message
+                    : 'HomeOS could not save your theme. Please try again.'
+            );
+        } finally {
+            setIsSavingTheme(false);
+        }
+    }
 
     function continueSetup() {
+        if (isSavingTheme) return;
         router.replace(buildBaseHomeWizardRoute(nextRoute) as never);
     }
 
@@ -57,7 +79,7 @@ export default function OnboardingThemeScreen() {
                             <ThemedCard
                                 key={option.name}
                                 onPress={() => {
-                                    void setThemeName(option.name);
+                                    void selectTheme(option.name);
                                 }}
                                 style={{
                                     flexGrow: 1,
@@ -128,9 +150,33 @@ export default function OnboardingThemeScreen() {
                     })}
                 </View>
 
+                {themeSaveError ? (
+                    <View
+                        style={{
+                            backgroundColor: theme.colors.status.emergency.background,
+                            borderColor: theme.colors.status.emergency.border,
+                            borderRadius: theme.radii.card,
+                            borderWidth: 1,
+                            marginTop: scaleIcon(16),
+                            padding: scaleIcon(14),
+                        }}
+                    >
+                        <Text
+                            style={{
+                                color: theme.colors.text,
+                                fontSize: scaleFont(14),
+                                fontWeight: '900',
+                            }}
+                        >
+                            {themeSaveError}
+                        </Text>
+                    </View>
+                ) : null}
+
                 <View style={actionRowStyle}>
                     <ThemedButton
-                        title="Continue"
+                        title={isSavingTheme ? 'Saving Theme...' : 'Continue'}
+                        disabled={isSavingTheme}
                         onPress={continueSetup}
                         style={{ minWidth: scaleIcon(160), paddingVertical: scaleIcon(14) }}
                     />

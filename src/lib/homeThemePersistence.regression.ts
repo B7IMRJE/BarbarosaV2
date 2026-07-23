@@ -1,4 +1,5 @@
 import {
+    isHomeOSThemeSaveConfirmed,
     readHomeOSThemeFromUserMetadata,
     resolvePersistedHomeOSTheme,
 } from './homeThemePersistence';
@@ -9,6 +10,8 @@ export function runHomeThemePersistenceRegressions() {
     accountThemeSurvivesAChangedBrowserOrigin();
     localThemeMigratesWhenAccountPreferenceIsMissing();
     invalidAccountMetadataCannotSelectAnUnknownTheme();
+    accountSaveRequiresTheExpectedTheme();
+    staleAccountMetadataCannotConfirmASave();
 }
 
 function accountThemeSurvivesAChangedBrowserOrigin() {
@@ -41,6 +44,20 @@ function invalidAccountMetadataCannotSelectAnUnknownTheme() {
 
     assert(accountTheme === null, 'Unknown account theme values must be rejected.');
     assert(resolved === 'pastel', 'A valid local theme must win when account metadata is invalid.');
+}
+
+function accountSaveRequiresTheExpectedTheme() {
+    assert(
+        isHomeOSThemeSaveConfirmed({ homeos_theme: 'forest' }, 'forest'),
+        'A theme save must be confirmed when account metadata contains the expected theme.'
+    );
+}
+
+function staleAccountMetadataCannotConfirmASave() {
+    assert(
+        !isHomeOSThemeSaveConfirmed({ homeos_theme: 'classic' }, 'forest'),
+        'Stale account metadata must not be reported as a successful theme save.'
+    );
 }
 
 function assert(condition: unknown, message: string): asserts condition {

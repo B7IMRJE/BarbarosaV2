@@ -19,6 +19,13 @@ export function readHomeOSThemeFromUserMetadata(
     return isHomeOSThemeName(candidate) ? candidate : null;
 }
 
+export function isHomeOSThemeSaveConfirmed(
+    metadata: unknown,
+    expectedTheme: HomeOSThemeName
+) {
+    return readHomeOSThemeFromUserMetadata(metadata) === expectedTheme;
+}
+
 export function resolvePersistedHomeOSTheme({
     accountTheme,
     localTheme,
