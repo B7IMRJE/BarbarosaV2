@@ -42,6 +42,7 @@ import {
     maintenanceRecurrenceUnits,
     parseDateInputValue,
     toDateInputValue,
+    type MaintenanceCompletion,
     type MaintenancePreset,
     type MaintenanceTask,
     type RecurrenceUnit,
@@ -445,6 +446,7 @@ export default function ItemScreen() {
     const [relatedItems, setRelatedItems] = useState<HomeItemHierarchyRecord[]>([]);
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
+    const [maintenanceCompletions, setMaintenanceCompletions] = useState<MaintenanceCompletion[]>([]);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [capturingPhoto, setCapturingPhoto] = useState(false);
@@ -459,6 +461,8 @@ export default function ItemScreen() {
     const [removingFileId, setRemovingFileId] = useState<string | null>(null);
     const [addingMaintenanceKey, setAddingMaintenanceKey] = useState<string | null>(null);
     const [completingMaintenanceId, setCompletingMaintenanceId] = useState<string | null>(null);
+    const [removingMaintenanceCompletionId, setRemovingMaintenanceCompletionId] = useState<string | null>(null);
+    const [showMaintenanceRecord, setShowMaintenanceRecord] = useState(false);
     const [showCustomMaintenanceForm, setShowCustomMaintenanceForm] = useState(false);
     const [savingCustomMaintenance, setSavingCustomMaintenance] = useState(false);
     const [customReminderTitle, setCustomReminderTitle] = useState('');
@@ -873,16 +877,21 @@ export default function ItemScreen() {
     async function uploadProviderStagedPhotoFromAsset(
         asset: ImagePicker.ImagePickerAsset,
         sourceAction: string,
-        photoType: string
-    ) {
+        photoType: string,
+        options: { manageBusy?: boolean } = {}
+    ): Promise<boolean> {
+        const manageBusy = options.manageBusy !== false;
+
         if (!providerModeContext || !item) {
             setMessage('Provider mode item context is not available.');
-            return;
+            return false;
         }
 
         try {
-            setUploading(true);
-            setMessage('Uploading provider photo...');
+            if (manageBusy) {
+                setUploading(true);
+                setMessage('Uploading provider photo...');
+            }
 
             const {
                 data: { user },
@@ -891,7 +900,7 @@ export default function ItemScreen() {
 
             if (userError || !user) {
                 setMessage('Provider photo upload failed: sign in to upload provider photos.');
-                return;
+                return false;
             }
 
             const response = await fetch(asset.uri);
@@ -922,7 +931,7 @@ export default function ItemScreen() {
             if (uploadError) {
                 logMediaDebug('provider-photo-storage-upload', uploadError);
                 setMessage(`Provider photo upload failed: ${uploadError.message}`);
-                return;
+                return false;
             }
 
             const { data: publicUrlData } = supabase.storage
@@ -953,16 +962,20 @@ export default function ItemScreen() {
             if (!saved) {
                 await cleanupUploadedFile(PROVIDER_STAGED_PHOTO_BUCKET, storagePath, 'provider-photo-staging-cleanup');
                 setMessage('Provider photo upload failed: staged photo metadata could not be saved.');
-                return;
+                return false;
             }
 
             setShowPhotos(true);
+            return true;
         } catch (error) {
             const errorMessage = providerStagingErrorMessage(error);
             logMediaDebug('provider-photo-upload', error);
             setMessage(`Provider photo upload failed: ${errorMessage}`);
+            return false;
         } finally {
-            setUploading(false);
+            if (manageBusy) {
+                setUploading(false);
+            }
         }
     }
 
@@ -988,6 +1001,59 @@ export default function ItemScreen() {
         if (result.canceled) return;
 
         await uploadProviderStagedPhotoFromAsset(result.assets[0], sourceAction, photoType);
+    }
+
+    async function chooseProviderStagedPhotos(sourceAction: string, photoType: string) {
+        if (uploading || capturingPhoto) return;
+
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+            setMessage('Photo library permission is required.');
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            quality: 0.8,
+            allowsMultipleSelection: true,
+            selectionLimit: 0,
+        });
+
+        if (result.canceled || result.assets.length === 0) return;
+
+        try {
+            setUploading(true);
+            setMessage(`Uploading ${result.assets.length} provider photo${result.assets.length === 1 ? '' : 's'}...`);
+
+            let uploadedCount = 0;
+
+            for (const asset of result.assets) {
+                const uploaded = await uploadProviderStagedPhotoFromAsset(
+                    asset,
+                    sourceAction,
+                    photoType,
+                    { manageBusy: false }
+                );
+
+                if (uploaded) {
+                    uploadedCount += 1;
+                }
+            }
+
+            if (uploadedCount > 0) {
+                setShowPhotos(true);
+                setMessage(
+                    uploadedCount === result.assets.length
+                        ? `${uploadedCount} provider photo${uploadedCount === 1 ? '' : 's'} saved to staging.`
+                        : `${uploadedCount} of ${result.assets.length} provider photos saved. Retry the photos that failed.`
+                );
+            } else {
+                setMessage('No provider photos were saved. Please try again.');
+            }
+        } finally {
+            setUploading(false);
+        }
     }
 
     async function captureProviderStagedPhoto(sourceAction: string, photoType: string) {
@@ -1238,6 +1304,7 @@ export default function ItemScreen() {
         setRelatedItems([]);
         setFiles([]);
         setMaintenanceTasks([]);
+        setMaintenanceCompletions([]);
 
         if (providerContextIncomplete) {
             setMessage('Provider context is incomplete. Use Back to Current Job and reopen Client HomeOS.');
@@ -1245,6 +1312,7 @@ export default function ItemScreen() {
             setRelatedItems([]);
             setFiles([]);
             setMaintenanceTasks([]);
+            setMaintenanceCompletions([]);
             setLoading(false);
             return;
         }
@@ -1267,6 +1335,7 @@ export default function ItemScreen() {
             setRelatedItems([]);
             setFiles([]);
             setMaintenanceTasks([]);
+            setMaintenanceCompletions([]);
             setLoading(false);
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
@@ -1319,12 +1388,14 @@ export default function ItemScreen() {
             setRelatedItems([]);
             setFiles([]);
             setMaintenanceTasks([]);
+            setMaintenanceCompletions([]);
         } else if (!itemRow) {
             setMessage('Item not found.');
             setItem(null);
             setRelatedItems([]);
             setFiles([]);
             setMaintenanceTasks([]);
+            setMaintenanceCompletions([]);
         } else {
             setItem(itemRow);
             setMessage('');
@@ -1336,6 +1407,7 @@ export default function ItemScreen() {
             if (providerModeContext) {
                 setFiles([]);
                 setMaintenanceTasks([]);
+                setMaintenanceCompletions([]);
             } else {
                 await loadFiles({
                     propertyId: activeProperty.propertyId,
@@ -1568,6 +1640,7 @@ export default function ItemScreen() {
             } catch (error) {
                 setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
                 setMaintenanceTasks([]);
+                setMaintenanceCompletions([]);
 
                 if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
                     router.replace('/auth/login' as any);
@@ -1582,6 +1655,7 @@ export default function ItemScreen() {
         const resolvedHomeItemId = homeItemId || String(item?.id || '');
         if (!resolvedHomeItemId) {
             setMaintenanceTasks([]);
+            setMaintenanceCompletions([]);
             return;
         }
 
@@ -1596,11 +1670,29 @@ export default function ItemScreen() {
         if (error) {
             logMaintenanceTimerError('load-tasks', error);
             setMaintenanceTasks([]);
+            setMaintenanceCompletions([]);
             setMessage('Maintenance reminders could not be loaded. Please try again.');
             return;
         }
 
         setMaintenanceTasks((data || []) as MaintenanceTask[]);
+
+        const { data: completionData, error: completionError } = await supabase
+            .from('home_item_maintenance_completions')
+            .select('id, maintenance_task_id, user_id, property_id, home_item_id, completed_on, notes, photo_urls, document_urls, created_by, created_at')
+            .eq('property_id', resolvedPropertyId)
+            .eq('home_item_id', resolvedHomeItemId)
+            .order('completed_on', { ascending: false })
+            .order('created_at', { ascending: false });
+
+        if (completionError) {
+            logMaintenanceTimerError('load-completions', completionError);
+            setMaintenanceCompletions([]);
+            setMessage('Maintenance reminders loaded, but the work record could not be loaded.');
+            return;
+        }
+
+        setMaintenanceCompletions((completionData || []) as MaintenanceCompletion[]);
     }
 
     async function uploadMainPhotoFromAsset(asset: ImagePicker.ImagePickerAsset) {
@@ -1686,16 +1778,22 @@ export default function ItemScreen() {
         mimeType,
         fileType,
         category,
+        manageBusy = true,
+        refreshAfter = true,
     }: {
         uri: string;
         fileName: string;
         mimeType: string;
         fileType: 'photo' | 'document';
         category: string;
+        manageBusy?: boolean;
+        refreshAfter?: boolean;
     }): Promise<boolean> {
         try {
-            setUploading(true);
-            setMessage(`Uploading ${fileType}...`);
+            if (manageBusy) {
+                setUploading(true);
+                setMessage(`Uploading ${fileType}...`);
+            }
 
             let activeProperty;
 
@@ -1761,19 +1859,27 @@ export default function ItemScreen() {
                 return false;
             }
 
-            setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} uploaded.`);
-            await loadFiles({
-                propertyId: activeProperty.propertyId,
-                homeItemId: String(item?.id || ''),
-                itemSlug: item?.item_slug || String(slug),
-            });
+            if (manageBusy) {
+                setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} uploaded.`);
+            }
+
+            if (refreshAfter) {
+                await loadFiles({
+                    propertyId: activeProperty.propertyId,
+                    homeItemId: String(item?.id || ''),
+                    itemSlug: item?.item_slug || String(slug),
+                });
+            }
+
             return true;
         } catch (error: any) {
             logMediaDebug(`${fileType}-upload`, error);
             setMessage(`${fileType === 'photo' ? 'Photo' : 'Document'} upload failed. Please try again.`);
             return false;
         } finally {
-            setUploading(false);
+            if (manageBusy) {
+                setUploading(false);
+            }
         }
     }
 
@@ -1811,7 +1917,7 @@ export default function ItemScreen() {
 
     async function handleUploadAdditionalPhoto() {
         if (providerModeContext) {
-            await chooseProviderStagedPhoto('Choose Photo', normalizePhotoCategory(photoCategory));
+            await chooseProviderStagedPhotos('Choose Photos', normalizePhotoCategory(photoCategory));
             return;
         }
 
@@ -1826,19 +1932,53 @@ export default function ItemScreen() {
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             quality: 0.8,
+            allowsMultipleSelection: true,
+            selectionLimit: 0,
         });
 
-        if (result.canceled) return;
+        if (result.canceled || result.assets.length === 0) return;
 
-        const asset = result.assets[0];
+        try {
+            setUploading(true);
+            setMessage(`Uploading ${result.assets.length} photo${result.assets.length === 1 ? '' : 's'}...`);
 
-        await uploadExtraFile({
-            uri: asset.uri,
-            fileName: asset.fileName || `${String(slug)}-${Date.now()}.jpg`,
-            mimeType: asset.mimeType || 'image/jpeg',
-            fileType: 'photo',
-            category: selectedCategory,
-        });
+            let uploadedCount = 0;
+
+            for (const [index, asset] of result.assets.entries()) {
+                const uploaded = await uploadExtraFile({
+                    uri: asset.uri,
+                    fileName: asset.fileName || `${String(slug)}-${Date.now()}-${index + 1}.jpg`,
+                    mimeType: asset.mimeType || 'image/jpeg',
+                    fileType: 'photo',
+                    category: selectedCategory,
+                    manageBusy: false,
+                    refreshAfter: false,
+                });
+
+                if (uploaded) {
+                    uploadedCount += 1;
+                }
+            }
+
+            if (uploadedCount > 0) {
+                const activeProperty = await requireActivePropertyMembership();
+                await loadFiles({
+                    propertyId: activeProperty.propertyId,
+                    homeItemId: String(item?.id || ''),
+                    itemSlug: item?.item_slug || String(slug),
+                });
+                setShowPhotos(true);
+                setMessage(
+                    uploadedCount === result.assets.length
+                        ? `${uploadedCount} photo${uploadedCount === 1 ? '' : 's'} uploaded.`
+                        : `${uploadedCount} of ${result.assets.length} photos uploaded. Retry the photos that failed.`
+                );
+            } else {
+                setMessage('No photos were uploaded. Please try again.');
+            }
+        } finally {
+            setUploading(false);
+        }
     }
 
     async function handleTakeAdditionalPhoto() {
@@ -2387,12 +2527,12 @@ export default function ItemScreen() {
         }
 
         if (!item?.id) {
-            setMessage('Item must be loaded before completing reminders.');
+            setMessage('Item must be loaded before adding maintenance to the record.');
             return;
         }
 
         setCompletingMaintenanceId(task.id);
-        setMessage('Completing reminder...');
+        setMessage('Adding maintenance to the record...');
 
         try {
             const activeProperty = await requireActivePropertyMembership();
@@ -2403,7 +2543,7 @@ export default function ItemScreen() {
                 task.recurrence_unit
             );
 
-            const { error: insertError } = await supabase
+            const { data: insertedCompletion, error: insertError } = await supabase
                 .from('home_item_maintenance_completions')
                 .insert({
                     maintenance_task_id: task.id,
@@ -2413,11 +2553,13 @@ export default function ItemScreen() {
                     completed_on: today,
                     notes: null,
                     created_by: activeProperty.userId,
-                });
+                })
+                .select('id')
+                .single();
 
             if (insertError) {
                 logMaintenanceTimerError('complete-task-insert', insertError);
-                setMessage('Reminder could not be completed. Please try again.');
+                setMessage('Maintenance could not be added to the record. Please try again.');
                 return;
             }
 
@@ -2433,18 +2575,26 @@ export default function ItemScreen() {
 
             if (updateError) {
                 logMaintenanceTimerError('complete-task-update', updateError);
-                setMessage('Completion saved, but the reminder could not be rescheduled.');
+                if (insertedCompletion?.id) {
+                    await supabase
+                        .from('home_item_maintenance_completions')
+                        .delete()
+                        .eq('id', insertedCompletion.id)
+                        .eq('property_id', activeProperty.propertyId);
+                }
+                setMessage('Maintenance could not be added to the record. Please try again.');
                 return;
             }
 
-            setMessage('Reminder completed.');
+            setMessage('Maintenance added to the record.');
+            setShowMaintenanceRecord(true);
             await loadMaintenanceTasks({
                 propertyId: activeProperty.propertyId,
                 homeItemId: String(item.id),
             });
         } catch (error) {
             logMaintenanceTimerError('complete-task', error);
-            setMessage(error instanceof Error ? error.message : 'Reminder could not be completed. Please try again.');
+            setMessage(error instanceof Error ? error.message : 'Maintenance could not be added to the record. Please try again.');
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
                 router.replace('/auth/login' as any);
@@ -2453,6 +2603,86 @@ export default function ItemScreen() {
             }
         } finally {
             setCompletingMaintenanceId(null);
+        }
+    }
+
+    async function handleRemoveMaintenanceCompletion(completion: MaintenanceCompletion) {
+        if (providerModeContext || !item?.id) return;
+
+        const task = maintenanceTasks.find(
+            (maintenanceTask) => maintenanceTask.id === completion.maintenance_task_id
+        );
+
+        if (!task) {
+            setMessage('The reminder for this maintenance entry could not be found.');
+            return;
+        }
+
+        setRemovingMaintenanceCompletionId(completion.id);
+        setMessage('Removing maintenance record entry...');
+
+        try {
+            const activeProperty = await requireActivePropertyMembership();
+            const { error: deleteError } = await supabase
+                .from('home_item_maintenance_completions')
+                .delete()
+                .eq('id', completion.id)
+                .eq('property_id', activeProperty.propertyId)
+                .eq('home_item_id', item.id);
+
+            if (deleteError) {
+                logMaintenanceTimerError('remove-completion', deleteError);
+                setMessage('Maintenance record entry could not be removed.');
+                return;
+            }
+
+            const remainingForTask = maintenanceCompletions
+                .filter(
+                    (entry) =>
+                        entry.id !== completion.id &&
+                        entry.maintenance_task_id === completion.maintenance_task_id
+                )
+                .sort((a, b) => {
+                    const dateComparison = b.completed_on.localeCompare(a.completed_on);
+                    return dateComparison || b.created_at.localeCompare(a.created_at);
+                });
+            const previousCompletion = remainingForTask[0] || null;
+            const previousCompletedDate = previousCompletion?.completed_on || null;
+            const previousDate = parseDateInputValue(previousCompletedDate)
+                || parseDateInputValue(task.start_date)
+                || new Date();
+            const nextDueDate = calculateNextDueDate(
+                previousDate,
+                task.recurrence_interval,
+                task.recurrence_unit
+            );
+
+            const { error: taskUpdateError } = await supabase
+                .from('home_item_maintenance_tasks')
+                .update({
+                    last_completed_date: previousCompletedDate,
+                    next_due_date: nextDueDate,
+                })
+                .eq('id', task.id)
+                .eq('property_id', activeProperty.propertyId)
+                .eq('home_item_id', item.id);
+
+            if (taskUpdateError) {
+                logMaintenanceTimerError('remove-completion-task-update', taskUpdateError);
+                setMessage('The record entry was removed, but the reminder date needs review.');
+            } else {
+                setMessage('Maintenance record entry removed.');
+            }
+
+            await loadMaintenanceTasks({
+                propertyId: activeProperty.propertyId,
+                homeItemId: String(item.id),
+            });
+        } catch (error) {
+            logMaintenanceTimerError('remove-completion', error);
+            setMessage(error instanceof Error ? error.message : 'Maintenance record entry could not be removed.');
+        } finally {
+            setRemovingMaintenanceCompletionId(null);
         }
     }
 
@@ -2783,6 +3013,7 @@ export default function ItemScreen() {
         system: item.system,
         category: item.category,
         item_slug: item.item_slug,
+        install_date: item.install_date,
     });
     const availableMaintenancePresets = recommendedMaintenancePresets.filter(
         (preset) =>
@@ -4070,9 +4301,79 @@ export default function ItemScreen() {
 
                     {expandedActionGroups.maintenance ? (
                     <ThemedCard style={scaleStyle(maintenanceCardStyle)}>
-                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
-                            Maintenance Reminders
-                        </Text>
+                        <View style={scaleStyle(maintenanceSectionHeaderStyle)}>
+                            <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0, marginBottom: 0 }]}>
+                                Maintenance Reminders
+                            </Text>
+                            <ThemedButton
+                                title={showMaintenanceRecord
+                                    ? 'Hide Record'
+                                    : `View Record (${maintenanceCompletions.length})`}
+                                variant="secondary"
+                                onPress={() => setShowMaintenanceRecord(!showMaintenanceRecord)}
+                                style={scaleStyle(maintenanceRecordToggleStyle)}
+                                textStyle={scaleStyle(fileActionButtonTextStyle)}
+                            />
+                        </View>
+
+                        {showMaintenanceRecord && (
+                            <View
+                                style={[
+                                    scaleStyle(maintenanceRecordStyle),
+                                    {
+                                        backgroundColor: theme.colors.surfaceAlt,
+                                        borderColor: theme.colors.border,
+                                    },
+                                ]}
+                            >
+                                <Text style={[scaleStyle(maintenanceRecordTitleStyle), { color: theme.colors.text }]}>
+                                    Maintenance Record
+                                </Text>
+                                {maintenanceCompletions.length === 0 ? (
+                                    <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                                        No maintenance has been added to this item record yet.
+                                    </Text>
+                                ) : (
+                                    <View style={scaleStyle(maintenanceRecordListStyle)}>
+                                        {maintenanceCompletions.map((completion) => {
+                                            const taskTitle = maintenanceTasks.find(
+                                                (task) => task.id === completion.maintenance_task_id
+                                            )?.title || 'Maintenance';
+
+                                            return (
+                                                <View
+                                                    key={completion.id}
+                                                    style={[
+                                                        scaleStyle(maintenanceRecordRowStyle),
+                                                        {
+                                                            backgroundColor: theme.colors.surface,
+                                                            borderColor: theme.colors.border,
+                                                        },
+                                                    ]}
+                                                >
+                                                    <View style={scaleStyle(maintenanceRecordRowTextStyle)}>
+                                                        <Text style={[scaleStyle(maintenanceTaskTitleStyle), { color: theme.colors.text }]}>
+                                                            {taskTitle}
+                                                        </Text>
+                                                        <Text style={[scaleStyle(maintenanceMetaTextStyle), { color: theme.colors.mutedText }]}>
+                                                            Added {formatDateLabel(completion.completed_on)}
+                                                        </Text>
+                                                    </View>
+                                                    <ThemedButton
+                                                        title={removingMaintenanceCompletionId === completion.id ? 'Removing...' : 'Remove Entry'}
+                                                        variant="danger"
+                                                        onPress={() => handleRemoveMaintenanceCompletion(completion)}
+                                                        disabled={!!removingMaintenanceCompletionId}
+                                                        style={scaleStyle(maintenanceRecordRemoveStyle)}
+                                                        textStyle={scaleStyle(fileActionButtonTextStyle)}
+                                                    />
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+                                )}
+                            </View>
+                        )}
 
                         {activeMaintenanceTasks.length === 0 ? (
                             <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>No reminders yet.</Text>
@@ -4127,7 +4428,7 @@ export default function ItemScreen() {
                                             )}
 
                                             <ThemedButton
-                                                title={completingMaintenanceId === task.id ? 'Completing...' : 'Complete'}
+                                                title={completingMaintenanceId === task.id ? 'Adding...' : 'Add to Record'}
                                                 onPress={() => handleCompleteMaintenanceTask(task)}
                                                 disabled={!!completingMaintenanceId}
                                                 style={scaleStyle(maintenanceCompleteButtonStyle)}
@@ -4432,83 +4733,112 @@ export default function ItemScreen() {
                             ? 'Provider uploads stay company-side unless a later publish step shares them.'
                             : 'Add item photos, documents, and main-photo evidence.',
                         <>
-                            <View style={scaleStyle(actionGroupOptionWrapStyle)}>
-                                <Text style={[scaleStyle(actionGroupInlineLabelStyle), { color: theme.colors.mutedText }]}>
-                                    Photo type
+                            <View style={[scaleStyle(mediaGroupStyle), { borderColor: theme.colors.border }]}>
+                                <Text style={[scaleStyle(mediaGroupTitleStyle), { color: theme.colors.text }]}>
+                                    Main photo
                                 </Text>
-                                <OptionRow
-                                    options={photoCategories}
-                                    value={photoCategory}
-                                    onChange={setPhotoCategory}
-                                    labelForOption={photoLabel}
-                                />
+                                <Text style={[scaleStyle(mediaGroupDescriptionStyle), { color: theme.colors.mutedText }]}>
+                                    The primary photo shown on this item.
+                                </Text>
+                                <View style={scaleStyle(mediaGroupButtonsStyle)}>
+                                    <ThemedButton
+                                        title={mediaActionBusy ? mediaBusyTitle : 'Upload Main Photo'}
+                                        onPress={handleUploadMainPhoto}
+                                        disabled={mediaActionBusy}
+                                        style={scaleStyle(mediaGroupButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
+
+                                    <ThemedButton
+                                        title={mediaActionBusy ? mediaBusyTitle : 'Take Main Photo'}
+                                        onPress={handleTakeMainPhoto}
+                                        disabled={mediaActionBusy}
+                                        style={scaleStyle(mediaGroupButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
+                                </View>
                             </View>
 
-                            <ThemedButton
-                                title={mediaActionBusy ? mediaBusyTitle : 'Upload Main Photo'}
-                                onPress={handleUploadMainPhoto}
-                                disabled={mediaActionBusy}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
+                            <View style={[scaleStyle(mediaGroupStyle), { borderColor: theme.colors.border }]}>
+                                <Text style={[scaleStyle(mediaGroupTitleStyle), { color: theme.colors.text }]}>
+                                    Photo gallery
+                                </Text>
+                                <Text style={[scaleStyle(mediaGroupDescriptionStyle), { color: theme.colors.mutedText }]}>
+                                    Add one camera photo or select several photos at once.
+                                </Text>
+                                <View style={scaleStyle(actionGroupOptionWrapStyle)}>
+                                    <Text style={[scaleStyle(actionGroupInlineLabelStyle), { color: theme.colors.mutedText }]}>
+                                        Photo type
+                                    </Text>
+                                    <OptionRow
+                                        options={photoCategories}
+                                        value={photoCategory}
+                                        onChange={setPhotoCategory}
+                                        labelForOption={photoLabel}
+                                    />
+                                </View>
+                                <View style={scaleStyle(mediaGroupButtonsStyle)}>
+                                    <ThemedButton
+                                        title={mediaActionBusy ? mediaBusyTitle : 'Choose Photos'}
+                                        onPress={handleUploadAdditionalPhoto}
+                                        disabled={mediaActionBusy}
+                                        style={scaleStyle(mediaGroupButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
 
-                            <ThemedButton
-                                title={mediaActionBusy ? mediaBusyTitle : 'Take Main Photo'}
-                                onPress={handleTakeMainPhoto}
-                                disabled={mediaActionBusy}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
+                                    <ThemedButton
+                                        title={mediaActionBusy ? mediaBusyTitle : 'Take Photo'}
+                                        onPress={handleTakeAdditionalPhoto}
+                                        disabled={mediaActionBusy}
+                                        style={scaleStyle(mediaGroupButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
 
-                            <ThemedButton
-                                title={mediaActionBusy ? mediaBusyTitle : 'Choose Photo'}
-                                onPress={handleUploadAdditionalPhoto}
-                                disabled={mediaActionBusy}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
+                                    <ThemedButton
+                                        title="View Photos"
+                                        onPress={() => setShowPhotos(true)}
+                                        style={scaleStyle(mediaGroupButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
 
-                            <ThemedButton
-                                title={mediaActionBusy ? mediaBusyTitle : 'Upload Document'}
-                                onPress={handleUploadDocument}
-                                disabled={mediaActionBusy}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
+                                    <ThemedButton
+                                        title="Location Video Coming Soon"
+                                        variant="secondary"
+                                        onPress={handleLocationVideoPlaceholder}
+                                        disabled={mediaActionBusy}
+                                        style={scaleStyle(mediaGroupButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
+                                </View>
+                            </View>
 
-                            <ThemedButton
-                                title={mediaActionBusy ? mediaBusyTitle : 'Take Photo'}
-                                onPress={handleTakeAdditionalPhoto}
-                                disabled={mediaActionBusy}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
+                            <View style={[scaleStyle(mediaGroupStyle), { borderColor: theme.colors.border }]}>
+                                <Text style={[scaleStyle(mediaGroupTitleStyle), { color: theme.colors.text }]}>
+                                    Documents
+                                </Text>
+                                <Text style={[scaleStyle(mediaGroupDescriptionStyle), { color: theme.colors.mutedText }]}>
+                                    Manuals, warranties, receipts, and other files.
+                                </Text>
+                                <View style={scaleStyle(mediaGroupButtonsStyle)}>
+                                    <ThemedButton
+                                        title={mediaActionBusy ? mediaBusyTitle : 'Upload Document'}
+                                        onPress={handleUploadDocument}
+                                        disabled={mediaActionBusy}
+                                        style={scaleStyle(mediaGroupButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
 
-                            <ThemedButton
-                                title="Location Video Coming Soon"
-                                variant="secondary"
-                                onPress={handleLocationVideoPlaceholder}
-                                disabled={mediaActionBusy}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
-
-                            <ThemedButton
-                                title="View Photos"
-                                onPress={() => setShowPhotos(true)}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
-
-                            <ThemedButton
-                                title="View Documents"
-                                onPress={() => {
-                                    setSelectedDocumentType(null);
-                                    setShowDocuments(true);
-                                }}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
+                                    <ThemedButton
+                                        title="View Documents"
+                                        onPress={() => {
+                                            setSelectedDocumentType(null);
+                                            setShowDocuments(true);
+                                        }}
+                                        style={scaleStyle(mediaGroupButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
+                                </View>
+                            </View>
                         </>
                     )}
 
@@ -5377,6 +5707,58 @@ const maintenanceCardStyle = {
     borderWidth: 1,
 };
 
+const maintenanceSectionHeaderStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 10,
+    marginBottom: 12,
+};
+
+const maintenanceRecordToggleStyle = {
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+};
+
+const maintenanceRecordStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 14,
+};
+
+const maintenanceRecordTitleStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginBottom: 10,
+};
+
+const maintenanceRecordListStyle = {
+    gap: 8,
+};
+
+const maintenanceRecordRowStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 10,
+};
+
+const maintenanceRecordRowTextStyle = {
+    flex: 1,
+    minWidth: 180,
+};
+
+const maintenanceRecordRemoveStyle = {
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+};
+
 const maintenanceListStyle = {
     gap: 12,
 };
@@ -5719,6 +6101,42 @@ const actionGroupInlineLabelStyle = {
 
 const actionGroupOptionWrapStyle = {
     width: '100%' as const,
+};
+
+const mediaGroupStyle = {
+    width: '100%' as const,
+    borderTopWidth: 1,
+    paddingTop: 12,
+    gap: 4,
+};
+
+const mediaGroupTitleStyle = {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900' as const,
+};
+
+const mediaGroupDescriptionStyle = {
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800' as const,
+    marginBottom: 6,
+};
+
+const mediaGroupButtonsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const mediaGroupButtonStyle = {
+    flexGrow: 1,
+    flexBasis: 220,
+    minWidth: 170,
+    maxWidth: '100%' as const,
+    borderRadius: 16,
+    padding: 15,
+    alignItems: 'center' as const,
 };
 
 const actionGridStyle = {

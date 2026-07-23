@@ -16,6 +16,11 @@ import {
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
 import { homeSystemOptions } from '../../lib/homeSystems';
+import {
+    ACTIVATED_ITEM_INSTALL_STATE,
+    ACTIVATED_ITEM_STATUS,
+    isStarterHomeItemShell,
+} from '../../lib/starterHomeSetup';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -111,7 +116,12 @@ export default function EditItemScreen() {
 
         return scaledStyle as T;
     }
-    const { slug } = useLocalSearchParams();
+    const routeParams = useLocalSearchParams<{
+        slug?: string | string[];
+        activate?: string | string[];
+    }>();
+    const slug = firstParam(routeParams.slug);
+    const activationMode = firstParam(routeParams.activate) === '1';
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -134,7 +144,7 @@ export default function EditItemScreen() {
 
     useEffect(() => {
         loadItem();
-    }, [slug]);
+    }, [activationMode, slug]);
 
     function finalLocation() {
         if (locationChoice === 'Custom') {
@@ -214,6 +224,11 @@ export default function EditItemScreen() {
         setInstallState(data.install_state || 'Unknown');
         setStatus(data.status || 'Missing Information');
 
+        if (activationMode && isStarterHomeItemShell(data)) {
+            setInstallState(ACTIVATED_ITEM_INSTALL_STATE);
+            setStatus(ACTIVATED_ITEM_STATUS);
+        }
+
         const { data: areaRows } = await supabase
             .from('home_items')
             .select('name, system, parent_area')
@@ -282,6 +297,11 @@ export default function EditItemScreen() {
             return;
         }
 
+        if (activationMode) {
+            router.replace(`/item/${String(slug)}` as any);
+            return;
+        }
+
         router.back();
     }
 
@@ -301,7 +321,15 @@ export default function EditItemScreen() {
             <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
-                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Edit Item</Text>
+                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>
+                    {activationMode ? 'Activate Item' : 'Edit Item'}
+                </Text>
+
+                {activationMode && (
+                    <Text style={{ color: theme.colors.mutedText, marginBottom: scaleIcon(14), fontSize: scaleFont(15), fontWeight: '800' }}>
+                        Confirm the item condition and add any manufacturer details you know. You can update the rest later.
+                    </Text>
+                )}
 
                 <ThemedCard style={scaleStyle(formCardStyle)}>
                     <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Item Details</Text>
@@ -424,7 +452,7 @@ export default function EditItemScreen() {
                 </ThemedCard>
 
                 <ThemedButton
-                    title={saving ? 'Saving...' : 'Save Changes'}
+                    title={saving ? 'Saving...' : activationMode ? 'Save & Activate' : 'Save Changes'}
                     onPress={saveItem}
                     disabled={saving}
                     style={{ marginTop: scaleIcon(20), marginBottom: 20 }}
@@ -432,6 +460,10 @@ export default function EditItemScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function firstParam(value?: string | string[]) {
+    return Array.isArray(value) ? value[0] || '' : value || '';
 }
 
 function ThemedInput({

@@ -37,6 +37,13 @@ export type MaintenancePreset = {
     recurrenceUnit: RecurrenceUnit;
 };
 
+export type WaterHeaterDrainPanCadence = {
+    recurrenceInterval: number;
+    recurrenceUnit: RecurrenceUnit;
+    description: string;
+    replacementReviewRecommended: boolean;
+};
+
 export type DueStatusLabel = 'Overdue' | 'Due Soon' | 'Upcoming' | 'Paused';
 
 export const maintenanceRecurrenceUnits: RecurrenceUnit[] = ['days', 'weeks', 'months', 'years'];
@@ -66,6 +73,7 @@ export function getMaintenancePresets(item: {
     system?: string | null;
     category?: string | null;
     item_slug?: string | null;
+    install_date?: string | null;
 }) {
     const name = normalize(item.name);
     const system = normalize(item.system);
@@ -106,6 +114,21 @@ export function getMaintenancePresets(item: {
     const isIrrigationSystem = matchesAny(text, ['irrigation', 'sprinkler', 'controller', 'valve box', 'drip']);
     const isPoolSystem = matchesAny(text, ['pool', 'spa', 'pump', 'pool filter', 'equipment pad']);
     const isApplianceSystem = matchesAny(text, ['appliance', 'dryer', 'refrigerator', 'fridge', 'dishwasher', 'washer']);
+    const drainPanCadence = getWaterHeaterDrainPanCadence(item.install_date);
+    const drainPanPreset = preset(
+        'water_heater_drain_pan',
+        'Inspect drain pan',
+        drainPanCadence.recurrenceInterval,
+        drainPanCadence.recurrenceUnit,
+        drainPanCadence.description
+    );
+    const replacementReviewPreset = preset(
+        'water_heater_replacement_review',
+        'Plan water heater replacement',
+        1,
+        'years',
+        'Review replacement timing, leak protection, warranty status, and current equipment condition.'
+    );
 
     if (isFaucetItem) {
         return uniquePresets([
@@ -146,7 +169,8 @@ export function getMaintenancePresets(item: {
             preset('tankless_water_heater_inlet_filter', 'Clean inlet filter', 6, 'months', 'Clean or inspect the tankless inlet filter.'),
             preset('water_heater_expansion_tank', 'Check expansion tank', 1, 'years', 'Check the expansion tank charge and condition.'),
             preset('water_heater_tp_valve', 'Test T&P valve', 1, 'years', 'Test the T&P valve according to manufacturer guidance.'),
-            preset('water_heater_drain_pan', 'Inspect drain pan', 1, 'years', 'Inspect the water heater drain pan and drain path.'),
+            drainPanPreset,
+            ...(drainPanCadence.replacementReviewRecommended ? [replacementReviewPreset] : []),
             genericPreset,
         ]);
     } else if (isWaterHeaterItem) {
@@ -155,7 +179,8 @@ export function getMaintenancePresets(item: {
             preset('water_heater_anode_rod', 'Check anode rod', 3, 'years', 'Inspect the anode rod and replace if needed.'),
             preset('water_heater_expansion_tank', 'Check expansion tank', 1, 'years', 'Check the expansion tank charge and condition.'),
             preset('water_heater_tp_valve', 'Test T&P valve', 1, 'years', 'Test the T&P valve according to manufacturer guidance.'),
-            preset('water_heater_drain_pan', 'Inspect drain pan', 1, 'years', 'Inspect the water heater drain pan and drain path.'),
+            drainPanPreset,
+            ...(drainPanCadence.replacementReviewRecommended ? [replacementReviewPreset] : []),
             genericPreset,
         ]);
     }
@@ -298,6 +323,59 @@ export function getMaintenancePresets(item: {
     return uniquePresets([...presets, genericPreset]);
 }
 
+export function getWaterHeaterDrainPanCadence(
+    installDate?: string | null,
+    referenceDate = new Date()
+): WaterHeaterDrainPanCadence {
+    const ageYears = equipmentAgeInYears(installDate, referenceDate);
+
+    if (ageYears === null) {
+        return {
+            recurrenceInterval: 1,
+            recurrenceUnit: 'years',
+            description:
+                'Inspect the drain pan and drain path annually until installation age is known. After year 5 inspect every 6 months, after year 12 every 3 months, and after year 15 monthly.',
+            replacementReviewRecommended: false,
+        };
+    }
+
+    if (ageYears >= 15) {
+        return {
+            recurrenceInterval: 1,
+            recurrenceUnit: 'months',
+            description:
+                'Inspect the drain pan and drain path monthly. This water heater is 15 years or older and should have a replacement assessment.',
+            replacementReviewRecommended: true,
+        };
+    }
+
+    if (ageYears >= 12) {
+        return {
+            recurrenceInterval: 3,
+            recurrenceUnit: 'months',
+            description:
+                'Inspect the drain pan and drain path every 3 months. Begin replacement planning for this older water heater.',
+            replacementReviewRecommended: true,
+        };
+    }
+
+    if (ageYears >= 5) {
+        return {
+            recurrenceInterval: 6,
+            recurrenceUnit: 'months',
+            description: 'Inspect the drain pan and drain path every 6 months.',
+            replacementReviewRecommended: false,
+        };
+    }
+
+    return {
+        recurrenceInterval: 1,
+        recurrenceUnit: 'years',
+        description: 'Inspect the drain pan and drain path annually during the first 5 years.',
+        replacementReviewRecommended: false,
+    };
+}
+
 export function calculateNextDueDate(
     fromDate: Date,
     recurrenceInterval: number,
@@ -386,6 +464,25 @@ function normalize(value?: string | null) {
         .toLowerCase()
         .replace(/[_-]+/g, ' ')
         .replace(/\s+/g, ' ');
+}
+
+function equipmentAgeInYears(installDate: string | null | undefined, referenceDate: Date) {
+    const value = String(installDate || '').trim();
+    if (!value) return null;
+
+    const parsed = new Date(value.length === 10 ? `${value}T00:00:00` : value);
+    if (Number.isNaN(parsed.getTime()) || parsed.getTime() > referenceDate.getTime()) return null;
+
+    let years = referenceDate.getFullYear() - parsed.getFullYear();
+    const beforeAnniversary =
+        referenceDate.getMonth() < parsed.getMonth() ||
+        (
+            referenceDate.getMonth() === parsed.getMonth() &&
+            referenceDate.getDate() < parsed.getDate()
+        );
+
+    if (beforeAnniversary) years -= 1;
+    return Math.max(0, years);
 }
 
 function matchesAny(value: string, terms: string[]) {

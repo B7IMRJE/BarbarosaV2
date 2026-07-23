@@ -1,9 +1,12 @@
 import {
+    ACTIVATED_ITEM_INSTALL_STATE,
+    ACTIVATED_ITEM_STATUS,
     STARTER_ITEM_INSTALL_STATE,
     STARTER_ITEM_STATUS,
     buildDefaultStarterHomePlan,
     buildStarterHomeSetupPreview,
     formatStarterSetupResult,
+    isStarterHomeItemShell,
     starterPlanContainsArea,
 } from './starterHomeSetup';
 
@@ -13,12 +16,37 @@ export function runStarterHomeSetupRegressions() {
     newlyInitializedHomeCreatesKitchenStarterCards();
     kitchenIncludesRequiredCards();
     starterItemsAreUnconfirmedUnknownShells();
+    starterShellsHaveAnExplicitActivationBoundary();
     repeatedStarterCreationDoesNotDuplicateRows();
     existingCustomItemsAreNotOverwritten();
     olderSlugAndNameVariantsPreventDuplicates();
     starterItemsAreScopedToTheRequestedProperty();
     existingHomeRecoveryCreatesOnlyMissingCards();
     kitchenHasDirectItemsAfterSetup();
+}
+
+function starterShellsHaveAnExplicitActivationBoundary() {
+    assert(
+        isStarterHomeItemShell({
+            status: STARTER_ITEM_STATUS,
+            install_state: STARTER_ITEM_INSTALL_STATE,
+        }),
+        'Missing-information starter shells should offer activation.'
+    );
+    assert(
+        !isStarterHomeItemShell({
+            status: ACTIVATED_ITEM_STATUS,
+            install_state: ACTIVATED_ITEM_INSTALL_STATE,
+        }),
+        'Activated items should stop offering activation.'
+    );
+    assert(
+        !isStarterHomeItemShell({
+            status: 'Good',
+            install_state: STARTER_ITEM_INSTALL_STATE,
+        }),
+        'A documented item should not be treated as a starter shell.'
+    );
 }
 
 function newlyInitializedHomeCreatesKitchenStarterCards() {

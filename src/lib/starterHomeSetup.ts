@@ -43,6 +43,18 @@ export type StarterHomeSetupPlanResult = {
 
 export const STARTER_ITEM_STATUS = 'Missing Information' as const;
 export const STARTER_ITEM_INSTALL_STATE = 'Unknown' as const;
+export const ACTIVATED_ITEM_STATUS = 'Not Inspected' as const;
+export const ACTIVATED_ITEM_INSTALL_STATE = 'Installed' as const;
+
+export function isStarterHomeItemShell(item: {
+    status?: string | null;
+    install_state?: string | null;
+}) {
+    return (
+        normalizeIdentity(item.status) === normalizeIdentity(STARTER_ITEM_STATUS) &&
+        normalizeIdentity(item.install_state) === normalizeIdentity(STARTER_ITEM_INSTALL_STATE)
+    );
+}
 
 export function buildDefaultStarterHomePlan(propertyType?: string | null): StarterHomeArea[] {
     const normalizedPropertyType = normalizeIdentity(propertyType);

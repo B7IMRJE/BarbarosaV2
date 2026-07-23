@@ -33,6 +33,7 @@ import {
     buildDefaultStarterHomePlan,
     buildStarterHomeSetupPreview,
     createMissingStarterHomeItems,
+    isStarterHomeItemShell,
     starterPlanContainsArea,
     starterSetupHasMissingRecords,
     type StarterHomeArea,
@@ -55,6 +56,7 @@ type AreaHomeItem = {
     item_slug: string | null;
     category: string | null;
     status: string | null;
+    install_state: string | null;
     location: string | null;
     parent_area: string | null;
 };
@@ -215,7 +217,7 @@ export default function AreaScreen() {
         } else {
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, name, system, item_slug, category, status, location, parent_area')
+                .select('id, name, system, item_slug, category, status, install_state, location, parent_area')
                 .eq('property_id', activeProperty.propertyId)
                 .or('archived.eq.false,archived.is.null')
                 .order('system', { ascending: true })
@@ -556,6 +558,28 @@ export default function AreaScreen() {
         await loadAreaItems();
     }
 
+    function activateStarterCard(item: AreaHomeItem) {
+        const itemSlug = item.item_slug || '';
+
+        if (!itemSlug) {
+            setMessage('This starter card cannot be activated yet.');
+            return;
+        }
+
+        if (providerModeContext) {
+            router.push(providerModeItemPath(itemSlug, providerModeContext));
+            return;
+        }
+
+        router.push({
+            pathname: '/item/edit',
+            params: {
+                slug: itemSlug,
+                activate: '1',
+            },
+        } as any);
+    }
+
     return (
         <>
             <ScrollView
@@ -769,6 +793,7 @@ export default function AreaScreen() {
                                             <View style={gridStyle}>
                                                 {section.items.map((item) => {
                                                     const archiveKey = item.id || item.item_slug || item.name || '';
+                                                    const starterShell = isStarterHomeItemShell(item);
 
                                                     return (
                                                         <AreaItemCard
@@ -781,6 +806,11 @@ export default function AreaScreen() {
                                                                     router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
                                                                 }
                                                             }}
+                                                            onActivate={
+                                                                starterShell && !providerModeContext
+                                                                    ? () => activateStarterCard(item)
+                                                                    : undefined
+                                                            }
                                                             onArchive={() => confirmArchiveItem(item)}
                                                             archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
                                                             archiveDisabled={!!archivingRecordId}
@@ -1009,12 +1039,14 @@ function ChildAreaCard({
 function AreaItemCard({
     item,
     onOpen,
+    onActivate,
     onArchive,
     archiveTitle = 'Archive',
     archiveDisabled = false,
 }: {
     item: AreaHomeItem;
     onOpen: () => void;
+    onActivate?: () => void;
     onArchive: () => void;
     archiveTitle?: string;
     archiveDisabled?: boolean;
@@ -1090,14 +1122,24 @@ function AreaItemCard({
                 )}
             </TouchableOpacity>
 
-            <ThemedButton
-                title={archiveTitle}
-                variant="danger"
-                disabled={archiveDisabled}
-                onPress={onArchive}
-                style={smallArchiveButtonStyle}
-                textStyle={smallArchiveButtonTextStyle}
-            />
+            {onActivate ? (
+                <ThemedButton
+                    title="Activate Card"
+                    disabled={archiveDisabled}
+                    onPress={onActivate}
+                    style={smallArchiveButtonStyle}
+                    textStyle={smallArchiveButtonTextStyle}
+                />
+            ) : (
+                <ThemedButton
+                    title={archiveTitle}
+                    variant="danger"
+                    disabled={archiveDisabled}
+                    onPress={onArchive}
+                    style={smallArchiveButtonStyle}
+                    textStyle={smallArchiveButtonTextStyle}
+                />
+            )}
         </View>
     );
 }
