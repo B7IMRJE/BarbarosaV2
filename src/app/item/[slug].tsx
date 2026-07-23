@@ -66,6 +66,13 @@ import {
     resolveHomeItemChildCreateContext,
     type HomeItemHierarchyRecord,
 } from '../../lib/homeItemHierarchy';
+import {
+    buildItemPhotoGalleryGroups,
+    itemPhotoGalleryCategories,
+    itemPhotoUploadCategories,
+    normalizeItemPhotoGalleryCategory,
+    type ItemPhotoGalleryCategory,
+} from '../../lib/itemPhotoGallery';
 import { getProviderReturnActionLabel } from '../../lib/techosClientAccess';
 import {
     addProviderStagedWork,
@@ -129,12 +136,48 @@ const itemSectionTilePalettes: Record<ItemActionGroupKey, { background: string; 
     item: { background: '#FFF1F4', border: '#F6CAD3', accent: '#C2415B' },
 };
 
-const photoCategories = [
-    'equipment_photo',
-    'serial_photo',
-    'model_photo',
-    'other_photo',
-];
+const photoCategories = [...itemPhotoUploadCategories];
+
+const photoGalleryCategoryDetails: Record<
+    ItemPhotoGalleryCategory,
+    { title: string; description: string; background: string; border: string; accent: string }
+> = {
+    main_photo: {
+        title: 'Main Photo',
+        description: 'Primary item view',
+        background: '#EEF4FF',
+        border: '#C8DAFF',
+        accent: '#276BDC',
+    },
+    equipment_photo: {
+        title: 'Equipment Photos',
+        description: 'Item and installation views',
+        background: '#EAF9FF',
+        border: '#BCEBFA',
+        accent: '#2C91C9',
+    },
+    serial_photo: {
+        title: 'Serial Number Photos',
+        description: 'Serial labels and identifiers',
+        background: '#F3EFFF',
+        border: '#D9CCFF',
+        accent: '#7357C8',
+    },
+    model_photo: {
+        title: 'Model Number Photos',
+        description: 'Model labels and identifiers',
+        background: '#ECFBF5',
+        border: '#BFEEDC',
+        accent: '#0F8A68',
+    },
+    other_photo: {
+        title: 'Other Photos',
+        description: 'Additional item evidence',
+        background: '#FFF8DF',
+        border: '#F2DC92',
+        accent: '#D99214',
+    },
+};
 
 const documentCategories = [
     'manual',
@@ -224,7 +267,7 @@ function photoLabel(category: string) {
 }
 
 function normalizePhotoCategory(category: string) {
-    return category === 'other' ? 'other_photo' : category;
+    return normalizeItemPhotoGalleryCategory(category);
 }
 
 function sanitizeStorageSegment(value?: string | null) {
@@ -453,6 +496,8 @@ export default function ItemScreen() {
     const [showPhoto, setShowPhoto] = useState(false);
     const [showPhotos, setShowPhotos] = useState(false);
     const [showDocuments, setShowDocuments] = useState(false);
+    const [selectedPhotoGalleryCategory, setSelectedPhotoGalleryCategory] =
+        useState<ItemPhotoGalleryCategory | null>(null);
     const [photoCategory, setPhotoCategory] = useState('equipment_photo');
     const [selectedDocumentType, setSelectedDocumentType] = useState<string | null>(null);
     const [estimateAccess, setEstimateAccess] = useState<CompanyPermissionAccess | null>(null);
@@ -956,7 +1001,7 @@ export default function ItemScreen() {
                     permanent_upload_ready: false,
                     permanent_publish_ready: false,
                 },
-                'Photo saved to provider staging. It is not published to the client’s HomeOS yet.'
+                `${photoLabel(normalizePhotoCategory(photoType))} saved to provider staging. It is not published to the client’s HomeOS yet.`
             );
 
             if (!saved) {
@@ -965,6 +1010,7 @@ export default function ItemScreen() {
                 return false;
             }
 
+            setSelectedPhotoGalleryCategory(normalizePhotoCategory(photoType));
             setShowPhotos(true);
             return true;
         } catch (error) {
@@ -1042,11 +1088,13 @@ export default function ItemScreen() {
             }
 
             if (uploadedCount > 0) {
+                const categoryTitle = photoGalleryCategoryDetails[normalizePhotoCategory(photoType)].title;
+                setSelectedPhotoGalleryCategory(normalizePhotoCategory(photoType));
                 setShowPhotos(true);
                 setMessage(
                     uploadedCount === result.assets.length
-                        ? `${uploadedCount} provider photo${uploadedCount === 1 ? '' : 's'} saved to staging.`
-                        : `${uploadedCount} of ${result.assets.length} provider photos saved. Retry the photos that failed.`
+                        ? `${uploadedCount} ${uploadedCount === 1 ? photoLabel(photoType).toLowerCase() : categoryTitle.toLowerCase()} saved to staging.`
+                        : `${uploadedCount} of ${result.assets.length} ${categoryTitle.toLowerCase()} saved. Retry the photos that failed.`
                 );
             } else {
                 setMessage('No provider photos were saved. Please try again.');
@@ -1962,16 +2010,18 @@ export default function ItemScreen() {
 
             if (uploadedCount > 0) {
                 const activeProperty = await requireActivePropertyMembership();
+                const categoryTitle = photoGalleryCategoryDetails[selectedCategory].title;
                 await loadFiles({
                     propertyId: activeProperty.propertyId,
                     homeItemId: String(item?.id || ''),
                     itemSlug: item?.item_slug || String(slug),
                 });
+                setSelectedPhotoGalleryCategory(selectedCategory);
                 setShowPhotos(true);
                 setMessage(
                     uploadedCount === result.assets.length
-                        ? `${uploadedCount} photo${uploadedCount === 1 ? '' : 's'} uploaded.`
-                        : `${uploadedCount} of ${result.assets.length} photos uploaded. Retry the photos that failed.`
+                        ? `${uploadedCount} ${uploadedCount === 1 ? photoLabel(selectedCategory).toLowerCase() : categoryTitle.toLowerCase()} uploaded.`
+                        : `${uploadedCount} of ${result.assets.length} ${categoryTitle.toLowerCase()} uploaded. Retry the photos that failed.`
                 );
             } else {
                 setMessage('No photos were uploaded. Please try again.');
@@ -2069,13 +2119,20 @@ export default function ItemScreen() {
                 return;
             }
 
-            await uploadExtraFile({
+            const selectedCategory = normalizePhotoCategory(category);
+            const uploaded = await uploadExtraFile({
                 uri: asset.uri,
                 fileName: asset.fileName || `${String(slug)}-${Date.now()}.jpg`,
                 mimeType: asset.mimeType || 'image/jpeg',
                 fileType: 'photo',
-                category,
+                category: selectedCategory,
             });
+
+            if (uploaded) {
+                setSelectedPhotoGalleryCategory(selectedCategory);
+                setShowPhotos(true);
+                setMessage(`${photoLabel(selectedCategory)} uploaded.`);
+            }
         } catch (error: any) {
             logMediaDebug('camera-capture', error);
             setMessage('Camera could not open. Check camera permissions and try again.');
@@ -2990,6 +3047,23 @@ export default function ItemScreen() {
     const mediaActionBusy = uploading || capturingPhoto;
     const mediaBusyTitle = uploading ? 'Uploading...' : 'Opening...';
     const stagedPhotoEntries = providerStagedEntries.filter((entry) => entry.type === 'photo');
+    const homeownerPhotoGroups = buildItemPhotoGalleryGroups(galleryPhotos, (photo) => photo.category);
+    const providerPhotoGroups = buildItemPhotoGalleryGroups(
+        stagedPhotoEntries,
+        (entry) => payloadString(entry.payload, 'photo_type')
+    );
+    const photoGalleryCategoryCards = itemPhotoGalleryCategories.map((category) => ({
+        category,
+        count: providerModeContext
+            ? providerPhotoGroups.find((group) => group.category === category)?.records.length || 0
+            : homeownerPhotoGroups.find((group) => group.category === category)?.records.length || 0,
+    }));
+    const selectedGalleryPhotos = selectedPhotoGalleryCategory
+        ? homeownerPhotoGroups.find((group) => group.category === selectedPhotoGalleryCategory)?.records || []
+        : [];
+    const selectedProviderPhotoEntries = selectedPhotoGalleryCategory
+        ? providerPhotoGroups.find((group) => group.category === selectedPhotoGalleryCategory)?.records || []
+        : [];
     const stagedDocumentEntries = providerStagedEntries.filter((entry) => entry.type === 'document');
     const stagedMainPhotoEntry = stagedPhotoEntries.find(isProviderStagedMainPhotoEntry);
     const stagedMainPhotoUrl = stagedMainPhotoEntry
@@ -3640,7 +3714,7 @@ export default function ItemScreen() {
                     {
                         backgroundColor: theme.colors.surface,
                         borderColor: theme.colors.border,
-                        borderRadius: theme.radii.card,
+                        borderRadius: 8,
                     },
                 ]}
             >
@@ -4796,7 +4870,10 @@ export default function ItemScreen() {
 
                                     <ThemedButton
                                         title="View Photos"
-                                        onPress={() => setShowPhotos(true)}
+                                        onPress={() => {
+                                            setSelectedPhotoGalleryCategory(null);
+                                            setShowPhotos(true);
+                                        }}
                                         style={scaleStyle(mediaGroupButtonStyle)}
                                         textStyle={scaleStyle(buttonTextStyle)}
                                     />
@@ -4914,71 +4991,148 @@ export default function ItemScreen() {
                     style={[scaleStyle(galleryModalStyle), { backgroundColor: theme.colors.background }]}
                     contentContainerStyle={{ padding: 20 }}
                 >
-                    <TouchableOpacity onPress={() => setShowPhotos(false)}>
+                    <TouchableOpacity
+                        onPress={() => {
+                            setSelectedPhotoGalleryCategory(null);
+                            setShowPhotos(false);
+                        }}
+                    >
                         <Text style={[scaleStyle(modalBackTextStyle), { color: theme.colors.text }]}>← Close Photos</Text>
                     </TouchableOpacity>
 
-                    <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>Photos</Text>
+                    <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>Photo Gallery</Text>
 
                     {providerModeContext ? (
-                        <ThemedCard style={scaleStyle(providerFormCardStyle)}>
-                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Provider Photos</Text>
-                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                                Homeowner photos are locked unless shared. Provider-staged photos for this item are shown here.
-                            </Text>
-                            <View style={scaleStyle(providerPhotoGalleryGridStyle)}>
-                                {stagedPhotoEntries.length === 0 ? (
-                                    <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
-                                        No staged provider photos yet.
-                                    </Text>
-                                ) : (
-                                    stagedPhotoEntries.map((entry) => renderProviderPhotoTile(entry))
-                                )}
-                            </View>
-                        </ThemedCard>
+                        <Text style={[scaleStyle(photoGalleryPrivacyTextStyle), { color: theme.colors.mutedText }]}>
+                            Provider-staged photos are shown here. Private homeowner photos remain locked.
+                        </Text>
                     ) : null}
 
-                    <View style={scaleStyle(galleryGridStyle)}>
-                        {galleryPhotos.map((photo) => (
-                            <View
-                                key={photo.id}
-                                style={[
-                                    galleryCardStyle,
-                                    {
-                                        backgroundColor: theme.colors.surface,
-                                        borderColor: theme.colors.border,
-                                        borderRadius: theme.radii.button,
-                                    },
-                                ]}
-                            >
-                                <TouchableOpacity onPress={() => Linking.openURL(photo.file_url)} activeOpacity={0.82}>
-                                    <Image
-                                        source={{ uri: photo.file_url }}
-                                        style={[scaleStyle(galleryImageStyle), { backgroundColor: theme.colors.surfaceAlt }]}
-                                        resizeMode="contain"
-                                    />
-                                    <Text style={[scaleStyle(galleryCategoryStyle), { color: theme.colors.text }]}>
-                                        {photoLabel(photo.category)}
-                                    </Text>
-                                </TouchableOpacity>
-                                {!photo.isMainPhoto && (
-                                    <ThemedButton
-                                        title={removingFileId === photo.id ? 'Removing...' : 'Remove'}
-                                        variant="danger"
-                                        disabled={removingFileId === photo.id}
-                                        onPress={() => handleRemoveFile(photo)}
-                                        style={scaleStyle(fileActionButtonStyle)}
-                                        textStyle={scaleStyle(fileActionButtonTextStyle)}
-                                    />
-                                )}
-                            </View>
-                        ))}
-                    </View>
+                    {!selectedPhotoGalleryCategory ? (
+                        <View style={scaleStyle(photoGalleryCategoryGridStyle)}>
+                            {photoGalleryCategoryCards.map(({ category, count }) => {
+                                const details = photoGalleryCategoryDetails[category];
 
-                    {galleryPhotos.length === 0 && (
-                        <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
-                            {providerModeContext ? 'No shared homeowner photos are available in provider mode.' : 'No photos yet.'}
-                        </Text>
+                                return (
+                                    <TouchableOpacity
+                                        key={category}
+                                        onPress={() => setSelectedPhotoGalleryCategory(category)}
+                                        activeOpacity={0.82}
+                                        style={[
+                                            scaleStyle(photoGalleryCategoryCardStyle),
+                                            {
+                                                backgroundColor: details.background,
+                                                borderColor: details.border,
+                                            },
+                                        ]}
+                                    >
+                                        <View
+                                            style={[
+                                                scaleStyle(photoGalleryCategoryAccentStyle),
+                                                { backgroundColor: details.accent },
+                                            ]}
+                                        />
+                                        <Text style={[scaleStyle(photoGalleryCategoryTitleStyle), { color: theme.colors.text }]}>
+                                            {details.title}
+                                        </Text>
+                                        <Text
+                                            style={[
+                                                scaleStyle(photoGalleryCategoryDescriptionStyle),
+                                                { color: theme.colors.mutedText },
+                                            ]}
+                                            numberOfLines={2}
+                                        >
+                                            {details.description}
+                                        </Text>
+                                        <View style={scaleStyle(photoGalleryCategoryFooterStyle)}>
+                                            <Text style={[scaleStyle(photoGalleryCategoryCountStyle), { color: theme.colors.text }]}>
+                                                {count}
+                                            </Text>
+                                            <Text style={[scaleStyle(photoGalleryCategoryOpenStyle), { color: details.accent }]}>
+                                                Open
+                                            </Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                        </View>
+                    ) : (
+                        <>
+                            <TouchableOpacity
+                                onPress={() => setSelectedPhotoGalleryCategory(null)}
+                                style={scaleStyle(photoGalleryCategoryBackStyle)}
+                            >
+                                <Text style={[scaleStyle(photoGalleryCategoryBackTextStyle), { color: theme.colors.primary }]}>
+                                    ← Photo Categories
+                                </Text>
+                            </TouchableOpacity>
+
+                            <Text style={[scaleStyle(photoGallerySectionTitleStyle), { color: theme.colors.text }]}>
+                                {photoGalleryCategoryDetails[selectedPhotoGalleryCategory].title}
+                            </Text>
+
+                            {providerModeContext ? (
+                                <View style={scaleStyle(providerPhotoGalleryGridStyle)}>
+                                    {selectedProviderPhotoEntries.map((entry) => renderProviderPhotoTile(entry))}
+                                </View>
+                            ) : (
+                                <View style={scaleStyle(galleryGridStyle)}>
+                                    {selectedGalleryPhotos.map((photo) => (
+                                        <View
+                                            key={photo.id}
+                                            style={[
+                                                scaleStyle(galleryCardStyle),
+                                                {
+                                                    backgroundColor: theme.colors.surface,
+                                                    borderColor: theme.colors.border,
+                                                },
+                                            ]}
+                                        >
+                                            <TouchableOpacity
+                                                onPress={() => Linking.openURL(photo.file_url)}
+                                                activeOpacity={0.82}
+                                            >
+                                                <Image
+                                                    source={{ uri: photo.file_url }}
+                                                    style={[
+                                                        scaleStyle(galleryImageStyle),
+                                                        { backgroundColor: theme.colors.surfaceAlt },
+                                                    ]}
+                                                    resizeMode="cover"
+                                                />
+                                                <Text
+                                                    style={[
+                                                        scaleStyle(galleryCategoryStyle),
+                                                        { color: theme.colors.text },
+                                                    ]}
+                                                    numberOfLines={2}
+                                                >
+                                                    {photoLabel(photo.category)}
+                                                </Text>
+                                            </TouchableOpacity>
+                                            {!photo.isMainPhoto && (
+                                                <ThemedButton
+                                                    title={removingFileId === photo.id ? 'Removing...' : 'Remove'}
+                                                    variant="danger"
+                                                    disabled={removingFileId === photo.id}
+                                                    onPress={() => handleRemoveFile(photo)}
+                                                    style={scaleStyle(fileActionButtonStyle)}
+                                                    textStyle={scaleStyle(fileActionButtonTextStyle)}
+                                                />
+                                            )}
+                                        </View>
+                                    ))}
+                                </View>
+                            )}
+
+                            {(providerModeContext
+                                ? selectedProviderPhotoEntries.length === 0
+                                : selectedGalleryPhotos.length === 0) && (
+                                <Text style={[scaleStyle(emptyTextStyle), { color: theme.colors.mutedText }]}>
+                                    No photos in this category yet.
+                                </Text>
+                            )}
+                        </>
                     )}
                 </ScrollView>
             </Modal>
@@ -6311,15 +6465,15 @@ const providerPhotoGalleryGridStyle = {
 };
 
 const providerPhotoTileStyle = {
-    width: 156,
+    width: 164,
     borderWidth: 1,
-    padding: 10,
+    padding: 8,
 };
 
 const providerPhotoThumbWrapStyle = {
     width: '100%' as const,
-    height: 116,
-    borderRadius: 14,
+    aspectRatio: 1,
+    borderRadius: 6,
     overflow: 'hidden' as const,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
@@ -6566,22 +6720,101 @@ const galleryGridStyle = {
 };
 
 const galleryCardStyle = {
-    width: '23%' as const,
-    minWidth: 160,
-    borderRadius: 18,
-    padding: 12,
+    width: 164,
+    borderRadius: 8,
+    padding: 8,
     borderWidth: 1,
 };
 
 const galleryImageStyle = {
     width: '100%' as const,
-    height: 140,
-    borderRadius: 14,
+    aspectRatio: 1,
+    borderRadius: 6,
 };
 
 const galleryCategoryStyle = {
     marginTop: 8,
+    fontSize: 13,
     fontWeight: '900' as const,
+};
+
+const photoGalleryCategoryGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const photoGalleryPrivacyTextStyle = {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700' as const,
+    marginBottom: 16,
+};
+
+const photoGalleryCategoryCardStyle = {
+    width: 164,
+    minHeight: 138,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 14,
+};
+
+const photoGalleryCategoryAccentStyle = {
+    width: 28,
+    height: 4,
+    borderRadius: 2,
+    marginBottom: 12,
+};
+
+const photoGalleryCategoryTitleStyle = {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '900' as const,
+};
+
+const photoGalleryCategoryDescriptionStyle = {
+    marginTop: 5,
+    minHeight: 34,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700' as const,
+};
+
+const photoGalleryCategoryFooterStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-end' as const,
+    justifyContent: 'space-between' as const,
+    marginTop: 10,
+};
+
+const photoGalleryCategoryCountStyle = {
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: '900' as const,
+};
+
+const photoGalleryCategoryOpenStyle = {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900' as const,
+};
+
+const photoGalleryCategoryBackStyle = {
+    alignSelf: 'flex-start' as const,
+    marginBottom: 12,
+};
+
+const photoGalleryCategoryBackTextStyle = {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900' as const,
+};
+
+const photoGallerySectionTitleStyle = {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '900' as const,
+    marginBottom: 12,
 };
 
 
