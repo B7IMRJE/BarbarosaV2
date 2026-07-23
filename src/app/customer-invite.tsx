@@ -8,6 +8,12 @@ import {
     clearPendingCompanyInviteState,
     replacePendingCompanyInviteFromNextPath,
 } from '../lib/companyInviteState';
+import {
+    isCustomerInviteTerminal,
+    isExpiredCustomerInvite,
+    normalizeCustomerInviteStatus,
+} from '../lib/customerInviteStatus';
+import { resolveLoggedInUserRoute } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -119,18 +125,45 @@ export default function CustomerInviteScreen() {
 
         if (!loadedInvite) {
             clearPendingCompanyInviteState({ inviteCode });
-            setMessage('This company invitation link is invalid or no longer available.');
+            const unavailableMessage = 'This company invitation link is invalid or no longer available.';
+
+            if (currentUser) {
+                const routeDecision = await resolveLoggedInUserRoute(currentUser.id);
+
+                setSuccess(true);
+                setMessage(`${unavailableMessage} Opening HomeOS...`);
+                setLoading(false);
+                setTimeout(() => router.replace(routeDecision.route as never), 700);
+                return;
+            }
+
+            setMessage(`${unavailableMessage} Sign in normally to continue to HomeOS.`);
             setLoading(false);
             return;
         }
 
         setInvite(loadedInvite);
-        replacePendingCompanyInviteFromNextPath(nextPath, loadedInvite.invited_email);
 
         if (isInactiveInvite(loadedInvite)) {
             clearPendingCompanyInviteState({ inviteCode });
+            const inactiveMessage = statusMessage(loadedInvite.status, loadedInvite.expires_at);
+
+            if (currentUser) {
+                const routeDecision = await resolveLoggedInUserRoute(currentUser.id);
+
+                setSuccess(true);
+                setMessage(`${inactiveMessage} Opening HomeOS...`);
+                setLoading(false);
+                setTimeout(() => router.replace(routeDecision.route as never), 700);
+                return;
+            }
+
+            setMessage(`${inactiveMessage} Sign in normally to continue to HomeOS.`);
+            setLoading(false);
+            return;
         }
 
+        replacePendingCompanyInviteFromNextPath(nextPath, loadedInvite.invited_email);
         setMessage(statusMessage(loadedInvite.status, loadedInvite.expires_at));
 
         if (currentUser && isWrongSignedInEmail(currentUser.email, loadedInvite.invited_email)) {
@@ -182,6 +215,14 @@ export default function CustomerInviteScreen() {
     }
 
     async function switchAccount() {
+        if (invite && isInactiveInvite(invite)) {
+            clearPendingCompanyInviteState({ inviteCode });
+            setMessage('Signing out...');
+            await supabase.auth.signOut();
+            router.replace('/auth/login' as never);
+            return;
+        }
+
         await continueWithInvitedEmail(invite?.invited_email, false);
     }
 
@@ -315,7 +356,7 @@ export default function CustomerInviteScreen() {
                                 <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                                     Signed in as: {user?.email || 'Not signed in'}
                                 </Text>
-                                {!!user && (
+                                {!!user && !!invite && !isInactiveInvite(invite) && (
                                     <ThemedButton
                                         title="Switch Account / Sign Out"
                                         variant="secondary"
@@ -369,7 +410,17 @@ export default function CustomerInviteScreen() {
                                 </Text>
                             )}
 
-                            {!user ? (
+                            {!user && (!invite || isInactiveInvite(invite)) ? (
+                                <View style={actionGroupStyle}>
+                                    <ThemedButton
+                                        title="Go to HomeOS Login"
+                                        onPress={() => {
+                                            clearPendingCompanyInviteState({ inviteCode });
+                                            router.replace('/auth/login' as never);
+                                        }}
+                                    />
+                                </View>
+                            ) : !user ? (
                                 <View style={actionGroupStyle}>
                                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                                         Sign in or create an account to connect your HomeOS home with this service company.
@@ -477,7 +528,7 @@ function firstRow<T>(data: unknown): T | null {
 }
 
 function normalizeStatus(value?: string | null) {
-    return String(value || '').trim().toLowerCase();
+    return normalizeCustomerInviteStatus(value);
 }
 
 function normalizeEmail(value?: string | null) {
@@ -498,17 +549,11 @@ function statusMessage(status?: string | null, expiresAt?: string | null) {
 }
 
 function isInactiveInvite(invite: CustomerInvite) {
-    const normalized = normalizeStatus(invite.status);
-
-    return normalized === 'accepted' || normalized === 'revoked' || normalized === 'expired' || isExpiredDate(invite.expires_at);
+    return isCustomerInviteTerminal(invite);
 }
 
 function isExpiredDate(value?: string | null) {
-    if (!value) return false;
-
-    const timestamp = Date.parse(value);
-
-    return Number.isFinite(timestamp) && timestamp <= Date.now();
+    return isExpiredCustomerInvite(value);
 }
 
 function isWrongSignedInEmail(currentEmail?: string | null, invitedEmail?: string | null) {

@@ -9,10 +9,12 @@ import {
 } from 'react-native';
 import {
     buildCompanyInviteAuthConfirmRedirect,
+    clearPendingCompanyInviteState,
     getPendingCompanyInviteState,
     readInviteCodeFromNextPath,
     replacePendingCompanyInviteFromNextPath,
 } from '../../lib/companyInviteState';
+import { isCustomerInvitePending } from '../../lib/customerInviteStatus';
 import { resolveLoggedInUserRoute } from '../../lib/onboarding';
 import { supabase } from '../../lib/supabase';
 
@@ -115,9 +117,11 @@ export default function LoginScreen() {
             return;
         }
 
-        if (isInviteRoute(nextRoute)) {
+        const verifiedNextRoute = await resolvePostLoginNextRoute(nextRoute);
+
+        if (isInviteRoute(verifiedNextRoute)) {
             setLoading(false);
-            router.replace(nextRoute as any);
+            router.replace(verifiedNextRoute as any);
             return;
         }
 
@@ -133,12 +137,12 @@ export default function LoginScreen() {
         if (routeDecision.message) {
             setMessage(routeDecision.message);
             setTimeout(() => {
-                router.replace((nextRoute || routeDecision.route) as any);
+                router.replace((verifiedNextRoute || routeDecision.route) as any);
             }, 900);
             return;
         }
 
-        router.replace((nextRoute || routeDecision.route) as any);
+        router.replace((verifiedNextRoute || routeDecision.route) as any);
     }
 
     async function resendConfirmation() {
@@ -298,6 +302,38 @@ function isInviteRoute(nextRoute: string | null) {
         nextRoute?.startsWith(COMPANY_INVITE_ROUTE) === true ||
         nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE) === true
     );
+}
+
+async function resolvePostLoginNextRoute(nextRoute: string | null) {
+    if (!nextRoute?.startsWith(CUSTOMER_INVITE_ROUTE)) return nextRoute;
+
+    const inviteCode = readInviteCodeFromNextPath(nextRoute);
+    if (!inviteCode) {
+        clearPendingCompanyInviteState();
+        return null;
+    }
+
+    const { data, error } = await supabase.rpc('get_customer_invite_by_code', {
+        p_invite_code: inviteCode,
+    });
+
+    if (error) {
+        return nextRoute;
+    }
+
+    const invite = firstRow<{ status?: string | null; expires_at?: string | null }>(data);
+
+    if (isCustomerInvitePending(invite)) {
+        return nextRoute;
+    }
+
+    clearPendingCompanyInviteState({ inviteCode });
+    return null;
+}
+
+function firstRow<T>(data: unknown): T | null {
+    if (Array.isArray(data)) return (data[0] as T | undefined) || null;
+    return (data as T | null) || null;
 }
 
 function normalizeEmail(value: string | undefined) {
