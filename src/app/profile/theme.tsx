@@ -384,8 +384,8 @@ export default function ThemeScreen() {
                                 lineHeight: 22,
                             }}
                         >
-                            Choose how HomeOS looks on this device. Your selection
-                            is saved locally, so each device can have its own look.
+                            Choose how HomeOS looks. Your selection follows your
+                            signed-in HomeOS account on every device.
                         </Text>
                     </View>
 
@@ -547,7 +547,7 @@ export default function ThemeScreen() {
                                                     fontWeight: '900',
                                                 }}
                                             >
-                                                {isSelected ? 'Selected on this device' : 'Tap to apply'}
+                                                {isSelected ? 'Selected for your account' : 'Tap to apply'}
                                             </Text>
                                         </View>
 

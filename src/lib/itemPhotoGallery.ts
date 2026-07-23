@@ -51,3 +51,13 @@ export function buildItemPhotoGalleryGroups<T>(
         records: groups.get(category) || [],
     }));
 }
+
+export function applyPersistedItemPhotoRemoval<T extends { id: string }>(
+    records: readonly T[],
+    removedId: string,
+    persisted: boolean
+) {
+    if (!persisted) return [...records];
+
+    return records.filter((record) => record.id !== removedId);
+}

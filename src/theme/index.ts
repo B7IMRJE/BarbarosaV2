@@ -16,6 +16,11 @@ import {
     type HomeOSTheme,
     type HomeOSThemeName,
 } from './themes';
+import {
+    HOMEOS_THEME_USER_METADATA_KEY,
+    readHomeOSThemeFromUserMetadata,
+    resolvePersistedHomeOSTheme,
+} from '../lib/homeThemePersistence';
 
 const LEGACY_THEME_STORAGE_KEY = 'homeos:selected-theme';
 const LEGACY_APPEARANCE_STORAGE_KEY = 'homeos:appearance-preferences';
@@ -150,7 +155,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
             if (!mounted) return;
 
-            void applyUserScopedAppearance(session?.user?.id || null);
+            void applyUserScopedAppearance(session?.user || null);
         });
 
         return () => {
@@ -162,13 +167,16 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     async function loadCurrentUserAppearance() {
         try {
             const { data } = await supabase.auth.getSession();
-            await applyUserScopedAppearance(data.session?.user?.id || null);
+            await applyUserScopedAppearance(data.session?.user || null);
         } catch {
             await applyUserScopedAppearance(null);
         }
     }
 
-    async function applyUserScopedAppearance(userId: string | null) {
+    async function applyUserScopedAppearance(
+        user: { id: string; user_metadata?: Record<string, unknown> | null } | null
+    ) {
+        const userId = user?.id || null;
         const runId = loadRunRef.current + 1;
         loadRunRef.current = runId;
         activeUserIdRef.current = userId;
@@ -190,8 +198,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
             if (runId !== loadRunRef.current || activeUserIdRef.current !== userId) return;
 
-            setThemeNameState(isHomeOSThemeName(storedTheme) ? storedTheme : DEFAULT_THEME_NAME);
+            const accountTheme = readHomeOSThemeFromUserMetadata(user?.user_metadata);
+            const resolvedTheme = resolvePersistedHomeOSTheme({
+                accountTheme,
+                localTheme: storedTheme,
+            });
+
+            setThemeNameState(resolvedTheme);
             setAppearanceState(parseStoredAppearance(storedAppearance));
+
+            if (!accountTheme && isHomeOSThemeName(storedTheme)) {
+                void supabase.auth.updateUser({
+                    data: {
+                        [HOMEOS_THEME_USER_METADATA_KEY]: storedTheme,
+                    },
+                });
+            }
         } finally {
             if (runId === loadRunRef.current) {
                 setIsThemeLoaded(true);
@@ -205,7 +227,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const userId = activeUserIdRef.current;
 
         if (userId) {
-            await AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName);
+            const [, accountResult] = await Promise.all([
+                AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName),
+                supabase.auth.updateUser({
+                    data: {
+                        [HOMEOS_THEME_USER_METADATA_KEY]: nextThemeName,
+                    },
+                }),
+            ]);
+
+            if (accountResult.error && __DEV__) {
+                console.warn('HomeOS theme account persistence failed.', accountResult.error);
+            }
         }
     }
 

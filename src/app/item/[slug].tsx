@@ -67,6 +67,7 @@ import {
     type HomeItemHierarchyRecord,
 } from '../../lib/homeItemHierarchy';
 import {
+    applyPersistedItemPhotoRemoval,
     buildItemPhotoGalleryGroups,
     itemPhotoGalleryCategories,
     itemPhotoUploadCategories,
@@ -504,6 +505,7 @@ export default function ItemScreen() {
     const [checkingEstimateAccess, setCheckingEstimateAccess] = useState(false);
     const [estimatePermissionMessage, setEstimatePermissionMessage] = useState('');
     const [removingFileId, setRemovingFileId] = useState<string | null>(null);
+    const [pendingFileRemoveId, setPendingFileRemoveId] = useState<string | null>(null);
     const [addingMaintenanceKey, setAddingMaintenanceKey] = useState<string | null>(null);
     const [completingMaintenanceId, setCompletingMaintenanceId] = useState<string | null>(null);
     const [removingMaintenanceCompletionId, setRemovingMaintenanceCompletionId] = useState<string | null>(null);
@@ -2808,23 +2810,7 @@ export default function ItemScreen() {
             return;
         }
 
-        Alert.alert(
-            'Remove file?',
-            'This will delete the uploaded file from this item.',
-            [
-                {
-                    text: 'Cancel',
-                    style: 'cancel',
-                },
-                {
-                    text: 'Remove',
-                    style: 'destructive',
-                    onPress: () => {
-                        void removeFile(file);
-                    },
-                },
-            ]
-        );
+        setPendingFileRemoveId(file.id);
     }
 
     async function removeFile(file: ItemFile) {
@@ -2837,6 +2823,7 @@ export default function ItemScreen() {
             try {
                 activeProperty = await requireActivePropertyMembership();
             } catch (error) {
+                setPendingFileRemoveId(null);
                 setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
 
                 if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
@@ -2849,6 +2836,7 @@ export default function ItemScreen() {
             }
 
             if (file.user_id && file.user_id !== activeProperty.userId) {
+                setPendingFileRemoveId(null);
                 setMessage('You can only remove your own files.');
                 return;
             }
@@ -2857,9 +2845,35 @@ export default function ItemScreen() {
             const storagePath = getStoragePath(file);
 
             if (!storagePath) {
+                setPendingFileRemoveId(null);
                 setMessage('This legacy file record cannot be removed from storage safely yet.');
                 return;
             }
+
+            const { data: deletedRows, error: deleteError } = await supabase
+                .from('home_item_files')
+                .delete()
+                .eq('id', file.id)
+                .eq('property_id', activeProperty.propertyId)
+                .select('id');
+
+            if (deleteError) {
+                logMediaDebug('file-metadata-delete', deleteError);
+                setPendingFileRemoveId(null);
+                setMessage('File could not be removed. Please try again.');
+                return;
+            }
+
+            if (!deletedRows?.some((row) => row.id === file.id)) {
+                setPendingFileRemoveId(null);
+                setMessage('File could not be removed. Confirm that you still have access and try again.');
+                return;
+            }
+
+            setFiles((currentFiles) =>
+                applyPersistedItemPhotoRemoval(currentFiles, file.id, true)
+            );
+            setPendingFileRemoveId(null);
 
             const { error: storageError } = await supabase.storage
                 .from(storageBucket)
@@ -2867,30 +2881,16 @@ export default function ItemScreen() {
 
             if (storageError) {
                 logMediaDebug('file-storage-remove', storageError);
-                setMessage('File could not be removed. Please try again.');
+                setMessage(
+                    `${file.file_type === 'document' ? 'Document' : 'Photo'} removed from HomeOS, but protected storage cleanup could not finish automatically.`
+                );
                 return;
             }
 
-            const { error: deleteError } = await supabase
-                .from('home_item_files')
-                .delete()
-                .eq('id', file.id)
-                .eq('property_id', activeProperty.propertyId);
-
-            if (deleteError) {
-                logMediaDebug('file-metadata-delete', deleteError);
-                setMessage('File could not be removed. Please try again.');
-                return;
-            }
-
-            setMessage('File removed.');
-            await loadFiles({
-                propertyId: activeProperty.propertyId,
-                homeItemId: String(item?.id || ''),
-                itemSlug: item?.item_slug || String(slug),
-            });
+            setMessage(`${file.file_type === 'document' ? 'Document' : 'Photo'} removed.`);
         } catch (error: any) {
             logMediaDebug('file-remove', error);
+            setPendingFileRemoveId(null);
             setMessage('File could not be removed. Please try again.');
         } finally {
             setRemovingFileId(null);
@@ -3074,6 +3074,9 @@ export default function ItemScreen() {
         : null;
     const pendingProviderPhotoRemoveEntry = pendingProviderPhotoRemoveId
         ? stagedPhotoEntries.find((entry) => entry.id === pendingProviderPhotoRemoveId) || null
+        : null;
+    const pendingFileRemove = pendingFileRemoveId
+        ? files.find((file) => file.id === pendingFileRemoveId) || null
         : null;
 
     const groupedDocuments = documentCategories.map((category) => ({
@@ -5135,6 +5138,50 @@ export default function ItemScreen() {
                         </>
                     )}
                 </ScrollView>
+            </Modal>
+
+            <Modal
+                visible={Boolean(pendingFileRemove)}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setPendingFileRemoveId(null)}
+            >
+                <View style={[scaleStyle(providerPhotoViewerOverlayStyle), { backgroundColor: theme.colors.overlay }]}>
+                    <ThemedCard style={scaleStyle(providerPhotoRemoveConfirmCardStyle)}>
+                        <Text style={[scaleStyle(providerPhotoViewerTitleStyle), { color: theme.colors.text }]}>
+                            Remove this {pendingFileRemove?.file_type === 'document' ? 'document' : 'photo'}?
+                        </Text>
+                        <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText, marginTop: 8 }]}>
+                            {pendingFileRemove
+                                ? pendingFileRemove.file_type === 'document'
+                                    ? `${documentLabel(pendingFileRemove.category)} will be removed from this item.`
+                                    : `${photoLabel(pendingFileRemove.category)} will be removed from this item.`
+                                : 'This file will be removed from this item.'}
+                        </Text>
+                        <View style={scaleStyle(providerPhotoViewerActionsStyle)}>
+                            <ThemedButton
+                                title="Cancel"
+                                variant="secondary"
+                                disabled={Boolean(removingFileId)}
+                                onPress={() => setPendingFileRemoveId(null)}
+                                style={scaleStyle(documentOpenButtonStyle)}
+                                textStyle={scaleStyle(documentActionTextStyle)}
+                            />
+                            <ThemedButton
+                                title={removingFileId ? 'Removing...' : 'Remove'}
+                                variant="danger"
+                                disabled={!pendingFileRemove || Boolean(removingFileId)}
+                                onPress={() => {
+                                    if (pendingFileRemove) {
+                                        void removeFile(pendingFileRemove);
+                                    }
+                                }}
+                                style={scaleStyle(documentRemoveButtonStyle)}
+                                textStyle={scaleStyle(documentActionTextStyle)}
+                            />
+                        </View>
+                    </ThemedCard>
+                </View>
             </Modal>
 
             {renderProviderPhotoViewerModal()}

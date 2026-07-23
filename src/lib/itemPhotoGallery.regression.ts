@@ -1,4 +1,5 @@
 import {
+    applyPersistedItemPhotoRemoval,
     buildItemPhotoGalleryGroups,
     itemPhotoGalleryCategories,
     normalizeItemPhotoGalleryCategory,
@@ -11,6 +12,8 @@ export function runItemPhotoGalleryRegressions() {
     uploadCategoriesRemainSeparate();
     legacyOtherAndUnknownCategoriesStayVisible();
     emptyCategoriesRemainAvailable();
+    successfulRemovalClearsOnlyTheMatchingPhoto();
+    failedRemovalLeavesTheGalleryUntouched();
 }
 
 function everyPhotoAppearsInExactlyOneCategory() {
@@ -68,6 +71,35 @@ function emptyCategoriesRemainAvailable() {
         'The gallery must render every category card even when a category is empty.'
     );
     assert(groupCount(groups, 'equipment_photo') === 0, 'Empty gallery categories must report a zero count.');
+}
+
+function successfulRemovalClearsOnlyTheMatchingPhoto() {
+    const records = [
+        photo('equipment-one', 'equipment_photo'),
+        photo('equipment-two', 'equipment_photo'),
+        photo('serial', 'serial_photo'),
+    ];
+    const remaining = applyPersistedItemPhotoRemoval(records, 'equipment-one', true);
+
+    assert(remaining.length === 2, 'A successful removal must clear exactly one photo.');
+    assert(
+        remaining.some((record) => record.id === 'equipment-two'),
+        'Removing one equipment photo must preserve the other equipment photos.'
+    );
+    assert(
+        remaining.some((record) => record.id === 'serial'),
+        'Removing an equipment photo must preserve other photo categories.'
+    );
+}
+
+function failedRemovalLeavesTheGalleryUntouched() {
+    const records = [photo('equipment', 'equipment_photo')];
+    const unchanged = applyPersistedItemPhotoRemoval(records, 'equipment', false);
+
+    assert(
+        unchanged.length === 1 && unchanged[0].id === 'equipment',
+        'A failed removal must leave the photo visible for a retry.'
+    );
 }
 
 function photo(id: string, category: string) {
