@@ -1,10 +1,19 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import HomeHeader from '../../../../components/HomeHeader';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
+import {
+    buildCompanyClientDirectory,
+    buildCompanyClientShelves,
+    filterCompanyClientDirectory,
+    filterPendingCustomerInvites,
+    paginateCompanyClientDirectory,
+    type CompanyClientDirectoryEntry,
+    type CompanyClientDirectoryShelf,
+} from '../../../../lib/companyClientDirectory';
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -81,6 +90,7 @@ type CustomerInviteEmailResponse = {
 
 export default function CompanyClientsScreen() {
     const { theme } = useTheme();
+    const { width: windowWidth } = useWindowDimensions();
     const { id } = useLocalSearchParams<{ id: string }>();
     const [clients, setClients] = useState<CompanyClient[]>([]);
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
@@ -96,6 +106,10 @@ export default function CompanyClientsScreen() {
     const [inviteActionId, setInviteActionId] = useState('');
     const [creatingInvite, setCreatingInvite] = useState(false);
     const [inviteMessage, setInviteMessage] = useState('');
+    const [searchDraft, setSearchDraft] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [activeShelfKey, setActiveShelfKey] = useState('');
+    const [directoryPage, setDirectoryPage] = useState(0);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
 
@@ -112,6 +126,65 @@ export default function CompanyClientsScreen() {
             ),
         [clients, preferredByPropertyId]
     );
+    const pendingCustomerInvites = useMemo(
+        () => filterPendingCustomerInvites(customerInvites),
+        [customerInvites]
+    );
+    const directoryEntries = useMemo(
+        () => {
+            const visibleClientIds = new Set(visibleClients.map((client) => client.id));
+
+            return buildCompanyClientDirectory(
+                clients.map((client) => {
+                    const property = propertiesById[client.property_id];
+
+                    return {
+                        id: client.id,
+                        propertyId: client.property_id,
+                        displayName: client.display_name || property?.name,
+                        address: formatAddress(property),
+                        linkedAt: client.connected_at || client.first_requested_at || client.created_at,
+                    };
+                })
+            ).filter((entry) => visibleClientIds.has(entry.id));
+        },
+        [clients, propertiesById, visibleClients]
+    );
+    const directoryShelves = useMemo(
+        () => buildCompanyClientShelves(directoryEntries),
+        [directoryEntries]
+    );
+    const activeShelf = useMemo(
+        () => directoryShelves.find((shelf) => shelf.key === activeShelfKey) || null,
+        [activeShelfKey, directoryShelves]
+    );
+    const filteredEntries = useMemo(
+        () =>
+            searchQuery
+                ? filterCompanyClientDirectory(directoryEntries, searchQuery)
+                : activeShelf?.entries || (directoryShelves.length === 0 ? directoryEntries : []),
+        [activeShelf, directoryEntries, directoryShelves.length, searchQuery]
+    );
+    const pagedDirectory = useMemo(
+        () => paginateCompanyClientDirectory(filteredEntries, directoryPage),
+        [directoryPage, filteredEntries]
+    );
+    const directoryContentWidth = Math.max(280, Math.min(900, windowWidth - 40));
+    const directoryColumnCount = directoryContentWidth < 520 ? 2 : directoryContentWidth < 760 ? 4 : 5;
+    const directoryCardWidth = Math.floor(
+        (directoryContentWidth - (directoryColumnCount - 1) * 10) / directoryColumnCount
+    );
+    const showDirectoryShelves = !searchQuery && directoryShelves.length > 0 && !activeShelf;
+
+    useEffect(() => {
+        setDirectoryPage(0);
+    }, [activeShelfKey, searchQuery]);
+
+    useEffect(() => {
+        if (activeShelfKey && !directoryShelves.some((shelf) => shelf.key === activeShelfKey)) {
+            setActiveShelfKey('');
+        }
+    }, [activeShelfKey, directoryShelves]);
 
     async function loadClients() {
         const companyId = id ? String(id) : '';
@@ -416,6 +489,17 @@ export default function CompanyClientsScreen() {
         setPreferredByPropertyId(nextPreferredByPropertyId);
     }
 
+    function runCustomerSearch() {
+        setSearchQuery(searchDraft.trim());
+        setActiveShelfKey('');
+    }
+
+    function clearCustomerSearch() {
+        setSearchDraft('');
+        setSearchQuery('');
+        setActiveShelfKey('');
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -431,26 +515,12 @@ export default function CompanyClientsScreen() {
 
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Company Clients</Text>
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                    Homes that selected this company as a service provider appear here with basic home profile details.
+                    Find and open connected customer homes.
                 </Text>
-
-                <ThemedCard style={actionCardStyle}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Private HomeOS Data</Text>
-                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Photos, documents, service history, quotes, and private item details are not shared from this
-                        client list. Homeowners can grant deeper access later through service requests or access codes.
-                    </Text>
-                    <ThemedButton
-                        title="Open Connections"
-                        onPress={() => router.push(`/super-admin/company/${id}/connections` as any)}
-                        variant="secondary"
-                        style={{ marginTop: 16 }}
-                    />
-                </ThemedCard>
 
                 <InviteCustomerSection
                     form={inviteForm}
-                    invites={customerInvites}
+                    invites={pendingCustomerInvites}
                     companyName={companyName}
                     creating={creatingInvite}
                     actionInviteId={inviteActionId}
@@ -478,18 +548,131 @@ export default function CompanyClientsScreen() {
                     </ThemedCard>
                 ) : (
                     <View style={sectionStyle}>
-                        <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Clients</Text>
-                        <View style={listStyle}>
-                            {visibleClients.map((client) => (
-                                <ClientCard
-                                    key={client.id}
-                                    companyId={String(id || '')}
-                                    client={client}
-                                    property={propertiesById[client.property_id]}
-                                    preferredStatus={preferredByPropertyId[client.property_id]}
-                                />
-                            ))}
+                        <View style={directoryHeaderStyle}>
+                            <View style={{ minWidth: 0 }}>
+                                <Text style={[sectionHeadingStyle, { color: theme.colors.text, marginBottom: 2 }]}>
+                                    Customers
+                                </Text>
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText, marginTop: 0 }]}>
+                                    {directoryEntries.length} connected
+                                </Text>
+                            </View>
                         </View>
+
+                        <View style={searchRowStyle}>
+                            <TextInput
+                                value={searchDraft}
+                                onChangeText={setSearchDraft}
+                                onSubmitEditing={runCustomerSearch}
+                                placeholder="Search name, address, or customer number"
+                                placeholderTextColor={theme.colors.mutedText}
+                                returnKeyType="search"
+                                style={[
+                                    searchInputStyle,
+                                    {
+                                        backgroundColor: theme.colors.surface,
+                                        borderColor: theme.colors.border,
+                                        color: theme.colors.text,
+                                    },
+                                ]}
+                            />
+                            <ThemedButton
+                                title="Search"
+                                onPress={runCustomerSearch}
+                                style={searchButtonStyle}
+                            />
+                            {!!searchQuery && (
+                                <ThemedButton
+                                    title="Clear"
+                                    onPress={clearCustomerSearch}
+                                    variant="secondary"
+                                    style={searchButtonStyle}
+                                />
+                            )}
+                        </View>
+
+                        {showDirectoryShelves ? (
+                            <View style={directoryGridStyle}>
+                                {directoryShelves.map((shelf) => (
+                                    <DirectoryShelfCard
+                                        key={shelf.key}
+                                        shelf={shelf}
+                                        width={directoryCardWidth}
+                                        onPress={() => setActiveShelfKey(shelf.key)}
+                                    />
+                                ))}
+                            </View>
+                        ) : (
+                            <>
+                                <View style={directoryResultsHeaderStyle}>
+                                    <View style={{ minWidth: 0 }}>
+                                        <Text style={[cardTitleStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                                            {searchQuery
+                                                ? `Search results for "${searchQuery}"`
+                                                : activeShelf
+                                                    ? `${activeShelf.label} customers`
+                                                    : 'All customers'}
+                                        </Text>
+                                        <Text style={[metaTextStyle, { color: theme.colors.mutedText, marginTop: 2 }]}>
+                                            {filteredEntries.length} {filteredEntries.length === 1 ? 'customer' : 'customers'}
+                                        </Text>
+                                    </View>
+                                    {!!activeShelf && (
+                                        <ThemedButton
+                                            title="Back to letters"
+                                            onPress={() => setActiveShelfKey('')}
+                                            variant="secondary"
+                                            style={directoryBackButtonStyle}
+                                        />
+                                    )}
+                                </View>
+
+                                {pagedDirectory.entries.length === 0 ? (
+                                    <ThemedCard>
+                                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                            No customers match this search.
+                                        </Text>
+                                    </ThemedCard>
+                                ) : (
+                                    <View style={directoryGridStyle}>
+                                        {pagedDirectory.entries.map((entry) => (
+                                            <ClientCard
+                                                key={entry.id}
+                                                companyId={String(id || '')}
+                                                entry={entry}
+                                                width={directoryCardWidth}
+                                            />
+                                        ))}
+                                    </View>
+                                )}
+
+                                {pagedDirectory.pageCount > 1 && (
+                                    <View style={paginationStyle}>
+                                        <ThemedButton
+                                            title="Previous"
+                                            onPress={() => setDirectoryPage((page) => Math.max(0, page - 1))}
+                                            disabled={pagedDirectory.page === 0}
+                                            variant="secondary"
+                                            style={paginationButtonStyle}
+                                        />
+                                        <Text style={[metaTextStyle, { color: theme.colors.mutedText, marginTop: 0 }]}>
+                                            Page {pagedDirectory.page + 1} of {pagedDirectory.pageCount}
+                                        </Text>
+                                        <ThemedButton
+                                            title="Next"
+                                            onPress={() =>
+                                                setDirectoryPage((page) =>
+                                                    Math.min(pagedDirectory.pageCount - 1, page + 1)
+                                                )
+                                            }
+                                            disabled={pagedDirectory.page >= pagedDirectory.pageCount - 1}
+                                            variant="secondary"
+                                            style={paginationButtonStyle}
+                                        />
+                                    </View>
+                                )}
+                            </>
+                        )}
                     </View>
                 )}
 
@@ -535,87 +718,104 @@ function InviteCustomerSection({
     onDeleteRevoked: (invite: CustomerInvite) => void;
 }) {
     const { theme } = useTheme();
+    const [composerOpen, setComposerOpen] = useState(false);
+    const [pendingOpen, setPendingOpen] = useState(false);
 
     return (
-        <ThemedCard style={actionCardStyle}>
-            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Customer</Text>
-            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                Create a secure manual invite link for a homeowner. Send it by text or email yourself for now.
-            </Text>
-
-            <View style={formGridStyle}>
-                <InviteInput
-                    label="Customer name"
-                    value={form.invitedName}
-                    placeholder="Optional"
-                    onChangeText={(invitedName) => onChangeForm({ invitedName })}
-                />
-                <InviteInput
-                    label="Email"
-                    value={form.invitedEmail}
-                    placeholder="Optional"
-                    onChangeText={(invitedEmail) => onChangeForm({ invitedEmail })}
-                />
-                <InviteInput
-                    label="Phone"
-                    value={form.invitedPhone}
-                    placeholder="Optional"
-                    onChangeText={(invitedPhone) => onChangeForm({ invitedPhone })}
-                />
-                <InviteInput
-                    label="Note"
-                    value={form.note}
-                    placeholder="Optional internal note"
-                    onChangeText={(note) => onChangeForm({ note })}
-                />
-            </View>
-
-            <View style={buttonRowStyle}>
+        <View style={inviteSectionStyle}>
+            <View style={inviteActionRowStyle}>
                 <ThemedButton
-                    title={creating ? 'Creating...' : 'Create Customer Invite'}
-                    onPress={onCreate}
-                    disabled={creating}
-                    style={smallButtonStyle}
+                    title={composerOpen ? 'Close connection form' : 'Connect homeowner'}
+                    onPress={() => setComposerOpen((open) => !open)}
+                    style={inviteActionButtonStyle}
                 />
-                <ThemedButton
-                    title="Refresh Invites"
-                    variant="secondary"
-                    onPress={onRefresh}
-                    style={smallButtonStyle}
-                />
+                {invites.length > 0 && (
+                    <ThemedButton
+                        title={`${invites.length} pending ${invites.length === 1 ? 'invitation' : 'invitations'}`}
+                        onPress={() => setPendingOpen((open) => !open)}
+                        variant="secondary"
+                        style={inviteActionButtonStyle}
+                    />
+                )}
             </View>
 
             {!!message && (
-                <Text style={[metaTextStyle, { color: theme.colors.mutedText, marginTop: 12 }]}>
+                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                     {message}
                 </Text>
             )}
 
-            <View style={{ marginTop: 16, gap: 10 }}>
-                <Text style={[sectionHeadingStyle, { color: theme.colors.text, marginBottom: 0 }]}>
-                    Customer Invites
-                </Text>
-                {invites.length === 0 ? (
-                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        No customer invites yet.
-                    </Text>
-                ) : (
-                    invites.map((invite) => (
-                        <CustomerInviteRow
-                            key={invite.invitation_id}
-                            invite={invite}
-                            companyName={companyName}
-                            actionInviteId={actionInviteId}
-                            onCopy={onCopy}
-                            onSendEmail={onSendEmail}
-                            onSendText={onSendText}
-                            onRevoke={onRevoke}
-                            onDeleteRevoked={onDeleteRevoked}
+            {composerOpen && (
+                <ThemedCard>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Connect Homeowner</Text>
+                    <View style={formGridStyle}>
+                        <InviteInput
+                            label="Customer name"
+                            value={form.invitedName}
+                            placeholder="Optional"
+                            onChangeText={(invitedName) => onChangeForm({ invitedName })}
                         />
-                    ))
-                )}
-            </View>
-        </ThemedCard>
+                        <InviteInput
+                            label="Email"
+                            value={form.invitedEmail}
+                            placeholder="Optional"
+                            onChangeText={(invitedEmail) => onChangeForm({ invitedEmail })}
+                        />
+                        <InviteInput
+                            label="Phone"
+                            value={form.invitedPhone}
+                            placeholder="Optional"
+                            onChangeText={(invitedPhone) => onChangeForm({ invitedPhone })}
+                        />
+                        <InviteInput
+                            label="Note"
+                            value={form.note}
+                            placeholder="Optional internal note"
+                            onChangeText={(note) => onChangeForm({ note })}
+                        />
+                    </View>
+                    <View style={buttonRowStyle}>
+                        <ThemedButton
+                            title={creating ? 'Creating...' : 'Create Connection'}
+                            onPress={onCreate}
+                            disabled={creating}
+                            style={smallButtonStyle}
+                        />
+                    </View>
+                </ThemedCard>
+            )}
+
+            {pendingOpen && invites.length > 0 && (
+                <ThemedCard>
+                    <View style={pendingHeaderStyle}>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 0 }]}>
+                            Pending Invitations
+                        </Text>
+                        <ThemedButton
+                            title="Refresh"
+                            variant="secondary"
+                            onPress={onRefresh}
+                            style={refreshInviteButtonStyle}
+                        />
+                    </View>
+                    <View style={pendingListStyle}>
+                        {invites.map((invite) => (
+                            <CustomerInviteRow
+                                key={invite.invitation_id}
+                                invite={invite}
+                                companyName={companyName}
+                                actionInviteId={actionInviteId}
+                                onCopy={onCopy}
+                                onSendEmail={onSendEmail}
+                                onSendText={onSendText}
+                                onRevoke={onRevoke}
+                                onDeleteRevoked={onDeleteRevoked}
+                            />
+                        ))}
+                    </View>
+                </ThemedCard>
+            )}
+        </View>
     );
 }
 
@@ -764,44 +964,65 @@ function CustomerInviteRow({
 
 function ClientCard({
     companyId,
-    client,
-    property,
-    preferredStatus,
+    entry,
+    width,
 }: {
     companyId: string;
-    client: CompanyClient;
-    property?: PropertyRecord;
-    preferredStatus?: string;
+    entry: CompanyClientDirectoryEntry;
+    width: number;
 }) {
     const { theme } = useTheme();
-    const displayName = client.display_name || property?.name || 'Home';
-    const linkedAt = client.connected_at || client.first_requested_at || client.created_at;
-    const clientRoute = `/super-admin/company/${companyId}/client/${client.property_id}` as Href;
+    const clientRoute = `/super-admin/company/${companyId}/client/${entry.propertyId}` as Href;
 
     return (
-        <ThemedCard onPress={() => router.push(clientRoute)}>
-            <Text style={[cardTitleStyle, { color: theme.colors.text }]}>{displayName}</Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Status: {formatStatus(client.status)}
+        <ThemedCard
+            onPress={() => router.push(clientRoute)}
+            style={[customerCardStyle, { width }]}
+            contentStyle={{ borderColor: theme.colors.border }}
+        >
+            <View style={customerCardMetaStyle}>
+                <Text style={[customerNumberStyle, { color: theme.colors.primary }]}>
+                    #{entry.customerNumber}
+                </Text>
+                <Text style={[customerTenureStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                    {entry.tenure}
+                </Text>
+            </View>
+            <View style={customerCardIdentityStyle}>
+                <Text style={[customerNameStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                    {entry.name}
+                </Text>
+                <Text style={[customerAddressStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                    {entry.address}
+                </Text>
+            </View>
+        </ThemedCard>
+    );
+}
+
+function DirectoryShelfCard({
+    shelf,
+    width,
+    onPress,
+}: {
+    shelf: CompanyClientDirectoryShelf;
+    width: number;
+    onPress: () => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <ThemedCard
+            onPress={onPress}
+            style={[directoryShelfStyle, { width }]}
+            contentStyle={{ borderColor: theme.colors.primary }}
+        >
+            <Text style={[directoryShelfLabelStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                {shelf.label}
             </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Provider: {preferredStatus ? 'Preferred' : 'Selected'}
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText, marginTop: 2 }]} numberOfLines={1}>
+                {shelf.entries.length} customers
             </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Source: {formatSource(client.source)}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                {formatAddress(property) || 'Home profile details are not available yet.'}
-            </Text>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                Linked: {formatDate(linkedAt)}
-            </Text>
-            <ThemedButton
-                title="Open Customer Home"
-                variant="secondary"
-                onPress={() => router.push(clientRoute)}
-                style={{ marginTop: 12 }}
-            />
         </ThemedCard>
     );
 }
@@ -854,16 +1075,6 @@ function formatStatus(status: string | null) {
     if (normalized === 'archived') return 'Archived';
 
     return normalized ? titleCase(normalized) : 'Unknown';
-}
-
-function formatSource(source: string | null) {
-    const normalized = normalizeStatus(source);
-
-    if (normalized === 'homeowner_provider_request') return 'Homeowner selected';
-    if (normalized === 'connection_code') return 'Connection code';
-    if (normalized === 'manual') return 'Manual';
-
-    return normalized ? titleCase(normalized.replace(/_/g, ' ')) : 'Not specified';
 }
 
 function formatDate(value: string | null) {
@@ -1002,10 +1213,6 @@ const subtitleStyle = {
     marginBottom: 24,
 };
 
-const actionCardStyle = {
-    marginBottom: 24,
-};
-
 const sectionStyle = {
     width: '100%' as const,
     maxWidth: '100%' as const,
@@ -1029,13 +1236,6 @@ const bodyTextStyle = {
     fontSize: 15,
     fontWeight: '800' as const,
     lineHeight: 22,
-};
-
-const listStyle = {
-    width: '100%' as const,
-    maxWidth: '100%' as const,
-    minWidth: 0,
-    gap: 12,
 };
 
 const formGridStyle = {
@@ -1079,6 +1279,170 @@ const inviteRowStyle = {
     borderRadius: 12,
     borderWidth: 1,
     padding: 12,
+};
+
+const inviteSectionStyle = {
+    width: '100%' as const,
+    gap: 12,
+    marginBottom: 8,
+};
+
+const inviteActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const inviteActionButtonStyle = {
+    flexBasis: 190,
+    flexGrow: 0,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+};
+
+const pendingHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+    flexWrap: 'wrap' as const,
+};
+
+const pendingListStyle = {
+    gap: 10,
+    marginTop: 14,
+};
+
+const refreshInviteButtonStyle = {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+};
+
+const directoryHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-end' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+    marginBottom: 14,
+};
+
+const searchRowStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'stretch' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginBottom: 16,
+};
+
+const searchInputStyle = {
+    minWidth: 210,
+    flexBasis: 320,
+    flexGrow: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    fontSize: 15,
+    fontWeight: '800' as const,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+};
+
+const searchButtonStyle = {
+    minWidth: 96,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+};
+
+const directoryGridStyle = {
+    width: '100%' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'stretch' as const,
+    gap: 10,
+};
+
+const directoryResultsHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginBottom: 12,
+};
+
+const directoryBackButtonStyle = {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+};
+
+const customerCardStyle = {
+    aspectRatio: 1.08,
+    justifyContent: 'space-between' as const,
+    padding: 14,
+};
+
+const customerCardMetaStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 6,
+};
+
+const customerNumberStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const customerTenureStyle = {
+    minWidth: 0,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '800' as const,
+    textAlign: 'right' as const,
+};
+
+const customerCardIdentityStyle = {
+    minWidth: 0,
+    gap: 5,
+};
+
+const customerNameStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+    lineHeight: 21,
+};
+
+const customerAddressStyle = {
+    fontSize: 13,
+    fontWeight: '800' as const,
+    lineHeight: 17,
+};
+
+const directoryShelfStyle = {
+    aspectRatio: 1.08,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    padding: 14,
+};
+
+const directoryShelfLabelStyle = {
+    fontSize: 28,
+    fontWeight: '900' as const,
+    textAlign: 'center' as const,
+};
+
+const paginationStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+    marginTop: 16,
+};
+
+const paginationButtonStyle = {
+    minWidth: 110,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
 };
 
 const cardTitleStyle = {
