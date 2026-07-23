@@ -23,6 +23,7 @@ import {
   getHomeownerFacingStatusLabel,
   isActiveHomeownerServiceRequest,
 } from '../lib/homeownerActiveRequests';
+import { resolveHomeDashboardActionCardPalettes } from '../lib/homeDashboardActionCards';
 import {
   loadHomeownerServiceRequestTimeline,
   markHomeownerServiceNotificationRead,
@@ -132,6 +133,10 @@ export default function HomeScreen() {
     Math.min(scaleIcon(156), (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns)
   );
   const actionTileSize = Math.max(scaleIcon(188), Math.min(scaleIcon(210), healthTileSize + scaleIcon(54)));
+  const actionCardPalettes = useMemo(
+    () => resolveHomeDashboardActionCardPalettes(theme),
+    [theme]
+  );
   const [homeIdentity, setHomeIdentity] = useState<HomeIdentity | null>(null);
   const [homeIdentityLoading, setHomeIdentityLoading] = useState(true);
   const [homeItems, setHomeItems] = useState<HomeDashboardItem[]>([]);
@@ -901,8 +906,9 @@ export default function HomeScreen() {
               actionCardStyle,
               { width: actionTileSize, minHeight: actionTileSize },
               {
-                borderColor: theme.colors.status.activeEmergency.border,
-                backgroundColor: theme.colors.status.activeEmergency.background,
+                borderColor: actionCardPalettes.emergency.borderColor,
+                backgroundColor: actionCardPalettes.emergency.backgroundColor,
+                borderTopWidth: scaleIcon(4),
               },
             ]}
           >
@@ -936,7 +942,17 @@ export default function HomeScreen() {
             />
           </ThemedCard>
 
-          <ThemedCard style={[actionCardStyle, { width: actionTileSize, minHeight: actionTileSize }]}>
+          <ThemedCard
+            style={[
+              actionCardStyle,
+              { width: actionTileSize, minHeight: actionTileSize },
+              {
+                borderColor: actionCardPalettes.maintenance.borderColor,
+                backgroundColor: actionCardPalettes.maintenance.backgroundColor,
+                borderTopWidth: scaleIcon(4),
+              },
+            ]}
+          >
             <Text
               style={{
                 fontSize: scaleFont(18),
@@ -968,7 +984,17 @@ export default function HomeScreen() {
             />
           </ThemedCard>
 
-          <ThemedCard style={[actionCardStyle, { width: actionTileSize, minHeight: actionTileSize }]}>
+          <ThemedCard
+            style={[
+              actionCardStyle,
+              { width: actionTileSize, minHeight: actionTileSize },
+              {
+                borderColor: actionCardPalettes.connections.borderColor,
+                backgroundColor: actionCardPalettes.connections.backgroundColor,
+                borderTopWidth: scaleIcon(4),
+              },
+            ]}
+          >
             <Text
               style={{
                 fontSize: scaleFont(18),
@@ -1000,7 +1026,17 @@ export default function HomeScreen() {
             />
           </ThemedCard>
 
-          <ThemedCard style={[actionCardStyle, { width: actionTileSize, minHeight: actionTileSize }]}>
+          <ThemedCard
+            style={[
+              actionCardStyle,
+              { width: actionTileSize, minHeight: actionTileSize },
+              {
+                borderColor: actionCardPalettes.requestService.borderColor,
+                backgroundColor: actionCardPalettes.requestService.backgroundColor,
+                borderTopWidth: scaleIcon(4),
+              },
+            ]}
+          >
             <Text
               style={{
                 fontSize: scaleFont(18),
