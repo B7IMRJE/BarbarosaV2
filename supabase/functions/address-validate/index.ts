@@ -4,7 +4,7 @@ declare const Deno: {
     };
 };
 
-type ValidationResponse = {
+export type ValidationResponse = {
     result?: {
         verdict?: {
             validationGranularity?: string;
@@ -127,7 +127,7 @@ export default {
     },
 };
 
-function parseValidatedAddress(data: ValidationResponse | null, placeId: string, addressLine2: string) {
+export function parseValidatedAddress(data: ValidationResponse | null, placeId: string, addressLine2: string) {
     const result = data?.result;
     const verdict = result?.verdict;
     const address = result?.address;
@@ -148,12 +148,7 @@ function parseValidatedAddress(data: ValidationResponse | null, placeId: string,
     const countryCode = postalAddress?.regionCode?.trim().toUpperCase() || '';
     const formattedAddress = address?.formattedAddress?.trim() || '';
 
-    if (
-        !verdict?.addressComplete ||
-        blockingMissing.length > 0 ||
-        blockingUnconfirmed.length > 0 ||
-        unresolvedTokens.length > 0
-    ) {
+    if (unresolvedTokens.length > 0) {
         return {
             address: null,
             requiresConfirmation: false,
@@ -178,11 +173,15 @@ function parseValidatedAddress(data: ValidationResponse | null, placeId: string,
     }
 
     const requiresConfirmation =
-        verdict.hasInferredComponents === true ||
-        verdict.hasReplacedComponents === true ||
-        verdict.hasSpellCorrectedComponents === true ||
-        verdict.possibleNextAction === 'CONFIRM' ||
-        verdict.possibleNextAction === 'CONFIRM_ADD_SUBPREMISES' ||
+        verdict?.addressComplete !== true ||
+        verdict?.hasUnconfirmedComponents === true ||
+        blockingMissing.length > 0 ||
+        blockingUnconfirmed.length > 0 ||
+        verdict?.hasInferredComponents === true ||
+        verdict?.hasReplacedComponents === true ||
+        verdict?.hasSpellCorrectedComponents === true ||
+        verdict?.possibleNextAction === 'CONFIRM' ||
+        verdict?.possibleNextAction === 'CONFIRM_ADD_SUBPREMISES' ||
         formattedAddress.length > 0;
 
     return {

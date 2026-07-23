@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ScrollView, Text, TextInput, useWindowDimensions, View, type TextInputProps } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import HomeHeader from '../../../../components/HomeHeader';
 import ThemedButton from '../../../../components/theme/ThemedButton';
@@ -14,6 +14,11 @@ import {
     type CompanyClientDirectoryEntry,
     type CompanyClientDirectoryShelf,
 } from '../../../../lib/companyClientDirectory';
+import {
+    buildCustomerInviteRpcPayload,
+    customerInviteHasContact,
+    customerInvitePhoneWasPersisted,
+} from '../../../../lib/customerInviteDraft';
 import { supabase } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -103,6 +108,7 @@ export default function CompanyClientsScreen() {
         invitedPhone: '',
         note: '',
     });
+    const inviteFormRef = useRef(inviteForm);
     const [inviteActionId, setInviteActionId] = useState('');
     const [creatingInvite, setCreatingInvite] = useState(false);
     const [inviteMessage, setInviteMessage] = useState('');
@@ -260,21 +266,18 @@ export default function CompanyClientsScreen() {
 
         if (!companyId || creatingInvite) return;
 
-        if (!inviteForm.invitedName.trim() && !inviteForm.invitedEmail.trim() && !inviteForm.invitedPhone.trim()) {
+        const inviteDraft = inviteFormRef.current;
+
+        if (!customerInviteHasContact(inviteDraft)) {
             setInviteMessage('Add a customer name, email, or phone before creating an invite.');
             return;
         }
 
+        const invitePayload = buildCustomerInviteRpcPayload(companyId, inviteDraft);
         setCreatingInvite(true);
         setInviteMessage('Creating customer invite...');
 
-        const { data, error } = await supabase.rpc('create_company_customer_invite', {
-            p_company_id: companyId,
-            p_invited_email: inviteForm.invitedEmail.trim() || null,
-            p_invited_phone: inviteForm.invitedPhone.trim() || null,
-            p_invited_name: inviteForm.invitedName.trim() || null,
-            p_note: inviteForm.note.trim() || null,
-        });
+        const { data, error } = await supabase.rpc('create_company_customer_invite', invitePayload);
 
         setCreatingInvite(false);
 
@@ -284,13 +287,30 @@ export default function CompanyClientsScreen() {
         }
 
         const createdInvite = firstRow<CustomerInvite>(data);
-        setInviteForm({ invitedName: '', invitedEmail: '', invitedPhone: '', note: '' });
+
+        if (!customerInvitePhoneWasPersisted(invitePayload.p_invited_phone, createdInvite?.invited_phone)) {
+            setInviteMessage('The connection was created, but its phone number was not saved. Your typed contact details were kept.');
+            await loadCustomerInvites(companyId);
+            return;
+        }
+
+        updateInviteForm({ invitedName: '', invitedEmail: '', invitedPhone: '', note: '' });
         setInviteMessage(
             createdInvite?.invite_code
-                ? `Customer invite created. Code ${createdInvite.invite_code}.`
+                ? `Customer invite created${createdInvite.invited_phone ? ` for ${createdInvite.invited_phone}` : ''}. Code ${createdInvite.invite_code}.`
                 : 'Customer invite created.'
         );
         await loadCustomerInvites(companyId);
+    }
+
+    function updateInviteForm(updates: Partial<CustomerInviteForm>) {
+        const nextForm = {
+            ...inviteFormRef.current,
+            ...updates,
+        };
+
+        inviteFormRef.current = nextForm;
+        setInviteForm(nextForm);
     }
 
     async function revokeCustomerInvite(invite: CustomerInvite) {
@@ -525,7 +545,7 @@ export default function CompanyClientsScreen() {
                     creating={creatingInvite}
                     actionInviteId={inviteActionId}
                     message={inviteMessage}
-                    onChangeForm={(updates) => setInviteForm((current) => ({ ...current, ...updates }))}
+                    onChangeForm={updateInviteForm}
                     onCreate={createCustomerInvite}
                     onRefresh={() => loadCustomerInvites(String(id))}
                     onCopy={copyInviteText}
@@ -765,6 +785,8 @@ function InviteCustomerSection({
                             label="Phone"
                             value={form.invitedPhone}
                             placeholder="Optional"
+                            keyboardType="phone-pad"
+                            autoComplete="tel"
                             onChangeText={(invitedPhone) => onChangeForm({ invitedPhone })}
                         />
                         <InviteInput
@@ -823,11 +845,15 @@ function InviteInput({
     label,
     value,
     placeholder,
+    keyboardType,
+    autoComplete,
     onChangeText,
 }: {
     label: string;
     value: string;
     placeholder: string;
+    keyboardType?: TextInputProps['keyboardType'];
+    autoComplete?: TextInputProps['autoComplete'];
     onChangeText: (value: string) => void;
 }) {
     const { theme } = useTheme();
@@ -840,6 +866,8 @@ function InviteInput({
                 onChangeText={onChangeText}
                 placeholder={placeholder}
                 placeholderTextColor={theme.colors.mutedText}
+                keyboardType={keyboardType}
+                autoComplete={autoComplete}
                 style={[
                     inputStyle,
                     {
