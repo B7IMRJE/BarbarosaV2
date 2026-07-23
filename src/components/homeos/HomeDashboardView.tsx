@@ -12,10 +12,16 @@ import {
   type HomeHealthEmergency,
   type HomeHealthItem,
 } from '../../lib/homeHealth';
-import { homeSystems, isCustomServiceRoot } from '../../lib/homeSystems';
+import {
+  buildHomeDashboardSystemTiles,
+  type DashboardSystemTile,
+} from '../../lib/homeDashboardSystems';
+import { homeSystems } from '../../lib/homeSystems';
 import type { HomeIdentity } from '../../lib/homeIdentity';
 import { labelDueStatus, type DueStatusLabel } from '../../lib/maintenanceTimers';
 import { useTheme } from '../../theme/useTheme';
+
+export type { DashboardSystemTile } from '../../lib/homeDashboardSystems';
 
 export type HomeDashboardItem = HomeHealthItem & {
   id?: string | null;
@@ -35,13 +41,6 @@ export type HomeDashboardMaintenanceReminder = {
   title: string;
   next_due_date: string;
   reminder_status: 'active' | 'paused' | 'archived';
-};
-
-export type DashboardSystemTile = {
-  key: string;
-  label: string;
-  icon: string;
-  route: 'documents' | 'plumbing' | 'system';
 };
 
 type HomeDashboardViewProps = {
@@ -585,53 +584,6 @@ export default function HomeDashboardView({
   );
 }
 
-export function buildHomeDashboardSystemTiles(items: HomeDashboardItem[]): DashboardSystemTile[] {
-  const customSystemsByKey = new Map<string, string>();
-
-  items.forEach((item) => {
-    if (!isCustomServiceRoot(item)) return;
-
-    const systemName = firstText(item.system);
-    const normalizedSystemName = normalizeText(systemName);
-
-    if (!systemName) return;
-
-    if (!customSystemsByKey.has(normalizedSystemName)) {
-      customSystemsByKey.set(normalizedSystemName, systemName);
-    }
-  });
-
-  const fixedTiles = homeSystems.map<DashboardSystemTile>((system) => ({
-    key: system.key,
-    label: system.label,
-    icon: system.icon,
-    route: system.key === 'Documents' ? 'documents' : system.key === 'Plumbing' ? 'plumbing' : 'system',
-  }));
-
-  const customTiles = Array.from(customSystemsByKey.values())
-    .sort((a, b) => a.localeCompare(b))
-    .map<DashboardSystemTile>((systemName) => ({
-      key: systemName,
-      label: systemName,
-      icon: getCustomSystemIcon(systemName),
-      route: 'system',
-    }));
-
-  return [...fixedTiles, ...customTiles];
-}
-
-function getCustomSystemIcon(systemName: string) {
-  const normalizedName = normalizeText(systemName);
-
-  if (normalizedName.includes('storage') || normalizedName.includes('inventory')) return '📦';
-  if (normalizedName.includes('roof')) return '🏠';
-  if (normalizedName.includes('paint')) return '🎨';
-  if (normalizedName.includes('siding')) return '🏡';
-  if (normalizedName.includes('landscape') || normalizedName.includes('yard')) return '🌿';
-
-  return '🏠';
-}
-
 function firstText(...values: Array<string | null | undefined>) {
   for (const value of values) {
     const text = String(value || '').trim();
@@ -659,10 +611,6 @@ function issueStatusLabel(item: HomeDashboardItem, status: string) {
     firstText(item.status, item.install_state) ||
     (status === 'critical' ? 'Emergency' : 'Needs Attention')
   );
-}
-
-function normalizeText(value?: string | null) {
-  return String(value || '').trim().toLowerCase();
 }
 
 const summaryGridStyle = {

@@ -83,7 +83,6 @@ export const systemDefaultsByKey: Record<string, SystemDefaults> = {
     Plumbing: waterServiceDefaults,
     Gas: {
         areas: [
-            'Gas Meter',
             'Garage',
             'Kitchen',
             'Laundry',

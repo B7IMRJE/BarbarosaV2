@@ -1,6 +1,6 @@
 import {
     buildHomeDashboardSystemTiles,
-} from '../components/homeos/HomeDashboardView';
+} from './homeDashboardSystems';
 import {
     formatDirectItemsEmptyMessage,
     resolveAreaVisibleItems,
@@ -19,6 +19,7 @@ export function runProviderItemVisibilityRegressions() {
     providerQueryFailureIsNotDisplayedAsEmptyList();
     providerDashboardShowsCustomTopLevelAreas();
     childContainerDoesNotBecomeDuplicateRootTile();
+    canonicalSystemsDoNotBecomeDuplicateRootTiles();
     nestedContainerShowsDirectItems();
 }
 
@@ -125,6 +126,43 @@ function childContainerDoesNotBecomeDuplicateRootTile() {
     const tiles = buildHomeDashboardSystemTiles(customHierarchyItems);
 
     assert(!tiles.some((tile) => tile.key === 'Repipe'), 'Child Repipe container should not become a duplicate root dashboard tile.');
+}
+
+function canonicalSystemsDoNotBecomeDuplicateRootTiles() {
+    const tiles = buildHomeDashboardSystemTiles([
+        ...customHierarchyItems,
+        {
+            id: 'plumbing-root',
+            property_id: 'property-1',
+            name: 'Plumbing',
+            system: 'plumbing',
+            item_slug: 'plumbing',
+            category: 'Area',
+            location: 'Plumbing',
+            parent_area: '',
+        },
+        {
+            id: 'hvac-root',
+            property_id: 'property-1',
+            name: 'HVAC',
+            system: 'hvac',
+            item_slug: 'hvac',
+            category: 'Area',
+            location: 'HVAC',
+            parent_area: '',
+        },
+    ]);
+
+    assert(
+        tiles.filter((tile) => tile.key === 'Plumbing').length === 1,
+        'Plumbing records must resolve to the single Water Service dashboard card.'
+    );
+    assert(
+        tiles.filter((tile) => tile.key === 'HVAC').length === 1,
+        'HVAC records must resolve to the single AC Service dashboard card.'
+    );
+    assert(!tiles.some((tile) => tile.label === 'Plumbing'), 'A duplicate Plumbing card must not be added.');
+    assert(!tiles.some((tile) => tile.label === 'HVAC'), 'A duplicate HVAC card must not be added.');
 }
 
 function nestedContainerShowsDirectItems() {

@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { getStatusCardStyle } from '../../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../../components/theme/ThemedButton';
@@ -9,6 +9,7 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../../../lib/activeProperty';
+import { getStarterItemsForAreaSystem } from '../../../../lib/areaTemplates';
 import { getSystemLabel } from '../../../../lib/homeSystems';
 import {
     providerModeItemPath,
@@ -99,6 +100,22 @@ export default function AreaScreen() {
     const [message, setMessage] = useState('');
     const starterRecoverySubmittingRef = useRef(false);
     const itemSections = groupItemsBySystem(items);
+    const suggestedStarterItems = useMemo(() => {
+        const existingItemNames = new Set(items.map((item) => normalize(item.name || '')));
+
+        return getStarterItemsForAreaSystem(areaName, systemName)
+            .filter((item) => !existingItemNames.has(normalize(item.name)))
+            .map<AreaHomeItem>((item) => ({
+                name: item.name,
+                system: item.system,
+                item_slug: null,
+                category: item.category,
+                status: item.status,
+                install_state: item.install_state,
+                location: areaName,
+                parent_area: parentAreaName || null,
+            }));
+    }, [areaName, items, parentAreaName, systemName]);
 
     useEffect(() => {
         loadAreaItems();
@@ -751,7 +768,8 @@ export default function AreaScreen() {
                                         key={childArea}
                                         title={childArea}
                                         subtitle="Suggested area"
-                                        onPress={() => createChildArea(childArea)}
+                                        onPress={() => openChildArea(childArea)}
+                                        onActivate={() => createChildArea(childArea)}
                                     />
                                 ))}
                             </View>
@@ -771,7 +789,7 @@ export default function AreaScreen() {
                                     Items directly in {areaName}
                                 </Text>
 
-                                {items.length === 0 ? (
+                                {items.length === 0 && suggestedStarterItems.length === 0 ? (
                                     <ThemedCard style={[emptyStateCardStyle, { marginBottom: 16 }]}>
                                         <Text style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900', textAlign: 'center' }}>
                                             {formatDirectItemsEmptyMessage({
@@ -782,44 +800,64 @@ export default function AreaScreen() {
                                         </Text>
                                     </ThemedCard>
                                 ) : (
-                                    itemSections.map((section) => (
-                                        <View key={section.title} style={sectionBlockStyle}>
-                                            {itemSections.length > 1 && (
-                                                <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
-                                                    {getItemGroupHeading(section.title)}
-                                                </Text>
-                                            )}
+                                    <>
+                                        {itemSections.map((section) => (
+                                            <View key={section.title} style={sectionBlockStyle}>
+                                                {itemSections.length > 1 && (
+                                                    <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
+                                                        {getItemGroupHeading(section.title)}
+                                                    </Text>
+                                                )}
 
-                                            <View style={gridStyle}>
-                                                {section.items.map((item) => {
-                                                    const archiveKey = item.id || item.item_slug || item.name || '';
-                                                    const starterShell = isStarterHomeItemShell(item);
+                                                <View style={gridStyle}>
+                                                    {section.items.map((item) => {
+                                                        const archiveKey = item.id || item.item_slug || item.name || '';
+                                                        const starterShell = isStarterHomeItemShell(item);
 
-                                                    return (
-                                                        <AreaItemCard
-                                                            key={archiveKey}
-                                                            item={item}
-                                                            onOpen={() => {
-                                                                const itemSlug = item.item_slug || '';
+                                                        return (
+                                                            <AreaItemCard
+                                                                key={archiveKey}
+                                                                item={item}
+                                                                onOpen={() => {
+                                                                    const itemSlug = item.item_slug || '';
 
-                                                                if (itemSlug) {
-                                                                    router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
+                                                                    if (itemSlug) {
+                                                                        router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
+                                                                    }
+                                                                }}
+                                                                onActivate={
+                                                                    starterShell && !providerModeContext
+                                                                        ? () => activateStarterCard(item)
+                                                                        : undefined
                                                                 }
-                                                            }}
-                                                            onActivate={
-                                                                starterShell && !providerModeContext
-                                                                    ? () => activateStarterCard(item)
-                                                                    : undefined
-                                                            }
-                                                            onArchive={() => confirmArchiveItem(item)}
-                                                            archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
-                                                            archiveDisabled={!!archivingRecordId}
-                                                        />
-                                                    );
-                                                })}
+                                                                onArchive={() => confirmArchiveItem(item)}
+                                                                archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
+                                                                archiveDisabled={!!archivingRecordId}
+                                                            />
+                                                        );
+                                                    })}
+                                                </View>
                                             </View>
-                                        </View>
-                                    ))
+                                        ))}
+
+                                        {suggestedStarterItems.length > 0 && (
+                                            <View style={sectionBlockStyle}>
+                                                <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
+                                                    Suggested items
+                                                </Text>
+                                                <View style={gridStyle}>
+                                                    {suggestedStarterItems.map((item) => (
+                                                        <AreaItemCard
+                                                            key={`${item.system}-${item.name}`}
+                                                            item={item}
+                                                            onOpen={() => undefined}
+                                                            onActivate={() => createSuggestedItem(item.category || 'Equipment', item.name || '')}
+                                                        />
+                                                    ))}
+                                                </View>
+                                            </View>
+                                        )}
+                                    </>
                                 )}
                             </View>
                         </View>
@@ -945,6 +983,7 @@ function ChildAreaCard({
     title,
     subtitle,
     onPress,
+    onActivate,
     onArchive,
     archiveTitle = 'Archive',
     archiveDisabled = false,
@@ -952,6 +991,7 @@ function ChildAreaCard({
     title: string;
     subtitle: string;
     onPress: () => void;
+    onActivate?: () => void;
     onArchive?: () => void;
     archiveTitle?: string;
     archiveDisabled?: boolean;
@@ -1022,7 +1062,15 @@ function ChildAreaCard({
                 </Text>
             </TouchableOpacity>
 
-            {onArchive && (
+            {onActivate ? (
+                <ThemedButton
+                    title="Activate Card"
+                    disabled={archiveDisabled}
+                    onPress={onActivate}
+                    style={smallArchiveButtonStyle}
+                    textStyle={smallArchiveButtonTextStyle}
+                />
+            ) : onArchive ? (
                 <ThemedButton
                     title={archiveTitle}
                     variant="danger"
@@ -1031,7 +1079,7 @@ function ChildAreaCard({
                     style={smallArchiveButtonStyle}
                     textStyle={smallArchiveButtonTextStyle}
                 />
-            )}
+            ) : null}
         </View>
     );
 }
@@ -1047,7 +1095,7 @@ function AreaItemCard({
     item: AreaHomeItem;
     onOpen: () => void;
     onActivate?: () => void;
-    onArchive: () => void;
+    onArchive?: () => void;
     archiveTitle?: string;
     archiveDisabled?: boolean;
 }) {
@@ -1130,7 +1178,7 @@ function AreaItemCard({
                     style={smallArchiveButtonStyle}
                     textStyle={smallArchiveButtonTextStyle}
                 />
-            ) : (
+            ) : onArchive ? (
                 <ThemedButton
                     title={archiveTitle}
                     variant="danger"
@@ -1139,7 +1187,7 @@ function AreaItemCard({
                     style={smallArchiveButtonStyle}
                     textStyle={smallArchiveButtonTextStyle}
                 />
-            )}
+            ) : null}
         </View>
     );
 }

@@ -1,3 +1,5 @@
+import { getSystemDefinition } from './homeSystems';
+
 export type StarterItemCategory = 'Area' | 'Fixture' | 'Equipment' | 'Component';
 export type StarterItemStatus = 'Missing Information' | 'Not Inspected';
 
@@ -211,6 +213,14 @@ export const areaTemplates: AreaTemplate[] = [
                 item('Drip Line', 'Irrigation', 'Component'),
             ],
             Safety: [item('GFCI Protection', 'Safety', 'Component', notInspected)],
+        },
+    },
+    {
+        id: 'exterior',
+        name: 'Exterior',
+        icon: '🏠',
+        starterItems: {
+            Gas: [item('Gas Meter', 'Gas', 'Equipment', notInspected)],
         },
     },
     {
@@ -436,6 +446,29 @@ export const areaTemplates: AreaTemplate[] = [
 
 export function getAreaTemplate(id: string) {
     return areaTemplates.find((template) => template.id === id) || null;
+}
+
+export function getAreaTemplateByName(name?: string | null) {
+    const normalizedName = normalize(String(name || ''));
+
+    if (!normalizedName) return null;
+
+    return areaTemplates.find((template) => normalize(template.name) === normalizedName) || null;
+}
+
+export function getStarterItemsForAreaSystem(areaName: string, systemName: string) {
+    const template = getAreaTemplateByName(areaName);
+    const systemDefinition = getSystemDefinition(systemName);
+    const canonicalSystemName = systemDefinition?.key || systemName;
+
+    if (!template) return [];
+
+    return Object.entries(template.starterItems)
+        .filter(([starterSystemName]) => {
+            const starterDefinition = getSystemDefinition(starterSystemName);
+            return normalize(starterDefinition?.key || starterSystemName) === normalize(canonicalSystemName);
+        })
+        .flatMap(([, starterItems]) => starterItems);
 }
 
 export function getStarterItems(template: AreaTemplate) {

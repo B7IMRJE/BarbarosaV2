@@ -4,7 +4,9 @@ import { Image, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import { buildCurrentProviderConnections } from '../lib/homeConnectionSummary';
 import { supabase } from '../lib/supabase';
+import type { HomeOSTheme } from '../theme';
 import { useTheme } from '../theme/useTheme';
 
 type PropertyMembership = {
@@ -76,6 +78,7 @@ type RelationshipHistorySection = {
     connections: PropertyConnection[];
     emptyText: string;
     showActions?: boolean;
+    tone: 'pending' | 'connected' | 'revoked' | 'declined';
 };
 
 type LoadConnectionsOptions = {
@@ -114,44 +117,14 @@ export default function ConnectionsScreen() {
             { ...companiesById }
         );
     }, [approvedCompanies, companiesById]);
-    const currentProviderCompanyIds = useMemo(() => {
-        const activePreferredProviderIds = preferredProviders
-            .filter((provider) => normalizeStatus(provider.status) === 'active')
-            .map((provider) => provider.company_id);
-        const fallbackProviderIds = connections
-            .filter((connection) => isChosenProviderConnection(connection))
-            .map((connection) => connection.company_id);
-
-        return Array.from(new Set([...activePreferredProviderIds, ...fallbackProviderIds]));
-    }, [connections, preferredProviders]);
-    const currentProviderConnections = useMemo(() => {
-        const existingConnectionKeys = new Set<string>();
-        const preferredProviderConnections = preferredProviders
-            .filter((provider) => normalizeStatus(provider.status) === 'active')
-            .map((provider) => {
-                const matchingConnection = connections.find(
-                    (connection) =>
-                        connection.company_id === provider.company_id &&
-                        connection.property_id === provider.property_id
-                );
-
-                if (matchingConnection) {
-                    existingConnectionKeys.add(matchingConnection.id);
-                    return {
-                        ...matchingConnection,
-                        status: 'connected',
-                        created_at: provider.selected_at || matchingConnection.created_at,
-                    };
-                }
-
-                return preferredProviderToConnection(provider);
-            });
-        const fallbackConnections = connections.filter(
-            (connection) => isChosenProviderConnection(connection) && !existingConnectionKeys.has(connection.id)
-        );
-
-        return [...preferredProviderConnections, ...fallbackConnections];
-    }, [connections, preferredProviders]);
+    const currentProviderConnections = useMemo(
+        () => buildCurrentProviderConnections(connections, preferredProviders),
+        [connections, preferredProviders]
+    );
+    const currentProviderCompanyIds = useMemo(
+        () => Array.from(new Set(currentProviderConnections.map((connection) => connection.company_id))),
+        [currentProviderConnections]
+    );
     const selectedProviderCategoryKeys = useMemo(() => {
         const keys = currentProviderCompanyIds.flatMap((companyId) =>
             getCompanyCategoryKeys(allCompaniesById[companyId])
@@ -191,15 +164,6 @@ export default function ConnectionsScreen() {
     }, [approvedCompanies, currentProviderCompanyIds, selectedProviderCategoryKeys]);
     const availableProviderCompanies = availableProviderFilterResult.companies;
     const hiddenAvailableProviderCount = availableProviderFilterResult.categoryHiddenCount;
-    const connectedConnections = useMemo(
-        () =>
-            connections.filter(
-                (connection) =>
-                    normalizeStatus(connection.status) === 'connected' &&
-                    !currentProviderCompanyIds.includes(connection.company_id)
-            ),
-        [connections, currentProviderCompanyIds]
-    );
     const pendingConnections = useMemo(
         () =>
             connections.filter(
@@ -634,21 +598,25 @@ export default function ConnectionsScreen() {
                                 connections: pendingConnections,
                                 emptyText: 'No pending requests.',
                                 showActions: true,
+                                tone: 'pending',
                             },
                             {
                                 title: 'Connected Companies',
-                                connections: connectedConnections,
+                                connections: currentProviderConnections,
                                 emptyText: 'No connected companies yet.',
+                                tone: 'connected',
                             },
                             {
                                 title: 'Revoked Connections',
                                 connections: revokedConnections,
                                 emptyText: 'No revoked connections.',
+                                tone: 'revoked',
                             },
                             {
                                 title: 'Declined Requests',
                                 connections: declinedConnections,
                                 emptyText: 'No declined requests.',
+                                tone: 'declined',
                             },
                         ]}
                         companiesById={allCompaniesById}
@@ -768,57 +736,84 @@ function RelationshipHistoryGrid({
         <View style={sectionStyle}>
             <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>Connection History</Text>
             <View style={historyGridStyle}>
-                {sections.map((section) => (
-                    <ThemedCard key={section.title} style={historyCardStyle}>
-                        <View style={historyCardHeaderStyle}>
-                            <Text style={[historyCardTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
-                                {section.title}
-                            </Text>
-                            <View
-                                style={[
-                                    countBadgeStyle,
-                                    {
-                                        backgroundColor: theme.colors.surfaceAlt,
-                                        borderColor: theme.colors.border,
-                                    },
-                                ]}
-                            >
-                                <Text style={[countBadgeTextStyle, { color: theme.colors.text }]}>
-                                    {section.connections.length}
-                                </Text>
-                            </View>
-                        </View>
+                {sections.map((section) => {
+                    const palette = getRelationshipHistoryPalette(section.tone, theme);
 
-                        {section.connections.length === 0 ? (
-                            <Text style={[compactEmptyTextStyle, { color: theme.colors.mutedText }]}>
-                                {section.emptyText}
-                            </Text>
-                        ) : (
-                            <View style={compactConnectionListStyle}>
-                                {section.connections.slice(0, 3).map((connection) => (
-                                    <CompactConnectionRow
-                                        key={connection.id}
-                                        connection={connection}
-                                        company={companiesById[connection.company_id]}
-                                        showActions={!!section.showActions}
-                                        actionConnectionId={actionConnectionId}
-                                        actionType={actionType}
-                                        onApprove={onApprove}
-                                        onDecline={onDecline}
-                                    />
-                                ))}
-                                {section.connections.length > 3 && (
-                                    <Text style={[compactMoreTextStyle, { color: theme.colors.mutedText }]}>
-                                        +{section.connections.length - 3} more
+                    return (
+                        <ThemedCard
+                            key={section.title}
+                            style={[
+                                historyCardStyle,
+                                {
+                                    backgroundColor: palette.background,
+                                    borderColor: palette.border,
+                                },
+                            ]}
+                        >
+                            <View style={historyCardHeaderStyle}>
+                                <Text style={[historyCardTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                                    {section.title}
+                                </Text>
+                                <View
+                                    style={[
+                                        countBadgeStyle,
+                                        {
+                                            backgroundColor: theme.colors.surface,
+                                            borderColor: palette.border,
+                                        },
+                                    ]}
+                                >
+                                    <Text style={[countBadgeTextStyle, { color: theme.colors.text }]}>
+                                        {section.connections.length}
                                     </Text>
-                                )}
+                                </View>
                             </View>
-                        )}
-                    </ThemedCard>
-                ))}
+
+                            {section.connections.length === 0 ? (
+                                <Text style={[compactEmptyTextStyle, { color: theme.colors.mutedText }]}>
+                                    {section.emptyText}
+                                </Text>
+                            ) : (
+                                <View style={compactConnectionListStyle}>
+                                    {section.connections.slice(0, 3).map((connection) => (
+                                        <CompactConnectionRow
+                                            key={connection.id}
+                                            connection={connection}
+                                            company={companiesById[connection.company_id]}
+                                            showActions={!!section.showActions}
+                                            actionConnectionId={actionConnectionId}
+                                            actionType={actionType}
+                                            onApprove={onApprove}
+                                            onDecline={onDecline}
+                                        />
+                                    ))}
+                                    {section.connections.length > 3 && (
+                                        <Text style={[compactMoreTextStyle, { color: theme.colors.mutedText }]}>
+                                            +{section.connections.length - 3} more
+                                        </Text>
+                                    )}
+                                </View>
+                            )}
+                        </ThemedCard>
+                    );
+                })}
             </View>
         </View>
     );
+}
+
+function getRelationshipHistoryPalette(
+    tone: RelationshipHistorySection['tone'],
+    theme: HomeOSTheme
+) {
+    if (tone === 'connected') return theme.colors.status.good;
+    if (tone === 'pending') return theme.colors.status.notInspected;
+    if (tone === 'declined') return theme.colors.status.needsAttention;
+
+    return {
+        background: theme.colors.dangerBackground,
+        border: theme.colors.danger,
+    };
 }
 
 function CompactConnectionRow({
@@ -1302,38 +1297,6 @@ function CompanyStat({ label, value }: { label: string; value: string }) {
 
 function normalizeStatus(status: string | null) {
     return String(status || 'pending').trim().toLowerCase();
-}
-
-function normalizeRequestSource(source: string | null) {
-    return String(source || '').trim().toLowerCase();
-}
-
-function isChosenProviderConnection(connection: PropertyConnection) {
-    const source = normalizeRequestSource(connection.request_source);
-    const status = normalizeStatus(connection.status);
-
-    return (
-        source === 'homeowner_provider_request' &&
-        status !== 'revoked' &&
-        status !== 'expired' &&
-        status !== 'declined'
-    );
-}
-
-function preferredProviderToConnection(provider: PreferredProviderRow): PropertyConnection {
-    return {
-        id: provider.property_connection_id || `preferred-${provider.property_id}-${provider.company_id}`,
-        property_id: provider.property_id,
-        company_id: provider.company_id,
-        status: 'connected',
-        request_source: provider.source || 'preferred_provider',
-        can_view_documents: false,
-        can_view_photos: false,
-        can_view_service_history: false,
-        can_view_quotes: false,
-        created_at: provider.selected_at,
-        expires_at: null,
-    };
 }
 
 function formatPermissionItems(connection: PropertyConnection) {

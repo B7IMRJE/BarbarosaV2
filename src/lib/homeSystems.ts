@@ -120,14 +120,16 @@ export const homeSystemOptions = homeSystems.filter(
 );
 
 export function getSystemDefinition(value?: string | null) {
-    if (!value) return null;
+    const normalizedValue = normalizeSystemText(value);
+
+    if (!normalizedValue) return null;
 
     return (
         homeSystems.find(
             (system) =>
-                system.key === value ||
-                system.label === value ||
-                system.aliases.includes(value)
+                sameSystemText(system.key, normalizedValue) ||
+                sameSystemText(system.label, normalizedValue) ||
+                system.aliases.some((alias) => sameSystemText(alias, normalizedValue))
         ) || null
     );
 }
