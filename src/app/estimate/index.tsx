@@ -1,7 +1,7 @@
 import HomeHeader from '../../components/HomeHeader';
 
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
@@ -171,6 +171,11 @@ export default function EstimateScreen() {
     const [aiValidationErrors, setAiValidationErrors] = useState<string[]>([]);
     const [aiDraftsByChoiceId, setAiDraftsByChoiceId] = useState<Record<string, AiEstimateDraftChoice>>({});
     const [editableCopyByChoiceId, setEditableCopyByChoiceId] = useState<Record<string, EditableChoiceCopy>>({});
+    const estimateScrollRef = useRef<ScrollView | null>(null);
+    const estimateContentRef = useRef<View | null>(null);
+    const expandedChecklistRef = useRef<View | null>(null);
+    const readinessDetailsRef = useRef<View | null>(null);
+    const workspaceDetailsRef = useRef<View | null>(null);
 
     useEffect(() => {
         void checkAccess();
@@ -186,6 +191,61 @@ export default function EstimateScreen() {
         providerModeContext?.scheduleSlotId,
         providerModeContext?.jobId,
     ]);
+
+    useEffect(() => {
+        if (!expandedCategory) return;
+
+        return focusExpandedSection(expandedChecklistRef);
+    }, [expandedCategory]);
+
+    useEffect(() => {
+        if (!readinessExpanded) return;
+
+        return focusExpandedSection(readinessDetailsRef);
+    }, [readinessExpanded]);
+
+    useEffect(() => {
+        if (!expandedWorkspaceSection) return;
+
+        return focusExpandedSection(workspaceDetailsRef);
+    }, [expandedWorkspaceSection]);
+
+    function focusExpandedSection(targetRef: { readonly current: View | null }) {
+        let secondFrame: number | null = null;
+
+        const bringIntoView = () => {
+            const scrollView = estimateScrollRef.current;
+            const content = estimateContentRef.current;
+            const target = targetRef.current;
+
+            if (!scrollView || !content || !target) return;
+
+            target.measureLayout(
+                content,
+                (_targetX, targetY) => {
+                    scrollView.scrollTo({
+                        y: Math.max(0, targetY - 16),
+                        animated: true,
+                    });
+                },
+                () => undefined
+            );
+        };
+
+        if (typeof requestAnimationFrame === 'function') {
+            const firstFrame = requestAnimationFrame(() => {
+                secondFrame = requestAnimationFrame(bringIntoView);
+            });
+
+            return () => {
+                cancelAnimationFrame(firstFrame);
+                if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+            };
+        }
+
+        const timeout = setTimeout(bringIntoView, 0);
+        return () => clearTimeout(timeout);
+    }
 
     async function checkAccess() {
         setCheckingAccess(true);
@@ -1126,10 +1186,11 @@ export default function EstimateScreen() {
 
     return (
         <ScrollView
+            ref={estimateScrollRef}
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
             contentContainerStyle={{ padding: 20, alignItems: 'center' }}
         >
-            <View style={{ width: '100%', maxWidth: 1200 }}>
+            <View ref={estimateContentRef} style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
                 <View style={headerRowStyle}>
@@ -1267,7 +1328,7 @@ export default function EstimateScreen() {
                     </View>
 
                     {expandedCategory === selectedCategory && (
-                        <View style={expandedChecklistStyle}>
+                        <View ref={expandedChecklistRef} style={expandedChecklistStyle}>
                             <View style={expandedChecklistHeaderStyle}>
                                 <View style={{ flex: 1 }}>
                                     <Text style={expandedChecklistTitleStyle}>{phase1Workspace.template.label}</Text>
@@ -1335,7 +1396,7 @@ export default function EstimateScreen() {
                                 </View>
 
                                 {readinessExpanded && (
-                                    <View style={readinessDetailGridStyle}>
+                                    <View ref={readinessDetailsRef} style={readinessDetailGridStyle}>
                                         {renderReadinessDetails(
                                             'Still needed',
                                             phase1Workspace.draftGate.missingBeforeFinalPresentation,
@@ -1486,7 +1547,7 @@ export default function EstimateScreen() {
                 </View>
 
                 {expandedWorkspaceSection === 'pricing' && (
-                <View style={workspaceDetailStyle}>
+                <View ref={workspaceDetailsRef} style={workspaceDetailStyle}>
                     {renderSectionHeader('Deterministic Pricing', phase1Workspace.statusMessage)}
                     {phase1Workspace.pricingSetupRequired ? (
                         <View style={smallEmptyStyle}>
@@ -1516,7 +1577,7 @@ export default function EstimateScreen() {
                 )}
 
                 {expandedWorkspaceSection === 'editor' && (
-                <View style={workspaceDetailStyle}>
+                <View ref={workspaceDetailsRef} style={workspaceDetailStyle}>
                     {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
                     <View style={compactActionRowStyle}>
                         <TouchableOpacity
@@ -1624,7 +1685,7 @@ export default function EstimateScreen() {
                 )}
 
                 {expandedWorkspaceSection === 'presentation' && (
-                <View style={workspaceDetailStyle}>
+                <View ref={workspaceDetailsRef} style={workspaceDetailStyle}>
                     {renderSectionHeader('Homeowner Presentation', phase1Workspace.presentationGate.canPresent ? 'Ready' : 'Blocked')}
                     {!presentationMode ? (
                         <View style={smallEmptyStyle}>
@@ -1647,7 +1708,7 @@ export default function EstimateScreen() {
                 )}
 
                 {expandedWorkspaceSection === 'findings' && (
-                <View style={workspaceDetailStyle}>
+                <View ref={workspaceDetailsRef} style={workspaceDetailStyle}>
                     {renderSectionHeader('Findings', 'Field findings will be attached before customer review.')}
                     <View style={foundationGridStyle}>
                         {estimateFoundationSections.map((section) => (
