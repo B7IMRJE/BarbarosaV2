@@ -166,7 +166,7 @@ export default function CompanyDashboardScreen() {
     const { width: viewportWidth } = useWindowDimensions();
     const isPhoneLayout = viewportWidth <= 640;
     const pagePadding = isPhoneLayout ? 16 : 20;
-    const heroLogoSize = isPhoneLayout ? 72 : 86;
+    const heroLogoSize = isPhoneLayout ? 64 : 86;
     const previewLogoSize = isPhoneLayout ? 72 : 88;
     const [company, setCompany] = useState<Company | null>(null);
     const [brandForm, setBrandForm] = useState<CompanyBrandForm>(defaultBrandForm);
@@ -622,16 +622,23 @@ export default function CompanyDashboardScreen() {
                 >
                     <View
                         style={{
-                            flexDirection: 'row',
-                            flexWrap: 'wrap',
+                            flexDirection: isPhoneLayout ? 'column' : 'row',
+                            flexWrap: isPhoneLayout ? 'nowrap' : 'wrap',
                             justifyContent: 'space-between',
                             alignItems: 'flex-start',
-                            gap: 18,
+                            gap: isPhoneLayout ? 14 : 18,
                             marginBottom: 22,
                             minWidth: 0,
                         }}
                     >
-                        <View style={{ flex: 1, minWidth: 0, maxWidth: '100%' }}>
+                        <View
+                            style={{
+                                flex: isPhoneLayout ? undefined : 1,
+                                width: isPhoneLayout ? '100%' : undefined,
+                                minWidth: 0,
+                                maxWidth: '100%',
+                            }}
+                        >
                             <Text
                                 style={{
                                     color: brandHeaderText,
@@ -644,7 +651,16 @@ export default function CompanyDashboardScreen() {
                                 ManagementOS
                             </Text>
 
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 16, minWidth: 0 }}>
+                            <View
+                                style={{
+                                    width: '100%',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    flexWrap: 'nowrap',
+                                    gap: isPhoneLayout ? 12 : 16,
+                                    minWidth: 0,
+                                }}
+                            >
                                 {logoCanPreview ? (
                                     <Image
                                         source={{ uri: brandForm.logoUrl.trim() }}
@@ -685,7 +701,8 @@ export default function CompanyDashboardScreen() {
                                         numberOfLines={2}
                                         style={{
                                             color: brandHeaderText,
-                                            fontSize: isPhoneLayout ? 30 : 36,
+                                            fontSize: isPhoneLayout ? 24 : 36,
+                                            lineHeight: isPhoneLayout ? 29 : 43,
                                             fontWeight: '900',
                                             flexShrink: 1,
                                         }}
@@ -728,9 +745,9 @@ export default function CompanyDashboardScreen() {
                                 alignSelf: 'flex-start',
                                 maxWidth: '100%',
                                 backgroundColor: brandSecondary,
-                                borderRadius: 16,
-                                paddingHorizontal: 18,
-                                paddingVertical: 12,
+                                borderRadius: 8,
+                                paddingHorizontal: isPhoneLayout ? 14 : 18,
+                                paddingVertical: isPhoneLayout ? 10 : 12,
                             }}
                         >
                             <Text
