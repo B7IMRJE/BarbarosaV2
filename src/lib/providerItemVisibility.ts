@@ -34,7 +34,9 @@ export function resolveAreaVisibleItems<T extends AreaVisibleHomeItem>(
         sameAreaText(item.category, 'Area') &&
         sameAreaText(item.parent_area, scope.areaName)
     );
-    const directItems = rows.filter((item) => isDirectItemVisibleInArea(item, scope.areaName, scope.parentAreaName || ''));
+    const directItems = systemRows.filter((item) =>
+        isDirectItemVisibleInArea(item, scope.areaName, scope.parentAreaName || '')
+    );
 
     return {
         systemRows,

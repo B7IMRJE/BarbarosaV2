@@ -20,6 +20,7 @@ export function runProviderItemVisibilityRegressions() {
     providerDashboardShowsCustomTopLevelAreas();
     childContainerDoesNotBecomeDuplicateRootTile();
     canonicalSystemsDoNotBecomeDuplicateRootTiles();
+    electricalKitchenExcludesOtherServiceItems();
     nestedContainerShowsDirectItems();
 }
 
@@ -165,6 +166,30 @@ function canonicalSystemsDoNotBecomeDuplicateRootTiles() {
     assert(!tiles.some((tile) => tile.label === 'HVAC'), 'A duplicate HVAC card must not be added.');
 }
 
+function electricalKitchenExcludesOtherServiceItems() {
+    const electricalResult = resolveAreaVisibleItems(homeItems, {
+        systemName: 'Electrical System',
+        areaName: 'Kitchen',
+    });
+
+    assert(
+        electricalResult.directItems.some((item) => item.id === 'item-refrigerator-outlet'),
+        'Electrical Kitchen should include its electrical items.'
+    );
+    assert(
+        !electricalResult.directItems.some((item) => item.id === 'item-kitchen-faucet'),
+        'Electrical Kitchen must not include Water Service items.'
+    );
+    assert(
+        !electricalResult.directItems.some((item) => item.id === 'item-dishwasher'),
+        'Electrical Kitchen must not include Appliance items.'
+    );
+    assert(
+        !electricalResult.directItems.some((item) => item.id === 'item-kitchen-drain'),
+        'Electrical Kitchen must not include Sewer Service items.'
+    );
+}
+
 function nestedContainerShowsDirectItems() {
     const result = resolveAreaVisibleItems(customHierarchyItems, {
         systemName: 'Main Home',
@@ -229,6 +254,16 @@ const homeItems = [
         name: 'Kitchen Drain / P-Trap',
         system: 'Drains / Sewer',
         item_slug: 'kitchen-kitchen-drain-p-trap',
+        category: 'Fixture',
+        location: 'Kitchen',
+        parent_area: '',
+    },
+    {
+        id: 'item-refrigerator-outlet',
+        property_id: 'property-1',
+        name: 'Refrigerator Dedicated Outlet',
+        system: 'Electrical',
+        item_slug: 'kitchen-electrical-refrigerator-dedicated-outlet',
         category: 'Fixture',
         location: 'Kitchen',
         parent_area: '',

@@ -10,7 +10,7 @@ import {
     requireActivePropertyMembership,
 } from '../../../../lib/activeProperty';
 import { getStarterItemsForAreaSystem } from '../../../../lib/areaTemplates';
-import { getSystemLabel } from '../../../../lib/homeSystems';
+import { getSystemDefinition, getSystemLabel } from '../../../../lib/homeSystems';
 import {
     providerModeItemPath,
     providerModeQueryParams,
@@ -672,7 +672,7 @@ export default function AreaScreen() {
                             Add Item
                         </Text>
                         <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
-                            Faucet, valve, disposal, appliance, or fixture.
+                            {getAreaAddItemDescription(systemName)}
                         </Text>
                         <ThemedButton
                             title="+ Add Item"
@@ -1227,7 +1227,25 @@ function getPreferredItemOrder(areaName: string) {
         'kitchen cold angle stop',
         'refrigerator water line',
         'stove / range',
-        'kitchen gfci / outlets',
+        'counter gfci - left of sink',
+        'counter gfci - right of sink',
+        'countertop outlet circuit 1',
+        'countertop outlet circuit 2',
+        'island / peninsula outlet',
+        'refrigerator dedicated outlet',
+        'dishwasher dedicated outlet',
+        'microwave dedicated outlet',
+        'garbage disposal dedicated outlet',
+        'garbage disposal switch',
+        'range / oven outlet',
+        'range hood outlet',
+        'under-cabinet led lighting',
+        'ceiling led lighting',
+        'kitchen exhaust fan',
+        'usb outlet',
+        'usb-c outlet',
+        'ethernet / data outlet',
+        'kitchen subpanel if present',
         'reverse osmosis',
         'sink drain',
         'p-trap',
@@ -1235,7 +1253,6 @@ function getPreferredItemOrder(areaName: string) {
         'dishwasher',
         'refrigerator',
         'gfci outlet',
-        'garbage disposal switch',
     ];
 }
 
@@ -1264,6 +1281,19 @@ function groupItemsBySystem(items: AreaHomeItem[]) {
 
 function getItemGroupHeading(sectionTitle: string) {
     return `${sectionTitle} items`;
+}
+
+function getAreaAddItemDescription(systemName: string) {
+    const system = normalize(getSystemDefinition(systemName)?.key || systemName);
+
+    if (system === 'electrical') return 'Outlet, switch, light, fan, panel, or circuit.';
+    if (system === 'gas') return 'Meter, shutoff, connector, appliance line, or safety device.';
+    if (system === 'drains / sewer') return 'Drain, trap, cleanout, vent, sewer line, or fixture.';
+    if (system === 'hvac') return 'Unit, thermostat, register, disconnect, duct, or component.';
+    if (system === 'irrigation') return 'Controller, valve, station, sprinkler, drip line, or sensor.';
+    if (system === 'pool') return 'Pump, filter, heater, light, control, or safety component.';
+
+    return 'Faucet, valve, supply line, appliance, equipment, or fixture.';
 }
 
 function getAreaItemSectionTitle(item: AreaHomeItem) {
