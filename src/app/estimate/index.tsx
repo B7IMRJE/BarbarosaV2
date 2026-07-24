@@ -13,6 +13,7 @@ import {
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
     inferEstimateCategoryFromDraft,
+    inferEstimateCategoryForDraftItem,
     isAnswerComplete,
     isMeasurementRequirementAnswer,
     isMeasurementRequirementComplete,
@@ -106,6 +107,7 @@ type RequirementUploadState = {
 };
 
 type RequirementKind = 'photo' | 'measurement';
+type EstimateWorkspaceSection = 'pricing' | 'editor' | 'presentation' | 'findings';
 
 const requirementSkipReasons: Array<{ label: string; reason: EstimateRequirementSkipReason | null }> = [
     { label: 'Skip for now', reason: null },
@@ -118,9 +120,10 @@ const requirementSkipReasons: Array<{ label: string; reason: EstimateRequirement
 ];
 
 export default function EstimateScreen() {
-    const { companyId, propertyId, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId } = useLocalSearchParams<{
+    const { companyId, propertyId, itemSlug, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId } = useLocalSearchParams<{
         companyId?: string | string[];
         propertyId?: string | string[];
+        itemSlug?: string | string[];
         mode?: string | string[];
         providerMode?: string | string[];
         returnTo?: string | string[];
@@ -130,6 +133,7 @@ export default function EstimateScreen() {
     }>();
     const requestedCompanyId = firstParam(companyId);
     const requestedPropertyId = firstParam(propertyId);
+    const requestedItemSlug = firstParam(itemSlug);
     const requestedMode = firstParam(mode);
     const requestedReturnTo = firstParam(returnTo);
     const providerRouteParams = {
@@ -154,6 +158,7 @@ export default function EstimateScreen() {
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
     const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
     const [expandedCategory, setExpandedCategory] = useState<EstimateOptionCategory | null>(null);
+    const [expandedWorkspaceSection, setExpandedWorkspaceSection] = useState<EstimateWorkspaceSection | null>(null);
     const [readinessExpanded, setReadinessExpanded] = useState(false);
     const [answers, setAnswers] = useState<EstimateAnswerSet>({});
     const [photoPreviewByKey, setPhotoPreviewByKey] = useState<Record<string, string>>({});
@@ -172,6 +177,7 @@ export default function EstimateScreen() {
     }, [
         requestedCompanyId,
         requestedPropertyId,
+        requestedItemSlug,
         providerContextIncomplete,
         providerModeContext?.providerMode,
         providerModeContext?.companyId,
@@ -188,6 +194,7 @@ export default function EstimateScreen() {
         setEstimateSession(null);
         setItems([]);
         setExpandedCategory(null);
+        setExpandedWorkspaceSection(null);
         setReadinessExpanded(false);
         setPriceBookItems([]);
         setPriceBookMessage('Price book loading...');
@@ -267,13 +274,24 @@ export default function EstimateScreen() {
             loadEstimateDraft(scope),
             loadEstimateDraftContext(scope),
         ]);
-        const inferredCategory = inferEstimateCategoryFromDraft(draftItems, nextDraftContext);
+        const requestedDraftItem = requestedItemSlug
+            ? draftItems.find((item) =>
+                item.item_slug?.toLowerCase() === requestedItemSlug.toLowerCase() ||
+                item.id.toLowerCase() === requestedItemSlug.toLowerCase()
+            )
+            : null;
+        const inferredCategory = inferEstimateCategoryForDraftItem(
+            draftItems,
+            requestedItemSlug,
+            nextDraftContext
+        );
 
         setItems(draftItems);
         setDraftContext(nextDraftContext);
         setEstimateSession(null);
         setSelectedCategory(inferredCategory);
-        setExpandedCategory(null);
+        setExpandedCategory(requestedDraftItem ? inferredCategory : null);
+        setExpandedWorkspaceSection(null);
         setReadinessExpanded(false);
         setAnswers({});
         setPhotoPreviewByKey({});
@@ -332,6 +350,7 @@ export default function EstimateScreen() {
         setSelectedChoiceId('');
         setSelectedCategory('faucet_replacement');
         setExpandedCategory(null);
+        setExpandedWorkspaceSection(null);
         setReadinessExpanded(false);
         setAnswers({});
         setPhotoPreviewByKey({});
@@ -388,10 +407,26 @@ export default function EstimateScreen() {
         }).choices.some((choice) => choice.id === selectedChoiceId)) {
             setSelectedChoiceId('');
         }
-        setSelectedCategory(inferEstimateCategoryFromDraft(nextItems, draftContext));
+        const nextCategory = inferEstimateCategoryFromDraft(nextItems, draftContext);
+        setSelectedCategory(nextCategory);
+        setExpandedCategory(nextItems.length > 0 ? nextCategory : null);
+        setExpandedWorkspaceSection(null);
         setTechnicianApproved(false);
         setPresentationMode(false);
         setMessage('Item removed from estimate.');
+    }
+
+    function configureDraftItem(item: EstimateDraftItem) {
+        const category = inferEstimateCategoryForDraftItem([item], item.item_slug || item.id, null);
+
+        setSelectedCategory(category);
+        setExpandedCategory(category);
+        setExpandedWorkspaceSection(null);
+        setReadinessExpanded(false);
+        setSelectedChoiceId('');
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setMessage(`${item.name} checklist opened.`);
     }
 
     function selectChoice(choice: Phase1EstimateChoice) {
@@ -1014,6 +1049,8 @@ export default function EstimateScreen() {
     }
 
     function toggleCategoryPanel(category: EstimateOptionCategory) {
+        setExpandedWorkspaceSection(null);
+
         if (expandedCategory === category) {
             setExpandedCategory(null);
             setReadinessExpanded(false);
@@ -1324,7 +1361,132 @@ export default function EstimateScreen() {
                     )}
                 </View>
 
+                <View style={draftWorkspacePanelStyle}>
+                    <View style={draftWorkspaceHeaderStyle}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={sectionTitleStyle}>Items in Draft</Text>
+                            <Text style={sectionDescriptionStyle}>
+                                This is the estimate you are building now.
+                            </Text>
+                        </View>
+                        <View style={draftWorkspaceCountStyle}>
+                            <Text style={draftWorkspaceCountTextStyle}>{items.length}</Text>
+                        </View>
+                    </View>
+
+                    {items.length === 0 ? (
+                        <View style={smallEmptyStyle}>
+                            <Text style={smallEmptyTitleStyle}>No estimate items yet.</Text>
+                            <Text style={smallEmptyTextStyle}>
+                                {providerModeContext
+                                    ? 'No provider estimate draft found.'
+                                    : 'Add equipment or fixtures to start building an estimate.'}
+                            </Text>
+                        </View>
+                    ) : (
+                        <View style={draftGridStyle}>
+                            {items.map((item) => (
+                                <View key={item.id} style={draftItemCardStyle}>
+                                    <Text style={itemTitleStyle} numberOfLines={2}>{item.name}</Text>
+                                    <Text style={itemMetaStyle} numberOfLines={1}>
+                                        {item.system} / {item.category}
+                                    </Text>
+                                    <Text style={itemMetaStyle} numberOfLines={1}>
+                                        {itemLocation(item)}
+                                    </Text>
+                                    <View style={miniMetaRowStyle}>
+                                        <Text style={miniMetaPillStyle}>{item.status || 'Missing Info'}</Text>
+                                        <Text style={miniMetaPillStyle}>{item.install_state || 'Unknown'}</Text>
+                                    </View>
+                                    <View style={draftItemActionRowStyle}>
+                                        <TouchableOpacity
+                                            onPress={() => configureDraftItem(item)}
+                                            style={compactPrimaryButtonStyle}
+                                        >
+                                            <Text style={compactPrimaryButtonTextStyle}>Configure</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={() => openDraftItem(item)}
+                                            style={compactSecondaryButtonStyle}
+                                        >
+                                            <Text style={compactSecondaryButtonTextStyle}>Item Details</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={() => removeItem(item.id)}
+                                            style={compactDangerButtonStyle}
+                                        >
+                                            <Text style={compactDangerButtonTextStyle}>Remove</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                </View>
+
                 <View style={sectionStyle}>
+                    {renderSectionHeader('Estimate Workspace', 'Open only the part you need.')}
+                    <View style={workspaceCardGridStyle}>
+                        {([
+                            {
+                                id: 'pricing',
+                                title: 'Pricing',
+                                value: phase1Workspace.pricingSetupRequired
+                                    ? 'Setup needed'
+                                    : `${phase1Workspace.pricingResults.length} totals`,
+                                description: 'Deterministic prices and scope.',
+                                tone: cardTone('#FFF8DF', '#F2DC92', '#D99214'),
+                            },
+                            {
+                                id: 'editor',
+                                title: 'Options',
+                                value: `${estimateChoices.length} choices`,
+                                description: 'Draft and review customer choices.',
+                                tone: cardTone('#EEF4FF', '#C8DAFF', '#276BDC'),
+                            },
+                            {
+                                id: 'presentation',
+                                title: 'Presentation',
+                                value: phase1Workspace.presentationGate.canPresent ? 'Ready' : 'Blocked',
+                                description: 'Technician-approved homeowner view.',
+                                tone: cardTone('#ECFBF5', '#B7E8D7', '#0F8A68'),
+                            },
+                            {
+                                id: 'findings',
+                                title: 'Findings',
+                                value: `${estimateFoundationSections.length} sections`,
+                                description: 'Field notes and recommended work.',
+                                tone: cardTone('#F3EFFF', '#D9CCFF', '#7357C8'),
+                            },
+                        ] as const).map((workspaceSection) => {
+                            const open = expandedWorkspaceSection === workspaceSection.id;
+
+                            return (
+                                <TouchableOpacity
+                                    key={workspaceSection.id}
+                                    onPress={() => setExpandedWorkspaceSection(open ? null : workspaceSection.id)}
+                                    style={[
+                                        workspaceCardStyle,
+                                        workspaceSection.tone,
+                                        open ? workspaceCardOpenStyle : null,
+                                    ]}
+                                >
+                                    <View>
+                                        <Text style={workspaceCardTitleStyle}>{workspaceSection.title}</Text>
+                                        <Text style={workspaceCardDescriptionStyle}>{workspaceSection.description}</Text>
+                                    </View>
+                                    <View style={workspaceCardFooterStyle}>
+                                        <Text style={workspaceCardValueStyle}>{workspaceSection.value}</Text>
+                                        <Text style={workspaceCardActionStyle}>{open ? 'Hide' : 'Open'}</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </View>
+
+                {expandedWorkspaceSection === 'pricing' && (
+                <View style={workspaceDetailStyle}>
                     {renderSectionHeader('Deterministic Pricing', phase1Workspace.statusMessage)}
                     {phase1Workspace.pricingSetupRequired ? (
                         <View style={smallEmptyStyle}>
@@ -1351,8 +1513,10 @@ export default function EstimateScreen() {
                         </View>
                     )}
                 </View>
+                )}
 
-                <View style={sectionStyle}>
+                {expandedWorkspaceSection === 'editor' && (
+                <View style={workspaceDetailStyle}>
                     {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
                     <View style={compactActionRowStyle}>
                         <TouchableOpacity
@@ -1457,8 +1621,10 @@ export default function EstimateScreen() {
                         </View>
                     )}
                 </View>
+                )}
 
-                <View style={sectionStyle}>
+                {expandedWorkspaceSection === 'presentation' && (
+                <View style={workspaceDetailStyle}>
                     {renderSectionHeader('Homeowner Presentation', phase1Workspace.presentationGate.canPresent ? 'Ready' : 'Blocked')}
                     {!presentationMode ? (
                         <View style={smallEmptyStyle}>
@@ -1478,55 +1644,10 @@ export default function EstimateScreen() {
                         </View>
                     )}
                 </View>
+                )}
 
-                <View style={sectionStyle}>
-                    {renderSectionHeader('Items in Draft', 'Compact item cards stay removable and recalculate options immediately.')}
-                    {items.length === 0 ? (
-                        <View style={smallEmptyStyle}>
-                            <Text style={smallEmptyTitleStyle}>No estimate items yet.</Text>
-                            <Text style={smallEmptyTextStyle}>
-                                {providerModeContext
-                                    ? 'No provider estimate draft found.'
-                                    : 'Add equipment or fixtures to start building an estimate.'}
-                            </Text>
-                        </View>
-                    ) : (
-                        <View style={draftGridStyle}>
-                            {items.map((item) => (
-                                <View key={item.id} style={draftItemCardStyle}>
-                                    <Text style={itemTitleStyle} numberOfLines={2}>{item.name}</Text>
-                                    <Text style={itemMetaStyle} numberOfLines={1}>
-                                        {item.system} / {item.category}
-                                    </Text>
-                                    <Text style={itemMetaStyle} numberOfLines={1}>
-                                        {itemLocation(item)}
-                                    </Text>
-                                    <View style={miniMetaRowStyle}>
-                                        <Text style={miniMetaPillStyle}>{item.status || 'Missing Info'}</Text>
-                                        <Text style={miniMetaPillStyle}>{item.install_state || 'Unknown'}</Text>
-                                    </View>
-                                    <View style={compactActionRowStyle}>
-                                        <TouchableOpacity
-                                            onPress={() => openDraftItem(item)}
-                                            style={compactPrimaryButtonStyle}
-                                        >
-                                            <Text style={compactPrimaryButtonTextStyle}>Open</Text>
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            onPress={() => removeItem(item.id)}
-                                            style={compactDangerButtonStyle}
-                                        >
-                                            <Text style={compactDangerButtonTextStyle}>Remove</Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-                            ))}
-                        </View>
-                    )}
-                </View>
-
-                <View style={sectionStyle}>
+                {expandedWorkspaceSection === 'findings' && (
+                <View style={workspaceDetailStyle}>
                     {renderSectionHeader('Findings', 'Field findings will be attached before customer review.')}
                     <View style={foundationGridStyle}>
                         {estimateFoundationSections.map((section) => (
@@ -1537,6 +1658,7 @@ export default function EstimateScreen() {
                         ))}
                     </View>
                 </View>
+                )}
 
             </View>
         </ScrollView>
@@ -2221,6 +2343,102 @@ const secondaryButtonTextStyle = {
 };
 
 const sectionStyle = {
+    marginBottom: 18,
+};
+
+const draftWorkspacePanelStyle = {
+    backgroundColor: '#EAF3FF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#9FC0F4',
+    marginBottom: 18,
+};
+
+const draftWorkspaceHeaderStyle = {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    marginBottom: 12,
+};
+
+const draftWorkspaceCountStyle = {
+    backgroundColor: '#276BDC',
+    borderRadius: 999,
+    minWidth: 34,
+    height: 34,
+    paddingHorizontal: 10,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+};
+
+const draftWorkspaceCountTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const workspaceCardGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const workspaceCardStyle = {
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    width: 180,
+    minHeight: 108,
+    justifyContent: 'space-between' as const,
+    overflow: 'hidden' as const,
+};
+
+const workspaceCardOpenStyle = {
+    borderWidth: 3,
+};
+
+const workspaceCardTitleStyle = {
+    color: '#071B33',
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const workspaceCardDescriptionStyle = {
+    color: '#526175',
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 5,
+};
+
+const workspaceCardFooterStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-end' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+    marginTop: 12,
+};
+
+const workspaceCardValueStyle = {
+    color: '#071B33',
+    fontSize: 14,
+    fontWeight: '900' as const,
+    flex: 1,
+};
+
+const workspaceCardActionStyle = {
+    color: '#276BDC',
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const workspaceDetailStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#D8E0EA',
     marginBottom: 18,
 };
 
@@ -3045,8 +3263,15 @@ const draftItemCardStyle = {
     padding: 12,
     borderWidth: 1,
     borderColor: '#F2DC92',
-    width: 160,
-    minHeight: 172,
+    width: 190,
+    minHeight: 190,
+};
+
+const draftItemActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 12,
 };
 
 const foundationGridStyle = {

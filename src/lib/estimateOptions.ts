@@ -732,6 +732,33 @@ export function inferEstimateCategoryFromDraft(
     return 'faucet_replacement';
 }
 
+export function inferEstimateCategoryForDraftItem(
+    items: EstimateDraftItemLike[],
+    preferredItemSlug?: string | null,
+    context?: EstimateDraftContextLike | null
+): EstimateOptionCategory {
+    const preferredIdentity = normalizeText(preferredItemSlug || '');
+    const preferredItem = preferredIdentity
+        ? items.find((item) =>
+            normalizeText(item.item_slug) === preferredIdentity ||
+            normalizeText(item.id) === preferredIdentity
+        )
+        : null;
+
+    if (!preferredItem) return inferEstimateCategoryFromDraft(items, context);
+
+    const itemIdentity = `${preferredItem.name} ${preferredItem.item_slug}`.toLowerCase();
+    if (itemIdentity.includes('repipe') || itemIdentity.includes('whole home') || itemIdentity.includes('whole-home')) {
+        return 'whole_home_repipe';
+    }
+    if (itemIdentity.includes('water heater') || itemIdentity.includes('tankless')) return 'water_heater';
+    if (itemIdentity.includes('garbage disposal') || itemIdentity.includes('disposal')) return 'garbage_disposal';
+    if (itemIdentity.includes('toilet') || itemIdentity.includes('bidet')) return 'toilet_replacement';
+    if (itemIdentity.includes('faucet') || itemIdentity.includes('sink')) return 'faucet_replacement';
+
+    return inferEstimateCategoryFromDraft([preferredItem], null);
+}
+
 export function validateEstimateAnswers(template: EstimateCategoryTemplate, answers: EstimateAnswerSet): EstimateAnswerValidation {
     const missingRequiredQuestions = template.questions
         .filter((question) => question.required && !isAnswerComplete(answers[question.id]));

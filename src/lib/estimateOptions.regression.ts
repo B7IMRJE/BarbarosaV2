@@ -10,6 +10,7 @@ import {
     filterRuleCompatibleProducts,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
+    inferEstimateCategoryForDraftItem,
     inferEstimateCategoryFromDraft,
     isPhotoRequirementComplete,
     measurementRequirementAnswerKey,
@@ -62,6 +63,7 @@ export function runEstimateOptionsRegressions() {
     waterHeaterChecklistIsEnforced();
     waterFiltrationChecklistCoversTreatmentStages();
     waterFiltrationIsInferredFromWaterQualityWork();
+    mixedDraftUsesTheRequestedItemsWorkflow();
     completeWaterFiltrationChecklistClearsAnswerGate();
     waterFiltrationDoesNotUseUnrelatedPriceBookEntries();
     faucetSelectionsClearQuestionRequirementsBeforeChecklistIsComplete();
@@ -366,6 +368,56 @@ function waterFiltrationIsInferredFromWaterQualityWork() {
     }], null);
 
     assert(category === 'water_filtration', 'Water quality and softener work should open the water-filtration checklist.');
+}
+
+function mixedDraftUsesTheRequestedItemsWorkflow() {
+    const disposal = {
+        ...draftItem('kitchen-garbage-disposal'),
+        name: 'Garbage Disposal',
+        item_slug: 'kitchen-garbage-disposal',
+    };
+    const faucet = {
+        ...draftItem('kitchen-faucet'),
+        name: 'Kitchen Faucet',
+        item_slug: 'kitchen-faucet',
+    };
+    const toilet = {
+        ...draftItem('hall-bath-toilet'),
+        name: 'Hall Bath Toilet',
+        item_slug: 'hall-bath-toilet',
+    };
+    const waterHeater = {
+        ...draftItem('garage-water-heater'),
+        name: 'Tankless Water Heater',
+        item_slug: 'garage-water-heater',
+    };
+    const repipe = {
+        ...draftItem('whole-home-repipe'),
+        name: 'Whole-Home Repipe',
+        item_slug: 'whole-home-repipe',
+    };
+    const mixedDraft = [faucet, disposal, toilet, waterHeater, repipe];
+
+    assert(
+        inferEstimateCategoryForDraftItem(mixedDraft, disposal.item_slug, null) === 'garbage_disposal',
+        'Opening a disposal in a mixed draft should use the disposal checklist.'
+    );
+    assert(
+        inferEstimateCategoryForDraftItem(mixedDraft, faucet.item_slug, null) === 'faucet_replacement',
+        'Opening a faucet in a mixed draft should use the faucet checklist.'
+    );
+    assert(
+        inferEstimateCategoryForDraftItem(mixedDraft, toilet.item_slug, null) === 'toilet_replacement',
+        'Opening a toilet in a mixed draft should use the toilet checklist.'
+    );
+    assert(
+        inferEstimateCategoryForDraftItem(mixedDraft, waterHeater.item_slug, null) === 'water_heater',
+        'Opening a water heater in a mixed draft should use the water-heater checklist.'
+    );
+    assert(
+        inferEstimateCategoryForDraftItem(mixedDraft, repipe.item_slug, null) === 'whole_home_repipe',
+        'Opening a repipe item in a mixed draft should use the repipe checklist.'
+    );
 }
 
 function completeWaterFiltrationChecklistClearsAnswerGate() {

@@ -38,6 +38,7 @@ import {
     type DispatchWallSectionKey,
     type DispatchWallTimingEvent,
 } from '../lib/dispatchWallClassification';
+import { resolveDispatchWallLayout } from '../lib/dispatchWallLayout';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 
@@ -309,8 +310,11 @@ export default function DispatchWallScreen() {
     const [detailItem, setDetailItem] = useState<DispatchWallItem | null>(null);
     const [fullscreenMessage, setFullscreenMessage] = useState('');
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const compactHeight = height <= 820;
-    const narrowLayout = width < 900;
+    const {
+        compactHeight,
+        compactWidth,
+        stacked: stackedLayout,
+    } = resolveDispatchWallLayout(width, height);
 
     useEffect(() => {
         const intervalId = setInterval(() => {
@@ -723,7 +727,7 @@ export default function DispatchWallScreen() {
             );
         }
 
-        if (narrowLayout) {
+        if (stackedLayout) {
             return (
                 <ScrollView
                     style={wallMobileScrollStyle}
@@ -735,6 +739,7 @@ export default function DispatchWallScreen() {
                             config={SECTION_CONFIGS[key]}
                             items={sections[key]}
                             compactHeight={compactHeight}
+                            compactWidth={false}
                             stacked
                             onExpand={() => setExpandedSectionKey(key)}
                             onOpenDetail={setDetailItem}
@@ -753,6 +758,7 @@ export default function DispatchWallScreen() {
                             config={SECTION_CONFIGS[key]}
                             items={sections[key]}
                             compactHeight={compactHeight}
+                            compactWidth={compactWidth}
                             stacked={false}
                             onExpand={() => setExpandedSectionKey(key)}
                             onOpenDetail={setDetailItem}
@@ -766,6 +772,7 @@ export default function DispatchWallScreen() {
                             config={SECTION_CONFIGS[key]}
                             items={sections[key]}
                             compactHeight={compactHeight}
+                            compactWidth={compactWidth}
                             stacked={false}
                             onExpand={() => setExpandedSectionKey(key)}
                             onOpenDetail={setDetailItem}
@@ -778,8 +785,16 @@ export default function DispatchWallScreen() {
 
     return (
         <View style={wallRootStyle}>
-            <View style={[wallHeaderStyle, narrowLayout ? wallHeaderNarrowStyle : null]}>
-                <View style={[wallHeaderLeftStyle, narrowLayout ? wallHeaderLeftNarrowStyle : null]}>
+            <View style={[
+                wallHeaderStyle,
+                compactWidth ? wallHeaderCompactStyle : null,
+                stackedLayout ? wallHeaderNarrowStyle : null,
+            ]}>
+                <View style={[
+                    wallHeaderLeftStyle,
+                    compactWidth ? wallHeaderLeftCompactStyle : null,
+                    stackedLayout ? wallHeaderLeftNarrowStyle : null,
+                ]}>
                     <Pressable
                         accessibilityRole="button"
                         accessibilityLabel={DISPATCH_WALL_BACK_LABEL}
@@ -791,31 +806,50 @@ export default function DispatchWallScreen() {
                     >
                         <Text style={wallBackButtonTextStyle} numberOfLines={1}>{DISPATCH_WALL_BACK_LABEL}</Text>
                     </Pressable>
-                    {!narrowLayout && (
+                    {!compactWidth && !stackedLayout && (
                         <View style={wallLogoShieldStyle}>
                             <Text style={wallLogoTextStyle}>B</Text>
                         </View>
                     )}
-                    {!narrowLayout && <View style={wallHeaderDividerStyle} />}
-                    <Text style={[wallTitleStyle, { fontSize: narrowLayout ? 24 : width >= 1600 ? 42 : 34 }]} numberOfLines={1}>
+                    {!compactWidth && !stackedLayout && <View style={wallHeaderDividerStyle} />}
+                    <Text
+                        style={[
+                            wallTitleStyle,
+                            { fontSize: stackedLayout ? 24 : compactWidth ? 22 : width >= 1600 ? 42 : 34 },
+                        ]}
+                        numberOfLines={1}
+                    >
                         Dispatch Activity Board
                     </Text>
                 </View>
-                <View style={[wallHeaderRightStyle, narrowLayout ? wallHeaderRightNarrowStyle : null]}>
-                    <View style={[brandClusterStyle, narrowLayout ? brandClusterNarrowStyle : null]}>
-                        <Text style={[brandMarkStyle, narrowLayout ? brandMarkNarrowStyle : null]}>B</Text>
+                <View style={[
+                    wallHeaderRightStyle,
+                    compactWidth ? wallHeaderRightCompactStyle : null,
+                    stackedLayout ? wallHeaderRightNarrowStyle : null,
+                ]}>
+                    <View style={[
+                        brandClusterStyle,
+                        compactWidth || stackedLayout ? brandClusterNarrowStyle : null,
+                    ]}>
+                        <Text style={[
+                            brandMarkStyle,
+                            compactWidth || stackedLayout ? brandMarkNarrowStyle : null,
+                        ]}>B</Text>
                         <Text
                             {...getWebTitleProps(companyName)}
-                            style={[brandNameStyle, narrowLayout ? brandNameNarrowStyle : null]}
+                            style={[
+                                brandNameStyle,
+                                compactWidth || stackedLayout ? brandNameNarrowStyle : null,
+                            ]}
                             numberOfLines={1}
                         >
                             {companyName}
                         </Text>
                     </View>
-                    {!narrowLayout && <View style={wallHeaderDividerStyle} />}
-                    {!narrowLayout && <View style={clockClusterStyle}>
-                        <Text style={[clockTextStyle, narrowLayout ? clockTextNarrowStyle : null]}>{formatClockTime(clockNow)}</Text>
-                        <Text style={[dateTextStyle, narrowLayout ? dateTextNarrowStyle : null]}>{formatClockDate(clockNow)}</Text>
+                    {!compactWidth && !stackedLayout && <View style={wallHeaderDividerStyle} />}
+                    {!compactWidth && !stackedLayout && <View style={clockClusterStyle}>
+                        <Text style={clockTextStyle}>{formatClockTime(clockNow)}</Text>
+                        <Text style={dateTextStyle}>{formatClockDate(clockNow)}</Text>
                     </View>}
                     <Pressable
                         accessibilityRole="button"
@@ -923,6 +957,7 @@ function DispatchWallSection({
     config,
     items,
     compactHeight,
+    compactWidth,
     stacked,
     onExpand,
     onOpenDetail,
@@ -930,6 +965,7 @@ function DispatchWallSection({
     config: WallSectionConfig;
     items: DispatchWallItem[];
     compactHeight: boolean;
+    compactWidth: boolean;
     stacked: boolean;
     onExpand: () => void;
     onOpenDetail: (item: DispatchWallItem) => void;
@@ -946,29 +982,63 @@ function DispatchWallSection({
                 { backgroundColor: config.panelColor, borderColor: config.cardBorderColor },
             ]}
         >
-            <View style={[sectionHeaderStyle, { backgroundColor: config.headerColor }]}>
-                <View style={sectionHeaderLeftStyle}>
-                    <View style={[sectionIconStyle, { backgroundColor: config.badgeColor }]}>
-                        <Text style={[sectionIconTextStyle, { color: config.badgeTextColor }]}>{config.icon}</Text>
+            <View style={[
+                sectionHeaderStyle,
+                compactWidth ? sectionHeaderCompactStyle : null,
+                { backgroundColor: config.headerColor },
+            ]}>
+                <View style={[
+                    sectionHeaderLeftStyle,
+                    compactWidth ? sectionHeaderLeftCompactStyle : null,
+                ]}>
+                    <View style={[
+                        sectionIconStyle,
+                        compactWidth ? sectionIconCompactStyle : null,
+                        { backgroundColor: config.badgeColor },
+                    ]}>
+                        <Text style={[
+                            sectionIconTextStyle,
+                            compactWidth ? sectionIconTextCompactStyle : null,
+                            { color: config.badgeTextColor },
+                        ]}>{config.icon}</Text>
                     </View>
                     <Text
-                        style={[sectionTitleStyle, { color: config.textColor }]}
+                        style={[
+                            sectionTitleStyle,
+                            compactWidth ? sectionTitleCompactStyle : null,
+                            { color: config.textColor },
+                        ]}
                         numberOfLines={1}
                     >
                         {config.title}
                     </Text>
-                    <View style={[sectionCountBadgeStyle, { backgroundColor: config.badgeColor }]}>
-                        <Text style={[sectionCountTextStyle, { color: config.badgeTextColor }]}>{items.length}</Text>
+                    <View style={[
+                        sectionCountBadgeStyle,
+                        compactWidth ? sectionCountBadgeCompactStyle : null,
+                        { backgroundColor: config.badgeColor },
+                    ]}>
+                        <Text style={[
+                            sectionCountTextStyle,
+                            compactWidth ? sectionCountTextCompactStyle : null,
+                            { color: config.badgeTextColor },
+                        ]}>{items.length}</Text>
                     </View>
                 </View>
-                <View style={sectionHeaderRightStyle}>
-                    {hiddenCount > 0 && (
+                <View style={[
+                    sectionHeaderRightStyle,
+                    compactWidth ? sectionHeaderRightCompactStyle : null,
+                ]}>
+                    {hiddenCount > 0 && !compactWidth && (
                         <View style={[sectionMoreBadgeStyle, { backgroundColor: config.badgeColor }]}>
                             <Text style={[sectionMoreTextStyle, { color: config.badgeTextColor }]}>+{hiddenCount} more</Text>
                         </View>
                     )}
                     <Pressable accessibilityRole="button" accessibilityLabel={`Expand ${config.title}`} onPress={onExpand} style={expandButtonStyle}>
-                        <Text style={[expandButtonTextStyle, { color: config.textColor }]}>Expand ↗</Text>
+                        <Text style={[
+                            expandButtonTextStyle,
+                            compactWidth ? expandButtonTextCompactStyle : null,
+                            { color: config.textColor },
+                        ]}>{compactWidth ? 'Open ↗' : 'Expand ↗'}</Text>
                     </Pressable>
                 </View>
             </View>
@@ -2126,6 +2196,17 @@ const wallHeaderStyle: ViewStyle = {
     paddingHorizontal: 24,
 };
 
+const wallHeaderCompactStyle: ViewStyle = {
+    alignItems: 'stretch',
+    flexDirection: 'column',
+    gap: 4,
+    height: 96,
+    maxHeight: 110,
+    minHeight: 96,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+};
+
 const wallHeaderNarrowStyle: ViewStyle = {
     alignItems: 'stretch',
     flexDirection: 'column',
@@ -2141,6 +2222,12 @@ const wallHeaderLeftStyle: ViewStyle = {
     flexDirection: 'row',
     gap: 22,
     minWidth: 0,
+};
+
+const wallHeaderLeftCompactStyle: ViewStyle = {
+    flex: 1,
+    gap: 8,
+    width: '100%',
 };
 
 const wallHeaderLeftNarrowStyle: ViewStyle = {
@@ -2176,6 +2263,13 @@ const wallHeaderRightStyle: ViewStyle = {
     flexWrap: 'wrap',
     gap: 22,
     justifyContent: 'flex-end',
+};
+
+const wallHeaderRightCompactStyle: ViewStyle = {
+    flex: 1,
+    gap: 8,
+    justifyContent: 'space-between',
+    width: '100%',
 };
 
 const wallHeaderRightNarrowStyle: ViewStyle = {
@@ -2390,6 +2484,11 @@ const sectionHeaderStyle: ViewStyle = {
     paddingHorizontal: 12,
 };
 
+const sectionHeaderCompactStyle: ViewStyle = {
+    minHeight: 38,
+    paddingHorizontal: 4,
+};
+
 const sectionHeaderLeftStyle: ViewStyle = {
     alignItems: 'center',
     flex: 1,
@@ -2398,10 +2497,18 @@ const sectionHeaderLeftStyle: ViewStyle = {
     minWidth: 0,
 };
 
+const sectionHeaderLeftCompactStyle: ViewStyle = {
+    gap: 3,
+};
+
 const sectionHeaderRightStyle: ViewStyle = {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
+};
+
+const sectionHeaderRightCompactStyle: ViewStyle = {
+    gap: 2,
 };
 
 const sectionIconStyle: ViewStyle = {
@@ -2412,9 +2519,19 @@ const sectionIconStyle: ViewStyle = {
     width: 30,
 };
 
+const sectionIconCompactStyle: ViewStyle = {
+    borderRadius: 6,
+    height: 20,
+    width: 20,
+};
+
 const sectionIconTextStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
+};
+
+const sectionIconTextCompactStyle = {
+    fontSize: 12,
 };
 
 const sectionTitleStyle = {
@@ -2422,6 +2539,10 @@ const sectionTitleStyle = {
     fontSize: 22,
     fontWeight: '900' as const,
     letterSpacing: 0,
+};
+
+const sectionTitleCompactStyle = {
+    fontSize: 11,
 };
 
 const sectionCountBadgeStyle: ViewStyle = {
@@ -2433,9 +2554,19 @@ const sectionCountBadgeStyle: ViewStyle = {
     paddingVertical: 4,
 };
 
+const sectionCountBadgeCompactStyle: ViewStyle = {
+    minWidth: 20,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+};
+
 const sectionCountTextStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
+};
+
+const sectionCountTextCompactStyle = {
+    fontSize: 10,
 };
 
 const sectionMoreBadgeStyle: ViewStyle = {
@@ -2457,6 +2588,10 @@ const expandButtonStyle: ViewStyle = {
 const expandButtonTextStyle = {
     fontSize: 13,
     fontWeight: '900' as const,
+};
+
+const expandButtonTextCompactStyle = {
+    fontSize: 8,
 };
 
 const sectionCardsStyle: ViewStyle = {

@@ -2218,7 +2218,14 @@ export default function ItemScreen() {
             const alreadyInDraft = existingDraft.some((draftItem) => draftItem.id === draftItemId);
 
             if (alreadyInDraft) {
-                setMessage('Item is already in estimate.');
+                setMessage('Item is already in estimate. Opening its checklist.');
+                router.push({
+                    pathname: '/estimate',
+                    params: {
+                        itemSlug: item.item_slug || String(slug),
+                        ...providerModeQueryParams(providerModeContext),
+                    },
+                } as any);
                 return;
             }
         }

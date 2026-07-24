@@ -1,4 +1,5 @@
 import {
+  getSystemDefinition,
   homeSystems,
   isCustomServiceRoot,
   type HomeSystemRecord,
@@ -19,7 +20,13 @@ export function buildHomeDashboardSystemTiles(
   items.forEach((item) => {
     if (!isCustomServiceRoot(item)) return;
 
-    const systemName = firstText(item.system);
+    const identityValues = [item.name, item.location, item.system];
+
+    if (identityValues.some((value) => Boolean(getSystemDefinition(value)))) {
+      return;
+    }
+
+    const systemName = firstText(item.name, item.location, item.system);
     const normalizedSystemName = normalizeText(systemName);
 
     if (!systemName) return;

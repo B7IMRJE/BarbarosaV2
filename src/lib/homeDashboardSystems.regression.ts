@@ -2,6 +2,7 @@ import { buildHomeDashboardSystemTiles } from './homeDashboardSystems';
 
 export function runHomeDashboardSystemsRegressions() {
   canonicalSystemsDoNotBecomeDuplicateRootTiles();
+  legacyCustomWrappersDoNotDuplicateCanonicalSystems();
 }
 
 function canonicalSystemsDoNotBecomeDuplicateRootTiles() {
@@ -32,6 +33,36 @@ function canonicalSystemsDoNotBecomeDuplicateRootTiles() {
   );
   assert(!tiles.some((tile) => tile.label === 'Plumbing'), 'A duplicate Plumbing card must not be added.');
   assert(!tiles.some((tile) => tile.label === 'HVAC'), 'A duplicate HVAC card must not be added.');
+}
+
+function legacyCustomWrappersDoNotDuplicateCanonicalSystems() {
+  const tiles = buildHomeDashboardSystemTiles([
+    {
+      name: 'Plumbing',
+      system: 'Custom Service',
+      category: 'Area',
+      location: 'Plumbing',
+      parent_area: '',
+    },
+    {
+      name: 'HVAC',
+      system: 'Custom Service',
+      category: 'Area',
+      location: 'HVAC',
+      parent_area: '',
+    },
+  ]);
+
+  assert(!tiles.some((tile) => tile.label === 'Plumbing'), 'A legacy custom Plumbing root must stay hidden.');
+  assert(!tiles.some((tile) => tile.label === 'HVAC'), 'A legacy custom HVAC root must stay hidden.');
+  assert(
+    tiles.filter((tile) => tile.key === 'Plumbing').length === 1,
+    'The canonical Water Service card must remain available.',
+  );
+  assert(
+    tiles.filter((tile) => tile.key === 'HVAC').length === 1,
+    'The canonical AC Service card must remain available.',
+  );
 }
 
 function assert(condition: boolean, message: string) {
