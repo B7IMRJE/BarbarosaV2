@@ -29,6 +29,7 @@ import {
     type DispatchOfficeActiveFilterKey,
 } from '../lib/dispatchOffice';
 import { calculateDispatchRisk, type DispatchRiskResult } from '../lib/dispatchRisk';
+import { findConflictingScheduleSlot } from '../lib/dispatchScheduling';
 import {
     buildDispatchWallRoute,
     DISPATCH_WALL_OPEN_SOURCE_DISPATCH_OFFICE,
@@ -936,9 +937,10 @@ export default function DispatchBoardScreen() {
                 startAt,
                 endAt,
             });
-            const conflict = findScheduleConflict(
+            const conflict = findConflictingScheduleSlot(
                 mergeScheduleSlots(scheduleSlots, freshTechnicianSlots),
                 activeCompanyId,
+                request.id,
                 form.technicianCompanyUserId,
                 startAt,
                 endAt
@@ -3807,32 +3809,6 @@ function sortScheduleSlots(slots: ScheduleSlot[]) {
 
         return getSortableTime(second.updated_at) - getSortableTime(first.updated_at);
     });
-}
-
-function findScheduleConflict(
-    slots: ScheduleSlot[],
-    companyId: string,
-    technicianCompanyUserId: string,
-    newStart: Date,
-    newEnd: Date
-) {
-    return slots.find((slot) => (
-        slot.company_id === companyId &&
-        slot.technician_company_user_id === technicianCompanyUserId &&
-        isActiveScheduleSlot(slot) &&
-        hasScheduleSlotOverlap(slot, newStart, newEnd)
-    )) || null;
-}
-
-function hasScheduleSlotOverlap(slot: ScheduleSlot, newStart: Date, newEnd: Date) {
-    if (!slot.start_at || !slot.end_at) return false;
-
-    const existingStart = new Date(slot.start_at);
-    const existingEnd = new Date(slot.end_at);
-
-    if (Number.isNaN(existingStart.getTime()) || Number.isNaN(existingEnd.getTime())) return false;
-
-    return newStart < existingEnd && newEnd > existingStart;
 }
 
 function isActiveScheduleSlot(slot: ScheduleSlot) {
