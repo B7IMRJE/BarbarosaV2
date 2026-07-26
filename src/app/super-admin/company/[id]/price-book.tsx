@@ -25,6 +25,7 @@ import {
     plumbingPriceBookCategories,
     type PlumbingPriceBookCatalogItem,
 } from '../../../../lib/plumbingPriceBookCatalog';
+import { buildTemporaryRiversidePlumbingPriceListTsv } from '../../../../lib/temporaryRiversidePlumbingPriceList';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -864,35 +865,35 @@ export default function CompanyPriceBookScreen() {
         }
     }
 
-    async function applyAllMatchedPriceImportRows() {
+    async function applyAllReadyPriceImportRows() {
         if (!manageAccess) {
             setMessage('Only company owners, admins, managers, or platform admins can apply imported pricing.');
             return;
         }
 
-        const matchedRows = priceImportRows.filter((row) => row.status === 'matched');
+        const readyRows = priceImportRows.filter((row) => row.status === 'matched' || row.status === 'new_item');
 
-        if (matchedRows.length === 0) {
-            setMessage('No matched imported rows are ready to apply.');
+        if (readyRows.length === 0) {
+            setMessage('No imported rows are ready to apply.');
             return;
         }
 
         setSaving(true);
-        setMessage(`Applying ${matchedRows.length} matched imported price rows...`);
+        setMessage(`Applying ${readyRows.length} reviewed temporary price rows...`);
 
         try {
-            for (const row of matchedRows) {
+            for (const row of readyRows) {
                 await upsertCompanyPriceBookItem(companyId, row.draft);
             }
 
             const refreshed = await loadCompanyPriceBook(companyId);
-            const matchedIds = new Set(matchedRows.map((row) => row.id));
+            const readyIds = new Set(readyRows.map((row) => row.id));
 
             setItems(refreshed.items);
             setBackendStatusMessage(refreshed.backendStatus.message);
-            setPriceImportRows((current) => current.filter((row) => !matchedIds.has(row.id)));
+            setPriceImportRows((current) => current.filter((row) => !readyIds.has(row.id)));
             setMessage(refreshed.backendStatus.status === 'connected'
-                ? `Applied ${matchedRows.length} matched imported price rows.`
+                ? `Applied ${readyRows.length} temporary Riverside plumbing prices.`
                 : 'Price book backend unavailable: using local price book draft'
             );
         } catch (error) {
@@ -1692,9 +1693,14 @@ export default function CompanyPriceBookScreen() {
                                         saving={saving}
                                         canManage={!!manageAccess}
                                         onChangeText={setPriceImportText}
+                                        onLoadTemporary={() => {
+                                            setPriceImportText(buildTemporaryRiversidePlumbingPriceListTsv());
+                                            setPriceImportRows([]);
+                                            setMessage('Temporary Riverside plumbing list loaded. Select Review Import before applying it.');
+                                        }}
                                         onPreview={previewPriceResearchImport}
                                         onApply={applyPriceImportRow}
-                                        onApplyAllMatched={applyAllMatchedPriceImportRows}
+                                        onApplyAllReady={applyAllReadyPriceImportRows}
                                         onEdit={editPriceImportRowBeforeSave}
                                         onSkip={skipPriceImportRow}
                                         onClear={clearPriceImport}
@@ -2323,9 +2329,10 @@ function PriceResearchImportTool({
     saving,
     canManage,
     onChangeText,
+    onLoadTemporary,
     onPreview,
     onApply,
-    onApplyAllMatched,
+    onApplyAllReady,
     onEdit,
     onSkip,
     onClear,
@@ -2335,9 +2342,10 @@ function PriceResearchImportTool({
     saving: boolean;
     canManage: boolean;
     onChangeText: (value: string) => void;
+    onLoadTemporary: () => void;
     onPreview: () => void;
     onApply: (row: PriceResearchImportRow) => void;
-    onApplyAllMatched: () => void;
+    onApplyAllReady: () => void;
     onEdit: (row: PriceResearchImportRow) => void;
     onSkip: (rowId: string) => void;
     onClear: () => void;
@@ -2346,12 +2354,16 @@ function PriceResearchImportTool({
     const matchedCount = rows.filter((row) => row.status === 'matched').length;
     const newItemCount = rows.filter((row) => row.status === 'new_item').length;
     const needsReviewCount = rows.filter((row) => row.status === 'needs_review').length;
+    const readyCount = matchedCount + newItemCount;
 
     return (
         <View style={toolPanelStyle}>
             <Text style={[toolPanelTitleStyle, { color: theme.colors.text }]}>Import / Review Price Sheet</Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                 Paste CSV or tab-separated research rows, then review before saving.
+            </Text>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                The temporary Riverside list is market-based planning data. Review and replace it with company costs before long-term use.
             </Text>
 
             <TextInput
@@ -2374,6 +2386,14 @@ function PriceResearchImportTool({
 
             <View style={editorActionRowStyle}>
                 <ThemedButton
+                    title="Load Temporary Riverside List"
+                    variant="secondary"
+                    disabled={saving}
+                    onPress={onLoadTemporary}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
                     title="Review Import"
                     disabled={saving || !text.trim()}
                     onPress={onPreview}
@@ -2381,9 +2401,9 @@ function PriceResearchImportTool({
                     textStyle={compactButtonTextStyle}
                 />
                 <ThemedButton
-                    title={`Apply All Matched (${matchedCount})`}
-                    disabled={!canManage || saving || matchedCount === 0}
-                    onPress={onApplyAllMatched}
+                    title={`Apply All Ready (${readyCount})`}
+                    disabled={!canManage || saving || readyCount === 0 || needsReviewCount > 0}
+                    onPress={onApplyAllReady}
                     style={compactButtonStyle}
                     textStyle={compactButtonTextStyle}
                 />
