@@ -314,9 +314,6 @@ export default function PlumbingAreasScreen() {
                                 area={area}
                                 status={statusForCard(scoreAreaHealth(homeItems, getAreaLabel(area)))}
                                 onPress={() => openArea(area)}
-                                onArchive={() => confirmArchiveArea(area)}
-                                archiveTitle={archivingAreaId === archiveKey ? 'Archiving...' : 'Archive Area'}
-                                archiveDisabled={!!archivingAreaId}
                             />
                         );
                     })}
@@ -377,16 +374,10 @@ function PlumbingAreaCard({
     area,
     status,
     onPress,
-    onArchive,
-    archiveTitle,
-    archiveDisabled,
 }: {
     area: AreaItem;
     status: string | null;
     onPress: () => void;
-    onArchive: () => void;
-    archiveTitle: string;
-    archiveDisabled: boolean;
 }) {
     const { theme } = useTheme();
     const areaName = getAreaLabel(area);
@@ -428,10 +419,9 @@ function PlumbingAreaCard({
             </TouchableOpacity>
 
             <ThemedButton
-                title={archiveTitle}
-                variant="danger"
-                disabled={archiveDisabled}
-                onPress={onArchive}
+                title="Activate Card"
+                variant="secondary"
+                onPress={onPress}
                 style={archiveButtonStyle}
                 textStyle={archiveButtonTextStyle}
             />
@@ -553,12 +543,16 @@ const cardTitleStyle = {
 };
 
 const archiveButtonStyle = {
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    width: '100%' as const,
+    alignSelf: 'center' as const,
+    marginTop: 8,
+    minHeight: 34,
+    minWidth: 82,
+    paddingVertical: 4,
+    paddingHorizontal: 9,
 };
 
 const archiveButtonTextStyle = {
-    fontSize: 13,
+    fontSize: 10,
+    fontWeight: '700' as const,
+    lineHeight: 12,
 };
