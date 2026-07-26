@@ -13,6 +13,7 @@ import {
 import { loadCurrentUserPlatformAdmin } from '../../../../lib/roles';
 import { supabase } from '../../../../lib/supabase';
 import { resolveCompanyTechOSTheme, type TechOSThemePalette } from '../../../../lib/techosAppearance';
+import { CompanyGlassDepthProvider } from '../../../../theme/glass-depth';
 
 type Company = {
     id: string;
@@ -34,6 +35,7 @@ type Company = {
     phone: string | null;
     website: string | null;
     short_description: string | null;
+    glass_depth: number | null;
 };
 
 type CompanyBrandForm = {
@@ -51,6 +53,7 @@ type CompanyBrandForm = {
     phone: string;
     website: string;
     shortDescription: string;
+    glassDepth: string;
 };
 
 type BrandColorKey = 'primaryColor' | 'secondaryColor' | 'accentColor';
@@ -73,6 +76,7 @@ const defaultBrandForm: CompanyBrandForm = {
     phone: '',
     website: '',
     shortDescription: '',
+    glassDepth: '70',
 };
 
 const brandColorSwatches = [
@@ -260,6 +264,7 @@ export default function CompanyDashboardScreen() {
                     phone,
                     website,
                     short_description
+                    ,glass_depth
                 `)
                 .eq('id', routeCompanyId)
                 .single();
@@ -314,6 +319,15 @@ export default function CompanyDashboardScreen() {
         let errorMessage = '';
 
         try {
+            const glassDepth = Math.max(1, Math.min(100, parseInteger(brandForm.glassDepth) || 70));
+            const depthResult = await supabase.rpc('update_company_glass_depth', {
+                p_company_id: company.id,
+                p_glass_depth: glassDepth,
+            });
+            if (depthResult.error) {
+                throw new Error(depthResult.error.message);
+            }
+
             const result = await supabase.rpc('update_company_brand_profile', {
                 p_company_id: company.id,
                 p_public_name: brandForm.publicName.trim(),
@@ -601,6 +615,7 @@ export default function CompanyDashboardScreen() {
     });
 
     return (
+        <CompanyGlassDepthProvider value={Number(brandForm.glassDepth) || 70}>
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
             contentContainerStyle={{
@@ -913,6 +928,7 @@ export default function CompanyDashboardScreen() {
                                 primaryColor={brandPrimary}
                                 accentColor={brandAccent}
                                 toneIndex={index}
+                                glassDepth={Number(brandForm.glassDepth) || 70}
                                 onPress={() => openModule(card)}
                             />
                         ))}
@@ -1232,6 +1248,11 @@ export default function CompanyDashboardScreen() {
                             <Field label="Primary Color" value={brandForm.primaryColor} onChangeText={(value) => updateBrandField('primaryColor', value)} />
                             <Field label="Secondary Color" value={brandForm.secondaryColor} onChangeText={(value) => updateBrandField('secondaryColor', value)} />
                             <Field label="Accent Color" value={brandForm.accentColor} onChangeText={(value) => updateBrandField('accentColor', value)} />
+                            <Field
+                                label="Glass Depth (1–100)"
+                                value={brandForm.glassDepth}
+                                onChangeText={(value) => updateBrandField('glassDepth', value.replace(/[^0-9]/g, '').slice(0, 3))}
+                            />
 
                             <BrandColorAssignmentPanel
                                 brandForm={brandForm}
@@ -1435,6 +1456,7 @@ export default function CompanyDashboardScreen() {
 
             </View>
         </ScrollView>
+        </CompanyGlassDepthProvider>
     );
 }
 
@@ -1724,6 +1746,7 @@ function CompanyModuleCard({
     primaryColor,
     accentColor,
     toneIndex,
+    glassDepth,
     onPress,
 }: {
     title: string;
@@ -1733,10 +1756,12 @@ function CompanyModuleCard({
     primaryColor: string;
     accentColor: string;
     toneIndex: number;
+    glassDepth: number;
     onPress: () => void;
 }) {
     const { width: viewportWidth } = useWindowDimensions();
     const isPhoneLayout = viewportWidth <= 640;
+    const depth = Math.max(1, Math.min(100, glassDepth)) / 100;
 
     const glassColor = mixHexColors(
         toneIndex % 4 === 2 ? accentColor : primaryColor,
@@ -1771,13 +1796,13 @@ function CompanyModuleCard({
                 borderWidth: 2,
                 borderTopColor: 'rgba(255, 255, 255, 0.94)',
                 borderBottomColor: isExpanded ? accentColor : glassBorder,
-                borderBottomWidth: pressed ? 2 : 7,
+                borderBottomWidth: pressed ? 1 : Math.max(1, Math.round(8 * depth)),
                 borderColor: isExpanded ? accentColor : glassBorder,
                 gap: 12,
                 boxShadow: pressed
                     ? '0 1px 2px rgba(7, 27, 51, 0.14)'
-                    : '0 10px 20px rgba(7, 27, 51, 0.24), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
-                transform: [{ translateY: pressed ? 5 : 0 }],
+                    : `0 ${Math.max(1, Math.round(10 * depth))}px ${Math.max(2, Math.round(20 * depth))}px rgba(7, 27, 51, ${0.05 + 0.2 * depth}), inset 0 1px 0 rgba(255, 255, 255, 0.94)`,
+                transform: [{ translateY: pressed ? Math.max(1, Math.round(5 * depth)) : 0 }],
             })}
         >
             <View
@@ -2545,6 +2570,7 @@ function companyToBrandForm(company: Company): CompanyBrandForm {
         phone: company.phone || '',
         website: company.website || '',
         shortDescription: company.short_description || '',
+        glassDepth: String(company.glass_depth || 70),
     };
 }
 
@@ -2557,6 +2583,7 @@ function companyToAuditRecord(company: Company) {
         primary_color: company.primary_color,
         secondary_color: company.secondary_color,
         accent_color: company.accent_color,
+        glass_depth: company.glass_depth,
         service_categories: company.service_categories || [],
         homeos_rating: company.homeos_rating,
         homeos_rating_count: company.homeos_rating_count,

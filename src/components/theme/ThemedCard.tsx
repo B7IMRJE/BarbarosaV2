@@ -5,6 +5,7 @@ import {
     type ViewStyle,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
+import { useCompanyGlassDepth } from '../../theme/glass-depth';
 import type { ReactNode } from 'react';
 
 type ThemedCardProps = {
@@ -21,7 +22,8 @@ export default function ThemedCard({
     contentStyle,
 }: ThemedCardProps) {
     const { appearance, scaleIcon, theme } = useTheme();
-    const depth = appearance.glassDepth / 100;
+    const companyDepth = useCompanyGlassDepth();
+    const depth = (companyDepth ?? appearance.glassDepth) / 100;
     const restingEdge = Math.max(1, Math.round(7 * depth));
 
     const cardStyle = [

@@ -19,6 +19,7 @@ import {
 } from '../lib/companyLeadAlerts';
 import { canAccessDispatch, normalizeCompanyRole } from '../lib/companyPermissions';
 import { getCompanyDisplayName } from '../lib/companyDisplayName';
+import { CompanyGlassDepthProvider } from '../theme/glass-depth';
 import {
     DISPATCH_OFFICE_ACTIVE_FILTERS,
     DISPATCH_OFFICE_PRIMARY_ACTIONS,
@@ -93,6 +94,7 @@ type CompanyBrand = {
     name: string | null;
     public_name: string | null;
     dba_name: string | null;
+    glass_depth: number | null;
 };
 
 type ServiceRequestEvent = {
@@ -600,7 +602,7 @@ export default function DispatchBoardScreen() {
     async function loadCompany(companyIdToLoad: string) {
         const { data } = await supabase
             .from('companies')
-            .select('id, name, public_name, dba_name')
+            .select('id, name, public_name, dba_name, glass_depth')
             .eq('id', companyIdToLoad)
             .maybeSingle();
 
@@ -1354,6 +1356,7 @@ export default function DispatchBoardScreen() {
         : ('/super-admin' as Href);
 
     return (
+        <CompanyGlassDepthProvider value={company?.glass_depth}>
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: viewportWidth <= 760 ? 12 : 20, paddingBottom: viewportWidth <= 760 ? 112 : 64, alignItems: 'center' }}
@@ -1573,6 +1576,7 @@ export default function DispatchBoardScreen() {
                 )}
             </View>
         </ScrollView>
+        </CompanyGlassDepthProvider>
     );
 }
 

@@ -15,6 +15,7 @@ import {
 } from '../lib/companyPermissions';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { getCompanyDisplayName } from '../lib/companyDisplayName';
+import { CompanyGlassDepthProvider } from '../theme/glass-depth';
 import {
     loadEstimateDraft,
     saveEstimateDraftContext,
@@ -109,6 +110,7 @@ type CompanyBrand = {
     primary_color: string | null;
     secondary_color: string | null;
     accent_color: string | null;
+    glass_depth: number | null;
     service_categories: string[] | null;
     license_number: string | null;
     short_description: string | null;
@@ -394,7 +396,8 @@ export default function TechOSScreen() {
         primaryColor: company?.primary_color,
         secondaryColor: company?.secondary_color,
         accentColor: company?.accent_color,
-    }), [company?.accent_color, company?.primary_color, company?.secondary_color]);
+        glassDepth: company?.glass_depth,
+    }), [company?.accent_color, company?.glass_depth, company?.primary_color, company?.secondary_color]);
 
     useEffect(() => {
         loadTechOSAccess();
@@ -815,7 +818,7 @@ export default function TechOSScreen() {
             const result = await supabase
                 .from('companies')
                 .select(
-                    'id, name, status, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, license_number, short_description'
+                    'id, name, status, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, glass_depth, service_categories, license_number, short_description'
                 )
                 .eq('id', companyIdToLoad)
                 .maybeSingle();
@@ -1618,6 +1621,7 @@ export default function TechOSScreen() {
         : membership?.full_name || authEmail || membership?.email || 'Technician';
 
     return (
+        <CompanyGlassDepthProvider value={company?.glass_depth}>
         <ScrollView
             style={{ flex: 1, backgroundColor: techOSTheme.screenBackgroundColor || theme.colors.background }}
             contentContainerStyle={{ padding: pagePadding, paddingBottom: 36, alignItems: 'center' }}
@@ -1844,6 +1848,7 @@ export default function TechOSScreen() {
                 </View>
             </View>
         </ScrollView>
+        </CompanyGlassDepthProvider>
     );
 }
 
@@ -2228,6 +2233,8 @@ function TechOSDashboardCards({
                             {
                                 backgroundColor: variant.backgroundColor,
                                 borderColor: variant.borderColor,
+                                borderBottomWidth: Math.max(1, Math.round(8 * (techOSTheme.glassDepth || 70) / 100)),
+                                boxShadow: `0 ${Math.max(1, Math.round(10 * (techOSTheme.glassDepth || 70) / 100))}px ${Math.max(2, Math.round(20 * (techOSTheme.glassDepth || 70) / 100))}px rgba(7, 27, 51, ${0.05 + 0.2 * (techOSTheme.glassDepth || 70) / 100}), inset 0 1px 0 rgba(255, 255, 255, 0.94)`,
                             },
                             card.priority && {
                                 borderColor: active ? techOSTheme.activeBorderColor : variant.borderColor,

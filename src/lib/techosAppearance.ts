@@ -37,6 +37,7 @@ export type CompanyTechOSBrand = {
     primaryColor?: string | null;
     secondaryColor?: string | null;
     accentColor?: string | null;
+    glassDepth?: number | null;
 };
 
 export type TechOSThemePalette = {
@@ -49,6 +50,7 @@ export type TechOSThemePalette = {
     textColor: string;
     mutedTextColor: string;
     activeBorderColor: string;
+    glassDepth?: number;
     dashboard: Record<TechOSDashboardVisualKey, TechOSVisualVariant>;
     jobDetail: Record<TechOSJobDetailVisualKey, TechOSVisualVariant>;
 };
@@ -233,6 +235,7 @@ export function resolveCompanyTechOSTheme(brand?: CompanyTechOSBrand | null): Te
     const textColor = getReadableTextColor(panelBackgroundColor);
     const mutedTextColor = mixHexColors(textColor, panelBackgroundColor, isDarkColor(panelBackgroundColor) ? 0.36 : 0.42);
     const blendColor = mixHexColors(primaryColor, accentColor, 0.5);
+    const glassDepth = Math.max(1, Math.min(100, Number(brand?.glassDepth) || 70));
 
     return {
         id: 'companyBrand',
@@ -244,6 +247,7 @@ export function resolveCompanyTechOSTheme(brand?: CompanyTechOSBrand | null): Te
         textColor,
         mutedTextColor,
         activeBorderColor: accentColor,
+        glassDepth,
         dashboard: {
             jobs: companyVariant(primaryColor, panelBackgroundColor),
             schedule: companyVariant(accentColor, panelBackgroundColor),

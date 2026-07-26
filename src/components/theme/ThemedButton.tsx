@@ -6,6 +6,7 @@ import {
     type ViewStyle,
 } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
+import { useCompanyGlassDepth } from '../../theme/glass-depth';
 import type { ReactNode } from 'react';
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
@@ -30,7 +31,8 @@ export default function ThemedButton({
     textStyle,
 }: ThemedButtonProps) {
     const { appearance, scaleFont, scaleIcon, theme } = useTheme();
-    const depth = appearance.glassDepth / 100;
+    const companyDepth = useCompanyGlassDepth();
+    const depth = (companyDepth ?? appearance.glassDepth) / 100;
     const restingEdge = Math.max(1, Math.round(6 * depth));
 
     const variantStyle = {
