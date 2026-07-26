@@ -89,6 +89,26 @@ export function isLiveTechOSAssignmentStatus(status?: string | null) {
     return ['on_my_way', 'arrived', 'in_progress', 'estimate_needed'].includes(normalizeAssignmentStatus(status));
 }
 
+export function isOpenTechOSAssignmentStatus(status?: string | null) {
+    return ![
+        'cancelled',
+        'canceled',
+        'completed',
+        'complete',
+        'closed',
+        'done',
+        'archived',
+        'void',
+        'waiting_for_parts',
+        'needs_follow_up',
+        'return_visit_required',
+        'on_hold',
+        'customer_no_show',
+        'missed_no_show',
+        'unable_to_complete',
+    ].includes(normalizeAssignmentStatus(status));
+}
+
 function getTechOSAssignmentSlotWorkKey(slot: TechOSAssignmentScheduleSlot) {
     const serviceRequestId = normalizeAssignmentId(slot.service_request_id);
 

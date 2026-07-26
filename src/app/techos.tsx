@@ -73,7 +73,7 @@ import {
 import {
     collapseTechOSAssignmentSlots,
     filterTechOSAssignmentSlots,
-    isLiveTechOSAssignmentStatus,
+    isOpenTechOSAssignmentStatus,
     normalizeTechOSAssignmentCompanyUserIds,
     resolveTechOSAssignmentCompanyUserIds,
 } from '../lib/techosAssignments';
@@ -4110,23 +4110,7 @@ function isFutureDate(value?: string | null) {
 }
 
 function isCurrentFutureActiveScheduleJob(slot: TechScheduleSlot) {
-    if (!isActiveScheduleSlot(slot.status)) return false;
-    if (isLiveTechOSAssignmentStatus(slot.status)) return true;
-
-    return isTodayDate(slot.start_at) || isFutureDate(slot.start_at);
-}
-
-function isActiveUpcomingScheduleJob(slot: TechScheduleSlot) {
-    if (!isActiveScheduleSlot(slot.status)) return false;
-
-    const endMs = slot.end_at ? new Date(slot.end_at).getTime() : Number.NaN;
-    const startMs = slot.start_at ? new Date(slot.start_at).getTime() : Number.NaN;
-    const todayStartMs = getStartOfToday().getTime();
-
-    if (Number.isFinite(endMs)) return endMs >= todayStartMs;
-    if (Number.isFinite(startMs)) return startMs >= todayStartMs;
-
-    return true;
+    return isActiveScheduleSlot(slot.status);
 }
 
 function findUpcomingTimingPromptJob(jobs: TechAssignedScheduleJob[]) {
@@ -4182,25 +4166,7 @@ function isJobApproachingWithinHours(slot: TechScheduleSlot, now: Date, hours: n
 }
 
 function isActiveScheduleSlot(status?: string | null) {
-    const normalized = normalizeStatus(status);
-
-    return ![
-        'cancelled',
-        'canceled',
-        'completed',
-        'complete',
-        'closed',
-        'done',
-        'archived',
-        'void',
-        'waiting_for_parts',
-        'needs_follow_up',
-        'return_visit_required',
-        'on_hold',
-        'customer_no_show',
-        'missed_no_show',
-        'unable_to_complete',
-    ].includes(normalized);
+    return isOpenTechOSAssignmentStatus(status);
 }
 
 function createDefaultTechCloseoutForm(): TechCloseoutForm {

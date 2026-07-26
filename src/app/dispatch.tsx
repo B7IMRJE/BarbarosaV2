@@ -1063,6 +1063,7 @@ export default function DispatchBoardScreen() {
         });
         const loadedRequests = await loadDispatchRequests(activeCompanyId);
         await loadScheduleSlots(activeCompanyId, loadedRequests);
+        collapseExpandedRequest();
     }
 
     async function handleCancelRequest(request: DispatchRequest) {

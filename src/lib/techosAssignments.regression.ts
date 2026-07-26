@@ -2,6 +2,7 @@ import {
     collapseTechOSAssignmentSlots,
     filterTechOSAssignmentSlots,
     isLiveTechOSAssignmentStatus,
+    isOpenTechOSAssignmentStatus,
     normalizeTechOSAssignmentCompanyUserIds,
     resolveTechOSAssignmentCompanyUserIds,
 } from './techosAssignments';
@@ -14,6 +15,7 @@ export function runTechOSAssignmentRegressions() {
     unrelatedTechnicianRowsStayHidden();
     assignmentSlotsFilterToVisibleTechnicianIdentities();
     liveWorkflowStatusesStayVisibleAsActiveAssignments();
+    overdueScheduledAssignmentsStayOpenUntilClosed();
     duplicateScheduleSlotsForOneRequestCollapseToCurrentVisit();
     differentRequestsRemainSeparateAfterSlotCollapse();
     olderClosedVisitCannotDuplicateNewerActiveVisit();
@@ -86,6 +88,22 @@ function liveWorkflowStatusesStayVisibleAsActiveAssignments() {
 
     ['scheduled', 'completed', 'cancelled'].forEach((status) => {
         assert(!isLiveTechOSAssignmentStatus(status), `${status} should not be treated as a live visit status.`);
+    });
+}
+
+function overdueScheduledAssignmentsStayOpenUntilClosed() {
+    ['scheduled', 'assigned', 'ready'].forEach((status) => {
+        assert(
+            isOpenTechOSAssignmentStatus(status),
+            `${status} should remain visible in Active Jobs even after its scheduled date passes.`
+        );
+    });
+
+    ['completed', 'closed', 'cancelled', 'waiting_for_parts'].forEach((status) => {
+        assert(
+            !isOpenTechOSAssignmentStatus(status),
+            `${status} should leave Active Jobs.`
+        );
     });
 }
 
