@@ -18,6 +18,7 @@ import {
     readProviderModeParams,
 } from '../../../lib/providerMode';
 import {
+    buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     hasAssignedProviderHomeItemsContext,
 } from '../../../lib/providerHomeItems';
@@ -57,6 +58,7 @@ export default function SystemAreasScreen() {
     const [homeItems, setHomeItems] = useState<SystemAreaItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
+    const [activatingAreaName, setActivatingAreaName] = useState<string | null>(null);
     const [message, setMessage] = useState('');
 
     const systemName = decodeRouteParam(system) || 'System';
@@ -218,13 +220,46 @@ export default function SystemAreasScreen() {
         } as any);
     }
 
-    function activateRootArea(areaName: string) {
+    async function activateRootArea(areaName: string) {
+        if (providerModeContext) {
+            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+                setMessage('This visit is missing its assigned provider context. Return to the current job and reopen Client HomeOS.');
+                return;
+            }
+
+            setActivatingAreaName(areaName);
+            setMessage(`Activating ${areaName}...`);
+
+            const { error } = await supabase.rpc(
+                'create_provider_homeos_item',
+                buildProviderHomeItemCreateRpcArgs(providerModeContext, {
+                    name: areaName,
+                    system: systemName,
+                    category: 'Area',
+                    location: areaName,
+                    parentArea: null,
+                    status: 'Missing Information',
+                    installState: 'Unknown',
+                })
+            );
+
+            if (error) {
+                setMessage(`Could not activate ${areaName}: ${error.message}`);
+                setActivatingAreaName(null);
+                return;
+            }
+
+            await loadAreaHealth();
+            setMessage(`${areaName} is now active.`);
+            setActivatingAreaName(null);
+            return;
+        }
+
         router.push({
             pathname: '/area/create',
             params: {
                 system: systemName,
                 areaName,
-                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
     }
@@ -557,8 +592,8 @@ export default function SystemAreasScreen() {
                                         status={statusForCard(areaSummary)}
                                         onPress={() => openArea(area, areaRecord?.parent_area || '')}
                                         onActivate={
-                                            providerModeContext || !areaRecord
-                                                ? () => activateRootArea(area)
+                                            !areaRecord
+                                                ? () => void activateRootArea(area)
                                                 : undefined
                                         }
                                         onArchive={
@@ -567,7 +602,8 @@ export default function SystemAreasScreen() {
                                                 : undefined
                                         }
                                         archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Area'}
-                                        archiveDisabled={!!archivingRecordId}
+                                        activateTitle={activatingAreaName === area ? 'Activating...' : 'Activate Card'}
+                                        archiveDisabled={!!archivingRecordId || !!activatingAreaName}
                                     />
                                 );
                             })}
@@ -686,6 +722,7 @@ function RootAreaCard({
     onActivate,
     onArchive,
     archiveTitle,
+    activateTitle,
     archiveDisabled,
 }: {
     title: string;
@@ -694,6 +731,7 @@ function RootAreaCard({
     onActivate?: () => void;
     onArchive?: () => void;
     archiveTitle: string;
+    activateTitle?: string;
     archiveDisabled: boolean;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
@@ -751,7 +789,7 @@ function RootAreaCard({
 
             {onActivate ? (
                 <ThemedButton
-                    title="Activate Card"
+                    title={activateTitle || 'Activate Card'}
                     disabled={archiveDisabled}
                     onPress={onActivate}
                     style={smallArchiveButtonStyle}
