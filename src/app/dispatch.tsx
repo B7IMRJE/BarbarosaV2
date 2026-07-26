@@ -265,6 +265,14 @@ const ARRIVAL_WINDOW_OPTIONS: Array<{ label: string; value: Exclude<ArrivalWindo
     { label: '3 hr', value: '3' },
 ];
 
+const FULL_DAY_START_TIME_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
+    label: new Date(2000, 0, 1, hour, 0).toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit',
+    }),
+    value: `${String(hour).padStart(2, '0')}:00`,
+}));
+
 function createDefaultScheduleForm(): ScheduleRequestForm {
     const start = getNextScheduleStart();
 
@@ -3268,11 +3276,14 @@ function DispatchRequestCard({
                                 </Text>
                             </View>
                             <View style={scheduleFieldGridStyle}>
-                                <ScheduleInput
-                                    label="Date"
-                                    value={scheduleForm.date}
-                                    placeholder="YYYY-MM-DD"
-                                    onChangeText={(date) => onUpdateScheduleForm({ date, calendarMonth: monthInputFromDateText(date) })}
+                                <ScheduleDatePicker
+                                    selectedDate={scheduleForm.date}
+                                    calendarMonth={scheduleForm.calendarMonth}
+                                    onSelectDate={(date) => onUpdateScheduleForm({
+                                        date,
+                                        calendarMonth: monthInputFromDateText(date),
+                                    })}
+                                    onChangeMonth={(calendarMonth) => onUpdateScheduleForm({ calendarMonth })}
                                 />
                                 <View style={scheduleInputWrapStyle}>
                                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Quick Dates</Text>
@@ -3310,29 +3321,10 @@ function DispatchRequestCard({
                                     </View>
                                 </View>
                             </View>
-                            <View style={compactActionRowStyle}>
-                                {[
-                                    ['8:00 AM', '08:00'],
-                                    ['9:00 AM', '09:00'],
-                                    ['10:00 AM', '10:00'],
-                                    ['11:00 AM', '11:00'],
-                                    ['12:00 PM', '12:00'],
-                                    ['1:00 PM', '13:00'],
-                                    ['2:00 PM', '14:00'],
-                                    ['3:00 PM', '15:00'],
-                                    ['4:00 PM', '16:00'],
-                                    ['5:00 PM', '17:00'],
-                                ].map(([label, startTime]) => (
-                                    <ThemedButton
-                                        key={startTime}
-                                        title={label}
-                                        variant={scheduleForm.startTime === startTime ? 'primary' : 'secondary'}
-                                        onPress={() => onUpdateScheduleForm({ startTime })}
-                                        style={quickScheduleButtonStyle}
-                                        textStyle={{ fontSize: 12 }}
-                                    />
-                                ))}
-                            </View>
+                            <ScheduleTimeSelect
+                                value={scheduleForm.startTime}
+                                onSelect={(startTime) => onUpdateScheduleForm({ startTime })}
+                            />
                         </View>
 
                         <View style={scheduleTwoColumnRowStyle}>
@@ -3633,6 +3625,149 @@ function ScheduleInput({
                     color: theme.colors.text,
                 }}
             />
+        </View>
+    );
+}
+
+function ScheduleDatePicker({
+    selectedDate,
+    calendarMonth,
+    onSelectDate,
+    onChangeMonth,
+}: {
+    selectedDate: string;
+    calendarMonth: string;
+    onSelectDate: (date: string) => void;
+    onChangeMonth: (month: string) => void;
+}) {
+    const { theme } = useTheme();
+    const [open, setOpen] = useState(false);
+
+    return (
+        <View style={scheduleInputWrapStyle}>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Date</Text>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Scheduled date ${formatSelectedScheduleDate(selectedDate)}. Open calendar`}
+                onPress={() => setOpen((current) => !current)}
+                style={({ pressed }) => [
+                    scheduleSelectTriggerStyle,
+                    {
+                        borderColor: open ? theme.colors.primary : theme.colors.border,
+                        backgroundColor: theme.colors.background,
+                        opacity: pressed ? 0.82 : 1,
+                    },
+                ]}
+            >
+                <View>
+                    <Text style={[scheduleSelectValueStyle, { color: theme.colors.text }]}>
+                        {formatSelectedScheduleDate(selectedDate)}
+                    </Text>
+                    <Text style={[scheduleSelectHintStyle, { color: theme.colors.mutedText }]}>
+                        {selectedDate}
+                    </Text>
+                </View>
+                <Text style={[scheduleSelectChevronStyle, { color: theme.colors.primary }]}>
+                    {open ? '▲' : '▼'}
+                </Text>
+            </Pressable>
+            {open && (
+                <MiniScheduleCalendar
+                    selectedDate={selectedDate}
+                    calendarMonth={calendarMonth}
+                    onSelectDate={(date) => {
+                        onSelectDate(date);
+                        setOpen(false);
+                    }}
+                    onChangeMonth={onChangeMonth}
+                />
+            )}
+        </View>
+    );
+}
+
+function ScheduleTimeSelect({
+    value,
+    onSelect,
+}: {
+    value: string;
+    onSelect: (value: string) => void;
+}) {
+    const { theme } = useTheme();
+    const [open, setOpen] = useState(false);
+    const selectedLabel = FULL_DAY_START_TIME_OPTIONS.find((option) => option.value === value)?.label
+        || formatSelectedScheduleTime(value);
+
+    return (
+        <View style={scheduleTimeSelectWrapStyle}>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Start Time</Text>
+            <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Start time ${selectedLabel}. Open full-day time list`}
+                onPress={() => setOpen((current) => !current)}
+                style={({ pressed }) => [
+                    scheduleSelectTriggerStyle,
+                    {
+                        borderColor: open ? theme.colors.primary : theme.colors.border,
+                        backgroundColor: theme.colors.background,
+                        opacity: pressed ? 0.82 : 1,
+                    },
+                ]}
+            >
+                <View>
+                    <Text style={[scheduleSelectValueStyle, { color: theme.colors.text }]}>{selectedLabel}</Text>
+                    <Text style={[scheduleSelectHintStyle, { color: theme.colors.mutedText }]}>
+                        Full day · overtime hours included
+                    </Text>
+                </View>
+                <Text style={[scheduleSelectChevronStyle, { color: theme.colors.primary }]}>
+                    {open ? '▲' : '▼'}
+                </Text>
+            </Pressable>
+            {open && (
+                <View
+                    style={[
+                        scheduleTimeMenuStyle,
+                        {
+                            borderColor: theme.colors.border,
+                            backgroundColor: theme.colors.background,
+                        },
+                    ]}
+                >
+                    {FULL_DAY_START_TIME_OPTIONS.map((option) => {
+                        const selected = option.value === value;
+
+                        return (
+                            <Pressable
+                                key={option.value}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected }}
+                                onPress={() => {
+                                    onSelect(option.value);
+                                    setOpen(false);
+                                }}
+                                style={({ pressed }) => [
+                                    scheduleTimeOptionStyle,
+                                    {
+                                        borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                        backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                                        opacity: pressed ? 0.78 : 1,
+                                    },
+                                ]}
+                            >
+                                <Text
+                                    style={[
+                                        scheduleTimeOptionTextStyle,
+                                        { color: selected ? theme.colors.primaryText : theme.colors.text },
+                                    ]}
+                                >
+                                    {option.label}
+                                </Text>
+                            </Pressable>
+                        );
+                    })}
+                </View>
+            )}
         </View>
     );
 }
@@ -5685,11 +5820,23 @@ const requestGridStyle = {
 
 const workQueueCardStyle = {
     marginBottom: 18,
+    borderBottomWidth: 3,
+    shadowColor: '#001B2B',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 5,
 };
 
 const dispatchOfficeHeaderCardStyle = {
+    borderBottomWidth: 3,
     gap: 12,
     marginBottom: 16,
+    shadowColor: '#001B2B',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 5,
 };
 
 const dispatchOfficeHeaderTopStyle = {
@@ -5734,13 +5881,19 @@ const dispatchActionTileGridStyle = {
 };
 
 const dispatchActionTileStyle = {
-    borderRadius: 10,
+    borderBottomWidth: 3,
+    borderRadius: 14,
     borderWidth: 1,
     flexGrow: 1,
-    minHeight: 92,
+    minHeight: 84,
     minWidth: 0,
     paddingHorizontal: 10,
     paddingVertical: 10,
+    shadowColor: '#001B2B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 6,
+    elevation: 3,
 };
 
 const dispatchActionTileIconStyle = {
@@ -6103,12 +6256,19 @@ const detailDrawerScrollContentStyle = {
 };
 
 const requestCardStyle = {
+    borderBottomWidth: 3,
+    borderRadius: 14,
     flexGrow: 0,
     flexShrink: 0,
     maxWidth: '100%' as const,
     minHeight: 96,
     minWidth: 0,
     padding: 10,
+    shadowColor: '#001B2B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 7,
+    elevation: 4,
 };
 
 const compactActiveRowTopStyle = {
@@ -6311,10 +6471,16 @@ const scheduleFormRowsStyle = {
 };
 
 const schedulerPanelStyle = {
-    borderRadius: 12,
+    borderBottomWidth: 3,
+    borderRadius: 16,
     borderWidth: 1,
     marginTop: 8,
-    padding: 10,
+    padding: 12,
+    shadowColor: '#001B2B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
 };
 
 const schedulePanelHeaderStyle = {
@@ -6345,10 +6511,16 @@ const quickScheduleButtonStyle = {
 };
 
 const scheduleSummaryPanelStyle = {
-    borderRadius: 12,
+    borderBottomWidth: 3,
+    borderRadius: 16,
     borderWidth: 1,
     marginTop: 10,
-    padding: 10,
+    padding: 12,
+    shadowColor: '#001B2B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 7,
+    elevation: 4,
 };
 
 const calendarPanelStyle = {
@@ -6428,4 +6600,73 @@ const scheduleTextInputStyle = {
     marginTop: 4,
     paddingHorizontal: 10,
     paddingVertical: 9,
+};
+
+const scheduleSelectTriggerStyle = {
+    alignItems: 'center' as const,
+    borderBottomWidth: 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    marginTop: 4,
+    minHeight: 52,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    shadowColor: '#001B2B',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 5,
+    elevation: 3,
+};
+
+const scheduleSelectValueStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const scheduleSelectHintStyle = {
+    fontSize: 10,
+    fontWeight: '700' as const,
+    marginTop: 2,
+};
+
+const scheduleSelectChevronStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+    marginLeft: 12,
+};
+
+const scheduleTimeSelectWrapStyle = {
+    marginTop: 10,
+};
+
+const scheduleTimeMenuStyle = {
+    borderBottomWidth: 3,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 7,
+    marginTop: 7,
+    padding: 9,
+};
+
+const scheduleTimeOptionStyle = {
+    alignItems: 'center' as const,
+    borderBottomWidth: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexBasis: 92,
+    flexGrow: 1,
+    justifyContent: 'center' as const,
+    minHeight: 38,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+};
+
+const scheduleTimeOptionTextStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+    textAlign: 'center' as const,
 };
