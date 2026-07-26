@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import GlassCard from '../../components/glass/GlassCard';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -23,6 +23,7 @@ type AccountRow = {
     email_confirmed_at: string | null;
     last_sign_in_at: string | null;
     created_at: string | null;
+    avatar_url: string | null;
 };
 
 type CompanyRow = {
@@ -76,6 +77,7 @@ type PersonRecord = {
     emailConfirmedAt: string | null;
     lastSignInAt: string | null;
     accountCreatedAt: string | null;
+    avatarUrl: string | null;
     companyUsers: CompanyUserRow[];
     homeMemberships: MembershipRow[];
     clientCompanies: ClientRow[];
@@ -105,6 +107,7 @@ export default function PlatformHomeOSUsersScreen() {
     const [groupFilter, setGroupFilter] = useState<PersonGroupKey | 'all'>('all');
     const [companyFilter, setCompanyFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+    const [selectedPersonKey, setSelectedPersonKey] = useState<string | null>(null);
     const [message, setMessage] = useState('Loading people directory...');
 
     useEffect(() => {
@@ -119,7 +122,7 @@ export default function PlatformHomeOSUsersScreen() {
 
         const [accountResult, companyResult, companyUserResult, membershipResult, propertyResult, clientResult] =
             await Promise.all([
-                supabase.rpc('get_platform_people_accounts_v2'),
+                supabase.rpc('get_platform_people_accounts_v3'),
                 supabase.from('companies').select('id, name, public_name, dba_name').order('name', { ascending: true }),
                 supabase.rpc('get_platform_people_company_access'),
                 supabase.from('property_memberships').select('user_id, property_id, role, status'),
@@ -212,6 +215,7 @@ export default function PlatformHomeOSUsersScreen() {
                 emailConfirmedAt: account.email_confirmed_at,
                 lastSignInAt: account.last_sign_in_at,
                 accountCreatedAt: account.created_at,
+                avatarUrl: account.avatar_url,
                 companyUsers: personCompanyUsers,
                 homeMemberships: personHomeMemberships,
                 clientCompanies: personClientCompanies,
@@ -236,6 +240,7 @@ export default function PlatformHomeOSUsersScreen() {
                     emailConfirmedAt: null,
                     lastSignInAt: null,
                     accountCreatedAt: null,
+                    avatarUrl: null,
                     companyUsers: [companyUser],
                     homeMemberships: [],
                     clientCompanies: [],
@@ -353,16 +358,28 @@ export default function PlatformHomeOSUsersScreen() {
                             <Text style={{ color: orbitalGlassPalette.mutedText, marginTop: 4, marginBottom: 12 }}>
                                 {group.description}
                             </Text>
-                            <View style={{ gap: 10 }}>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
                                 {groupPeople.map((person) => (
-                                    <PersonRow
+                                    <PersonTile
                                         key={person.key}
                                         person={person}
                                         companyById={companyById}
-                                        propertyById={propertyById}
+                                        selected={selectedPersonKey === person.key}
+                                        onPress={() => setSelectedPersonKey((current) => current === person.key ? null : person.key)}
                                     />
                                 ))}
                             </View>
+                            {groupPeople.map((person) => (
+                                selectedPersonKey === person.key ? (
+                                    <PersonDetails
+                                        key={`details-${person.key}`}
+                                        person={person}
+                                        companyById={companyById}
+                                        propertyById={propertyById}
+                                        onClose={() => setSelectedPersonKey(null)}
+                                    />
+                                ) : null
+                            ))}
                         </GlassCard>
                     );
                 })}
@@ -415,28 +432,119 @@ function FilterRow({
     );
 }
 
-function PersonRow({
+function PersonTile({
+    person,
+    companyById,
+    selected,
+    onPress,
+}: {
+    person: PersonRecord;
+    companyById: Map<string, CompanyRow>;
+    selected: boolean;
+    onPress: () => void;
+}) {
+    const primaryCompanyUser = person.companyUsers[0];
+    const primaryCompany = primaryCompanyUser
+        ? companyName(companyById.get(primaryCompanyUser.company_id))
+        : person.clientCompanies[0]
+            ? companyName(companyById.get(person.clientCompanies[0].company_id))
+            : 'HomeOS';
+    const role = primaryCompanyUser?.role || person.platformRole || (person.group === 'clients' ? 'homeowner' : 'user');
+
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`View account details for ${person.name}`}
+            onPress={onPress}
+            style={{
+                alignItems: 'center',
+                backgroundColor: selected ? 'rgba(32, 132, 151, 0.78)' : 'rgba(27, 83, 101, 0.68)',
+                borderColor: selected
+                    ? 'rgba(111, 239, 224, 0.95)'
+                    : person.active ? 'rgba(72, 207, 168, 0.64)' : 'rgba(231, 173, 84, 0.68)',
+                borderRadius: 18,
+                borderWidth: selected ? 2 : 1,
+                boxShadow: selected
+                    ? '0 9px 0 rgba(4, 37, 48, 0.9), 0 16px 28px rgba(0, 0, 0, 0.32)'
+                    : '0 6px 0 rgba(4, 37, 48, 0.82), 0 11px 20px rgba(0, 0, 0, 0.24)',
+                justifyContent: 'space-between',
+                minHeight: 194,
+                padding: 14,
+                width: 190,
+            }}
+        >
+            <View style={{ alignItems: 'center', width: '100%' }}>
+                <View
+                    style={{
+                        alignItems: 'center',
+                        backgroundColor: 'rgba(183, 231, 235, 0.18)',
+                        borderColor: 'rgba(207, 246, 246, 0.62)',
+                        borderRadius: 16,
+                        borderWidth: 1,
+                        height: 66,
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        width: 66,
+                    }}
+                >
+                    {person.avatarUrl ? (
+                        <Image source={{ uri: person.avatarUrl }} style={{ height: '100%', width: '100%' }} resizeMode="cover" />
+                    ) : (
+                        <Text style={{ color: orbitalGlassPalette.text, fontSize: 22, fontWeight: '900' }}>
+                            {personInitials(person.name)}
+                        </Text>
+                    )}
+                </View>
+                <Text numberOfLines={1} style={{ color: orbitalGlassPalette.text, fontSize: 16, fontWeight: '900', marginTop: 10, maxWidth: '100%' }}>
+                    {person.name}
+                </Text>
+                <Text numberOfLines={1} style={{ color: orbitalGlassPalette.mutedText, fontSize: 11, marginTop: 3, maxWidth: '100%' }}>
+                    {person.email || 'No email available'}
+                </Text>
+                <Text numberOfLines={1} style={{ color: '#A9EFE1', fontSize: 12, fontWeight: '800', marginTop: 7, maxWidth: '100%' }}>
+                    {primaryCompany}
+                </Text>
+                <Text numberOfLines={1} style={{ color: orbitalGlassPalette.mutedText, fontSize: 11, marginTop: 2 }}>
+                    {formatRole(role)}
+                </Text>
+            </View>
+            <View style={{ alignItems: 'center', width: '100%' }}>
+                <Text style={{ color: person.active ? '#72E6C0' : '#F1BE69', fontSize: 10, fontWeight: '900' }}>
+                    {person.active ? '● ACTIVE' : '● NEEDS ATTENTION'}
+                </Text>
+                <Text style={{ color: orbitalGlassPalette.text, fontSize: 11, fontWeight: '900', marginTop: 5 }}>
+                    {selected ? 'Hide details' : 'View details'}
+                </Text>
+            </View>
+        </Pressable>
+    );
+}
+
+function PersonDetails({
     person,
     companyById,
     propertyById,
+    onClose,
 }: {
     person: PersonRecord;
     companyById: Map<string, CompanyRow>;
     propertyById: Map<string, PropertyRow>;
+    onClose: () => void;
 }) {
     return (
         <View
             style={{
-                backgroundColor: 'rgba(6, 31, 50, 0.72)',
+                backgroundColor: 'rgba(6, 31, 50, 0.82)',
                 borderColor: person.active ? 'rgba(72, 207, 168, 0.55)' : 'rgba(231, 173, 84, 0.58)',
-                borderRadius: 12,
+                borderRadius: 16,
                 borderWidth: 1,
-                padding: 15,
+                marginTop: 22,
+                padding: 17,
             }}
         >
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 }}>
                 <View style={{ flex: 1, minWidth: 220 }}>
-                    <Text style={{ color: orbitalGlassPalette.text, fontSize: 18, fontWeight: '900' }}>{person.name}</Text>
+                    <Text style={{ color: orbitalGlassPalette.text, fontSize: 20, fontWeight: '900' }}>{person.name}</Text>
                     <Text selectable style={{ color: orbitalGlassPalette.text, fontSize: 14, marginTop: 4 }}>
                         {person.email || 'No email available'}
                     </Text>
@@ -458,7 +566,6 @@ function PersonRow({
                     </Text>
                 </View>
             </View>
-
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 10 }}>
                 <Text style={{ color: orbitalGlassPalette.mutedText, fontSize: 12 }}>
                     Email confirmed: {formatDate(person.emailConfirmedAt)}
@@ -507,6 +614,7 @@ function PersonRow({
                     ))}
                 </View>
             )}
+            <ThemedButton title="Close Account Details" variant="glass" onPress={onClose} style={{ marginTop: 18 }} />
         </View>
     );
 }
@@ -601,4 +709,9 @@ function formatDate(value?: string | null) {
     if (!value) return 'Not available';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
+}
+
+function personInitials(name: string) {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    return (parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0]?.slice(0, 2) || '?').toUpperCase();
 }
