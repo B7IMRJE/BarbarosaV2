@@ -2,7 +2,7 @@ import HomeHeader from '../../components/HomeHeader';
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
@@ -47,6 +47,11 @@ import {
     loadCompanyPriceBook,
     type CompanyPriceBookItem,
 } from '../../lib/companyPriceBook';
+import {
+    applyEstimateChoicePriceAdjustment,
+    formatEstimatePriceAdjustmentPercentage,
+    normalizeEstimatePriceAdjustmentPercentage,
+} from '../../lib/estimatePriceAdjustments';
 import {
     canUseCompanyEstimateWorkflow,
     loadCurrentCompanyEstimateAccess,
@@ -154,11 +159,13 @@ export default function EstimateScreen() {
     const [draftContext, setDraftContext] = useState<EstimateDraftContext | null>(null);
     const [estimateSession, setEstimateSession] = useState<EstimateOptionSession | null>(null);
     const [selectedChoiceId, setSelectedChoiceId] = useState('');
+    const [detailChoiceId, setDetailChoiceId] = useState('');
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
     const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
     const [expandedCategory, setExpandedCategory] = useState<EstimateOptionCategory | null>(null);
     const [expandedWorkspaceSection, setExpandedWorkspaceSection] = useState<EstimateWorkspaceSection | null>(null);
+    const [optionsWorkspaceOpen, setOptionsWorkspaceOpen] = useState(false);
     const [readinessExpanded, setReadinessExpanded] = useState(false);
     const [answers, setAnswers] = useState<EstimateAnswerSet>({});
     const [photoPreviewByKey, setPhotoPreviewByKey] = useState<Record<string, string>>({});
@@ -171,6 +178,8 @@ export default function EstimateScreen() {
     const [aiValidationErrors, setAiValidationErrors] = useState<string[]>([]);
     const [aiDraftsByChoiceId, setAiDraftsByChoiceId] = useState<Record<string, AiEstimateDraftChoice>>({});
     const [editableCopyByChoiceId, setEditableCopyByChoiceId] = useState<Record<string, EditableChoiceCopy>>({});
+    const [priceAdjustmentByChoiceId, setPriceAdjustmentByChoiceId] = useState<Record<string, number>>({});
+    const [customPriceAdjustmentByChoiceId, setCustomPriceAdjustmentByChoiceId] = useState<Record<string, string>>({});
     const estimateScrollRef = useRef<ScrollView | null>(null);
     const estimateContentRef = useRef<View | null>(null);
     const expandedChecklistRef = useRef<View | null>(null);
@@ -255,6 +264,7 @@ export default function EstimateScreen() {
         setItems([]);
         setExpandedCategory(null);
         setExpandedWorkspaceSection(null);
+        setOptionsWorkspaceOpen(false);
         setReadinessExpanded(false);
         setPriceBookItems([]);
         setPriceBookMessage('Price book loading...');
@@ -408,6 +418,7 @@ export default function EstimateScreen() {
         setDraftContext(null);
         setEstimateSession(null);
         setSelectedChoiceId('');
+        setDetailChoiceId('');
         setSelectedCategory('faucet_replacement');
         setExpandedCategory(null);
         setExpandedWorkspaceSection(null);
@@ -422,6 +433,8 @@ export default function EstimateScreen() {
         setAiValidationErrors([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
+        setPriceAdjustmentByChoiceId({});
+        setCustomPriceAdjustmentByChoiceId({});
         setMessage('Estimate draft cleared. Start a fresh estimate from the assigned job or Client HomeOS item.');
     }
 
@@ -495,7 +508,7 @@ export default function EstimateScreen() {
     }
 
     function viewChoiceDetails(choice: Phase1EstimateChoice) {
-        setSelectedChoiceId(choice.id);
+        setDetailChoiceId(choice.id);
         setMessage(`${choice.title} includes ${choice.pricingResult.lineItems.map((line) => line.name).join(', ')}.`);
     }
 
@@ -910,6 +923,49 @@ export default function EstimateScreen() {
         });
     }
 
+    function setChoicePriceAdjustment(choiceId: string, percentage: number) {
+        const nextPercentage = normalizeEstimatePriceAdjustmentPercentage(percentage);
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setPriceAdjustmentByChoiceId((current) => ({
+            ...current,
+            [choiceId]: nextPercentage,
+        }));
+        setCustomPriceAdjustmentByChoiceId((current) => ({
+            ...current,
+            [choiceId]: nextPercentage === 0 ? '' : String(nextPercentage),
+        }));
+        setMessage(nextPercentage === 0
+            ? 'Option price reset to the company price-book amount.'
+            : `Option price increased by ${formatEstimatePriceAdjustmentPercentage(nextPercentage)}.`);
+    }
+
+    function applyCustomChoicePriceAdjustment(choiceId: string) {
+        const draft = customPriceAdjustmentByChoiceId[choiceId] || '';
+        const percentage = Number(draft);
+
+        if (!Number.isFinite(percentage) || percentage < 0) {
+            setMessage('Enter a valid price increase of 0% or more.');
+            return;
+        }
+
+        setChoicePriceAdjustment(choiceId, percentage);
+    }
+
+    function redoOptionDrafts() {
+        setSelectedChoiceId('');
+        setDetailChoiceId('');
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setAiValidationErrors([]);
+        setAiDraftsByChoiceId({});
+        setEditableCopyByChoiceId({});
+        setPriceAdjustmentByChoiceId({});
+        setCustomPriceAdjustmentByChoiceId({});
+        setMessage('Options reset to the current checklist and company price-book values.');
+    }
+
     function approveForPresentation(workspaceChoices: Phase1EstimateChoice[]) {
         if (workspaceChoices.length === 0) {
             setMessage('Pricing setup required before presentation.');
@@ -1161,12 +1217,19 @@ export default function EstimateScreen() {
         technicianApproved,
         aiValidationFailed: aiValidationErrors.length > 0,
     });
-    const estimateChoices = phase1Workspace.choices.map((choice) =>
-        applyEditableChoiceCopy(choice, aiDraftsByChoiceId[choice.id], editableCopyByChoiceId[choice.id])
-    );
+    const estimateChoices = phase1Workspace.choices.map((choice) => {
+        const editedChoice = applyEditableChoiceCopy(
+            choice,
+            aiDraftsByChoiceId[choice.id],
+            editableCopyByChoiceId[choice.id]
+        );
+
+        return applyEstimateChoicePriceAdjustment(editedChoice, priceAdjustmentByChoiceId[choice.id] || 0);
+    });
     const optionChoices = estimateChoices.filter((choice) => choice.kind === 'individual');
     const bundleChoices = estimateChoices.filter((choice) => choice.kind === 'package');
     const selectedChoice = estimateChoices.find((choice) => choice.id === selectedChoiceId) || null;
+    const detailChoice = estimateChoices.find((choice) => choice.id === detailChoiceId) || null;
     const requirementUploadInProgress = hasRequirementUploadInProgress();
     const missingQuestionCount = phase1Workspace.answerValidation.missingRequiredQuestionLabels.length;
     const missingPhotoCount = phase1Workspace.answerValidation.missingRequiredPhotoLabels.length;
@@ -1271,24 +1334,29 @@ export default function EstimateScreen() {
                 </View>
 
                 <View style={sectionStyle}>
-                    {renderSectionHeader('Customer / Home', 'Provider drafts stay scoped to this company and property.')}
-                    <View style={infoGridStyle}>
-                        {!!draftContext?.customer_home_name && renderInfoChip('Home', draftContext.customer_home_name)}
-                        {renderInfoChip('Company', shortId(estimateAccess.companyId))}
-                        {renderInfoChip('Property', shortId(requestedPropertyId))}
-                        {renderInfoChip('Context', providerModeContext ? 'Provider Mode' : requestedMode || 'ManagementOS')}
-                        {!!draftContext?.service_request_id && renderInfoChip('Request', shortId(draftContext.service_request_id))}
-                        {!!draftContext?.job_id && renderInfoChip('Job', shortId(draftContext.job_id))}
-                        {!!draftContext?.technician_name && renderInfoChip('Technician', draftContext.technician_name)}
-                        {renderInfoChip('Pricing', phase1Workspace.pricingSetupRequired ? 'Pricing setup required' : 'Deterministic')}
-                        {renderInfoChip('Price Book', priceBookMessage)}
-                        {renderInfoChip('Category', phase1Workspace.template.label)}
+                    {renderSectionHeader('Customer / Home', 'Everything connected to this quote, in one place.')}
+                    <View style={customerContextBlockStyle}>
+                        <View style={infoGridStyle}>
+                            {!!draftContext?.customer_home_name && renderInfoChip('Home', draftContext.customer_home_name)}
+                            {renderInfoChip('Company', shortId(estimateAccess.companyId))}
+                            {renderInfoChip('Property', shortId(requestedPropertyId))}
+                            {renderInfoChip('Context', providerModeContext ? 'Provider Mode' : requestedMode || 'ManagementOS')}
+                            {!!draftContext?.service_request_id && renderInfoChip('Request', shortId(draftContext.service_request_id))}
+                            {!!draftContext?.job_id && renderInfoChip('Job', shortId(draftContext.job_id))}
+                            {!!draftContext?.technician_name && renderInfoChip('Technician', draftContext.technician_name)}
+                            {renderInfoChip('Pricing', phase1Workspace.pricingSetupRequired ? 'Pricing setup required' : 'Deterministic')}
+                            {renderInfoChip('Price Book', priceBookMessage)}
+                            {renderInfoChip('Category', phase1Workspace.template.label)}
+                        </View>
+                        {!!draftContext?.issue_summary && (
+                            <View style={customerIssueBlockStyle}>
+                                <Text style={customerIssueLabelStyle}>Customer request</Text>
+                                <Text style={contextSummaryStyle}>
+                                    {draftContext.issue_summary}
+                                </Text>
+                            </View>
+                        )}
                     </View>
-                    {!!draftContext?.issue_summary && (
-                        <Text style={contextSummaryStyle}>
-                            {draftContext.issue_summary}
-                        </Text>
-                    )}
                 </View>
 
                 {!!message && (
@@ -1520,12 +1588,21 @@ export default function EstimateScreen() {
                                 tone: cardTone('#F3EFFF', '#D9CCFF', '#7357C8'),
                             },
                         ] as const).map((workspaceSection) => {
-                            const open = expandedWorkspaceSection === workspaceSection.id;
+                            const open = workspaceSection.id === 'editor'
+                                ? optionsWorkspaceOpen
+                                : expandedWorkspaceSection === workspaceSection.id;
 
                             return (
                                 <TouchableOpacity
                                     key={workspaceSection.id}
-                                    onPress={() => setExpandedWorkspaceSection(open ? null : workspaceSection.id)}
+                                    onPress={() => {
+                                        if (workspaceSection.id === 'editor') {
+                                            setOptionsWorkspaceOpen(true);
+                                            return;
+                                        }
+
+                                        setExpandedWorkspaceSection(open ? null : workspaceSection.id);
+                                    }}
                                     style={[
                                         workspaceCardStyle,
                                         workspaceSection.tone,
@@ -1576,10 +1653,52 @@ export default function EstimateScreen() {
                 </View>
                 )}
 
-                {expandedWorkspaceSection === 'editor' && (
-                <View ref={workspaceDetailsRef} style={workspaceDetailStyle}>
-                    {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
-                    <View style={compactActionRowStyle}>
+                <Modal
+                    animationType="slide"
+                    onRequestClose={() => setOptionsWorkspaceOpen(false)}
+                    presentationStyle="fullScreen"
+                    visible={optionsWorkspaceOpen}
+                >
+                <ScrollView
+                    contentInsetAdjustmentBehavior="automatic"
+                    style={optionsWorkspaceScreenStyle}
+                    contentContainerStyle={optionsWorkspaceContentStyle}
+                >
+                <View style={optionsWorkspaceShellStyle}>
+                    <View style={optionsWorkspaceHeaderStyle}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={optionsWorkspaceEyebrowStyle}>Estimate workspace</Text>
+                            <Text style={optionsWorkspaceTitleStyle}>Options</Text>
+                            <Text style={optionsWorkspaceSubtitleStyle}>
+                                Review customer choices, adjust selling prices, and prepare the presentation.
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            accessibilityLabel="Close quote options"
+                            onPress={() => setOptionsWorkspaceOpen(false)}
+                            style={optionsWorkspaceCloseStyle}
+                        >
+                            <Text style={optionsWorkspaceCloseTextStyle}>Close</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    <View style={optionsCustomerSummaryStyle}>
+                        <Text style={optionsCustomerSummaryTitleStyle}>
+                            {draftContext?.customer_home_name || 'Customer home'}
+                        </Text>
+                        {!!draftContext?.issue_summary && (
+                            <Text style={optionsCustomerSummaryTextStyle}>{draftContext.issue_summary}</Text>
+                        )}
+                        <View style={chipRowStyle}>
+                            {!!draftContext?.technician_name && (
+                                <Text style={itemChipStyle}>Technician: {draftContext.technician_name}</Text>
+                            )}
+                            <Text style={itemChipStyle}>Category: {phase1Workspace.template.label}</Text>
+                            <Text style={itemChipStyle}>{items.length} draft item{items.length === 1 ? '' : 's'}</Text>
+                        </View>
+                    </View>
+
+                    <View style={optionsWorkspaceToolbarStyle}>
                         <TouchableOpacity
                             onPress={() => draftWithAi(estimateChoices, phase1Workspace.draftGate)}
                             style={aiDrafting || requirementUploadInProgress || !phase1Workspace.draftGate.canDraft ? mutedButtonStyle : compactPrimaryButtonStyle}
@@ -1588,6 +1707,12 @@ export default function EstimateScreen() {
                             <Text style={compactPrimaryButtonTextStyle}>
                                 {aiDrafting ? 'Drafting...' : requirementUploadInProgress ? 'Uploading...' : 'Draft with AI'}
                             </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={redoOptionDrafts}
+                            style={compactSecondaryButtonStyle}
+                        >
+                            <Text style={compactSecondaryButtonTextStyle}>Redo / Reset Options</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             onPress={() => approveForPresentation(estimateChoices)}
@@ -1605,10 +1730,30 @@ export default function EstimateScreen() {
                         </TouchableOpacity>
                     </View>
 
+                    <View style={workspaceDetailStyle}>
+                    {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
+                    <View style={compactActionRowStyle}>
+                        <Text style={priceAdjustmentHelpStyle}>
+                            Price increases apply to each option separately. Use a quick percentage or enter your own.
+                        </Text>
+                    </View>
+
                     {phase1Workspace.presentationGate.blockers.length > 0 && (
                         <View style={editorStatusBannerStyle}>
                             <Text style={editorStatusTitleStyle}>Not ready for homeowner presentation</Text>
                             <Text style={editorStatusTextStyle}>{editorStatusHeadline}</Text>
+                        </View>
+                    )}
+
+                    {!!selectedChoice && (
+                        <View style={selectedOptionBannerStyle}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={selectedOptionBannerLabelStyle}>Selected for presentation</Text>
+                                <Text style={selectedOptionBannerTitleStyle}>{selectedChoice.title}</Text>
+                            </View>
+                            <Text style={selectedOptionBannerPriceStyle}>
+                                {formatMoney(selectedChoice.pricingResult.totalAmount)}
+                            </Text>
                         </View>
                     )}
 
@@ -1638,6 +1783,66 @@ export default function EstimateScreen() {
                                         <Text style={choiceCountStyle}>{formatMoney(choice.pricingResult.totalAmount)}</Text>
                                     </View>
                                     <Text style={choiceDescriptionStyle}>{choice.shortSummary}</Text>
+                                    <View style={priceAdjustmentPanelStyle}>
+                                        <View style={priceAdjustmentHeaderStyle}>
+                                            <View>
+                                                <Text style={priceAdjustmentLabelStyle}>Price increase</Text>
+                                                <Text style={priceAdjustmentCurrentStyle}>
+                                                    {formatEstimatePriceAdjustmentPercentage(priceAdjustmentByChoiceId[choice.id] || 0)} applied
+                                                </Text>
+                                            </View>
+                                            <TouchableOpacity
+                                                onPress={() => setChoicePriceAdjustment(choice.id, 0)}
+                                                style={compactSecondaryButtonStyle}
+                                            >
+                                                <Text style={compactSecondaryButtonTextStyle}>Reset Price</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                        <View style={compactActionRowStyle}>
+                                            {[5, 10, 15, 20].map((percentage) => (
+                                                <TouchableOpacity
+                                                    key={`${choice.id}-${percentage}`}
+                                                    onPress={() => setChoicePriceAdjustment(choice.id, percentage)}
+                                                    style={(priceAdjustmentByChoiceId[choice.id] || 0) === percentage
+                                                        ? compactPrimaryButtonStyle
+                                                        : compactSecondaryButtonStyle}
+                                                >
+                                                    <Text style={(priceAdjustmentByChoiceId[choice.id] || 0) === percentage
+                                                        ? compactPrimaryButtonTextStyle
+                                                        : compactSecondaryButtonTextStyle}
+                                                    >
+                                                        +{percentage}%
+                                                    </Text>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                        <View style={customPriceAdjustmentRowStyle}>
+                                            <TextInput
+                                                accessibilityLabel={`Custom price increase for ${choice.title}`}
+                                                inputMode="decimal"
+                                                keyboardType="decimal-pad"
+                                                onChangeText={(value) => setCustomPriceAdjustmentByChoiceId((current) => ({
+                                                    ...current,
+                                                    [choice.id]: value,
+                                                }))}
+                                                onSubmitEditing={() => applyCustomChoicePriceAdjustment(choice.id)}
+                                                placeholder="Custom %"
+                                                style={customPriceAdjustmentInputStyle}
+                                                value={customPriceAdjustmentByChoiceId[choice.id] || ''}
+                                            />
+                                            <TouchableOpacity
+                                                onPress={() => applyCustomChoicePriceAdjustment(choice.id)}
+                                                style={compactSecondaryButtonStyle}
+                                            >
+                                                <Text style={compactSecondaryButtonTextStyle}>Apply %</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                        {choice.pricingResult.requiredManagementApproval && (
+                                            <Text style={warningTextStyle}>
+                                                This price exceeds a company price-book limit and requires management approval.
+                                            </Text>
+                                        )}
+                                    </View>
                                     <View style={chipRowStyle}>
                                         {choice.pricingResult.lineItems.slice(0, 4).map((line) => (
                                             <Text key={`${choice.id}-${line.id}`} style={itemChipStyle}>
@@ -1667,7 +1872,9 @@ export default function EstimateScreen() {
                                             style={compactPrimaryButtonStyle}
                                         >
                                             <Text style={compactPrimaryButtonTextStyle}>
-                                                {choice.kind === 'package' ? 'Select Package' : 'Select Option'}
+                                                {selectedChoiceId === choice.id
+                                                    ? 'Selected'
+                                                    : choice.kind === 'package' ? 'Select Package' : 'Select Option'}
                                             </Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
@@ -1682,7 +1889,113 @@ export default function EstimateScreen() {
                         </View>
                     )}
                 </View>
-                )}
+
+                    {presentationMode && (
+                        <View style={workspaceDetailStyle}>
+                            {renderSectionHeader(
+                                'Homeowner Presentation',
+                                phase1Workspace.presentationGate.canPresent ? 'Ready' : 'Blocked'
+                            )}
+                            {!phase1Workspace.presentationGate.canPresent ? (
+                                <View style={warningBoxStyle}>
+                                    {phase1Workspace.presentationGate.blockers.map((blocker) => (
+                                        <Text key={blocker} style={warningTextStyle}>{blocker}</Text>
+                                    ))}
+                                </View>
+                            ) : (
+                                <View style={presentationGridStyle}>
+                                    {estimateChoices.map((choice) => renderPresentationChoice(choice))}
+                                </View>
+                            )}
+                        </View>
+                    )}
+                </View>
+                </ScrollView>
+                </Modal>
+
+                <Modal
+                    animationType="fade"
+                    onRequestClose={() => setDetailChoiceId('')}
+                    presentationStyle="pageSheet"
+                    visible={!!detailChoice}
+                >
+                    <ScrollView
+                        contentInsetAdjustmentBehavior="automatic"
+                        style={optionDetailScreenStyle}
+                        contentContainerStyle={optionDetailContentStyle}
+                    >
+                        {!!detailChoice && (
+                            <View style={optionDetailShellStyle}>
+                                <View style={optionDetailHeaderStyle}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={optionsWorkspaceEyebrowStyle}>Option details</Text>
+                                        <Text style={optionDetailTitleStyle}>{detailChoice.title}</Text>
+                                        <Text style={optionDetailPriceStyle}>
+                                            {formatMoney(detailChoice.pricingResult.totalAmount)}
+                                        </Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        accessibilityLabel="Close option details"
+                                        onPress={() => setDetailChoiceId('')}
+                                        style={optionsWorkspaceCloseStyle}
+                                    >
+                                        <Text style={optionsWorkspaceCloseTextStyle}>Close</Text>
+                                    </TouchableOpacity>
+                                </View>
+
+                                <View style={optionDetailSectionStyle}>
+                                    <Text style={optionDetailSectionTitleStyle}>Customer explanation</Text>
+                                    <Text style={optionDetailBodyStyle}>{detailChoice.homeownerExplanation}</Text>
+                                </View>
+
+                                <View style={optionDetailSectionStyle}>
+                                    <Text style={optionDetailSectionTitleStyle}>Included work</Text>
+                                    {detailChoice.pricingResult.lineItems.map((line) => (
+                                        <View key={`${detailChoice.id}-${line.id}`} style={optionDetailLineStyle}>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={optionDetailLineNameStyle}>{line.name}</Text>
+                                                <Text style={optionDetailLineMetaStyle}>
+                                                    Quantity {line.quantity} · {line.code}
+                                                </Text>
+                                            </View>
+                                            <Text style={optionDetailLinePriceStyle}>{formatMoney(line.totalAmount)}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+
+                                <View style={optionDetailSectionStyle}>
+                                    <Text style={optionDetailSectionTitleStyle}>Why this option is different</Text>
+                                    <Text style={optionDetailBodyStyle}>{detailChoice.whyItDiffers}</Text>
+                                    <View style={chipRowStyle}>
+                                        {detailChoice.keyBenefits.map((benefit) => (
+                                            <Text key={`${detailChoice.id}-${benefit}`} style={itemChipStyle}>{benefit}</Text>
+                                        ))}
+                                    </View>
+                                </View>
+
+                                {detailChoice.pricingResult.warnings.length > 0 && (
+                                    <View style={warningBoxStyle}>
+                                        {detailChoice.pricingResult.warnings.map((warning) => (
+                                            <Text key={warning} style={warningTextStyle}>{warning}</Text>
+                                        ))}
+                                    </View>
+                                )}
+
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        selectChoice(detailChoice);
+                                        setDetailChoiceId('');
+                                    }}
+                                    style={optionDetailSelectStyle}
+                                >
+                                    <Text style={compactPrimaryButtonTextStyle}>
+                                        {selectedChoiceId === detailChoice.id ? 'Selected for Presentation' : 'Select This Option'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </ScrollView>
+                </Modal>
 
                 {expandedWorkspaceSection === 'presentation' && (
                 <View ref={workspaceDetailsRef} style={workspaceDetailStyle}>
@@ -3041,11 +3354,33 @@ const recommendedPillStyle = {
 };
 
 const contextSummaryStyle = {
-    color: '#637083',
+    color: '#071B33',
     fontSize: 14,
     fontWeight: '800' as const,
     lineHeight: 20,
-    marginTop: 10,
+};
+
+const customerContextBlockStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D8E0EA',
+    gap: 12,
+    padding: 14,
+};
+
+const customerIssueBlockStyle = {
+    backgroundColor: '#F3F6FA',
+    borderRadius: 12,
+    gap: 4,
+    padding: 12,
+};
+
+const customerIssueLabelStyle = {
+    color: '#637083',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    textTransform: 'uppercase' as const,
 };
 
 const messageBoxStyle = {
@@ -3148,6 +3483,229 @@ const infoValueStyle = {
     maxWidth: 220,
 };
 
+const optionsWorkspaceScreenStyle = {
+    flex: 1,
+    backgroundColor: '#E9EEF5',
+};
+
+const optionsWorkspaceContentStyle = {
+    alignItems: 'center' as const,
+    padding: 18,
+};
+
+const optionsWorkspaceShellStyle = {
+    gap: 14,
+    maxWidth: 1200,
+    width: '100%' as const,
+};
+
+const optionsWorkspaceHeaderStyle = {
+    alignItems: 'flex-start' as const,
+    backgroundColor: '#071B33',
+    borderRadius: 20,
+    flexDirection: 'row' as const,
+    gap: 16,
+    justifyContent: 'space-between' as const,
+    padding: 18,
+};
+
+const optionsWorkspaceEyebrowStyle = {
+    color: '#79D7E5',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    letterSpacing: 1,
+    textTransform: 'uppercase' as const,
+};
+
+const optionsWorkspaceTitleStyle = {
+    color: '#FFFFFF',
+    fontSize: 30,
+    fontWeight: '900' as const,
+    marginTop: 3,
+};
+
+const optionsWorkspaceSubtitleStyle = {
+    color: '#C7D4E2',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 5,
+};
+
+const optionsWorkspaceCloseStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+};
+
+const optionsWorkspaceCloseTextStyle = {
+    color: '#071B33',
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const optionsCustomerSummaryStyle = {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D8E0EA',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+};
+
+const optionsCustomerSummaryTitleStyle = {
+    color: '#071B33',
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const optionsCustomerSummaryTextStyle = {
+    color: '#526175',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 5,
+};
+
+const optionsWorkspaceToolbarStyle = {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D8E0EA',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    padding: 12,
+};
+
+const selectedOptionBannerStyle = {
+    alignItems: 'center' as const,
+    backgroundColor: '#E8F7F0',
+    borderColor: '#8ED1B5',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+    marginBottom: 12,
+    padding: 12,
+};
+
+const selectedOptionBannerLabelStyle = {
+    color: '#1F7A55',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    textTransform: 'uppercase' as const,
+};
+
+const selectedOptionBannerTitleStyle = {
+    color: '#071B33',
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginTop: 2,
+};
+
+const selectedOptionBannerPriceStyle = {
+    color: '#14533A',
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const optionDetailScreenStyle = {
+    flex: 1,
+    backgroundColor: '#E9EEF5',
+};
+
+const optionDetailContentStyle = {
+    alignItems: 'center' as const,
+    padding: 18,
+};
+
+const optionDetailShellStyle = {
+    gap: 12,
+    maxWidth: 760,
+    width: '100%' as const,
+};
+
+const optionDetailHeaderStyle = {
+    alignItems: 'flex-start' as const,
+    backgroundColor: '#071B33',
+    borderRadius: 18,
+    flexDirection: 'row' as const,
+    gap: 14,
+    justifyContent: 'space-between' as const,
+    padding: 18,
+};
+
+const optionDetailTitleStyle = {
+    color: '#FFFFFF',
+    fontSize: 25,
+    fontWeight: '900' as const,
+    marginTop: 4,
+};
+
+const optionDetailPriceStyle = {
+    color: '#79D7E5',
+    fontSize: 24,
+    fontWeight: '900' as const,
+    marginTop: 8,
+};
+
+const optionDetailSectionStyle = {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D8E0EA',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+};
+
+const optionDetailSectionTitleStyle = {
+    color: '#071B33',
+    fontSize: 17,
+    fontWeight: '900' as const,
+    marginBottom: 8,
+};
+
+const optionDetailBodyStyle = {
+    color: '#526175',
+    fontSize: 14,
+    lineHeight: 21,
+};
+
+const optionDetailLineStyle = {
+    alignItems: 'center' as const,
+    borderBottomColor: '#E3E8EF',
+    borderBottomWidth: 1,
+    flexDirection: 'row' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+    paddingVertical: 10,
+};
+
+const optionDetailLineNameStyle = {
+    color: '#071B33',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const optionDetailLineMetaStyle = {
+    color: '#637083',
+    fontSize: 11,
+    marginTop: 3,
+};
+
+const optionDetailLinePriceStyle = {
+    color: '#14533A',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const optionDetailSelectStyle = {
+    alignItems: 'center' as const,
+    backgroundColor: '#071B33',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+};
+
 const choiceGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
@@ -3160,7 +3718,10 @@ const choiceCardStyle = {
     padding: 14,
     borderWidth: 1,
     borderColor: '#E3E8EF',
-    width: 242,
+    flexBasis: 300,
+    flexGrow: 1,
+    maxWidth: 380,
+    minWidth: 260,
     minHeight: 218,
 };
 
@@ -3197,6 +3758,62 @@ const choiceDescriptionStyle = {
     fontSize: 13,
     lineHeight: 18,
     marginTop: 8,
+};
+
+const priceAdjustmentHelpStyle = {
+    color: '#526175',
+    fontSize: 13,
+    lineHeight: 18,
+};
+
+const priceAdjustmentPanelStyle = {
+    backgroundColor: '#EEF4FF',
+    borderColor: '#C8DAFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 10,
+};
+
+const priceAdjustmentHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 8,
+    justifyContent: 'space-between' as const,
+};
+
+const priceAdjustmentLabelStyle = {
+    color: '#071B33',
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const priceAdjustmentCurrentStyle = {
+    color: '#276BDC',
+    fontSize: 11,
+    fontWeight: '800' as const,
+    marginTop: 2,
+};
+
+const customPriceAdjustmentRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 8,
+    marginTop: 8,
+};
+
+const customPriceAdjustmentInputStyle = {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#AFC7EE',
+    borderRadius: 10,
+    borderWidth: 1,
+    color: '#071B33',
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '900' as const,
+    minWidth: 100,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
 };
 
 const chipRowStyle = {
