@@ -67,10 +67,14 @@ export function createCompanyGlassPalette(input: {
     primary?: string | null;
     secondary?: string | null;
     accent?: string | null;
+    panel?: string | null;
+    panelOpacity?: number | null;
 }): GlassPalette {
     const primary = validHex(input.primary) || '#075748';
     const secondary = validHex(input.secondary) || '#043F69';
     const accent = validHex(input.accent) || '#2FA5B3';
+    const panel = validHex(input.panel);
+    const panelOpacity = Math.max(1, Math.min(100, Number(input.panelOpacity) || 78)) / 100;
 
     return {
         ...orbitalGlassPalette,
@@ -80,7 +84,7 @@ export function createCompanyGlassPalette(input: {
             emerald: colorTone(primary, '#53B98D'),
             teal: colorTone(accent, '#2FA5B3'),
             blue: colorTone(secondary, '#2788B7'),
-            steel: colorTone(mixHex(primary, secondary, 0.5), '#5C86A5'),
+            steel: colorTone(panel || mixHex(primary, secondary, 0.5), '#5C86A5', panelOpacity),
         },
     };
 }
@@ -93,6 +97,8 @@ export function resolveGlassHomeTheme(
         accent?: string;
         background?: string;
         backgroundIntensity?: number;
+        panel?: string;
+        panelOpacity?: number;
     }
 ): HomeOSTheme {
     const palette = createCompanyGlassPalette({
@@ -114,6 +120,9 @@ export function resolveGlassHomeTheme(
         '#01070D',
         1 - backgroundIntensity
     );
+    const panelOpacity = Math.max(1, Math.min(100, Number(custom?.panelOpacity) || 78)) / 100;
+    const panelColor = validHex(custom?.panel) || '#1E4160';
+    const panelBackground = withAlpha(panelColor, panelOpacity);
 
     return {
         ...source,
@@ -121,8 +130,8 @@ export function resolveGlassHomeTheme(
         colors: {
             ...source.colors,
             background,
-            surface: palette.tones.steel.background,
-            surfaceAlt: palette.tones.blue.background,
+            surface: withAlpha(mixHex(panelColor, '#03182A', 0.2), Math.min(0.98, panelOpacity + 0.12)),
+            surfaceAlt: panelBackground,
             text: orbitalGlassPalette.text,
             mutedText: orbitalGlassPalette.mutedText,
             border: 'rgba(174, 205, 229, 0.48)',
@@ -159,9 +168,9 @@ function usableAccent(value: string) {
     return /^#[0-9a-f]{6}$/.test(normalized) && normalized !== '#ffffff' && normalized !== '#ffff00';
 }
 
-function colorTone(color: string, fallbackEdge: string): GlassToneColors {
+function colorTone(color: string, fallbackEdge: string, opacity = 0.82): GlassToneColors {
     return {
-        background: withAlpha(mixHex(color, '#03182A', 0.32), 0.82),
+        background: withAlpha(mixHex(color, '#03182A', 0.32), opacity),
         border: withAlpha(mixHex(color, '#FFFFFF', 0.58), 0.76),
         edge: validHex(color) || fallbackEdge,
         glow: withAlpha(color, 0.24),

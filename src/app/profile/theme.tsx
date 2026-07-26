@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import VisualColorPicker from '../../components/theme/VisualColorPicker';
 import { DEFAULT_APPEARANCE_PREFERENCES, DEFAULT_THEME_NAME, appearanceSizeOptions, themeOptions, type AppearanceSizeName, type HomeOSTheme, type HomeOSThemeName } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
@@ -356,7 +357,14 @@ export default function ThemeScreen() {
     const isDefaultAppearance =
         appearance.fontSize === DEFAULT_APPEARANCE_PREFERENCES.fontSize &&
         appearance.iconSize === DEFAULT_APPEARANCE_PREFERENCES.iconSize &&
-        appearance.glassDepth === DEFAULT_APPEARANCE_PREFERENCES.glassDepth;
+        appearance.glassDepth === DEFAULT_APPEARANCE_PREFERENCES.glassDepth &&
+        appearance.glassPrimary === DEFAULT_APPEARANCE_PREFERENCES.glassPrimary &&
+        appearance.glassSecondary === DEFAULT_APPEARANCE_PREFERENCES.glassSecondary &&
+        appearance.glassAccent === DEFAULT_APPEARANCE_PREFERENCES.glassAccent &&
+        appearance.backgroundColor === DEFAULT_APPEARANCE_PREFERENCES.backgroundColor &&
+        appearance.backgroundIntensity === DEFAULT_APPEARANCE_PREFERENCES.backgroundIntensity &&
+        appearance.glassPanelColor === DEFAULT_APPEARANCE_PREFERENCES.glassPanelColor &&
+        appearance.glassPanelOpacity === DEFAULT_APPEARANCE_PREFERENCES.glassPanelOpacity;
     const colorValues = [
         appearance.glassPrimary,
         appearance.glassSecondary,
@@ -365,10 +373,17 @@ export default function ThemeScreen() {
     const [backgroundIntensityPreview, setBackgroundIntensityPreview] = useState(
         appearance.backgroundIntensity
     );
+    const [glassPanelOpacityPreview, setGlassPanelOpacityPreview] = useState(
+        appearance.glassPanelOpacity
+    );
 
     useEffect(() => {
         setBackgroundIntensityPreview(appearance.backgroundIntensity);
     }, [appearance.backgroundIntensity]);
+
+    useEffect(() => {
+        setGlassPanelOpacityPreview(appearance.glassPanelOpacity);
+    }, [appearance.glassPanelOpacity]);
 
     useEffect(() => {
         if (!isSavingTheme) {
@@ -494,44 +509,14 @@ export default function ThemeScreen() {
                     <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
                         Choose the HomeOS background color, then adjust how strong or dark it appears.
                     </Text>
-                    <View
-                        style={{
-                            backgroundColor: appearance.backgroundColor,
-                            borderColor: theme.colors.border,
-                            borderRadius: theme.radii.card,
-                            borderWidth: 1,
-                            height: 76,
-                            marginTop: 14,
-                            opacity: Math.max(0.08, backgroundIntensityPreview / 100),
-                        }}
-                    />
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
-                        <View style={{ flex: 1, minWidth: 180 }}>
-                            <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
-                                BACKGROUND COLOR
-                            </Text>
-                            <TextInput
-                                accessibilityLabel="HomeOS background color"
-                                autoCapitalize="characters"
-                                defaultValue={appearance.backgroundColor}
-                                onEndEditing={(event) => {
-                                    const value = event.nativeEvent.text.trim().toUpperCase();
-                                    if (!/^#[0-9A-F]{6}$/.test(value)) return;
-                                    void setAppearance({ ...appearance, backgroundColor: value });
-                                }}
-                                style={{
-                                    minHeight: 48,
-                                    borderWidth: 1,
-                                    borderColor: theme.colors.border,
-                                    borderRadius: theme.radii.button,
-                                    backgroundColor: 'rgba(3, 24, 42, 0.58)',
-                                    color: theme.colors.text,
-                                    paddingHorizontal: 14,
-                                    fontSize: 15,
-                                    fontWeight: '900',
-                                }}
-                            />
-                        </View>
+                        <VisualColorPicker
+                            label="Page background color"
+                            value={appearance.backgroundColor}
+                            onChange={(backgroundColor) =>
+                                void setAppearance({ ...appearance, backgroundColor })
+                            }
+                        />
                         <View style={{ flex: 2, minWidth: 240 }}>
                             <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
                                 INTENSITY / OPACITY — {Math.round(backgroundIntensityPreview)}%
@@ -550,6 +535,46 @@ export default function ThemeScreen() {
                                     void setAppearance({
                                         ...appearance,
                                         backgroundIntensity: Math.round(value),
+                                    });
+                                }}
+                                style={{ height: 48, width: '100%' }}
+                            />
+                        </View>
+                    </View>
+                </ThemedCard>
+                <ThemedCard style={{ marginBottom: 18 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                        Glass Panel
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
+                        This controls the larger glass containers that hold buttons, navigation, and groups of cards.
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
+                        <VisualColorPicker
+                            label="Glass panel color"
+                            value={appearance.glassPanelColor}
+                            onChange={(glassPanelColor) =>
+                                void setAppearance({ ...appearance, glassPanelColor })
+                            }
+                        />
+                        <View style={{ flex: 2, minWidth: 240 }}>
+                            <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
+                                GLASS OPACITY — {Math.round(glassPanelOpacityPreview)}%
+                            </Text>
+                            <Slider
+                                accessibilityLabel="HomeOS glass panel opacity"
+                                minimumValue={1}
+                                maximumValue={100}
+                                step={1}
+                                value={glassPanelOpacityPreview}
+                                minimumTrackTintColor={theme.colors.primary}
+                                maximumTrackTintColor="rgba(174, 205, 229, 0.35)"
+                                thumbTintColor={theme.colors.primary}
+                                onValueChange={setGlassPanelOpacityPreview}
+                                onSlidingComplete={(value) => {
+                                    void setAppearance({
+                                        ...appearance,
+                                        glassPanelOpacity: Math.round(value),
                                     });
                                 }}
                                 style={{ height: 48, width: '100%' }}
@@ -610,35 +635,17 @@ export default function ThemeScreen() {
                         })}
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
-                        {(['Primary', 'Secondary', 'Accent'] as const).map((label, index) => (
-                            <View key={label} style={{ flex: 1, minWidth: 170 }}>
-                                <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
-                                    {label.toUpperCase()}
-                                </Text>
-                                <TextInput
-                                    accessibilityLabel={`${label} glass color`}
-                                    autoCapitalize="characters"
-                                    defaultValue={colorValues[index]}
-                                    onEndEditing={(event) => {
-                                        const value = event.nativeEvent.text.trim().toUpperCase();
-                                        if (!/^#[0-9A-F]{6}$/.test(value)) return;
-                                        const key = (['glassPrimary', 'glassSecondary', 'glassAccent'] as const)[index];
-                                        void setAppearance({ ...appearance, [key]: value });
-                                    }}
-                                    style={{
-                                        minHeight: 48,
-                                        borderWidth: 1,
-                                        borderColor: theme.colors.border,
-                                        borderRadius: theme.radii.button,
-                                        backgroundColor: 'rgba(3, 24, 42, 0.58)',
-                                        color: theme.colors.text,
-                                        paddingHorizontal: 14,
-                                        fontSize: 15,
-                                        fontWeight: '900',
-                                    }}
+                        {(['Primary', 'Secondary', 'Accent'] as const).map((label, index) => {
+                            const key = (['glassPrimary', 'glassSecondary', 'glassAccent'] as const)[index];
+                            return (
+                                <VisualColorPicker
+                                    key={label}
+                                    label={`${label} tile color`}
+                                    value={colorValues[index]}
+                                    onChange={(value) => void setAppearance({ ...appearance, [key]: value })}
                                 />
-                            </View>
-                        ))}
+                            );
+                        })}
                     </View>
                 </ThemedCard>
                 <ThemedCard style={{ marginBottom: 18 }}>

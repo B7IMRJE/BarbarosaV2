@@ -1,5 +1,5 @@
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
-import type { ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -65,10 +65,29 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const [companyPalette, setCompanyPalette] = useState<GlassPalette | null>(null);
     const [companyGlassDepth, setCompanyGlassDepth] = useState<number | null>(null);
-    const { scaleFont, scaleIcon, theme } = useTheme();
+    const { appearance, scaleFont, scaleIcon, theme } = useTheme();
     const { width: viewportWidth } = useWindowDimensions();
     const insets = useSafeAreaInsets();
     const compactBottomNavigation = viewportWidth <= 480;
+    const homeownerPalette = useMemo(
+        () =>
+            createCompanyGlassPalette({
+                id: 'homeowner-custom',
+                label: 'Homeowner Glass',
+                primary: appearance.glassPrimary,
+                secondary: appearance.glassSecondary,
+                accent: appearance.glassAccent,
+                panel: appearance.glassPanelColor,
+                panelOpacity: appearance.glassPanelOpacity,
+            }),
+        [
+            appearance.glassAccent,
+            appearance.glassPanelColor,
+            appearance.glassPanelOpacity,
+            appearance.glassPrimary,
+            appearance.glassSecondary,
+        ]
+    );
 
     const currentPath = normalizePath(pathname);
     const canUseBack = currentPath !== '/';
@@ -160,12 +179,12 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     }
 
     return (
-        <GlassPaletteProvider palette={companyPalette}>
+        <GlassPaletteProvider palette={companyPalette || homeownerPalette}>
         <CompanyGlassDepthProvider value={companyGlassDepth}>
-        <View style={{ flex: 1, backgroundColor: orbitalGlassPalette.screen }}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
             <View
                 style={{
-                    backgroundColor: 'rgba(3, 24, 42, 0.94)',
+                    backgroundColor: theme.colors.surface,
                     borderBottomColor: 'rgba(104, 202, 246, 0.34)',
                     borderBottomWidth: 1,
                     paddingHorizontal: scaleIcon(14),
@@ -235,7 +254,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
             {!isTechOSRoute && (
                 <View
                     style={{
-                        backgroundColor: 'rgba(3, 24, 42, 0.96)',
+                        backgroundColor: theme.colors.surface,
                         paddingHorizontal: scaleIcon(8),
                         paddingTop: scaleIcon(8),
                         paddingBottom: insets.bottom + scaleIcon(8),
@@ -245,7 +264,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                         style={{
                             flexDirection: 'row',
                             gap: compactBottomNavigation ? 3 : scaleIcon(6),
-                            backgroundColor: 'rgba(30, 65, 96, 0.62)',
+                            backgroundColor: theme.colors.surfaceAlt,
                             borderColor: 'rgba(174, 205, 229, 0.5)',
                             borderRadius: 24,
                             borderWidth: 1,

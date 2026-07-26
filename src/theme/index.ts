@@ -40,6 +40,8 @@ export type AppearancePreferences = {
     glassAccent: string;
     backgroundColor: string;
     backgroundIntensity: number;
+    glassPanelColor: string;
+    glassPanelOpacity: number;
 };
 
 export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
@@ -51,6 +53,8 @@ export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
     glassAccent: '#2FA5B3',
     backgroundColor: '#03182A',
     backgroundIntensity: 100,
+    glassPanelColor: '#1E4160',
+    glassPanelOpacity: 78,
 };
 
 export const appearanceSizeOptions: {
@@ -119,6 +123,15 @@ function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
                 100,
                 Number(candidate.backgroundIntensity) ||
                     DEFAULT_APPEARANCE_PREFERENCES.backgroundIntensity
+            )
+        ),
+        glassPanelColor: safeColor(candidate.glassPanelColor, DEFAULT_APPEARANCE_PREFERENCES.glassPanelColor),
+        glassPanelOpacity: Math.max(
+            1,
+            Math.min(
+                100,
+                Number(candidate.glassPanelOpacity) ||
+                    DEFAULT_APPEARANCE_PREFERENCES.glassPanelOpacity
             )
         ),
     };
@@ -345,6 +358,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
                 accent: appearance.glassAccent,
                 background: appearance.backgroundColor,
                 backgroundIntensity: appearance.backgroundIntensity,
+                panel: appearance.glassPanelColor,
+                panelOpacity: appearance.glassPanelOpacity,
             }),
             setThemeName,
             appearance,
