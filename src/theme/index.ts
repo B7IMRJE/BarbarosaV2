@@ -30,8 +30,10 @@ const THEME_STORAGE_KEY_PREFIX = 'homeos_theme_';
 const APPEARANCE_STORAGE_KEY_PREFIX = 'homeos_appearance_';
 
 export type AppearanceSizeName = 'compact' | 'standard' | 'large' | 'extraLarge';
+export type AppearanceStyleName = 'glass' | 'classic';
 
 export type AppearancePreferences = {
+    appearanceStyle: AppearanceStyleName;
     fontSize: AppearanceSizeName;
     iconSize: AppearanceSizeName;
     glassDepth: number;
@@ -45,6 +47,7 @@ export type AppearancePreferences = {
 };
 
 export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
+    appearanceStyle: 'glass',
     fontSize: 'standard',
     iconSize: 'standard',
     glassDepth: 70,
@@ -94,6 +97,10 @@ function isAppearanceSizeName(value: unknown): value is AppearanceSizeName {
     );
 }
 
+function isAppearanceStyleName(value: unknown): value is AppearanceStyleName {
+    return value === 'glass' || value === 'classic';
+}
+
 function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
     if (!value || typeof value !== 'object') {
         return DEFAULT_APPEARANCE_PREFERENCES;
@@ -106,6 +113,9 @@ function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
             : fallback;
 
     return {
+        appearanceStyle: isAppearanceStyleName(candidate.appearanceStyle)
+            ? candidate.appearanceStyle
+            : DEFAULT_APPEARANCE_PREFERENCES.appearanceStyle,
         fontSize: isAppearanceSizeName(candidate.fontSize)
             ? candidate.fontSize
             : DEFAULT_APPEARANCE_PREFERENCES.fontSize,
@@ -352,15 +362,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const value = useMemo(
         () => ({
             themeName,
-            theme: resolveGlassHomeTheme(homeOSThemes[themeName], {
-                primary: appearance.glassPrimary,
-                secondary: appearance.glassSecondary,
-                accent: appearance.glassAccent,
-                background: appearance.backgroundColor,
-                backgroundIntensity: appearance.backgroundIntensity,
-                panel: appearance.glassPanelColor,
-                panelOpacity: appearance.glassPanelOpacity,
-            }),
+            theme:
+                appearance.appearanceStyle === 'classic'
+                    ? homeOSThemes[themeName]
+                    : resolveGlassHomeTheme(homeOSThemes[themeName], {
+                          primary: appearance.glassPrimary,
+                          secondary: appearance.glassSecondary,
+                          accent: appearance.glassAccent,
+                          background: appearance.backgroundColor,
+                          backgroundIntensity: appearance.backgroundIntensity,
+                          panel: appearance.glassPanelColor,
+                          panelOpacity: appearance.glassPanelOpacity,
+                      }),
             setThemeName,
             appearance,
             setAppearance,

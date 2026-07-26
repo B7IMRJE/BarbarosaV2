@@ -22,7 +22,7 @@ export default function GlassCard({
     disabled,
     style,
 }: GlassCardProps) {
-    const { appearance } = useTheme();
+    const { appearance, theme } = useTheme();
     const inheritedPalette = useGlassPalette();
     const palette = paletteOverride || inheritedPalette;
     const companyDepth = useCompanyGlassDepth();
@@ -30,20 +30,30 @@ export default function GlassCard({
     const colors = palette.tones[tone];
     const edge = Math.max(1, Math.round(6 * depth));
     const baseStyle: ViewStyle = {
-        backgroundColor: colors.background,
-        borderColor: colors.border,
-        borderRadius: 18,
-        borderWidth: 1.5,
-        borderTopColor: 'rgba(255, 255, 255, 0.78)',
-        borderBottomColor: colors.edge,
-        borderBottomWidth: edge,
-        boxShadow: `0 ${Math.max(2, Math.round(10 * depth))}px ${Math.max(5, Math.round(24 * depth))}px rgba(0, 8, 18, ${0.18 + depth * 0.26}), 0 0 ${Math.round(18 * depth)}px ${colors.glow}, inset 0 2px 0 rgba(255, 255, 255, 0.22)`,
+        backgroundColor: appearance.appearanceStyle === 'classic'
+            ? theme.colors.surfaceAlt
+            : colors.background,
+        borderColor: appearance.appearanceStyle === 'classic'
+            ? theme.colors.border
+            : colors.border,
+        borderRadius: theme.radii.card,
+        borderWidth: 1,
+        borderTopColor: appearance.appearanceStyle === 'classic'
+            ? theme.colors.border
+            : 'rgba(255, 255, 255, 0.78)',
+        borderBottomColor: appearance.appearanceStyle === 'classic'
+            ? theme.colors.border
+            : colors.edge,
+        borderBottomWidth: appearance.appearanceStyle === 'classic' ? 1 : edge,
+        boxShadow: appearance.appearanceStyle === 'classic'
+            ? '0 2px 7px rgba(15, 23, 42, 0.08)'
+            : `0 ${Math.max(2, Math.round(10 * depth))}px ${Math.max(5, Math.round(24 * depth))}px rgba(0, 8, 18, ${0.18 + depth * 0.26}), 0 0 ${Math.round(18 * depth)}px ${colors.glow}, inset 0 2px 0 rgba(255, 255, 255, 0.22)`,
         overflow: 'hidden',
     };
 
     const content = (
         <>
-            <View
+            {appearance.appearanceStyle === 'glass' && <View
                 pointerEvents="none"
                 style={{
                     position: 'absolute',
@@ -54,7 +64,7 @@ export default function GlassCard({
                     backgroundColor: 'rgba(255, 255, 255, 0.075)',
                     borderBottomLeftRadius: 90,
                 }}
-            />
+            />}
             {children}
         </>
     );
@@ -70,8 +80,19 @@ export default function GlassCard({
                 baseStyle,
                 {
                     opacity: disabled ? 0.52 : 1,
-                    borderBottomWidth: pressed ? 1 : edge,
-                    transform: [{ translateY: pressed ? Math.max(1, Math.round(4 * depth)) : 0 }],
+                    borderBottomWidth: appearance.appearanceStyle === 'classic'
+                        ? 1
+                        : pressed
+                          ? 1
+                          : edge,
+                    transform: [{
+                        translateY:
+                            appearance.appearanceStyle === 'classic'
+                                ? 0
+                                : pressed
+                                  ? Math.max(1, Math.round(4 * depth))
+                                  : 0,
+                    }],
                 },
                 style,
             ]}

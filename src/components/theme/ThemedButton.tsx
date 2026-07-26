@@ -33,7 +33,8 @@ export default function ThemedButton({
     const { appearance, scaleFont, scaleIcon, theme } = useTheme();
     const companyDepth = useCompanyGlassDepth();
     const depth = (companyDepth ?? appearance.glassDepth) / 100;
-    const restingEdge = Math.max(1, Math.round(6 * depth));
+    const isClassic = appearance.appearanceStyle === 'classic';
+    const restingEdge = isClassic ? 1 : Math.max(1, Math.round(6 * depth));
 
     const variantStyle = {
         primary: {
@@ -78,7 +79,9 @@ export default function ThemedButton({
                     borderRadius: Math.min(theme.radii.button, 14),
                     borderWidth: 2,
                     borderBottomWidth: pressed || disabled ? 1 : restingEdge,
-                    boxShadow: disabled
+                    boxShadow: isClassic
+                        ? '0 1px 4px rgba(15, 23, 42, 0.08)'
+                        : disabled
                         ? 'none'
                         : pressed
                             ? '0 2px 3px rgba(7, 27, 51, 0.18)'
@@ -90,7 +93,12 @@ export default function ThemedButton({
                     opacity: disabled ? 0.48 : 1,
                     paddingHorizontal: scaleIcon(20),
                     paddingVertical: scaleIcon(13),
-                    transform: [{ translateY: pressed && !disabled ? Math.max(1, Math.round(4 * depth)) : 0 }],
+                    transform: [{
+                        translateY:
+                            isClassic || !pressed || disabled
+                                ? 0
+                                : Math.max(1, Math.round(4 * depth)),
+                    }],
                 },
                 style,
             ]}

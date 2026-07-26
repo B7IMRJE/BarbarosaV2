@@ -356,6 +356,7 @@ export default function ThemeScreen() {
     const isDefaultTheme = selectedThemeName === DEFAULT_THEME_NAME;
     const hasUnsavedTheme = selectedThemeName !== themeName;
     const isDefaultAppearance =
+        appearance.appearanceStyle === DEFAULT_APPEARANCE_PREFERENCES.appearanceStyle &&
         appearance.fontSize === DEFAULT_APPEARANCE_PREFERENCES.fontSize &&
         appearance.iconSize === DEFAULT_APPEARANCE_PREFERENCES.iconSize &&
         appearance.glassDepth === DEFAULT_APPEARANCE_PREFERENCES.glassDepth &&
@@ -547,6 +548,56 @@ export default function ThemeScreen() {
                     </View>
                 </View>
                 <ThemedCard style={{ marginBottom: 18 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '900' }}>
+                        Interface Style
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
+                        Choose the original flatter HomeOS appearance or the futuristic layered glass appearance. Theme packs work with both.
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
+                        {([
+                            {
+                                key: 'glass' as const,
+                                title: 'Glass',
+                                body: 'Reflective colored tiles, layered panels, glow, and adjustable depth.',
+                            },
+                            {
+                                key: 'classic' as const,
+                                title: 'Classic',
+                                body: 'The original clean theme colors with flatter cards and simpler buttons.',
+                            },
+                        ]).map((option) => {
+                            const selected = appearance.appearanceStyle === option.key;
+                            return (
+                                <ThemedCard
+                                    key={option.key}
+                                    onPress={() =>
+                                        void setAppearance({
+                                            ...appearance,
+                                            appearanceStyle: option.key,
+                                        })
+                                    }
+                                    style={{
+                                        flexBasis: 280,
+                                        flexGrow: 1,
+                                        borderColor: selected
+                                            ? theme.colors.primary
+                                            : theme.colors.border,
+                                        borderWidth: selected ? 2 : 1,
+                                    }}
+                                >
+                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                        {selected ? '✓ ' : ''}{option.title}
+                                    </Text>
+                                    <Text style={{ color: theme.colors.mutedText, fontSize: 13, fontWeight: '700', lineHeight: 18, marginTop: 6 }}>
+                                        {option.body}
+                                    </Text>
+                                </ThemedCard>
+                            );
+                        })}
+                    </View>
+                </ThemedCard>
+                <ThemedCard style={{ marginBottom: 18 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
                         Background
                     </Text>
@@ -588,14 +639,14 @@ export default function ThemeScreen() {
                 </ThemedCard>
                 <ThemedCard style={{ marginBottom: 18 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
-                        Glass Panel
+                        Glass Container Color
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
-                        This controls the larger glass containers that hold buttons, navigation, and groups of cards.
+                        This controls the large background panels that hold navigation, buttons, or groups of tiles. It does not change each individual tile.
                     </Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
                         <VisualColorPicker
-                            label="Glass panel color"
+                            label="Container glass color"
                             value={appearance.glassPanelColor}
                             onChange={(glassPanelColor) =>
                                 void setAppearance({ ...appearance, glassPanelColor })
@@ -628,10 +679,10 @@ export default function ThemeScreen() {
                 </ThemedCard>
                 <ThemedCard style={{ marginBottom: 18 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
-                        Glass Colors
+                        Individual Glass Tile Colors
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
-                        Choose a coordinated glass palette or enter your own colors. These colors belong only to your HomeOS.
+                        These colors control the individual cards and tiles inside the larger glass containers.
                     </Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
                         {glassColorPresets.map((preset) => {
