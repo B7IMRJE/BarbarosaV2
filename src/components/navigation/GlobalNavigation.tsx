@@ -1,6 +1,6 @@
 import { router, useGlobalSearchParams, usePathname } from 'expo-router';
 import type { ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { providerModePath, readProviderModeParams } from '../../lib/providerMode';
@@ -57,7 +57,9 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const { width: viewportWidth } = useWindowDimensions();
     const insets = useSafeAreaInsets();
+    const compactBottomNavigation = viewportWidth <= 480;
 
     const currentPath = normalizePath(pathname);
     const canUseBack = currentPath !== '/';
@@ -206,7 +208,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                     <View
                         style={{
                             flexDirection: 'row',
-                            gap: scaleIcon(6),
+                            gap: compactBottomNavigation ? 3 : scaleIcon(6),
                         }}
                     >
                         {activePrimaryTabs.map((tab) => {
@@ -221,9 +223,14 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                                     style={{
                                         borderRadius: theme.radii.pill,
                                         flex: 1,
-                                        paddingHorizontal: scaleIcon(8),
-                                        minHeight: scaleIcon(50),
+                                        paddingHorizontal: compactBottomNavigation ? 2 : scaleIcon(8),
+                                        minHeight: compactBottomNavigation ? 42 : scaleIcon(50),
                                     }}
+                                    textStyle={compactBottomNavigation ? {
+                                        fontSize: 11,
+                                        lineHeight: 13,
+                                        letterSpacing: 0,
+                                    } : undefined}
                                 />
                             );
                         })}
@@ -234,10 +241,15 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             onPress={() => setDrawerOpen(true)}
                             style={{
                                 borderRadius: theme.radii.pill,
-                                flex: 0.8,
-                                paddingHorizontal: scaleIcon(8),
-                                minHeight: scaleIcon(50),
+                                flex: 1,
+                                paddingHorizontal: compactBottomNavigation ? 2 : scaleIcon(8),
+                                minHeight: compactBottomNavigation ? 42 : scaleIcon(50),
                             }}
+                            textStyle={compactBottomNavigation ? {
+                                fontSize: 11,
+                                lineHeight: 13,
+                                letterSpacing: 0,
+                            } : undefined}
                         />
                     </View>
                 </View>
