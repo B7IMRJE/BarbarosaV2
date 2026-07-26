@@ -1590,7 +1590,7 @@ function DispatchNeedsAttentionPanel({
     if (items.length === 0) return null;
 
     return (
-        <ThemedCard style={[needsAttentionPanelStyle, { borderColor: '#C4B5FD', backgroundColor: 'rgba(196, 181, 253, 0.12)' }]}>
+        <ThemedCard style={[needsAttentionPanelStyle, { borderColor: '#F2A94A', backgroundColor: 'rgba(251, 191, 36, 0.18)' }]}>
             <View style={sectionHeaderStyle}>
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Needs Attention</Text>
@@ -1598,7 +1598,7 @@ function DispatchNeedsAttentionPanel({
                         Internal timing warnings. Homeowners are notified only after Dispatch confirms a delay.
                     </Text>
                 </View>
-                <Text style={[countBadgeStyle, { color: '#4C1D95', backgroundColor: 'rgba(124, 58, 237, 0.18)' }]}>
+                <Text style={[countBadgeStyle, { color: '#8A3F08', backgroundColor: 'rgba(251, 191, 36, 0.26)' }]}>
                     {items.length}
                 </Text>
             </View>
@@ -1871,7 +1871,7 @@ function DispatchActiveJobsList({
                 </View>
                 <View style={activeOperationsHeaderBadgesStyle}>
                     {attentionCount > 0 ? (
-                        <Text style={[countBadgeStyle, { color: '#4C1D95', backgroundColor: 'rgba(124, 58, 237, 0.18)' }]}>
+                        <Text style={[countBadgeStyle, { color: '#8A3F08', backgroundColor: 'rgba(251, 191, 36, 0.26)' }]}>
                             Needs Attention {attentionCount}
                         </Text>
                     ) : null}
@@ -5472,28 +5472,28 @@ function formatTechOSStatusLabel(status?: string | null) {
 }
 
 function getRiskBorderColor(state: DispatchRiskResult['state'], fallback: string) {
-    if (state === 'RUNNING_LATE') return '#7C3AED';
+    if (state === 'RUNNING_LATE') return '#D97706';
     if (state === 'AT_RISK') return '#C4B5FD';
 
     return fallback;
 }
 
 function getRiskBackgroundColor(state: DispatchRiskResult['state'], fallback: string) {
-    if (state === 'RUNNING_LATE') return 'rgba(124, 58, 237, 0.12)';
+    if (state === 'RUNNING_LATE') return 'rgba(251, 191, 36, 0.20)';
     if (state === 'AT_RISK') return 'rgba(196, 181, 253, 0.16)';
 
     return fallback;
 }
 
 function getRiskBadgeBackground(state: DispatchRiskResult['state'], fallback: string) {
-    if (state === 'RUNNING_LATE') return 'rgba(124, 58, 237, 0.22)';
+    if (state === 'RUNNING_LATE') return 'rgba(217, 119, 6, 0.34)';
     if (state === 'AT_RISK') return 'rgba(196, 181, 253, 0.32)';
 
     return fallback;
 }
 
 function getRiskTextColor(state: DispatchRiskResult['state'], fallback: string) {
-    if (state === 'RUNNING_LATE') return '#4C1D95';
+    if (state === 'RUNNING_LATE') return '#8A3F08';
     if (state === 'AT_RISK') return '#5B21B6';
 
     return fallback;

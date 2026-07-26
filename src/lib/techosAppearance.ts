@@ -58,19 +58,19 @@ const TECHOS_THEME_STORAGE_KEY_PREFIX = 'techos_appearance_theme_';
 
 const softDashboard = {
     jobs: variant('#2563EB', 'rgba(37, 99, 235, 0.08)', 'rgba(37, 99, 235, 0.30)'),
-    schedule: variant('#7C3AED', 'rgba(124, 58, 237, 0.08)', 'rgba(124, 58, 237, 0.30)'),
+    schedule: variant('#D97706', 'rgba(251, 191, 36, 0.18)', 'rgba(217, 119, 6, 0.38)'),
     history: variant('#64748B', 'rgba(100, 116, 139, 0.09)', 'rgba(100, 116, 139, 0.32)'),
     estimates: variant('#B7791F', 'rgba(183, 121, 31, 0.10)', 'rgba(183, 121, 31, 0.34)'),
     sales: variant('#15803D', 'rgba(21, 128, 61, 0.08)', 'rgba(21, 128, 61, 0.30)'),
     messages: variant('#0F766E', 'rgba(15, 118, 110, 0.08)', 'rgba(15, 118, 110, 0.30)'),
     'time-clock': variant('#C2410C', 'rgba(194, 65, 12, 0.08)', 'rgba(194, 65, 12, 0.30)'),
-    'van-inventory': variant('#4F46E5', 'rgba(79, 70, 229, 0.08)', 'rgba(79, 70, 229, 0.30)'),
+    'van-inventory': variant('#35646D', 'rgba(53, 100, 109, 0.10)', 'rgba(53, 100, 109, 0.32)'),
 };
 
 const softJobDetail = {
     customer: variant('#2563EB', 'rgba(37, 99, 235, 0.07)', 'rgba(37, 99, 235, 0.28)'),
     request: variant('#B7791F', 'rgba(183, 121, 31, 0.09)', 'rgba(183, 121, 31, 0.30)'),
-    status: variant('#7C3AED', 'rgba(124, 58, 237, 0.07)', 'rgba(124, 58, 237, 0.28)'),
+    status: variant('#D97706', 'rgba(251, 191, 36, 0.16)', 'rgba(217, 119, 6, 0.36)'),
     workflow: variant('#0F766E', 'rgba(15, 118, 110, 0.07)', 'rgba(15, 118, 110, 0.28)'),
     note: variant('#64748B', 'rgba(100, 116, 139, 0.08)', 'rgba(100, 116, 139, 0.30)'),
     estimate: variant('#B7791F', 'rgba(183, 121, 31, 0.10)', 'rgba(183, 121, 31, 0.34)'),

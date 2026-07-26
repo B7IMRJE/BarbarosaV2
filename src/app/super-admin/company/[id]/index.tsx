@@ -592,7 +592,7 @@ export default function CompanyDashboardScreen() {
     const logoCanPreview = brandForm.logoUrl.trim().startsWith('http');
     const brandPrimary = brandForm.primaryColor || '#071B33';
     const brandSecondary = brandForm.secondaryColor || '#FFFFFF';
-    const brandAccent = brandForm.accentColor || '#0B5FFF';
+    const brandAccent = replacePurpleWithGold(brandForm.accentColor || '#D89A1D');
     const brandHeaderText = getReadableColor(brandPrimary);
     const techOSPreviewTheme = resolveCompanyTechOSTheme({
         primaryColor: brandPrimary,
@@ -1720,17 +1720,17 @@ function CompanyModuleCard({
     const glassColor = mixHexColors(
         toneIndex % 4 === 2 ? accentColor : primaryColor,
         '#FFFFFF',
-        toneIndex % 4 === 0 ? 0.86 : 0.91,
+        toneIndex % 4 === 0 ? 0.72 : 0.8,
     );
     const glassBorder = mixHexColors(
         toneIndex % 4 === 2 ? accentColor : primaryColor,
         '#FFFFFF',
-        0.42,
+        0.28,
     );
     const iconColor = mixHexColors(
         toneIndex % 3 === 1 ? accentColor : primaryColor,
         '#FFFFFF',
-        0.7,
+        0.55,
     );
 
     return (
@@ -1748,13 +1748,15 @@ function CompanyModuleCard({
                 borderCurve: 'continuous',
                 padding: 16,
                 borderWidth: 2,
-                borderBottomWidth: pressed ? 2 : 5,
+                borderTopColor: 'rgba(255, 255, 255, 0.94)',
+                borderBottomColor: isExpanded ? accentColor : glassBorder,
+                borderBottomWidth: pressed ? 2 : 7,
                 borderColor: isExpanded ? accentColor : glassBorder,
                 gap: 12,
                 boxShadow: pressed
                     ? '0 1px 2px rgba(7, 27, 51, 0.14)'
-                    : '0 7px 14px rgba(7, 27, 51, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82)',
-                transform: [{ translateY: pressed ? 3 : 0 }],
+                    : '0 10px 20px rgba(7, 27, 51, 0.24), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
+                transform: [{ translateY: pressed ? 5 : 0 }],
             })}
         >
             <View
@@ -1831,6 +1833,15 @@ function mixHexColors(base: string, overlay: string, overlayWeight: number) {
     return `#${baseRgb.map((channel, index) => Math.round(
         channel * (1 - safeWeight) + overlayRgb[index] * safeWeight,
     ).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function replacePurpleWithGold(value: string) {
+    if (!/^#[0-9a-f]{6}$/i.test(value)) return '#D89A1D';
+    const red = Number.parseInt(value.slice(1, 3), 16);
+    const green = Number.parseInt(value.slice(3, 5), 16);
+    const blue = Number.parseInt(value.slice(5, 7), 16);
+    const looksPurple = blue > green * 1.12 && red > green * 1.08;
+    return looksPurple ? '#D89A1D' : value;
 }
 
 function getModuleInitials(title: string) {
