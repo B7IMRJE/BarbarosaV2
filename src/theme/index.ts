@@ -284,29 +284,35 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             throw new Error('Sign in again before saving your HomeOS theme.');
         }
 
-        const accountResult = await supabase.auth.updateUser({
-            data: {
-                [HOMEOS_THEME_USER_METADATA_KEY]: nextThemeName,
-            },
-        });
-
-        if (accountResult.error) {
-            throw new Error(
-                accountResult.error.message || 'HomeOS could not save your theme.'
-            );
-        }
-
-        if (
-            accountResult.data.user?.id !== userId ||
-            !isHomeOSThemeSaveConfirmed(
-                accountResult.data.user?.user_metadata,
-                nextThemeName
-            )
-        ) {
-            throw new Error('HomeOS could not confirm the saved theme. Please try again.');
-        }
-
+        const previousThemeName = themeName;
         setThemeNameState(nextThemeName);
+
+        try {
+            const accountResult = await supabase.auth.updateUser({
+                data: {
+                    [HOMEOS_THEME_USER_METADATA_KEY]: nextThemeName,
+                },
+            });
+
+            if (accountResult.error) {
+                throw new Error(
+                    accountResult.error.message || 'HomeOS could not save your theme.'
+                );
+            }
+
+            if (
+                accountResult.data.user?.id !== userId ||
+                !isHomeOSThemeSaveConfirmed(
+                    accountResult.data.user?.user_metadata,
+                    nextThemeName
+                )
+            ) {
+                throw new Error('HomeOS could not confirm the saved theme. Please try again.');
+            }
+        } catch (error) {
+            setThemeNameState(previousThemeName);
+            throw error;
+        }
 
         try {
             await AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName);

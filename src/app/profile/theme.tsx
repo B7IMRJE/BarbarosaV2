@@ -354,7 +354,6 @@ export default function ThemeScreen() {
         text: string;
     } | null>(null);
     const isDefaultTheme = selectedThemeName === DEFAULT_THEME_NAME;
-    const hasUnsavedTheme = selectedThemeName !== themeName;
     const isDefaultAppearance =
         appearance.appearanceStyle === DEFAULT_APPEARANCE_PREFERENCES.appearanceStyle &&
         appearance.fontSize === DEFAULT_APPEARANCE_PREFERENCES.fontSize &&
@@ -393,19 +392,30 @@ export default function ThemeScreen() {
         }
     }, [isSavingTheme, themeName]);
 
-    async function saveSelectedTheme() {
-        if (!hasUnsavedTheme || isSavingTheme) return;
+    async function selectAndSaveTheme(nextThemeName: HomeOSThemeName) {
+        if (isSavingTheme) return;
+
+        setSelectedThemeName(nextThemeName);
+
+        if (nextThemeName === themeName) {
+            setThemeSaveMessage({
+                kind: 'success',
+                text: 'This theme is already saved to your HomeOS account.',
+            });
+            return;
+        }
 
         setIsSavingTheme(true);
         setThemeSaveMessage(null);
 
         try {
-            await setThemeName(selectedThemeName);
+            await setThemeName(nextThemeName);
             setThemeSaveMessage({
                 kind: 'success',
-                text: 'Theme saved to your HomeOS account.',
+                text: 'Theme applied and saved automatically.',
             });
         } catch (error) {
+            setSelectedThemeName(themeName);
             setThemeSaveMessage({
                 kind: 'error',
                 text:
@@ -882,8 +892,7 @@ export default function ThemeScreen() {
                             <ThemedCard
                                 key={option.name}
                                 onPress={() => {
-                                    setSelectedThemeName(option.name);
-                                    setThemeSaveMessage(null);
+                                    void selectAndSaveTheme(option.name);
                                 }}
                                 style={{
                                     flexGrow: 1,
@@ -930,7 +939,7 @@ export default function ThemeScreen() {
                                                 {isSaved
                                                     ? 'Saved for your account'
                                                     : isSelected
-                                                      ? 'Selected, ready to save'
+                                                      ? 'Applying and saving...'
                                                       : 'Tap to select'}
                                             </Text>
                                         </View>
@@ -981,15 +990,6 @@ export default function ThemeScreen() {
                         marginTop: 18,
                     }}
                 >
-                    <ThemedButton
-                        title={isSavingTheme ? 'Saving Theme...' : 'Save Theme'}
-                        disabled={!hasUnsavedTheme || isSavingTheme}
-                        onPress={() => {
-                            void saveSelectedTheme();
-                        }}
-                        style={{ flexGrow: 1, minWidth: 180 }}
-                    />
-
                     <ThemedButton
                         title={
                             appearance.appearanceStyle === 'glass'
