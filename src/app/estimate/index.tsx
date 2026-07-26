@@ -47,11 +47,17 @@ import {
     loadCompanyPriceBook,
     type CompanyPriceBookItem,
 } from '../../lib/companyPriceBook';
+import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
     applyEstimateChoicePriceAdjustment,
     formatEstimatePriceAdjustmentPercentage,
     normalizeEstimatePriceAdjustmentPercentage,
 } from '../../lib/estimatePriceAdjustments';
+import {
+    loadEstimateOptionSet,
+    saveEstimateOptionSet,
+    type PersistableEstimateChoice,
+} from '../../lib/estimateOptionPersistence';
 import {
     canUseCompanyEstimateWorkflow,
     loadCurrentCompanyEstimateAccess,
@@ -162,6 +168,7 @@ export default function EstimateScreen() {
     const [detailChoiceId, setDetailChoiceId] = useState('');
     const [removedChoiceIds, setRemovedChoiceIds] = useState<string[]>([]);
     const [pendingRemoveChoiceId, setPendingRemoveChoiceId] = useState('');
+    const [persistedOptionChoices, setPersistedOptionChoices] = useState<PersistableEstimateChoice[]>([]);
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
     const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
@@ -277,6 +284,7 @@ export default function EstimateScreen() {
         setAiValidationErrors([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
+        setPersistedOptionChoices([]);
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
         setMeasurementDraftByKey({});
@@ -377,13 +385,17 @@ export default function EstimateScreen() {
         setAiValidationErrors([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
+        setPersistedOptionChoices([]);
         setMessage(providerModeContext && draftItems.length === 0 && !nextDraftContext
             ? 'No provider estimate draft found.'
             : ''
         );
 
         if (nextDraftContext?.estimate_session_id) {
-            await loadPersistedAnswers(nextDraftContext.estimate_session_id);
+            await Promise.all([
+                loadPersistedAnswers(nextDraftContext.estimate_session_id),
+                loadPersistedOptionSet(nextDraftContext.estimate_session_id),
+            ]);
         }
 
         try {
@@ -406,6 +418,27 @@ export default function EstimateScreen() {
             await loadPhotoPreviews(persistedAnswers);
         } catch (error) {
             setMessage(`Estimate requirements could not be restored: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    async function loadPersistedOptionSet(sessionId: string) {
+        try {
+            const savedSet = await loadEstimateOptionSet(sessionId);
+
+            if (!savedSet || savedSet.options.length === 0) return;
+
+            setPersistedOptionChoices(savedSet.options);
+            setSelectedChoiceId(savedSet.selectedSourceChoiceId || '');
+            setTechnicianApproved(!!savedSet.technicianApprovedAt);
+            setPriceAdjustmentByChoiceId(savedSet.options.reduce<Record<string, number>>((adjustments, choice) => {
+                const percentage = Number(choice.priceAdjustmentPercentage || 0);
+
+                if (percentage > 0) adjustments[choice.id] = percentage;
+
+                return adjustments;
+            }, {}));
+        } catch (error) {
+            setMessage(`Saved option set could not be restored: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
@@ -439,6 +472,7 @@ export default function EstimateScreen() {
         setAiValidationErrors([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
+        setPersistedOptionChoices([]);
         setPriceAdjustmentByChoiceId({});
         setCustomPriceAdjustmentByChoiceId({});
         setMessage('Estimate draft cleared. Start a fresh estimate from the assigned job or Client HomeOS item.');
@@ -1018,21 +1052,69 @@ export default function EstimateScreen() {
         setAiValidationErrors([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
+        setPersistedOptionChoices([]);
         setPriceAdjustmentByChoiceId({});
         setCustomPriceAdjustmentByChoiceId({});
         setOptionsWorkspaceNotice('All options were rebuilt from the current checklist and original company price-book amounts.');
         setMessage('Options reset to the current checklist and company price-book values.');
     }
 
-    function approveForPresentation(workspaceChoices: Phase1EstimateChoice[]) {
+    async function approveForPresentation(workspaceChoices: Phase1EstimateChoice[]) {
         if (workspaceChoices.length === 0) {
             setMessage('Pricing setup required before presentation.');
             return;
         }
 
-        setTechnicianApproved(true);
-        setOptionsWorkspaceNotice('Option set approved. It is ready to open in homeowner presentation mode.');
-        setMessage('Technician review marked complete.');
+        setOptionsWorkspaceNotice('Saving approved option set...');
+
+        try {
+            const session = await resolveSessionForDraft(selectedCategory);
+
+            if (!session) return;
+
+            const savedOptions = workspaceChoices.map((choice) => ({
+                ...choice,
+                basePricingResult: (
+                    choiceSource.find((candidate) => candidate.id === choice.id) as PersistableEstimateChoice | undefined
+                )?.basePricingResult || choiceSource.find((candidate) => candidate.id === choice.id)?.pricingResult,
+                priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] || 0,
+            }));
+
+            await saveEstimateOptionSet({
+                sessionId: session.id,
+                options: savedOptions,
+                selectedSourceChoiceId: selectedChoiceId || null,
+                technicianApproved: true,
+            });
+            setEstimateSession(session);
+            setPersistedOptionChoices(savedOptions);
+            setTechnicianApproved(true);
+            setOptionsWorkspaceNotice('Option set saved and approved. It is ready for homeowner presentation.');
+            setMessage('Technician-approved option set saved.');
+        } catch (error) {
+            setTechnicianApproved(false);
+            setOptionsWorkspaceNotice(`Could not save approval: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    async function openHomeownerApproval() {
+        if (!technicianApproved) {
+            setOptionsWorkspaceNotice('Approve the option set before presenting it to the homeowner.');
+            return;
+        }
+
+        try {
+            const session = await resolveSessionForDraft(selectedCategory);
+
+            if (!session) return;
+            setOptionsWorkspaceOpen(false);
+            router.push({
+                pathname: '/job-workflow',
+                params: { estimateSessionId: session.id },
+            } as never);
+        } catch (error) {
+            setOptionsWorkspaceNotice(`Could not open homeowner approval: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
     }
 
     async function resolveSessionForDraft(category: EstimateOptionCategory) {
@@ -1278,9 +1360,15 @@ export default function EstimateScreen() {
         technicianApproved,
         aiValidationFailed: aiValidationErrors.length > 0,
     });
-    const allEstimateChoices = phase1Workspace.choices.map((choice) => {
+    const choiceSource: PersistableEstimateChoice[] = persistedOptionChoices.length > 0
+        ? persistedOptionChoices
+        : phase1Workspace.choices;
+    const allEstimateChoices = choiceSource.map((choice) => {
+        const baseChoice = choice.basePricingResult
+            ? { ...choice, pricingResult: choice.basePricingResult }
+            : choice;
         const editedChoice = applyEditableChoiceCopy(
-            choice,
+            baseChoice,
             aiDraftsByChoiceId[choice.id],
             editableCopyByChoiceId[choice.id]
         );
@@ -1734,6 +1822,7 @@ export default function EstimateScreen() {
                             <Text style={optionsWorkspaceSubtitleStyle}>
                                 Review customer choices, adjust selling prices, and prepare the presentation.
                             </Text>
+                            <Text style={optionsWorkspaceVersionStyle}>{BUILD_DISPLAY}</Text>
                         </View>
                         <TouchableOpacity
                             accessibilityLabel="Close quote options"
@@ -1797,15 +1886,7 @@ export default function EstimateScreen() {
                                     </Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
-                                    onPress={() => {
-                                        if (!technicianApproved) {
-                                            setOptionsWorkspaceNotice('Approve the option set before presenting it to the homeowner.');
-                                            return;
-                                        }
-
-                                        setPresentationMode(true);
-                                        setOptionsWorkspaceNotice('Homeowner presentation mode is open. Editing and price controls are hidden.');
-                                    }}
+                                    onPress={openHomeownerApproval}
                                     style={technicianApproved ? compactPrimaryButtonStyle : mutedButtonStyle}
                                 >
                                     <Text style={compactPrimaryButtonTextStyle}>Present to Homeowner</Text>
@@ -1814,7 +1895,7 @@ export default function EstimateScreen() {
                         )}
                     </View>
 
-                    {!!optionsWorkspaceNotice && (
+                    {!presentationMode && !!optionsWorkspaceNotice && (
                         <View style={optionsWorkspaceNoticeStyle}>
                             <Text style={optionsWorkspaceNoticeTextStyle}>{optionsWorkspaceNotice}</Text>
                         </View>
@@ -3627,6 +3708,13 @@ const optionsWorkspaceSubtitleStyle = {
     fontSize: 14,
     lineHeight: 20,
     marginTop: 5,
+};
+
+const optionsWorkspaceVersionStyle = {
+    color: '#8FA4BA',
+    fontSize: 10,
+    fontWeight: '800' as const,
+    marginTop: 8,
 };
 
 const optionsWorkspaceCloseStyle = {
