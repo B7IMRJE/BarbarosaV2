@@ -166,6 +166,7 @@ export default function EstimateScreen() {
     const [expandedCategory, setExpandedCategory] = useState<EstimateOptionCategory | null>(null);
     const [expandedWorkspaceSection, setExpandedWorkspaceSection] = useState<EstimateWorkspaceSection | null>(null);
     const [optionsWorkspaceOpen, setOptionsWorkspaceOpen] = useState(false);
+    const [optionsWorkspaceNotice, setOptionsWorkspaceNotice] = useState('');
     const [readinessExpanded, setReadinessExpanded] = useState(false);
     const [answers, setAnswers] = useState<EstimateAnswerSet>({});
     const [photoPreviewByKey, setPhotoPreviewByKey] = useState<Record<string, string>>({});
@@ -265,6 +266,7 @@ export default function EstimateScreen() {
         setExpandedCategory(null);
         setExpandedWorkspaceSection(null);
         setOptionsWorkspaceOpen(false);
+        setOptionsWorkspaceNotice('');
         setReadinessExpanded(false);
         setPriceBookItems([]);
         setPriceBookMessage('Price book loading...');
@@ -504,6 +506,7 @@ export default function EstimateScreen() {
 
     function selectChoice(choice: Phase1EstimateChoice) {
         setSelectedChoiceId(choice.id);
+        setOptionsWorkspaceNotice(`${choice.title} selected for the homeowner presentation.`);
         setMessage(`${choice.title} selected for technician review.`);
     }
 
@@ -936,9 +939,35 @@ export default function EstimateScreen() {
             ...current,
             [choiceId]: nextPercentage === 0 ? '' : String(nextPercentage),
         }));
+        setOptionsWorkspaceNotice(nextPercentage === 0
+            ? 'Option restored to its original company price-book amount.'
+            : `Price increase changed to ${formatEstimatePriceAdjustmentPercentage(nextPercentage)}.`);
         setMessage(nextPercentage === 0
             ? 'Option price reset to the company price-book amount.'
             : `Option price increased by ${formatEstimatePriceAdjustmentPercentage(nextPercentage)}.`);
+    }
+
+    function resetChoicePrice(choice: Phase1EstimateChoice) {
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setPriceAdjustmentByChoiceId((current) => {
+            const next = { ...current };
+
+            delete next[choice.id];
+
+            return next;
+        });
+        setCustomPriceAdjustmentByChoiceId((current) => {
+            const next = { ...current };
+
+            delete next[choice.id];
+
+            return next;
+        });
+        setOptionsWorkspaceNotice(
+            `${choice.title} reset to ${formatMoney(phase1Workspace.choices.find((candidate) => candidate.id === choice.id)?.pricingResult.totalAmount || 0)}.`
+        );
+        setMessage('Option price reset to the company price-book amount.');
     }
 
     function applyCustomChoicePriceAdjustment(choiceId: string) {
@@ -963,6 +992,7 @@ export default function EstimateScreen() {
         setEditableCopyByChoiceId({});
         setPriceAdjustmentByChoiceId({});
         setCustomPriceAdjustmentByChoiceId({});
+        setOptionsWorkspaceNotice('All options were rebuilt from the current checklist and original company price-book amounts.');
         setMessage('Options reset to the current checklist and company price-book values.');
     }
 
@@ -973,6 +1003,7 @@ export default function EstimateScreen() {
         }
 
         setTechnicianApproved(true);
+        setOptionsWorkspaceNotice('Option set approved. It is ready to open in homeowner presentation mode.');
         setMessage('Technician review marked complete.');
     }
 
@@ -1699,37 +1730,66 @@ export default function EstimateScreen() {
                     </View>
 
                     <View style={optionsWorkspaceToolbarStyle}>
-                        <TouchableOpacity
-                            onPress={() => draftWithAi(estimateChoices, phase1Workspace.draftGate)}
-                            style={aiDrafting || requirementUploadInProgress || !phase1Workspace.draftGate.canDraft ? mutedButtonStyle : compactPrimaryButtonStyle}
-                            disabled={aiDrafting || requirementUploadInProgress}
-                        >
-                            <Text style={compactPrimaryButtonTextStyle}>
-                                {aiDrafting ? 'Drafting...' : requirementUploadInProgress ? 'Uploading...' : 'Draft with AI'}
-                            </Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={redoOptionDrafts}
-                            style={compactSecondaryButtonStyle}
-                        >
-                            <Text style={compactSecondaryButtonTextStyle}>Redo / Reset Options</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => approveForPresentation(estimateChoices)}
-                            style={compactSecondaryButtonStyle}
-                        >
-                            <Text style={compactSecondaryButtonTextStyle}>Approve Set</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => setPresentationMode((current) => !current)}
-                            style={compactSecondaryButtonStyle}
-                        >
-                            <Text style={compactSecondaryButtonTextStyle}>
-                                {presentationMode ? 'Back to Edit' : 'Present to Homeowner'}
-                            </Text>
-                        </TouchableOpacity>
+                        {presentationMode ? (
+                            <TouchableOpacity
+                                onPress={() => {
+                                    setPresentationMode(false);
+                                    setOptionsWorkspaceNotice('Editing controls restored.');
+                                }}
+                                style={compactPrimaryButtonStyle}
+                            >
+                                <Text style={compactPrimaryButtonTextStyle}>Back to Edit Options</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <>
+                                <TouchableOpacity
+                                    onPress={() => draftWithAi(estimateChoices, phase1Workspace.draftGate)}
+                                    style={aiDrafting || requirementUploadInProgress || !phase1Workspace.draftGate.canDraft ? mutedButtonStyle : compactPrimaryButtonStyle}
+                                    disabled={aiDrafting || requirementUploadInProgress}
+                                >
+                                    <Text style={compactPrimaryButtonTextStyle}>
+                                        {aiDrafting ? 'Drafting...' : requirementUploadInProgress ? 'Uploading...' : 'Draft with AI'}
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={redoOptionDrafts}
+                                    style={compactSecondaryButtonStyle}
+                                >
+                                    <Text style={compactSecondaryButtonTextStyle}>Redo / Reset Options</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => approveForPresentation(estimateChoices)}
+                                    style={technicianApproved ? approvedSetButtonStyle : compactSecondaryButtonStyle}
+                                >
+                                    <Text style={technicianApproved ? approvedSetButtonTextStyle : compactSecondaryButtonTextStyle}>
+                                        {technicianApproved ? 'Set Approved ✓' : 'Approve Set'}
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        if (!technicianApproved) {
+                                            setOptionsWorkspaceNotice('Approve the option set before presenting it to the homeowner.');
+                                            return;
+                                        }
+
+                                        setPresentationMode(true);
+                                        setOptionsWorkspaceNotice('Homeowner presentation mode is open. Editing and price controls are hidden.');
+                                    }}
+                                    style={technicianApproved ? compactPrimaryButtonStyle : mutedButtonStyle}
+                                >
+                                    <Text style={compactPrimaryButtonTextStyle}>Present to Homeowner</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
                     </View>
 
+                    {!!optionsWorkspaceNotice && (
+                        <View style={optionsWorkspaceNoticeStyle}>
+                            <Text style={optionsWorkspaceNoticeTextStyle}>{optionsWorkspaceNotice}</Text>
+                        </View>
+                    )}
+
+                    {!presentationMode ? (
                     <View style={workspaceDetailStyle}>
                     {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
                     <View style={compactActionRowStyle}>
@@ -1792,7 +1852,7 @@ export default function EstimateScreen() {
                                                 </Text>
                                             </View>
                                             <TouchableOpacity
-                                                onPress={() => setChoicePriceAdjustment(choice.id, 0)}
+                                                onPress={() => resetChoicePrice(choice)}
                                                 style={compactSecondaryButtonStyle}
                                             >
                                                 <Text style={compactSecondaryButtonTextStyle}>Reset Price</Text>
@@ -1889,8 +1949,7 @@ export default function EstimateScreen() {
                         </View>
                     )}
                 </View>
-
-                    {presentationMode && (
+                    ) : (
                         <View style={workspaceDetailStyle}>
                             {renderSectionHeader(
                                 'Homeowner Presentation',
@@ -3574,6 +3633,36 @@ const optionsWorkspaceToolbarStyle = {
     flexWrap: 'wrap' as const,
     gap: 8,
     padding: 12,
+};
+
+const approvedSetButtonStyle = {
+    backgroundColor: '#E8F7F0',
+    borderColor: '#8ED1B5',
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+};
+
+const approvedSetButtonTextStyle = {
+    color: '#14533A',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const optionsWorkspaceNoticeStyle = {
+    backgroundColor: '#EAF3FF',
+    borderColor: '#9FC0F4',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+};
+
+const optionsWorkspaceNoticeTextStyle = {
+    color: '#173E72',
+    fontSize: 13,
+    fontWeight: '800' as const,
+    lineHeight: 18,
 };
 
 const selectedOptionBannerStyle = {
