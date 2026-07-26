@@ -10,6 +10,7 @@ import {
     View,
 } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
+import { getCompanyDisplayName } from '../../lib/companyDisplayName';
 import { supabase } from '../../lib/supabase';
 
 type Company = {
@@ -240,7 +241,7 @@ export default function CompaniesScreen() {
                     }}
                 >
                     {companies.map((company) => {
-                        const displayName = company.public_name || company.name;
+                        const displayName = getCompanyDisplayName(company);
                         const dbaName = company.dba_name || company.name;
                         const primaryColor = company.primary_color || company.theme_color || '#071B33';
                         const accentColor = company.accent_color || '#0B5FFF';

@@ -4,6 +4,7 @@ import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
+import { getCompanyDisplayName } from '../../../../lib/companyDisplayName';
 import {
     getCompanyAuditLogs,
     type CompanyAuditLog,
@@ -68,7 +69,7 @@ export default function CompanyAuditLogScreen() {
         }
     }
 
-    const companyName = company?.public_name || company?.dba_name || company?.name || 'Company';
+    const companyName = getCompanyDisplayName(company);
 
     return (
         <ScrollView

@@ -38,3 +38,13 @@ export async function loadCurrentUserRole() {
         return 'HOMEOWNER';
     }
 }
+
+export async function loadCurrentUserPlatformAdmin() {
+    try {
+        const result = await supabase.rpc('homeos_is_platform_admin');
+
+        return !result.error && result.data === true;
+    } catch {
+        return false;
+    }
+}

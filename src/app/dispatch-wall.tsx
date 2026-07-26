@@ -8,6 +8,7 @@ import {
     type CompanyDispatchRequest,
 } from '../lib/companyLeadAlerts';
 import { canAccessDispatch } from '../lib/companyPermissions';
+import { getCompanyDisplayName } from '../lib/companyDisplayName';
 import {
     DISPATCH_WALL_FALLBACK_REFRESH_MS,
     DISPATCH_WALL_MANUAL_REFRESH_LABEL,
@@ -2078,7 +2079,7 @@ function getWebTitleProps(title: string) {
 }
 
 function getCompanyName(company: CompanyBrand | null) {
-    return company?.public_name || company?.dba_name || company?.name || '';
+    return getCompanyDisplayName(company, '');
 }
 
 function openManagementOS(companyId: string) {

@@ -14,6 +14,7 @@ import {
     normalizeCompanyStatus,
 } from '../lib/companyPermissions';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
+import { getCompanyDisplayName } from '../lib/companyDisplayName';
 import {
     loadEstimateDraft,
     saveEstimateDraftContext,
@@ -1593,7 +1594,7 @@ export default function TechOSScreen() {
         return <AccessMessage title="TechOS" message={message} onSignOut={signOutFromTechOS} signingOut={signingOut} />;
     }
 
-    const companyName = company?.public_name || company?.name || 'Company';
+    const companyName = getCompanyDisplayName(company);
     const primaryColor = company?.primary_color || theme.colors.primary;
     const secondaryColor = company?.secondary_color || theme.colors.primaryText;
     const logoUrl = company?.logo_url?.trim() || '';
@@ -3090,7 +3091,7 @@ function TechOSAssignedJobDetail({
                 <View style={techWorkflowActionGridStyle}>
                     <ThemedButton
                         title={estimateActionLabel}
-                        variant="secondary"
+                        variant="primary"
                         disabled={!clientContext.companyId || !clientContext.propertyId}
                         onPress={onOpenEstimate}
                         style={techWorkflowActionButtonStyle}
@@ -3195,6 +3196,7 @@ function TechOSAssignedJobDetail({
                     />
                     <ThemedButton
                         title={updating ? 'Closing Visit...' : 'Close Visit'}
+                        variant="danger"
                         disabled={updating || !closeoutForm.outcome || !isActiveScheduleSlot(job.slot.status)}
                         onPress={onCloseServiceVisit}
                         style={techWorkflowActionButtonStyle}

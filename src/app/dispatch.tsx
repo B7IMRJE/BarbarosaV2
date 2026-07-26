@@ -18,6 +18,7 @@ import {
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
 import { canAccessDispatch, normalizeCompanyRole } from '../lib/companyPermissions';
+import { getCompanyDisplayName } from '../lib/companyDisplayName';
 import {
     DISPATCH_OFFICE_ACTIVE_FILTERS,
     DISPATCH_OFFICE_PRIMARY_ACTIONS,
@@ -1346,7 +1347,7 @@ export default function DispatchBoardScreen() {
         }
     }
 
-    const companyName = company?.public_name || company?.dba_name || company?.name || 'Company';
+    const companyName = getCompanyDisplayName(company);
     const dispatchCompanyId = companyAccess?.company_id || requestedCompanyId;
     const dispatchBackFallback = dispatchCompanyId
         ? (`/super-admin/company/${dispatchCompanyId}` as Href)

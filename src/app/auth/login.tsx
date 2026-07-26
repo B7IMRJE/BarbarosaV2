@@ -4,7 +4,6 @@ import {
     ScrollView,
     Text,
     TextInput,
-    TouchableOpacity,
     View,
 } from 'react-native';
 import {
@@ -17,6 +16,7 @@ import {
 import { isCustomerInvitePending } from '../../lib/customerInviteStatus';
 import { resolveLoggedInUserRoute } from '../../lib/onboarding';
 import { supabase } from '../../lib/supabase';
+import ThemedButton from '../../components/theme/ThemedButton';
 
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
@@ -216,15 +216,12 @@ export default function LoginScreen() {
                     style={inputStyle}
                 />
 
-                <TouchableOpacity
+                <ThemedButton
+                    title={loading ? 'Logging in...' : 'Login'}
                     onPress={handleLogin}
                     disabled={loading || resending}
                     style={buttonStyle}
-                >
-                    <Text style={buttonTextStyle}>
-                        {loading ? 'Logging in...' : 'Login'}
-                    </Text>
-                </TouchableOpacity>
+                />
 
                 {!!message && (
                     <View style={messageBoxStyle}>
@@ -233,15 +230,13 @@ export default function LoginScreen() {
                 )}
 
                 {!!unconfirmedEmail && (
-                    <TouchableOpacity
+                    <ThemedButton
+                        title={resending ? 'Sending...' : 'Resend Confirmation Email'}
+                        variant="secondary"
                         onPress={resendConfirmation}
                         disabled={resending || loading}
                         style={secondaryButtonStyle}
-                    >
-                        <Text style={secondaryButtonTextStyle}>
-                            {resending ? 'Sending...' : 'Resend Confirmation Email'}
-                        </Text>
-                    </TouchableOpacity>
+                    />
                 )}
 
                 <Text
@@ -462,33 +457,11 @@ const inputStyle = {
 };
 
 const buttonStyle = {
-    backgroundColor: '#071B33',
-    padding: 18,
-    borderRadius: 18,
-    alignItems: 'center' as const,
     marginTop: 8,
 };
 
-const buttonTextStyle = {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '900' as const,
-};
-
 const secondaryButtonStyle = {
-    backgroundColor: '#FFFFFF',
-    padding: 18,
-    borderRadius: 18,
-    alignItems: 'center' as const,
     marginTop: 14,
-    borderWidth: 1,
-    borderColor: '#E3E8EF',
-};
-
-const secondaryButtonTextStyle = {
-    color: '#071B33',
-    fontSize: 16,
-    fontWeight: '900' as const,
 };
 
 const linkStyle = {

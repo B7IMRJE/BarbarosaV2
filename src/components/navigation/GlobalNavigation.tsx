@@ -11,6 +11,7 @@ import {
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 import HomeownerActiveRequestStatus from '../serviceRequests/HomeownerActiveRequestStatus';
+import ThemedButton from '../theme/ThemedButton';
 
 type GlobalNavigationProps = {
     children: ReactNode;
@@ -141,8 +142,9 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                     }}
                 >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}>
-                        <TouchableOpacity
-                            activeOpacity={0.82}
+                        <ThemedButton
+                            title="Back"
+                            variant="secondary"
                             disabled={!canUseBack}
                             onPress={() => {
                                 if (canUseBack) {
@@ -150,46 +152,21 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                                 }
                             }}
                             style={{
-                                opacity: canUseBack ? 1 : 0.45,
-                                backgroundColor: theme.colors.secondaryButton,
-                                borderColor: theme.colors.border,
                                 borderRadius: theme.radii.pill,
-                                borderWidth: 1,
                                 paddingHorizontal: scaleIcon(14),
-                                paddingVertical: scaleIcon(9),
+                                minHeight: scaleIcon(46),
                             }}
-                        >
-                            <Text
-                                style={{
-                                    color: theme.colors.secondaryButtonText,
-                                    fontSize: scaleFont(14),
-                                    fontWeight: '900',
-                                }}
-                            >
-                                Back
-                            </Text>
-                        </TouchableOpacity>
+                        />
 
-                        <TouchableOpacity
-                            activeOpacity={0.82}
+                        <ThemedButton
+                            title="Home"
                             onPress={() => goTo({ label: 'Home', route: homeRoute })}
                             style={{
-                                backgroundColor: theme.colors.primary,
                                 borderRadius: theme.radii.pill,
                                 paddingHorizontal: scaleIcon(14),
-                                paddingVertical: scaleIcon(9),
+                                minHeight: scaleIcon(46),
                             }}
-                        >
-                            <Text
-                                style={{
-                                    color: theme.colors.primaryText,
-                                    fontSize: scaleFont(14),
-                                    fontWeight: '900',
-                                }}
-                            >
-                                Home
-                            </Text>
-                        </TouchableOpacity>
+                        />
                     </View>
 
                     <Text
@@ -236,60 +213,32 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             const active = isActiveTab(tab.route);
 
                             return (
-                                <TouchableOpacity
+                                <ThemedButton
                                     key={tab.route}
-                                    activeOpacity={0.82}
+                                    title={tab.label}
+                                    variant={active ? 'primary' : 'secondary'}
                                     onPress={() => goTo(tab)}
                                     style={{
-                                        alignItems: 'center',
-                                        backgroundColor: active ? theme.colors.primary : theme.colors.secondaryButton,
-                                        borderColor: active ? theme.colors.primary : theme.colors.border,
                                         borderRadius: theme.radii.pill,
-                                        borderWidth: 1,
                                         flex: 1,
                                         paddingHorizontal: scaleIcon(8),
-                                        paddingVertical: scaleIcon(10),
+                                        minHeight: scaleIcon(50),
                                     }}
-                                >
-                                    <Text
-                                        numberOfLines={1}
-                                        style={{
-                                            color: active ? theme.colors.primaryText : theme.colors.secondaryButtonText,
-                                            fontSize: scaleFont(12),
-                                            fontWeight: '900',
-                                        }}
-                                    >
-                                        {tab.label}
-                                    </Text>
-                                </TouchableOpacity>
+                                />
                             );
                         })}
 
-                        <TouchableOpacity
-                            activeOpacity={0.82}
+                        <ThemedButton
+                            title="More"
+                            variant="secondary"
                             onPress={() => setDrawerOpen(true)}
                             style={{
-                                alignItems: 'center',
-                                backgroundColor: theme.colors.secondaryButton,
-                                borderColor: theme.colors.border,
                                 borderRadius: theme.radii.pill,
-                                borderWidth: 1,
                                 flex: 0.8,
                                 paddingHorizontal: scaleIcon(8),
-                                paddingVertical: scaleIcon(10),
+                                minHeight: scaleIcon(50),
                             }}
-                        >
-                            <Text
-                                numberOfLines={1}
-                                style={{
-                                    color: theme.colors.secondaryButtonText,
-                                    fontSize: scaleFont(12),
-                                    fontWeight: '900',
-                                }}
-                            >
-                                More
-                            </Text>
-                        </TouchableOpacity>
+                        />
                     </View>
                 </View>
             )}
@@ -361,31 +310,16 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                                 const active = isActiveTab(link.route);
 
                                 return (
-                                    <TouchableOpacity
+                                    <ThemedButton
                                         key={link.route}
-                                        activeOpacity={0.82}
+                                        title={link.label}
+                                        variant={active ? 'primary' : 'secondary'}
                                         onPress={() => goTo(link)}
                                         style={{
-                                            backgroundColor: active
-                                                ? theme.colors.secondaryButton
-                                                : theme.colors.surfaceAlt,
-                                            borderColor: active ? theme.colors.primary : theme.colors.border,
                                             borderRadius: theme.radii.button,
-                                            borderWidth: 1,
                                             paddingHorizontal: scaleIcon(16),
-                                            paddingVertical: scaleIcon(14),
                                         }}
-                                    >
-                                        <Text
-                                            style={{
-                                                color: active ? theme.colors.primary : theme.colors.text,
-                                                fontSize: scaleFont(16),
-                                                fontWeight: '900',
-                                            }}
-                                        >
-                                            {link.label}
-                                        </Text>
-                                    </TouchableOpacity>
+                                    />
                                 );
                             })}
                         </ScrollView>

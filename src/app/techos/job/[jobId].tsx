@@ -5,6 +5,7 @@ import HomeHeader from '../../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../../components/serviceRequests/ServiceRequestMediaGallery';
 import ThemedButton from '../../../components/theme/ThemedButton';
 import ThemedCard from '../../../components/theme/ThemedCard';
+import { getCompanyDisplayName } from '../../../lib/companyDisplayName';
 import { supabase } from '../../../lib/supabase';
 import { resolveCompanyTechOSTheme } from '../../../lib/techosAppearance';
 import { useTheme } from '../../../theme/useTheme';
@@ -362,7 +363,7 @@ export default function TechOSJobDetailScreen() {
         return <AccessMessage message="Checking TechOS job access..." onBack={handleBackToTechOS} />;
     }
 
-    const companyName = company?.public_name || company?.name || 'TechOS';
+    const companyName = getCompanyDisplayName(company, 'TechOS');
     const primaryColor = company?.primary_color || theme.colors.primary;
     const accentColor = company?.accent_color || theme.colors.primary;
     const heroTextColor = getReadableColor(primaryColor);

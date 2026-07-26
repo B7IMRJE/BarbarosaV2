@@ -1,5 +1,5 @@
 import {
-    TouchableOpacity,
+    Pressable,
     View,
     type StyleProp,
     type ViewStyle,
@@ -24,10 +24,12 @@ export default function ThemedCard({
 
     const cardStyle = [
         {
-            backgroundColor: theme.colors.surface,
+            backgroundColor: theme.colors.surfaceAlt,
             borderColor: theme.colors.border,
             borderRadius: theme.radii.card,
             borderWidth: 1,
+            borderCurve: 'continuous' as const,
+            boxShadow: '0 4px 9px rgba(7, 27, 51, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.72)',
             maxWidth: '100%' as const,
             minWidth: 0,
             padding: scaleIcon(18),
@@ -37,13 +39,26 @@ export default function ThemedCard({
 
     if (onPress) {
         return (
-            <TouchableOpacity
-                activeOpacity={0.82}
+            <Pressable
+                accessibilityRole="button"
                 onPress={onPress}
-                style={[cardStyle, style]}
+                style={({ pressed }) => [
+                    cardStyle,
+                    {
+                        backgroundColor: theme.colors.surfaceAlt,
+                        borderColor: theme.colors.primary,
+                        borderWidth: 2,
+                        borderBottomWidth: pressed ? 2 : 5,
+                        boxShadow: pressed
+                            ? '0 1px 2px rgba(7, 27, 51, 0.12)'
+                            : '0 6px 12px rgba(7, 27, 51, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.72)',
+                        transform: [{ translateY: pressed ? 3 : 0 }],
+                    },
+                    style,
+                ]}
             >
                 {children}
-            </TouchableOpacity>
+            </Pressable>
         );
     }
 

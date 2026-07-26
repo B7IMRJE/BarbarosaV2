@@ -5,6 +5,7 @@ import AdminNavBar from '../../../../components/AdminNavBar';
 import HomeHeader from '../../../../components/HomeHeader';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
+import { getCompanyDisplayName } from '../../../../lib/companyDisplayName';
 import {
     buildCompanyClientDirectory,
     buildCompanyClientShelves,
@@ -243,7 +244,7 @@ export default function CompanyClientsScreen() {
             .maybeSingle();
         const company = (data || {}) as { name?: string | null; public_name?: string | null; dba_name?: string | null };
 
-        setCompanyName(company.public_name || company.dba_name || company.name || 'Company');
+        setCompanyName(getCompanyDisplayName(company));
     }
 
     async function loadCustomerInvites(companyId: string) {

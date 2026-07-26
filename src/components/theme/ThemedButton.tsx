@@ -1,6 +1,6 @@
 import {
+    Pressable,
     Text,
-    TouchableOpacity,
     type StyleProp,
     type TextStyle,
     type ViewStyle,
@@ -38,14 +38,14 @@ export default function ThemedButton({
             color: theme.colors.primaryText,
         },
         secondary: {
-            backgroundColor: theme.colors.secondaryButton,
-            borderColor: theme.colors.border,
-            color: theme.colors.secondaryButtonText,
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.primary,
+            color: theme.colors.primary,
         },
         danger: {
-            backgroundColor: theme.colors.dangerBackground,
-            borderColor: theme.colors.dangerBackground,
-            color: theme.colors.danger,
+            backgroundColor: theme.colors.danger,
+            borderColor: theme.colors.danger,
+            color: '#FFFFFF',
         },
         ghost: {
             backgroundColor: theme.colors.surface,
@@ -55,21 +55,33 @@ export default function ThemedButton({
     }[variant];
 
     return (
-        <TouchableOpacity
-            activeOpacity={0.82}
+        <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: Boolean(disabled) }}
             disabled={disabled}
             onPress={onPress}
-            style={[
+            style={({ pressed }) => [
                 {
+                    alignItems: 'center',
                     backgroundColor: variantStyle.backgroundColor,
                     borderColor: variantStyle.borderColor,
-                    borderRadius: theme.radii.button,
-                    borderWidth: 1,
-                    padding: scaleIcon(18),
-                    alignItems: 'center',
+                    borderCurve: 'continuous',
+                    borderRadius: Math.min(theme.radii.button, 14),
+                    borderWidth: 2,
+                    borderBottomWidth: pressed || disabled ? 2 : 5,
+                    boxShadow: disabled
+                        ? 'none'
+                        : pressed
+                            ? '0 2px 3px rgba(7, 27, 51, 0.18)'
+                            : '0 5px 9px rgba(7, 27, 51, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28)',
+                    justifyContent: 'center',
                     maxWidth: '100%' as const,
+                    minHeight: scaleIcon(52),
                     minWidth: 0,
-                    opacity: disabled ? 0.55 : 1,
+                    opacity: disabled ? 0.48 : 1,
+                    paddingHorizontal: scaleIcon(20),
+                    paddingVertical: scaleIcon(13),
+                    transform: [{ translateY: pressed && !disabled ? 3 : 0 }],
                 },
                 style,
             ]}
@@ -77,19 +89,21 @@ export default function ThemedButton({
             {children || (
                 <Text
                     style={[
+                        textStyle,
                         {
                             color: variantStyle.color,
                             fontSize: scaleFont(16),
                             fontWeight: '900',
+                            letterSpacing: 0.15,
+                            lineHeight: scaleFont(21),
                             flexShrink: 1,
                             textAlign: 'center',
                         },
-                        textStyle,
                     ]}
                 >
                     {title}
                 </Text>
             )}
-        </TouchableOpacity>
+        </Pressable>
     );
 }

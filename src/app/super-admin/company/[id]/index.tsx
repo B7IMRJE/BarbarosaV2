@@ -1,14 +1,16 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { AppState, Image, Pressable, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../../../lib/companyAuditLogs';
+import { getCompanyDisplayName } from '../../../../lib/companyDisplayName';
 import {
     getCompanyLeadCounts,
     LEAD_ALERT_REFRESH_MS,
     type CompanyLeadCounts,
 } from '../../../../lib/companyLeadAlerts';
+import { loadCurrentUserPlatformAdmin } from '../../../../lib/roles';
 import { supabase } from '../../../../lib/supabase';
 import { resolveCompanyTechOSTheme, type TechOSThemePalette } from '../../../../lib/techosAppearance';
 
@@ -177,11 +179,14 @@ export default function CompanyDashboardScreen() {
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
     const [leadCountMessage, setLeadCountMessage] = useState('');
     const [leadCountLoading, setLeadCountLoading] = useState(false);
+    const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
     const leadRefreshInFlight = useRef(false);
     const activeCompanyId = company?.id || routeCompanyId;
+    const visibleCards = cards.filter((card) => card !== 'Theme & Brand Colors' || isPlatformAdmin);
 
     useEffect(() => {
         loadCompany();
+        void loadCurrentUserPlatformAdmin().then(setIsPlatformAdmin);
     }, [routeCompanyId]);
 
     useEffect(() => {
@@ -346,7 +351,7 @@ export default function CompanyDashboardScreen() {
             action: 'company_profile_updated',
             targetType: 'company',
             targetId: updatedCompany.id,
-            targetLabel: updatedCompany.public_name || updatedCompany.dba_name || updatedCompany.name,
+            targetLabel: getCompanyDisplayName(updatedCompany),
             beforeData: companyToAuditRecord(company),
             afterData: companyToAuditRecord(updatedCompany),
         });
@@ -522,6 +527,7 @@ export default function CompanyDashboardScreen() {
         }
 
         if (card === 'Theme & Brand Colors') {
+            if (!isPlatformAdmin) return;
             toggleConfigSection('theme');
             return;
         }
@@ -576,7 +582,11 @@ export default function CompanyDashboardScreen() {
         setExpandedConfigSection((current) => (current === section ? null : section));
     }
 
-    const previewName = brandForm.publicName || company?.name || 'Company';
+    const previewName = brandForm.dbaName || getCompanyDisplayName({
+        dba_name: company?.dba_name,
+        public_name: brandForm.publicName || company?.public_name,
+        name: company?.name,
+    });
     const previewDba = brandForm.dbaName || 'DBA not set';
     const previewCategories = parseCategories(brandForm.serviceCategories);
     const logoCanPreview = brandForm.logoUrl.trim().startsWith('http');
@@ -858,7 +868,7 @@ export default function CompanyDashboardScreen() {
                             }}
                         >
                             <Text numberOfLines={1} style={{ color: brandAccent, fontSize: 12, fontWeight: '900' }}>
-                                {cards.length} core modules
+                                {visibleCards.length} core modules
                             </Text>
                         </View>
                     </View>
@@ -889,7 +899,7 @@ export default function CompanyDashboardScreen() {
                             minWidth: 0,
                         }}
                     >
-                        {cards.map((card) => (
+                        {visibleCards.map((card, index) => (
                             <CompanyModuleCard
                                 key={card}
                                 title={card}
@@ -902,6 +912,7 @@ export default function CompanyDashboardScreen() {
                                 }
                                 primaryColor={brandPrimary}
                                 accentColor={brandAccent}
+                                toneIndex={index}
                                 onPress={() => openModule(card)}
                             />
                         ))}
@@ -1196,6 +1207,7 @@ export default function CompanyDashboardScreen() {
                             <Field label="Short Description" value={brandForm.shortDescription} onChangeText={(value) => updateBrandField('shortDescription', value)} multiline />
                         </CollapsibleConfigSection>
 
+                        {isPlatformAdmin && (
                         <CollapsibleConfigSection
                             title="Theme & Brand Colors"
                             description="Company colors used for company cards, TechOS, proposals, invoices, and receipts."
@@ -1315,6 +1327,7 @@ export default function CompanyDashboardScreen() {
                                 />
                             </View>
                         </CollapsibleConfigSection>
+                        )}
 
                         <CollapsibleConfigSection
                             title="Services / Trust Profile"
@@ -1689,6 +1702,7 @@ function CompanyModuleCard({
     isExpanded,
     primaryColor,
     accentColor,
+    toneIndex,
     onPress,
 }: {
     title: string;
@@ -1697,42 +1711,65 @@ function CompanyModuleCard({
     isExpanded: boolean;
     primaryColor: string;
     accentColor: string;
+    toneIndex: number;
     onPress: () => void;
 }) {
     const { width: viewportWidth } = useWindowDimensions();
     const isPhoneLayout = viewportWidth <= 640;
 
+    const glassColor = mixHexColors(
+        toneIndex % 4 === 2 ? accentColor : primaryColor,
+        '#FFFFFF',
+        toneIndex % 4 === 0 ? 0.86 : 0.91,
+    );
+    const glassBorder = mixHexColors(
+        toneIndex % 4 === 2 ? accentColor : primaryColor,
+        '#FFFFFF',
+        0.42,
+    );
+    const iconColor = mixHexColors(
+        toneIndex % 3 === 1 ? accentColor : primaryColor,
+        '#FFFFFF',
+        0.7,
+    );
+
     return (
-        <TouchableOpacity
+        <Pressable
+            accessibilityRole="button"
             onPress={onPress}
-            activeOpacity={0.82}
-            style={{
+            style={({ pressed }) => ({
                 width: isPhoneLayout ? '100%' : '31%',
                 maxWidth: '100%',
                 minWidth: isPhoneLayout ? 0 : 240,
                 flexShrink: 1,
                 minHeight: 118,
-                backgroundColor: isExpanded ? primaryColor : '#F8FAFC',
+                backgroundColor: isExpanded ? primaryColor : glassColor,
                 borderRadius: 18,
+                borderCurve: 'continuous',
                 padding: 16,
-                borderWidth: 1,
-                borderColor: isExpanded ? accentColor : '#E3E8EF',
+                borderWidth: 2,
+                borderBottomWidth: pressed ? 2 : 5,
+                borderColor: isExpanded ? accentColor : glassBorder,
                 gap: 12,
-            }}
+                boxShadow: pressed
+                    ? '0 1px 2px rgba(7, 27, 51, 0.14)'
+                    : '0 7px 14px rgba(7, 27, 51, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82)',
+                transform: [{ translateY: pressed ? 3 : 0 }],
+            })}
         >
             <View
                 style={{
                     width: 44,
                     height: 44,
                     borderRadius: 15,
-                    backgroundColor: isExpanded ? accentColor : '#EEF4FF',
+                    backgroundColor: isExpanded ? accentColor : iconColor,
                     alignItems: 'center',
                     justifyContent: 'center',
                 }}
             >
                 <Text
                     style={{
-                        color: getReadableColor(isExpanded ? accentColor : '#EEF4FF'),
+                        color: getReadableColor(isExpanded ? accentColor : iconColor),
                         fontSize: 12,
                         fontWeight: '900',
                     }}
@@ -1776,11 +1813,24 @@ function CompanyModuleCard({
                         opacity: isExpanded ? 0.92 : 1,
                     }}
                 >
-                    {actionLabel}
+                    {actionLabel} →
                 </Text>
             </View>
-        </TouchableOpacity>
+        </Pressable>
     );
+}
+
+function mixHexColors(base: string, overlay: string, overlayWeight: number) {
+    const safeWeight = Math.max(0, Math.min(1, overlayWeight));
+    const parse = (value: string) => {
+        const normalized = /^#[0-9a-f]{6}$/i.test(value) ? value.slice(1) : '071B33';
+        return [0, 2, 4].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16));
+    };
+    const baseRgb = parse(base);
+    const overlayRgb = parse(overlay);
+    return `#${baseRgb.map((channel, index) => Math.round(
+        channel * (1 - safeWeight) + overlayRgb[index] * safeWeight,
+    ).toString(16).padStart(2, '0')).join('')}`;
 }
 
 function getModuleInitials(title: string) {

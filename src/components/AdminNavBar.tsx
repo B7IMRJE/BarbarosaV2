@@ -9,6 +9,7 @@ import {
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { safeBack } from '../lib/navigation';
 import { loadLoggedInUserCompanyAccess } from '../lib/onboarding';
+import { loadCurrentUserPlatformAdmin } from '../lib/roles';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 
@@ -39,6 +40,7 @@ export default function AdminNavBar({
     const [leadCountLoading, setLeadCountLoading] = useState(false);
     const [identity, setIdentity] = useState<ManagementIdentity | null>(null);
     const [identityError, setIdentityError] = useState('');
+    const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
     const [signingOut, setSigningOut] = useState(false);
 
     useEffect(() => {
@@ -137,7 +139,10 @@ export default function AdminNavBar({
                     return;
                 }
 
-                const accessResult = await loadLoggedInUserCompanyAccess(user.id);
+                const [accessResult, platformAdmin] = await Promise.all([
+                    loadLoggedInUserCompanyAccess(user.id),
+                    loadCurrentUserPlatformAdmin(),
+                ]);
 
                 if (!active) return;
 
@@ -150,11 +155,13 @@ export default function AdminNavBar({
                     role: matchingAccess?.role || null,
                     status: matchingAccess?.status || (matchingAccess ? null : 'no company row'),
                 });
+                setIsPlatformAdmin(platformAdmin);
                 setIdentityError(accessResult.error ? 'Company access check unavailable.' : '');
             } catch {
                 if (!active) return;
 
                 setIdentity(null);
+                setIsPlatformAdmin(false);
                 setIdentityError('Signed-in identity unavailable.');
             }
         }
@@ -220,13 +227,15 @@ export default function AdminNavBar({
                     borderColor={theme.colors.border}
                     textColor={theme.colors.secondaryButtonText}
                 />
-                <NavButton
-                    label="Super Admin"
-                    onPress={() => router.replace('/super-admin' as Href)}
-                    backgroundColor={theme.colors.secondaryButton}
-                    borderColor={theme.colors.border}
-                    textColor={theme.colors.secondaryButtonText}
-                />
+                {isPlatformAdmin && (
+                    <NavButton
+                        label="Super Admin"
+                        onPress={() => router.replace('/super-admin' as Href)}
+                        backgroundColor={theme.colors.secondaryButton}
+                        borderColor={theme.colors.border}
+                        textColor={theme.colors.secondaryButtonText}
+                    />
+                )}
                 {companyDashboardRoute && (
                     <NavButton
                         label="Company Dashboard"
