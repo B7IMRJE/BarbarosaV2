@@ -57,7 +57,7 @@ type CompanyBrandForm = {
 };
 
 type BrandColorKey = 'primaryColor' | 'secondaryColor' | 'accentColor';
-type ConfigSectionKey = 'identity' | 'theme' | 'services';
+type ConfigSectionKey = 'identity' | 'theme' | 'services' | 'contact';
 
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
@@ -1185,6 +1185,15 @@ export default function CompanyDashboardScreen() {
                                 </View>
                             </View>
                         </View>
+                        <View
+                            style={{
+                                width: '100%',
+                                flexDirection: 'row',
+                                flexWrap: 'wrap',
+                                alignItems: 'flex-start',
+                                gap: 12,
+                            }}
+                        >
                         <CollapsibleConfigSection
                             title="Company Profile / Identity"
                             description="Public-facing company name, DBA, logo link, and short description."
@@ -1192,6 +1201,7 @@ export default function CompanyDashboardScreen() {
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('identity')}
+                            compact
                         >
                             <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
                             <Field label="DBA Name" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
@@ -1244,6 +1254,7 @@ export default function CompanyDashboardScreen() {
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('theme')}
+                            compact
                         >
                             <Field label="Primary Color" value={brandForm.primaryColor} onChangeText={(value) => updateBrandField('primaryColor', value)} />
                             <Field label="Secondary Color" value={brandForm.secondaryColor} onChangeText={(value) => updateBrandField('secondaryColor', value)} />
@@ -1371,6 +1382,7 @@ export default function CompanyDashboardScreen() {
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('services')}
+                            compact
                         >
                             <Field label="Service Categories" value={brandForm.serviceCategories} onChangeText={(value) => updateBrandField('serviceCategories', value)} />
                             <CategoryChipSelector
@@ -1386,14 +1398,16 @@ export default function CompanyDashboardScreen() {
                         <CollapsibleConfigSection
                             title="Contact"
                             description="Contact information shown on company cards and customer-facing screens."
-                            expanded={expandedConfigSection === 'identity'}
+                            expanded={expandedConfigSection === 'contact'}
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
-                            onToggle={() => toggleConfigSection('identity')}
+                            onToggle={() => toggleConfigSection('contact')}
+                            compact
                         >
                             <Field label="Phone" value={brandForm.phone} onChangeText={(value) => updateBrandField('phone', value)} />
                             <Field label="Website" value={brandForm.website} onChangeText={(value) => updateBrandField('website', value)} />
                         </CollapsibleConfigSection>
+                        </View>
 
                         <View
                             style={{
@@ -2427,6 +2441,7 @@ function CollapsibleConfigSection({
     accentColor,
     primaryColor,
     onToggle,
+    compact = false,
     children,
 }: {
     title: string;
@@ -2435,12 +2450,18 @@ function CollapsibleConfigSection({
     accentColor: string;
     primaryColor: string;
     onToggle: () => void;
+    compact?: boolean;
     children: React.ReactNode;
 }) {
+    const { width: viewportWidth } = useWindowDimensions();
+    const useCompactGrid = compact && viewportWidth > 720 && !expanded;
+
     return (
         <View
             style={{
-                width: '100%',
+                width: useCompactGrid ? '48%' : '100%',
+                flexBasis: useCompactGrid ? '48%' : '100%',
+                flexGrow: useCompactGrid ? 1 : 0,
                 maxWidth: '100%',
                 minWidth: 0,
                 backgroundColor: mixHexColors(accentColor, '#FFFFFF', 0.84),
@@ -2451,7 +2472,7 @@ function CollapsibleConfigSection({
                 borderBottomColor: primaryColor,
                 borderBottomWidth: 6,
                 boxShadow: '0 9px 18px rgba(7, 27, 51, 0.20), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
-                marginBottom: 16,
+                marginBottom: compact ? 0 : 16,
                 padding: 16,
             }}
         >

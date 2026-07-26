@@ -41,6 +41,7 @@ type CompanyUserRow = {
     email: string | null;
     role: string | null;
     status: string | null;
+    is_primary: boolean | null;
 };
 
 type MembershipRow = {
@@ -124,7 +125,7 @@ export default function PlatformHomeOSUsersScreen() {
             await Promise.all([
                 supabase.rpc('get_platform_people_accounts_v3'),
                 supabase.from('companies').select('id, name, public_name, dba_name').order('name', { ascending: true }),
-                supabase.rpc('get_platform_people_company_access'),
+                supabase.rpc('get_platform_people_company_access_v2'),
                 supabase.from('property_memberships').select('user_id, property_id, role, status'),
                 supabase.from('properties').select('id, name, address, address_line_1'),
                 supabase.from('company_property_clients').select('company_id, property_id, display_name, status'),
@@ -377,6 +378,18 @@ export default function PlatformHomeOSUsersScreen() {
                                         companyById={companyById}
                                         propertyById={propertyById}
                                         onClose={() => setSelectedPersonKey(null)}
+                                        onMakePrimary={async (companyUserId) => {
+                                            setMessage('Updating the primary company...');
+                                            const { error } = await supabase.rpc('set_platform_person_primary_company', {
+                                                p_company_user_id: companyUserId,
+                                            });
+                                            if (error) {
+                                                setMessage(`Could not update the primary company: ${error.message}`);
+                                                return;
+                                            }
+                                            await loadUsers();
+                                            setMessage('Primary company updated. This is visible only in Platform Administration.');
+                                        }}
                                     />
                                 ) : null
                             ))}
@@ -443,7 +456,7 @@ function PersonTile({
     selected: boolean;
     onPress: () => void;
 }) {
-    const primaryCompanyUser = person.companyUsers[0];
+    const primaryCompanyUser = primaryCompanyRelationship(person.companyUsers);
     const primaryCompany = primaryCompanyUser
         ? companyName(companyById.get(primaryCompanyUser.company_id))
         : person.clientCompanies[0]
@@ -504,6 +517,11 @@ function PersonTile({
                 <Text numberOfLines={1} style={{ color: '#A9EFE1', fontSize: 12, fontWeight: '800', marginTop: 7, maxWidth: '100%' }}>
                     {primaryCompany}
                 </Text>
+                {person.companyUsers.length > 1 && (
+                    <Text numberOfLines={1} style={{ color: '#F1CF72', fontSize: 10, fontWeight: '900', marginTop: 2 }}>
+                        PRIMARY · +{person.companyUsers.length - 1} ADDITIONAL
+                    </Text>
+                )}
                 <Text numberOfLines={1} style={{ color: orbitalGlassPalette.mutedText, fontSize: 11, marginTop: 2 }}>
                     {formatRole(role)}
                 </Text>
@@ -525,12 +543,16 @@ function PersonDetails({
     companyById,
     propertyById,
     onClose,
+    onMakePrimary,
 }: {
     person: PersonRecord;
     companyById: Map<string, CompanyRow>;
     propertyById: Map<string, PropertyRow>;
     onClose: () => void;
+    onMakePrimary: (companyUserId: string) => Promise<void>;
 }) {
+    const orderedCompanyUsers = orderCompanyRelationships(person.companyUsers);
+
     return (
         <View
             style={{
@@ -578,13 +600,29 @@ function PersonDetails({
                 </Text>
             </View>
 
-            {person.companyUsers.map((companyUser) => {
+            {orderedCompanyUsers.map((companyUser, index) => {
                 const permissions = resolveCompanyPermissions(companyUser);
+                const isPrimary = companyUser.is_primary || index === 0;
                 return (
                     <View key={companyUser.id} style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(174, 205, 229, 0.24)', paddingTop: 12 }}>
-                        <Text style={{ color: orbitalGlassPalette.text, fontWeight: '900' }}>
-                            {companyName(companyById.get(companyUser.company_id))} · {formatRole(companyUser.role)}
-                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8 }}>
+                            <View style={{ flex: 1, minWidth: 210 }}>
+                                <Text style={{ color: isPrimary ? '#F1CF72' : '#A9EFE1', fontSize: 11, fontWeight: '900' }}>
+                                    {isPrimary ? 'PRIMARY COMPANY' : `ADDITIONAL COMPANY ${index}`}
+                                </Text>
+                                <Text style={{ color: orbitalGlassPalette.text, fontWeight: '900', marginTop: 3 }}>
+                                    {companyName(companyById.get(companyUser.company_id))} · {formatRole(companyUser.role)}
+                                </Text>
+                            </View>
+                            {!isPrimary && (
+                                <ThemedButton
+                                    title="Make Primary"
+                                    variant="glass"
+                                    onPress={() => void onMakePrimary(companyUser.id)}
+                                    style={{ minWidth: 0, paddingHorizontal: 12 }}
+                                />
+                            )}
+                        </View>
                         <Text style={{ color: orbitalGlassPalette.mutedText, marginTop: 3 }}>
                             Company account: {formatStatus(companyUser.status)}
                         </Text>
@@ -658,6 +696,19 @@ function buildPersonRecord(input: Omit<PersonRecord, 'group' | 'active'>): Perso
 
 function uniqueCompanyUsers(rows: CompanyUserRow[]) {
     return Array.from(new Map(rows.map((row) => [row.id, row])).values());
+}
+
+function orderCompanyRelationships(rows: CompanyUserRow[]) {
+    return [...rows].sort((left, right) => {
+        if (Boolean(left.is_primary) !== Boolean(right.is_primary)) {
+            return left.is_primary ? -1 : 1;
+        }
+        return left.id.localeCompare(right.id);
+    });
+}
+
+function primaryCompanyRelationship(rows: CompanyUserRow[]) {
+    return orderCompanyRelationships(rows)[0];
 }
 
 function uniqueClients(rows: ClientRow[]) {
