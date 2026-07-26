@@ -9,7 +9,7 @@ import { useTheme } from '../../theme/useTheme';
 import { useCompanyGlassDepth } from '../../theme/glass-depth';
 import type { ReactNode } from 'react';
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'glass';
 
 type ThemedButtonProps = {
     title?: string;
@@ -55,6 +55,11 @@ export default function ThemedButton({
             backgroundColor: theme.colors.surface,
             borderColor: theme.colors.border,
             color: theme.colors.text,
+        },
+        glass: {
+            backgroundColor: 'rgba(3, 24, 42, 0.48)',
+            borderColor: 'rgba(174, 205, 229, 0.72)',
+            color: '#F5FBFF',
         },
     }[variant];
 

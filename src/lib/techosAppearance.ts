@@ -227,11 +227,11 @@ export function resolveTechOSTheme(value?: string | null): TechOSThemePalette {
 export function resolveCompanyTechOSTheme(brand?: CompanyTechOSBrand | null): TechOSThemePalette {
     const fallback = techOSThemes[DEFAULT_TECHOS_THEME_ID];
     const primaryColor = normalizeHexColor(brand?.primaryColor) || fallback.activeBorderColor;
-    const secondaryColor = normalizeHexColor(brand?.secondaryColor) || fallback.panelBackgroundColor;
+    const secondaryColor = normalizeHexColor(brand?.secondaryColor) || '#043F69';
     const accentColor = normalizeHexColor(brand?.accentColor) || primaryColor;
-    const panelBackgroundColor = secondaryColor;
-    const screenBackgroundColor = mixHexColors(secondaryColor, primaryColor, isDarkColor(secondaryColor) ? 0.18 : 0.08);
-    const panelBorderColor = mixHexColors(secondaryColor, primaryColor, isDarkColor(secondaryColor) ? 0.52 : 0.30);
+    const screenBackgroundColor = '#03182A';
+    const panelBackgroundColor = mixHexColors('#0A243A', secondaryColor, 0.22);
+    const panelBorderColor = mixHexColors(primaryColor, '#D6F1FF', 0.52);
     const textColor = getReadableTextColor(panelBackgroundColor);
     const mutedTextColor = mixHexColors(textColor, panelBackgroundColor, isDarkColor(panelBackgroundColor) ? 0.36 : 0.42);
     const blendColor = mixHexColors(primaryColor, accentColor, 0.5);
@@ -240,7 +240,7 @@ export function resolveCompanyTechOSTheme(brand?: CompanyTechOSBrand | null): Te
     return {
         id: 'companyBrand',
         label: 'Company Brand',
-        description: 'Managed by the company brand profile.',
+        description: 'Permanent glass interface with platform-managed company colors.',
         screenBackgroundColor,
         panelBackgroundColor,
         panelBorderColor,

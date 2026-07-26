@@ -16,6 +16,7 @@ import {
     type HomeOSTheme,
     type HomeOSThemeName,
 } from './themes';
+import { resolveGlassHomeTheme } from './glassPalette';
 import {
     HOMEOS_THEME_USER_METADATA_KEY,
     isHomeOSThemeSaveConfirmed,
@@ -34,12 +35,18 @@ export type AppearancePreferences = {
     fontSize: AppearanceSizeName;
     iconSize: AppearanceSizeName;
     glassDepth: number;
+    glassPrimary: string;
+    glassSecondary: string;
+    glassAccent: string;
 };
 
 export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
     fontSize: 'standard',
     iconSize: 'standard',
     glassDepth: 70,
+    glassPrimary: '#075748',
+    glassSecondary: '#043F69',
+    glassAccent: '#2FA5B3',
 };
 
 export const appearanceSizeOptions: {
@@ -85,6 +92,10 @@ function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
     }
 
     const candidate = value as Partial<AppearancePreferences>;
+    const safeColor = (color: unknown, fallback: string) =>
+        /^#[0-9A-F]{6}$/i.test(String(color || '').trim())
+            ? String(color).trim().toUpperCase()
+            : fallback;
 
     return {
         fontSize: isAppearanceSizeName(candidate.fontSize)
@@ -94,6 +105,9 @@ function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
             ? candidate.iconSize
             : DEFAULT_APPEARANCE_PREFERENCES.iconSize,
         glassDepth: Math.max(1, Math.min(100, Number(candidate.glassDepth) || DEFAULT_APPEARANCE_PREFERENCES.glassDepth)),
+        glassPrimary: safeColor(candidate.glassPrimary, DEFAULT_APPEARANCE_PREFERENCES.glassPrimary),
+        glassSecondary: safeColor(candidate.glassSecondary, DEFAULT_APPEARANCE_PREFERENCES.glassSecondary),
+        glassAccent: safeColor(candidate.glassAccent, DEFAULT_APPEARANCE_PREFERENCES.glassAccent),
     };
 }
 
@@ -312,7 +326,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const value = useMemo(
         () => ({
             themeName,
-            theme: homeOSThemes[themeName],
+            theme: resolveGlassHomeTheme(homeOSThemes[themeName], {
+                primary: appearance.glassPrimary,
+                secondary: appearance.glassSecondary,
+                accent: appearance.glassAccent,
+            }),
             setThemeName,
             appearance,
             setAppearance,

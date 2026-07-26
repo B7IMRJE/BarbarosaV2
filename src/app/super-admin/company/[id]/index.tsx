@@ -115,45 +115,45 @@ const serviceCategoryOptions = [
 
 const brandThemePresets = [
     {
-        name: 'Navy / Red',
-        primaryColor: '#0B2E59',
-        secondaryColor: '#FFFFFF',
-        accentColor: '#E11D2E',
+        name: 'Orbital Green / Blue',
+        primaryColor: '#075748',
+        secondaryColor: '#043F69',
+        accentColor: '#2FA5B3',
     },
     {
-        name: 'Blue / White',
-        primaryColor: '#071B33',
-        secondaryColor: '#FFFFFF',
-        accentColor: '#0B5FFF',
+        name: 'Ocean Blue / Teal',
+        primaryColor: '#075E68',
+        secondaryColor: '#074B7A',
+        accentColor: '#38B7C7',
+    },
+    {
+        name: 'Forest / Steel',
+        primaryColor: '#175B3B',
+        secondaryColor: '#294F64',
+        accentColor: '#72B58C',
+    },
+    {
+        name: 'Navy / Gold',
+        primaryColor: '#31566F',
+        secondaryColor: '#071F38',
+        accentColor: '#C9A84C',
     },
     {
         name: 'Black / Gold',
-        primaryColor: '#111827',
-        secondaryColor: '#FFFFFF',
-        accentColor: '#D97706',
+        primaryColor: '#26312D',
+        secondaryColor: '#111820',
+        accentColor: '#C8A84A',
     },
     {
-        name: 'Green / White',
-        primaryColor: '#064E3B',
-        secondaryColor: '#FFFFFF',
-        accentColor: '#10B981',
-    },
-    {
-        name: 'Green / Gold',
-        primaryColor: '#064E3B',
-        secondaryColor: '#FFFFFF',
-        accentColor: '#D4A72C',
-    },
-    {
-        name: 'Orange / Warm White',
-        primaryColor: '#C2410C',
-        secondaryColor: '#FFF7ED',
-        accentColor: '#F97316',
+        name: 'Copper / Steel',
+        primaryColor: '#7A4C2F',
+        secondaryColor: '#2F526B',
+        accentColor: '#C48756',
     },
 ];
 const cards = [
     'Company Profile / Identity',
-    'Theme & Brand Colors',
+    'Visual Control Center',
     'Customers / Clients',
     'Leads / Requests',
     'Opportunities',
@@ -186,7 +186,7 @@ export default function CompanyDashboardScreen() {
     const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
     const leadRefreshInFlight = useRef(false);
     const activeCompanyId = company?.id || routeCompanyId;
-    const visibleCards = cards.filter((card) => card !== 'Theme & Brand Colors' || isPlatformAdmin);
+    const visibleCards = cards.filter((card) => card !== 'Visual Control Center' || isPlatformAdmin);
 
     useEffect(() => {
         loadCompany();
@@ -540,7 +540,7 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
-        if (card === 'Theme & Brand Colors') {
+        if (card === 'Visual Control Center') {
             if (!isPlatformAdmin) return;
             toggleConfigSection('theme');
             return;
@@ -922,7 +922,7 @@ export default function CompanyDashboardScreen() {
                                 actionLabel={getModuleActionLabel(card)}
                                 isExpanded={
                                     (card === 'Company Profile / Identity' && expandedConfigSection === 'identity') ||
-                                    (card === 'Theme & Brand Colors' && expandedConfigSection === 'theme') ||
+                                    (card === 'Visual Control Center' && expandedConfigSection === 'theme') ||
                                     (card === 'Services & Trust Profile' && expandedConfigSection === 'services')
                                 }
                                 primaryColor={brandPrimary}
@@ -1238,8 +1238,8 @@ export default function CompanyDashboardScreen() {
 
                         {isPlatformAdmin && (
                         <CollapsibleConfigSection
-                            title="Theme & Brand Colors"
-                            description="Company colors used for company cards, TechOS, proposals, invoices, and receipts."
+                            title="Visual Control Center"
+                            description="Platform-only controls for this company’s glass colors, card depth, TechOS, and connected HomeOS provider surfaces."
                             expanded={expandedConfigSection === 'theme'}
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
@@ -1901,7 +1901,7 @@ function getModuleInitials(title: string) {
 
 function getModuleDescription(title: string) {
     if (title === 'Company Profile / Identity') return 'Configure names, logo, description, phone, and website below.';
-    if (title === 'Theme & Brand Colors') return 'Configure colors, logo extraction, and presets below.';
+    if (title === 'Visual Control Center') return 'Platform-only glass colors, custom palette, and card-depth controls.';
     if (title === 'Services & Trust Profile') return 'Configure categories, license, rating, and experience below.';
     if (title === 'Customers / Clients') return 'Open homes that selected this company as a preferred provider.';
     if (title === 'Leads / Requests') return 'Review incoming homeowner service requests before they become jobs.';
@@ -1919,7 +1919,7 @@ function getModuleDescription(title: string) {
 
 function getModuleActionLabel(title: string) {
     if (title === 'Company Profile / Identity') return 'Configure below';
-    if (title === 'Theme & Brand Colors') return 'Configure below';
+    if (title === 'Visual Control Center') return 'Open Controls';
     if (title === 'Services & Trust Profile') return 'Configure below';
     if (title === 'Leads / Requests') return 'Open Requests';
     if (title === 'Jobs / Dispatch') return 'Open Dispatch';

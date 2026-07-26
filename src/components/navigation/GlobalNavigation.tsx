@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { providerModePath, readProviderModeParams } from '../../lib/providerMode';
 import { resolveGlobalHomeRoute } from '../../lib/techosClientAccess';
 import {
@@ -10,6 +11,11 @@ import {
 } from '../../lib/homeownerActiveRequests';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
+import { orbitalGlassPalette } from '../../theme/glassPalette';
+import { createCompanyGlassPalette, type GlassPalette } from '../../theme/glassPalette';
+import { GlassPaletteProvider } from '../../theme/glass-palette-context';
+import { CompanyGlassDepthProvider } from '../../theme/glass-depth';
+import { supabase } from '../../lib/supabase';
 import HomeownerActiveRequestStatus from '../serviceRequests/HomeownerActiveRequestStatus';
 import ThemedButton from '../theme/ThemedButton';
 
@@ -20,6 +26,7 @@ type GlobalNavigationProps = {
 type NavigationLink = {
     label: string;
     route: string;
+    icon?: keyof typeof MaterialCommunityIcons.glyphMap;
     staffOnly?: boolean;
     preserveProvider?: boolean;
 };
@@ -27,10 +34,10 @@ type NavigationLink = {
 const hiddenRoutePrefixes = ['/auth', '/onboarding', '/super-admin', '/dispatch-wall'];
 
 const primaryTabs: NavigationLink[] = [
-    { label: 'Home', route: '/' },
-    { label: 'Equipment', route: '/equipment' },
-    { label: 'Documents', route: '/documents' },
-    { label: 'Profile', route: '/profile' },
+    { label: 'Home', route: '/', icon: 'home-outline' },
+    { label: 'Equipment', route: '/equipment', icon: 'tools' },
+    { label: 'Documents', route: '/documents', icon: 'file-document-outline' },
+    { label: 'Profile', route: '/profile', icon: 'account-outline' },
 ];
 
 const drawerLinks: NavigationLink[] = [
@@ -56,6 +63,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const providerModeContext = readProviderModeParams(routeParams);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+    const [companyPalette, setCompanyPalette] = useState<GlassPalette | null>(null);
+    const [companyGlassDepth, setCompanyGlassDepth] = useState<number | null>(null);
     const { scaleFont, scaleIcon, theme } = useTheme();
     const { width: viewportWidth } = useWindowDimensions();
     const insets = useSafeAreaInsets();
@@ -76,6 +85,33 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     useEffect(() => {
         loadDrawerAccess();
     }, []);
+
+    useEffect(() => {
+        const companyId = firstRouteParam(routeParams.companyId);
+
+        if (!companyId) {
+            setCompanyPalette(null);
+            setCompanyGlassDepth(null);
+            return;
+        }
+
+        void supabase
+            .from('companies')
+            .select('id, public_name, dba_name, name, primary_color, secondary_color, accent_color, glass_depth')
+            .eq('id', companyId)
+            .maybeSingle()
+            .then(({ data }) => {
+                if (!data) return;
+                setCompanyPalette(createCompanyGlassPalette({
+                    id: `company-${data.id}`,
+                    label: data.public_name || data.dba_name || data.name || 'Company Glass',
+                    primary: data.primary_color,
+                    secondary: data.secondary_color,
+                    accent: data.accent_color,
+                }));
+                setCompanyGlassDepth(Number(data.glass_depth) || null);
+            });
+    }, [routeParams.companyId]);
 
     async function loadDrawerAccess() {
         const role = await loadCurrentUserRole();
@@ -124,11 +160,13 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     }
 
     return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+        <GlassPaletteProvider palette={companyPalette}>
+        <CompanyGlassDepthProvider value={companyGlassDepth}>
+        <View style={{ flex: 1, backgroundColor: orbitalGlassPalette.screen }}>
             <View
                 style={{
-                    backgroundColor: theme.colors.surface,
-                    borderBottomColor: theme.colors.border,
+                    backgroundColor: 'rgba(3, 24, 42, 0.94)',
+                    borderBottomColor: 'rgba(104, 202, 246, 0.34)',
                     borderBottomWidth: 1,
                     paddingHorizontal: scaleIcon(14),
                     paddingTop: insets.top + scaleIcon(8),
@@ -146,7 +184,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}>
                         <ThemedButton
                             title="Back"
-                            variant="secondary"
+                            variant="glass"
                             disabled={!canUseBack}
                             onPress={() => {
                                 if (canUseBack) {
@@ -174,7 +212,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                     <Text
                         numberOfLines={1}
                         style={{
-                            color: theme.colors.text,
+                            color: orbitalGlassPalette.text,
                             flex: 1,
                             fontSize: scaleFont(15),
                             fontWeight: '900',
@@ -197,9 +235,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
             {!isTechOSRoute && (
                 <View
                     style={{
-                        backgroundColor: theme.colors.surface,
-                        borderTopColor: theme.colors.border,
-                        borderTopWidth: 1,
+                        backgroundColor: 'rgba(3, 24, 42, 0.96)',
                         paddingHorizontal: scaleIcon(8),
                         paddingTop: scaleIcon(8),
                         paddingBottom: insets.bottom + scaleIcon(8),
@@ -209,6 +245,12 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                         style={{
                             flexDirection: 'row',
                             gap: compactBottomNavigation ? 3 : scaleIcon(6),
+                            backgroundColor: 'rgba(30, 65, 96, 0.62)',
+                            borderColor: 'rgba(174, 205, 229, 0.5)',
+                            borderRadius: 24,
+                            borderWidth: 1,
+                            boxShadow: '0 10px 28px rgba(0, 8, 18, 0.42), inset 0 2px 0 rgba(255,255,255,0.16)',
+                            padding: compactBottomNavigation ? 4 : scaleIcon(6),
                         }}
                     >
                         {activePrimaryTabs.map((tab) => {
@@ -217,27 +259,27 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             return (
                                 <ThemedButton
                                     key={tab.route}
-                                    title={tab.label}
-                                    variant={active ? 'primary' : 'secondary'}
+                                    variant="glass"
                                     onPress={() => goTo(tab)}
                                     style={{
                                         borderRadius: theme.radii.pill,
+                                        backgroundColor: active ? 'rgba(42, 115, 156, 0.74)' : 'rgba(3, 24, 42, 0.5)',
+                                        borderColor: active ? 'rgba(139, 221, 255, 0.82)' : 'rgba(174, 205, 229, 0.35)',
                                         flex: 1,
                                         paddingHorizontal: compactBottomNavigation ? 2 : scaleIcon(8),
                                         minHeight: compactBottomNavigation ? 42 : scaleIcon(50),
                                     }}
-                                    textStyle={compactBottomNavigation ? {
-                                        fontSize: 11,
-                                        lineHeight: 13,
-                                        letterSpacing: 0,
-                                    } : undefined}
-                                />
+                                >
+                                    <View style={{ alignItems: 'center', flexDirection: compactBottomNavigation ? 'column' : 'row', gap: 5 }}>
+                                        <MaterialCommunityIcons name={tab.icon || 'circle-outline'} size={compactBottomNavigation ? 17 : scaleIcon(18)} color={orbitalGlassPalette.text} />
+                                        <Text style={{ color: orbitalGlassPalette.text, fontSize: compactBottomNavigation ? 10 : scaleFont(13), fontWeight: '900' }}>{tab.label}</Text>
+                                    </View>
+                                </ThemedButton>
                             );
                         })}
 
                         <ThemedButton
-                            title="More"
-                            variant="secondary"
+                            variant="glass"
                             onPress={() => setDrawerOpen(true)}
                             style={{
                                 borderRadius: theme.radii.pill,
@@ -245,12 +287,12 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                                 paddingHorizontal: compactBottomNavigation ? 2 : scaleIcon(8),
                                 minHeight: compactBottomNavigation ? 42 : scaleIcon(50),
                             }}
-                            textStyle={compactBottomNavigation ? {
-                                fontSize: 11,
-                                lineHeight: 13,
-                                letterSpacing: 0,
-                            } : undefined}
-                        />
+                        >
+                            <View style={{ alignItems: 'center', flexDirection: compactBottomNavigation ? 'column' : 'row', gap: 5 }}>
+                                <MaterialCommunityIcons name="dots-horizontal" size={compactBottomNavigation ? 17 : scaleIcon(18)} color={orbitalGlassPalette.text} />
+                                <Text style={{ color: orbitalGlassPalette.text, fontSize: compactBottomNavigation ? 10 : scaleFont(13), fontWeight: '900' }}>More</Text>
+                            </View>
+                        </ThemedButton>
                     </View>
                 </View>
             )}
@@ -339,6 +381,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                 </View>
             </Modal>
         </View>
+        </CompanyGlassDepthProvider>
+        </GlassPaletteProvider>
     );
 }
 
@@ -355,13 +399,14 @@ function firstRouteParam(value?: string | string[]) {
 
 function providerPrimaryTabs(companyId: string, propertyId: string): NavigationLink[] {
     return [
-        { label: 'Home', route: '/' },
-        { label: 'Equipment', route: '/equipment' },
-        { label: 'Documents', route: '/documents' },
+        { label: 'Home', route: '/', icon: 'home-outline' },
+        { label: 'Equipment', route: '/equipment', icon: 'tools' },
+        { label: 'Documents', route: '/documents', icon: 'file-document-outline' },
         {
             label: 'Customer',
             route: customerDetailRoute(companyId, propertyId),
             preserveProvider: false,
+            icon: 'account-outline',
         },
     ];
 }

@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
@@ -5,6 +6,7 @@ import HomeHeader from '../components/HomeHeader';
 import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
+import GlassCard from '../components/glass/GlassCard';
 import {
     canAccessDispatch,
     canAccessTechOS,
@@ -1843,6 +1845,76 @@ export default function TechOSScreen() {
                     />
                 )}
 
+                {isTechnicianWorkspace && (
+                    <GlassCard
+                        tone="steel"
+                        style={{
+                            flexDirection: 'row',
+                            flexWrap: 'wrap',
+                            gap: 8,
+                            marginTop: 18,
+                            padding: 8,
+                        }}
+                    >
+                        {([
+                            ['jobs', 'briefcase-outline', 'Jobs'],
+                            ['schedule', 'calendar-clock-outline', 'Schedule'],
+                            ['history', 'history', 'History'],
+                            ['estimates', 'file-document-edit-outline', 'Estimates'],
+                            ['messages', 'message-text-outline', 'Messages'],
+                            ['time-clock', 'clock-outline', 'Time'],
+                            ['van-inventory', 'truck-outline', 'Van'],
+                        ] as const).map(([view, icon, label]) => {
+                            const active = dashboardView === view;
+                            return (
+                                <TouchableOpacity
+                                    key={view}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Open ${label}`}
+                                    onPress={() => {
+                                        setSelectedAssignedJobId('');
+                                        setDashboardView(view);
+                                    }}
+                                    style={{
+                                        alignItems: 'center',
+                                        backgroundColor: active
+                                            ? techOSTheme.dashboard[view as TechOSDashboardVisualKey].backgroundColor
+                                            : 'rgba(3, 24, 42, 0.5)',
+                                        borderColor: active
+                                            ? techOSTheme.activeBorderColor
+                                            : techOSTheme.panelBorderColor,
+                                        borderRadius: 13,
+                                        borderWidth: 1,
+                                        flexBasis: isPhoneLayout ? 68 : 92,
+                                        flexGrow: 1,
+                                        gap: 3,
+                                        justifyContent: 'center',
+                                        minHeight: 54,
+                                        paddingHorizontal: 8,
+                                        paddingVertical: 7,
+                                    }}
+                                >
+                                    <MaterialCommunityIcons
+                                        name={icon}
+                                        color={active ? techOSTheme.textColor : techOSTheme.mutedTextColor}
+                                        size={19}
+                                    />
+                                    <Text
+                                        numberOfLines={1}
+                                        style={{
+                                            color: active ? techOSTheme.textColor : techOSTheme.mutedTextColor,
+                                            fontSize: 11,
+                                            fontWeight: '900',
+                                        }}
+                                    >
+                                        {label}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </GlassCard>
+                )}
+
                 <View style={buttonRowStyle}>
                     <ThemedButton title="Refresh TechOS" onPress={loadTechOSAccess} style={buttonStyle} />
                 </View>
@@ -1877,7 +1949,7 @@ function TechTimingPromptCard({
     ];
 
     return (
-        <ThemedCard style={[timingPromptCardStyle, { borderColor: '#C4B5FD', backgroundColor: 'rgba(196, 181, 253, 0.14)' }]}>
+        <ThemedCard style={[timingPromptCardStyle, { borderColor: '#E4A84E', backgroundColor: 'rgba(151, 91, 19, 0.58)' }]}>
             <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Next Job Timing</Text>
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Your next arrival window begins at {formatTime(job.slot.arrival_window_start || job.slot.start_at)}. Will you make it on time?

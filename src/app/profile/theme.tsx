@@ -6,6 +6,15 @@ import ThemedCard from '../../components/theme/ThemedCard';
 import { DEFAULT_APPEARANCE_PREFERENCES, DEFAULT_THEME_NAME, appearanceSizeOptions, themeOptions, type AppearanceSizeName, type HomeOSTheme, type HomeOSThemeName } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
+const glassColorPresets = [
+    { name: 'Orbital', primary: '#075748', secondary: '#043F69', accent: '#2FA5B3' },
+    { name: 'Ocean', primary: '#075E68', secondary: '#074B7A', accent: '#38B7C7' },
+    { name: 'Forest', primary: '#175B3B', secondary: '#294F64', accent: '#72B58C' },
+    { name: 'Navy Gold', primary: '#31566F', secondary: '#071F38', accent: '#C9A84C' },
+    { name: 'Copper Steel', primary: '#7A4C2F', secondary: '#2F526B', accent: '#C48756' },
+    { name: 'Black Gold', primary: '#26312D', secondary: '#111820', accent: '#C8A84A' },
+] as const;
+
 function ThemeSwatches({ option }: { option: HomeOSTheme }) {
     const { scaleIcon } = useTheme();
     const swatches = [
@@ -326,6 +335,7 @@ export default function ThemeScreen() {
     const {
         appearance,
         resetAppearance,
+        setAppearance,
         setFontSize,
         setGlassDepth,
         setIconSize,
@@ -346,6 +356,11 @@ export default function ThemeScreen() {
         appearance.fontSize === DEFAULT_APPEARANCE_PREFERENCES.fontSize &&
         appearance.iconSize === DEFAULT_APPEARANCE_PREFERENCES.iconSize &&
         appearance.glassDepth === DEFAULT_APPEARANCE_PREFERENCES.glassDepth;
+    const colorValues = [
+        appearance.glassPrimary,
+        appearance.glassSecondary,
+        appearance.glassAccent,
+    ];
 
     useEffect(() => {
         if (!isSavingTheme) {
@@ -464,6 +479,90 @@ export default function ThemeScreen() {
                         </Text>
                     </View>
                 </View>
+                <ThemedCard style={{ marginBottom: 18 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                        Glass Colors
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
+                        Choose a coordinated glass palette or enter your own colors. These colors belong only to your HomeOS.
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
+                        {glassColorPresets.map((preset) => {
+                            const selected =
+                                appearance.glassPrimary === preset.primary &&
+                                appearance.glassSecondary === preset.secondary &&
+                                appearance.glassAccent === preset.accent;
+                            return (
+                                <ThemedCard
+                                    key={preset.name}
+                                    onPress={() => void setAppearance({
+                                        ...appearance,
+                                        glassPrimary: preset.primary,
+                                        glassSecondary: preset.secondary,
+                                        glassAccent: preset.accent,
+                                    })}
+                                    style={{
+                                        flexBasis: 140,
+                                        flexGrow: 1,
+                                        padding: 14,
+                                        borderColor: selected ? preset.accent : theme.colors.border,
+                                        borderWidth: selected ? 2 : 1,
+                                    }}
+                                >
+                                    <Text style={{ color: theme.colors.text, fontWeight: '900', fontSize: 15 }}>
+                                        {preset.name}
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', gap: 7, marginTop: 10 }}>
+                                        {[preset.primary, preset.secondary, preset.accent].map((color) => (
+                                            <View
+                                                key={color}
+                                                style={{
+                                                    width: 28,
+                                                    height: 28,
+                                                    borderRadius: 999,
+                                                    backgroundColor: color,
+                                                    borderWidth: 1,
+                                                    borderColor: 'rgba(255,255,255,0.7)',
+                                                }}
+                                            />
+                                        ))}
+                                    </View>
+                                </ThemedCard>
+                            );
+                        })}
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 }}>
+                        {(['Primary', 'Secondary', 'Accent'] as const).map((label, index) => (
+                            <View key={label} style={{ flex: 1, minWidth: 170 }}>
+                                <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
+                                    {label.toUpperCase()}
+                                </Text>
+                                <TextInput
+                                    accessibilityLabel={`${label} glass color`}
+                                    autoCapitalize="characters"
+                                    defaultValue={colorValues[index]}
+                                    onEndEditing={(event) => {
+                                        const value = event.nativeEvent.text.trim().toUpperCase();
+                                        if (!/^#[0-9A-F]{6}$/.test(value)) return;
+                                        const key = (['glassPrimary', 'glassSecondary', 'glassAccent'] as const)[index];
+                                        void setAppearance({ ...appearance, [key]: value });
+                                    }}
+                                    style={{
+                                        minHeight: 48,
+                                        borderWidth: 1,
+                                        borderColor: theme.colors.border,
+                                        borderRadius: theme.radii.button,
+                                        backgroundColor: 'rgba(3, 24, 42, 0.58)',
+                                        color: theme.colors.text,
+                                        paddingHorizontal: 14,
+                                        fontSize: 15,
+                                        fontWeight: '900',
+                                    }}
+                                />
+                            </View>
+                        ))}
+                    </View>
+                </ThemedCard>
                 <ThemedCard style={{ marginBottom: 18 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
                         Glass Depth

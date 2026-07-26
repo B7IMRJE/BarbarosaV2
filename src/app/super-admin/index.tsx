@@ -130,6 +130,11 @@ export default function SuperAdminDashboard() {
             return;
         }
 
+        if (card === 'Users') {
+            router.push('/super-admin/homeos-users' as any);
+            return;
+        }
+
         Alert.alert(card, 'This module will connect to real data next.');
     }
 
