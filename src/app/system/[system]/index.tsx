@@ -556,8 +556,16 @@ export default function SystemAreasScreen() {
                                         title={area}
                                         status={statusForCard(areaSummary)}
                                         onPress={() => openArea(area, areaRecord?.parent_area || '')}
-                                        onActivate={!areaRecord ? () => activateRootArea(area) : undefined}
-                                        onArchive={areaRecord ? () => confirmArchiveArea(areaRecord) : undefined}
+                                        onActivate={
+                                            providerModeContext || !areaRecord
+                                                ? () => activateRootArea(area)
+                                                : undefined
+                                        }
+                                        onArchive={
+                                            !providerModeContext && areaRecord
+                                                ? () => confirmArchiveArea(areaRecord)
+                                                : undefined
+                                        }
                                         archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Area'}
                                         archiveDisabled={!!archivingRecordId}
                                     />
@@ -955,13 +963,16 @@ const iconCircleStyle = {
 const smallArchiveButtonStyle = {
     alignSelf: 'center' as const,
     marginTop: 10,
-    paddingVertical: 7,
-    paddingHorizontal: 12,
-    minWidth: 92,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    minWidth: 84,
+    minHeight: 36,
 };
 
 const smallArchiveButtonTextStyle = {
-    fontSize: 12,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800' as const,
 };
 
 const loadingCardStyle = {

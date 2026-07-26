@@ -93,7 +93,6 @@ export default function ThemedButton({
             {children || (
                 <Text
                     style={[
-                        textStyle,
                         {
                             color: variantStyle.color,
                             fontSize: scaleFont(16),
@@ -103,6 +102,7 @@ export default function ThemedButton({
                             flexShrink: 1,
                             textAlign: 'center',
                         },
+                        textStyle,
                     ]}
                 >
                     {title}
