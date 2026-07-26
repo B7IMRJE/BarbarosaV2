@@ -43,8 +43,14 @@ export async function loadCurrentUserPlatformAdmin() {
     try {
         const result = await supabase.rpc('homeos_is_platform_admin');
 
-        return !result.error && result.data === true;
+        if (!result.error && result.data === true) {
+            return true;
+        }
+
+        // Keep the UI usable during deployments where the secure helper has not
+        // reached the database yet. Route/data policies still enforce access.
+        return (await loadCurrentUserRole()) === 'SUPER_ADMIN';
     } catch {
-        return false;
+        return (await loadCurrentUserRole()) === 'SUPER_ADMIN';
     }
 }

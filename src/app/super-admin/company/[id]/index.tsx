@@ -925,11 +925,15 @@ export default function CompanyDashboardScreen() {
                             width: '100%',
                             maxWidth: '100%',
                             minWidth: 0,
-                            backgroundColor: '#FFFFFF',
+                            backgroundColor: mixHexColors(brandPrimary, '#FFFFFF', 0.91),
                             borderRadius: 24,
                             padding: isPhoneLayout ? 16 : 20,
-                            borderWidth: 1,
-                            borderColor: '#E3E8EF',
+                            borderWidth: 2,
+                            borderTopColor: 'rgba(255, 255, 255, 0.95)',
+                            borderColor: mixHexColors(brandPrimary, '#FFFFFF', 0.38),
+                            borderBottomColor: brandPrimary,
+                            borderBottomWidth: 7,
+                            boxShadow: '0 12px 24px rgba(7, 27, 51, 0.22), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
                             marginBottom: 22,
                         }}
                     >
@@ -957,10 +961,14 @@ export default function CompanyDashboardScreen() {
 
                         <View
                             style={{
-                                backgroundColor: '#F8FAFC',
-                                borderColor: '#E3E8EF',
+                                backgroundColor: mixHexColors(brandAccent, '#FFFFFF', 0.84),
+                                borderColor: mixHexColors(brandAccent, '#FFFFFF', 0.38),
                                 borderRadius: 24,
-                                borderWidth: 1,
+                                borderWidth: 2,
+                                borderTopColor: 'rgba(255, 255, 255, 0.96)',
+                                borderBottomColor: brandAccent,
+                                borderBottomWidth: 6,
+                                boxShadow: '0 9px 18px rgba(7, 27, 51, 0.18), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
                                 marginBottom: 20,
                                 padding: isPhoneLayout ? 14 : 18,
                                 minWidth: 0,
@@ -1012,10 +1020,14 @@ export default function CompanyDashboardScreen() {
 
                             <View
                                 style={{
-                                    backgroundColor: '#FFFFFF',
-                                    borderColor: '#DFE7F1',
+                                    backgroundColor: 'rgba(255, 255, 255, 0.68)',
+                                    borderColor: mixHexColors(brandPrimary, '#FFFFFF', 0.48),
                                     borderRadius: 22,
-                                    borderWidth: 1,
+                                    borderWidth: 2,
+                                    borderTopColor: 'rgba(255, 255, 255, 0.98)',
+                                    borderBottomColor: brandPrimary,
+                                    borderBottomWidth: 5,
+                                    boxShadow: '0 8px 16px rgba(7, 27, 51, 0.16), inset 0 2px 0 rgba(255, 255, 255, 0.96)',
                                     padding: 18,
                                     flexDirection: 'row',
                                     flexWrap: 'wrap',
@@ -1162,6 +1174,7 @@ export default function CompanyDashboardScreen() {
                             description="Public-facing company name, DBA, logo link, and short description."
                             expanded={expandedConfigSection === 'identity'}
                             accentColor={brandAccent}
+                            primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('identity')}
                         >
                             <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
@@ -1213,6 +1226,7 @@ export default function CompanyDashboardScreen() {
                             description="Company colors used for company cards, TechOS, proposals, invoices, and receipts."
                             expanded={expandedConfigSection === 'theme'}
                             accentColor={brandAccent}
+                            primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('theme')}
                         >
                             <Field label="Primary Color" value={brandForm.primaryColor} onChangeText={(value) => updateBrandField('primaryColor', value)} />
@@ -1334,6 +1348,7 @@ export default function CompanyDashboardScreen() {
                             description="Ratings, service categories, license details, and experience shown to homeowners."
                             expanded={expandedConfigSection === 'services'}
                             accentColor={brandAccent}
+                            primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('services')}
                         >
                             <Field label="Service Categories" value={brandForm.serviceCategories} onChangeText={(value) => updateBrandField('serviceCategories', value)} />
@@ -1352,6 +1367,7 @@ export default function CompanyDashboardScreen() {
                             description="Contact information shown on company cards and customer-facing screens."
                             expanded={expandedConfigSection === 'identity'}
                             accentColor={brandAccent}
+                            primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('identity')}
                         >
                             <Field label="Phone" value={brandForm.phone} onChangeText={(value) => updateBrandField('phone', value)} />
@@ -1383,6 +1399,11 @@ export default function CompanyDashboardScreen() {
                                 backgroundColor: '#071B33',
                                 padding: 16,
                                 borderRadius: 16,
+                                borderWidth: 2,
+                                borderTopColor: 'rgba(255, 255, 255, 0.68)',
+                                borderBottomColor: brandAccent,
+                                borderBottomWidth: 6,
+                                boxShadow: '0 9px 18px rgba(7, 27, 51, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.42)',
                                 alignItems: 'center',
                                 marginTop: 16,
                             }}
@@ -2379,6 +2400,7 @@ function CollapsibleConfigSection({
     description,
     expanded,
     accentColor,
+    primaryColor,
     onToggle,
     children,
 }: {
@@ -2386,6 +2408,7 @@ function CollapsibleConfigSection({
     description: string;
     expanded: boolean;
     accentColor: string;
+    primaryColor: string;
     onToggle: () => void;
     children: React.ReactNode;
 }) {
@@ -2395,10 +2418,14 @@ function CollapsibleConfigSection({
                 width: '100%',
                 maxWidth: '100%',
                 minWidth: 0,
-                backgroundColor: '#F8FAFC',
-                borderColor: '#E3E8EF',
+                backgroundColor: mixHexColors(accentColor, '#FFFFFF', 0.84),
+                borderColor: mixHexColors(accentColor, '#FFFFFF', 0.36),
                 borderRadius: 20,
-                borderWidth: 1,
+                borderWidth: 2,
+                borderTopColor: 'rgba(255, 255, 255, 0.96)',
+                borderBottomColor: primaryColor,
+                borderBottomWidth: 6,
+                boxShadow: '0 9px 18px rgba(7, 27, 51, 0.20), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
                 marginBottom: 16,
                 padding: 16,
             }}
@@ -2430,7 +2457,10 @@ function CollapsibleConfigSection({
                         backgroundColor: expanded ? accentColor : '#FFFFFF',
                         borderColor: expanded ? accentColor : '#CBD5E1',
                         borderRadius: 999,
-                        borderWidth: 1,
+                        borderWidth: 2,
+                        borderBottomColor: expanded ? primaryColor : accentColor,
+                        borderBottomWidth: 4,
+                        boxShadow: '0 5px 10px rgba(7, 27, 51, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.88)',
                         paddingHorizontal: 12,
                         paddingVertical: 8,
                     }}
