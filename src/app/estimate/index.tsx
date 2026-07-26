@@ -160,6 +160,8 @@ export default function EstimateScreen() {
     const [estimateSession, setEstimateSession] = useState<EstimateOptionSession | null>(null);
     const [selectedChoiceId, setSelectedChoiceId] = useState('');
     const [detailChoiceId, setDetailChoiceId] = useState('');
+    const [removedChoiceIds, setRemovedChoiceIds] = useState<string[]>([]);
+    const [pendingRemoveChoiceId, setPendingRemoveChoiceId] = useState('');
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
     const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
@@ -421,6 +423,8 @@ export default function EstimateScreen() {
         setEstimateSession(null);
         setSelectedChoiceId('');
         setDetailChoiceId('');
+        setRemovedChoiceIds([]);
+        setPendingRemoveChoiceId('');
         setSelectedCategory('faucet_replacement');
         setExpandedCategory(null);
         setExpandedWorkspaceSection(null);
@@ -499,6 +503,8 @@ export default function EstimateScreen() {
         setExpandedWorkspaceSection(null);
         setReadinessExpanded(false);
         setSelectedChoiceId('');
+        setRemovedChoiceIds([]);
+        setPendingRemoveChoiceId('');
         setTechnicianApproved(false);
         setPresentationMode(false);
         setMessage(`${item.name} checklist opened.`);
@@ -512,7 +518,27 @@ export default function EstimateScreen() {
 
     function viewChoiceDetails(choice: Phase1EstimateChoice) {
         setDetailChoiceId(choice.id);
+        setPendingRemoveChoiceId('');
         setMessage(`${choice.title} includes ${choice.pricingResult.lineItems.map((line) => line.name).join(', ')}.`);
+    }
+
+    function removeChoice(choice: Phase1EstimateChoice) {
+        if (pendingRemoveChoiceId !== choice.id) {
+            setPendingRemoveChoiceId(choice.id);
+            setOptionsWorkspaceNotice(`Press “Confirm Remove” to remove ${choice.title} from this quote.`);
+            return;
+        }
+
+        setRemovedChoiceIds((current) => current.includes(choice.id) ? current : [...current, choice.id]);
+        setPendingRemoveChoiceId('');
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        if (selectedChoiceId === choice.id) setSelectedChoiceId('');
+        if (detailChoiceId === choice.id) setDetailChoiceId('');
+        setOptionsWorkspaceNotice(
+            `${choice.title} removed. It will not appear in the homeowner presentation. Use Redo / Reset Options to restore it.`
+        );
+        setMessage(`${choice.title} removed from this quote.`);
     }
 
     function providerClientHomeOsPath() {
@@ -985,6 +1011,8 @@ export default function EstimateScreen() {
     function redoOptionDrafts() {
         setSelectedChoiceId('');
         setDetailChoiceId('');
+        setRemovedChoiceIds([]);
+        setPendingRemoveChoiceId('');
         setTechnicianApproved(false);
         setPresentationMode(false);
         setAiValidationErrors([]);
@@ -1211,6 +1239,8 @@ export default function EstimateScreen() {
             setRequirementUploadByKey({});
             setMeasurementDraftByKey({});
             setMeasurementErrorByKey({});
+            setRemovedChoiceIds([]);
+            setPendingRemoveChoiceId('');
             setTechnicianApproved(false);
             setPresentationMode(false);
         }
@@ -1248,7 +1278,7 @@ export default function EstimateScreen() {
         technicianApproved,
         aiValidationFailed: aiValidationErrors.length > 0,
     });
-    const estimateChoices = phase1Workspace.choices.map((choice) => {
+    const allEstimateChoices = phase1Workspace.choices.map((choice) => {
         const editedChoice = applyEditableChoiceCopy(
             choice,
             aiDraftsByChoiceId[choice.id],
@@ -1257,6 +1287,7 @@ export default function EstimateScreen() {
 
         return applyEstimateChoicePriceAdjustment(editedChoice, priceAdjustmentByChoiceId[choice.id] || 0);
     });
+    const estimateChoices = allEstimateChoices.filter((choice) => !removedChoiceIds.includes(choice.id));
     const optionChoices = estimateChoices.filter((choice) => choice.kind === 'individual');
     const bundleChoices = estimateChoices.filter((choice) => choice.kind === 'package');
     const selectedChoice = estimateChoices.find((choice) => choice.id === selectedChoiceId) || null;
@@ -1942,6 +1973,14 @@ export default function EstimateScreen() {
                                             style={compactSecondaryButtonStyle}
                                         >
                                             <Text style={compactSecondaryButtonTextStyle}>View Details</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            onPress={() => removeChoice(choice)}
+                                            style={compactDangerButtonStyle}
+                                        >
+                                            <Text style={compactDangerButtonTextStyle}>
+                                                {pendingRemoveChoiceId === choice.id ? 'Confirm Remove' : 'Remove Option'}
+                                            </Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
