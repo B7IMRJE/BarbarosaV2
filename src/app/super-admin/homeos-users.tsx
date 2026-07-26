@@ -121,7 +121,7 @@ export default function PlatformHomeOSUsersScreen() {
             await Promise.all([
                 supabase.rpc('get_platform_people_accounts_v2'),
                 supabase.from('companies').select('id, name, public_name, dba_name').order('name', { ascending: true }),
-                supabase.from('company_users').select('id, company_id, auth_user_id, full_name, email, role, status').order('full_name', { ascending: true }),
+                supabase.rpc('get_platform_people_company_access'),
                 supabase.from('property_memberships').select('user_id, property_id, role, status'),
                 supabase.from('properties').select('id, name, address, address_line_1'),
                 supabase.from('company_property_clients').select('company_id, property_id, display_name, status'),
