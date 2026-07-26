@@ -15,7 +15,6 @@ function ThemeSwatches({ option }: { option: HomeOSTheme }) {
         option.colors.status.good.background,
         option.colors.status.notInspected.background,
         option.colors.status.needsAttention.background,
-        option.colors.status.emergency.background,
     ];
 
     return (
@@ -158,9 +157,9 @@ function ThemePreview({ option }: { option: HomeOSTheme }) {
                         flex: 1,
                         height: scaleIcon(18),
                         borderRadius: scaleIcon(999),
-                        backgroundColor: option.colors.status.emergency.background,
+                        backgroundColor: option.colors.status.notInspected.background,
                         borderWidth: 1,
-                        borderColor: option.colors.status.emergency.border,
+                        borderColor: option.colors.status.notInspected.border,
                     }}
                 />
             </View>
@@ -594,10 +593,15 @@ export default function ThemeScreen() {
                                 style={{
                                     flexGrow: 1,
                                     flexBasis: 290,
+                                    backgroundColor: option.colors.surfaceAlt,
                                     borderColor: isSelected
-                                        ? theme.colors.primary
-                                        : theme.colors.border,
-                                    borderWidth: isSelected ? 2 : 1,
+                                        ? option.colors.primary
+                                        : option.colors.border,
+                                    borderTopColor: option.colors.surface,
+                                    borderBottomColor: option.colors.primary,
+                                    borderWidth: 2,
+                                    borderBottomWidth: isSelected ? 8 : 6,
+                                    boxShadow: `0 ${isSelected ? 10 : 7}px ${isSelected ? 20 : 14}px rgba(7, 27, 51, ${isSelected ? 0.24 : 0.16}), inset 0 2px 0 rgba(255, 255, 255, 0.88)`,
                                 }}
                             >
                                 <View style={{ gap: 12 }}>
@@ -612,7 +616,7 @@ export default function ThemeScreen() {
                                         <View style={{ flex: 1 }}>
                                             <Text
                                                 style={{
-                                                    color: theme.colors.text,
+                                                    color: option.colors.text,
                                                     fontSize: 18,
                                                     fontWeight: '900',
                                                 }}
@@ -622,8 +626,8 @@ export default function ThemeScreen() {
                                             <Text
                                                 style={{
                                                     color: isSelected
-                                                        ? theme.colors.primary
-                                                        : theme.colors.mutedText,
+                                                        ? option.colors.primary
+                                                        : option.colors.mutedText,
                                                     marginTop: 6,
                                                     fontWeight: '900',
                                                 }}
@@ -644,19 +648,19 @@ export default function ThemeScreen() {
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 backgroundColor: isSelected
-                                                    ? theme.colors.primary
-                                                    : theme.colors.secondaryButton,
+                                                    ? option.colors.primary
+                                                    : option.colors.secondaryButton,
                                                 borderWidth: 1,
                                                 borderColor: isSelected
-                                                    ? theme.colors.primary
-                                                    : theme.colors.border,
+                                                    ? option.colors.primary
+                                                    : option.colors.border,
                                             }}
                                         >
                                             <Text
                                                 style={{
                                                     color: isSelected
-                                                        ? theme.colors.primaryText
-                                                        : theme.colors.mutedText,
+                                                        ? option.colors.primaryText
+                                                        : option.colors.mutedText,
                                                     fontWeight: '900',
                                                     fontSize: 16,
                                                 }}
