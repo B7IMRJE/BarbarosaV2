@@ -66,6 +66,44 @@ export default function Layout() {
   const [routeGuardError, setRouteGuardError] = useState('');
 
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    let checking = false;
+
+    async function refreshIfDeploymentChanged() {
+      if (checking) return;
+      checking = true;
+
+      try {
+        const response = await fetch(`/?deployment-check=${Date.now()}`, { cache: 'no-store' });
+        const html = await response.text();
+        const latestEntry = html.match(/\/_expo\/static\/js\/web\/entry-[^"' ]+\.js/)?.[0];
+        const currentEntry = Array.from(document.scripts)
+          .map((script) => script.getAttribute('src') || '')
+          .find((source) => source.includes('/_expo/static/js/web/entry-'));
+
+        if (latestEntry && currentEntry && latestEntry !== currentEntry) {
+          window.location.reload();
+        }
+      } catch {
+        // Keep the current app running if the deployment check is temporarily unavailable.
+      } finally {
+        checking = false;
+      }
+    }
+
+    const interval = window.setInterval(() => void refreshIfDeploymentChanged(), 60_000);
+    const handleFocus = () => void refreshIfDeploymentChanged();
+    window.addEventListener('focus', handleFocus);
+    void refreshIfDeploymentChanged();
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
+  useEffect(() => {
     pathnameRef.current = pathname;
     routeParamsRef.current = routeParams;
     const currentPath = normalizePath(pathname);
