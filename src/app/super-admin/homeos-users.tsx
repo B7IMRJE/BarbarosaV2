@@ -19,6 +19,10 @@ type AccountRow = {
     full_name: string | null;
     email: string | null;
     role: string | null;
+    auth_status: string | null;
+    email_confirmed_at: string | null;
+    last_sign_in_at: string | null;
+    created_at: string | null;
 };
 
 type CompanyRow = {
@@ -68,6 +72,10 @@ type PersonRecord = {
     name: string;
     email: string | null;
     platformRole: string | null;
+    authStatus: string | null;
+    emailConfirmedAt: string | null;
+    lastSignInAt: string | null;
+    accountCreatedAt: string | null;
     companyUsers: CompanyUserRow[];
     homeMemberships: MembershipRow[];
     clientCompanies: ClientRow[];
@@ -111,7 +119,7 @@ export default function PlatformHomeOSUsersScreen() {
 
         const [accountResult, companyResult, companyUserResult, membershipResult, propertyResult, clientResult] =
             await Promise.all([
-                supabase.rpc('get_platform_people_accounts'),
+                supabase.rpc('get_platform_people_accounts_v2'),
                 supabase.from('companies').select('id, name, public_name, dba_name').order('name', { ascending: true }),
                 supabase.from('company_users').select('id, company_id, auth_user_id, full_name, email, role, status').order('full_name', { ascending: true }),
                 supabase.from('property_memberships').select('user_id, property_id, role, status'),
@@ -152,15 +160,24 @@ export default function PlatformHomeOSUsersScreen() {
 
     const people = useMemo(() => {
         const companyUsersByAuthId = new Map<string, CompanyUserRow[]>();
+        const companyUsersByEmail = new Map<string, CompanyUserRow[]>();
         const membershipsByUserId = new Map<string, MembershipRow[]>();
         const clientsByPropertyId = new Map<string, ClientRow[]>();
 
         companyUsers.forEach((companyUser) => {
-            if (!companyUser.auth_user_id) return;
-            companyUsersByAuthId.set(companyUser.auth_user_id, [
-                ...(companyUsersByAuthId.get(companyUser.auth_user_id) || []),
-                companyUser,
-            ]);
+            if (companyUser.auth_user_id) {
+                companyUsersByAuthId.set(companyUser.auth_user_id, [
+                    ...(companyUsersByAuthId.get(companyUser.auth_user_id) || []),
+                    companyUser,
+                ]);
+            }
+            const emailKey = normalizeEmail(companyUser.email);
+            if (emailKey) {
+                companyUsersByEmail.set(emailKey, [
+                    ...(companyUsersByEmail.get(emailKey) || []),
+                    companyUser,
+                ]);
+            }
         });
         memberships.forEach((membership) => {
             membershipsByUserId.set(membership.user_id, [
@@ -176,7 +193,10 @@ export default function PlatformHomeOSUsersScreen() {
         });
 
         const records: PersonRecord[] = accounts.map((account) => {
-            const personCompanyUsers = companyUsersByAuthId.get(account.id) || [];
+            const personCompanyUsers = uniqueCompanyUsers([
+                ...(companyUsersByAuthId.get(account.id) || []),
+                ...(companyUsersByEmail.get(normalizeEmail(account.email)) || []),
+            ]);
             const personHomeMemberships = membershipsByUserId.get(account.id) || [];
             const personClientCompanies = uniqueClients(
                 personHomeMemberships.flatMap((membership) => clientsByPropertyId.get(membership.property_id) || [])
@@ -188,6 +208,10 @@ export default function PlatformHomeOSUsersScreen() {
                 name: account.full_name || account.email || 'Unnamed account',
                 email: account.email,
                 platformRole: account.role,
+                authStatus: account.auth_status,
+                emailConfirmedAt: account.email_confirmed_at,
+                lastSignInAt: account.last_sign_in_at,
+                accountCreatedAt: account.created_at,
                 companyUsers: personCompanyUsers,
                 homeMemberships: personHomeMemberships,
                 clientCompanies: personClientCompanies,
@@ -195,8 +219,12 @@ export default function PlatformHomeOSUsersScreen() {
         });
 
         const accountIds = new Set(accounts.map((account) => account.id));
+        const accountEmails = new Set(accounts.map((account) => normalizeEmail(account.email)).filter(Boolean));
         companyUsers
-            .filter((companyUser) => !companyUser.auth_user_id || !accountIds.has(companyUser.auth_user_id))
+            .filter((companyUser) => (
+                (!companyUser.auth_user_id || !accountIds.has(companyUser.auth_user_id)) &&
+                !accountEmails.has(normalizeEmail(companyUser.email))
+            ))
             .forEach((companyUser) => {
                 records.push(buildPersonRecord({
                     key: `company-user-${companyUser.id}`,
@@ -204,6 +232,10 @@ export default function PlatformHomeOSUsersScreen() {
                     name: companyUser.full_name || companyUser.email || 'Unnamed company user',
                     email: companyUser.email,
                     platformRole: null,
+                    authStatus: companyUser.auth_user_id ? 'linked' : 'invited',
+                    emailConfirmedAt: null,
+                    lastSignInAt: null,
+                    accountCreatedAt: null,
                     companyUsers: [companyUser],
                     homeMemberships: [],
                     clientCompanies: [],
@@ -421,7 +453,22 @@ function PersonRow({
                             Platform role: {formatRole(person.platformRole)}
                         </Text>
                     )}
+                    <Text style={{ color: orbitalGlassPalette.mutedText, marginTop: 4 }}>
+                        Login: {formatAuthStatus(person.authStatus)}
+                    </Text>
                 </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 10 }}>
+                <Text style={{ color: orbitalGlassPalette.mutedText, fontSize: 12 }}>
+                    Email confirmed: {formatDate(person.emailConfirmedAt)}
+                </Text>
+                <Text style={{ color: orbitalGlassPalette.mutedText, fontSize: 12 }}>
+                    Last sign-in: {formatDate(person.lastSignInAt)}
+                </Text>
+                <Text style={{ color: orbitalGlassPalette.mutedText, fontSize: 12 }}>
+                    Account created: {formatDate(person.accountCreatedAt)}
+                </Text>
             </View>
 
             {person.companyUsers.map((companyUser) => {
@@ -481,19 +528,28 @@ function PermissionSummary({ permissions }: { permissions: CompanyPermissionSet 
 }
 
 function buildPersonRecord(input: Omit<PersonRecord, 'group' | 'active'>): PersonRecord {
-    const roles = input.companyUsers.map((companyUser) => String(companyUser.role || '').toLowerCase());
+    const roles = [
+        ...input.companyUsers.map((companyUser) => normalizeRole(companyUser.role)),
+        normalizeRole(input.platformRole),
+    ].filter(Boolean);
     const group: PersonGroupKey =
-        roles.includes('owner') ? 'owners' :
-        roles.some((role) => ['admin', 'manager'].includes(role)) ? 'management' :
-        roles.some((role) => ['office', 'dispatcher', 'supervisor'].includes(role)) ? 'office' :
-        roles.some((role) => ['tech', 'technician'].includes(role)) ? 'technicians' :
-        input.homeMemberships.length > 0 || String(input.platformRole || '').toLowerCase() === 'homeowner' ? 'clients' :
+        roles.some((role) => hasRoleWord(role, ['owner'])) ? 'owners' :
+        roles.some((role) => hasRoleWord(role, ['admin', 'administrator', 'manager', 'management'])) ? 'management' :
+        roles.some((role) => hasRoleWord(role, ['office', 'dispatch', 'dispatcher', 'supervisor', 'coordinator'])) ? 'office' :
+        roles.some((role) => hasRoleWord(role, ['tech', 'technician', 'installer', 'field'])) ? 'technicians' :
+        input.homeMemberships.length > 0 || roles.some((role) => hasRoleWord(role, ['homeowner', 'client', 'customer'])) ? 'clients' :
         'other';
-    const active = input.companyUsers.length > 0
+    const authActive = !input.authStatus || ['active', 'linked', 'invited'].includes(input.authStatus);
+    const relationshipActive = input.companyUsers.length > 0
         ? input.companyUsers.some((companyUser) => String(companyUser.status || '').toLowerCase() === 'active')
         : input.homeMemberships.every((membership) => !membership.status || String(membership.status).toLowerCase() === 'active');
+    const active = authActive && relationshipActive;
 
     return { ...input, group, active };
+}
+
+function uniqueCompanyUsers(rows: CompanyUserRow[]) {
+    return Array.from(new Map(rows.map((row) => [row.id, row])).values());
 }
 
 function uniqueClients(rows: ClientRow[]) {
@@ -515,4 +571,34 @@ function formatRole(value?: string | null) {
 
 function formatStatus(value?: string | null) {
     return formatRole(value || 'unknown');
+}
+
+function normalizeEmail(value?: string | null) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function normalizeRole(value?: string | null) {
+    return String(value || '').trim().toLowerCase().replace(/[_-]+/g, ' ');
+}
+
+function hasRoleWord(role: string, words: string[]) {
+    return words.some((word) => role === word || role.includes(`${word} `) || role.includes(` ${word}`));
+}
+
+function formatAuthStatus(value?: string | null) {
+    const labels: Record<string, string> = {
+        active: 'Active',
+        invited: 'Invitation pending',
+        linked: 'Linked account',
+        missing_auth_account: 'Authentication account missing',
+        pending_confirmation: 'Email confirmation pending',
+        suspended: 'Suspended',
+    };
+    return labels[String(value || '')] || formatStatus(value || 'unknown');
+}
+
+function formatDate(value?: string | null) {
+    if (!value) return 'Not available';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
 }
