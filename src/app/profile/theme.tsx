@@ -348,6 +348,7 @@ export default function ThemeScreen() {
     const [selectedThemeName, setSelectedThemeName] =
         useState<HomeOSThemeName>(themeName);
     const [isSavingTheme, setIsSavingTheme] = useState(false);
+    const [isResettingAppearance, setIsResettingAppearance] = useState(false);
     const [themeSaveMessage, setThemeSaveMessage] = useState<{
         kind: 'success' | 'error';
         text: string;
@@ -413,6 +414,37 @@ export default function ThemeScreen() {
             });
         } finally {
             setIsSavingTheme(false);
+        }
+    }
+
+    async function resetCompleteAppearance() {
+        if (isResettingAppearance) return;
+
+        setIsResettingAppearance(true);
+        setThemeSaveMessage(null);
+
+        try {
+            await resetAppearance();
+
+            if (themeName !== DEFAULT_THEME_NAME) {
+                await setThemeName(DEFAULT_THEME_NAME);
+            }
+
+            setSelectedThemeName(DEFAULT_THEME_NAME);
+            setThemeSaveMessage({
+                kind: 'success',
+                text: 'HomeOS appearance was reset to the default colors, opacity, depth, and sizes.',
+            });
+        } catch (error) {
+            setThemeSaveMessage({
+                kind: 'error',
+                text:
+                    error instanceof Error
+                        ? error.message
+                        : 'HomeOS could not reset the appearance. Please try again.',
+            });
+        } finally {
+            setIsResettingAppearance(false);
         }
     }
 
@@ -500,6 +532,18 @@ export default function ThemeScreen() {
                             {themeOptions.find((option) => option.name === themeName)?.label ||
                                 themeName}
                         </Text>
+                        <ThemedButton
+                            title={isResettingAppearance ? 'Resetting...' : 'Reset Appearance'}
+                            variant="secondary"
+                            disabled={
+                                isResettingAppearance ||
+                                (isDefaultAppearance && themeName === DEFAULT_THEME_NAME)
+                            }
+                            onPress={() => {
+                                void resetCompleteAppearance();
+                            }}
+                            style={{ marginTop: 12, minWidth: 190 }}
+                        />
                     </View>
                 </View>
                 <ThemedCard style={{ marginBottom: 18 }}>
