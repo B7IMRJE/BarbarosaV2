@@ -3,6 +3,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import type React from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import SignaturePad, { isDrawnSignature } from '../components/signature-pad';
 import { BUILD_DISPLAY } from '../lib/appVersion';
 import { formatMoney } from '../lib/estimateOptions';
 import {
@@ -33,6 +34,7 @@ export default function JobWorkflowScreen() {
     const [resolutionSummary, setResolutionSummary] = useState('');
     const [completionName, setCompletionName] = useState('');
     const [completionSignature, setCompletionSignature] = useState('');
+    const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
 
     useEffect(() => {
         if (!sessionId) {
@@ -136,11 +138,12 @@ export default function JobWorkflowScreen() {
     const selectedTotal = options
         .filter((option) => selectedChoiceIds.includes(option.id))
         .reduce((total, option) => total + option.pricingResult.totalAmount, 0);
-    const cancellationNoticeSigned = !!cancellationName.trim() && !!cancellationSignature.trim();
+    const selectedOptions = options.filter((option) => selectedChoiceIds.includes(option.id));
+    const cancellationNoticeSigned = !!cancellationName.trim() && isDrawnSignature(cancellationSignature);
     const workApprovalReady = selectedChoiceIds.length > 0
         && cancellationNoticeSigned
         && !!homeownerName.trim()
-        && !!signature.trim();
+        && isDrawnSignature(signature);
 
     function toggleChoice(choiceId: string) {
         setSelectedChoiceIds((current) => current.includes(choiceId)
@@ -168,7 +171,7 @@ export default function JobWorkflowScreen() {
                 <Text style={statusValueStyle}>{status.replace(/_/g, ' ')}</Text>
             </View>
 
-            {status === 'presenting' && (
+            {status === 'presenting' && approvalPage === 1 && (
                 <Section title="1. Homeowner selects the work" subtitle="Select one or more technician-approved options.">
                     <View style={optionGridStyle}>
                         {options.map((option) => (
@@ -190,26 +193,96 @@ export default function JobWorkflowScreen() {
                         <Text style={statusLabelStyle}>{selectedChoiceIds.length} option(s) selected</Text>
                         <Text style={totalAmountStyle}>{formatMoney(selectedTotal)}</Text>
                     </View>
-                    <Text style={legalTitleStyle}>2. Sign the cancellation-right notice</Text>
-                    <Text style={optionTitleStyle}>{rule.cancellation_notice_title}</Text>
+                    <PrimaryButton
+                        title="Continue to 30-Day Cancellation Policy"
+                        disabled={selectedChoiceIds.length === 0}
+                        onPress={() => setApprovalPage(2)}
+                    />
+                </Section>
+            )}
+
+            {status === 'presenting' && approvalPage === 2 && (
+                <Section title="2. Review and sign the 30-day cancellation policy" subtitle="This is a separate acknowledgment. It does not approve the work by itself.">
+                    <Text style={legalTitleStyle}>{rule.cancellation_notice_title}</Text>
                     <Text style={bodyStyle}>{rule.cancellation_notice_text}</Text>
                     <Text style={mutedStyle}>
-                        Company rule: {rule.cancellation_days} day(s) · {rule.jurisdiction_label}
+                        Policy period: {rule.cancellation_days} calendar days · {rule.jurisdiction_label}
                     </Text>
-                    <Text style={bodyStyle}>By signing below, I confirm that I received and reviewed this cancellation-right notice.</Text>
+                    <View style={policyExplanationStyle}>
+                        <Text style={optionTitleStyle}>What this means</Text>
+                        <Text style={bodyStyle}>
+                            You may notify the company that you want to cancel the selected work within 30 calendar days after signing.
+                            Send the cancellation in writing so there is a clear record of when it was delivered.
+                        </Text>
+                        <Text style={bodyStyle}>
+                            If you separately ask the company to begin work before the 30 days end, work already performed and special-order
+                            materials may be handled according to the signed agreement and applicable law. Ask the company before signing if
+                            anything about the cancellation process is unclear.
+                        </Text>
+                    </View>
+                    <Text style={bodyStyle}>
+                        By signing below, I confirm that I received and reviewed this 30-day cancellation policy before approving any work.
+                    </Text>
                     <Field label="Name receiving cancellation notice" value={cancellationName} onChangeText={setCancellationName} />
-                    <Field label="Cancellation-notice signature (type full legal name)" value={cancellationSignature} onChangeText={setCancellationSignature} />
-                    <Text style={legalTitleStyle}>3. Approve the selected work</Text>
-                    {!cancellationNoticeSigned && (
-                        <Text style={mutedStyle}>Sign the cancellation-right notice above to unlock work approval.</Text>
-                    )}
-                    <Field label="Homeowner full name" value={homeownerName} onChangeText={setHomeownerName} disabled={!cancellationNoticeSigned} />
-                    <Field label="Work-approval signature (type full legal name)" value={signature} onChangeText={setSignature} disabled={!cancellationNoticeSigned} />
+                    <SignaturePad
+                        label="Cancellation-notice signature"
+                        value={cancellationSignature}
+                        onChange={setCancellationSignature}
+                    />
+                    <View style={twoButtonRowStyle}>
+                        <SecondaryButton title="Back to Options" onPress={() => setApprovalPage(1)} />
+                        <PrimaryButton
+                            title="Continue to Work Approval"
+                            disabled={!cancellationNoticeSigned}
+                            onPress={() => setApprovalPage(3)}
+                        />
+                    </View>
+                </Section>
+            )}
+
+            {status === 'presenting' && approvalPage === 3 && (
+                <Section title="3. Review and approve the selected work" subtitle="This second signature authorizes the exact scope and combined price below.">
+                    <View style={optionGridStyle}>
+                        {selectedOptions.map((option) => (
+                            <View key={option.id} style={[optionStyle, optionSelectedStyle]}>
+                                <Text style={optionTitleStyle}>{option.title}</Text>
+                                <Text style={optionPriceStyle}>{formatMoney(option.pricingResult.totalAmount)}</Text>
+                                <Text style={bodyStyle}>{option.homeownerExplanation}</Text>
+                                {option.pricingResult.lineItems.map((line) => (
+                                    <Text key={`${option.id}-${line.id}`} style={mutedStyle}>
+                                        • {line.name} × {line.quantity} — {formatMoney(line.totalAmount)}
+                                    </Text>
+                                ))}
+                            </View>
+                        ))}
+                    </View>
+                    <View style={totalStyle}>
+                        <Text style={statusLabelStyle}>Total authorized price</Text>
+                        <Text style={totalAmountStyle}>{formatMoney(selectedTotal)}</Text>
+                    </View>
+                    <View style={policyExplanationStyle}>
+                        <Text style={optionTitleStyle}>Work authorization</Text>
+                        <Text style={bodyStyle}>
+                            I reviewed the selected work, included line items, and combined price shown above. I authorize the company to
+                            perform only this selected scope. Additional work or a material price change requires a separate explanation and approval.
+                        </Text>
+                        <Text style={bodyStyle}>
+                            I understand that an invoice will be provided after completion and that payment collection may be handled by the
+                            office or an approved external payment device.
+                        </Text>
+                    </View>
+                    <Field label="Homeowner approving the work" value={homeownerName} onChangeText={setHomeownerName} />
+                    <SignaturePad
+                        label="Work-approval signature"
+                        value={signature}
+                        onChange={setSignature}
+                    />
                     <PrimaryButton
                         title={busy ? 'Saving acceptance...' : 'Approve Selected Work'}
                         disabled={busy || !workApprovalReady}
                         onPress={acceptSelectedWork}
                     />
+                    <SecondaryButton title="Back to Cancellation Policy" onPress={() => setApprovalPage(2)} />
                 </Section>
             )}
 
@@ -294,8 +367,12 @@ export default function JobWorkflowScreen() {
             {status === 'work_complete' && (
                 <Section title="6. Homeowner completion approval" subtitle="Confirm the finished work is satisfactory.">
                     <Field label="Homeowner full name" value={completionName} onChangeText={setCompletionName} />
-                    <Field label="Electronic signature (type full legal name)" value={completionSignature} onChangeText={setCompletionSignature} />
-                    <PrimaryButton title="Accept Satisfactory Completion" disabled={busy} onPress={() => run('accept_completion', {
+                    <SignaturePad
+                        label="Satisfactory-completion signature"
+                        value={completionSignature}
+                        onChange={setCompletionSignature}
+                    />
+                    <PrimaryButton title="Accept Satisfactory Completion" disabled={busy || !completionName.trim() || !isDrawnSignature(completionSignature)} onPress={() => run('accept_completion', {
                         homeowner_name: completionName, signature: completionSignature,
                     })} />
                 </Section>
@@ -317,7 +394,7 @@ export default function JobWorkflowScreen() {
                 <Section title="Job closed" subtitle="Quote, signatures, photos, invoice, and external payment record are complete." />
             )}
 
-            <Section title="Job timeline" subtitle="A timestamped audit trail for the company.">
+            {status !== 'presenting' && <Section title="Job timeline" subtitle="A timestamped audit trail for the company.">
                 {(bundle.events || []).slice().reverse().map((event) => (
                     <View key={event.id} style={timelineStyle}>
                         <Text style={optionTitleStyle}>{event.title}</Text>
@@ -326,7 +403,7 @@ export default function JobWorkflowScreen() {
                     </View>
                 ))}
                 {bundle.events.length === 0 && <Text style={mutedStyle}>No workflow events yet.</Text>}
-            </Section>
+            </Section>}
         </ScrollView>
     );
 }
@@ -409,3 +486,5 @@ const disabledStyle = { opacity: 0.5 } as const;
 const timelineStyle = { borderLeftColor: '#35aaa5', borderLeftWidth: 3, paddingLeft: 12, gap: 3 } as const;
 const totalStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } as const;
 const totalAmountStyle = { color: '#52e0a4', fontSize: 24, fontWeight: '900' } as const;
+const policyExplanationStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 14, gap: 10 } as const;
+const twoButtonRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' } as const;
