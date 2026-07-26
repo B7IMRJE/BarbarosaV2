@@ -18,6 +18,8 @@ export type JobWorkflow = {
     property_id: string | null;
     selected_source_choice_id: string | null;
     selected_option_snapshot: PersistableEstimateChoice | null;
+    selected_source_choice_ids: string[];
+    selected_options_snapshot: PersistableEstimateChoice[];
     status: JobWorkflowStatus;
     homeowner_name: string | null;
     homeowner_accepted_at: string | null;
@@ -79,6 +81,26 @@ export async function advanceJobWorkflow(
         p_workflow_id: workflowId,
         p_action: action,
         p_payload: payload,
+    });
+    if (error) throw error;
+    return data as JobWorkflow;
+}
+
+export async function acceptJobWorkflowQuote(input: {
+    workflowId: string;
+    selectedChoiceIds: string[];
+    cancellationName: string;
+    cancellationSignature: string;
+    homeownerName: string;
+    homeownerSignature: string;
+}) {
+    const { data, error } = await supabase.rpc('accept_company_job_workflow_quote_v2', {
+        p_workflow_id: input.workflowId,
+        p_selected_choice_ids: input.selectedChoiceIds,
+        p_cancellation_name: input.cancellationName,
+        p_cancellation_signature: input.cancellationSignature,
+        p_homeowner_name: input.homeownerName,
+        p_homeowner_signature: input.homeownerSignature,
     });
     if (error) throw error;
     return data as JobWorkflow;

@@ -6,6 +6,7 @@ import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-nativ
 import { BUILD_DISPLAY } from '../lib/appVersion';
 import { formatMoney } from '../lib/estimateOptions';
 import {
+    acceptJobWorkflowQuote,
     advanceJobWorkflow,
     loadOrCreateJobWorkflow,
     uploadJobWorkflowPhoto,
@@ -19,10 +20,11 @@ export default function JobWorkflowScreen() {
     const [bundle, setBundle] = useState<JobWorkflowBundle | null>(null);
     const [message, setMessage] = useState('Opening customer approval...');
     const [busy, setBusy] = useState(false);
-    const [selectedChoiceId, setSelectedChoiceId] = useState('');
+    const [selectedChoiceIds, setSelectedChoiceIds] = useState<string[]>([]);
     const [homeownerName, setHomeownerName] = useState('');
     const [signature, setSignature] = useState('');
-    const [cancellationAcknowledged, setCancellationAcknowledged] = useState(false);
+    const [cancellationName, setCancellationName] = useState('');
+    const [cancellationSignature, setCancellationSignature] = useState('');
     const [scheduleDate, setScheduleDate] = useState('');
     const [storeName, setStoreName] = useState('');
     const [storeAddress, setStoreAddress] = useState('');
@@ -53,7 +55,13 @@ export default function JobWorkflowScreen() {
         try {
             const next = await loadOrCreateJobWorkflow(id);
             setBundle(next);
-            setSelectedChoiceId(next.workflow.selected_source_choice_id || '');
+            setSelectedChoiceIds(
+                next.workflow.selected_source_choice_ids?.length
+                    ? next.workflow.selected_source_choice_ids
+                    : next.workflow.selected_source_choice_id
+                        ? [next.workflow.selected_source_choice_id]
+                        : []
+            );
             setHomeownerName(next.workflow.homeowner_name || '');
             setCompletionName(next.workflow.completion_homeowner_name || '');
             setMessage('');
@@ -70,6 +78,28 @@ export default function JobWorkflowScreen() {
             await advanceJobWorkflow(bundle.workflow.id, action, payload);
             await refresh();
             setMessage(actionMessage(action));
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function acceptSelectedWork() {
+        if (!bundle || busy) return;
+        setBusy(true);
+        setMessage('Saving signed approval...');
+        try {
+            await acceptJobWorkflowQuote({
+                workflowId: bundle.workflow.id,
+                selectedChoiceIds,
+                cancellationName,
+                cancellationSignature,
+                homeownerName,
+                homeownerSignature: signature,
+            });
+            await refresh();
+            setMessage('Selected work approved and job sold.');
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
@@ -103,6 +133,21 @@ export default function JobWorkflowScreen() {
 
     const { workflow, contract_rule: rule, options } = bundle;
     const status = workflow.status;
+    const selectedTotal = options
+        .filter((option) => selectedChoiceIds.includes(option.id))
+        .reduce((total, option) => total + option.pricingResult.totalAmount, 0);
+    const cancellationNoticeSigned = !!cancellationName.trim() && !!cancellationSignature.trim();
+    const workApprovalReady = selectedChoiceIds.length > 0
+        && cancellationNoticeSigned
+        && !!homeownerName.trim()
+        && !!signature.trim();
+
+    function toggleChoice(choiceId: string) {
+        setSelectedChoiceIds((current) => current.includes(choiceId)
+            ? current.filter((id) => id !== choiceId)
+            : [...current, choiceId]
+        );
+    }
 
     return (
         <ScrollView style={screenStyle} contentContainerStyle={contentStyle}>
@@ -124,46 +169,46 @@ export default function JobWorkflowScreen() {
             </View>
 
             {status === 'presenting' && (
-                <Section title="1. Homeowner selects an option" subtitle="Only the technician-approved choices appear here.">
+                <Section title="1. Homeowner selects the work" subtitle="Select one or more technician-approved options.">
                     <View style={optionGridStyle}>
                         {options.map((option) => (
                             <TouchableOpacity
                                 key={option.id}
-                                onPress={() => setSelectedChoiceId(option.id)}
-                                style={selectedChoiceId === option.id ? [optionStyle, optionSelectedStyle] : optionStyle}
+                                onPress={() => toggleChoice(option.id)}
+                                style={selectedChoiceIds.includes(option.id) ? [optionStyle, optionSelectedStyle] : optionStyle}
                             >
                                 <Text style={optionTitleStyle}>{option.title}</Text>
                                 <Text style={optionPriceStyle}>{formatMoney(option.pricingResult.totalAmount)}</Text>
                                 <Text style={bodyStyle}>{option.homeownerExplanation}</Text>
                                 <Text style={selectLabelStyle}>
-                                    {selectedChoiceId === option.id ? 'Selected ✓' : 'Select this option'}
+                                    {selectedChoiceIds.includes(option.id) ? 'Selected ✓' : 'Select this option'}
                                 </Text>
                             </TouchableOpacity>
                         ))}
                     </View>
-                    <Text style={legalTitleStyle}>{rule.cancellation_notice_title}</Text>
+                    <View style={totalStyle}>
+                        <Text style={statusLabelStyle}>{selectedChoiceIds.length} option(s) selected</Text>
+                        <Text style={totalAmountStyle}>{formatMoney(selectedTotal)}</Text>
+                    </View>
+                    <Text style={legalTitleStyle}>2. Sign the cancellation-right notice</Text>
+                    <Text style={optionTitleStyle}>{rule.cancellation_notice_title}</Text>
                     <Text style={bodyStyle}>{rule.cancellation_notice_text}</Text>
                     <Text style={mutedStyle}>
                         Company rule: {rule.cancellation_days} day(s) · {rule.jurisdiction_label}
                     </Text>
-                    <TouchableOpacity
-                        style={checkRowStyle}
-                        onPress={() => setCancellationAcknowledged((value) => !value)}
-                    >
-                        <Text style={checkStyle}>{cancellationAcknowledged ? '☑' : '☐'}</Text>
-                        <Text style={bodyStyle}>I received, reviewed, and acknowledge the cancellation-right notice.</Text>
-                    </TouchableOpacity>
-                    <Field label="Homeowner full name" value={homeownerName} onChangeText={setHomeownerName} />
-                    <Field label="Electronic signature (type full legal name)" value={signature} onChangeText={setSignature} />
+                    <Text style={bodyStyle}>By signing below, I confirm that I received and reviewed this cancellation-right notice.</Text>
+                    <Field label="Name receiving cancellation notice" value={cancellationName} onChangeText={setCancellationName} />
+                    <Field label="Cancellation-notice signature (type full legal name)" value={cancellationSignature} onChangeText={setCancellationSignature} />
+                    <Text style={legalTitleStyle}>3. Approve the selected work</Text>
+                    {!cancellationNoticeSigned && (
+                        <Text style={mutedStyle}>Sign the cancellation-right notice above to unlock work approval.</Text>
+                    )}
+                    <Field label="Homeowner full name" value={homeownerName} onChangeText={setHomeownerName} disabled={!cancellationNoticeSigned} />
+                    <Field label="Work-approval signature (type full legal name)" value={signature} onChangeText={setSignature} disabled={!cancellationNoticeSigned} />
                     <PrimaryButton
                         title={busy ? 'Saving acceptance...' : 'Approve Selected Work'}
-                        disabled={busy}
-                        onPress={() => run('accept_quote', {
-                            selected_choice_id: selectedChoiceId,
-                            homeowner_name: homeownerName,
-                            signature,
-                            cancellation_acknowledged: cancellationAcknowledged,
-                        })}
+                        disabled={busy || !workApprovalReady}
+                        onPress={acceptSelectedWork}
                     />
                 </Section>
             )}
@@ -289,8 +334,8 @@ export default function JobWorkflowScreen() {
 function Section({ title, subtitle, children }: { title: string; subtitle: string; children?: React.ReactNode }) {
     return <View style={sectionStyle}><Text style={sectionTitleStyle}>{title}</Text><Text style={mutedStyle}>{subtitle}</Text>{children}</View>;
 }
-function Field(props: { label: string; value: string; onChangeText: (value: string) => void; multiline?: boolean }) {
-    return <View><Text style={fieldLabelStyle}>{props.label}</Text><TextInput {...props} style={[inputStyle, props.multiline && textAreaStyle]} placeholderTextColor="#7391a5" /></View>;
+function Field(props: { label: string; value: string; onChangeText: (value: string) => void; multiline?: boolean; disabled?: boolean }) {
+    return <View><Text style={fieldLabelStyle}>{props.label}</Text><TextInput {...props} editable={!props.disabled} style={[inputStyle, props.multiline && textAreaStyle, props.disabled && disabledStyle]} placeholderTextColor="#7391a5" /></View>;
 }
 function PrimaryButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
     return <TouchableOpacity onPress={onPress} disabled={disabled} style={[primaryButtonStyle, disabled && disabledStyle]}><Text style={primaryButtonTextStyle}>{title}</Text></TouchableOpacity>;
@@ -362,3 +407,5 @@ const secondaryButtonStyle = { borderColor: '#3b7188', borderWidth: 1, borderRad
 const secondaryButtonTextStyle = { color: '#d8f8ff', fontSize: 14, fontWeight: '800' } as const;
 const disabledStyle = { opacity: 0.5 } as const;
 const timelineStyle = { borderLeftColor: '#35aaa5', borderLeftWidth: 3, paddingLeft: 12, gap: 3 } as const;
+const totalStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } as const;
+const totalAmountStyle = { color: '#52e0a4', fontSize: 24, fontWeight: '900' } as const;
