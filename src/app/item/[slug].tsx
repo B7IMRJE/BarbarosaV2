@@ -128,13 +128,16 @@ type ProviderFindingSeverity = 'low' | 'medium' | 'high' | 'urgent';
 
 type ItemActionGroupKey = 'components' | 'maintenance' | 'estimate' | 'provider' | 'media' | 'item';
 
-const itemSectionTilePalettes: Record<ItemActionGroupKey, { background: string; border: string; accent: string }> = {
-    components: { background: '#FFF8DF', border: '#F2DC92', accent: '#D99214' },
-    maintenance: { background: '#ECFBF5', border: '#BFEEDC', accent: '#0F8A68' },
-    estimate: { background: '#EEF4FF', border: '#C8DAFF', accent: '#276BDC' },
-    provider: { background: '#F3EFFF', border: '#D9CCFF', accent: '#7357C8' },
-    media: { background: '#EAF9FF', border: '#BCEBFA', accent: '#2C91C9' },
-    item: { background: '#FFF1F4', border: '#F6CAD3', accent: '#C2415B' },
+const itemSectionTilePalettes: Record<
+    ItemActionGroupKey,
+    { background: string; border: string; accent: string; text: string; mutedText: string }
+> = {
+    components: { background: '#FFF8DF', border: '#F2DC92', accent: '#9A5B00', text: '#172235', mutedText: '#4E5968' },
+    maintenance: { background: '#ECFBF5', border: '#BFEEDC', accent: '#0A7458', text: '#102D27', mutedText: '#3D5F57' },
+    estimate: { background: '#EEF4FF', border: '#C8DAFF', accent: '#1958B8', text: '#102A50', mutedText: '#405979' },
+    provider: { background: '#E9F8F7', border: '#B8E7E2', accent: '#087C78', text: '#113A39', mutedText: '#416563' },
+    media: { background: '#EAF9FF', border: '#BCEBFA', accent: '#176D9C', text: '#13364A', mutedText: '#456576' },
+    item: { background: '#FFF7E8', border: '#F0D49C', accent: '#9A6500', text: '#392B11', mutedText: '#6C5B3B' },
 };
 
 const photoCategories = [...itemPhotoUploadCategories];
@@ -3159,7 +3162,7 @@ export default function ItemScreen() {
                     style={[
                         scaleStyle(sectionTileAccentStyle),
                         {
-                            backgroundColor: expanded ? theme.colors.primaryText : palette.accent,
+                            backgroundColor: expanded ? '#FFFFFF' : palette.accent,
                             opacity: expanded ? 0.95 : 1,
                         },
                     ]}
@@ -3167,7 +3170,7 @@ export default function ItemScreen() {
                 <Text
                     style={[
                         scaleStyle(sectionTileTitleStyle),
-                        { color: expanded ? theme.colors.primaryText : theme.colors.text },
+                        { color: expanded ? '#FFFFFF' : palette.text },
                     ]}
                     numberOfLines={2}
                 >
@@ -3176,7 +3179,7 @@ export default function ItemScreen() {
                 <Text
                     style={[
                         scaleStyle(sectionTileSubtitleStyle),
-                        { color: expanded ? theme.colors.primaryText : theme.colors.mutedText },
+                        { color: expanded ? '#FFFFFF' : palette.mutedText },
                     ]}
                     numberOfLines={3}
                 >
@@ -3187,7 +3190,7 @@ export default function ItemScreen() {
                         <Text
                             style={[
                                 scaleStyle(sectionTileMetaStyle),
-                                { color: expanded ? theme.colors.primaryText : theme.colors.mutedText },
+                                { color: expanded ? '#FFFFFF' : palette.mutedText },
                             ]}
                         >
                             {meta}
@@ -3196,7 +3199,7 @@ export default function ItemScreen() {
                     <Text
                         style={[
                             scaleStyle(sectionTileActionStyle),
-                            { color: expanded ? theme.colors.primaryText : palette.accent },
+                            { color: expanded ? '#FFFFFF' : palette.accent },
                         ]}
                     >
                         {expanded ? 'Hide' : 'Open'}
