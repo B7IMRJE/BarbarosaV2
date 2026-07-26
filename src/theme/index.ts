@@ -38,6 +38,8 @@ export type AppearancePreferences = {
     glassPrimary: string;
     glassSecondary: string;
     glassAccent: string;
+    backgroundColor: string;
+    backgroundIntensity: number;
 };
 
 export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
@@ -47,6 +49,8 @@ export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
     glassPrimary: '#075748',
     glassSecondary: '#043F69',
     glassAccent: '#2FA5B3',
+    backgroundColor: '#03182A',
+    backgroundIntensity: 100,
 };
 
 export const appearanceSizeOptions: {
@@ -108,6 +112,15 @@ function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
         glassPrimary: safeColor(candidate.glassPrimary, DEFAULT_APPEARANCE_PREFERENCES.glassPrimary),
         glassSecondary: safeColor(candidate.glassSecondary, DEFAULT_APPEARANCE_PREFERENCES.glassSecondary),
         glassAccent: safeColor(candidate.glassAccent, DEFAULT_APPEARANCE_PREFERENCES.glassAccent),
+        backgroundColor: safeColor(candidate.backgroundColor, DEFAULT_APPEARANCE_PREFERENCES.backgroundColor),
+        backgroundIntensity: Math.max(
+            1,
+            Math.min(
+                100,
+                Number(candidate.backgroundIntensity) ||
+                    DEFAULT_APPEARANCE_PREFERENCES.backgroundIntensity
+            )
+        ),
     };
 }
 
@@ -330,6 +343,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
                 primary: appearance.glassPrimary,
                 secondary: appearance.glassSecondary,
                 accent: appearance.glassAccent,
+                background: appearance.backgroundColor,
+                backgroundIntensity: appearance.backgroundIntensity,
             }),
             setThemeName,
             appearance,

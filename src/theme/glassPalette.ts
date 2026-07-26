@@ -87,7 +87,13 @@ export function createCompanyGlassPalette(input: {
 
 export function resolveGlassHomeTheme(
     source: HomeOSTheme,
-    custom?: { primary?: string; secondary?: string; accent?: string }
+    custom?: {
+        primary?: string;
+        secondary?: string;
+        accent?: string;
+        background?: string;
+        backgroundIntensity?: number;
+    }
 ): HomeOSTheme {
     const palette = createCompanyGlassPalette({
         id: `home-${source.name}`,
@@ -99,13 +105,22 @@ export function resolveGlassHomeTheme(
     const accent = usableAccent(custom?.accent || source.colors.primary)
         ? (custom?.accent || source.colors.primary)
         : palette.tones.blue.edge;
+    const backgroundIntensity = Math.max(
+        1,
+        Math.min(100, Number(custom?.backgroundIntensity) || 100)
+    ) / 100;
+    const background = mixHex(
+        validHex(custom?.background) || orbitalGlassPalette.screen,
+        '#01070D',
+        1 - backgroundIntensity
+    );
 
     return {
         ...source,
         label: `${source.label} Glass`,
         colors: {
             ...source.colors,
-            background: orbitalGlassPalette.screen,
+            background,
             surface: palette.tones.steel.background,
             surfaceAlt: palette.tones.blue.background,
             text: orbitalGlassPalette.text,

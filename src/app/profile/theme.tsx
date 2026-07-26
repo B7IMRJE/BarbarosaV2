@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import Slider from '@react-native-community/slider';
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -361,6 +362,13 @@ export default function ThemeScreen() {
         appearance.glassSecondary,
         appearance.glassAccent,
     ];
+    const [backgroundIntensityPreview, setBackgroundIntensityPreview] = useState(
+        appearance.backgroundIntensity
+    );
+
+    useEffect(() => {
+        setBackgroundIntensityPreview(appearance.backgroundIntensity);
+    }, [appearance.backgroundIntensity]);
 
     useEffect(() => {
         if (!isSavingTheme) {
@@ -479,6 +487,76 @@ export default function ThemeScreen() {
                         </Text>
                     </View>
                 </View>
+                <ThemedCard style={{ marginBottom: 18 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                        Background
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
+                        Choose the HomeOS background color, then adjust how strong or dark it appears.
+                    </Text>
+                    <View
+                        style={{
+                            backgroundColor: appearance.backgroundColor,
+                            borderColor: theme.colors.border,
+                            borderRadius: theme.radii.card,
+                            borderWidth: 1,
+                            height: 76,
+                            marginTop: 14,
+                            opacity: Math.max(0.08, backgroundIntensityPreview / 100),
+                        }}
+                    />
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 }}>
+                        <View style={{ flex: 1, minWidth: 180 }}>
+                            <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
+                                BACKGROUND COLOR
+                            </Text>
+                            <TextInput
+                                accessibilityLabel="HomeOS background color"
+                                autoCapitalize="characters"
+                                defaultValue={appearance.backgroundColor}
+                                onEndEditing={(event) => {
+                                    const value = event.nativeEvent.text.trim().toUpperCase();
+                                    if (!/^#[0-9A-F]{6}$/.test(value)) return;
+                                    void setAppearance({ ...appearance, backgroundColor: value });
+                                }}
+                                style={{
+                                    minHeight: 48,
+                                    borderWidth: 1,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.button,
+                                    backgroundColor: 'rgba(3, 24, 42, 0.58)',
+                                    color: theme.colors.text,
+                                    paddingHorizontal: 14,
+                                    fontSize: 15,
+                                    fontWeight: '900',
+                                }}
+                            />
+                        </View>
+                        <View style={{ flex: 2, minWidth: 240 }}>
+                            <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '900', marginBottom: 6 }}>
+                                INTENSITY / OPACITY — {Math.round(backgroundIntensityPreview)}%
+                            </Text>
+                            <Slider
+                                accessibilityLabel="HomeOS background intensity"
+                                minimumValue={1}
+                                maximumValue={100}
+                                step={1}
+                                value={backgroundIntensityPreview}
+                                minimumTrackTintColor={theme.colors.primary}
+                                maximumTrackTintColor="rgba(174, 205, 229, 0.35)"
+                                thumbTintColor={theme.colors.primary}
+                                onValueChange={setBackgroundIntensityPreview}
+                                onSlidingComplete={(value) => {
+                                    void setAppearance({
+                                        ...appearance,
+                                        backgroundIntensity: Math.round(value),
+                                    });
+                                }}
+                                style={{ height: 48, width: '100%' }}
+                            />
+                        </View>
+                    </View>
+                </ThemedCard>
                 <ThemedCard style={{ marginBottom: 18 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
                         Glass Colors
