@@ -449,6 +449,27 @@ export default function ThemeScreen() {
         }
     }
 
+    async function changeInterfaceStyle(nextStyle: 'glass' | 'classic') {
+        try {
+            await setAppearance({
+                ...appearance,
+                appearanceStyle: nextStyle,
+            });
+            setThemeSaveMessage({
+                kind: 'success',
+                text:
+                    nextStyle === 'classic'
+                        ? 'Classic style is active. HomeOS now uses the flatter original card and button design.'
+                        : 'Glass style is active. HomeOS now uses reflective raised cards and buttons.',
+            });
+        } catch {
+            setThemeSaveMessage({
+                kind: 'error',
+                text: 'HomeOS could not switch interface styles. Please try again.',
+            });
+        }
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -571,12 +592,7 @@ export default function ThemeScreen() {
                             return (
                                 <ThemedCard
                                     key={option.key}
-                                    onPress={() =>
-                                        void setAppearance({
-                                            ...appearance,
-                                            appearanceStyle: option.key,
-                                        })
-                                    }
+                                    onPress={() => void changeInterfaceStyle(option.key)}
                                     style={{
                                         flexBasis: 280,
                                         flexGrow: 1,
@@ -975,12 +991,18 @@ export default function ThemeScreen() {
                     />
 
                     <ThemedButton
-                        title="Select HomeOS Classic"
+                        title={
+                            appearance.appearanceStyle === 'glass'
+                                ? 'Use Classic Style'
+                                : 'Use Glass Style'
+                        }
                         variant="secondary"
-                        disabled={isDefaultTheme || isSavingTheme}
                         onPress={() => {
-                            setSelectedThemeName(DEFAULT_THEME_NAME);
-                            setThemeSaveMessage(null);
+                            void changeInterfaceStyle(
+                                appearance.appearanceStyle === 'glass'
+                                    ? 'classic'
+                                    : 'glass'
+                            );
                         }}
                         style={{ flexGrow: 1, minWidth: 180 }}
                     />
