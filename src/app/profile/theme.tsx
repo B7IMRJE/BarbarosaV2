@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, Text, TextInput, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { DEFAULT_APPEARANCE_PREFERENCES, DEFAULT_THEME_NAME, appearanceSizeOptions, themeOptions, type AppearanceSizeName, type HomeOSTheme, type HomeOSThemeName } from '../../theme';
@@ -328,6 +328,7 @@ export default function ThemeScreen() {
         appearance,
         resetAppearance,
         setFontSize,
+        setGlassDepth,
         setIconSize,
         theme,
         themeName,
@@ -344,7 +345,8 @@ export default function ThemeScreen() {
     const hasUnsavedTheme = selectedThemeName !== themeName;
     const isDefaultAppearance =
         appearance.fontSize === DEFAULT_APPEARANCE_PREFERENCES.fontSize &&
-        appearance.iconSize === DEFAULT_APPEARANCE_PREFERENCES.iconSize;
+        appearance.iconSize === DEFAULT_APPEARANCE_PREFERENCES.iconSize &&
+        appearance.glassDepth === DEFAULT_APPEARANCE_PREFERENCES.glassDepth;
 
     useEffect(() => {
         if (!isSavingTheme) {
@@ -463,6 +465,41 @@ export default function ThemeScreen() {
                         </Text>
                     </View>
                 </View>
+                <ThemedCard style={{ marginBottom: 18 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
+                        Glass Depth
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
+                        Choose from 1 for nearly flat to 100 for fully raised glass. This is your personal HomeOS setting.
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+                        <TextInput
+                            accessibilityLabel="HomeOS glass depth"
+                            keyboardType="number-pad"
+                            value={String(appearance.glassDepth)}
+                            onChangeText={(value) => {
+                                const next = Number.parseInt(value, 10);
+                                if (Number.isFinite(next)) void setGlassDepth(next);
+                            }}
+                            style={{
+                                width: 110,
+                                minHeight: 52,
+                                borderWidth: 2,
+                                borderColor: theme.colors.primary,
+                                borderRadius: theme.radii.button,
+                                backgroundColor: theme.colors.surface,
+                                color: theme.colors.text,
+                                fontSize: 18,
+                                fontWeight: '900',
+                                paddingHorizontal: 16,
+                                textAlign: 'center',
+                            }}
+                        />
+                        <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '900' }}>
+                            {appearance.glassDepth}% depth
+                        </Text>
+                    </View>
+                </ThemedCard>
                 <ThemedCard style={{ marginBottom: 18 }}>
                     <View
                         style={{

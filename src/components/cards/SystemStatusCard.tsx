@@ -1,4 +1,4 @@
-import { Text, TouchableOpacity, View, type ViewStyle } from 'react-native';
+import { Pressable, Text, View, type ViewStyle } from 'react-native';
 import { DEFAULT_THEME_NAME, homeOSThemes, type HomeOSTheme } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
@@ -74,19 +74,27 @@ export default function SystemStatusCard({
     onPress,
     style,
 }: SystemStatusCardProps) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
+    const { appearance, scaleFont, scaleIcon, theme } = useTheme();
+    const depth = appearance.glassDepth / 100;
 
     return (
-        <TouchableOpacity
+        <Pressable
+            accessibilityRole={onPress ? 'button' : undefined}
             onPress={onPress}
-            activeOpacity={0.82}
             disabled={!onPress}
-            style={[
+            style={({ pressed }) => [
                 cardStyle,
                 {
                     borderRadius: theme.radii.card,
                     minHeight: scaleIcon(152),
                     padding: scaleIcon(18),
+                    borderTopColor: 'rgba(255, 255, 255, 0.96)',
+                    borderBottomColor: theme.colors.primary,
+                    borderBottomWidth: pressed ? 1 : Math.max(1, Math.round(8 * depth)),
+                    boxShadow: pressed
+                        ? '0 2px 4px rgba(7, 27, 51, 0.14)'
+                        : `0 ${Math.max(1, Math.round(10 * depth))}px ${Math.max(2, Math.round(20 * depth))}px rgba(7, 27, 51, ${0.05 + 0.2 * depth}), inset 0 1px 0 rgba(255, 255, 255, 0.94)`,
+                    transform: [{ translateY: pressed ? Math.max(1, Math.round(5 * depth)) : 0 }],
                 },
                 getStatusCardStyle(status, theme),
                 style,
@@ -122,12 +130,13 @@ export default function SystemStatusCard({
             >
                 {title}
             </Text>
-        </TouchableOpacity>
+        </Pressable>
     );
 }
 
 const cardStyle = {
-    borderWidth: 1,
+    borderWidth: 2,
+    borderCurve: 'continuous' as const,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
 };

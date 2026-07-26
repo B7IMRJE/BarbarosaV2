@@ -1012,6 +1012,10 @@ function ChildAreaCard({
                     backgroundColor: theme.colors.surface,
                     borderColor: theme.colors.border,
                     borderRadius: theme.radii.card,
+                    borderTopColor: 'rgba(255, 255, 255, 0.96)',
+                    borderBottomColor: theme.colors.primary,
+                    borderBottomWidth: 7,
+                    boxShadow: '0 10px 20px rgba(7, 27, 51, 0.23), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
                 },
             ]}
         >
@@ -1114,7 +1118,13 @@ function AreaItemCard({
                     minHeight: scaleIcon(166),
                     padding: scaleIcon(12),
                 },
-                { borderRadius: theme.radii.card },
+                {
+                    borderRadius: theme.radii.card,
+                    borderTopColor: 'rgba(255, 255, 255, 0.96)',
+                    borderBottomColor: theme.colors.primary,
+                    borderBottomWidth: 7,
+                    boxShadow: '0 10px 20px rgba(7, 27, 51, 0.23), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
+                },
                 getStatusCardStyle(item.status, theme),
             ]}
         >
@@ -1475,7 +1485,8 @@ const childAreaCardStyle = {
     minWidth: 132,
     maxWidth: 170,
     minHeight: 166,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderCurve: 'continuous' as const,
     alignItems: 'center' as const,
     justifyContent: 'space-between' as const,
 };
@@ -1511,7 +1522,8 @@ const itemCardStyle = {
     minWidth: 132,
     maxWidth: 170,
     minHeight: 166,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderCurve: 'continuous' as const,
     alignItems: 'center' as const,
     justifyContent: 'space-between' as const,
 };

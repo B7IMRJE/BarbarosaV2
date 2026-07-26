@@ -33,11 +33,13 @@ export type AppearanceSizeName = 'compact' | 'standard' | 'large' | 'extraLarge'
 export type AppearancePreferences = {
     fontSize: AppearanceSizeName;
     iconSize: AppearanceSizeName;
+    glassDepth: number;
 };
 
 export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
     fontSize: 'standard',
     iconSize: 'standard',
+    glassDepth: 70,
 };
 
 export const appearanceSizeOptions: {
@@ -59,6 +61,7 @@ type ThemeContextValue = {
     setAppearance: (appearance: AppearancePreferences) => Promise<void>;
     setFontSize: (fontSize: AppearanceSizeName) => Promise<void>;
     setIconSize: (iconSize: AppearanceSizeName) => Promise<void>;
+    setGlassDepth: (glassDepth: number) => Promise<void>;
     resetAppearance: () => Promise<void>;
     fontScale: number;
     iconScale: number;
@@ -90,6 +93,7 @@ function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
         iconSize: isAppearanceSizeName(candidate.iconSize)
             ? candidate.iconSize
             : DEFAULT_APPEARANCE_PREFERENCES.iconSize,
+        glassDepth: Math.max(1, Math.min(100, Number(candidate.glassDepth) || DEFAULT_APPEARANCE_PREFERENCES.glassDepth)),
     };
 }
 
@@ -130,6 +134,7 @@ export const ThemeContext = createContext<ThemeContextValue>({
     setAppearance: async () => undefined,
     setFontSize: async () => undefined,
     setIconSize: async () => undefined,
+    setGlassDepth: async () => undefined,
     resetAppearance: async () => undefined,
     fontScale: 1,
     iconScale: 1,
@@ -284,6 +289,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         await setAppearance({ ...appearance, iconSize });
     }
 
+    async function setGlassDepth(glassDepth: number) {
+        await setAppearance({
+            ...appearance,
+            glassDepth: Math.max(1, Math.min(100, Math.round(glassDepth))),
+        });
+    }
+
     async function resetAppearance() {
         setAppearanceState(DEFAULT_APPEARANCE_PREFERENCES);
 
@@ -306,6 +318,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             setAppearance,
             setFontSize,
             setIconSize,
+            setGlassDepth,
             resetAppearance,
             fontScale,
             iconScale,

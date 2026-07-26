@@ -20,7 +20,9 @@ export default function ThemedCard({
     style,
     contentStyle,
 }: ThemedCardProps) {
-    const { scaleIcon, theme } = useTheme();
+    const { appearance, scaleIcon, theme } = useTheme();
+    const depth = appearance.glassDepth / 100;
+    const restingEdge = Math.max(1, Math.round(7 * depth));
 
     const cardStyle = [
         {
@@ -30,9 +32,9 @@ export default function ThemedCard({
             borderWidth: 2,
             borderTopColor: 'rgba(255, 255, 255, 0.92)',
             borderBottomColor: theme.colors.primary,
-            borderBottomWidth: 5,
+            borderBottomWidth: restingEdge,
             borderCurve: 'continuous' as const,
-            boxShadow: '0 8px 16px rgba(7, 27, 51, 0.20), inset 0 2px 0 rgba(255, 255, 255, 0.92)',
+            boxShadow: `0 ${Math.max(1, Math.round(8 * depth))}px ${Math.max(2, Math.round(16 * depth))}px rgba(7, 27, 51, ${0.04 + 0.18 * depth}), inset 0 1px 0 rgba(255, 255, 255, 0.92)`,
             maxWidth: '100%' as const,
             minWidth: 0,
             padding: scaleIcon(18),
@@ -53,11 +55,11 @@ export default function ThemedCard({
                         borderTopColor: 'rgba(255, 255, 255, 0.94)',
                         borderBottomColor: theme.colors.primary,
                         borderWidth: 2,
-                        borderBottomWidth: pressed ? 2 : 6,
+                        borderBottomWidth: pressed ? 1 : restingEdge,
                         boxShadow: pressed
                             ? '0 1px 2px rgba(7, 27, 51, 0.12)'
-                            : '0 9px 18px rgba(7, 27, 51, 0.23), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
-                        transform: [{ translateY: pressed ? 4 : 0 }],
+                            : `0 ${Math.max(1, Math.round(9 * depth))}px ${Math.max(2, Math.round(18 * depth))}px rgba(7, 27, 51, ${0.05 + 0.2 * depth}), inset 0 1px 0 rgba(255, 255, 255, 0.94)`,
+                        transform: [{ translateY: pressed ? Math.max(1, Math.round(4 * depth)) : 0 }],
                     },
                     style,
                 ]}

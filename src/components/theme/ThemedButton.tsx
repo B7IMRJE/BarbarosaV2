@@ -29,7 +29,9 @@ export default function ThemedButton({
     style,
     textStyle,
 }: ThemedButtonProps) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
+    const { appearance, scaleFont, scaleIcon, theme } = useTheme();
+    const depth = appearance.glassDepth / 100;
+    const restingEdge = Math.max(1, Math.round(6 * depth));
 
     const variantStyle = {
         primary: {
@@ -68,12 +70,12 @@ export default function ThemedButton({
                     borderCurve: 'continuous',
                     borderRadius: Math.min(theme.radii.button, 14),
                     borderWidth: 2,
-                    borderBottomWidth: pressed || disabled ? 2 : 5,
+                    borderBottomWidth: pressed || disabled ? 1 : restingEdge,
                     boxShadow: disabled
                         ? 'none'
                         : pressed
                             ? '0 2px 3px rgba(7, 27, 51, 0.18)'
-                            : '0 5px 9px rgba(7, 27, 51, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.28)',
+                            : `0 ${Math.max(1, Math.round(6 * depth))}px ${Math.max(2, Math.round(11 * depth))}px rgba(7, 27, 51, ${0.05 + 0.21 * depth}), inset 0 1px 0 rgba(255, 255, 255, 0.38)`,
                     justifyContent: 'center',
                     maxWidth: '100%' as const,
                     minHeight: scaleIcon(52),
@@ -81,7 +83,7 @@ export default function ThemedButton({
                     opacity: disabled ? 0.48 : 1,
                     paddingHorizontal: scaleIcon(20),
                     paddingVertical: scaleIcon(13),
-                    transform: [{ translateY: pressed && !disabled ? 3 : 0 }],
+                    transform: [{ translateY: pressed && !disabled ? Math.max(1, Math.round(4 * depth)) : 0 }],
                 },
                 style,
             ]}
