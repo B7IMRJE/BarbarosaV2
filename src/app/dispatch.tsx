@@ -2321,7 +2321,17 @@ function DispatchWorkQueue({
         () => filterAndSortWorkQueueRecords(records, safeCategory, statusFilter, search, sort),
         [records, safeCategory, statusFilter, search, sort]
     );
-    const visibleRecords = filteredRecords.slice(0, limit);
+    const isClosedArchiveGrid = embedded
+        && allowedCategoryKeys.every((categoryKey) => categoryKey === 'closed' || categoryKey === 'archived');
+    const orderedRecords = useMemo(
+        () => isClosedArchiveGrid
+            ? [...filteredRecords].sort(compareWorkQueueDisplaySequence)
+            : filteredRecords,
+        [filteredRecords, isClosedArchiveGrid]
+    );
+    const visibleRecords = orderedRecords.slice(0, limit);
+    const archiveGridColumns = viewportWidth >= 1180 ? 5 : viewportWidth >= 900 ? 4 : viewportWidth >= 650 ? 3 : viewportWidth >= 420 ? 2 : 1;
+    const archiveCardBasis = `${Math.max(0, (100 / archiveGridColumns) - 1.1)}%` as ViewStyle['flexBasis'];
     const sortLabel = WORK_QUEUE_SORT_OPTIONS.find((option) => option.key === sort)?.label || 'Sort';
     const searchTrimmed = search.trim();
     const queueTitle = safeCategory === 'needs_action' ? 'Needs Office Action' : 'Closed / Archived Search';
@@ -2366,13 +2376,15 @@ function DispatchWorkQueue({
                     style={workQueueControlButtonStyle}
                     textStyle={{ fontSize: 12 }}
                 />
-                <ThemedButton
-                    title={`Sort: ${sortLabel}`}
-                    variant="secondary"
-                    onPress={() => onChangeSort(getNextWorkQueueSort(sort))}
-                    style={workQueueSortButtonStyle}
-                    textStyle={{ fontSize: 12 }}
-                />
+                {!isClosedArchiveGrid && (
+                    <ThemedButton
+                        title={`Sort: ${sortLabel}`}
+                        variant="secondary"
+                        onPress={() => onChangeSort(getNextWorkQueueSort(sort))}
+                        style={workQueueSortButtonStyle}
+                        textStyle={{ fontSize: 12 }}
+                    />
+                )}
             </View>
 
             <View style={workQueueCategoryRowStyle}>
@@ -2427,14 +2439,24 @@ function DispatchWorkQueue({
                     </Text>
                 </View>
             ) : (
-                <View style={workQueueListStyle}>
+                <View style={isClosedArchiveGrid ? closedArchiveGridStyle : workQueueListStyle}>
                     {visibleRecords.map((record) => (
-                        <WorkQueueRow
-                            key={`${record.request.id}:${record.laneKey}`}
-                            record={record}
-                            selected={record.request.id === selectedRequestId}
-                            onOpen={() => onOpenRequest(record.request.id)}
-                        />
+                        isClosedArchiveGrid ? (
+                            <ClosedArchiveCard
+                                key={`${record.request.id}:${record.laneKey}`}
+                                cardBasis={archiveCardBasis}
+                                record={record}
+                                selected={record.request.id === selectedRequestId}
+                                onOpen={() => onOpenRequest(record.request.id)}
+                            />
+                        ) : (
+                            <WorkQueueRow
+                                key={`${record.request.id}:${record.laneKey}`}
+                                record={record}
+                                selected={record.request.id === selectedRequestId}
+                                onOpen={() => onOpenRequest(record.request.id)}
+                            />
+                        )
                     ))}
                 </View>
             )}
@@ -2535,6 +2557,53 @@ function WorkQueueRow({ record, selected, onOpen }: { record: WorkQueueRecord; s
                 <Text style={[workQueueOpenButtonTextStyle, { color: theme.colors.primary }]}>Open ›</Text>
             </Pressable>
         </View>
+    );
+}
+
+function ClosedArchiveCard({
+    cardBasis,
+    record,
+    selected,
+    onOpen,
+}: {
+    cardBasis: ViewStyle['flexBasis'];
+    record: WorkQueueRecord;
+    selected: boolean;
+    onOpen: () => void;
+}) {
+    const { theme } = useTheme();
+    const identifier = getWorkQueueIdentifier(record.request);
+    const customer = getWorkQueueCustomerLabel(record.request);
+    const statusLabel = getDispatchLaneTitle(record.laneKey);
+
+    return (
+        <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open archived job ${identifier}`}
+            onPress={onOpen}
+            style={({ pressed }) => [
+                closedArchiveCardStyle,
+                {
+                    flexBasis: cardBasis,
+                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                    backgroundColor: pressed || selected ? theme.colors.background : theme.colors.surface,
+                },
+            ]}
+        >
+            <Text
+                selectable
+                numberOfLines={1}
+                style={[closedArchiveNumberStyle, { color: theme.colors.primary }]}
+            >
+                {identifier}
+            </Text>
+            <Text numberOfLines={1} style={[closedArchiveCustomerStyle, { color: theme.colors.text }]}>
+                {customer}
+            </Text>
+            <Text numberOfLines={1} style={[closedArchiveStatusStyle, { color: theme.colors.mutedText }]}>
+                {statusLabel}
+            </Text>
+        </Pressable>
     );
 }
 
@@ -5203,6 +5272,19 @@ function getWorkQueueNewestTime(record: WorkQueueRecord) {
     );
 }
 
+function compareWorkQueueDisplaySequence(first: WorkQueueRecord, second: WorkQueueRecord) {
+    const firstSequence = first.request.display_sequence ?? Number.MAX_SAFE_INTEGER;
+    const secondSequence = second.request.display_sequence ?? Number.MAX_SAFE_INTEGER;
+
+    if (firstSequence !== secondSequence) return firstSequence - secondSequence;
+
+    return getWorkQueueIdentifier(first.request).localeCompare(
+        getWorkQueueIdentifier(second.request),
+        undefined,
+        { numeric: true, sensitivity: 'base' }
+    );
+}
+
 function getDefaultWorkQueueSort(category: WorkQueueCategory): WorkQueueSort {
     return category === 'needs_action' ? 'next_action' : 'newest';
 }
@@ -6028,6 +6110,43 @@ const dispatchCardGridStyle = {
     flexWrap: 'wrap' as const,
     gap: 10,
     marginTop: 12,
+};
+
+const closedArchiveGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const closedArchiveCardStyle: ViewStyle = {
+    borderCurve: 'continuous',
+    borderRadius: 10,
+    borderWidth: 1,
+    flexGrow: 0,
+    flexShrink: 1,
+    minHeight: 82,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+};
+
+const closedArchiveNumberStyle = {
+    fontSize: 17,
+    fontVariant: ['tabular-nums'] as ('tabular-nums')[],
+    fontWeight: '900' as const,
+    letterSpacing: 0.5,
+};
+
+const closedArchiveCustomerStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+    marginTop: 5,
+};
+
+const closedArchiveStatusStyle = {
+    fontSize: 10,
+    fontWeight: '800' as const,
+    marginTop: 2,
 };
 
 const dispatchJobCardStyle = {
