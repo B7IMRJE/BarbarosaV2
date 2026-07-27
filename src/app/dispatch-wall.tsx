@@ -1,7 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import {
     getCompanyDispatchRequests,
     isEmergencyDispatchRequest,
@@ -42,6 +42,7 @@ import {
 import { resolveDispatchWallLayout } from '../lib/dispatchWallLayout';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
+import { loadRecentSoldJobs, type SoldJobRecord } from '../lib/soldJobs';
 
 declare const __DEV__: boolean;
 
@@ -297,6 +298,8 @@ export default function DispatchWallScreen() {
     const [requests, setRequests] = useState<DispatchWallRequest[]>([]);
     const [scheduleSlots, setScheduleSlots] = useState<DispatchWallScheduleSlot[]>([]);
     const [timingEvents, setTimingEvents] = useState<DispatchWallTimingEvent[]>([]);
+    const [soldJobsByRequestId, setSoldJobsByRequestId] = useState<Record<string, SoldJobRecord>>({});
+    const [flashingSoldRequestIds, setFlashingSoldRequestIds] = useState<Record<string, boolean>>({});
     const [companyUsers, setCompanyUsers] = useState<DispatchWallCompanyUser[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -311,6 +314,8 @@ export default function DispatchWallScreen() {
     const [detailItem, setDetailItem] = useState<DispatchWallItem | null>(null);
     const [fullscreenMessage, setFullscreenMessage] = useState('');
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const seenSoldWorkflowIdsRef = useRef<Set<string>>(new Set());
+    const soldFlashTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
     const {
         compactHeight,
         compactWidth,
@@ -463,6 +468,13 @@ export default function DispatchWallScreen() {
                     refreshFromRealtimeChange,
                     handleSubscribeStatus
                 ),
+                createDispatchWallRealtimeChannel(
+                    `dispatch-wall-sold-jobs:${companyId}`,
+                    'company_job_workflows',
+                    companyId,
+                    refreshFromRealtimeChange,
+                    handleSubscribeStatus
+                ),
             ];
         };
 
@@ -518,6 +530,8 @@ export default function DispatchWallScreen() {
             focusTarget.removeEventListener?.('online', handleOnline);
             focusTarget.removeEventListener?.('offline', handleOffline);
             documentTarget?.removeEventListener('visibilitychange', handleVisibilityChange);
+            Object.values(soldFlashTimersRef.current).forEach(clearTimeout);
+            soldFlashTimersRef.current = {};
         };
     }, [companyAccess?.company_id, demoMode]);
 
@@ -651,10 +665,11 @@ export default function DispatchWallScreen() {
         setRefreshing(true);
 
         try {
-            const [loadedCompany, loadedUsers, loadedRequests] = await Promise.all([
+            const [loadedCompany, loadedUsers, loadedRequests, loadedSoldJobs] = await Promise.all([
                 loadWallCompany(companyId),
                 loadWallCompanyUsers(companyId),
                 loadWallDispatchRequests(companyId),
+                loadRecentSoldJobs(companyId, 100),
             ]);
             const [loadedSlots, loadedTimingEvents] = await Promise.all([
                 loadWallScheduleSlots(companyId, loadedRequests),
@@ -664,6 +679,28 @@ export default function DispatchWallScreen() {
             setCompany(loadedCompany);
             setCompanyUsers(loadedUsers);
             setRequests(loadedRequests);
+            setSoldJobsByRequestId(
+                loadedSoldJobs.reduce<Record<string, SoldJobRecord>>((records, soldJob) => {
+                    if (soldJob.serviceRequestId) records[soldJob.serviceRequestId] = soldJob;
+                    return records;
+                }, {})
+            );
+            loadedSoldJobs.forEach((soldJob) => {
+                if (!soldJob.serviceRequestId || seenSoldWorkflowIdsRef.current.has(soldJob.id)) return;
+
+                seenSoldWorkflowIdsRef.current.add(soldJob.id);
+                setFlashingSoldRequestIds((current) => ({ ...current, [soldJob.serviceRequestId!]: true }));
+                if (soldFlashTimersRef.current[soldJob.serviceRequestId]) {
+                    clearTimeout(soldFlashTimersRef.current[soldJob.serviceRequestId]);
+                }
+                soldFlashTimersRef.current[soldJob.serviceRequestId] = setTimeout(() => {
+                    setFlashingSoldRequestIds((current) => {
+                        const next = { ...current };
+                        delete next[soldJob.serviceRequestId!];
+                        return next;
+                    });
+                }, 8000);
+            });
             setScheduleSlots(loadedSlots);
             setTimingEvents(loadedTimingEvents);
             setDataNow(new Date());
@@ -741,6 +778,8 @@ export default function DispatchWallScreen() {
                             items={sections[key]}
                             compactHeight={compactHeight}
                             compactWidth={false}
+                            soldJobsByRequestId={soldJobsByRequestId}
+                            flashingSoldRequestIds={flashingSoldRequestIds}
                             stacked
                             onExpand={() => setExpandedSectionKey(key)}
                             onOpenDetail={setDetailItem}
@@ -760,6 +799,8 @@ export default function DispatchWallScreen() {
                             items={sections[key]}
                             compactHeight={compactHeight}
                             compactWidth={compactWidth}
+                            soldJobsByRequestId={soldJobsByRequestId}
+                            flashingSoldRequestIds={flashingSoldRequestIds}
                             stacked={false}
                             onExpand={() => setExpandedSectionKey(key)}
                             onOpenDetail={setDetailItem}
@@ -774,6 +815,8 @@ export default function DispatchWallScreen() {
                             items={sections[key]}
                             compactHeight={compactHeight}
                             compactWidth={compactWidth}
+                            soldJobsByRequestId={soldJobsByRequestId}
+                            flashingSoldRequestIds={flashingSoldRequestIds}
                             stacked={false}
                             onExpand={() => setExpandedSectionKey(key)}
                             onOpenDetail={setDetailItem}
@@ -901,6 +944,8 @@ export default function DispatchWallScreen() {
             <ExpandedSectionOverlay
                 config={expandedSectionKey ? SECTION_CONFIGS[expandedSectionKey] : null}
                 items={expandedItems}
+                soldJobsByRequestId={soldJobsByRequestId}
+                flashingSoldRequestIds={flashingSoldRequestIds}
                 visible={!!expandedSectionKey}
                 onClose={() => setExpandedSectionKey(null)}
                 onOpenDetail={setDetailItem}
@@ -957,6 +1002,8 @@ export default function DispatchWallScreen() {
 function DispatchWallSection({
     config,
     items,
+    soldJobsByRequestId,
+    flashingSoldRequestIds,
     compactHeight,
     compactWidth,
     stacked,
@@ -965,6 +1012,8 @@ function DispatchWallSection({
 }: {
     config: WallSectionConfig;
     items: DispatchWallItem[];
+    soldJobsByRequestId: Record<string, SoldJobRecord>;
+    flashingSoldRequestIds: Record<string, boolean>;
     compactHeight: boolean;
     compactWidth: boolean;
     stacked: boolean;
@@ -1051,6 +1100,8 @@ function DispatchWallSection({
                                 item={item}
                                 config={config}
                                 compactHeight={compactHeight}
+                                soldJob={soldJobsByRequestId[item.request.id] || null}
+                                flashingSold={!!flashingSoldRequestIds[item.request.id]}
                                 previewSlot
                                 onPress={() => onOpenDetail(item)}
                             />
@@ -1067,12 +1118,16 @@ function DispatchWallCard({
     config,
     compactHeight,
     previewSlot,
+    soldJob,
+    flashingSold,
     onPress,
 }: {
     item: DispatchWallItem;
     config: WallSectionConfig;
     compactHeight: boolean;
     previewSlot?: boolean;
+    soldJob: SoldJobRecord | null;
+    flashingSold: boolean;
     onPress: () => void;
 }) {
     const request = item.request;
@@ -1102,12 +1157,14 @@ function DispatchWallCard({
                 onPress={onPress}
                 style={[
                     wallPreviewCardStyle,
+                    soldJob ? wallSoldCardStyle : null,
                     {
                         backgroundColor: config.cardColor,
                         borderColor: config.cardBorderColor,
                     },
                 ]}
             >
+                {!!soldJob && <SoldJobBanner soldJob={soldJob} flashing={flashingSold} compact />}
                 <View style={wallPreviewCardContentStyle}>
                     {item.sectionKey === 'emergency' && (
                         <View style={emergencyMarkerCompactStyle}>
@@ -1165,6 +1222,7 @@ function DispatchWallCard({
             onPress={onPress}
             style={[
                 wallCardStyle,
+                soldJob ? wallSoldCardStyle : null,
                 {
                     backgroundColor: config.cardColor,
                     borderColor: config.cardBorderColor,
@@ -1172,6 +1230,7 @@ function DispatchWallCard({
                 },
             ]}
         >
+            {!!soldJob && <SoldJobBanner soldJob={soldJob} flashing={flashingSold} />}
             <View style={wallCardTopLineStyle}>
                 <Text style={[wallCardCodeStyle, { color: config.textColor }]} numberOfLines={1}>{code}</Text>
                 {!!relevantTime && <Text style={[wallCardTimeStyle, { color: config.mutedColor }]} numberOfLines={1}>{relevantTime}</Text>}
@@ -1221,15 +1280,80 @@ function DispatchWallCard({
     );
 }
 
+function SoldJobBanner({
+    soldJob,
+    flashing,
+    compact,
+}: {
+    soldJob: SoldJobRecord;
+    flashing: boolean;
+    compact?: boolean;
+}) {
+    const glow = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+        if (!flashing) {
+            glow.stopAnimation();
+            glow.setValue(1);
+            return;
+        }
+
+        const animation = Animated.loop(
+            Animated.sequence([
+                Animated.timing(glow, {
+                    toValue: 0.28,
+                    duration: 420,
+                    easing: Easing.inOut(Easing.quad),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(glow, {
+                    toValue: 1,
+                    duration: 420,
+                    easing: Easing.inOut(Easing.quad),
+                    useNativeDriver: true,
+                }),
+            ])
+        );
+
+        animation.start();
+        return () => animation.stop();
+    }, [flashing, glow]);
+
+    return (
+        <Animated.View style={[
+            wallSoldBannerStyle,
+            compact ? wallSoldBannerCompactStyle : null,
+            { opacity: glow },
+        ]}>
+            <Text style={[wallSoldLabelStyle, compact ? wallSoldLabelCompactStyle : null]}>✦ JOB SOLD ✦</Text>
+            <Text style={[wallSoldPriceStyle, compact ? wallSoldPriceCompactStyle : null]}>
+                {formatWallSoldMoney(soldJob.selectedTotal)}
+            </Text>
+        </Animated.View>
+    );
+}
+
+function formatWallSoldMoney(value: number) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 0,
+    }).format(value);
+}
+
 function ExpandedSectionOverlay({
     config,
     items,
+    soldJobsByRequestId,
+    flashingSoldRequestIds,
     visible,
     onClose,
     onOpenDetail,
 }: {
     config: WallSectionConfig | null;
     items: DispatchWallItem[];
+    soldJobsByRequestId: Record<string, SoldJobRecord>;
+    flashingSoldRequestIds: Record<string, boolean>;
     visible: boolean;
     onClose: () => void;
     onOpenDetail: (item: DispatchWallItem) => void;
@@ -1267,6 +1391,8 @@ function ExpandedSectionOverlay({
                                     item={item}
                                     config={config}
                                     compactHeight={false}
+                                    soldJob={soldJobsByRequestId[item.request.id] || null}
+                                    flashingSold={!!flashingSoldRequestIds[item.request.id]}
                                     onPress={() => onOpenDetail(item)}
                                 />
                             </View>
@@ -1366,7 +1492,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function createDispatchWallRealtimeChannel(
     channelName: string,
-    tableName: 'service_requests' | 'job_schedule_slots' | 'service_request_events',
+    tableName: 'service_requests' | 'job_schedule_slots' | 'service_request_events' | 'company_job_workflows',
     companyId: string,
     onChange: () => void,
     onStatus: (status: string, error?: Error) => void
@@ -3010,6 +3136,62 @@ const detailValueStyle = {
     color: '#F8FAFC',
     fontSize: 16,
     fontWeight: '800' as const,
+};
+
+const wallSoldCardStyle: ViewStyle = {
+    borderColor: '#FFD54A',
+    borderWidth: 3,
+    boxShadow: '0 0 20px rgba(255, 213, 74, 0.72)',
+};
+
+const wallSoldBannerStyle: ViewStyle = {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 1,
+    marginBottom: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: '#FFF0A3',
+    backgroundColor: '#5A3A00',
+};
+
+const wallSoldBannerCompactStyle: ViewStyle = {
+    position: 'absolute',
+    right: 6,
+    top: 5,
+    zIndex: 4,
+    minWidth: 112,
+    marginBottom: 0,
+    paddingVertical: 3,
+};
+
+const wallSoldLabelStyle = {
+    color: '#FFF0A3',
+    fontSize: 14,
+    fontWeight: '900' as const,
+    letterSpacing: 1.2,
+};
+
+const wallSoldLabelCompactStyle = {
+    fontSize: 9,
+    letterSpacing: 0.6,
+};
+
+const wallSoldPriceStyle = {
+    color: '#FFD54A',
+    fontSize: 30,
+    fontWeight: '900' as const,
+    lineHeight: 34,
+    textShadowColor: 'rgba(255, 220, 80, 0.75)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 8,
+};
+
+const wallSoldPriceCompactStyle = {
+    fontSize: 18,
+    lineHeight: 20,
 };
 
 const openManagementButtonStyle: ViewStyle = {
