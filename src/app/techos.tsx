@@ -42,6 +42,17 @@ import {
 } from '../lib/serviceVisitCloseout';
 import { supabase } from '../lib/supabase';
 import {
+    getSoldJobNextAction,
+    loadSoldJobForScheduleSlot,
+    loadSoldJobsForTechnician,
+    type SoldJobRecord,
+} from '../lib/soldJobs';
+import {
+    loadTechnicianTimeEntries,
+    setTechnicianClock,
+    type TechnicianTimeEntry,
+} from '../lib/technicianTimeClock';
+import {
     buildTechWorkflowStatusBySlotId,
     createTechnicianNextJobStatusNotice,
     formatTechWorkflowProgressState,
@@ -1763,6 +1774,7 @@ export default function TechOSScreen() {
                         updatingWorkflowSlotId={updatingWorkflowSlotId}
                         workflowMessageBySlotId={workflowMessageBySlotId}
                         workflowStatusBySlotId={workflowStatusBySlotId}
+                        technicianCompanyUserId={assignedTechnicianCompanyUserIds[0] || ''}
                     />
                 ) : (
                     <>
@@ -2268,8 +2280,8 @@ function TechOSDashboardCards({
         {
             key: 'sales',
             title: 'Sales',
-            value: '$0',
-            note: 'not connected yet',
+            value: 'Live',
+            note: 'sold jobs connected',
         },
         {
             key: 'messages',
@@ -2280,8 +2292,8 @@ function TechOSDashboardCards({
         {
             key: 'time-clock',
             title: 'Time Clock',
-            value: 'Soon',
-            note: 'placeholder',
+            value: 'Open',
+            note: 'clock in / clock out',
         },
         {
             key: 'van-inventory',
@@ -2361,6 +2373,7 @@ function TechOSDashboardContent({
     updatingWorkflowSlotId,
     workflowMessageBySlotId,
     workflowStatusBySlotId,
+    technicianCompanyUserId,
 }: {
     activeCompanyId: string;
     activeJobs: TechAssignedScheduleJob[];
@@ -2395,6 +2408,7 @@ function TechOSDashboardContent({
     updatingWorkflowSlotId: string;
     workflowMessageBySlotId: Record<string, string>;
     workflowStatusBySlotId: Record<string, string>;
+    technicianCompanyUserId: string;
 }) {
     if (selectedJob) {
         return (
@@ -2483,9 +2497,9 @@ function TechOSDashboardContent({
 
     if (activeView === 'sales') {
         return (
-            <TechOSModulePlaceholder
-                title="Sales"
-                message="Sales totals and technician performance will appear here after invoice and closeout tracking are connected."
+            <TechOSSalesPanel
+                activeCompanyId={activeCompanyId}
+                technicianCompanyUserId={technicianCompanyUserId}
             />
         );
     }
@@ -2501,9 +2515,8 @@ function TechOSDashboardContent({
 
     if (activeView === 'time-clock') {
         return (
-            <TechOSModulePlaceholder
-                title="Time Clock"
-                message="Clock in, breaks, and clock out will live here in a later TechOS pass."
+            <TechOSTimeClockPanel
+                technicianCompanyUserId={technicianCompanyUserId}
             />
         );
     }
@@ -2547,6 +2560,238 @@ function TechOSModulePlaceholder({ title, message }: { title: string; message: s
             </View>
         </ThemedCard>
     );
+}
+
+function TechOSSalesPanel({
+    activeCompanyId,
+    technicianCompanyUserId,
+}: {
+    activeCompanyId: string;
+    technicianCompanyUserId: string;
+}) {
+    const { theme } = useTheme();
+    const [records, setRecords] = useState<SoldJobRecord[]>([]);
+    const [salesMessage, setSalesMessage] = useState('Loading sold jobs...');
+
+    useEffect(() => {
+        if (!activeCompanyId || !technicianCompanyUserId) {
+            setRecords([]);
+            setSalesMessage('A technician profile is required to load sales.');
+            return;
+        }
+
+        let active = true;
+        void loadSoldJobsForTechnician(activeCompanyId, technicianCompanyUserId)
+            .then((nextRecords) => {
+                if (!active) return;
+                setRecords(nextRecords);
+                setSalesMessage(nextRecords.length === 0 ? 'No sold jobs yet.' : '');
+            })
+            .catch((error) => {
+                if (active) setSalesMessage(`Sold jobs could not load: ${getErrorMessage(error)}`);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [activeCompanyId, technicianCompanyUserId]);
+
+    const soldTotal = records.reduce((total, record) => total + record.selectedTotal, 0);
+
+    return (
+        <ThemedCard style={assignedJobsSectionStyle}>
+            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Sales</Text>
+            <Text style={[summaryValueStyle, { color: '#36D994' }]}>{formatTechOSMoney(soldTotal)}</Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                {records.length} sold job{records.length === 1 ? '' : 's'} assigned to this technician
+            </Text>
+            {!!salesMessage && <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{salesMessage}</Text>}
+            <View style={assignedJobGridStyle}>
+                {records.map((record) => (
+                    <View key={record.id} style={[assignedJobCardStyle, { borderColor: '#2CA875', backgroundColor: theme.colors.surface }]}>
+                        <Text style={[jobStatusBadgeStyle, { color: '#073523', backgroundColor: '#8CF0C1' }]}>JOB SOLD</Text>
+                        <Text style={[summaryValueStyle, { color: theme.colors.text }]}>{formatTechOSMoney(record.selectedTotal)}</Text>
+                        <Text style={[jobTitleStyle, { color: theme.colors.text }]}>
+                            {record.homeownerName || 'Homeowner'}
+                        </Text>
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                            Sold {formatTechOSDateTime(record.soldAt)}
+                        </Text>
+                        {record.selectedOptions.map((option) => (
+                            <View key={option.id} style={{ gap: 3 }}>
+                                <Text style={[clientNameStyle, { color: theme.colors.text }]}>{option.title}</Text>
+                                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                    {option.homeownerExplanation}
+                                </Text>
+                            </View>
+                        ))}
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.primary, fontWeight: '800' }]}>
+                            Next: {getSoldJobNextAction(record)}
+                        </Text>
+                    </View>
+                ))}
+            </View>
+        </ThemedCard>
+    );
+}
+
+function TechOSSoldJobRecord({
+    scheduleSlotId,
+    techOSTheme,
+}: {
+    scheduleSlotId: string;
+    techOSTheme: TechOSThemePalette;
+}) {
+    const [record, setRecord] = useState<SoldJobRecord | null>(null);
+    const [recordMessage, setRecordMessage] = useState('');
+
+    useEffect(() => {
+        let active = true;
+        void loadSoldJobForScheduleSlot(scheduleSlotId)
+            .then((nextRecord) => {
+                if (active) setRecord(nextRecord);
+            })
+            .catch((error) => {
+                if (active) setRecordMessage(`Sold job record could not load: ${getErrorMessage(error)}`);
+            });
+        return () => {
+            active = false;
+        };
+    }, [scheduleSlotId]);
+
+    if (!record && !recordMessage) return null;
+
+    return (
+        <TechOSDetailSection
+            title="Sold Job Record"
+            description="Persistent approved scope, selling price, and next action for this technician."
+            techOSTheme={techOSTheme}
+            variantKey="estimate"
+        >
+            {!!recordMessage && <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{recordMessage}</Text>}
+            {!!record && (
+                <>
+                    <View style={techJobDetailInfoGridStyle}>
+                        <TechJobDetailInfo label="Status" value="Job Sold" techOSTheme={techOSTheme} />
+                        <TechJobDetailInfo label="Sold Total" value={formatTechOSMoney(record.selectedTotal)} techOSTheme={techOSTheme} />
+                        <TechJobDetailInfo label="Approved By" value={record.homeownerName || 'Homeowner'} techOSTheme={techOSTheme} />
+                        <TechJobDetailInfo label="Sold At" value={formatTechOSDateTime(record.soldAt)} techOSTheme={techOSTheme} />
+                    </View>
+                    {record.selectedOptions.map((option) => (
+                        <View key={option.id} style={[emptyClientStateStyle, { borderColor: techOSTheme.panelBorderColor }]}>
+                            <Text style={[clientNameStyle, { color: techOSTheme.textColor }]}>{option.title}</Text>
+                            <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
+                                {formatTechOSMoney(option.pricingResult.totalAmount)} · {option.homeownerExplanation}
+                            </Text>
+                            {option.pricingResult.lineItems.map((line) => (
+                                <Text key={`${option.id}-${line.id}`} style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
+                                    • {line.name} × {line.quantity}
+                                </Text>
+                            ))}
+                        </View>
+                    ))}
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.textColor, fontWeight: '800' }]}>
+                        Next action: {getSoldJobNextAction(record)}
+                    </Text>
+                </>
+            )}
+        </TechOSDetailSection>
+    );
+}
+
+function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUserId: string }) {
+    const { theme } = useTheme();
+    const [entries, setEntries] = useState<TechnicianTimeEntry[]>([]);
+    const [clockMessage, setClockMessage] = useState('Loading time clock...');
+    const [updatingClock, setUpdatingClock] = useState(false);
+
+    async function refreshClock() {
+        if (!technicianCompanyUserId) {
+            setEntries([]);
+            setClockMessage('A technician profile is required.');
+            return;
+        }
+        try {
+            const nextEntries = await loadTechnicianTimeEntries(technicianCompanyUserId);
+            setEntries(nextEntries);
+            setClockMessage('');
+        } catch (error) {
+            setClockMessage(`Time clock could not load: ${getErrorMessage(error)}`);
+        }
+    }
+
+    useEffect(() => {
+        void refreshClock();
+    }, [technicianCompanyUserId]);
+
+    const openEntry = entries.find((entry) => !entry.clockedOutAt) || null;
+
+    async function toggleClock() {
+        if (!technicianCompanyUserId || updatingClock) return;
+        setUpdatingClock(true);
+        setClockMessage(openEntry ? 'Clocking out...' : 'Clocking in...');
+        try {
+            await setTechnicianClock(technicianCompanyUserId, openEntry ? 'clock_out' : 'clock_in');
+            await refreshClock();
+            setClockMessage(openEntry ? 'Clocked out.' : 'Clocked in.');
+        } catch (error) {
+            setClockMessage(`Time clock update failed: ${getErrorMessage(error)}`);
+        } finally {
+            setUpdatingClock(false);
+        }
+    }
+
+    return (
+        <ThemedCard style={assignedJobsSectionStyle}>
+            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Time Clock</Text>
+            <Text style={[summaryValueStyle, { color: openEntry ? '#36D994' : theme.colors.text }]}>
+                {openEntry ? 'Clocked In' : 'Clocked Out'}
+            </Text>
+            {!!openEntry && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    Current shift started {formatTechOSDateTime(openEntry.clockedInAt)}
+                </Text>
+            )}
+            <ThemedButton
+                title={updatingClock ? 'Saving...' : openEntry ? 'Clock Out' : 'Clock In'}
+                variant={openEntry ? 'secondary' : 'primary'}
+                disabled={!technicianCompanyUserId || updatingClock}
+                onPress={toggleClock}
+                style={assignedJobActionButtonStyle}
+            />
+            {!!clockMessage && <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{clockMessage}</Text>}
+            <Text style={[clientNameStyle, { color: theme.colors.text }]}>Recent shifts</Text>
+            {entries.slice(0, 10).map((entry) => (
+                <View key={entry.id} style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.text }]}>
+                        {formatTechOSDateTime(entry.clockedInAt)} → {entry.clockedOutAt ? formatTechOSDateTime(entry.clockedOutAt) : 'In progress'}
+                    </Text>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        {formatTimeEntryDuration(entry)}
+                    </Text>
+                </View>
+            ))}
+        </ThemedCard>
+    );
+}
+
+function formatTechOSMoney(value: number) {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+}
+
+function formatTechOSDateTime(value: string | null) {
+    if (!value) return 'Not recorded';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatTimeEntryDuration(entry: TechnicianTimeEntry) {
+    const start = new Date(entry.clockedInAt).getTime();
+    const end = entry.clockedOutAt ? new Date(entry.clockedOutAt).getTime() : Date.now();
+    const minutes = Math.max(0, Math.round((end - start) / 60000));
+    const hours = Math.floor(minutes / 60);
+    const remaining = minutes % 60;
+    return `${hours}h ${remaining}m${entry.clockedOutAt ? '' : ' so far'}`;
 }
 
 function TechOSEstimateWorkspacePanel({
@@ -3130,6 +3375,11 @@ function TechOSAssignedJobDetail({
                     </>
                 )}
             </TechOSDetailSection>
+
+            <TechOSSoldJobRecord
+                scheduleSlotId={job.slot.id}
+                techOSTheme={techOSTheme}
+            />
 
             <TechOSDetailSection
                 title="Job Status Note"

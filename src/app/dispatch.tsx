@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, AppState, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import AdminNavBar from '../components/AdminNavBar';
 import HomeHeader from '../components/HomeHeader';
 import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
@@ -51,6 +51,7 @@ import {
     type ServiceVisitOutcome,
 } from '../lib/serviceVisitCloseout';
 import { supabase } from '../lib/supabase';
+import { normalizeSoldJobRecord, type SoldJobRecord } from '../lib/soldJobs';
 import { useTheme } from '../theme/useTheme';
 
 type CompanyAccess = {
@@ -377,6 +378,9 @@ export default function DispatchBoardScreen() {
     const [workQueueLimit, setWorkQueueLimit] = useState(5);
     const dispatchRefreshInFlight = useRef(false);
     const requestsRef = useRef<DispatchRequest[]>([]);
+    const [soldJobCelebration, setSoldJobCelebration] = useState<SoldJobRecord | null>(null);
+    const soldCelebrationScale = useRef(new Animated.Value(0.86)).current;
+    const soldCelebrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const dispatchLanes = useMemo(() => buildDispatchLanes(requests, scheduleSlots), [requests, scheduleSlots]);
     const activeDispatchLanes = useMemo(() => dispatchLanes.filter((lane) => lane.group === 'active'), [dispatchLanes]);
@@ -481,6 +485,54 @@ export default function DispatchBoardScreen() {
                 }
             )
             .subscribe();
+        const soldJobsChannel = supabase
+            .channel(`dispatch-sold-jobs:${companyIdToRefresh}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'company_job_workflows',
+                    filter: `company_id=eq.${companyIdToRefresh}`,
+                },
+                (payload) => {
+                    const soldJob = normalizeSoldJobRecord(payload.new);
+
+                    if (!soldJob.soldAt || soldJob.status !== 'sold') return;
+
+                    setSoldJobCelebration(soldJob);
+                    soldCelebrationScale.setValue(0.86);
+                    Animated.sequence([
+                        Animated.spring(soldCelebrationScale, {
+                            toValue: 1.06,
+                            friction: 4,
+                            tension: 90,
+                            useNativeDriver: true,
+                        }),
+                        Animated.loop(
+                            Animated.sequence([
+                                Animated.timing(soldCelebrationScale, {
+                                    toValue: 1,
+                                    duration: 650,
+                                    easing: Easing.inOut(Easing.quad),
+                                    useNativeDriver: true,
+                                }),
+                                Animated.timing(soldCelebrationScale, {
+                                    toValue: 1.035,
+                                    duration: 650,
+                                    easing: Easing.inOut(Easing.quad),
+                                    useNativeDriver: true,
+                                }),
+                            ]),
+                            { iterations: 4 }
+                        ),
+                    ]).start();
+                    if (soldCelebrationTimer.current) clearTimeout(soldCelebrationTimer.current);
+                    soldCelebrationTimer.current = setTimeout(() => setSoldJobCelebration(null), 7000);
+                    void refreshDispatchBoardQuietly();
+                }
+            )
+            .subscribe();
 
         const appStateSubscription = AppState.addEventListener('change', (state) => {
             if (state === 'active') {
@@ -501,6 +553,8 @@ export default function DispatchBoardScreen() {
         return () => {
             clearInterval(intervalId);
             void supabase.removeChannel(scheduleChannel);
+            void supabase.removeChannel(soldJobsChannel);
+            if (soldCelebrationTimer.current) clearTimeout(soldCelebrationTimer.current);
             appStateSubscription.remove();
             focusTarget.removeEventListener?.('focus', handleFocus);
         };
@@ -1365,6 +1419,23 @@ export default function DispatchBoardScreen() {
 
     return (
         <CompanyGlassDepthProvider value={company?.glass_depth}>
+        <Modal visible={!!soldJobCelebration} transparent animationType="fade">
+            <View pointerEvents="none" style={soldCelebrationBackdropStyle}>
+                <Animated.View style={[soldCelebrationCardStyle, { transform: [{ scale: soldCelebrationScale }] }]}>
+                    <Text style={soldCelebrationSparklesStyle}>✦ ✨ ✦</Text>
+                    <Text style={soldCelebrationKickerStyle}>JOB SOLD</Text>
+                    <Text style={soldCelebrationPriceStyle}>
+                        {formatSoldJobMoney(soldJobCelebration?.selectedTotal || 0)}
+                    </Text>
+                    <Text style={soldCelebrationCustomerStyle}>
+                        {soldJobCelebration?.homeownerName || 'Homeowner approval received'}
+                    </Text>
+                    <Text style={soldCelebrationScopeStyle}>
+                        {soldJobCelebration?.selectedOptions.map((option) => option.title).join(' • ') || 'Selected work approved'}
+                    </Text>
+                </Animated.View>
+            </View>
+        </Modal>
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: viewportWidth <= 760 ? 12 : 20, paddingBottom: viewportWidth <= 760 ? 112 : 64, alignItems: 'center' }}
@@ -1586,6 +1657,14 @@ export default function DispatchBoardScreen() {
         </ScrollView>
         </CompanyGlassDepthProvider>
     );
+}
+
+function formatSoldJobMoney(value: number) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 2,
+    }).format(value);
 }
 
 function DispatchNeedsAttentionPanel({
@@ -6670,3 +6749,59 @@ const scheduleTimeOptionTextStyle = {
     fontWeight: '900' as const,
     textAlign: 'center' as const,
 };
+
+const soldCelebrationBackdropStyle = {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(1, 10, 16, 0.64)',
+} as const;
+
+const soldCelebrationCardStyle = {
+    width: '100%',
+    maxWidth: 560,
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 34,
+    paddingHorizontal: 24,
+    borderRadius: 28,
+    borderWidth: 3,
+    borderColor: '#FFE27A',
+    backgroundColor: '#123C35',
+    boxShadow: '0 0 42px rgba(255, 226, 122, 0.72)',
+} as const;
+
+const soldCelebrationSparklesStyle = {
+    color: '#FFE27A',
+    fontSize: 34,
+    fontWeight: '900',
+} as const;
+
+const soldCelebrationKickerStyle = {
+    color: '#FFF4BA',
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: 3,
+} as const;
+
+const soldCelebrationPriceStyle = {
+    color: '#FFFFFF',
+    fontSize: 48,
+    fontWeight: '900',
+    fontVariant: ['tabular-nums'] as ('tabular-nums')[],
+} as const;
+
+const soldCelebrationCustomerStyle = {
+    color: '#BCFFE0',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+} as const;
+
+const soldCelebrationScopeStyle = {
+    color: '#DFF8EC',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+} as const;
