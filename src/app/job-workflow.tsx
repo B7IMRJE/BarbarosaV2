@@ -194,7 +194,7 @@ export default function JobWorkflowScreen() {
                         <Text style={totalAmountStyle}>{formatMoney(selectedTotal)}</Text>
                     </View>
                     <PrimaryButton
-                        title="Continue to 30-Day Cancellation Policy"
+                        title="Continue to Cancellation Notice"
                         disabled={selectedChoiceIds.length === 0}
                         onPress={() => setApprovalPage(2)}
                     />
@@ -202,26 +202,26 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'presenting' && approvalPage === 2 && (
-                <Section title="2. Review and sign the 30-day cancellation policy" subtitle="This is a separate acknowledgment. It does not approve the work by itself.">
+                <Section title="2. Review and sign the cancellation notice" subtitle="This is a separate acknowledgment. It does not approve the work or waive the cancellation period.">
                     <Text style={legalTitleStyle}>{rule.cancellation_notice_title}</Text>
                     <Text style={bodyStyle}>{rule.cancellation_notice_text}</Text>
                     <Text style={mutedStyle}>
-                        Policy period: {rule.cancellation_days} calendar days · {rule.jurisdiction_label}
+                        Cancellation period: {rule.cancellation_days} business days · {rule.jurisdiction_label}
                     </Text>
                     <View style={policyExplanationStyle}>
                         <Text style={optionTitleStyle}>What this means</Text>
                         <Text style={bodyStyle}>
-                            You may notify the company that you want to cancel the selected work within 30 calendar days after signing.
-                            Send the cancellation in writing so there is a clear record of when it was delivered.
+                            You may cancel this transaction without penalty or obligation by sending the contractor written notice before
+                            midnight of the third business day after receiving the completed, signed agreement and cancellation notice.
                         </Text>
                         <Text style={bodyStyle}>
-                            If you separately ask the company to begin work before the 30 days end, work already performed and special-order
-                            materials may be handled according to the signed agreement and applicable law. Ask the company before signing if
-                            anything about the cancellation process is unclear.
+                            Signing this page only confirms receipt. It does not give up the cancellation right, and ordinary work cannot
+                            begin merely because this acknowledgment was signed. A different period or immediate-start rule applies only
+                            when the contract legally qualifies for a specific California exception.
                         </Text>
                     </View>
                     <Text style={bodyStyle}>
-                        By signing below, I confirm that I received and reviewed this 30-day cancellation policy before approving any work.
+                        By signing below, I confirm that I received and reviewed this cancellation notice before approving any work.
                     </Text>
                     <Field label="Name receiving cancellation notice" value={cancellationName} onChangeText={setCancellationName} />
                     <SignaturePad
@@ -287,8 +287,14 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'sold' && (
-                <Section title="2. When will the work happen?" subtitle="This decision updates the company workflow.">
-                    <PrimaryButton title="Perform Work Now" disabled={busy} onPress={() => run('choose_now')} />
+                <Section title="When will the work happen?" subtitle="Ordinary work must be scheduled after the cancellation period.">
+                    <View style={policyExplanationStyle}>
+                        <Text style={optionTitleStyle}>Immediate start is not available for this contract</Text>
+                        <Text style={bodyStyle}>
+                            Starting work requires either the cancellation period to expire or a separately validated California
+                            Service and Repair or emergency-repair exception. This approval does not waive that requirement.
+                        </Text>
+                    </View>
                     <Field
                         label="Return date and time (example: 2026-07-28T09:00:00-07:00)"
                         value={scheduleDate}
