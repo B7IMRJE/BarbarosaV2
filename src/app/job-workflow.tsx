@@ -384,14 +384,23 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'work_complete' && (
-                <Section title="6. Homeowner completion approval" subtitle="Confirm the finished work is satisfactory.">
+                <Section
+                    title="6. Homeowner inspection and completion approval"
+                    subtitle="Please inspect the completed work before signing. Your signature confirms that the work described in the approved scope has been completed and that, based on your inspection at this time, you are satisfied with the completed work."
+                >
+                    <View style={completionAcknowledgementStyle}>
+                        <Text style={optionTitleStyle}>Homeowner acknowledgement</Text>
+                        <Text style={bodyStyle}>
+                            I have had an opportunity to inspect the completed work, ask questions, and identify any visible concerns. I acknowledge that the approved work has been performed and is satisfactory at the time of signing. This acknowledgement does not waive warranties or rights that cannot legally be waived.
+                        </Text>
+                    </View>
                     <Field label="Homeowner full name" value={completionName} onChangeText={setCompletionName} />
                     <SignaturePad
-                        label="Satisfactory-completion signature"
+                        label="Homeowner satisfactory-completion signature"
                         value={completionSignature}
                         onChange={setCompletionSignature}
                     />
-                    <PrimaryButton title="Accept Satisfactory Completion" disabled={busy || !completionName.trim() || !isDrawnSignature(completionSignature)} onPress={() => run('accept_completion', {
+                    <PrimaryButton title="Confirm and Accept Completed Work" disabled={busy || !completionName.trim() || !isDrawnSignature(completionSignature)} onPress={() => run('accept_completion', {
                         homeowner_name: completionName, signature: completionSignature,
                     })} />
                 </Section>
@@ -506,4 +515,5 @@ const timelineStyle = { borderLeftColor: '#35aaa5', borderLeftWidth: 3, paddingL
 const totalStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } as const;
 const totalAmountStyle = { color: '#52e0a4', fontSize: 24, fontWeight: '900' } as const;
 const policyExplanationStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 14, gap: 10 } as const;
+const completionAcknowledgementStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 } as const;
 const twoButtonRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' } as const;

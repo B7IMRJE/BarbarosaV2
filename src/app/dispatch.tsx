@@ -52,6 +52,11 @@ import {
 } from '../lib/serviceVisitCloseout';
 import { supabase } from '../lib/supabase';
 import { normalizeSoldJobRecord, type SoldJobRecord } from '../lib/soldJobs';
+import {
+    loadPendingClockInCorrections,
+    reviewClockInCorrection,
+    type ClockInCorrectionRequest,
+} from '../lib/technicianTimeClock';
 import { useTheme } from '../theme/useTheme';
 
 type CompanyAccess = {
@@ -1517,6 +1522,13 @@ export default function DispatchBoardScreen() {
                     </ThemedCard>
                 )}
 
+                {!!dispatchCompanyId && (
+                    <DispatchClockCorrectionReview
+                        companyId={dispatchCompanyId}
+                        companyUsers={companyUsers}
+                    />
+                )}
+
                 {!loading && companyChoices.length > 1 ? (
                     <DispatchCompanyPicker
                         choices={companyChoices}
@@ -2251,6 +2263,102 @@ function DispatchClosedArchivedSearch({
                     embedded
                 />
             )}
+        </ThemedCard>
+    );
+}
+
+function DispatchClockCorrectionReview({
+    companyId,
+    companyUsers,
+}: {
+    companyId: string;
+    companyUsers: CompanyUser[];
+}) {
+    const { theme } = useTheme();
+    const [requests, setRequests] = useState<ClockInCorrectionRequest[]>([]);
+    const [message, setMessage] = useState('');
+    const [reviewingId, setReviewingId] = useState('');
+
+    async function refresh() {
+        try {
+            setRequests(await loadPendingClockInCorrections(companyId));
+        } catch (error) {
+            setMessage(`Time correction requests could not load: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    useEffect(() => {
+        void refresh();
+    }, [companyId]);
+
+    async function review(request: ClockInCorrectionRequest, decision: 'approved' | 'denied') {
+        setReviewingId(request.id);
+        setMessage(`${decision === 'approved' ? 'Approving' : 'Denying'} clock correction...`);
+        try {
+            await reviewClockInCorrection(request.id, decision);
+            await refresh();
+            setMessage(`Clock correction ${decision}.`);
+        } catch (error) {
+            setMessage(`Clock correction review failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setReviewingId('');
+        }
+    }
+
+    if (requests.length === 0 && !message) return null;
+
+    return (
+        <ThemedCard style={{ marginBottom: 16 }}>
+            <View style={sectionHeaderStyle}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Clock-In Corrections</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Review forgotten clock-ins before technician time is changed.
+                    </Text>
+                </View>
+                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                    {requests.length} pending
+                </Text>
+            </View>
+            {!!message && <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>}
+            <View style={dispatchCardGridStyle}>
+                {requests.map((request) => {
+                    const technician = companyUsers.find((user) => user.id === request.technicianCompanyUserId);
+                    const locationAvailable = request.latitude !== null && request.longitude !== null;
+                    return (
+                        <View key={request.id} style={[dispatchOfficeActionCardStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
+                            <Text style={[dispatchJobCodeStyle, { color: theme.colors.text }]}>
+                                {technician ? getMemberDisplayName(technician) : 'Technician'}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.text }]}>
+                                Requested: {formatDateTime(request.requestedClockInAt)}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{request.reason}</Text>
+                            <Text style={[metaTextStyle, { color: locationAvailable ? theme.colors.primary : theme.colors.mutedText }]}>
+                                {locationAvailable
+                                    ? `Request-time GPS: ${request.latitude!.toFixed(5)}, ${request.longitude!.toFixed(5)}${request.accuracyMeters ? ` ±${Math.round(request.accuracyMeters)}m` : ''}`
+                                    : 'GPS was not captured; verify independently before approval.'}
+                            </Text>
+                            <View style={compactActionRowStyle}>
+                                <ThemedButton
+                                    title="Deny"
+                                    variant="danger"
+                                    disabled={!!reviewingId}
+                                    onPress={() => review(request, 'denied')}
+                                    style={compactActionButtonStyle}
+                                />
+                                <ThemedButton
+                                    title="Approve"
+                                    variant="primary"
+                                    disabled={!!reviewingId}
+                                    onPress={() => review(request, 'approved')}
+                                    style={compactActionButtonStyle}
+                                />
+                            </View>
+                        </View>
+                    );
+                })}
+            </View>
         </ThemedCard>
     );
 }

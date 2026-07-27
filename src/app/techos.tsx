@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
+import SignaturePad, { isDrawnSignature } from '../components/signature-pad';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import GlassCard from '../components/glass/GlassCard';
@@ -49,6 +50,8 @@ import {
 } from '../lib/soldJobs';
 import {
     loadTechnicianTimeEntries,
+    manageTechnicianTimeEntry,
+    requestClockInCorrection,
     setTechnicianClock,
     type TechnicianTimeEntry,
 } from '../lib/technicianTimeClock';
@@ -245,6 +248,8 @@ type JobDateGroup = {
     jobs: TechOSJob[];
 };
 
+type TechOSAccessMode = 'choosing' | 'working' | 'off_clock';
+
 type CreateTechOSServiceJobResult = {
     job_id: string;
     company_id: string;
@@ -301,6 +306,9 @@ export default function TechOSScreen() {
     const [authUserId, setAuthUserId] = useState('');
     const [authEmail, setAuthEmail] = useState('');
     const [signingOut, setSigningOut] = useState(false);
+    const [accessMode, setAccessMode] = useState<TechOSAccessMode>('choosing');
+    const [accessModeLoading, setAccessModeLoading] = useState(false);
+    const [accessModeMessage, setAccessModeMessage] = useState('');
     const [selectedAssignedJobId, setSelectedAssignedJobId] = useState('');
     const [dismissedAssignedJobId, setDismissedAssignedJobId] = useState('');
     const [routeOpenedAssignedJobId, setRouteOpenedAssignedJobId] = useState('');
@@ -443,6 +451,45 @@ export default function TechOSScreen() {
     useEffect(() => {
         void loadAssignedEstimateDraftCounts();
     }, [activeCompanyId, assignedEstimatePropertyKey, authUserId]);
+
+    useEffect(() => {
+        const technicianId = assignedTechnicianCompanyUserIds[0] || '';
+        if (!technicianId || !isTechnicianCompanyRole(membership?.role)) return;
+        let active = true;
+        setAccessModeLoading(true);
+        void loadTechnicianTimeEntries(technicianId)
+            .then((entries) => {
+                if (!active) return;
+                setAccessMode(entries.some((entry) => !entry.clockedOutAt) ? 'working' : 'choosing');
+                setAccessModeMessage('');
+            })
+            .catch((error) => {
+                if (active) setAccessModeMessage(`Time status could not load: ${getErrorMessage(error)}`);
+            })
+            .finally(() => {
+                if (active) setAccessModeLoading(false);
+            });
+        return () => {
+            active = false;
+        };
+    }, [assignedTechnicianCompanyUserIds[0], membership?.role]);
+
+    async function startWorkFromAccessGate() {
+        const technicianId = assignedTechnicianCompanyUserIds[0] || '';
+        if (!technicianId || accessModeLoading) return;
+        setAccessModeLoading(true);
+        setAccessModeMessage('Clocking in and opening TechOS...');
+        try {
+            await setTechnicianClock(technicianId, 'clock_in');
+            setAccessMode('working');
+            setDashboardView('jobs');
+            setAccessModeMessage('');
+        } catch (error) {
+            setAccessModeMessage(`Could not clock in: ${getErrorMessage(error)}`);
+        } finally {
+            setAccessModeLoading(false);
+        }
+    }
 
     useEffect(() => {
         const nextTechnicianCompanyUserIds = assignedTechnicianCompanyUserIds;
@@ -1252,6 +1299,23 @@ export default function TechOSScreen() {
         }));
 
         try {
+            if (outcome === 'completed_successfully') {
+                const soldWorkflow = await loadSoldJobForScheduleSlot(slotId);
+                if (soldWorkflow && !['customer_completed', 'collection_pending', 'closed'].includes(soldWorkflow.status)) {
+                    setWorkflowMessageBySlotId((current) => ({
+                        ...current,
+                        [slotId]: soldWorkflow.status === 'work_complete'
+                            ? 'Homeowner signature is required before this sold job can be closed.'
+                            : 'Finish the sold-job completion wizard before closing this visit.',
+                    }));
+                    router.push({
+                        pathname: '/job-workflow',
+                        params: { workflowId: soldWorkflow.id },
+                    } as any);
+                    return;
+                }
+            }
+
             const result = await closeServiceVisit({
                 companyId: job.slot.company_id,
                 serviceRequestId: job.request.id,
@@ -1632,6 +1696,24 @@ export default function TechOSScreen() {
     const technicianName = isPlatformAdminAccess
         ? 'Platform Admin'
         : membership?.full_name || authEmail || membership?.email || 'Technician';
+
+    if (isTechnicianWorkspace && accessMode !== 'working') {
+        return (
+            <TechOSAccessGate
+                accessMode={accessMode}
+                loading={accessModeLoading}
+                message={accessModeMessage}
+                nextJobs={currentFutureAssignedScheduleJobs}
+                onClockIn={() => {
+                    void startWorkFromAccessGate();
+                }}
+                onReturnToChoice={() => setAccessMode('choosing')}
+                onViewOffClock={() => setAccessMode('off_clock')}
+                technicianCompanyUserId={assignedTechnicianCompanyUserIds[0] || ''}
+                technicianName={technicianName}
+            />
+        );
+    }
 
     return (
         <CompanyGlassDepthProvider value={company?.glass_depth}>
@@ -2139,6 +2221,177 @@ function AccessMessage({
                         onPress={onSignOut}
                         style={{ marginTop: 12 }}
                     />
+                </ThemedCard>
+            </View>
+        </ScrollView>
+    );
+}
+
+function TechOSAccessGate({
+    accessMode,
+    loading,
+    message,
+    nextJobs,
+    onClockIn,
+    onReturnToChoice,
+    onViewOffClock,
+    technicianCompanyUserId,
+    technicianName,
+}: {
+    accessMode: TechOSAccessMode;
+    loading: boolean;
+    message: string;
+    nextJobs: TechAssignedScheduleJob[];
+    onClockIn: () => void;
+    onReturnToChoice: () => void;
+    onViewOffClock: () => void;
+    technicianCompanyUserId: string;
+    technicianName: string;
+}) {
+    const { theme } = useTheme();
+    const nextJob = nextJobs[0] || null;
+    const [correctionOpen, setCorrectionOpen] = useState(false);
+    const [correctionTime, setCorrectionTime] = useState('08:00');
+    const [correctionReason, setCorrectionReason] = useState('');
+    const [correctionMessage, setCorrectionMessage] = useState('');
+    const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
+
+    async function submitCorrection() {
+        const [hours, minutes] = correctionTime.split(':').map(Number);
+        const requested = new Date();
+        requested.setHours(hours, minutes, 0, 0);
+        setCorrectionSubmitting(true);
+        setCorrectionMessage('Capturing location and sending request...');
+        try {
+            const location = await captureBrowserClockLocation();
+            await requestClockInCorrection({
+                technicianCompanyUserId,
+                requestedClockInAt: requested.toISOString(),
+                reason: correctionReason,
+                latitude: location?.latitude,
+                longitude: location?.longitude,
+                accuracyMeters: location?.accuracy,
+            });
+            setCorrectionOpen(false);
+            setCorrectionMessage('Sent to Dispatch for approval. Your recorded time has not changed.');
+        } catch (error) {
+            setCorrectionMessage(`Request failed: ${getErrorMessage(error)}`);
+        } finally {
+            setCorrectionSubmitting(false);
+        }
+    }
+
+    return (
+        <ScrollView
+            style={{ flex: 1, backgroundColor: theme.colors.background }}
+            contentContainerStyle={{ padding: 18, alignItems: 'center', minHeight: '100%' }}
+        >
+            <View style={{ width: '100%', maxWidth: 620 }}>
+                <HomeHeader />
+                <ThemedCard style={techAccessGateCardStyle}>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
+                        {accessMode === 'off_clock' ? 'Viewing Off the Clock' : `Welcome, ${technicianName}`}
+                    </Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        {accessMode === 'off_clock'
+                            ? 'Schedule information is read-only. Clock in before taking photos, changing job status, creating estimates, recording purchases, or completing work.'
+                            : 'Choose how you are entering TechOS. Working actions remain locked until you clock in.'}
+                    </Text>
+                    {!!message && <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>}
+
+                    {accessMode === 'off_clock' && (
+                        <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                            <Text style={[clientNameStyle, { color: theme.colors.text }]}>Next job</Text>
+                            {nextJob ? (
+                                <>
+                                    <Text style={[summaryValueStyle, { color: theme.colors.text }]}>
+                                        {getTechOSAssignedJobCode(nextJob)}
+                                    </Text>
+                                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>{getAssignedJobTitle(nextJob)}</Text>
+                                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                        {formatScheduleRange(nextJob.slot)}
+                                    </Text>
+                                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                        {getAssignedJobLocation(nextJob)}
+                                    </Text>
+                                </>
+                            ) : (
+                                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>No upcoming assigned job.</Text>
+                            )}
+                        </View>
+                    )}
+
+                    <ThemedButton
+                        title={loading ? 'Starting Work...' : 'Clock In & Start Work'}
+                        variant="primary"
+                        disabled={loading}
+                        onPress={onClockIn}
+                        style={assignedJobActionButtonStyle}
+                    />
+                    {accessMode === 'choosing' ? (
+                        <>
+                            <ThemedButton
+                                title="View Off the Clock"
+                                variant="secondary"
+                                disabled={loading}
+                                onPress={onViewOffClock}
+                                style={assignedJobActionButtonStyle}
+                            />
+                            <ThemedButton
+                                title={correctionOpen ? 'Cancel Forgotten Clock-In' : 'Forgot to Clock In?'}
+                                variant="secondary"
+                                disabled={loading}
+                                onPress={() => setCorrectionOpen((current) => !current)}
+                                style={assignedJobActionButtonStyle}
+                            />
+                        </>
+                    ) : (
+                        <ThemedButton
+                            title="Back"
+                            variant="secondary"
+                            disabled={loading}
+                            onPress={onReturnToChoice}
+                            style={assignedJobActionButtonStyle}
+                        />
+                    )}
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        TechOS never clocks you in automatically.
+                    </Text>
+                    {correctionOpen && (
+                        <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                            <Text style={[clientNameStyle, { color: theme.colors.text }]}>Forgotten clock-in request</Text>
+                            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                Enter today’s missed time. It cannot be earlier than 8:00 AM and will require Dispatch approval.
+                            </Text>
+                            <TextInput
+                                value={correctionTime}
+                                onChangeText={setCorrectionTime}
+                                placeholder="08:00"
+                                placeholderTextColor={theme.colors.mutedText}
+                                style={[techCompactInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                            <TextInput
+                                value={correctionReason}
+                                onChangeText={setCorrectionReason}
+                                placeholder="Why was the clock-in missed?"
+                                placeholderTextColor={theme.colors.mutedText}
+                                multiline
+                                style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                            />
+                            <ThemedButton
+                                title={correctionSubmitting ? 'Sending...' : 'Send to Dispatch'}
+                                variant="primary"
+                                disabled={correctionSubmitting || !technicianCompanyUserId || !/^(0[89]|1\d|2[0-3]):[0-5]\d$/.test(correctionTime) || correctionReason.trim().length < 4}
+                                onPress={() => {
+                                    void submitCorrection();
+                                }}
+                                style={assignedJobActionButtonStyle}
+                            />
+                        </View>
+                    )}
+                    {!!correctionMessage && (
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{correctionMessage}</Text>
+                    )}
                 </ThemedCard>
             </View>
         </ScrollView>
@@ -2693,6 +2946,15 @@ function TechOSSoldJobRecord({
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.textColor, fontWeight: '800' }]}>
                         Next action: {getSoldJobNextAction(record)}
                     </Text>
+                    <ThemedButton
+                        title={record.status === 'work_complete' ? 'Open Homeowner Completion Signature' : 'Open Sold Job Workflow'}
+                        variant="primary"
+                        onPress={() => router.push({
+                            pathname: '/job-workflow',
+                            params: { workflowId: record.id },
+                        } as any)}
+                        style={assignedJobActionButtonStyle}
+                    />
                 </>
             )}
         </TechOSDetailSection>
@@ -2704,6 +2966,14 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     const [entries, setEntries] = useState<TechnicianTimeEntry[]>([]);
     const [clockMessage, setClockMessage] = useState('Loading time clock...');
     const [updatingClock, setUpdatingClock] = useState(false);
+    const [now, setNow] = useState(() => Date.now());
+    const [correctionOpen, setCorrectionOpen] = useState(false);
+    const [correctionTime, setCorrectionTime] = useState('08:00');
+    const [correctionReason, setCorrectionReason] = useState('');
+    const [dayNotes, setDayNotes] = useState('');
+    const [injuryReported, setInjuryReported] = useState(false);
+    const [injuryDetails, setInjuryDetails] = useState('');
+    const [daySignature, setDaySignature] = useState('');
 
     async function refreshClock() {
         if (!technicianCompanyUserId) {
@@ -2725,6 +2995,24 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     }, [technicianCompanyUserId]);
 
     const openEntry = entries.find((entry) => !entry.clockedOutAt) || null;
+    const latestEntry = entries[0] || null;
+    const activeBreak = !!openEntry?.breakStartedAt && !openEntry.breakEndedAt;
+    const shiftSeconds = openEntry
+        ? Math.max(0, Math.floor((now - new Date(openEntry.clockedInAt).getTime()) / 1000))
+        : 0;
+    const mealRecorded = !!openEntry && (openEntry.breakMinutes >= 30 || !!openEntry.breakStartedAt);
+    const mealWarning = !!openEntry && !mealRecorded && shiftSeconds >= 4.5 * 60 * 60;
+    const mealOverdue = !!openEntry && !mealRecorded && shiftSeconds >= 5 * 60 * 60;
+    const warningVisible = !mealOverdue || Math.floor(now / 500) % 2 === 0;
+    const workedSeconds = Math.max(0, shiftSeconds - (openEntry?.breakMinutes || 0) * 60);
+    const overtimeApproaching = !!openEntry && workedSeconds >= 7.5 * 60 * 60;
+    const overtimeActive = !!openEntry && workedSeconds >= 8 * 60 * 60;
+
+    useEffect(() => {
+        if (!openEntry) return;
+        const timer = setInterval(() => setNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [openEntry?.id]);
 
     async function toggleClock() {
         if (!technicianCompanyUserId || updatingClock) return;
@@ -2741,6 +3029,67 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
         }
     }
 
+    async function runTimeEntryAction(action: 'start_break' | 'end_break' | 'add_30_minute_break') {
+        if (!technicianCompanyUserId || updatingClock) return;
+        setUpdatingClock(true);
+        setClockMessage('Updating lunch break...');
+        try {
+            await manageTechnicianTimeEntry(technicianCompanyUserId, action);
+            await refreshClock();
+            setClockMessage(action === 'start_break' ? 'Lunch started.' : action === 'end_break' ? 'Lunch ended.' : '30-minute lunch added.');
+        } catch (error) {
+            setClockMessage(`Lunch update failed: ${getErrorMessage(error)}`);
+        } finally {
+            setUpdatingClock(false);
+        }
+    }
+
+    async function submitForgottenClockIn() {
+        const [hourText, minuteText] = correctionTime.split(':');
+        const requested = new Date();
+        requested.setHours(Number(hourText), Number(minuteText), 0, 0);
+        setUpdatingClock(true);
+        setClockMessage('Capturing location and sending clock-in correction for approval...');
+        try {
+            const location = await captureBrowserClockLocation();
+            await requestClockInCorrection({
+                technicianCompanyUserId,
+                requestedClockInAt: requested.toISOString(),
+                reason: correctionReason,
+                latitude: location?.latitude,
+                longitude: location?.longitude,
+                accuracyMeters: location?.accuracy,
+            });
+            setCorrectionOpen(false);
+            setCorrectionReason('');
+            setClockMessage('Correction sent to Dispatch. Your time will not change unless it is approved.');
+        } catch (error) {
+            setClockMessage(`Correction request failed: ${getErrorMessage(error)}`);
+        } finally {
+            setUpdatingClock(false);
+        }
+    }
+
+    async function submitDay() {
+        if (!latestEntry || updatingClock) return;
+        setUpdatingClock(true);
+        setClockMessage('Submitting signed workday...');
+        try {
+            await manageTechnicianTimeEntry(technicianCompanyUserId, 'submit_day', {
+                notes: dayNotes,
+                injury_reported: injuryReported,
+                injury_details: injuryDetails,
+                signature: daySignature,
+            });
+            await refreshClock();
+            setClockMessage('Workday signed and submitted.');
+        } catch (error) {
+            setClockMessage(`Workday submission failed: ${getErrorMessage(error)}`);
+        } finally {
+            setUpdatingClock(false);
+        }
+    }
+
     return (
         <ThemedCard style={assignedJobsSectionStyle}>
             <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Time Clock</Text>
@@ -2748,9 +3097,69 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                 {openEntry ? 'Clocked In' : 'Clocked Out'}
             </Text>
             {!!openEntry && (
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                    Current shift started {formatTechOSDateTime(openEntry.clockedInAt)}
-                </Text>
+                <>
+                    <View style={[
+                        techRunningClockStyle,
+                        {
+                            backgroundColor: overtimeActive ? '#123E68' : overtimeApproaching ? '#7A4A00' : '#DFF8EA',
+                            borderColor: overtimeActive ? '#55A7E8' : overtimeApproaching ? '#FFD166' : '#79D5A5',
+                            opacity: overtimeActive && Math.floor(now / 600) % 2 ? 0.5 : 1,
+                        },
+                    ]}>
+                        <Text style={[techClockElapsedStyle, { color: overtimeApproaching ? '#FFFFFF' : '#123E2C' }]}>
+                            {formatTimeEntryDuration(openEntry, now)}
+                        </Text>
+                        {overtimeApproaching && (
+                            <Text style={techClockStateStyle}>
+                                {overtimeActive ? 'OVERTIME — DISPATCH REVIEW REQUIRED' : 'OVERTIME APPROACHING — 30 MINUTES'}
+                            </Text>
+                        )}
+                    </View>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        Started {formatTechOSDateTime(openEntry.clockedInAt)}
+                    </Text>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        Lunch: {activeBreak ? 'In progress' : `${openEntry.breakMinutes} minutes recorded`}
+                    </Text>
+                    {mealWarning && (
+                        <View style={[
+                            techMealWarningStyle,
+                            {
+                                backgroundColor: mealOverdue ? '#7F1D1D' : '#7A4A00',
+                                borderColor: mealOverdue ? '#FF6B6B' : '#FFD166',
+                                opacity: warningVisible ? 1 : 0.32,
+                            },
+                        ]}>
+                            <Text style={techMealWarningTitleStyle}>
+                                {mealOverdue ? 'MEAL PERIOD DUE NOW' : 'Meal period approaching'}
+                            </Text>
+                            <Text style={techMealWarningBodyStyle}>
+                                {mealOverdue
+                                    ? 'You have reached five hours without a recorded meal. Start your duty-free meal period now and notify Dispatch if work prevented it.'
+                                    : 'You are within 30 minutes of five hours. Plan to begin a 30-minute duty-free meal before the end of your fifth hour.'}
+                            </Text>
+                        </View>
+                    )}
+                    <View style={techWorkflowActionGridStyle}>
+                        <ThemedButton
+                            title={activeBreak ? 'End Lunch Break' : 'Start Lunch Break'}
+                            variant="secondary"
+                            disabled={updatingClock || (!activeBreak && openEntry.breakMinutes >= 30)}
+                            onPress={() => runTimeEntryAction(activeBreak ? 'end_break' : 'start_break')}
+                            style={techWorkflowActionButtonStyle}
+                        />
+                        <ThemedButton
+                            title="Add 30-Minute Lunch"
+                            variant="secondary"
+                            disabled={updatingClock || activeBreak || openEntry.breakMinutes >= 30}
+                            onPress={() => runTimeEntryAction('add_30_minute_break')}
+                            style={techWorkflowActionButtonStyle}
+                        />
+                    </View>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        If a required meal is not recorded, the shift is flagged for office review; time is never deducted for a meal that was not taken.
+                    </Text>
+                </>
             )}
             <ThemedButton
                 title={updatingClock ? 'Saving...' : openEntry ? 'Clock Out' : 'Clock In'}
@@ -2759,7 +3168,88 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                 onPress={toggleClock}
                 style={assignedJobActionButtonStyle}
             />
+            {!openEntry && (
+                <ThemedButton
+                    title={correctionOpen ? 'Cancel Forgotten Clock-In' : 'Forgot to Clock In?'}
+                    variant="secondary"
+                    disabled={updatingClock}
+                    onPress={() => setCorrectionOpen((current) => !current)}
+                    style={assignedJobActionButtonStyle}
+                />
+            )}
+            {correctionOpen && (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>Request a corrected clock-in</Text>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                        This does not change your time. Dispatch must review and approve it. Requests cannot be earlier than 8:00 AM today.
+                    </Text>
+                    <TextInput
+                        value={correctionTime}
+                        onChangeText={setCorrectionTime}
+                        placeholder="08:00"
+                        placeholderTextColor={theme.colors.mutedText}
+                        style={[techCompactInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <TextInput
+                        value={correctionReason}
+                        onChangeText={setCorrectionReason}
+                        placeholder="Why was the clock-in missed?"
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <ThemedButton
+                        title="Send to Dispatch for Approval"
+                        variant="primary"
+                        disabled={updatingClock || !/^(0[89]|1\d|2[0-3]):[0-5]\d$/.test(correctionTime) || correctionReason.trim().length < 4}
+                        onPress={submitForgottenClockIn}
+                        style={assignedJobActionButtonStyle}
+                    />
+                </View>
+            )}
             {!!clockMessage && <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{clockMessage}</Text>}
+            {!!latestEntry && !latestEntry.clockedOutAt && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    Clock out before signing and submitting today.
+                </Text>
+            )}
+            {!!latestEntry?.clockedOutAt && !latestEntry.submittedAt && (
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>Sign and submit today</Text>
+                    <TextInput
+                        value={dayNotes}
+                        onChangeText={setDayNotes}
+                        placeholder="Corrections, changes, or notes about today"
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                    <ThemedButton
+                        title={injuryReported ? 'Injury Reported: Yes' : 'Any injury today? No'}
+                        variant={injuryReported ? 'danger' : 'secondary'}
+                        onPress={() => setInjuryReported((current) => !current)}
+                        style={assignedJobActionButtonStyle}
+                    />
+                    {injuryReported && (
+                        <TextInput
+                            value={injuryDetails}
+                            onChangeText={setInjuryDetails}
+                            placeholder="Describe the injury and immediate action taken"
+                            placeholderTextColor={theme.colors.mutedText}
+                            multiline
+                            style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                        />
+                    )}
+                    <SignaturePad label="Technician daily signature" value={daySignature} onChange={setDaySignature} />
+                    <ThemedButton
+                        title="Sign and Submit Workday"
+                        variant="primary"
+                        disabled={updatingClock || !isDrawnSignature(daySignature) || (injuryReported && injuryDetails.trim().length < 4)}
+                        onPress={submitDay}
+                        style={assignedJobActionButtonStyle}
+                    />
+                </View>
+            )}
             <Text style={[clientNameStyle, { color: theme.colors.text }]}>Recent shifts</Text>
             {entries.slice(0, 10).map((entry) => (
                 <View key={entry.id} style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
@@ -2767,12 +3257,33 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                         {formatTechOSDateTime(entry.clockedInAt)} → {entry.clockedOutAt ? formatTechOSDateTime(entry.clockedOutAt) : 'In progress'}
                     </Text>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        {formatTimeEntryDuration(entry)}
+                        {formatTimeEntryDuration(entry, now)} · Lunch {entry.breakMinutes}m
+                        {entry.automaticLunchApplied ? ' (automatic)' : ''}
                     </Text>
+                    {entry.mealExceptionReported && (
+                        <Text style={[clientMetaTextStyle, { color: '#FF8A80' }]}>Meal exception requires office review</Text>
+                    )}
+                    {!!entry.submittedAt && <Text style={[clientMetaTextStyle, { color: '#36D994' }]}>Signed and submitted</Text>}
                 </View>
             ))}
         </ThemedCard>
     );
+}
+
+async function captureBrowserClockLocation() {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return null;
+
+    return new Promise<{ latitude: number; longitude: number; accuracy: number } | null>((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+            (position) => resolve({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+            }),
+            () => resolve(null),
+            { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
+        );
+    });
 }
 
 function formatTechOSMoney(value: number) {
@@ -2785,13 +3296,14 @@ function formatTechOSDateTime(value: string | null) {
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
-function formatTimeEntryDuration(entry: TechnicianTimeEntry) {
+function formatTimeEntryDuration(entry: TechnicianTimeEntry, now = Date.now()) {
     const start = new Date(entry.clockedInAt).getTime();
-    const end = entry.clockedOutAt ? new Date(entry.clockedOutAt).getTime() : Date.now();
-    const minutes = Math.max(0, Math.round((end - start) / 60000));
-    const hours = Math.floor(minutes / 60);
-    const remaining = minutes % 60;
-    return `${hours}h ${remaining}m${entry.clockedOutAt ? '' : ' so far'}`;
+    const end = entry.clockedOutAt ? new Date(entry.clockedOutAt).getTime() : now;
+    const totalSeconds = Math.max(0, Math.floor((end - start) / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s${entry.clockedOutAt ? '' : ' so far'}`;
 }
 
 function TechOSEstimateWorkspacePanel({
@@ -3223,6 +3735,7 @@ function TechOSAssignedJobDetail({
     const canOpenClientHomeOS = hasTechOSClientHomeContext(clientContext);
     const estimateActionLabel = getTechOSEstimateActionLabel(estimateDraftCount);
     const [showMoreWorkflowActions, setShowMoreWorkflowActions] = useState(false);
+    const [nextActionPickerOpen, setNextActionPickerOpen] = useState(false);
     const workflowActionPresentation = resolveTechWorkflowActionPresentation(workflowStatus);
     const primaryWorkflowActions = workflowActionPresentation.filter((action) => action.primary);
     const moreWorkflowActions = workflowActionPresentation.filter(isSecondaryTechWorkflowAction);
@@ -3486,20 +3999,30 @@ function TechOSAssignedJobDetail({
                         },
                     ]}
                 />
-                <TextInput
-                    value={closeoutForm.nextActionDate}
-                    onChangeText={(nextActionDate) => onChangeCloseoutForm({ nextActionDate })}
-                    placeholder="Next action date, optional YYYY-MM-DD"
-                    placeholderTextColor={techOSTheme.mutedTextColor}
-                    style={[
-                        techCustomStatusInputStyle,
-                        {
-                            borderColor: techOSTheme.panelBorderColor,
-                            color: techOSTheme.textColor,
-                            minHeight: 46,
-                        },
-                    ]}
+                <ThemedButton
+                    title={closeoutForm.nextActionDate
+                        ? `Next Action: ${closeoutForm.nextActionDate}`
+                        : 'Choose Next Action Date'}
+                    variant="secondary"
+                    onPress={() => setNextActionPickerOpen((current) => !current)}
+                    style={assignedJobActionButtonStyle}
                 />
+                {nextActionPickerOpen && (
+                    <View style={techWorkflowActionGridStyle}>
+                        {getTechCloseoutDateChoices().map((choice) => (
+                            <ThemedButton
+                                key={choice.label}
+                                title={choice.label}
+                                variant={closeoutForm.nextActionDate === choice.value ? 'primary' : 'secondary'}
+                                onPress={() => {
+                                    onChangeCloseoutForm({ nextActionDate: choice.value });
+                                    setNextActionPickerOpen(false);
+                                }}
+                                style={techWorkflowActionButtonStyle}
+                            />
+                        ))}
+                    </View>
+                )}
                 <TextInput
                     value={closeoutForm.homeownerNote}
                     onChangeText={(homeownerNote) => onChangeCloseoutForm({ homeownerNote })}
@@ -4522,6 +5045,24 @@ function parseCloseoutDate(value: string) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function getTechCloseoutDateChoices() {
+    const choices = [
+        { label: 'No Follow-Up', days: null },
+        { label: 'Tomorrow', days: 1 },
+        { label: 'In 3 Days', days: 3 },
+        { label: 'In 1 Week', days: 7 },
+        { label: 'In 2 Weeks', days: 14 },
+        { label: 'In 30 Days', days: 30 },
+    ];
+
+    return choices.map((choice) => {
+        if (choice.days === null) return { label: choice.label, value: '' };
+        const date = new Date();
+        date.setDate(date.getDate() + choice.days);
+        return { label: choice.label, value: date.toISOString().slice(0, 10) };
+    });
+}
+
 function getAssignedJobTitle(job: TechAssignedScheduleJob) {
     const requestType = formatLabel(job.request?.request_type || 'Service Request');
     const summary = job.request?.issue_summary?.trim();
@@ -4947,9 +5488,63 @@ const summaryCardStyle = {
     minWidth: 0,
 };
 
+const techAccessGateCardStyle = {
+    borderCurve: 'continuous' as const,
+    gap: 12,
+    marginTop: 16,
+};
+
 const summaryValueStyle = {
     fontSize: 34,
     fontWeight: '900' as const,
+};
+
+const techClockElapsedStyle = {
+    fontSize: 28,
+    fontVariant: ['tabular-nums'] as ('tabular-nums')[],
+    fontWeight: '900' as const,
+    marginTop: 6,
+};
+
+const techRunningClockStyle = {
+    borderCurve: 'continuous' as const,
+    borderRadius: 14,
+    borderWidth: 2,
+    gap: 3,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+};
+
+const techClockStateStyle = {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    letterSpacing: 0.5,
+};
+
+const techMealWarningStyle = {
+    borderCurve: 'continuous' as const,
+    borderRadius: 14,
+    borderWidth: 2,
+    gap: 4,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const techMealWarningTitleStyle = {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900' as const,
+    letterSpacing: 0.4,
+};
+
+const techMealWarningBodyStyle = {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 17,
 };
 
 const summaryTitleStyle = {
@@ -5249,6 +5844,18 @@ const techCustomStatusInputStyle = {
     paddingHorizontal: 12,
     paddingVertical: 10,
     textAlignVertical: 'top' as const,
+};
+
+const techCompactInputStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    fontSize: 16,
+    fontVariant: ['tabular-nums'] as ('tabular-nums')[],
+    fontWeight: '800' as const,
+    marginTop: 12,
+    minHeight: 46,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
 };
 
 const calendarDayListStyle = {
