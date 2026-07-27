@@ -4,6 +4,7 @@ import type { PersistableEstimateChoice } from './estimateOptionPersistence';
 export type SoldJobRecord = {
     id: string;
     companyId: string;
+    estimateSessionId: string;
     serviceRequestId: string | null;
     scheduleSlotId: string | null;
     jobId: string | null;
@@ -23,6 +24,7 @@ export type SoldJobRecord = {
 const soldJobColumns = [
     'id',
     'company_id',
+    'estimate_session_id',
     'service_request_id',
     'schedule_slot_id',
     'job_id',
@@ -100,6 +102,7 @@ export function normalizeSoldJobRecord(value: unknown): SoldJobRecord {
     return {
         id: text(record.id),
         companyId: text(record.company_id),
+        estimateSessionId: text(record.estimate_session_id),
         serviceRequestId: nullableText(record.service_request_id),
         scheduleSlotId: nullableText(record.schedule_slot_id),
         jobId: nullableText(record.job_id),

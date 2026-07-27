@@ -14,10 +14,15 @@ import {
     type JobWorkflowAttachment,
     type JobWorkflowBundle,
 } from '../lib/jobWorkflow';
+import { supabase } from '../lib/supabase';
 
 export default function JobWorkflowScreen() {
-    const { estimateSessionId } = useLocalSearchParams<{ estimateSessionId?: string | string[] }>();
+    const { estimateSessionId, presentation } = useLocalSearchParams<{
+        estimateSessionId?: string | string[];
+        presentation?: string | string[];
+    }>();
     const sessionId = Array.isArray(estimateSessionId) ? estimateSessionId[0] : estimateSessionId;
+    const presentationMode = (Array.isArray(presentation) ? presentation[0] : presentation) === '1';
     const [bundle, setBundle] = useState<JobWorkflowBundle | null>(null);
     const [message, setMessage] = useState('Opening customer approval...');
     const [busy, setBusy] = useState(false);
@@ -44,6 +49,25 @@ export default function JobWorkflowScreen() {
         }
         void refresh(sessionId);
     }, [sessionId]);
+
+    useEffect(() => {
+        const workflowId = bundle?.workflow.id;
+        if (!workflowId || !sessionId) return;
+        const channel = supabase
+            .channel(`job-workflow-live:${workflowId}`)
+            .on('postgres_changes', {
+                event: '*',
+                schema: 'public',
+                table: 'company_job_workflows',
+                filter: `id=eq.${workflowId}`,
+            }, () => {
+                void refresh(sessionId);
+            })
+            .subscribe();
+        return () => {
+            void supabase.removeChannel(channel);
+        };
+    }, [bundle?.workflow.id, sessionId]);
 
     const attachmentCounts = useMemo(() => {
         const counts: Record<string, number> = {};
@@ -422,7 +446,7 @@ export default function JobWorkflowScreen() {
                 <Section title="Job closed" subtitle="Quote, signatures, photos, invoice, and external payment record are complete." />
             )}
 
-            {status !== 'presenting' && <Section title="Job timeline" subtitle="A timestamped audit trail for the company.">
+            {!presentationMode && status !== 'presenting' && <Section title="Job timeline" subtitle="A timestamped audit trail for the company.">
                 {(bundle.events || []).slice().reverse().map((event) => (
                     <View key={event.id} style={timelineStyle}>
                         <Text style={optionTitleStyle}>{event.title}</Text>

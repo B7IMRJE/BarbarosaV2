@@ -27,6 +27,15 @@ export type ClockInCorrectionRequest = {
     createdAt: string;
 };
 
+export type TimeApprovalRequest = {
+    id: string;
+    technicianCompanyUserId: string;
+    timeEntryId: string;
+    approvalType: 'early_clock_in' | 'overtime';
+    status: 'pending' | 'approved' | 'denied';
+    requestedAt: string;
+};
+
 export async function loadTechnicianTimeEntries(technicianCompanyUserId: string) {
     const { data, error } = await supabase
         .from('company_technician_time_entries')
@@ -134,6 +143,62 @@ export async function reviewClockInCorrection(
         p_review_note: reviewNote || null,
     });
 
+    if (error) throw error;
+    return data;
+}
+
+export async function requestTimeApproval(
+    technicianCompanyUserId: string,
+    approvalType: 'early_clock_in' | 'overtime'
+) {
+    const { data, error } = await supabase.rpc('request_company_time_approval', {
+        p_technician_company_user_id: technicianCompanyUserId,
+        p_approval_type: approvalType,
+    });
+    if (error) throw error;
+    return data;
+}
+
+export async function loadPendingTimeApprovals(companyId: string) {
+    const { data, error } = await supabase
+        .from('company_time_approval_requests')
+        .select('id, technician_company_user_id, time_entry_id, approval_type, status, requested_at')
+        .eq('company_id', companyId)
+        .eq('status', 'pending')
+        .order('requested_at', { ascending: true });
+    if (error) throw error;
+    return (data || []).map((request) => ({
+        id: String(request.id),
+        technicianCompanyUserId: String(request.technician_company_user_id),
+        timeEntryId: String(request.time_entry_id),
+        approvalType: String(request.approval_type) as TimeApprovalRequest['approvalType'],
+        status: String(request.status) as TimeApprovalRequest['status'],
+        requestedAt: String(request.requested_at),
+    }));
+}
+
+export async function reviewTimeApproval(requestId: string, decision: 'approved' | 'denied') {
+    const { data, error } = await supabase.rpc('review_company_time_approval', {
+        p_request_id: requestId,
+        p_decision: decision,
+        p_review_note: null,
+    });
+    if (error) throw error;
+    return data;
+}
+
+export async function registerTechnicianDevice(
+    technicianCompanyUserId: string,
+    deviceKey: string,
+    deviceRole: 'primary_phone' | 'companion_tablet',
+    deviceLabel: string
+) {
+    const { data, error } = await supabase.rpc('register_company_technician_device', {
+        p_technician_company_user_id: technicianCompanyUserId,
+        p_device_key: deviceKey,
+        p_device_role: deviceRole,
+        p_device_label: deviceLabel,
+    });
     if (error) throw error;
     return data;
 }

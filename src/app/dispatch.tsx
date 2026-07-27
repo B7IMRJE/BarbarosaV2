@@ -54,8 +54,11 @@ import { supabase } from '../lib/supabase';
 import { normalizeSoldJobRecord, type SoldJobRecord } from '../lib/soldJobs';
 import {
     loadPendingClockInCorrections,
+    loadPendingTimeApprovals,
     reviewClockInCorrection,
+    reviewTimeApproval,
     type ClockInCorrectionRequest,
+    type TimeApprovalRequest,
 } from '../lib/technicianTimeClock';
 import { useTheme } from '../theme/useTheme';
 
@@ -2276,12 +2279,18 @@ function DispatchClockCorrectionReview({
 }) {
     const { theme } = useTheme();
     const [requests, setRequests] = useState<ClockInCorrectionRequest[]>([]);
+    const [timeApprovals, setTimeApprovals] = useState<TimeApprovalRequest[]>([]);
     const [message, setMessage] = useState('');
     const [reviewingId, setReviewingId] = useState('');
 
     async function refresh() {
         try {
-            setRequests(await loadPendingClockInCorrections(companyId));
+            const [corrections, approvals] = await Promise.all([
+                loadPendingClockInCorrections(companyId),
+                loadPendingTimeApprovals(companyId),
+            ]);
+            setRequests(corrections);
+            setTimeApprovals(approvals);
         } catch (error) {
             setMessage(`Time correction requests could not load: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -2305,7 +2314,21 @@ function DispatchClockCorrectionReview({
         }
     }
 
-    if (requests.length === 0 && !message) return null;
+    async function reviewApproval(request: TimeApprovalRequest, decision: 'approved' | 'denied') {
+        setReviewingId(request.id);
+        setMessage(`${decision === 'approved' ? 'Approving' : 'Denying'} ${request.approvalType.replace(/_/g, ' ')}...`);
+        try {
+            await reviewTimeApproval(request.id, decision);
+            await refresh();
+            setMessage(`Time request ${decision}.`);
+        } catch (error) {
+            setMessage(`Time approval review failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setReviewingId('');
+        }
+    }
+
+    if (requests.length === 0 && timeApprovals.length === 0 && !message) return null;
 
     return (
         <ThemedCard style={{ marginBottom: 16 }}>
@@ -2317,7 +2340,7 @@ function DispatchClockCorrectionReview({
                     </Text>
                 </View>
                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {requests.length} pending
+                    {requests.length + timeApprovals.length} pending
                 </Text>
             </View>
             {!!message && <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>}
@@ -2354,6 +2377,36 @@ function DispatchClockCorrectionReview({
                                     onPress={() => review(request, 'approved')}
                                     style={compactActionButtonStyle}
                                 />
+                            </View>
+                        </View>
+                    );
+                })}
+                {timeApprovals.map((request) => {
+                    const technician = companyUsers.find((user) => user.id === request.technicianCompanyUserId);
+                    const overtime = request.approvalType === 'overtime';
+                    return (
+                        <View
+                            key={request.id}
+                            style={[
+                                dispatchOfficeActionCardStyle,
+                                {
+                                    borderColor: overtime ? '#4EA7E8' : '#FFD166',
+                                    backgroundColor: overtime ? '#123E68' : '#6B4300',
+                                },
+                            ]}
+                        >
+                            <Text style={[dispatchJobCodeStyle, { color: '#FFFFFF' }]}>
+                                {technician ? getMemberDisplayName(technician) : 'Technician'}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: '#FFFFFF' }]}>
+                                {overtime ? 'OVERTIME APPROVAL' : 'EARLY CLOCK-IN APPROVAL'}
+                            </Text>
+                            <Text style={[metaTextStyle, { color: '#DCEFFF' }]}>
+                                Requested {formatDateTime(request.requestedAt)}
+                            </Text>
+                            <View style={compactActionRowStyle}>
+                                <ThemedButton title="Deny" variant="danger" disabled={!!reviewingId} onPress={() => reviewApproval(request, 'denied')} style={compactActionButtonStyle} />
+                                <ThemedButton title="Approve" variant="primary" disabled={!!reviewingId} onPress={() => reviewApproval(request, 'approved')} style={compactActionButtonStyle} />
                             </View>
                         </View>
                     );

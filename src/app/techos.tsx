@@ -51,7 +51,9 @@ import {
 import {
     loadTechnicianTimeEntries,
     manageTechnicianTimeEntry,
+    registerTechnicianDevice,
     requestClockInCorrection,
+    requestTimeApproval,
     setTechnicianClock,
     type TechnicianTimeEntry,
 } from '../lib/technicianTimeClock';
@@ -248,7 +250,7 @@ type JobDateGroup = {
     jobs: TechOSJob[];
 };
 
-type TechOSAccessMode = 'choosing' | 'working' | 'off_clock';
+type TechOSAccessMode = 'choosing' | 'working' | 'off_clock' | 'companion';
 
 type CreateTechOSServiceJobResult = {
     job_id: string;
@@ -480,12 +482,39 @@ export default function TechOSScreen() {
         setAccessModeLoading(true);
         setAccessModeMessage('Clocking in and opening TechOS...');
         try {
+            await registerTechnicianDevice(
+                technicianId,
+                getOrCreateTechOSDeviceKey(),
+                'primary_phone',
+                'Primary TechOS phone'
+            );
             await setTechnicianClock(technicianId, 'clock_in');
             setAccessMode('working');
             setDashboardView('jobs');
             setAccessModeMessage('');
         } catch (error) {
             setAccessModeMessage(`Could not clock in: ${getErrorMessage(error)}`);
+        } finally {
+            setAccessModeLoading(false);
+        }
+    }
+
+    async function startCompanionMode() {
+        const technicianId = assignedTechnicianCompanyUserIds[0] || '';
+        if (!technicianId || accessModeLoading) return;
+        setAccessModeLoading(true);
+        setAccessModeMessage('Registering companion tablet...');
+        try {
+            await registerTechnicianDevice(
+                technicianId,
+                getOrCreateTechOSDeviceKey(),
+                'companion_tablet',
+                'Homeowner presentation tablet'
+            );
+            setAccessMode('companion');
+            setAccessModeMessage('');
+        } catch (error) {
+            setAccessModeMessage(`Companion tablet could not register: ${getErrorMessage(error)}`);
         } finally {
             setAccessModeLoading(false);
         }
@@ -1310,7 +1339,7 @@ export default function TechOSScreen() {
                     }));
                     router.push({
                         pathname: '/job-workflow',
-                        params: { workflowId: soldWorkflow.id },
+                        params: { estimateSessionId: soldWorkflow.estimateSessionId },
                     } as any);
                     return;
                 }
@@ -1708,6 +1737,9 @@ export default function TechOSScreen() {
                     void startWorkFromAccessGate();
                 }}
                 onReturnToChoice={() => setAccessMode('choosing')}
+                onUseCompanion={() => {
+                    void startCompanionMode();
+                }}
                 onViewOffClock={() => setAccessMode('off_clock')}
                 technicianCompanyUserId={assignedTechnicianCompanyUserIds[0] || ''}
                 technicianName={technicianName}
@@ -2234,6 +2266,7 @@ function TechOSAccessGate({
     nextJobs,
     onClockIn,
     onReturnToChoice,
+    onUseCompanion,
     onViewOffClock,
     technicianCompanyUserId,
     technicianName,
@@ -2244,6 +2277,7 @@ function TechOSAccessGate({
     nextJobs: TechAssignedScheduleJob[];
     onClockIn: () => void;
     onReturnToChoice: () => void;
+    onUseCompanion: () => void;
     onViewOffClock: () => void;
     technicianCompanyUserId: string;
     technicianName: string;
@@ -2290,16 +2324,22 @@ function TechOSAccessGate({
                 <HomeHeader />
                 <ThemedCard style={techAccessGateCardStyle}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
-                        {accessMode === 'off_clock' ? 'Viewing Off the Clock' : `Welcome, ${technicianName}`}
+                        {accessMode === 'off_clock'
+                            ? 'Viewing Off the Clock'
+                            : accessMode === 'companion'
+                                ? 'Companion Presentation Tablet'
+                                : `Welcome, ${technicianName}`}
                     </Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                         {accessMode === 'off_clock'
                             ? 'Schedule information is read-only. Clock in before taking photos, changing job status, creating estimates, recording purchases, or completing work.'
+                            : accessMode === 'companion'
+                                ? 'This tablet is limited to homeowner-facing options, approvals, signatures, documents, and before/after photos. The technician controls the job from the registered phone.'
                             : 'Choose how you are entering TechOS. Working actions remain locked until you clock in.'}
                     </Text>
                     {!!message && <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>}
 
-                    {accessMode === 'off_clock' && (
+                    {(accessMode === 'off_clock' || accessMode === 'companion') && (
                         <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                             <Text style={[clientNameStyle, { color: theme.colors.text }]}>Next job</Text>
                             {nextJob ? (
@@ -2314,6 +2354,25 @@ function TechOSAccessGate({
                                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                                         {getAssignedJobLocation(nextJob)}
                                     </Text>
+                                    {accessMode === 'companion' && (
+                                        <ThemedButton
+                                            title="Open Homeowner Presentation"
+                                            variant="primary"
+                                            onPress={() => {
+                                                void loadSoldJobForScheduleSlot(nextJob.slot.id).then((record) => {
+                                                    if (record) {
+                                                        router.push({
+                                                            pathname: '/job-workflow',
+                                                            params: { estimateSessionId: record.estimateSessionId, presentation: '1' },
+                                                        } as any);
+                                                    } else {
+                                                        setCorrectionMessage('This job does not have a homeowner presentation ready yet.');
+                                                    }
+                                                });
+                                            }}
+                                            style={assignedJobActionButtonStyle}
+                                        />
+                                    )}
                                 </>
                             ) : (
                                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>No upcoming assigned job.</Text>
@@ -2321,13 +2380,15 @@ function TechOSAccessGate({
                         </View>
                     )}
 
-                    <ThemedButton
-                        title={loading ? 'Starting Work...' : 'Clock In & Start Work'}
-                        variant="primary"
-                        disabled={loading}
-                        onPress={onClockIn}
-                        style={assignedJobActionButtonStyle}
-                    />
+                    {accessMode !== 'companion' && (
+                        <ThemedButton
+                            title={loading ? 'Starting Work...' : 'Clock In & Start Work'}
+                            variant="primary"
+                            disabled={loading}
+                            onPress={onClockIn}
+                            style={assignedJobActionButtonStyle}
+                        />
+                    )}
                     {accessMode === 'choosing' ? (
                         <>
                             <ThemedButton
@@ -2342,6 +2403,13 @@ function TechOSAccessGate({
                                 variant="secondary"
                                 disabled={loading}
                                 onPress={() => setCorrectionOpen((current) => !current)}
+                                style={assignedJobActionButtonStyle}
+                            />
+                            <ThemedButton
+                                title="Use as Companion iPad"
+                                variant="secondary"
+                                disabled={loading}
+                                onPress={onUseCompanion}
                                 style={assignedJobActionButtonStyle}
                             />
                         </>
@@ -2951,7 +3019,7 @@ function TechOSSoldJobRecord({
                         variant="primary"
                         onPress={() => router.push({
                             pathname: '/job-workflow',
-                            params: { workflowId: record.id },
+                            params: { estimateSessionId: record.estimateSessionId },
                         } as any)}
                         style={assignedJobActionButtonStyle}
                     />
@@ -3115,6 +3183,22 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                             </Text>
                         )}
                     </View>
+                    {overtimeApproaching && (
+                        <ThemedButton
+                            title="Request Overtime Approval"
+                            variant={overtimeActive ? 'primary' : 'secondary'}
+                            disabled={updatingClock}
+                            onPress={() => {
+                                setUpdatingClock(true);
+                                setClockMessage('Sending overtime request to Dispatch...');
+                                void requestTimeApproval(technicianCompanyUserId, 'overtime')
+                                    .then(() => setClockMessage('Overtime approval request sent to Dispatch.'))
+                                    .catch((error) => setClockMessage(`Overtime request failed: ${getErrorMessage(error)}`))
+                                    .finally(() => setUpdatingClock(false));
+                            }}
+                            style={assignedJobActionButtonStyle}
+                        />
+                    )}
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                         Started {formatTechOSDateTime(openEntry.clockedInAt)}
                     </Text>
@@ -3284,6 +3368,18 @@ async function captureBrowserClockLocation() {
             { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
         );
     });
+}
+
+function getOrCreateTechOSDeviceKey() {
+    const storageKey = 'techos-device-key-v1';
+    if (typeof window !== 'undefined') {
+        const existing = window.localStorage.getItem(storageKey);
+        if (existing) return existing;
+        const created = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}-${Math.random()}`;
+        window.localStorage.setItem(storageKey, created);
+        return created;
+    }
+    return `${Date.now()}-${Math.random()}-${Math.random()}`;
 }
 
 function formatTechOSMoney(value: number) {
