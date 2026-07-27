@@ -45,6 +45,7 @@ import { supabase } from '../lib/supabase';
 import {
     getSoldJobNextAction,
     loadSoldJobForScheduleSlot,
+    loadSoldJobForServiceRequest,
     loadSoldJobsForTechnician,
     type SoldJobRecord,
 } from '../lib/soldJobs';
@@ -1298,10 +1299,10 @@ export default function TechOSScreen() {
         setEstimateDraftCountByPropertyId(Object.fromEntries(entries));
     }
 
-    async function handleCloseServiceVisit(job: TechAssignedScheduleJob) {
+    async function handleCloseServiceVisit(job: TechAssignedScheduleJob, outcomeOverride?: ServiceVisitOutcome) {
         const slotId = job.slot.id;
         const form = closeoutFormBySlotId[slotId] || createDefaultTechCloseoutForm();
-        const outcome = form.outcome;
+        const outcome = outcomeOverride || form.outcome;
 
         if (!job.request?.id) {
             setWorkflowMessageBySlotId((current) => ({
@@ -1329,7 +1330,15 @@ export default function TechOSScreen() {
 
         try {
             if (outcome === 'completed_successfully') {
-                const soldWorkflow = await loadSoldJobForScheduleSlot(slotId);
+                const soldWorkflow = await loadSoldJobForScheduleSlot(slotId)
+                    || (job.request?.id ? await loadSoldJobForServiceRequest(job.request.id) : null);
+                if (!soldWorkflow) {
+                    setWorkflowMessageBySlotId((current) => ({
+                        ...current,
+                        [slotId]: 'Homeowner completion approval could not open because this sold job has no linked workflow. The visit was not closed.',
+                    }));
+                    return;
+                }
                 if (soldWorkflow && !['customer_completed', 'collection_pending', 'closed'].includes(soldWorkflow.status)) {
                     setWorkflowMessageBySlotId((current) => ({
                         ...current,
@@ -2718,7 +2727,7 @@ function TechOSDashboardContent({
     onCloseDetails: () => void;
     onChangeCloseoutForm: (slotId: string, updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (slotId: string, note: string) => void;
-    onCloseServiceVisit: (job: TechAssignedScheduleJob) => void;
+    onCloseServiceVisit: (job: TechAssignedScheduleJob, outcomeOverride?: ServiceVisitOutcome) => void;
     onOpenClientHomeOS: (job: TechAssignedScheduleJob) => void;
     onOpenDetails: (job: TechAssignedScheduleJob) => void;
     onOpenEstimateForAssignedJob: (job: TechAssignedScheduleJob) => void;
@@ -2744,7 +2753,7 @@ function TechOSDashboardContent({
                 onBack={onCloseDetails}
                 onChangeCloseoutForm={(updates) => onChangeCloseoutForm(selectedJob.slot.id, updates)}
                 onChangeCustomStatusNote={(note) => onChangeCustomStatusNote(selectedJob.slot.id, note)}
-                onCloseServiceVisit={() => onCloseServiceVisit(selectedJob)}
+                onCloseServiceVisit={(outcomeOverride) => onCloseServiceVisit(selectedJob, outcomeOverride)}
                 onOpenClientHomeOS={() => onOpenClientHomeOS(selectedJob)}
                 onOpenEstimate={() => onOpenEstimateForAssignedJob(selectedJob)}
                 onOpenFullJob={onOpenFullJob}
@@ -3814,7 +3823,7 @@ function TechOSAssignedJobDetail({
     onBack: () => void;
     onChangeCloseoutForm: (updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (note: string) => void;
-    onCloseServiceVisit: () => void;
+    onCloseServiceVisit: (outcomeOverride?: ServiceVisitOutcome) => void;
     onOpenClientHomeOS: () => void;
     onOpenEstimate: () => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
@@ -4067,10 +4076,15 @@ function TechOSAssignedJobDetail({
                             title={option.label}
                             variant={closeoutForm.outcome === option.outcome ? 'primary' : 'secondary'}
                             disabled={updating || !isActiveScheduleSlot(job.slot.status)}
-                            onPress={() => onChangeCloseoutForm({
-                                outcome: option.outcome,
-                                notifyHomeowner: option.homeownerDefault,
-                            })}
+                            onPress={() => {
+                                onChangeCloseoutForm({
+                                    outcome: option.outcome,
+                                    notifyHomeowner: option.homeownerDefault,
+                                });
+                                if (option.outcome === 'completed_successfully') {
+                                    onCloseServiceVisit(option.outcome);
+                                }
+                            }}
                             style={techWorkflowActionButtonStyle}
                             textStyle={techWorkflowActionButtonTextStyle}
                         />

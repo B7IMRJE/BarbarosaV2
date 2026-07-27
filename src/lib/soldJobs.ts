@@ -70,6 +70,21 @@ export async function loadSoldJobForScheduleSlot(scheduleSlotId: string) {
     return data ? normalizeSoldJobRecord(data) : null;
 }
 
+export async function loadSoldJobForServiceRequest(serviceRequestId: string) {
+    const { data, error } = await supabase
+        .from('company_job_workflows')
+        .select(soldJobColumns)
+        .eq('service_request_id', serviceRequestId)
+        .not('sold_at', 'is', null)
+        .order('sold_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) throw error;
+
+    return data ? normalizeSoldJobRecord(data) : null;
+}
+
 export async function loadSoldJobsForTechnician(companyId: string, technicianCompanyUserId: string) {
     const { data: slots, error: slotError } = await supabase
         .from('job_schedule_slots')
