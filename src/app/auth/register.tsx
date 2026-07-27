@@ -28,6 +28,7 @@ export default function RegisterScreen() {
         next?: string | string[];
         mode?: string | string[];
         email?: string | string[];
+        phone?: string | string[];
     }>();
     const requestedNextRoute = resolveSafeNext(firstParam(params.next));
     const pendingInvite = getPendingCompanyInviteState();
@@ -40,8 +41,9 @@ export default function RegisterScreen() {
     const workAccountMode = isWorkAccountFlow(workModeParam, nextRoute);
     const confirmNextRoute = readInviteCodeFromNextPath(nextRoute) ? nextRoute : null;
     const invitedEmail = normalizeEmail(firstParam(params.email));
+    const invitedPhone = String(firstParam(params.phone) || '').trim();
     const [fullName, setFullName] = useState('');
-    const [phone, setPhone] = useState('');
+    const [phone, setPhone] = useState(invitedPhone);
     const [email, setEmail] = useState(invitedEmail);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');

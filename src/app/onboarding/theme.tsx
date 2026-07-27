@@ -7,7 +7,7 @@ import { themeOptions, type HomeOSTheme } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
 export default function OnboardingThemeScreen() {
-    const { scaleFont, scaleIcon, setThemeName, theme, themeName } = useTheme();
+    const { appearance, scaleFont, scaleIcon, setAppearance, setThemeName, theme, themeName } = useTheme();
     const params = useLocalSearchParams<{ next?: string | string[] }>();
     const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
     const [isSavingTheme, setIsSavingTheme] = useState(false);
@@ -71,6 +71,34 @@ export default function OnboardingThemeScreen() {
                     Pick the theme that feels best on this device. You can change it later from Profile.
                 </Text>
 
+                <View style={appearanceStyleRow}>
+                    {([
+                        { name: 'glass' as const, label: 'Glass', note: 'Layered, reflective cards' },
+                        { name: 'classic' as const, label: 'Classic', note: 'Clean, flatter cards' },
+                    ]).map((styleOption) => {
+                        const selected = appearance.appearanceStyle === styleOption.name;
+                        return (
+                            <ThemedCard
+                                key={styleOption.name}
+                                onPress={() => void setAppearance({ ...appearance, appearanceStyle: styleOption.name })}
+                                style={{
+                                    backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
+                                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                    flex: 1,
+                                    minWidth: 220,
+                                }}
+                            >
+                                <Text style={{ color: selected ? theme.colors.primaryText : theme.colors.text, fontSize: scaleFont(18), fontWeight: '900' }}>
+                                    {selected ? '✓ ' : ''}{styleOption.label}
+                                </Text>
+                                <Text style={{ color: selected ? theme.colors.primaryText : theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', marginTop: 5 }}>
+                                    {styleOption.note}
+                                </Text>
+                            </ThemedCard>
+                        );
+                    })}
+                </View>
+
                 <View style={themeGridStyle}>
                     {themeOptions.map((option) => {
                         const selected = option.name === themeName;
@@ -82,9 +110,10 @@ export default function OnboardingThemeScreen() {
                                     void selectTheme(option.name);
                                 }}
                                 style={{
+                                    backgroundColor: option.colors.background,
                                     flexGrow: 1,
                                     flexBasis: 280,
-                                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                    borderColor: selected ? option.colors.primary : option.colors.border,
                                     borderWidth: selected ? 2 : 1,
                                 }}
                             >
@@ -93,7 +122,7 @@ export default function OnboardingThemeScreen() {
                                         <View style={{ flex: 1, minWidth: scaleIcon(180) }}>
                                             <Text
                                                 style={{
-                                                    color: theme.colors.text,
+                                                    color: option.colors.text,
                                                     fontSize: scaleFont(18),
                                                     fontWeight: '900',
                                                 }}
@@ -102,7 +131,7 @@ export default function OnboardingThemeScreen() {
                                             </Text>
                                             <Text
                                                 style={{
-                                                    color: selected ? theme.colors.primary : theme.colors.mutedText,
+                                                    color: selected ? option.colors.primary : option.colors.mutedText,
                                                     fontSize: scaleFont(13),
                                                     fontWeight: '900',
                                                     marginTop: scaleIcon(6),
@@ -116,11 +145,11 @@ export default function OnboardingThemeScreen() {
                                             style={{
                                                 alignItems: 'center',
                                                 backgroundColor: selected
-                                                    ? theme.colors.primary
-                                                    : theme.colors.secondaryButton,
+                                                    ? option.colors.primary
+                                                    : option.colors.secondaryButton,
                                                 borderColor: selected
-                                                    ? theme.colors.primary
-                                                    : theme.colors.border,
+                                                    ? option.colors.primary
+                                                    : option.colors.border,
                                                 borderRadius: 999,
                                                 borderWidth: 1,
                                                 height: scaleIcon(34),
@@ -131,8 +160,8 @@ export default function OnboardingThemeScreen() {
                                             <Text
                                                 style={{
                                                     color: selected
-                                                        ? theme.colors.primaryText
-                                                        : theme.colors.mutedText,
+                                                        ? option.colors.primaryText
+                                                        : option.colors.mutedText,
                                                     fontSize: scaleFont(16),
                                                     fontWeight: '900',
                                                 }}
@@ -346,6 +375,14 @@ const themeGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 14,
+};
+
+const appearanceStyleRow = {
+    alignItems: 'stretch' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 14,
+    marginBottom: 18,
 };
 
 const cardHeaderStyle = {

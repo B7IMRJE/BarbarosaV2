@@ -301,6 +301,20 @@ export default function CustomerInviteScreen() {
             return;
         }
 
+        if (invite?.invited_phone) {
+            const { data: existingProfile } = await supabase
+                .from('profiles')
+                .select('phone')
+                .eq('id', user.id)
+                .maybeSingle();
+            if (!String(existingProfile?.phone || '').trim()) {
+                await supabase
+                    .from('profiles')
+                    .update({ phone: invite.invited_phone })
+                    .eq('id', user.id);
+            }
+        }
+
         clearPendingCompanyInviteState({ inviteCode });
         setSuccess(true);
         setMessage(`Your home is now connected with ${invite?.company_name || 'the service company'}. Opening HomeOS...`);
@@ -319,7 +333,7 @@ export default function CustomerInviteScreen() {
         replacePendingCompanyInviteFromNextPath(nextPath, invite?.invited_email);
         router.push({
             pathname: '/auth/register',
-            params: buildAuthParams(nextPath, invite?.invited_email),
+            params: buildAuthParams(nextPath, invite?.invited_email, invite?.invited_phone),
         } as never);
     }
 
@@ -562,7 +576,7 @@ function isWrongSignedInEmail(currentEmail?: string | null, invitedEmail?: strin
     return !!cleanInvitedEmail && normalizeEmail(currentEmail) !== cleanInvitedEmail;
 }
 
-function buildAuthParams(nextPath: string, invitedEmail?: string | null) {
+function buildAuthParams(nextPath: string, invitedEmail?: string | null, invitedPhone?: string | null) {
     const params: Record<string, string> = {
         next: nextPath,
     };
@@ -571,6 +585,8 @@ function buildAuthParams(nextPath: string, invitedEmail?: string | null) {
     if (cleanInvitedEmail) {
         params.email = cleanInvitedEmail;
     }
+    const cleanInvitedPhone = String(invitedPhone || '').trim();
+    if (cleanInvitedPhone) params.phone = cleanInvitedPhone;
 
     return params;
 }
