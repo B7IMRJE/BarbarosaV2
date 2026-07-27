@@ -57,6 +57,8 @@ type CompanyBrand = {
 
 type WallCompanyAccess = {
     company_id: string;
+    full_name: string | null;
+    email: string | null;
     role: string | null;
     status: string | null;
 };
@@ -583,6 +585,8 @@ export default function DispatchWallScreen() {
             const demoData = createDemoWallboardData(new Date());
             setCompanyAccess({
                 company_id: demoData.company.id,
+                full_name: 'Demo Dispatcher',
+                email: null,
                 role: 'demo',
                 status: 'active',
             });
@@ -856,15 +860,22 @@ export default function DispatchWallScreen() {
                         </View>
                     )}
                     {!compactWidth && !stackedLayout && <View style={wallHeaderDividerStyle} />}
-                    <Text
-                        style={[
-                            wallTitleStyle,
-                            { fontSize: stackedLayout ? 24 : compactWidth ? 22 : width >= 1600 ? 42 : 34 },
-                        ]}
-                        numberOfLines={1}
-                    >
-                        Dispatch Activity Board
-                    </Text>
+                    <View style={wallTitleClusterStyle}>
+                        <Text
+                            style={[
+                                wallTitleStyle,
+                                { fontSize: stackedLayout ? 24 : compactWidth ? 22 : width >= 1600 ? 42 : 34 },
+                            ]}
+                            numberOfLines={1}
+                        >
+                            Dispatch Activity Board
+                        </Text>
+                        {!compactWidth && (
+                            <Text style={wallWelcomeStyle} numberOfLines={1}>
+                                Welcome, {companyAccess?.full_name || companyAccess?.email?.split('@')[0] || 'Dispatcher'}
+                            </Text>
+                        )}
+                    </View>
                 </View>
                 <View style={[
                     wallHeaderRightStyle,
@@ -1549,6 +1560,8 @@ async function resolveWallCompanyAccess(userId: string, requestedCompanyId: stri
         return {
             access: {
                 company_id: requestedCompanyId,
+                full_name: 'Platform Admin',
+                email: null,
                 role: 'platform_admin',
                 status: 'active',
             },
@@ -1607,6 +1620,8 @@ function getActiveWallDispatchChoices(rows: CompanyRouteAccessRow[]) {
 
         choicesByCompanyId.set(row.company_id, {
             company_id: row.company_id,
+            full_name: row.full_name,
+            email: row.email,
             role: row.role,
             status: row.status,
         });
@@ -1620,6 +1635,8 @@ function getDeniedWallDispatchAccess(rows: CompanyRouteAccessRow[], requestedCom
         .filter((row) => row.company_id && isActiveStatus(row.status) && !canAccessDispatch(row))
         .map((row) => ({
             company_id: row.company_id,
+            full_name: row.full_name,
+            email: row.email,
             role: row.role,
             status: row.status,
         }));
@@ -2433,6 +2450,18 @@ const wallTitleStyle = {
     flex: 1,
     fontWeight: '900' as const,
     letterSpacing: 0,
+};
+
+const wallTitleClusterStyle = {
+    flexShrink: 1,
+    minWidth: 0,
+};
+
+const wallWelcomeStyle = {
+    color: '#9DB6C9',
+    fontSize: 14,
+    fontWeight: '900' as const,
+    marginTop: 2,
 };
 
 const brandClusterStyle: ViewStyle = {

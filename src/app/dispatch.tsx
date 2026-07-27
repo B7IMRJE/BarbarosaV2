@@ -1421,6 +1421,11 @@ export default function DispatchBoardScreen() {
 
     const companyName = getCompanyDisplayName(company);
     const dispatchCompanyId = companyAccess?.company_id || requestedCompanyId;
+    const signedInDispatcher = companyUsers.find((member) => member.auth_user_id === authDebug?.userId) || null;
+    const signedInDispatcherName = signedInDispatcher?.full_name
+        || signedInDispatcher?.email?.split('@')[0]
+        || authDebug?.email?.split('@')[0]
+        || 'Dispatcher';
     const dispatchBackFallback = dispatchCompanyId
         ? (`/super-admin/company/${dispatchCompanyId}` as Href)
         : ('/super-admin' as Href);
@@ -1457,6 +1462,9 @@ export default function DispatchBoardScreen() {
                         <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={[kickerStyle, { color: theme.colors.primary }]}>Service Desk</Text>
                             <Text style={[titleStyle, { color: theme.colors.text }]}>Dispatch Office</Text>
+                            <Text style={[dispatchWelcomeStyle, { color: theme.colors.mutedText }]}>
+                                Welcome, {signedInDispatcherName}
+                            </Text>
                         </View>
                         <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
                             {loading ? 'Refreshing' : `Active ${activeDispatchCount}`}
@@ -5980,6 +5988,12 @@ const titleStyle = {
     fontSize: 34,
     fontWeight: '900' as const,
     marginBottom: 10,
+};
+
+const dispatchWelcomeStyle = {
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginTop: -4,
 };
 
 const bodyTextStyle = {
