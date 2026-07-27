@@ -223,7 +223,7 @@ export default function HomeDashboardView({
           >
             {healthSummary.score === null
               ? 'Start by adding real equipment, fixtures, documents, and photos from your home.'
-              : `${healthSummary.score}/100 based on ${healthSummary.itemCount} home item${healthSummary.itemCount === 1 ? '' : 's'}.`}
+              : `${healthSummary.score}/100 based on ${healthSummary.itemCount} active home item${healthSummary.itemCount === 1 ? '' : 's'}.`}
           </Text>
         </ThemedCard>
 

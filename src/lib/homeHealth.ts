@@ -194,12 +194,18 @@ export function scoreItems(items: HomeHealthItem[]): HealthSummary {
 
 export function scoreSystemHealth(items: HomeHealthItem[], system: string): HealthSummary {
     return scoreItems(
-        items.filter((item) => sameText(item.system, system) && !sameText(item.category, 'Area'))
+        items.filter((item) =>
+            sameText(item.system, system) &&
+            !sameText(item.category, 'Area') &&
+            !isEmptyStarterCard(item)
+        )
     );
 }
 
 export function scoreCategoryHealth(items: HomeHealthItem[], category: string): HealthSummary {
-    return scoreItems(items.filter((item) => sameText(item.category, category)));
+    return scoreItems(items.filter((item) =>
+        sameText(item.category, category) && !isEmptyStarterCard(item)
+    ));
 }
 
 export function scoreAreaHealth(items: HomeHealthItem[], area: string): HealthSummary {
@@ -207,6 +213,7 @@ export function scoreAreaHealth(items: HomeHealthItem[], area: string): HealthSu
         items.filter(
             (item) =>
                 !sameText(item.category, 'Area') &&
+                !isEmptyStarterCard(item) &&
                 [item.area, item.location, item.parent_area].some((itemArea) => sameText(itemArea, area))
         )
     );
@@ -241,7 +248,22 @@ export function scoreOverallHomeHealth(
     items: HomeHealthItem[],
     emergencies: HomeHealthEmergency[]
 ): HealthSummary {
-    const summary = scoreItems(items);
+    const scoredItems = items.filter((item) =>
+        !sameText(item.category, 'Area') && !isEmptyStarterCard(item)
+    );
+    const summary = scoredItems.length === 0
+        ? {
+            score: 100,
+            label: 'Good' as const,
+            status: 'good' as const,
+            itemCount: 0,
+            criticalCount: 0,
+            needsAttentionCount: 0,
+            unknownCount: 0,
+            goodCount: 0,
+            emergencyOverride: false,
+        }
+        : scoreItems(scoredItems);
 
     if (!hasActiveEmergency(emergencies)) {
         return summary;
@@ -254,6 +276,13 @@ export function scoreOverallHomeHealth(
         status: 'critical',
         emergencyOverride: true,
     };
+}
+
+export function isEmptyStarterCard(item: HomeHealthItem) {
+    return (
+        sameText(item.status, 'Missing Information') &&
+        sameText(item.install_state, 'Unknown')
+    );
 }
 
 export function statusForCard(summary: HealthSummary): string | null {

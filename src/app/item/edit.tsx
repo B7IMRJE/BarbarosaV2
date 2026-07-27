@@ -15,6 +15,7 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
+import { buildAreaRow } from '../../lib/areaTemplates';
 import { homeSystemOptions } from '../../lib/homeSystems';
 import {
     ACTIVATED_ITEM_INSTALL_STATE,
@@ -298,6 +299,13 @@ export default function EditItemScreen() {
         }
 
         if (activationMode) {
+            await activateParentArea({
+                userId: activeProperty.userId,
+                propertyId: activeProperty.propertyId,
+                areaName: nextLocation,
+                system,
+                parentArea: finalParentArea(nextLocation),
+            });
             router.replace(`/item/${String(slug)}` as any);
             return;
         }
@@ -460,6 +468,38 @@ export default function EditItemScreen() {
             </View>
         </ScrollView>
     );
+}
+
+async function activateParentArea({
+    userId,
+    propertyId,
+    areaName,
+    system,
+    parentArea,
+}: {
+    userId: string;
+    propertyId: string;
+    areaName: string;
+    system: string;
+    parentArea: string;
+}) {
+    if (!areaName || areaName === 'Whole Home') return;
+
+    const { data } = await supabase
+        .from('home_items')
+        .select('id')
+        .eq('property_id', propertyId)
+        .eq('category', 'Area')
+        .eq('system', system)
+        .eq('location', areaName)
+        .eq('parent_area', parentArea)
+        .limit(1);
+
+    if ((data || []).length > 0) return;
+
+    await supabase
+        .from('home_items')
+        .insert(buildAreaRow(userId, propertyId, areaName, system, parentArea));
 }
 
 function firstParam(value?: string | string[]) {

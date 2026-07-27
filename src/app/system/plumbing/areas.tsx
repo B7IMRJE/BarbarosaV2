@@ -2,7 +2,6 @@ import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { getStatusCardStyle } from '../../../components/cards/SystemStatusCard';
-import ThemedButton from '../../../components/theme/ThemedButton';
 import {
     activePropertyErrorMessage,
     isActivePropertyResolutionError,
@@ -418,13 +417,6 @@ function PlumbingAreaCard({
                 </Text>
             </TouchableOpacity>
 
-            <ThemedButton
-                title="Activate Card"
-                variant="secondary"
-                onPress={onPress}
-                style={archiveButtonStyle}
-                textStyle={archiveButtonTextStyle}
-            />
         </View>
     );
 }
@@ -540,19 +532,4 @@ const cardTitleStyle = {
     fontWeight: '900' as const,
     lineHeight: 20,
     textAlign: 'center' as const,
-};
-
-const archiveButtonStyle = {
-    alignSelf: 'center' as const,
-    marginTop: 8,
-    minHeight: 34,
-    minWidth: 82,
-    paddingVertical: 4,
-    paddingHorizontal: 9,
-};
-
-const archiveButtonTextStyle = {
-    fontSize: 10,
-    fontWeight: '700' as const,
-    lineHeight: 12,
 };
