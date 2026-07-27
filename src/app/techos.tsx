@@ -29,6 +29,7 @@ import {
     formatServiceRequestReference,
     getServiceRequestDisplayCode,
 } from '../lib/homeServiceRequests';
+import { completeJobWorkflowFromTechOS } from '../lib/jobWorkflow';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
 import { recordServiceRequestEvent } from '../lib/serviceRequestActivity';
 import {
@@ -1340,16 +1341,22 @@ export default function TechOSScreen() {
                     }));
                     return;
                 }
-                if (soldWorkflow && !['customer_completed', 'collection_pending', 'closed'].includes(soldWorkflow.status)) {
+                if (soldWorkflow && !['customer_completed', 'invoice_sent', 'collection_pending', 'closed'].includes(soldWorkflow.status)) {
+                    if (soldWorkflow.status !== 'work_complete') {
+                        await completeJobWorkflowFromTechOS(soldWorkflow.id, slotId);
+                    }
                     setWorkflowMessageBySlotId((current) => ({
                         ...current,
-                        [slotId]: soldWorkflow.status === 'work_complete'
-                            ? 'Homeowner signature is required before this sold job can be closed.'
-                            : 'Finish the sold-job completion wizard before closing this visit.',
+                        [slotId]: 'Homeowner signature is required before this sold job can be closed.',
                     }));
                     router.push({
                         pathname: '/job-workflow',
-                        params: { estimateSessionId: soldWorkflow.estimateSessionId },
+                        params: {
+                            estimateSessionId: soldWorkflow.estimateSessionId,
+                            completion: '1',
+                            source: 'techos',
+                            returnTo: `/techos?companyId=${encodeURIComponent(job.slot.company_id)}`,
+                        },
                     } as any);
                     return;
                 }
@@ -3029,7 +3036,12 @@ function TechOSSoldJobRecord({
                         variant="primary"
                         onPress={() => router.push({
                             pathname: '/job-workflow',
-                            params: { estimateSessionId: record.estimateSessionId },
+                            params: {
+                                estimateSessionId: record.estimateSessionId,
+                                completion: record.status === 'work_complete' ? '1' : '0',
+                                source: 'techos',
+                                returnTo: `/techos?companyId=${encodeURIComponent(record.companyId)}`,
+                            },
                         } as any)}
                         style={assignedJobActionButtonStyle}
                     />

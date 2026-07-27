@@ -17,12 +17,21 @@ import {
 import { supabase } from '../lib/supabase';
 
 export default function JobWorkflowScreen() {
-    const { estimateSessionId, presentation } = useLocalSearchParams<{
+    const { estimateSessionId, presentation, completion, source, returnTo } = useLocalSearchParams<{
         estimateSessionId?: string | string[];
         presentation?: string | string[];
+        completion?: string | string[];
+        source?: string | string[];
+        returnTo?: string | string[];
     }>();
     const sessionId = Array.isArray(estimateSessionId) ? estimateSessionId[0] : estimateSessionId;
     const presentationMode = (Array.isArray(presentation) ? presentation[0] : presentation) === '1';
+    const completionMode = (Array.isArray(completion) ? completion[0] : completion) === '1';
+    const sourceName = Array.isArray(source) ? source[0] : source;
+    const requestedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo;
+    const techOSReturnTo = sourceName === 'techos' && requestedReturnTo?.startsWith('/techos')
+        ? requestedReturnTo
+        : '/techos';
     const [bundle, setBundle] = useState<JobWorkflowBundle | null>(null);
     const [message, setMessage] = useState('Opening customer approval...');
     const [busy, setBusy] = useState(false);
@@ -104,6 +113,10 @@ export default function JobWorkflowScreen() {
         try {
             await advanceJobWorkflow(bundle.workflow.id, action, payload);
             await refresh();
+            if (action === 'accept_completion' && completionMode && sourceName === 'techos') {
+                router.replace(techOSReturnTo as never);
+                return;
+            }
             setMessage(actionMessage(action));
         } catch (error) {
             setMessage(errorMessage(error));
@@ -193,11 +206,18 @@ export default function JobWorkflowScreen() {
         >
             <View style={headerStyle}>
                 <View style={{ flex: 1 }}>
-                    <Text style={eyebrowStyle}>Homeowner approval & job workflow</Text>
-                    <Text style={titleStyle}>From quote to completion</Text>
+                    <Text style={eyebrowStyle}>
+                        {completionMode ? 'Homeowner completion approval' : 'Homeowner approval & job workflow'}
+                    </Text>
+                    <Text style={titleStyle}>
+                        {completionMode ? 'Completed work sign-off' : 'From quote to completion'}
+                    </Text>
                     <Text style={versionStyle}>{BUILD_DISPLAY}</Text>
                 </View>
-                <TouchableOpacity style={secondaryButtonStyle} onPress={() => router.back()}>
+                <TouchableOpacity
+                    style={secondaryButtonStyle}
+                    onPress={() => sourceName === 'techos' ? router.replace(techOSReturnTo as never) : router.back()}
+                >
                     <Text style={secondaryButtonTextStyle}>Back</Text>
                 </TouchableOpacity>
             </View>
@@ -446,7 +466,7 @@ export default function JobWorkflowScreen() {
                 <Section title="Job closed" subtitle="Quote, signatures, photos, invoice, and external payment record are complete." />
             )}
 
-            {!presentationMode && status !== 'presenting' && <Section title="Job timeline" subtitle="A timestamped audit trail for the company.">
+            {!presentationMode && !completionMode && status !== 'presenting' && <Section title="Job timeline" subtitle="A timestamped audit trail for the company.">
                 {(bundle.events || []).slice().reverse().map((event) => (
                     <View key={event.id} style={timelineStyle}>
                         <Text style={optionTitleStyle}>{event.title}</Text>

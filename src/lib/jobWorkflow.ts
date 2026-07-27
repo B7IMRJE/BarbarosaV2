@@ -86,6 +86,18 @@ export async function advanceJobWorkflow(
     return data as JobWorkflow;
 }
 
+export async function completeJobWorkflowFromTechOS(
+    workflowId: string,
+    scheduleSlotId: string
+): Promise<JobWorkflow> {
+    const { data, error } = await supabase.rpc('complete_company_job_workflow_from_techos', {
+        p_workflow_id: workflowId,
+        p_schedule_slot_id: scheduleSlotId,
+    });
+    if (error) throw error;
+    return data as JobWorkflow;
+}
+
 export async function acceptJobWorkflowQuote(input: {
     workflowId: string;
     selectedChoiceIds: string[];
