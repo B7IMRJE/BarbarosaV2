@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import type React from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import SignaturePad, { isDrawnSignature } from '../components/signature-pad';
 import { BUILD_DISPLAY } from '../lib/appVersion';
@@ -35,6 +35,7 @@ export default function JobWorkflowScreen() {
     const [completionName, setCompletionName] = useState('');
     const [completionSignature, setCompletionSignature] = useState('');
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
+    const workflowScrollRef = useRef<ScrollView | null>(null);
 
     useEffect(() => {
         if (!sessionId) {
@@ -152,8 +153,20 @@ export default function JobWorkflowScreen() {
         );
     }
 
+    function openApprovalPage(page: 1 | 2 | 3) {
+        setApprovalPage(page);
+        requestAnimationFrame(() => {
+            workflowScrollRef.current?.scrollTo({ y: 0, animated: false });
+        });
+    }
+
     return (
-        <ScrollView style={screenStyle} contentContainerStyle={contentStyle}>
+        <ScrollView
+            ref={workflowScrollRef}
+            contentInsetAdjustmentBehavior="automatic"
+            style={screenStyle}
+            contentContainerStyle={contentStyle}
+        >
             <View style={headerStyle}>
                 <View style={{ flex: 1 }}>
                     <Text style={eyebrowStyle}>Homeowner approval & job workflow</Text>
@@ -196,7 +209,7 @@ export default function JobWorkflowScreen() {
                     <PrimaryButton
                         title="Continue to Cancellation Notice"
                         disabled={selectedChoiceIds.length === 0}
-                        onPress={() => setApprovalPage(2)}
+                        onPress={() => openApprovalPage(2)}
                     />
                 </Section>
             )}
@@ -230,11 +243,11 @@ export default function JobWorkflowScreen() {
                         onChange={setCancellationSignature}
                     />
                     <View style={twoButtonRowStyle}>
-                        <SecondaryButton title="Back to Options" onPress={() => setApprovalPage(1)} />
+                        <SecondaryButton title="Back to Options" onPress={() => openApprovalPage(1)} />
                         <PrimaryButton
                             title="Continue to Work Approval"
                             disabled={!cancellationNoticeSigned}
-                            onPress={() => setApprovalPage(3)}
+                            onPress={() => openApprovalPage(3)}
                         />
                     </View>
                 </Section>
@@ -282,7 +295,7 @@ export default function JobWorkflowScreen() {
                         disabled={busy || !workApprovalReady}
                         onPress={acceptSelectedWork}
                     />
-                    <SecondaryButton title="Back to Cancellation Policy" onPress={() => setApprovalPage(2)} />
+                    <SecondaryButton title="Back to Cancellation Notice" onPress={() => openApprovalPage(2)} />
                 </Section>
             )}
 
