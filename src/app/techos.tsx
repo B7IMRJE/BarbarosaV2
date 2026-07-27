@@ -54,6 +54,7 @@ import {
     manageTechnicianTimeEntry,
     registerTechnicianDevice,
     requestClockInCorrection,
+    requestClockOutCorrection,
     requestTimeApproval,
     setTechnicianClock,
     type TechnicianTimeEntry,
@@ -3045,12 +3046,14 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     const [updatingClock, setUpdatingClock] = useState(false);
     const [now, setNow] = useState(() => Date.now());
     const [correctionOpen, setCorrectionOpen] = useState(false);
+    const [correctionMode, setCorrectionMode] = useState<'clock_in' | 'clock_out'>('clock_in');
     const [correctionTime, setCorrectionTime] = useState('08:00');
     const [correctionReason, setCorrectionReason] = useState('');
     const [dayNotes, setDayNotes] = useState('');
     const [injuryReported, setInjuryReported] = useState(false);
     const [injuryDetails, setInjuryDetails] = useState('');
     const [daySignature, setDaySignature] = useState('');
+    const [historyOpen, setHistoryOpen] = useState(false);
 
     async function refreshClock() {
         if (!technicianCompanyUserId) {
@@ -3074,6 +3077,7 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     const openEntry = entries.find((entry) => !entry.clockedOutAt) || null;
     const latestEntry = entries[0] || null;
     const activeBreak = !!openEntry?.breakStartedAt && !openEntry.breakEndedAt;
+    const activeRestBreak = !!openEntry?.restBreakStartedAt;
     const shiftSeconds = openEntry
         ? Math.max(0, Math.floor((now - new Date(openEntry.clockedInAt).getTime()) / 1000))
         : 0;
@@ -3106,14 +3110,20 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
         }
     }
 
-    async function runTimeEntryAction(action: 'start_break' | 'end_break' | 'add_30_minute_break') {
+    async function runTimeEntryAction(action: 'start_break' | 'end_break' | 'add_30_minute_break' | 'start_rest_break' | 'end_rest_break') {
         if (!technicianCompanyUserId || updatingClock) return;
         setUpdatingClock(true);
         setClockMessage('Updating lunch break...');
         try {
             await manageTechnicianTimeEntry(technicianCompanyUserId, action);
             await refreshClock();
-            setClockMessage(action === 'start_break' ? 'Lunch started.' : action === 'end_break' ? 'Lunch ended.' : '30-minute lunch added.');
+            setClockMessage(
+                action === 'start_break' ? 'Lunch started.'
+                    : action === 'end_break' ? 'Lunch ended.'
+                        : action === 'start_rest_break' ? 'Rest break started.'
+                            : action === 'end_rest_break' ? 'Rest break ended.'
+                                : 'Forgotten 30-minute lunch recorded from 11:30 AM to 12:00 PM.'
+            );
         } catch (error) {
             setClockMessage(`Lunch update failed: ${getErrorMessage(error)}`);
         } finally {
@@ -3129,14 +3139,25 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
         setClockMessage('Capturing location and sending clock-in correction for approval...');
         try {
             const location = await captureBrowserClockLocation();
-            await requestClockInCorrection({
-                technicianCompanyUserId,
-                requestedClockInAt: requested.toISOString(),
-                reason: correctionReason,
-                latitude: location?.latitude,
-                longitude: location?.longitude,
-                accuracyMeters: location?.accuracy,
-            });
+            if (correctionMode === 'clock_out') {
+                await requestClockOutCorrection({
+                    technicianCompanyUserId,
+                    requestedClockOutAt: requested.toISOString(),
+                    reason: correctionReason,
+                    latitude: location?.latitude,
+                    longitude: location?.longitude,
+                    accuracyMeters: location?.accuracy,
+                });
+            } else {
+                await requestClockInCorrection({
+                    technicianCompanyUserId,
+                    requestedClockInAt: requested.toISOString(),
+                    reason: correctionReason,
+                    latitude: location?.latitude,
+                    longitude: location?.longitude,
+                    accuracyMeters: location?.accuracy,
+                });
+            }
             setCorrectionOpen(false);
             setCorrectionReason('');
             setClockMessage('Correction sent to Dispatch. Your time will not change unless it is approved.');
@@ -3241,14 +3262,17 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                             onPress={() => runTimeEntryAction(activeBreak ? 'end_break' : 'start_break')}
                             style={techWorkflowActionButtonStyle}
                         />
-                        <ThemedButton
-                            title="Add 30-Minute Lunch"
-                            variant="secondary"
-                            disabled={updatingClock || activeBreak || openEntry.breakMinutes >= 30}
-                            onPress={() => runTimeEntryAction('add_30_minute_break')}
-                            style={techWorkflowActionButtonStyle}
-                        />
                     </View>
+                    <TouchableOpacity
+                        accessibilityRole="button"
+                        onPress={() => runTimeEntryAction(activeRestBreak ? 'end_rest_break' : 'start_rest_break')}
+                        disabled={updatingClock || activeBreak}
+                        style={{ alignSelf: 'flex-start', paddingVertical: 8 }}
+                    >
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText, textDecorationLine: 'underline' }]}>
+                            {activeRestBreak ? 'End 10-minute rest break' : 'Take a 10-minute rest break'}
+                        </Text>
+                    </TouchableOpacity>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                         If a required meal is not recorded, the shift is flagged for office review; time is never deducted for a meal that was not taken.
                     </Text>
@@ -3262,19 +3286,37 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                 style={assignedJobActionButtonStyle}
             />
             {!openEntry && (
-                <ThemedButton
-                    title={correctionOpen ? 'Cancel Forgotten Clock-In' : 'Forgot to Clock In?'}
-                    variant="secondary"
-                    disabled={updatingClock}
-                    onPress={() => setCorrectionOpen((current) => !current)}
-                    style={assignedJobActionButtonStyle}
-                />
+                <View style={techWorkflowActionGridStyle}>
+                    <ThemedButton
+                        title={correctionOpen && correctionMode === 'clock_in' ? 'Cancel Clock-In Request' : 'Forgot to Clock In?'}
+                        variant="secondary"
+                        disabled={updatingClock}
+                        onPress={() => {
+                            setCorrectionMode('clock_in');
+                            setCorrectionOpen((current) => correctionMode === 'clock_in' ? !current : true);
+                        }}
+                        style={techWorkflowActionButtonStyle}
+                    />
+                    <ThemedButton
+                        title={correctionOpen && correctionMode === 'clock_out' ? 'Cancel Clock-Out Request' : 'Forgot to Clock Out?'}
+                        variant="secondary"
+                        disabled={updatingClock || !latestEntry}
+                        onPress={() => {
+                            setCorrectionMode('clock_out');
+                            setCorrectionOpen((current) => correctionMode === 'clock_out' ? !current : true);
+                        }}
+                        style={techWorkflowActionButtonStyle}
+                    />
+                </View>
             )}
             {correctionOpen && (
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
-                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>Request a corrected clock-in</Text>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>
+                        Request a corrected {correctionMode === 'clock_out' ? 'clock-out' : 'clock-in'}
+                    </Text>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        This does not change your time. Dispatch must review and approve it. Requests cannot be earlier than 8:00 AM today.
+                        This does not change your time. Dispatch must review and approve it.
+                        {correctionMode === 'clock_in' ? ' Clock-in requests cannot be earlier than 8:00 AM today.' : ''}
                     </Text>
                     <TextInput
                         value={correctionTime}
@@ -3286,7 +3328,7 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                     <TextInput
                         value={correctionReason}
                         onChangeText={setCorrectionReason}
-                        placeholder="Why was the clock-in missed?"
+                        placeholder={`Why was the clock-${correctionMode === 'clock_out' ? 'out' : 'in'} missed?`}
                         placeholderTextColor={theme.colors.mutedText}
                         multiline
                         style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
@@ -3309,6 +3351,15 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
             {!!latestEntry?.clockedOutAt && !latestEntry.submittedAt && (
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                     <Text style={[clientNameStyle, { color: theme.colors.text }]}>Sign and submit today</Text>
+                    {latestEntry.breakMinutes < 30 && (
+                        <ThemedButton
+                            title="I Forgot to Record My 30-Minute Lunch"
+                            variant="secondary"
+                            disabled={updatingClock}
+                            onPress={() => runTimeEntryAction('add_30_minute_break')}
+                            style={assignedJobActionButtonStyle}
+                        />
+                    )}
                     <TextInput
                         value={dayNotes}
                         onChangeText={setDayNotes}
@@ -3343,14 +3394,25 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                     />
                 </View>
             )}
-            <Text style={[clientNameStyle, { color: theme.colors.text }]}>Recent shifts</Text>
-            {entries.slice(0, 10).map((entry) => (
+            <TouchableOpacity
+                accessibilityRole="button"
+                onPress={() => setHistoryOpen((current) => !current)}
+                style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}
+            >
+                <Text style={[clientNameStyle, { color: theme.colors.text }]}>
+                    Time Clock History {historyOpen ? '▲' : '▼'}
+                </Text>
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    {historyOpen ? 'Hide daily shifts' : 'Open and scroll through each workday'}
+                </Text>
+            </TouchableOpacity>
+            {historyOpen && entries.map((entry) => (
                 <View key={entry.id} style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.text }]}>
                         {formatTechOSDateTime(entry.clockedInAt)} → {entry.clockedOutAt ? formatTechOSDateTime(entry.clockedOutAt) : 'In progress'}
                     </Text>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        {formatTimeEntryDuration(entry, now)} · Lunch {entry.breakMinutes}m
+                        {formatTimeEntryDuration(entry, now)} · Lunch {entry.breakMinutes}m · Rest breaks {entry.restBreakMinutes}m
                         {entry.automaticLunchApplied ? ' (automatic)' : ''}
                     </Text>
                     {entry.mealExceptionReported && (

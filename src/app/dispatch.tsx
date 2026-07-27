@@ -2342,9 +2342,9 @@ function DispatchClockCorrectionReview({
         <ThemedCard style={{ marginBottom: 16 }}>
             <View style={sectionHeaderStyle}>
                 <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Clock-In Corrections</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Time Corrections</Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Review forgotten clock-ins before technician time is changed.
+                        Review forgotten clock-ins and clock-outs before technician time is changed.
                     </Text>
                 </View>
                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
@@ -2362,7 +2362,8 @@ function DispatchClockCorrectionReview({
                                 {technician ? getMemberDisplayName(technician) : 'Technician'}
                             </Text>
                             <Text style={[metaTextStyle, { color: theme.colors.text }]}>
-                                Requested: {formatDateTime(request.requestedClockInAt)}
+                                {request.correctionType === 'clock_out' ? 'Requested clock-out' : 'Requested clock-in'}:{' '}
+                                {formatDateTime(request.requestedClockOutAt || request.requestedClockInAt)}
                             </Text>
                             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{request.reason}</Text>
                             <Text style={[metaTextStyle, { color: locationAvailable ? theme.colors.primary : theme.colors.mutedText }]}>

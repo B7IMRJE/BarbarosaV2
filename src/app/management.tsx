@@ -1,10 +1,13 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import { loadEstimateDraft } from '../lib/estimateDraft';
 import { loadJobs, type Job } from '../lib/jobs';
+import { loadLoggedInUserCompanyAccess } from '../lib/onboarding';
 import { isStaffRole, loadCurrentUserRole } from '../lib/roles';
+import { supabase } from '../lib/supabase';
+import { addCompanyHoliday, loadCompanyTimekeeping, type CompanyHoliday } from '../lib/technicianTimeClock';
 import { useTheme } from '../theme/useTheme';
 
 type DashboardCounts = {
@@ -66,6 +69,13 @@ export default function ManagementScreen() {
     const [counts, setCounts] = useState<DashboardCounts>(defaultCounts);
     const [recentJobs, setRecentJobs] = useState<Job[]>([]);
     const [message, setMessage] = useState('Loading ManagementOS dashboard...');
+    const [companyId, setCompanyId] = useState('');
+    const [timeEntries, setTimeEntries] = useState<any[]>([]);
+    const [timeUsers, setTimeUsers] = useState<any[]>([]);
+    const [holidays, setHolidays] = useState<CompanyHoliday[]>([]);
+    const [holidayName, setHolidayName] = useState('');
+    const [holidayDate, setHolidayDate] = useState('');
+    const [timekeepingOpen, setTimekeepingOpen] = useState(false);
 
     useEffect(() => {
         checkAccess();
@@ -79,9 +89,46 @@ export default function ManagementScreen() {
         setCheckingAccess(false);
 
         if (canAccess) {
-            await loadDashboardCounts();
+            const { data: authData } = await supabase.auth.getUser();
+            const access = authData.user
+                ? await loadLoggedInUserCompanyAccess(authData.user.id)
+                : { data: [], error: null };
+            const activeAccess = access.data.find((row) =>
+                String(row.status || '').toLowerCase() === 'active'
+            );
+            setCompanyId(activeAccess?.company_id || '');
+            await Promise.all([
+                loadDashboardCounts(),
+                activeAccess?.company_id ? loadTimekeeping(activeAccess.company_id) : Promise.resolve(),
+            ]);
         } else {
             setMessage('');
+        }
+    }
+
+    async function loadTimekeeping(activeCompanyId = companyId) {
+        if (!activeCompanyId) return;
+        try {
+            const result = await loadCompanyTimekeeping(activeCompanyId);
+            setTimeEntries(result.entries);
+            setTimeUsers(result.users);
+            setHolidays(result.holidays);
+        } catch (error: any) {
+            setMessage(`Timekeeping could not load: ${error.message || 'Unknown error'}`);
+        }
+    }
+
+    async function saveHoliday() {
+        if (!companyId || !holidayDate || holidayName.trim().length < 2) return;
+        try {
+            setMessage('Saving company holiday...');
+            await addCompanyHoliday(companyId, holidayDate, holidayName);
+            setHolidayDate('');
+            setHolidayName('');
+            await loadTimekeeping(companyId);
+            setMessage('Company holiday saved.');
+        } catch (error: any) {
+            setMessage(`Holiday could not be saved: ${error.message || 'Unknown error'}`);
         }
     }
 
@@ -305,6 +352,91 @@ export default function ManagementScreen() {
                             </Text>
                         </TouchableOpacity>
                     ))}
+                </View>
+
+                <View
+                    style={[
+                        scaleStyle(recentActivityCardStyle),
+                        { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+                    ]}
+                >
+                    <View style={scaleStyle(recentHeaderStyle)}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Timekeeping</Text>
+                            <Text style={[scaleStyle(summaryNoteStyle), { color: theme.colors.mutedText }]}>
+                                Review employee shifts and maintain company holidays.
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            activeOpacity={0.82}
+                            onPress={() => setTimekeepingOpen((current) => !current)}
+                            style={[scaleStyle(smallButtonStyle), { backgroundColor: theme.colors.secondaryButton, borderColor: theme.colors.border }]}
+                        >
+                            <Text style={[scaleStyle(smallButtonTextStyle), { color: theme.colors.secondaryButtonText }]}>
+                                {timekeepingOpen ? 'Hide' : 'Open Clock'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                    {timekeepingOpen && (
+                        <View style={{ gap: scaleIcon(12) }}>
+                            <Text style={[scaleStyle(actionTitleStyle), { color: theme.colors.text }]}>Add Holiday</Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
+                                <TextInput
+                                    value={holidayName}
+                                    onChangeText={setHolidayName}
+                                    placeholder="Holiday name"
+                                    placeholderTextColor={theme.colors.mutedText}
+                                    style={[managementTimeInputStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}
+                                />
+                                <TextInput
+                                    value={holidayDate}
+                                    onChangeText={setHolidayDate}
+                                    placeholder="YYYY-MM-DD"
+                                    placeholderTextColor={theme.colors.mutedText}
+                                    style={[managementTimeInputStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}
+                                />
+                                <TouchableOpacity
+                                    onPress={saveHoliday}
+                                    disabled={!holidayDate || holidayName.trim().length < 2}
+                                    style={[scaleStyle(smallButtonStyle), { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}
+                                >
+                                    <Text style={[scaleStyle(smallButtonTextStyle), { color: theme.colors.primaryText }]}>Save Holiday</Text>
+                                </TouchableOpacity>
+                            </View>
+                            {holidays.map((holiday) => (
+                                <Text key={holiday.id} style={[scaleStyle(summaryNoteStyle), { color: theme.colors.text }]}>
+                                    {holiday.holidayDate} · {holiday.name}
+                                </Text>
+                            ))}
+                            <Text style={[scaleStyle(actionTitleStyle), { color: theme.colors.text, marginTop: scaleIcon(8) }]}>
+                                Recent Employee Shifts
+                            </Text>
+                            {timeEntries.length === 0 && (
+                                <Text style={[scaleStyle(summaryNoteStyle), { color: theme.colors.mutedText }]}>No shifts recorded yet.</Text>
+                            )}
+                            {timeEntries.map((entry) => {
+                                const person = timeUsers.find((user) => user.id === entry.technician_company_user_id);
+                                const start = new Date(entry.clocked_in_at);
+                                const end = entry.clocked_out_at ? new Date(entry.clocked_out_at) : null;
+                                const seconds = end ? Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000)) : 0;
+                                return (
+                                    <View key={entry.id} style={[scaleStyle(recentJobCardStyle), { backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.border }]}>
+                                        <Text style={[scaleStyle(recentJobTitleStyle), { color: theme.colors.text }]}>
+                                            {person?.full_name || person?.email?.split('@')[0] || 'Employee'}
+                                        </Text>
+                                        <Text style={[scaleStyle(recentJobMetaStyle), { color: theme.colors.mutedText }]}>
+                                            {start.toLocaleString()} → {end ? end.toLocaleString() : 'Clocked in'}
+                                        </Text>
+                                        <Text style={[scaleStyle(recentJobMetaStyle), { color: theme.colors.mutedText }]}>
+                                            {end ? `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m` : 'Active shift'}
+                                            {' · '}Lunch {entry.break_minutes || 0}m · Rest {entry.rest_break_minutes || 0}m
+                                            {entry.submitted_at ? ' · Signed' : ''}
+                                        </Text>
+                                    </View>
+                                );
+                            })}
+                        </View>
+                    )}
                 </View>
 
                 <View
@@ -811,4 +943,14 @@ const stepTextStyle = {
     flex: 1,
     fontSize: 15,
     fontWeight: '800',
+};
+
+const managementTimeInputStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    fontSize: 14,
+    fontWeight: '700' as const,
+    minWidth: 170,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
 };
