@@ -34,6 +34,26 @@ revoke all on function public.company_permissions_are_valid(jsonb) from public;
 revoke all on function public.company_permissions_are_valid(jsonb) from anon;
 grant execute on function public.company_permissions_are_valid(jsonb) to authenticated;
 
+alter table public.company_users
+    add column if not exists permissions jsonb not null default '{}'::jsonb;
+
+alter table public.company_user_invitations
+    add column if not exists permissions jsonb not null default '{}'::jsonb;
+
+alter table public.company_users
+    drop constraint if exists company_users_permissions_object_check;
+
+alter table public.company_users
+    add constraint company_users_permissions_object_check
+    check (public.company_permissions_are_valid(permissions));
+
+alter table public.company_user_invitations
+    drop constraint if exists company_user_invitations_permissions_object_check;
+
+alter table public.company_user_invitations
+    add constraint company_user_invitations_permissions_object_check
+    check (public.company_permissions_are_valid(permissions));
+
 create table if not exists public.company_role_permission_profiles (
     id uuid primary key default gen_random_uuid(),
     company_id uuid not null references public.companies(id) on delete cascade,
