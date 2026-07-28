@@ -104,7 +104,11 @@ export default function CompanyClientsScreen() {
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
     const [preferredByPropertyId, setPreferredByPropertyId] = useState<Record<string, string>>({});
     const [companyName, setCompanyName] = useState('Company');
-    const [companyBrand, setCompanyBrand] = useState<{ primary_color: string | null } | null>(null);
+    const [companyBrand, setCompanyBrand] = useState<{
+        primary_color: string | null;
+        secondary_color: string | null;
+        accent_color: string | null;
+    } | null>(null);
     const theme = useMemo(
         () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand),
         [companyBrand, themeContext.theme]
@@ -246,7 +250,7 @@ export default function CompanyClientsScreen() {
     async function loadCompanyName(companyId: string) {
         const { data } = await supabase
             .from('companies')
-            .select('name, public_name, dba_name, primary_color')
+            .select('name, public_name, dba_name, primary_color, secondary_color, accent_color')
             .eq('id', companyId)
             .maybeSingle();
         const company = (data || {}) as {
@@ -254,10 +258,16 @@ export default function CompanyClientsScreen() {
             public_name?: string | null;
             dba_name?: string | null;
             primary_color?: string | null;
+            secondary_color?: string | null;
+            accent_color?: string | null;
         };
 
         setCompanyName(getCompanyDisplayName(company));
-        setCompanyBrand({ primary_color: company.primary_color || null });
+        setCompanyBrand({
+            primary_color: company.primary_color || null,
+            secondary_color: company.secondary_color || null,
+            accent_color: company.accent_color || null,
+        });
     }
 
     async function loadCustomerInvites(companyId: string) {

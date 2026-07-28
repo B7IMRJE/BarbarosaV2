@@ -2,6 +2,8 @@ import type { HomeOSTheme } from '../theme/themes';
 
 export type CompanyWorkspaceBrand = {
     primary_color?: string | null;
+    secondary_color?: string | null;
+    accent_color?: string | null;
 };
 
 export function resolveCompanyWorkspaceTheme(
@@ -11,32 +13,24 @@ export function resolveCompanyWorkspaceTheme(
     if (!company) return baseTheme;
 
     const primary = safeBrandColor(company.primary_color, baseTheme.colors.primary);
-    const background = mixWorkspaceColor(primary, '#000000', 0.42);
-    const surface = mixWorkspaceColor(primary, '#FFFFFF', 0.14);
-    const surfaceAlt = mixWorkspaceColor(primary, '#000000', 0.12);
-    const accent = mixWorkspaceColor(primary, '#8CFFC1', 0.38);
-    const text = readableWorkspaceColor(surface);
-    const mutedText = mixWorkspaceColor(text, surface, 0.38);
-    const border = mixWorkspaceColor(accent, '#FFFFFF', 0.18);
+    const secondary = safeBrandColor(company.secondary_color, primary);
+    const accent = safeBrandColor(company.accent_color, baseTheme.colors.primary);
+    const surfaceAlt = mixWorkspaceColor(baseTheme.colors.surface, secondary, 0.08);
+    const border = mixWorkspaceColor(baseTheme.colors.border, accent, 0.32);
 
     return {
         ...baseTheme,
         colors: {
             ...baseTheme.colors,
-            background,
-            surface,
             surfaceAlt,
-            text,
-            mutedText,
             border,
-            primary: accent,
-            primaryText: readableWorkspaceColor(accent),
+            primary,
+            primaryText: readableWorkspaceColor(primary),
             secondaryButton: surfaceAlt,
             secondaryButtonText: readableWorkspaceColor(surfaceAlt),
             iconBackground: surfaceAlt,
-            progressTrack: mixWorkspaceColor(surface, background, 0.42),
+            progressTrack: mixWorkspaceColor(baseTheme.colors.surface, secondary, 0.12),
             progressFill: accent,
-            overlay: background,
             link: accent,
         },
     };
