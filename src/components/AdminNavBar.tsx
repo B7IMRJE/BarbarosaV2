@@ -205,9 +205,9 @@ export default function AdminNavBar({
                 <NavButton
                     label={signingOut ? 'Signing Out...' : 'Sign Out'}
                     onPress={signOut}
-                    backgroundColor={theme.colors.secondaryButton}
+                    backgroundColor={theme.colors.surface}
                     borderColor={theme.colors.border}
-                    textColor={theme.colors.secondaryButtonText}
+                    textColor={theme.colors.text}
                 />
             </View>
 
@@ -216,25 +216,25 @@ export default function AdminNavBar({
                     <NavButton
                         label="Back"
                         onPress={() => safeBack(router, backFallback)}
-                        backgroundColor={theme.colors.secondaryButton}
+                        backgroundColor={theme.colors.surface}
                         borderColor={theme.colors.border}
-                        textColor={theme.colors.secondaryButtonText}
+                        textColor={theme.colors.text}
                     />
                 )}
                 <NavButton
                     label="Home"
                     onPress={() => router.replace('/' as Href)}
-                    backgroundColor={theme.colors.secondaryButton}
+                    backgroundColor={theme.colors.surface}
                     borderColor={theme.colors.border}
-                    textColor={theme.colors.secondaryButtonText}
+                    textColor={theme.colors.text}
                 />
                 {isPlatformAdmin && (
                     <NavButton
                         label="Super Admin"
                         onPress={() => router.replace('/super-admin' as Href)}
-                        backgroundColor={theme.colors.secondaryButton}
+                        backgroundColor={theme.colors.surface}
                         borderColor={theme.colors.border}
-                        textColor={theme.colors.secondaryButtonText}
+                        textColor={theme.colors.text}
                     />
                 )}
                 {companyDashboardRoute && (
