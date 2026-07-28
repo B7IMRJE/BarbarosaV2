@@ -20,7 +20,9 @@ import {
     customerInviteHasContact,
     customerInvitePhoneWasPersisted,
 } from '../../../../lib/customerInviteDraft';
+import { resolveCompanyWorkspaceTheme } from '../../../../lib/companyWorkspaceTheme';
 import { supabase } from '../../../../lib/supabase';
+import { ThemeContext } from '../../../../theme';
 import { useTheme } from '../../../../theme/useTheme';
 
 type CompanyClient = {
@@ -95,13 +97,18 @@ type CustomerInviteEmailResponse = {
 };
 
 export default function CompanyClientsScreen() {
-    const { theme } = useTheme();
+    const themeContext = useTheme();
     const { width: windowWidth } = useWindowDimensions();
     const { id } = useLocalSearchParams<{ id: string }>();
     const [clients, setClients] = useState<CompanyClient[]>([]);
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
     const [preferredByPropertyId, setPreferredByPropertyId] = useState<Record<string, string>>({});
     const [companyName, setCompanyName] = useState('Company');
+    const [companyBrand, setCompanyBrand] = useState<{ primary_color: string | null } | null>(null);
+    const theme = useMemo(
+        () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand),
+        [companyBrand, themeContext.theme]
+    );
     const [customerInvites, setCustomerInvites] = useState<CustomerInvite[]>([]);
     const [inviteForm, setInviteForm] = useState<CustomerInviteForm>({
         invitedName: '',
@@ -239,12 +246,18 @@ export default function CompanyClientsScreen() {
     async function loadCompanyName(companyId: string) {
         const { data } = await supabase
             .from('companies')
-            .select('name, public_name, dba_name')
+            .select('name, public_name, dba_name, primary_color')
             .eq('id', companyId)
             .maybeSingle();
-        const company = (data || {}) as { name?: string | null; public_name?: string | null; dba_name?: string | null };
+        const company = (data || {}) as {
+            name?: string | null;
+            public_name?: string | null;
+            dba_name?: string | null;
+            primary_color?: string | null;
+        };
 
         setCompanyName(getCompanyDisplayName(company));
+        setCompanyBrand({ primary_color: company.primary_color || null });
     }
 
     async function loadCustomerInvites(companyId: string) {
@@ -522,6 +535,7 @@ export default function CompanyClientsScreen() {
     }
 
     return (
+        <ThemeContext.Provider value={{ ...themeContext, theme }}>
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
@@ -704,6 +718,7 @@ export default function CompanyClientsScreen() {
                 )}
             </View>
         </ScrollView>
+        </ThemeContext.Provider>
     );
 }
 
