@@ -88,7 +88,7 @@ export function createCompanyGlassPalette(input: {
             emerald: colorTone(primary, '#53B98D'),
             teal: colorTone(accent, '#2FA5B3'),
             blue: colorTone(supporting, '#2788B7'),
-            steel: colorTone(companyPanel, primary, panelOpacity),
+            steel: companyWorkspaceTone(companyPanel, accent, panelOpacity),
         },
     };
 }
@@ -190,6 +190,21 @@ function colorTone(color: string, fallbackEdge: string, opacity = 0.82): GlassTo
         edge: validHex(color) || fallbackEdge,
         glow: withAlpha(color, 0.24),
         iconBackground: withAlpha(mixHex(color, '#03182A', 0.18), 0.76),
+    };
+}
+
+function companyWorkspaceTone(panelColor: string, accentColor: string, opacity = 0.82): GlassToneColors {
+    const panel = validHex(panelColor) || '#4B286D';
+    const accent = validHex(accentColor) || '#F59E0B';
+    const lightPanel = mixHex(panel, '#FFFFFF', 0.7);
+    const warmBorder = mixHex(accent, '#FFFFFF', 0.34);
+
+    return {
+        background: withAlpha(lightPanel, Math.max(0.88, opacity)),
+        border: withAlpha(warmBorder, 0.9),
+        edge: accent,
+        glow: withAlpha(accent, 0.2),
+        iconBackground: withAlpha(mixHex(panel, '#FFFFFF', 0.54), 0.94),
     };
 }
 
