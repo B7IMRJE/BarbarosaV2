@@ -180,6 +180,7 @@ export default function CompanyDashboardScreen() {
     const [savingBrand, setSavingBrand] = useState(false);
     const [extractedLogoColors, setExtractedLogoColors] = useState<string[]>([]);
     const [expandedConfigSection, setExpandedConfigSection] = useState<ConfigSectionKey | null>(null);
+    const [isConfigEditorOpen, setIsConfigEditorOpen] = useState(false);
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
     const [leadCountMessage, setLeadCountMessage] = useState('');
     const [leadCountLoading, setLeadCountLoading] = useState(false);
@@ -189,6 +190,8 @@ export default function CompanyDashboardScreen() {
     const visibleCards = cards.filter((card) => card !== 'Visual Control Center' || isPlatformAdmin);
 
     useEffect(() => {
+        setIsConfigEditorOpen(false);
+        setExpandedConfigSection(null);
         loadCompany();
         void loadCurrentUserPlatformAdmin().then(setIsPlatformAdmin);
     }, [routeCompanyId]);
@@ -536,12 +539,14 @@ export default function CompanyDashboardScreen() {
         }
 
         if (card === 'Company Profile / Identity') {
+            setIsConfigEditorOpen(true);
             toggleConfigSection('identity');
             return;
         }
 
         if (card === 'Visual Control Center') {
             if (!isPlatformAdmin) return;
+            setIsConfigEditorOpen(true);
             toggleConfigSection('theme');
             return;
         }
@@ -638,8 +643,12 @@ export default function CompanyDashboardScreen() {
                         minWidth: 0,
                         backgroundColor: brandPrimary,
                         borderRadius: 28,
-                        borderWidth: 1,
-                        borderColor: brandAccent,
+                        borderWidth: 2,
+                        borderTopColor: 'rgba(255,255,255,0.48)',
+                        borderColor: mixHexColors(brandAccent, '#FFFFFF', 0.24),
+                        borderBottomColor: brandAccent,
+                        borderBottomWidth: 7,
+                        boxShadow: '0 16px 30px rgba(7, 27, 51, 0.28), inset 0 2px 0 rgba(255,255,255,0.22)',
                         padding: isPhoneLayout ? 18 : 22,
                         marginTop: 16,
                         marginBottom: 22,
@@ -694,6 +703,8 @@ export default function CompanyDashboardScreen() {
                                             height: heroLogoSize,
                                             borderRadius: 24,
                                             backgroundColor: brandSecondary,
+                                            borderColor: 'rgba(255,255,255,0.72)',
+                                            borderWidth: 2,
                                             flexShrink: 0,
                                         }}
                                     />
@@ -704,6 +715,9 @@ export default function CompanyDashboardScreen() {
                                             height: heroLogoSize,
                                             borderRadius: 24,
                                             backgroundColor: brandSecondary,
+                                            borderColor: 'rgba(255,255,255,0.72)',
+                                            borderWidth: 2,
+                                            boxShadow: '0 9px 18px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.75)',
                                             alignItems: 'center',
                                             justifyContent: 'center',
                                             flexShrink: 0,
@@ -770,7 +784,12 @@ export default function CompanyDashboardScreen() {
                                 alignSelf: 'flex-start',
                                 maxWidth: '100%',
                                 backgroundColor: brandSecondary,
-                                borderRadius: 8,
+                                borderColor: 'rgba(255,255,255,0.72)',
+                                borderRadius: 14,
+                                borderWidth: 2,
+                                borderBottomColor: brandAccent,
+                                borderBottomWidth: 5,
+                                boxShadow: '0 7px 14px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.78)',
                                 paddingHorizontal: isPhoneLayout ? 14 : 18,
                                 paddingVertical: isPhoneLayout ? 10 : 12,
                             }}
@@ -953,22 +972,54 @@ export default function CompanyDashboardScreen() {
                             marginBottom: 22,
                         }}
                     >
-                        <Text
+                        <TouchableOpacity
+                            activeOpacity={0.84}
+                            onPress={() => {
+                                setIsConfigEditorOpen((current) => !current);
+                                if (isConfigEditorOpen) setExpandedConfigSection(null);
+                            }}
                             style={{
-                                fontSize: 22,
-                                fontWeight: '900',
-                                color: '#071B33',
-                                marginBottom: 8,
+                                alignItems: 'center',
+                                flexDirection: 'row',
+                                gap: 12,
+                                justifyContent: 'space-between',
+                                minWidth: 0,
                             }}
                         >
-                            Company Configuration Editor
-                        </Text>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={{ fontSize: 22, fontWeight: '900', color: '#071B33' }}>
+                                    Company Configuration Editor
+                                </Text>
+                                <Text style={{ color: '#637083', fontWeight: '700', lineHeight: 19, marginTop: 5 }}>
+                                    {isConfigEditorOpen ? 'Editing tools are open.' : 'Closed by default. Open only when you need to change the company.'}
+                                </Text>
+                            </View>
+                            <View
+                                style={{
+                                    backgroundColor: isConfigEditorOpen ? brandPrimary : '#FFFFFF',
+                                    borderColor: brandAccent,
+                                    borderRadius: 999,
+                                    borderWidth: 2,
+                                    borderBottomColor: brandPrimary,
+                                    borderBottomWidth: 5,
+                                    boxShadow: '0 6px 12px rgba(7,27,51,0.18), inset 0 1px 0 rgba(255,255,255,0.8)',
+                                    paddingHorizontal: 14,
+                                    paddingVertical: 9,
+                                }}
+                            >
+                                <Text style={{ color: isConfigEditorOpen ? getReadableColor(brandPrimary) : '#071B33', fontSize: 12, fontWeight: '900' }}>
+                                    {isConfigEditorOpen ? 'Close' : 'Open Editor'}
+                                </Text>
+                            </View>
+                        </TouchableOpacity>
 
+                        {isConfigEditorOpen && <>
                         <Text
                             style={{
                                 color: '#637083',
                                 lineHeight: 21,
                                 marginBottom: 18,
+                                marginTop: 16,
                             }}
                         >
                             Open a management section above or use the section headers below to update the company
@@ -1130,7 +1181,7 @@ export default function CompanyDashboardScreen() {
                                             marginTop: 12,
                                         }}
                                     >
-                                        {(previewCategories.length ? previewCategories : ['No categories']).map((category) => (
+                                        {(previewCategories.length ? previewCategories.slice(0, 4) : ['No services selected']).map((category) => (
                                             <View
                                                 key={category}
                                                 style={{
@@ -1155,6 +1206,22 @@ export default function CompanyDashboardScreen() {
                                                 </Text>
                                             </View>
                                         ))}
+                                        {previewCategories.length > 4 && (
+                                            <View
+                                                style={{
+                                                    backgroundColor: mixHexColors(brandAccent, '#FFFFFF', 0.82),
+                                                    borderColor: mixHexColors(brandAccent, '#FFFFFF', 0.36),
+                                                    borderRadius: 999,
+                                                    borderWidth: 1,
+                                                    paddingHorizontal: 10,
+                                                    paddingVertical: 6,
+                                                }}
+                                            >
+                                                <Text style={{ color: '#071B33', fontSize: 12, fontWeight: '900' }}>
+                                                    +{previewCategories.length - 4} more services
+                                                </Text>
+                                            </View>
+                                        )}
                                     </View>
                                 </View>
 
@@ -1465,6 +1532,7 @@ export default function CompanyDashboardScreen() {
                                 {message}
                             </Text>
                         )}
+                        </>}
                     </View>
                 )}
 
@@ -1605,9 +1673,12 @@ function BrandInfoPill({ label, value, textColor }: { label: string; value: stri
                 maxWidth: '100%',
                 flexShrink: 1,
                 backgroundColor: 'rgba(255,255,255,0.14)',
-                borderColor: 'rgba(255,255,255,0.28)',
+                borderColor: 'rgba(255,255,255,0.48)',
                 borderRadius: 999,
-                borderWidth: 1,
+                borderWidth: 2,
+                borderBottomColor: 'rgba(0,0,0,0.28)',
+                borderBottomWidth: 4,
+                boxShadow: '0 6px 12px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.38)',
                 paddingHorizontal: 12,
                 paddingVertical: 8,
             }}

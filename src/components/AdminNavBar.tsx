@@ -6,6 +6,7 @@ import {
     LEAD_ALERT_REFRESH_MS,
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
+import { BUILD_DISPLAY } from '../lib/appVersion';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { safeBack } from '../lib/navigation';
 import { loadLoggedInUserCompanyAccess } from '../lib/onboarding';
@@ -274,6 +275,7 @@ function ManagementIdentityBadge({
 
     const role = identity.role ? formatTinyLabel(identity.role) : 'No company role';
     const status = identity.status ? formatTinyLabel(identity.status) : 'Unknown access';
+    const welcomeRole = identity.role ? formatWelcomeLabel(identity.role) : 'Team Member';
     return (
         <View style={identityBadgeRowStyle}>
             <TouchableOpacity
@@ -287,16 +289,28 @@ function ManagementIdentityBadge({
                     },
                 ]}
             >
-                <Text style={[identityTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                    {identity.email || 'unknown email'} / role {role} / access {status}
-                </Text>
-                <Text style={[identityDetailsToggleTextStyle, { color: theme.colors.primary }]} numberOfLines={1}>
-                    {showDetails ? 'Hide details' : 'Details'}
-                </Text>
-                {showDetails && (
-                    <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                        user {shortId(identity.userId)} / company user {identity.companyUserId ? shortId(identity.companyUserId) : 'none'}
+                <View style={identitySummaryRowStyle}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[identityWelcomeStyle, { color: theme.colors.text }]} numberOfLines={1}>
+                            Welcome, {welcomeRole}
+                        </Text>
+                        <Text style={[identityTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                            {formatTinyLabel(status)} · {BUILD_DISPLAY}
+                        </Text>
+                    </View>
+                    <Text style={[identityDetailsToggleTextStyle, { color: theme.colors.primary }]} numberOfLines={1}>
+                        {showDetails ? 'Hide' : 'Account'}
                     </Text>
+                </View>
+                {showDetails && (
+                    <View style={[identityDetailsPanelStyle, { borderColor: theme.colors.border }]}>
+                        <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]}>
+                            {identity.email || 'Email unavailable'}
+                        </Text>
+                        <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]}>
+                            Role: {role} · User {shortId(identity.userId)} · Company record {identity.companyUserId ? shortId(identity.companyUserId) : 'none'}
+                        </Text>
+                    </View>
                 )}
             </TouchableOpacity>
         </View>
@@ -455,6 +469,10 @@ function formatTinyLabel(value: string) {
         .toLowerCase();
 }
 
+function formatWelcomeLabel(value: string) {
+    return formatTinyLabel(value).replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 const navShellStyle = {
     marginTop: 16,
     marginBottom: 18,
@@ -509,7 +527,10 @@ const leadStatusTextStyle = {
 const identityBadgeRowStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
+    flexBasis: 260,
+    flexGrow: 1,
     flexShrink: 1,
+    minWidth: 0,
 };
 
 const identityTextStyle = {
@@ -523,24 +544,46 @@ const identityActionRowStyle = {
     flexWrap: 'wrap' as const,
     gap: 10,
     marginBottom: 10,
+    width: '100%' as const,
 };
 
 const identityPillStyle = {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
+    boxShadow: '0 7px 16px rgba(7, 27, 51, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.75)',
     maxWidth: 620,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    minWidth: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    width: '100%' as const,
+};
+
+const identitySummaryRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 10,
+    minWidth: 0,
+};
+
+const identityWelcomeStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
 };
 
 const identityDetailsTextStyle = {
     fontSize: 10,
     fontWeight: '700' as const,
-    marginTop: 3,
+    lineHeight: 15,
 };
 
 const identityDetailsToggleTextStyle = {
     fontSize: 10,
     fontWeight: '900' as const,
-    marginTop: 3,
+};
+
+const identityDetailsPanelStyle = {
+    borderTopWidth: 1,
+    gap: 3,
+    marginTop: 9,
+    paddingTop: 8,
 };
