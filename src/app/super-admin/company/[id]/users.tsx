@@ -24,7 +24,12 @@ import {
     type CompanyPermissionKey,
     type CompanyPermissionSet,
 } from '../../../../lib/companyPermissions';
+import {
+    resolveCompanyWorkspaceTheme,
+    type CompanyWorkspaceBrand,
+} from '../../../../lib/companyWorkspaceTheme';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../../../lib/supabase';
+import { ThemeContext } from '../../../../theme';
 import { useTheme } from '../../../../theme/useTheme';
 
 type CompanyRole = 'owner' | 'admin' | 'manager' | 'office' | 'dispatcher' | 'supervisor' | 'technician';
@@ -115,7 +120,7 @@ const COMPANY_PERMISSION_KEYS: CompanyPermissionKey[] = [
 ];
 
 export default function CompanyUsersScreen() {
-    const { theme } = useTheme();
+    const themeContext = useTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
 
     const [members, setMembers] = useState<CompanyUser[]>([]);
@@ -124,6 +129,11 @@ export default function CompanyUsersScreen() {
     const [email, setEmail] = useState('');
     const [role, setRole] = useState<CompanyRole>('technician');
     const [companyName, setCompanyName] = useState('Company');
+    const [companyBrand, setCompanyBrand] = useState<CompanyWorkspaceBrand | null>(null);
+    const theme = useMemo(
+        () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand),
+        [companyBrand, themeContext.theme]
+    );
     const [searchQuery, setSearchQuery] = useState('');
     const [message, setMessage] = useState('Loading company users...');
     const [loadingLists, setLoadingLists] = useState(true);
@@ -201,7 +211,7 @@ export default function CompanyUsersScreen() {
 
         setCanManageUsers(true);
 
-        const [membersResult, invitationsResult, companyNameResult] = await Promise.all([
+        const [membersResult, invitationsResult, companyProfileResult] = await Promise.all([
             loadCompanyMembers(String(id)),
             supabase
                 .from('company_user_invitations')
@@ -210,7 +220,7 @@ export default function CompanyUsersScreen() {
                 )
                 .eq('company_id', String(id))
                 .order('created_at', { ascending: false }),
-            loadCompanyDisplayName(String(id)),
+            loadCompanyWorkspaceProfile(String(id)),
         ]);
 
         setLoadingLists(false);
@@ -227,7 +237,8 @@ export default function CompanyUsersScreen() {
 
         setMembers(membersResult.data);
         setInvitations((invitationsResult.data || []) as CompanyInvitation[]);
-        setCompanyName(companyNameResult);
+        setCompanyName(companyProfileResult.name);
+        setCompanyBrand(companyProfileResult.brand);
 
         if (showLoading) {
             setMessage('');
@@ -819,6 +830,7 @@ export default function CompanyUsersScreen() {
     );
 
     return (
+        <ThemeContext.Provider value={{ ...themeContext, theme }}>
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
@@ -1112,6 +1124,7 @@ export default function CompanyUsersScreen() {
                 ) : null}
             </View>
         </ScrollView>
+        </ThemeContext.Provider>
     );
 }
 
@@ -1980,23 +1993,37 @@ function getBrowserOrigin() {
     return normalizeBaseUrl(globalWithLocation.window?.location?.origin || globalWithLocation.location?.origin || null);
 }
 
-async function loadCompanyDisplayName(companyId: string) {
+async function loadCompanyWorkspaceProfile(companyId: string): Promise<{
+    name: string;
+    brand: CompanyWorkspaceBrand | null;
+}> {
     const { data, error } = await supabase
         .from('companies')
-        .select('name, public_name, dba_name')
+        .select('name, public_name, dba_name, primary_color, secondary_color, accent_color')
         .eq('id', companyId)
         .maybeSingle();
 
-    if (error || !data) return 'Company';
+    if (error || !data) {
+        return {
+            name: 'Company',
+            brand: null,
+        };
+    }
 
     const record = data as Record<string, unknown>;
 
-    return (
-        readStringField(record, 'public_name') ||
-        readStringField(record, 'dba_name') ||
-        readStringField(record, 'name') ||
-        'Company'
-    );
+    return {
+        name:
+            readStringField(record, 'public_name') ||
+            readStringField(record, 'dba_name') ||
+            readStringField(record, 'name') ||
+            'Company',
+        brand: {
+            primary_color: readStringField(record, 'primary_color'),
+            secondary_color: readStringField(record, 'secondary_color'),
+            accent_color: readStringField(record, 'accent_color'),
+        },
+    };
 }
 
 async function loadCompanyUserManagementAccess(companyId: string): Promise<CompanyUserManagementAccessResult> {
