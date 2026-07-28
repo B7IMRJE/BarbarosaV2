@@ -62,8 +62,12 @@ export default function Layout() {
   const checkRunRef = useRef(0);
   const initialCheckCompleteRef = useRef(false);
   const pendingRedirectRef = useRef<string | null>(null);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [approvedRouteKey, setApprovedRouteKey] = useState('');
   const [routeGuardError, setRouteGuardError] = useState('');
+  const currentRouteKey = routeRenderKey(pathname, routeParams);
+  const routeIsSettled = approvedRouteKey === currentRouteKey && !initializing;
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
@@ -118,6 +122,10 @@ export default function Layout() {
     });
   }, [pathname, routeParams.providerMode, routeParams.companyId, routeParams.propertyId]);
 
+  useEffect(() => () => {
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+  }, []);
+
   useEffect(() => {
     let pendingCheck: ReturnType<typeof setTimeout> | null = null;
 
@@ -130,6 +138,7 @@ export default function Layout() {
 
     function scheduleCheckLogin() {
       clearPendingCheck();
+      setInitializing(true);
       pendingCheck = setTimeout(() => {
         pendingCheck = null;
         checkLogin(pathnameRef.current, {
@@ -208,7 +217,6 @@ export default function Layout() {
           await supabase.auth.signOut();
           await clearSessionActivity();
           replaceIfNeeded(LOGIN_ROUTE, currentPath);
-          finishCheck(runId);
           return;
         }
 
@@ -219,7 +227,6 @@ export default function Layout() {
 
       if (!isLoggedIn) {
         replaceIfNeeded(LOGIN_ROUTE, currentPath);
-        finishCheck(runId);
         return;
       }
 
@@ -237,6 +244,7 @@ export default function Layout() {
 
       if (redirectRoute) {
         replaceIfNeeded(redirectRoute, currentPath);
+        return;
       }
 
       finishCheck(runId);
@@ -255,14 +263,27 @@ export default function Layout() {
             <Text style={retryButtonTextStyle}>Retry</Text>
           </TouchableOpacity>
         </View>
-      ) : initializing ? (
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <ActivityIndicator size="large" />
-        </View>
       ) : (
-        <GlobalNavigation>
-          <Slot />
-        </GlobalNavigation>
+        <View style={{ flex: 1 }}>
+          <GlobalNavigation>
+            <Slot />
+          </GlobalNavigation>
+          {!routeIsSettled && (
+            <View
+              accessibilityLabel="Opening secure workspace"
+              accessibilityRole="progressbar"
+              style={routePrivacyCurtainStyle}
+            >
+              <View style={routePrivacyCardStyle}>
+                <ActivityIndicator size="large" color="#56C9B1" />
+                <Text style={routePrivacyTitleStyle}>Opening secure workspace</Text>
+                <Text style={routePrivacyBodyStyle}>
+                  Confirming your account, permissions, and company access.
+                </Text>
+              </View>
+            </View>
+          )}
+        </View>
       )}
     </ThemeProvider>
   );
@@ -272,7 +293,14 @@ export default function Layout() {
 
     initialCheckCompleteRef.current = true;
     setRouteGuardError('');
-    setInitializing(false);
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = setTimeout(() => {
+      if (runId !== checkRunRef.current) return;
+
+      setApprovedRouteKey(routeRenderKey(pathnameRef.current, routeParamsRef.current));
+      setInitializing(false);
+      settleTimerRef.current = null;
+    }, 220);
   }
 
   function showRouteGuardServiceError(runId: number, message?: string | null) {
@@ -342,6 +370,15 @@ function normalizePath(pathname: string) {
   const withoutTrailingSlash = pathname.replace(/\/+$/, '');
 
   return withoutTrailingSlash || HOME_ROUTE;
+}
+
+function routeRenderKey(pathname: string, routeParams: ProviderModeRouteParams) {
+  return [
+    normalizePath(pathname),
+    firstRouteParam(routeParams.providerMode),
+    firstRouteParam(routeParams.companyId),
+    firstRouteParam(routeParams.propertyId),
+  ].join('|');
 }
 
 function isAuthPath(pathname: string) {
@@ -646,4 +683,45 @@ const retryButtonTextStyle = {
   color: '#FFFFFF',
   fontSize: 15,
   fontWeight: '900' as const,
+};
+
+const routePrivacyCurtainStyle = {
+  position: 'absolute' as const,
+  top: 0,
+  right: 0,
+  bottom: 0,
+  left: 0,
+  zIndex: 10000,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+  padding: 24,
+  backgroundColor: '#061725',
+};
+
+const routePrivacyCardStyle = {
+  alignItems: 'center' as const,
+  width: '100%' as const,
+  maxWidth: 380,
+  paddingHorizontal: 24,
+  paddingVertical: 28,
+  borderRadius: 22,
+  borderWidth: 1,
+  borderColor: 'rgba(86, 201, 177, 0.38)',
+  backgroundColor: '#0C2A34',
+};
+
+const routePrivacyTitleStyle = {
+  marginTop: 16,
+  color: '#F4FFFC',
+  fontSize: 19,
+  fontWeight: '900' as const,
+  textAlign: 'center' as const,
+};
+
+const routePrivacyBodyStyle = {
+  marginTop: 7,
+  color: '#A9CEC6',
+  fontSize: 13,
+  lineHeight: 19,
+  textAlign: 'center' as const,
 };
