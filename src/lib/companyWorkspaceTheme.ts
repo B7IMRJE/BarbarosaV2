@@ -15,21 +15,29 @@ export function resolveCompanyWorkspaceTheme(
     const primary = safeBrandColor(company.primary_color, baseTheme.colors.primary);
     const secondary = safeBrandColor(company.secondary_color, primary);
     const accent = safeBrandColor(company.accent_color, baseTheme.colors.primary);
-    const surfaceAlt = mixWorkspaceColor(baseTheme.colors.surface, secondary, 0.08);
-    const border = mixWorkspaceColor(baseTheme.colors.border, accent, 0.32);
+    const background = mixWorkspaceColor(secondary, '#FFFFFF', 0.9);
+    const surface = mixWorkspaceColor(secondary, '#FFFFFF', 0.78);
+    const surfaceAlt = mixWorkspaceColor(primary, '#FFFFFF', 0.82);
+    const text = readableWorkspaceColor(surface);
+    const mutedText = mixWorkspaceColor(text, surface, 0.42);
+    const border = mixWorkspaceColor(accent, '#FFFFFF', 0.34);
 
     return {
         ...baseTheme,
         colors: {
             ...baseTheme.colors,
+            background,
+            surface,
             surfaceAlt,
+            text,
+            mutedText,
             border,
             primary,
             primaryText: readableWorkspaceColor(primary),
             secondaryButton: surfaceAlt,
             secondaryButtonText: readableWorkspaceColor(surfaceAlt),
             iconBackground: surfaceAlt,
-            progressTrack: mixWorkspaceColor(baseTheme.colors.surface, secondary, 0.12),
+            progressTrack: mixWorkspaceColor(surface, secondary, 0.18),
             progressFill: accent,
             link: accent,
         },

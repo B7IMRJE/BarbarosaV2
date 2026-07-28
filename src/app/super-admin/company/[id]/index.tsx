@@ -309,10 +309,13 @@ export default function CompanyDashboardScreen() {
         }
     }
 
-    async function saveBrandProfile() {
+    async function persistBrandProfile(
+        nextBrandForm: CompanyBrandForm,
+        successMessage = 'Company configuration saved.'
+    ) {
         if (!company) {
             setMessage('Load a company before saving.');
-            return;
+            return false;
         }
 
         setSavingBrand(true);
@@ -322,7 +325,7 @@ export default function CompanyDashboardScreen() {
         let errorMessage = '';
 
         try {
-            const glassDepth = Math.max(1, Math.min(100, parseInteger(brandForm.glassDepth) || 70));
+            const glassDepth = Math.max(1, Math.min(100, parseInteger(nextBrandForm.glassDepth) || 70));
             const depthResult = await supabase.rpc('update_company_glass_depth', {
                 p_company_id: company.id,
                 p_glass_depth: glassDepth,
@@ -333,20 +336,20 @@ export default function CompanyDashboardScreen() {
 
             const result = await supabase.rpc('update_company_brand_profile', {
                 p_company_id: company.id,
-                p_public_name: brandForm.publicName.trim(),
-                p_dba_name: brandForm.dbaName.trim(),
-                p_logo_url: brandForm.logoUrl.trim(),
-                p_primary_color: brandForm.primaryColor.trim(),
-                p_secondary_color: brandForm.secondaryColor.trim(),
-                p_accent_color: brandForm.accentColor.trim(),
-                p_service_categories: parseCategories(brandForm.serviceCategories),
-                p_homeos_rating: parseNumber(brandForm.homeosRating),
-                p_homeos_rating_count: parseInteger(brandForm.homeosRatingCount),
-                p_combined_experience_years: parseInteger(brandForm.combinedExperienceYears),
-                p_license_number: brandForm.licenseNumber.trim(),
-                p_phone: brandForm.phone.trim(),
-                p_website: brandForm.website.trim(),
-                p_short_description: brandForm.shortDescription.trim(),
+                p_public_name: nextBrandForm.publicName.trim(),
+                p_dba_name: nextBrandForm.dbaName.trim(),
+                p_logo_url: nextBrandForm.logoUrl.trim(),
+                p_primary_color: nextBrandForm.primaryColor.trim(),
+                p_secondary_color: nextBrandForm.secondaryColor.trim(),
+                p_accent_color: nextBrandForm.accentColor.trim(),
+                p_service_categories: parseCategories(nextBrandForm.serviceCategories),
+                p_homeos_rating: parseNumber(nextBrandForm.homeosRating),
+                p_homeos_rating_count: parseInteger(nextBrandForm.homeosRatingCount),
+                p_combined_experience_years: parseInteger(nextBrandForm.combinedExperienceYears),
+                p_license_number: nextBrandForm.licenseNumber.trim(),
+                p_phone: nextBrandForm.phone.trim(),
+                p_website: nextBrandForm.website.trim(),
+                p_short_description: nextBrandForm.shortDescription.trim(),
             });
             data = result.data || null;
             errorMessage = result.error?.message || '';
@@ -358,7 +361,7 @@ export default function CompanyDashboardScreen() {
 
         if (errorMessage) {
             setMessage(`Save failed: ${normalizeServiceErrorMessage(errorMessage)}`);
-            return;
+            return false;
         }
 
         const updatedCompany = data as Company;
@@ -375,7 +378,12 @@ export default function CompanyDashboardScreen() {
 
         setCompany(updatedCompany);
         setBrandForm(companyToBrandForm(updatedCompany));
-        setMessage('Company configuration saved.');
+        setMessage(successMessage);
+        return true;
+    }
+
+    async function saveBrandProfile() {
+        await persistBrandProfile(brandForm);
     }
 
     function updateBrandField(key: keyof CompanyBrandForm, value: string) {
@@ -424,14 +432,15 @@ export default function CompanyDashboardScreen() {
         setMessage('Starter brand colors applied. Save to keep them.');
     }
 
-    function applyThemePreset(preset: (typeof brandThemePresets)[number]) {
-        setBrandForm((current) => ({
-            ...current,
+    async function applyThemePreset(preset: (typeof brandThemePresets)[number]) {
+        const nextBrandForm = {
+            ...brandForm,
             primaryColor: preset.primaryColor,
             secondaryColor: preset.secondaryColor,
             accentColor: preset.accentColor,
-        }));
-        setMessage(preset.name + ' colors applied. Save to keep them.');
+        };
+        setBrandForm(nextBrandForm);
+        await persistBrandProfile(nextBrandForm, preset.name + ' colors applied and saved.');
     }
 
     async function extractThemeFromLogo() {
@@ -447,13 +456,14 @@ export default function CompanyDashboardScreen() {
         try {
             const colors = await extractLogoThemeColors(logoUrl);
             setExtractedLogoColors(colors.palette);
-            setBrandForm((current) => ({
-                ...current,
+            const nextBrandForm = {
+                ...brandForm,
                 primaryColor: colors.primaryColor,
                 secondaryColor: colors.secondaryColor,
                 accentColor: colors.accentColor,
-            }));
-            setMessage('Logo colors extracted. Review the preview, then save.');
+            };
+            setBrandForm(nextBrandForm);
+            await persistBrandProfile(nextBrandForm, 'Logo colors extracted and saved.');
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             setMessage('Could not extract logo colors: ' + errorMessage);
@@ -505,25 +515,31 @@ export default function CompanyDashboardScreen() {
 
             const { data } = supabase.storage.from('item-files').getPublicUrl(filePath);
             const publicUrl = data.publicUrl;
-
-            setBrandForm((current) => ({
-                ...current,
+            let nextBrandForm: CompanyBrandForm = {
+                ...brandForm,
                 logoUrl: publicUrl,
-            }));
+            };
 
             try {
                 const colors = await extractLogoThemeColors(publicUrl);
                 setExtractedLogoColors(colors.palette);
-                setBrandForm((current) => ({
-                    ...current,
-                    logoUrl: publicUrl,
+                nextBrandForm = {
+                    ...nextBrandForm,
                     primaryColor: colors.primaryColor,
                     secondaryColor: colors.secondaryColor,
                     accentColor: colors.accentColor,
-                }));
-                setMessage('Logo uploaded and colors extracted. Save to keep changes.');
+                };
+                setBrandForm(nextBrandForm);
+                await persistBrandProfile(
+                    nextBrandForm,
+                    'Logo uploaded. Company colors and theme saved automatically.'
+                );
             } catch {
-                setMessage('Logo uploaded. Save to keep it. Color extraction can be adjusted manually.');
+                setBrandForm(nextBrandForm);
+                await persistBrandProfile(
+                    nextBrandForm,
+                    'Logo uploaded and saved. Colors can be adjusted manually.'
+                );
             }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
