@@ -4,6 +4,36 @@
 
 begin;
 
+create or replace function public.company_permissions_are_valid(
+    p_permissions jsonb
+)
+returns boolean
+language sql
+stable
+set search_path = pg_catalog, public, pg_temp
+as $$
+    select
+        jsonb_typeof(coalesce(p_permissions, '{}'::jsonb)) = 'object'
+        and not exists (
+            select 1
+            from jsonb_each(coalesce(p_permissions, '{}'::jsonb)) as permission_entry
+            where permission_entry.key not in (
+                'can_view_techos',
+                'can_create_estimates',
+                'can_add_item_to_estimate',
+                'can_view_customers',
+                'can_view_jobs',
+                'can_manage_company_users',
+                'can_manage_company_profile'
+            )
+              or jsonb_typeof(permission_entry.value) <> 'boolean'
+        );
+$$;
+
+revoke all on function public.company_permissions_are_valid(jsonb) from public;
+revoke all on function public.company_permissions_are_valid(jsonb) from anon;
+grant execute on function public.company_permissions_are_valid(jsonb) to authenticated;
+
 create table if not exists public.company_role_permission_profiles (
     id uuid primary key default gen_random_uuid(),
     company_id uuid not null references public.companies(id) on delete cascade,
