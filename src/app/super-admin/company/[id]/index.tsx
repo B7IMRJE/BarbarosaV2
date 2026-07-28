@@ -408,28 +408,48 @@ export default function CompanyDashboardScreen() {
         });
     }
 
-    function updateBrandColorSlot(slot: BrandColorKey, color: string) {
-        updateBrandField(slot, color);
-        setMessage('Custom color applied. Save to keep it.');
+    async function updateBrandColorSlot(slot: BrandColorKey, color: string) {
+        const nextBrandForm = {
+            ...brandForm,
+            [slot]: color,
+        };
+        setBrandForm(nextBrandForm);
+        await persistBrandProfile(nextBrandForm, 'Custom company color applied and saved.');
     }
 
-    function swapBrandColors(first: BrandColorKey, second: BrandColorKey) {
-        setBrandForm((current) => ({
-            ...current,
-            [first]: current[second],
-            [second]: current[first],
-        }));
-        setMessage('Theme colors swapped. Save to keep changes.');
+    async function swapBrandColors(first: BrandColorKey, second: BrandColorKey) {
+        const nextBrandForm = {
+            ...brandForm,
+            [first]: brandForm[second],
+            [second]: brandForm[first],
+        };
+        setBrandForm(nextBrandForm);
+        await persistBrandProfile(nextBrandForm, 'Company theme colors swapped and saved.');
     }
-    function applyStarterBrandPreset() {
-        setBrandForm((current) => ({
-            ...current,
+    async function applyStarterBrandPreset() {
+        const nextBrandForm = {
+            ...brandForm,
             primaryColor: '#0B2E59',
             secondaryColor: '#FFFFFF',
             accentColor: '#E11D2E',
-            serviceCategories: current.serviceCategories || 'Plumbing, Water Heaters, Leak Detection',
-        }));
-        setMessage('Starter brand colors applied. Save to keep them.');
+            serviceCategories: brandForm.serviceCategories || 'Plumbing, Water Heaters, Leak Detection',
+        };
+        setBrandForm(nextBrandForm);
+        await persistBrandProfile(nextBrandForm, 'Starter company colors applied and saved.');
+    }
+
+    async function saveThemeField(key: BrandColorKey | 'glassDepth', value: string) {
+        if (key !== 'glassDepth' && !/^#[0-9A-F]{6}$/i.test(value.trim())) {
+            setMessage('Use a complete six-digit color such as #2A145F.');
+            return;
+        }
+
+        const nextBrandForm = {
+            ...brandForm,
+            [key]: value,
+        };
+        setBrandForm(nextBrandForm);
+        await persistBrandProfile(nextBrandForm, 'Company theme saved.');
     }
 
     async function applyThemePreset(preset: (typeof brandThemePresets)[number]) {
@@ -548,7 +568,7 @@ export default function CompanyDashboardScreen() {
             setSavingBrand(false);
         }
     }
-    function openModule(card: string) {
+    async function openModule(card: string) {
         if (!activeCompanyId) {
             alert('Missing company id.');
             return;
@@ -566,6 +586,12 @@ export default function CompanyDashboardScreen() {
             toggleConfigSection('theme');
             return;
         }
+
+        const savedBeforeNavigation = await persistBrandProfile(
+            brandForm,
+            'Company configuration saved before opening the workspace.'
+        );
+        if (!savedBeforeNavigation) return;
 
         if (card === 'Team / Technicians') {
             router.push(`/super-admin/company/${activeCompanyId}/users` as any);
@@ -1339,13 +1365,29 @@ export default function CompanyDashboardScreen() {
                             onToggle={() => toggleConfigSection('theme')}
                             compact
                         >
-                            <Field label="Primary Color" value={brandForm.primaryColor} onChangeText={(value) => updateBrandField('primaryColor', value)} />
-                            <Field label="Secondary Color" value={brandForm.secondaryColor} onChangeText={(value) => updateBrandField('secondaryColor', value)} />
-                            <Field label="Accent Color" value={brandForm.accentColor} onChangeText={(value) => updateBrandField('accentColor', value)} />
+                            <Field
+                                label="Primary Color"
+                                value={brandForm.primaryColor}
+                                onChangeText={(value) => updateBrandField('primaryColor', value)}
+                                onEndEditing={(value) => saveThemeField('primaryColor', value)}
+                            />
+                            <Field
+                                label="Secondary Color"
+                                value={brandForm.secondaryColor}
+                                onChangeText={(value) => updateBrandField('secondaryColor', value)}
+                                onEndEditing={(value) => saveThemeField('secondaryColor', value)}
+                            />
+                            <Field
+                                label="Accent Color"
+                                value={brandForm.accentColor}
+                                onChangeText={(value) => updateBrandField('accentColor', value)}
+                                onEndEditing={(value) => saveThemeField('accentColor', value)}
+                            />
                             <Field
                                 label="Glass Depth (1–100)"
                                 value={brandForm.glassDepth}
                                 onChangeText={(value) => updateBrandField('glassDepth', value.replace(/[^0-9]/g, '').slice(0, 3))}
+                                onEndEditing={(value) => saveThemeField('glassDepth', value)}
                             />
 
                             <BrandColorAssignmentPanel
@@ -1442,17 +1484,17 @@ export default function CompanyDashboardScreen() {
                                 <ColorSwatchRow
                                     label="Primary swatches"
                                     value={brandForm.primaryColor}
-                                    onSelect={(color) => updateBrandField('primaryColor', color)}
+                                    onSelect={(color) => updateBrandColorSlot('primaryColor', color)}
                                 />
                                 <ColorSwatchRow
                                     label="Secondary swatches"
                                     value={brandForm.secondaryColor}
-                                    onSelect={(color) => updateBrandField('secondaryColor', color)}
+                                    onSelect={(color) => updateBrandColorSlot('secondaryColor', color)}
                                 />
                                 <ColorSwatchRow
                                     label="Accent swatches"
                                     value={brandForm.accentColor}
-                                    onSelect={(color) => updateBrandField('accentColor', color)}
+                                    onSelect={(color) => updateBrandColorSlot('accentColor', color)}
                                 />
                             </View>
                         </CollapsibleConfigSection>
@@ -2622,11 +2664,13 @@ function Field({
     label,
     value,
     onChangeText,
+    onEndEditing,
     multiline,
 }: {
     label: string;
     value: string;
     onChangeText: (value: string) => void;
+    onEndEditing?: (value: string) => void;
     multiline?: boolean;
 }) {
     const { width: viewportWidth } = useWindowDimensions();
@@ -2646,6 +2690,7 @@ function Field({
             <TextInput
                 value={value}
                 onChangeText={onChangeText}
+                onEndEditing={(event) => onEndEditing?.(event.nativeEvent.text)}
                 multiline={multiline}
                 style={{
                     backgroundColor: '#F3F6FA',
