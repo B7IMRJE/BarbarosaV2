@@ -30,6 +30,8 @@ import {
 } from '../../../../lib/companyWorkspaceTheme';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../../../lib/supabase';
 import { ThemeContext } from '../../../../theme';
+import { GlassPaletteProvider } from '../../../../theme/glass-palette-context';
+import { createCompanyGlassPalette } from '../../../../theme/glassPalette';
 import { useTheme } from '../../../../theme/useTheme';
 
 type CompanyRole = 'owner' | 'admin' | 'manager' | 'office' | 'dispatcher' | 'supervisor' | 'technician';
@@ -133,6 +135,16 @@ export default function CompanyUsersScreen() {
     const theme = useMemo(
         () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand),
         [companyBrand, themeContext.theme]
+    );
+    const companyGlassPalette = useMemo(
+        () => createCompanyGlassPalette({
+            id: `company-team-${String(id || 'unknown')}`,
+            label: `${companyName} Team`,
+            primary: companyBrand?.primary_color,
+            secondary: companyBrand?.secondary_color,
+            accent: companyBrand?.accent_color,
+        }),
+        [companyBrand, companyName, id]
     );
     const [searchQuery, setSearchQuery] = useState('');
     const [message, setMessage] = useState('Loading company users...');
@@ -831,6 +843,7 @@ export default function CompanyUsersScreen() {
 
     return (
         <ThemeContext.Provider value={{ ...themeContext, theme }}>
+        <GlassPaletteProvider palette={companyGlassPalette}>
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
@@ -1124,6 +1137,7 @@ export default function CompanyUsersScreen() {
                 ) : null}
             </View>
         </ScrollView>
+        </GlassPaletteProvider>
         </ThemeContext.Provider>
     );
 }

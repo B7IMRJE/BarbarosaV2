@@ -62,6 +62,8 @@ import {
     type TimeApprovalRequest,
 } from '../lib/technicianTimeClock';
 import { ThemeContext } from '../theme';
+import { GlassPaletteProvider } from '../theme/glass-palette-context';
+import { createCompanyGlassPalette } from '../theme/glassPalette';
 import { useTheme } from '../theme/useTheme';
 
 type CompanyAccess = {
@@ -1430,6 +1432,13 @@ export default function DispatchBoardScreen() {
 
     const companyName = getCompanyDisplayName(company);
     const dispatchCompanyId = companyAccess?.company_id || requestedCompanyId;
+    const companyGlassPalette = createCompanyGlassPalette({
+        id: `company-dispatch-${company?.id || dispatchCompanyId || 'unknown'}`,
+        label: `${companyName} Dispatch`,
+        primary: company?.primary_color,
+        secondary: company?.secondary_color,
+        accent: company?.accent_color,
+    });
     const signedInDispatcher = companyUsers.find((member) => member.auth_user_id === authDebug?.userId) || null;
     const signedInDispatcherName = signedInDispatcher?.full_name
         || signedInDispatcher?.email?.split('@')[0]
@@ -1441,6 +1450,7 @@ export default function DispatchBoardScreen() {
 
     return (
         <ThemeContext.Provider value={{ ...themeContext, theme }}>
+        <GlassPaletteProvider palette={companyGlassPalette}>
         <CompanyGlassDepthProvider value={company?.glass_depth}>
         <Modal visible={!!soldJobCelebration} transparent animationType="fade">
             <View pointerEvents="none" style={soldCelebrationBackdropStyle}>
@@ -1689,6 +1699,7 @@ export default function DispatchBoardScreen() {
             </View>
         </ScrollView>
         </CompanyGlassDepthProvider>
+        </GlassPaletteProvider>
         </ThemeContext.Provider>
     );
 }

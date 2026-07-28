@@ -23,6 +23,8 @@ import {
 import { resolveCompanyWorkspaceTheme } from '../../../../lib/companyWorkspaceTheme';
 import { supabase } from '../../../../lib/supabase';
 import { ThemeContext } from '../../../../theme';
+import { GlassPaletteProvider } from '../../../../theme/glass-palette-context';
+import { createCompanyGlassPalette } from '../../../../theme/glassPalette';
 import { useTheme } from '../../../../theme/useTheme';
 
 type CompanyClient = {
@@ -112,6 +114,16 @@ export default function CompanyClientsScreen() {
     const theme = useMemo(
         () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand),
         [companyBrand, themeContext.theme]
+    );
+    const companyGlassPalette = useMemo(
+        () => createCompanyGlassPalette({
+            id: `company-clients-${String(id || 'unknown')}`,
+            label: `${companyName} Clients`,
+            primary: companyBrand?.primary_color,
+            secondary: companyBrand?.secondary_color,
+            accent: companyBrand?.accent_color,
+        }),
+        [companyBrand, companyName, id]
     );
     const [customerInvites, setCustomerInvites] = useState<CustomerInvite[]>([]);
     const [inviteForm, setInviteForm] = useState<CustomerInviteForm>({
@@ -546,6 +558,7 @@ export default function CompanyClientsScreen() {
 
     return (
         <ThemeContext.Provider value={{ ...themeContext, theme }}>
+        <GlassPaletteProvider palette={companyGlassPalette}>
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
@@ -728,6 +741,7 @@ export default function CompanyClientsScreen() {
                 )}
             </View>
         </ScrollView>
+        </GlassPaletteProvider>
         </ThemeContext.Provider>
     );
 }

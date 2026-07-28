@@ -75,6 +75,10 @@ export function createCompanyGlassPalette(input: {
     const accent = validHex(input.accent) || '#2FA5B3';
     const panel = validHex(input.panel);
     const panelOpacity = Math.max(1, Math.min(100, Number(input.panelOpacity) || 78)) / 100;
+    const supporting = isNearWhite(secondary)
+        ? mixHex(primary, accent, 0.2)
+        : secondary;
+    const companyPanel = panel || mixHex(primary, supporting, 0.28);
 
     return {
         ...orbitalGlassPalette,
@@ -83,8 +87,8 @@ export function createCompanyGlassPalette(input: {
         tones: {
             emerald: colorTone(primary, '#53B98D'),
             teal: colorTone(accent, '#2FA5B3'),
-            blue: colorTone(secondary, '#2788B7'),
-            steel: colorTone(panel || mixHex(primary, secondary, 0.5), '#5C86A5', panelOpacity),
+            blue: colorTone(supporting, '#2788B7'),
+            steel: colorTone(companyPanel, primary, panelOpacity),
         },
     };
 }
@@ -166,6 +170,17 @@ export function resolveGlassHomeTheme(
 function usableAccent(value: string) {
     const normalized = String(value || '').trim().toLowerCase();
     return /^#[0-9a-f]{6}$/.test(normalized) && normalized !== '#ffffff' && normalized !== '#ffff00';
+}
+
+function isNearWhite(value: string) {
+    const color = validHex(value);
+    if (!color) return false;
+
+    const red = Number.parseInt(color.slice(1, 3), 16);
+    const green = Number.parseInt(color.slice(3, 5), 16);
+    const blue = Number.parseInt(color.slice(5, 7), 16);
+
+    return red >= 224 && green >= 224 && blue >= 224;
 }
 
 function colorTone(color: string, fallbackEdge: string, opacity = 0.82): GlassToneColors {
