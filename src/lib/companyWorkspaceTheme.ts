@@ -10,7 +10,10 @@ export function resolveCompanyWorkspaceTheme(
 ): HomeOSTheme {
     if (!company) return baseTheme;
 
-    const primary = safeBrandColor(company.primary_color, baseTheme.colors.primary);
+    // ManagementOS workspaces use a consistent green-glass shell. Company
+    // branding remains visible in identity cards, logos, and public previews
+    // without turning operational directories back into a blue workspace.
+    const primary = '#0B6B4F';
     const background = mixWorkspaceColor(primary, '#000000', 0.42);
     const surface = mixWorkspaceColor(primary, '#FFFFFF', 0.14);
     const surfaceAlt = mixWorkspaceColor(primary, '#000000', 0.12);

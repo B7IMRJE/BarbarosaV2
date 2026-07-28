@@ -14,6 +14,13 @@ import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { supabase } from '../../lib/supabase';
 import { orbitalGlassPalette } from '../../theme/glassPalette';
 
+const peopleGlassPalette = {
+    ...orbitalGlassPalette,
+    screen: '#061D18',
+    text: '#F1FFF9',
+    mutedText: '#A9CFC2',
+};
+
 type AccountRow = {
     id: string;
     full_name: string | null;
@@ -282,15 +289,15 @@ export default function PlatformHomeOSUsersScreen() {
 
     return (
         <ScrollView
-            style={{ flex: 1, backgroundColor: orbitalGlassPalette.screen }}
+            style={{ flex: 1, backgroundColor: peopleGlassPalette.screen }}
             contentContainerStyle={{ alignItems: 'center', padding: 20, paddingBottom: 48 }}
         >
             <View style={{ width: '100%', maxWidth: 1180 }}>
                 <AdminNavBar backFallback="/super-admin" />
-                <Text style={{ color: orbitalGlassPalette.text, fontSize: 34, fontWeight: '900', marginTop: 20 }}>
+                <Text style={{ color: peopleGlassPalette.text, fontSize: 34, fontWeight: '900', marginTop: 20 }}>
                     People Directory
                 </Text>
-                <Text style={{ color: orbitalGlassPalette.mutedText, fontSize: 16, lineHeight: 23, marginTop: 8, marginBottom: 20 }}>
+                <Text style={{ color: peopleGlassPalette.mutedText, fontSize: 16, lineHeight: 23, marginTop: 8, marginBottom: 20 }}>
                     Platform accounts, company positions, client relationships, account status, and effective permissions.
                 </Text>
 
@@ -298,13 +305,13 @@ export default function PlatformHomeOSUsersScreen() {
                     value={search}
                     onChangeText={setSearch}
                     placeholder="Search name, email, account ID, role, or company"
-                    placeholderTextColor={orbitalGlassPalette.mutedText}
+                    placeholderTextColor={peopleGlassPalette.mutedText}
                     style={{
-                        backgroundColor: 'rgba(16, 49, 75, 0.9)',
-                        borderColor: 'rgba(174, 205, 229, 0.48)',
+                        backgroundColor: 'rgba(15, 65, 53, 0.9)',
+                        borderColor: 'rgba(129, 207, 181, 0.52)',
                         borderRadius: 14,
                         borderWidth: 1,
-                        color: orbitalGlassPalette.text,
+                        color: peopleGlassPalette.text,
                         fontSize: 16,
                         marginBottom: 14,
                         padding: 15,
@@ -337,12 +344,27 @@ export default function PlatformHomeOSUsersScreen() {
                     onSelect={(value) => setStatusFilter(value as StatusFilter)}
                 />
 
-                <Text style={{ color: orbitalGlassPalette.mutedText, fontWeight: '800', marginVertical: 16 }}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginVertical: 16 }}>
+                <Text style={{ color: peopleGlassPalette.mutedText, fontWeight: '800' }}>
                     Showing {filteredPeople.length} of {people.length} people
                 </Text>
+                {(groupFilter !== 'all' || companyFilter !== 'all' || statusFilter !== 'all' || search.trim()) && (
+                    <ThemedButton
+                        title="Clear all filters"
+                        variant="glass"
+                        onPress={() => {
+                            setSearch('');
+                            setGroupFilter('all');
+                            setCompanyFilter('all');
+                            setStatusFilter('all');
+                        }}
+                        style={{ minWidth: 0, paddingHorizontal: 12 }}
+                    />
+                )}
+                </View>
 
                 {!!message && (
-                    <Text style={{ color: orbitalGlassPalette.mutedText, marginBottom: 16, fontWeight: '800' }}>
+                    <Text style={{ color: peopleGlassPalette.mutedText, marginBottom: 16, fontWeight: '800' }}>
                         {message}
                     </Text>
                 )}
@@ -352,11 +374,11 @@ export default function PlatformHomeOSUsersScreen() {
                     if (groupPeople.length === 0) return null;
 
                     return (
-                        <GlassCard key={group.key} tone="steel" style={{ padding: 18, marginBottom: 18 }}>
-                            <Text style={{ color: orbitalGlassPalette.text, fontSize: 22, fontWeight: '900' }}>
+                        <GlassCard key={group.key} tone="steel" style={{ padding: 18, marginBottom: 18, backgroundColor: 'rgba(18, 78, 62, 0.72)', borderColor: 'rgba(100, 210, 170, 0.54)' }}>
+                            <Text style={{ color: peopleGlassPalette.text, fontSize: 22, fontWeight: '900' }}>
                                 {group.label} · {groupPeople.length}
                             </Text>
-                            <Text style={{ color: orbitalGlassPalette.mutedText, marginTop: 4, marginBottom: 12 }}>
+                            <Text style={{ color: peopleGlassPalette.mutedText, marginTop: 4, marginBottom: 12 }}>
                                 {group.description}
                             </Text>
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
@@ -398,8 +420,8 @@ export default function PlatformHomeOSUsersScreen() {
                 })}
 
                 {!message && filteredPeople.length === 0 && (
-                    <GlassCard tone="steel" style={{ padding: 20 }}>
-                        <Text style={{ color: orbitalGlassPalette.text, fontWeight: '900' }}>
+                    <GlassCard tone="steel" style={{ padding: 20, backgroundColor: 'rgba(18, 78, 62, 0.72)' }}>
+                        <Text style={{ color: peopleGlassPalette.text, fontWeight: '900' }}>
                             No people match these filters.
                         </Text>
                     </GlassCard>
@@ -429,7 +451,7 @@ function FilterRow({
 }) {
     return (
         <View style={{ marginTop: 10 }}>
-            <Text style={{ color: orbitalGlassPalette.text, fontWeight: '900', marginBottom: 8 }}>{label}</Text>
+            <Text style={{ color: peopleGlassPalette.text, fontWeight: '900', marginBottom: 8 }}>{label}</Text>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {options.map((option) => (
                     <ThemedButton
@@ -471,15 +493,15 @@ function PersonTile({
             onPress={onPress}
             style={{
                 alignItems: 'center',
-                backgroundColor: selected ? 'rgba(32, 132, 151, 0.78)' : 'rgba(27, 83, 101, 0.68)',
+                backgroundColor: selected ? 'rgba(24, 130, 92, 0.82)' : 'rgba(19, 87, 67, 0.72)',
                 borderColor: selected
                     ? 'rgba(111, 239, 224, 0.95)'
                     : person.active ? 'rgba(72, 207, 168, 0.64)' : 'rgba(231, 173, 84, 0.68)',
                 borderRadius: 18,
                 borderWidth: selected ? 2 : 1,
                 boxShadow: selected
-                    ? '0 9px 0 rgba(4, 37, 48, 0.9), 0 16px 28px rgba(0, 0, 0, 0.32)'
-                    : '0 6px 0 rgba(4, 37, 48, 0.82), 0 11px 20px rgba(0, 0, 0, 0.24)',
+                    ? '0 9px 0 rgba(3, 43, 31, 0.9), 0 16px 28px rgba(0, 0, 0, 0.32)'
+                    : '0 6px 0 rgba(3, 43, 31, 0.82), 0 11px 20px rgba(0, 0, 0, 0.24)',
                 justifyContent: 'space-between',
                 minHeight: 194,
                 padding: 14,
@@ -490,8 +512,8 @@ function PersonTile({
                 <View
                     style={{
                         alignItems: 'center',
-                        backgroundColor: 'rgba(183, 231, 235, 0.18)',
-                        borderColor: 'rgba(207, 246, 246, 0.62)',
+                        backgroundColor: 'rgba(165, 235, 204, 0.18)',
+                        borderColor: 'rgba(198, 250, 226, 0.62)',
                         borderRadius: 16,
                         borderWidth: 1,
                         height: 66,
@@ -503,15 +525,15 @@ function PersonTile({
                     {person.avatarUrl ? (
                         <Image source={{ uri: person.avatarUrl }} style={{ height: '100%', width: '100%' }} resizeMode="cover" />
                     ) : (
-                        <Text style={{ color: orbitalGlassPalette.text, fontSize: 22, fontWeight: '900' }}>
+                        <Text style={{ color: peopleGlassPalette.text, fontSize: 22, fontWeight: '900' }}>
                             {personInitials(person.name)}
                         </Text>
                     )}
                 </View>
-                <Text numberOfLines={1} style={{ color: orbitalGlassPalette.text, fontSize: 16, fontWeight: '900', marginTop: 10, maxWidth: '100%' }}>
+                <Text numberOfLines={1} style={{ color: peopleGlassPalette.text, fontSize: 16, fontWeight: '900', marginTop: 10, maxWidth: '100%' }}>
                     {person.name}
                 </Text>
-                <Text numberOfLines={1} style={{ color: orbitalGlassPalette.mutedText, fontSize: 11, marginTop: 3, maxWidth: '100%' }}>
+                <Text numberOfLines={1} style={{ color: peopleGlassPalette.mutedText, fontSize: 11, marginTop: 3, maxWidth: '100%' }}>
                     {person.email || 'No email available'}
                 </Text>
                 <Text numberOfLines={1} style={{ color: '#A9EFE1', fontSize: 12, fontWeight: '800', marginTop: 7, maxWidth: '100%' }}>
@@ -522,7 +544,7 @@ function PersonTile({
                         PRIMARY · +{person.companyUsers.length - 1} ADDITIONAL
                     </Text>
                 )}
-                <Text numberOfLines={1} style={{ color: orbitalGlassPalette.mutedText, fontSize: 11, marginTop: 2 }}>
+                <Text numberOfLines={1} style={{ color: peopleGlassPalette.mutedText, fontSize: 11, marginTop: 2 }}>
                     {formatRole(role)}
                 </Text>
             </View>
@@ -530,7 +552,7 @@ function PersonTile({
                 <Text style={{ color: person.active ? '#72E6C0' : '#F1BE69', fontSize: 10, fontWeight: '900' }}>
                     {person.active ? '● ACTIVE' : '● NEEDS ATTENTION'}
                 </Text>
-                <Text style={{ color: orbitalGlassPalette.text, fontSize: 11, fontWeight: '900', marginTop: 5 }}>
+                <Text style={{ color: peopleGlassPalette.text, fontSize: 11, fontWeight: '900', marginTop: 5 }}>
                     {selected ? 'Hide details' : 'View details'}
                 </Text>
             </View>
@@ -556,7 +578,7 @@ function PersonDetails({
     return (
         <View
             style={{
-                backgroundColor: 'rgba(6, 31, 50, 0.82)',
+                backgroundColor: 'rgba(5, 44, 33, 0.86)',
                 borderColor: person.active ? 'rgba(72, 207, 168, 0.55)' : 'rgba(231, 173, 84, 0.58)',
                 borderRadius: 16,
                 borderWidth: 1,
@@ -566,11 +588,11 @@ function PersonDetails({
         >
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 12 }}>
                 <View style={{ flex: 1, minWidth: 220 }}>
-                    <Text style={{ color: orbitalGlassPalette.text, fontSize: 20, fontWeight: '900' }}>{person.name}</Text>
-                    <Text selectable style={{ color: orbitalGlassPalette.text, fontSize: 14, marginTop: 4 }}>
+                    <Text style={{ color: peopleGlassPalette.text, fontSize: 20, fontWeight: '900' }}>{person.name}</Text>
+                    <Text selectable style={{ color: peopleGlassPalette.text, fontSize: 14, marginTop: 4 }}>
                         {person.email || 'No email available'}
                     </Text>
-                    <Text selectable style={{ color: orbitalGlassPalette.mutedText, fontSize: 11, marginTop: 4 }}>
+                    <Text selectable style={{ color: peopleGlassPalette.mutedText, fontSize: 11, marginTop: 4 }}>
                         Account: {person.accountId || 'Invitation or company-only record'}
                     </Text>
                 </View>
@@ -579,23 +601,23 @@ function PersonDetails({
                         {person.active ? 'ACTIVE' : 'INACTIVE / SUSPENDED'}
                     </Text>
                     {!!person.platformRole && (
-                        <Text style={{ color: orbitalGlassPalette.mutedText, marginTop: 4 }}>
+                        <Text style={{ color: peopleGlassPalette.mutedText, marginTop: 4 }}>
                             Platform role: {formatRole(person.platformRole)}
                         </Text>
                     )}
-                    <Text style={{ color: orbitalGlassPalette.mutedText, marginTop: 4 }}>
+                    <Text style={{ color: peopleGlassPalette.mutedText, marginTop: 4 }}>
                         Login: {formatAuthStatus(person.authStatus)}
                     </Text>
                 </View>
             </View>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 10 }}>
-                <Text style={{ color: orbitalGlassPalette.mutedText, fontSize: 12 }}>
+                <Text style={{ color: peopleGlassPalette.mutedText, fontSize: 12 }}>
                     Email confirmed: {formatDate(person.emailConfirmedAt)}
                 </Text>
-                <Text style={{ color: orbitalGlassPalette.mutedText, fontSize: 12 }}>
+                <Text style={{ color: peopleGlassPalette.mutedText, fontSize: 12 }}>
                     Last sign-in: {formatDate(person.lastSignInAt)}
                 </Text>
-                <Text style={{ color: orbitalGlassPalette.mutedText, fontSize: 12 }}>
+                <Text style={{ color: peopleGlassPalette.mutedText, fontSize: 12 }}>
                     Account created: {formatDate(person.accountCreatedAt)}
                 </Text>
             </View>
@@ -604,13 +626,13 @@ function PersonDetails({
                 const permissions = resolveCompanyPermissions(companyUser);
                 const isPrimary = companyUser.is_primary || index === 0;
                 return (
-                    <View key={companyUser.id} style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(174, 205, 229, 0.24)', paddingTop: 12 }}>
+                    <View key={companyUser.id} style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(126, 211, 180, 0.28)', paddingTop: 12 }}>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8 }}>
                             <View style={{ flex: 1, minWidth: 210 }}>
                                 <Text style={{ color: isPrimary ? '#F1CF72' : '#A9EFE1', fontSize: 11, fontWeight: '900' }}>
                                     {isPrimary ? 'PRIMARY COMPANY' : `ADDITIONAL COMPANY ${index}`}
                                 </Text>
-                                <Text style={{ color: orbitalGlassPalette.text, fontWeight: '900', marginTop: 3 }}>
+                                <Text style={{ color: peopleGlassPalette.text, fontWeight: '900', marginTop: 3 }}>
                                     {companyName(companyById.get(companyUser.company_id))} · {formatRole(companyUser.role)}
                                 </Text>
                             </View>
@@ -623,7 +645,7 @@ function PersonDetails({
                                 />
                             )}
                         </View>
-                        <Text style={{ color: orbitalGlassPalette.mutedText, marginTop: 3 }}>
+                        <Text style={{ color: peopleGlassPalette.mutedText, marginTop: 3 }}>
                             Company account: {formatStatus(companyUser.status)}
                         </Text>
                         <PermissionSummary permissions={permissions} />
@@ -632,10 +654,10 @@ function PersonDetails({
             })}
 
             {person.homeMemberships.length > 0 && (
-                <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(174, 205, 229, 0.24)', paddingTop: 12 }}>
-                    <Text style={{ color: orbitalGlassPalette.text, fontWeight: '900' }}>HomeOS memberships</Text>
+                <View style={{ marginTop: 14, borderTopWidth: 1, borderTopColor: 'rgba(126, 211, 180, 0.28)', paddingTop: 12 }}>
+                    <Text style={{ color: peopleGlassPalette.text, fontWeight: '900' }}>HomeOS memberships</Text>
                     {person.homeMemberships.map((membership) => (
-                        <Text key={`${membership.property_id}-${membership.role}`} style={{ color: orbitalGlassPalette.mutedText, marginTop: 4 }}>
+                        <Text key={`${membership.property_id}-${membership.role}`} style={{ color: peopleGlassPalette.mutedText, marginTop: 4 }}>
                             {propertyName(propertyById.get(membership.property_id))} · {formatRole(membership.role || 'homeowner')} · {formatStatus(membership.status)}
                         </Text>
                     ))}
@@ -644,7 +666,7 @@ function PersonDetails({
 
             {person.clientCompanies.length > 0 && (
                 <View style={{ marginTop: 14 }}>
-                    <Text style={{ color: orbitalGlassPalette.text, fontWeight: '900' }}>Connected client of</Text>
+                    <Text style={{ color: peopleGlassPalette.text, fontWeight: '900' }}>Connected client of</Text>
                     {person.clientCompanies.map((client) => (
                         <Text key={`${client.company_id}-${client.property_id}`} style={{ color: '#72E6C0', marginTop: 4, fontWeight: '800' }}>
                             {companyName(companyById.get(client.company_id))} · {client.display_name || propertyName(propertyById.get(client.property_id))} · {formatStatus(client.status)}
