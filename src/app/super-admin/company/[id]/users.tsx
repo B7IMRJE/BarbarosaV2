@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
     Pressable,
     ScrollView,
+    Switch,
     Text,
     TextInput,
     TouchableOpacity,
@@ -16,6 +17,7 @@ import { logCompanyAuditEvent, safeAuditRecord } from '../../../../lib/companyAu
 import {
     COMPANY_PERMISSION_LABELS,
     canAccessTechOS as canAccessCompanyTechOS,
+    getRoleDefaultPermissions,
     isTechnicianCompanyRole,
     loadCurrentCompanyPermissionAccess,
     normalizeCompanyRole,
@@ -93,6 +95,7 @@ type InvitationEmailResult = {
 
 type SubmitStage = 'idle' | 'creating' | 'sending';
 type SectionKey = 'owners' | 'adminManagerStaff' | 'technicians' | 'members' | 'invitations';
+type CustomizableCompanyRole = Exclude<CompanyRole, 'owner'>;
 
 type CompanyUserManagementAccessResult = {
     canManage: boolean;
@@ -108,6 +111,9 @@ const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
     { label: 'Supervisor', value: 'supervisor' },
     { label: 'Technician', value: 'technician' },
 ];
+const CUSTOMIZABLE_ROLE_OPTIONS = ROLE_OPTIONS.filter(
+    (option): option is { label: string; value: CustomizableCompanyRole } => option.value !== 'owner'
+);
 
 const EMAIL_SEND_COOLDOWN_MS = 60_000;
 const EMAIL_DELIVERY_FALLBACK_MESSAGE = 'Email could not be sent. Use the manual invite link/code below.';
@@ -120,6 +126,15 @@ const COMPANY_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_manage_company_users',
     'can_manage_company_profile',
 ];
+const COMPANY_PERMISSION_DESCRIPTIONS: Record<CompanyPermissionKey, string> = {
+    can_view_techos: 'Open TechOS and use its available work tools.',
+    can_create_estimates: 'Create estimate and proposal drafts.',
+    can_add_item_to_estimate: 'Add price-book items to an estimate.',
+    can_view_customers: 'See customers connected to this company.',
+    can_view_jobs: 'See company jobs and assigned work.',
+    can_manage_company_users: 'Invite, suspend, and manage company team members.',
+    can_manage_company_profile: 'Change company identity, branding, and public profile.',
+};
 
 export default function CompanyUsersScreen() {
     const themeContext = useTheme();
@@ -163,6 +178,16 @@ export default function CompanyUsersScreen() {
     });
     const [touchedSections, setTouchedSections] = useState<Partial<Record<SectionKey, boolean>>>({});
     const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+    const [permissionsExpanded, setPermissionsExpanded] = useState(false);
+    const [selectedPermissionRole, setSelectedPermissionRole] = useState<CustomizableCompanyRole>('admin');
+    const [rolePermissions, setRolePermissions] = useState<Record<CustomizableCompanyRole, CompanyPermissionSet>>(
+        () => createDefaultRolePermissionProfiles()
+    );
+    const [savedRolePermissions, setSavedRolePermissions] = useState<Record<CustomizableCompanyRole, CompanyPermissionSet>>(
+        () => createDefaultRolePermissionProfiles()
+    );
+    const [permissionSaving, setPermissionSaving] = useState(false);
+    const [canManageRolePermissions, setCanManageRolePermissions] = useState(false);
     const [nowMs, setNowMs] = useState(() => Date.now());
 
     useEffect(() => {
@@ -223,7 +248,7 @@ export default function CompanyUsersScreen() {
 
         setCanManageUsers(true);
 
-        const [membersResult, invitationsResult, companyProfileResult] = await Promise.all([
+        const [membersResult, invitationsResult, companyProfileResult, permissionProfilesResult] = await Promise.all([
             loadCompanyMembers(String(id)),
             supabase
                 .from('company_user_invitations')
@@ -233,6 +258,7 @@ export default function CompanyUsersScreen() {
                 .eq('company_id', String(id))
                 .order('created_at', { ascending: false }),
             loadCompanyWorkspaceProfile(String(id)),
+            loadCompanyRolePermissionProfiles(String(id)),
         ]);
 
         setLoadingLists(false);
@@ -251,12 +277,71 @@ export default function CompanyUsersScreen() {
         setInvitations((invitationsResult.data || []) as CompanyInvitation[]);
         setCompanyName(companyProfileResult.name);
         setCompanyBrand(companyProfileResult.brand);
+        setRolePermissions(permissionProfilesResult.profiles);
+        setSavedRolePermissions(permissionProfilesResult.profiles);
+        setCanManageRolePermissions(permissionProfilesResult.canCustomize);
 
         if (showLoading) {
             setMessage('');
         }
 
         return true;
+    }
+
+    function toggleRolePermission(permissionKey: CompanyPermissionKey, enabled: boolean) {
+        setRolePermissions((current) => ({
+            ...current,
+            [selectedPermissionRole]: {
+                ...current[selectedPermissionRole],
+                [permissionKey]: enabled,
+            },
+        }));
+    }
+
+    function resetSelectedRolePermissions() {
+        setRolePermissions((current) => ({
+            ...current,
+            [selectedPermissionRole]: getRoleDefaultPermissions(selectedPermissionRole),
+        }));
+    }
+
+    async function saveSelectedRolePermissions() {
+        if (!id || permissionSaving) return;
+
+        setPermissionSaving(true);
+        setMessage(`Saving ${formatRole(selectedPermissionRole)} permissions...`);
+
+        const permissions = rolePermissions[selectedPermissionRole];
+        const { error } = await supabase.rpc('set_company_role_permission_profile', {
+            p_company_id: String(id),
+            p_role: selectedPermissionRole,
+            p_permissions: permissions,
+        });
+
+        setPermissionSaving(false);
+
+        if (error) {
+            setMessage(`Could not save role permissions: ${error.message}`);
+            return;
+        }
+
+        setSavedRolePermissions((current) => ({
+            ...current,
+            [selectedPermissionRole]: { ...permissions },
+        }));
+        setMessage(`${formatRole(selectedPermissionRole)} permissions saved for ${companyName}.`);
+
+        await recordCompanyAuditEvent({
+            companyId: String(id),
+            action: 'company_role_permissions_updated',
+            targetType: 'company_role',
+            targetId: null,
+            targetLabel: formatRole(selectedPermissionRole),
+            afterData: safeAuditRecord({
+                role: selectedPermissionRole,
+                permissions,
+            }),
+        });
     }
 
     async function sendInvitation() {
@@ -898,6 +983,158 @@ export default function CompanyUsersScreen() {
                             </View>
                         </ThemedCard>
 
+                        {canManageRolePermissions && (
+                            <ThemedCard style={permissionsCardStyle}>
+                                <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityState={{ expanded: permissionsExpanded }}
+                                    onPress={() => setPermissionsExpanded((current) => !current)}
+                                    style={permissionsHeaderStyle}
+                                >
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
+                                            Roles & Permissions
+                                        </Text>
+                                        <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                                            See exactly what each role can do and customize access for {companyName}.
+                                        </Text>
+                                    </View>
+                                    <Text style={[permissionExpandTextStyle, { color: theme.colors.link }]}>
+                                        {permissionsExpanded ? 'Close' : 'Review & edit'}
+                                    </Text>
+                                </Pressable>
+
+                                {!permissionsExpanded ? (
+                                    <View style={permissionSummaryRowStyle}>
+                                        {CUSTOMIZABLE_ROLE_OPTIONS.map((option) => (
+                                            <View
+                                                key={option.value}
+                                                style={[
+                                                    permissionSummaryPillStyle,
+                                                    {
+                                                        backgroundColor: theme.colors.background,
+                                                        borderColor: theme.colors.border,
+                                                    },
+                                                ]}
+                                            >
+                                                <Text style={[permissionSummaryTextStyle, { color: theme.colors.text }]}>
+                                                    {option.label}: {countEnabledPermissions(rolePermissions[option.value])}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                ) : (
+                                    <View style={permissionEditorStyle}>
+                                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                        These settings apply to current and future team members with the selected role. Company
+                                        owners always retain full access.
+                                    </Text>
+
+                                    <ScrollView
+                                        horizontal
+                                        showsHorizontalScrollIndicator={false}
+                                        contentContainerStyle={permissionRoleTabsStyle}
+                                    >
+                                        {CUSTOMIZABLE_ROLE_OPTIONS.map((option) => {
+                                            const selected = selectedPermissionRole === option.value;
+
+                                            return (
+                                                <Pressable
+                                                    key={option.value}
+                                                    accessibilityRole="tab"
+                                                    accessibilityState={{ selected }}
+                                                    onPress={() => setSelectedPermissionRole(option.value)}
+                                                    style={[
+                                                        permissionRoleTabStyle,
+                                                        {
+                                                            backgroundColor: selected
+                                                                ? theme.colors.primary
+                                                                : theme.colors.background,
+                                                            borderColor: selected
+                                                                ? theme.colors.primary
+                                                                : theme.colors.border,
+                                                        },
+                                                    ]}
+                                                >
+                                                    <Text
+                                                        style={[
+                                                            permissionRoleTabTextStyle,
+                                                            {
+                                                                color: selected
+                                                                    ? theme.colors.primaryText
+                                                                    : theme.colors.text,
+                                                            },
+                                                        ]}
+                                                    >
+                                                        {option.label}
+                                                    </Text>
+                                                </Pressable>
+                                            );
+                                        })}
+                                    </ScrollView>
+
+                                    <View style={permissionToggleGridStyle}>
+                                        {COMPANY_PERMISSION_KEYS.map((permissionKey) => {
+                                            const enabled = rolePermissions[selectedPermissionRole][permissionKey];
+
+                                            return (
+                                                <View
+                                                    key={permissionKey}
+                                                    style={[
+                                                        permissionToggleRowStyle,
+                                                        {
+                                                            backgroundColor: theme.colors.background,
+                                                            borderColor: enabled ? theme.colors.link : theme.colors.border,
+                                                        },
+                                                    ]}
+                                                >
+                                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                                        <Text style={[permissionToggleTitleStyle, { color: theme.colors.text }]}>
+                                                            {COMPANY_PERMISSION_LABELS[permissionKey]}
+                                                        </Text>
+                                                        <Text style={[permissionToggleHintStyle, { color: theme.colors.mutedText }]}>
+                                                            {COMPANY_PERMISSION_DESCRIPTIONS[permissionKey]}
+                                                        </Text>
+                                                    </View>
+                                                    <Switch
+                                                        value={enabled}
+                                                        onValueChange={(value) => toggleRolePermission(permissionKey, value)}
+                                                        trackColor={{
+                                                            false: theme.colors.border,
+                                                            true: theme.colors.link,
+                                                        }}
+                                                        thumbColor={enabled ? theme.colors.primary : theme.colors.background}
+                                                    />
+                                                </View>
+                                            );
+                                        })}
+                                    </View>
+
+                                    <View style={permissionActionsStyle}>
+                                        <ThemedButton
+                                            title="Restore standard permissions"
+                                            onPress={resetSelectedRolePermissions}
+                                            variant="secondary"
+                                            style={permissionActionButtonStyle}
+                                        />
+                                        <ThemedButton
+                                            title={permissionSaving ? 'Saving...' : `Save ${formatRole(selectedPermissionRole)}`}
+                                            onPress={saveSelectedRolePermissions}
+                                            disabled={
+                                                permissionSaving ||
+                                                permissionSetsMatch(
+                                                    rolePermissions[selectedPermissionRole],
+                                                    savedRolePermissions[selectedPermissionRole]
+                                                )
+                                            }
+                                            style={permissionActionButtonStyle}
+                                        />
+                                    </View>
+                                    </View>
+                                )}
+                            </ThemedCard>
+                        )}
+
                         <ThemedCard style={searchCardStyle}>
                             <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Search Team</Text>
                             <TextInput
@@ -995,6 +1232,14 @@ export default function CompanyUsersScreen() {
                                     );
                                 })}
                             </View>
+                            <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
+                                {formatRole(role)} currently includes:{' '}
+                                {summarizeEnabledPermissions(
+                                    role === 'owner'
+                                        ? getRoleDefaultPermissions('owner')
+                                        : rolePermissions[role]
+                                )}
+                            </Text>
 
                             <ThemedButton
                                 title={inviteSubmitTitle}
@@ -2106,6 +2351,63 @@ async function loadCompanyMembers(companyId: string): Promise<{
     };
 }
 
+async function loadCompanyRolePermissionProfiles(
+    companyId: string
+): Promise<{
+    profiles: Record<CustomizableCompanyRole, CompanyPermissionSet>;
+    canCustomize: boolean;
+}> {
+    const defaults = createDefaultRolePermissionProfiles();
+    const { data, error } = await supabase.rpc('get_company_role_permission_profiles', {
+        p_company_id: companyId,
+    });
+
+    if (error || !Array.isArray(data)) {
+        return { profiles: defaults, canCustomize: false };
+    }
+
+    const profiles = { ...defaults };
+
+    data.forEach((row) => {
+        if (!row || typeof row !== 'object') return;
+
+        const record = row as Record<string, unknown>;
+        const profileRole = normalizeCompanyRole(readStringField(record, 'role')) as CustomizableCompanyRole;
+
+        if (!CUSTOMIZABLE_ROLE_OPTIONS.some((option) => option.value === profileRole)) return;
+
+        profiles[profileRole] = {
+            ...getRoleDefaultPermissions(profileRole),
+            ...(readPermissionOverrides(record, 'permissions') || {}),
+        };
+    });
+
+    return { profiles, canCustomize: true };
+}
+
+function createDefaultRolePermissionProfiles(): Record<CustomizableCompanyRole, CompanyPermissionSet> {
+    return CUSTOMIZABLE_ROLE_OPTIONS.reduce((profiles, option) => {
+        profiles[option.value] = getRoleDefaultPermissions(option.value);
+        return profiles;
+    }, {} as Record<CustomizableCompanyRole, CompanyPermissionSet>);
+}
+
+function countEnabledPermissions(permissions: CompanyPermissionSet) {
+    return `${COMPANY_PERMISSION_KEYS.filter((permissionKey) => permissions[permissionKey]).length}/${COMPANY_PERMISSION_KEYS.length}`;
+}
+
+function summarizeEnabledPermissions(permissions: CompanyPermissionSet) {
+    const enabled = COMPANY_PERMISSION_KEYS
+        .filter((permissionKey) => permissions[permissionKey])
+        .map((permissionKey) => COMPANY_PERMISSION_LABELS[permissionKey]);
+
+    return enabled.length > 0 ? enabled.join(', ') : 'No operational access';
+}
+
+function permissionSetsMatch(first: CompanyPermissionSet, second: CompanyPermissionSet) {
+    return COMPANY_PERMISSION_KEYS.every((permissionKey) => first[permissionKey] === second[permissionKey]);
+}
+
 function normalizeCompanyUsers(data: unknown): CompanyUser[] {
     return (Array.isArray(data) ? data : [])
         .map((row) => {
@@ -3030,4 +3332,104 @@ const actionButtonStyle = {
     maxWidth: '100%' as const,
     minWidth: 0,
     paddingVertical: 14,
+};
+
+const permissionsCardStyle = {
+    gap: 12,
+};
+
+const permissionsHeaderStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    gap: 14,
+    justifyContent: 'space-between' as const,
+    minWidth: 0,
+};
+
+const permissionExpandTextStyle = {
+    flexShrink: 0,
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const permissionSummaryRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 7,
+};
+
+const permissionSummaryPillStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+};
+
+const permissionSummaryTextStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+};
+
+const permissionEditorStyle = {
+    gap: 14,
+};
+
+const permissionRoleTabsStyle = {
+    gap: 8,
+    paddingVertical: 2,
+};
+
+const permissionRoleTabStyle = {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+};
+
+const permissionRoleTabTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const permissionToggleGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 9,
+};
+
+const permissionToggleRowStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexBasis: 280,
+    flexDirection: 'row' as const,
+    flexGrow: 1,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+    minWidth: 0,
+    padding: 12,
+};
+
+const permissionToggleTitleStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const permissionToggleHintStyle = {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    lineHeight: 15,
+    marginTop: 3,
+};
+
+const permissionActionsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 9,
+};
+
+const permissionActionButtonStyle = {
+    flexBasis: 220,
+    flexGrow: 1,
+    minWidth: 0,
 };
