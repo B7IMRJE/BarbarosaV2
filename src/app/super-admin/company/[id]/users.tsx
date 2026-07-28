@@ -1211,8 +1211,8 @@ function GlassGridCard({
             style={[
                 glassCardStyle,
                 {
-                    backgroundColor: hovered ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.74)',
-                    borderColor: hovered ? theme.colors.primary : 'rgba(255,255,255,0.86)',
+                    backgroundColor: hovered ? theme.colors.surfaceAlt : theme.colors.surface,
+                    borderColor: hovered ? theme.colors.primary : theme.colors.border,
                     shadowColor: theme.colors.text,
                 },
                 hovered && glassCardHoverStyle,
@@ -1259,7 +1259,7 @@ function TeamMemberRow({
                     style={[
                         manageChipStyle,
                         {
-                            backgroundColor: expanded ? theme.colors.primary : 'rgba(255,255,255,0.82)',
+                            backgroundColor: expanded ? theme.colors.primary : theme.colors.surfaceAlt,
                             borderColor: expanded ? theme.colors.primary : theme.colors.border,
                         },
                     ]}
@@ -1604,7 +1604,7 @@ function InvitationRow({
                     style={[
                         manageChipStyle,
                         {
-                            backgroundColor: expanded ? theme.colors.primary : 'rgba(255,255,255,0.82)',
+                            backgroundColor: expanded ? theme.colors.primary : theme.colors.surfaceAlt,
                             borderColor: expanded ? theme.colors.primary : theme.colors.border,
                         },
                     ]}
