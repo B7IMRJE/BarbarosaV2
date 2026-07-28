@@ -10,6 +10,11 @@ import {
     LEAD_ALERT_REFRESH_MS,
     type CompanyLeadCounts,
 } from '../../../../lib/companyLeadAlerts';
+import {
+    loadCurrentCompanyPermissionAccess,
+    type CompanyPermissionKey,
+    type CompanyPermissionSet,
+} from '../../../../lib/companyPermissions';
 import { loadCurrentUserPlatformAdmin } from '../../../../lib/roles';
 import { supabase } from '../../../../lib/supabase';
 import { resolveCompanyTechOSTheme, type TechOSThemePalette } from '../../../../lib/techosAppearance';
@@ -165,6 +170,15 @@ const cards = [
     'Knowledge Engine',
     'Settings / Permissions',
 ];
+const COMPANY_DASHBOARD_PERMISSION_KEYS: CompanyPermissionKey[] = [
+    'can_view_techos',
+    'can_create_estimates',
+    'can_add_item_to_estimate',
+    'can_view_customers',
+    'can_view_jobs',
+    'can_manage_company_users',
+    'can_manage_company_profile',
+];
 
 export default function CompanyDashboardScreen() {
     const { id } = useLocalSearchParams<{ id?: string | string[] }>();
@@ -185,15 +199,22 @@ export default function CompanyDashboardScreen() {
     const [leadCountMessage, setLeadCountMessage] = useState('');
     const [leadCountLoading, setLeadCountLoading] = useState(false);
     const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+    const [companyPermissions, setCompanyPermissions] = useState<CompanyPermissionSet | null>(null);
     const leadRefreshInFlight = useRef(false);
     const activeCompanyId = company?.id || routeCompanyId;
-    const visibleCards = cards.filter((card) => card !== 'Visual Control Center' || isPlatformAdmin);
+    const visibleCards = cards.filter((card) =>
+        isPlatformAdmin || canViewCompanyModule(card, companyPermissions)
+    );
 
     useEffect(() => {
         setIsConfigEditorOpen(false);
         setExpandedConfigSection(null);
+        setCompanyPermissions(null);
         loadCompany();
         void loadCurrentUserPlatformAdmin().then(setIsPlatformAdmin);
+        if (routeCompanyId) {
+            void loadCompanyDashboardPermissions(routeCompanyId).then(setCompanyPermissions);
+        }
     }, [routeCompanyId]);
 
     useEffect(() => {
@@ -575,6 +596,7 @@ export default function CompanyDashboardScreen() {
         }
 
         if (card === 'Company Profile / Identity') {
+            if (!isPlatformAdmin && !companyPermissions?.can_manage_company_profile) return;
             setIsConfigEditorOpen(true);
             toggleConfigSection('identity');
             return;
@@ -586,12 +608,6 @@ export default function CompanyDashboardScreen() {
             toggleConfigSection('theme');
             return;
         }
-
-        const savedBeforeNavigation = await persistBrandProfile(
-            brandForm,
-            'Company configuration saved before opening the workspace.'
-        );
-        if (!savedBeforeNavigation) return;
 
         if (card === 'Team / Technicians') {
             router.push(`/super-admin/company/${activeCompanyId}/users` as any);
@@ -949,22 +965,25 @@ export default function CompanyDashboardScreen() {
                         </View>
                     </View>
 
-                    <LeadAlertPanel
-                        counts={leadCounts}
-                        loading={leadCountLoading}
-                        message={leadCountMessage}
-                        accentColor={brandAccent}
-                        primaryColor={brandPrimary}
-                        onOpen={() => router.push({
-                            pathname: '/dispatch',
-                            params: { companyId: activeCompanyId },
-                        } as never)}
-                        onRefresh={() => {
-                            if (activeCompanyId) {
-                                void loadCompanyLeadCounts(activeCompanyId);
-                            }
-                        }}
-                    />
+                    {(isPlatformAdmin ||
+                        (companyPermissions?.can_view_customers && companyPermissions.can_view_jobs)) && (
+                        <LeadAlertPanel
+                            counts={leadCounts}
+                            loading={leadCountLoading}
+                            message={leadCountMessage}
+                            accentColor={brandAccent}
+                            primaryColor={brandPrimary}
+                            onOpen={() => router.push({
+                                pathname: '/dispatch',
+                                params: { companyId: activeCompanyId },
+                            } as never)}
+                            onRefresh={() => {
+                                if (activeCompanyId) {
+                                    void loadCompanyLeadCounts(activeCompanyId);
+                                }
+                            }}
+                        />
+                    )}
 
                     <View
                         style={{
@@ -996,7 +1015,7 @@ export default function CompanyDashboardScreen() {
                     </View>
                 </View>
 
-                {company && (
+                {company && (isPlatformAdmin || companyPermissions?.can_manage_company_profile) && (
                     <View
                         style={{
                             width: '100%',
@@ -2074,6 +2093,55 @@ function getModuleActionLabel(title: string) {
     if (title === 'Settings / Permissions') return 'Open Settings';
 
     return 'Open';
+}
+
+async function loadCompanyDashboardPermissions(companyId: string): Promise<CompanyPermissionSet> {
+    const permissionResults = await Promise.all(
+        COMPANY_DASHBOARD_PERMISSION_KEYS.map(async (permissionKey) => {
+            const result = await loadCurrentCompanyPermissionAccess(permissionKey, { companyId });
+            return [permissionKey, Boolean(result.access)] as const;
+        })
+    );
+
+    return permissionResults.reduce((permissions, [permissionKey, allowed]) => {
+        permissions[permissionKey] = allowed;
+        return permissions;
+    }, {
+        can_view_techos: false,
+        can_create_estimates: false,
+        can_add_item_to_estimate: false,
+        can_view_customers: false,
+        can_view_jobs: false,
+        can_manage_company_users: false,
+        can_manage_company_profile: false,
+    } as CompanyPermissionSet);
+}
+
+function canViewCompanyModule(card: string, permissions: CompanyPermissionSet | null) {
+    if (!permissions) return false;
+
+    if (card === 'Company Profile / Identity') return permissions.can_manage_company_profile;
+    if (card === 'Visual Control Center') return false;
+    if (card === 'Customers / Clients') return permissions.can_view_customers;
+    if (card === 'Leads / Requests') {
+        return permissions.can_view_customers && permissions.can_view_jobs;
+    }
+    if (card === 'Opportunities') {
+        return permissions.can_view_customers && permissions.can_view_jobs;
+    }
+    if (card === 'Estimates / Proposals') return permissions.can_create_estimates;
+    if (card === 'Jobs / Dispatch') return permissions.can_view_jobs;
+    if (card === 'Team / Technicians') return permissions.can_manage_company_users;
+    if (card === 'Activity / Audit Log') return permissions.can_manage_company_users;
+    if (card === 'Price Book') {
+        return permissions.can_create_estimates || permissions.can_add_item_to_estimate;
+    }
+    if (card === 'Knowledge Engine') return permissions.can_view_jobs;
+    if (card === 'Settings / Permissions') {
+        return permissions.can_manage_company_users || permissions.can_manage_company_profile;
+    }
+
+    return false;
 }
 
 function normalizeServiceErrorMessage(message?: string | null) {
