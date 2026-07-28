@@ -41,6 +41,7 @@ const primaryTabs: NavigationLink[] = [
 ];
 
 const drawerLinks: NavigationLink[] = [
+    { label: 'Updates & Privacy', route: '/notifications', icon: 'bell-outline' },
     { label: 'ManagementOS', route: '/management', staffOnly: true },
     { label: 'Maintenance', route: '/maintenance' },
     { label: 'Jobs', route: '/jobs', staffOnly: true },

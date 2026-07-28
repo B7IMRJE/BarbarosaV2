@@ -135,6 +135,11 @@ export default function SuperAdminDashboard() {
             return;
         }
 
+        if (card === 'Announcements') {
+            router.push('/super-admin/announcements' as any);
+            return;
+        }
+
         Alert.alert(card, 'This module will connect to real data next.');
     }
 
