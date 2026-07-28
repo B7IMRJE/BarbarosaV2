@@ -60,6 +60,8 @@ import {
     type ClockInCorrectionRequest,
     type TimeApprovalRequest,
 } from '../lib/technicianTimeClock';
+import { ThemeContext } from '../theme';
+import type { HomeOSTheme } from '../theme/themes';
 import { useTheme } from '../theme/useTheme';
 
 type CompanyAccess = {
@@ -104,6 +106,9 @@ type CompanyBrand = {
     public_name: string | null;
     dba_name: string | null;
     glass_depth: number | null;
+    primary_color: string | null;
+    secondary_color: string | null;
+    accent_color: string | null;
 };
 
 type ServiceRequestEvent = {
@@ -351,12 +356,16 @@ function getArrivalWindowModeFromHours(arrivalWindowHours: number | null): Arriv
 export default function DispatchBoardScreen() {
     const { companyId } = useLocalSearchParams<{ companyId?: string | string[] }>();
     const { width: viewportWidth } = useWindowDimensions();
-    const { theme } = useTheme();
+    const themeContext = useTheme();
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const [loading, setLoading] = useState(true);
     const [companyAccess, setCompanyAccess] = useState<CompanyAccess | null>(null);
     const [companyChoices, setCompanyChoices] = useState<CompanyAccess[]>([]);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
+    const theme = useMemo(
+        () => resolveCompanyDispatchTheme(themeContext.theme, company),
+        [company, themeContext.theme]
+    );
     const [requests, setRequests] = useState<DispatchRequest[]>([]);
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
     const [leadCountError, setLeadCountError] = useState('');
@@ -672,7 +681,7 @@ export default function DispatchBoardScreen() {
     async function loadCompany(companyIdToLoad: string) {
         const { data } = await supabase
             .from('companies')
-            .select('id, name, public_name, dba_name, glass_depth')
+            .select('id, name, public_name, dba_name, glass_depth, primary_color, secondary_color, accent_color')
             .eq('id', companyIdToLoad)
             .maybeSingle();
 
@@ -1431,6 +1440,7 @@ export default function DispatchBoardScreen() {
         : ('/super-admin' as Href);
 
     return (
+        <ThemeContext.Provider value={{ ...themeContext, theme }}>
         <CompanyGlassDepthProvider value={company?.glass_depth}>
         <Modal visible={!!soldJobCelebration} transparent animationType="fade">
             <View pointerEvents="none" style={soldCelebrationBackdropStyle}>
@@ -1679,7 +1689,70 @@ export default function DispatchBoardScreen() {
             </View>
         </ScrollView>
         </CompanyGlassDepthProvider>
+        </ThemeContext.Provider>
     );
+}
+
+function resolveCompanyDispatchTheme(baseTheme: HomeOSTheme, company: CompanyBrand | null): HomeOSTheme {
+    if (!company) return baseTheme;
+
+    const primary = safeBrandColor(company.primary_color, baseTheme.colors.primary);
+    const secondary = safeBrandColor(company.secondary_color, baseTheme.colors.secondaryButton);
+    const accent = safeBrandColor(company.accent_color, baseTheme.colors.link);
+    const background = mixDispatchColor(primary, '#000000', 0.38);
+    const surface = mixDispatchColor(primary, '#FFFFFF', 0.14);
+    const surfaceAlt = mixDispatchColor(secondary, primary, 0.30);
+    const text = readableDispatchColor(surface);
+    const mutedText = mixDispatchColor(text, surface, 0.38);
+    const border = mixDispatchColor(accent, '#FFFFFF', 0.20);
+
+    return {
+        ...baseTheme,
+        colors: {
+            ...baseTheme.colors,
+            background,
+            surface,
+            surfaceAlt,
+            text,
+            mutedText,
+            border,
+            primary: accent,
+            primaryText: readableDispatchColor(accent),
+            secondaryButton: surfaceAlt,
+            secondaryButtonText: readableDispatchColor(surfaceAlt),
+            iconBackground: surfaceAlt,
+            progressTrack: mixDispatchColor(surface, background, 0.42),
+            progressFill: accent,
+            overlay: background,
+            link: accent,
+        },
+    };
+}
+
+function safeBrandColor(value: string | null | undefined, fallback: string) {
+    const color = String(value || '').trim();
+    return /^#[0-9A-F]{6}$/i.test(color) ? color.toUpperCase() : fallback;
+}
+
+function mixDispatchColor(first: string, second: string, secondWeight: number) {
+    const safeFirst = safeBrandColor(first, '#071B33').slice(1);
+    const safeSecond = safeBrandColor(second, '#071B33').slice(1);
+    const weight = Math.max(0, Math.min(1, secondWeight));
+    const channel = (offset: number) => Math.round(
+        parseInt(safeFirst.slice(offset, offset + 2), 16) * (1 - weight)
+        + parseInt(safeSecond.slice(offset, offset + 2), 16) * weight
+    ).toString(16).padStart(2, '0');
+
+    return `#${channel(0)}${channel(2)}${channel(4)}`.toUpperCase();
+}
+
+function readableDispatchColor(color: string) {
+    const value = safeBrandColor(color, '#071B33').slice(1);
+    const red = parseInt(value.slice(0, 2), 16);
+    const green = parseInt(value.slice(2, 4), 16);
+    const blue = parseInt(value.slice(4, 6), 16);
+    const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    return luma < 145 ? '#FFFFFF' : '#071B33';
 }
 
 function formatSoldJobMoney(value: number) {
