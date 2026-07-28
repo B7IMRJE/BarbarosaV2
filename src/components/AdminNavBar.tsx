@@ -284,7 +284,7 @@ function ManagementIdentityBadge({
                 style={[
                     identityPillStyle,
                     {
-                        backgroundColor: theme.colors.surfaceAlt,
+                        backgroundColor: theme.colors.surface,
                         borderColor: theme.colors.border,
                     },
                 ]}
