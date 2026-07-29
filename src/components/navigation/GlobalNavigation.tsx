@@ -270,6 +270,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             borderRadius: 24,
                             borderWidth: 1,
                             boxShadow: '0 10px 28px rgba(0, 8, 18, 0.42), inset 0 2px 0 rgba(255,255,255,0.16)',
+                            overflow: 'hidden',
                             padding: compactBottomNavigation ? 4 : scaleIcon(6),
                         }}
                     >
@@ -286,13 +287,21 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                                         backgroundColor: active ? 'rgba(42, 115, 156, 0.74)' : 'rgba(3, 24, 42, 0.5)',
                                         borderColor: active ? 'rgba(139, 221, 255, 0.82)' : 'rgba(174, 205, 229, 0.35)',
                                         flex: 1,
+                                        minWidth: 0,
                                         paddingHorizontal: compactBottomNavigation ? 2 : scaleIcon(8),
                                         minHeight: compactBottomNavigation ? 42 : scaleIcon(50),
                                     }}
                                 >
-                                    <View style={{ alignItems: 'center', flexDirection: compactBottomNavigation ? 'column' : 'row', gap: 5 }}>
+                                    <View style={{ alignItems: 'center', flexDirection: compactBottomNavigation ? 'column' : 'row', gap: compactBottomNavigation ? 2 : 5, minWidth: 0 }}>
                                         <MaterialCommunityIcons name={tab.icon || 'circle-outline'} size={compactBottomNavigation ? 17 : scaleIcon(18)} color={orbitalGlassPalette.text} />
-                                        <Text style={{ color: orbitalGlassPalette.text, fontSize: compactBottomNavigation ? 10 : scaleFont(13), fontWeight: '900' }}>{tab.label}</Text>
+                                        <Text
+                                            numberOfLines={1}
+                                            adjustsFontSizeToFit={compactBottomNavigation}
+                                            minimumFontScale={0.8}
+                                            style={{ color: orbitalGlassPalette.text, fontSize: compactBottomNavigation ? 10 : scaleFont(13), fontWeight: '900' }}
+                                        >
+                                            {tab.label}
+                                        </Text>
                                     </View>
                                 </ThemedButton>
                             );
@@ -304,13 +313,14 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             style={{
                                 borderRadius: theme.radii.pill,
                                 flex: 1,
+                                minWidth: 0,
                                 paddingHorizontal: compactBottomNavigation ? 2 : scaleIcon(8),
                                 minHeight: compactBottomNavigation ? 42 : scaleIcon(50),
                             }}
                         >
-                            <View style={{ alignItems: 'center', flexDirection: compactBottomNavigation ? 'column' : 'row', gap: 5 }}>
+                            <View style={{ alignItems: 'center', flexDirection: compactBottomNavigation ? 'column' : 'row', gap: compactBottomNavigation ? 2 : 5, minWidth: 0 }}>
                                 <MaterialCommunityIcons name="dots-horizontal" size={compactBottomNavigation ? 17 : scaleIcon(18)} color={orbitalGlassPalette.text} />
-                                <Text style={{ color: orbitalGlassPalette.text, fontSize: compactBottomNavigation ? 10 : scaleFont(13), fontWeight: '900' }}>More</Text>
+                                <Text numberOfLines={1} style={{ color: orbitalGlassPalette.text, fontSize: compactBottomNavigation ? 10 : scaleFont(13), fontWeight: '900' }}>More</Text>
                             </View>
                         </ThemedButton>
                     </View>

@@ -140,6 +140,15 @@ export default function HomeScreen() {
   const actionTileMinHeight = isCompactPhone
     ? Math.max(actionTileSize, scaleIcon(230))
     : actionTileSize;
+  const fullWidthActionCardStyle = isCompactPhone
+    ? {
+        width: '100%' as const,
+        minHeight: scaleIcon(164),
+      }
+    : {
+        width: actionTileSize,
+        minHeight: actionTileMinHeight,
+      };
   const actionCardPalettes = useMemo(
     () => resolveHomeDashboardActionCardPalettes(theme),
     [theme]
@@ -911,7 +920,7 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
-              { width: actionTileSize, minHeight: actionTileMinHeight },
+              fullWidthActionCardStyle,
               {
                 borderColor: actionCardPalettes.emergency.borderColor,
                 backgroundColor: actionCardPalettes.emergency.backgroundColor,
@@ -952,7 +961,7 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
-              { width: actionTileSize, minHeight: actionTileMinHeight },
+              fullWidthActionCardStyle,
               {
                 borderColor: actionCardPalettes.maintenance.borderColor,
                 backgroundColor: actionCardPalettes.maintenance.backgroundColor,
@@ -994,7 +1003,9 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
-              { width: actionTileSize, minHeight: actionTileMinHeight },
+              isCompactPhone
+                ? { width: '48%', minHeight: actionTileMinHeight }
+                : { width: actionTileSize, minHeight: actionTileMinHeight },
               {
                 borderColor: actionCardPalettes.connections.borderColor,
                 backgroundColor: actionCardPalettes.connections.backgroundColor,
@@ -1036,7 +1047,9 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
-              { width: actionTileSize, minHeight: actionTileMinHeight },
+              isCompactPhone
+                ? { width: '48%', minHeight: actionTileMinHeight }
+                : { width: actionTileSize, minHeight: actionTileMinHeight },
               {
                 borderColor: actionCardPalettes.requestService.borderColor,
                 backgroundColor: actionCardPalettes.requestService.backgroundColor,

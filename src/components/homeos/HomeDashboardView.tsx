@@ -452,10 +452,16 @@ export default function HomeDashboardView({
             icon={system.icon}
             status={statusForCard(systemSummaries[system.key])}
             onPress={() => onOpenSystemTile(system)}
-            style={{
-              width: healthTileSize,
-              height: healthTileSize,
-            }}
+            style={isCompactPhone
+              ? {
+                  width: '48%',
+                  aspectRatio: 1,
+                  minHeight: 0,
+                }
+              : {
+                  width: healthTileSize,
+                  height: healthTileSize,
+                }}
           />
         ))}
       </View>
