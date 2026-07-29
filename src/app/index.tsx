@@ -126,13 +126,20 @@ export default function HomeScreen() {
   const { width: viewportWidth } = useWindowDimensions();
   const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 900);
   const healthTileGap = scaleIcon(10);
+  const isCompactPhone = viewportWidth < 600;
   const healthTileColumns =
     dashboardContentWidth >= 680 ? 4 : dashboardContentWidth >= 500 ? 3 : dashboardContentWidth >= 300 ? 2 : 1;
-  const healthTileSize = Math.max(
-    scaleIcon(118),
-    Math.min(scaleIcon(156), (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns)
-  );
-  const actionTileSize = Math.max(scaleIcon(188), Math.min(scaleIcon(210), healthTileSize + scaleIcon(54)));
+  const availableHealthTileSize =
+    (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns;
+  const healthTileSize = isCompactPhone
+    ? availableHealthTileSize
+    : Math.max(scaleIcon(118), Math.min(scaleIcon(156), availableHealthTileSize));
+  const actionTileSize = isCompactPhone
+    ? availableHealthTileSize
+    : Math.max(scaleIcon(188), Math.min(scaleIcon(210), healthTileSize + scaleIcon(54)));
+  const actionTileMinHeight = isCompactPhone
+    ? Math.max(actionTileSize, scaleIcon(230))
+    : actionTileSize;
   const actionCardPalettes = useMemo(
     () => resolveHomeDashboardActionCardPalettes(theme),
     [theme]
@@ -904,7 +911,7 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
-              { width: actionTileSize, minHeight: actionTileSize },
+              { width: actionTileSize, minHeight: actionTileMinHeight },
               {
                 borderColor: actionCardPalettes.emergency.borderColor,
                 backgroundColor: actionCardPalettes.emergency.backgroundColor,
@@ -945,7 +952,7 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
-              { width: actionTileSize, minHeight: actionTileSize },
+              { width: actionTileSize, minHeight: actionTileMinHeight },
               {
                 borderColor: actionCardPalettes.maintenance.borderColor,
                 backgroundColor: actionCardPalettes.maintenance.backgroundColor,
@@ -987,7 +994,7 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
-              { width: actionTileSize, minHeight: actionTileSize },
+              { width: actionTileSize, minHeight: actionTileMinHeight },
               {
                 borderColor: actionCardPalettes.connections.borderColor,
                 backgroundColor: actionCardPalettes.connections.backgroundColor,
@@ -1029,7 +1036,7 @@ export default function HomeScreen() {
           <ThemedCard
             style={[
               actionCardStyle,
-              { width: actionTileSize, minHeight: actionTileSize },
+              { width: actionTileSize, minHeight: actionTileMinHeight },
               {
                 borderColor: actionCardPalettes.requestService.borderColor,
                 backgroundColor: actionCardPalettes.requestService.backgroundColor,

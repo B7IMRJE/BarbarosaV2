@@ -92,12 +92,14 @@ export default function HomeDashboardView({
   const { width: viewportWidth } = useWindowDimensions();
   const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 900);
   const healthTileGap = scaleIcon(10);
+  const isCompactPhone = viewportWidth < 600;
   const healthTileColumns =
     dashboardContentWidth >= 680 ? 4 : dashboardContentWidth >= 500 ? 3 : dashboardContentWidth >= 300 ? 2 : 1;
-  const healthTileSize = Math.max(
-    scaleIcon(118),
-    Math.min(scaleIcon(156), (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns)
-  );
+  const availableHealthTileSize =
+    (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns;
+  const healthTileSize = isCompactPhone
+    ? availableHealthTileSize
+    : Math.max(scaleIcon(118), Math.min(scaleIcon(156), availableHealthTileSize));
   const healthSummary = scoreOverallHomeHealth(items, emergencies);
   const dashboardSystemTiles = buildHomeDashboardSystemTiles(items);
   const systemSummaries = scoreAllSystems(items, dashboardSystemTiles.map((system) => system.key));
