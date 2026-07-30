@@ -211,7 +211,7 @@ export default function ProfileScreen() {
                 <View style={scaleStyle(settingsGridStyle)}>
                     <SettingsCard
                         title="Appearance & Theme"
-                        body="Choose from HomeOS Classic, dark themes, high contrast, and custom color packs."
+                        body="HomeOS Classic appearance with adjustable font and icon sizes."
                         badge={currentThemeLabel}
                         route="/profile/theme"
                     />
