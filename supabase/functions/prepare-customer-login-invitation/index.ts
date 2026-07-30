@@ -8,6 +8,7 @@ type CustomerInvite = {
     id: string;
     invited_email: string | null;
     invited_name: string | null;
+    invite_code: string | null;
     status: string | null;
     expires_at: string | null;
     revoked_at: string | null;
@@ -66,6 +67,7 @@ export default {
                         Prefer: 'return=minimal',
                     },
                     body: JSON.stringify({
+                        invite_code: invite.invite_code || generateSecureConnectionToken(),
                         login_code: loginCode,
                         login_code_created_at: new Date().toISOString(),
                         login_code_expires_at: expiresAt,
@@ -103,7 +105,7 @@ async function loadAuthorizedInvite(
     if (!invitationId) return null;
     const url = new URL('/rest/v1/company_customer_invitations', supabaseUrl);
     url.searchParams.set('id', `eq.${invitationId}`);
-    url.searchParams.set('select', 'id,invited_email,invited_name,status,expires_at,revoked_at,accepted_at');
+    url.searchParams.set('select', 'id,invited_email,invited_name,invite_code,status,expires_at,revoked_at,accepted_at');
     url.searchParams.set('limit', '1');
     const result = await fetch(url, {
         headers: { apikey: publishableKey, Authorization: `Bearer ${authToken}` },
@@ -117,6 +119,12 @@ function generateSecureLoginCode() {
     const random = new Uint32Array(1);
     crypto.getRandomValues(random);
     return String(100000 + (random[0] % 900000));
+}
+
+function generateSecureConnectionToken() {
+    const random = new Uint8Array(20);
+    crypto.getRandomValues(random);
+    return Array.from(random, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 async function verifyCaller(supabaseUrl: string, publishableKey: string, authToken: string) {

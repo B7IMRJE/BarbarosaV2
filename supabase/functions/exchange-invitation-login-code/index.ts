@@ -46,9 +46,19 @@ export default {
             return response(req, { ok: false, message: 'Enter the six-digit invitation code.' }, 400);
         }
 
-        const invitation =
-            await findCompanyUserInvitation(supabaseUrl, serviceRoleKey, code) ||
-            await findCustomerInvitation(supabaseUrl, serviceRoleKey, code);
+        let invitation;
+        try {
+            invitation =
+                await findCompanyUserInvitation(supabaseUrl, serviceRoleKey, code) ||
+                await findCustomerInvitation(supabaseUrl, serviceRoleKey, code);
+        } catch (error) {
+            return response(req, {
+                ok: false,
+                message: error instanceof Error
+                    ? error.message
+                    : 'The invitation lookup could not be completed.',
+            }, 500);
+        }
         const locked = await isLockedOut(supabaseUrl, serviceRoleKey, ipHash, codeHash);
 
         if (locked) {
@@ -296,10 +306,12 @@ async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: strin
         login_code_expires_at?: string | null;
         expires_at?: string | null;
     }>;
+    if (!lookupResponse.ok) {
+        throw new Error('The customer invitation resolver is unavailable.');
+    }
     const invitation = rows[0];
 
     if (
-        !lookupResponse.ok ||
         !invitation?.invitation_id ||
         !invitation.invited_email ||
         !invitation.invite_code
