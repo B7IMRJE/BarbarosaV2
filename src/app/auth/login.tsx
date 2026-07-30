@@ -209,7 +209,11 @@ export default function LoginScreen() {
             !result.refresh_token
         ) {
             setInvitationLoading(false);
-            setMessage(result?.message || 'This invitation code is invalid or expired.');
+            setMessage(
+                result?.message ||
+                await readInvitationLoginError(error) ||
+                'This invitation code is invalid or expired.'
+            );
             return;
         }
 
@@ -341,6 +345,24 @@ export default function LoginScreen() {
             </View>
         </ScrollView>
     );
+}
+
+async function readInvitationLoginError(error: unknown) {
+    if (!error || typeof error !== 'object' || !('context' in error)) return '';
+
+    const context = (error as { context?: unknown }).context;
+    if (
+        !context ||
+        typeof context !== 'object' ||
+        !('clone' in context) ||
+        typeof (context as Response).clone !== 'function'
+    ) {
+        return error instanceof Error ? error.message : '';
+    }
+
+    const response = (context as Response).clone();
+    const payload = await response.json().catch(() => null) as { message?: string } | null;
+    return String(payload?.message || '').trim();
 }
 
 function firstParam(value: string | string[] | undefined) {
