@@ -76,6 +76,30 @@ export default function CreateHomeOnboardingScreen() {
         }
 
         try {
+            const profilePayload: {
+                id: string;
+                email: string;
+                role: string;
+                full_name?: string;
+            } = {
+                id: user.id,
+                email: String(user.email || '').trim().toLowerCase(),
+                role: 'HOMEOWNER',
+            };
+            const invitedName = String(
+                user.user_metadata?.full_name ||
+                user.user_metadata?.name ||
+                ''
+            ).trim();
+            if (invitedName) profilePayload.full_name = invitedName;
+
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .upsert(profilePayload, { onConflict: 'id' });
+            if (profileError) {
+                throw new Error(`HomeOS could not prepare your homeowner profile: ${profileError.message}`);
+            }
+
             await createFirstHomeIdentity({
                 name: trimmedHomeName,
                 propertyType,
