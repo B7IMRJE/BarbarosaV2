@@ -130,6 +130,10 @@ export default {
             const verifyBody = await verifyResponse.json().catch(() => null) as {
                 access_token?: string;
                 refresh_token?: string;
+                user?: {
+                    id?: string;
+                    email?: string;
+                };
                 msg?: string;
                 message?: string;
                 error_description?: string;
@@ -146,6 +150,31 @@ export default {
                 verifyBody?.access_token &&
                 verifyBody.refresh_token
             ) {
+                const userId =
+                    verifyBody.user?.id ||
+                    await loadAuthenticatedUserId(
+                        supabaseUrl,
+                        publishableKey,
+                        verifyBody.access_token
+                    );
+                if (!userId) {
+                    return response(req, {
+                        ok: false,
+                        message: 'Your secure session opened, but HomeOS could not identify the invited account.',
+                    }, 500);
+                }
+                const profileReady = await ensureHomeownerProfile(
+                    supabaseUrl,
+                    serviceRoleKey,
+                    userId,
+                    verifyBody.user?.email || invitation.email
+                );
+                if (!profileReady) {
+                    return response(req, {
+                        ok: false,
+                        message: 'Your secure session opened, but HomeOS could not prepare the homeowner profile.',
+                    }, 500);
+                }
                 await Promise.all([
                     markInvitationCodeUsed(supabaseUrl, serviceRoleKey, invitation),
                     recordAttempt(supabaseUrl, serviceRoleKey, {
@@ -186,6 +215,44 @@ export default {
         );
     },
 };
+
+async function loadAuthenticatedUserId(
+    supabaseUrl: string,
+    publishableKey: string,
+    accessToken: string
+) {
+    const result = await fetch(`${supabaseUrl}/auth/v1/user`, {
+        headers: {
+            apikey: publishableKey,
+            Authorization: `Bearer ${accessToken}`,
+        },
+    });
+    const user = await result.json().catch(() => null) as { id?: string } | null;
+    return result.ok ? String(user?.id || '').trim() : '';
+}
+
+async function ensureHomeownerProfile(
+    supabaseUrl: string,
+    serviceRoleKey: string,
+    userId: string,
+    email: string
+) {
+    const result = await fetch(`${supabaseUrl}/rest/v1/profiles?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify({
+            id: userId,
+            email: email.trim().toLowerCase(),
+            role: 'HOMEOWNER',
+        }),
+    });
+    return result.ok;
+}
 
 async function findCompanyUserInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
     const url = new URL('/rest/v1/company_user_invitations', supabaseUrl);
