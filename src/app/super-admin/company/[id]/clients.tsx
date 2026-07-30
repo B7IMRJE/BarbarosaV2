@@ -1049,15 +1049,19 @@ function CustomerInviteRow({
                     disabled={!invite.login_code}
                     style={smallButtonStyle}
                 />
-                {!invite.login_code && (
-                    <ThemedButton
-                        title={actionInviteId === invite.invitation_id ? 'Creating...' : 'Create Login Code'}
-                        variant="secondary"
-                        onPress={() => onPrepareLoginCode(invite)}
-                        disabled={!invite.invited_email || actionInviteId === invite.invitation_id}
-                        style={smallButtonStyle}
-                    />
-                )}
+                <ThemedButton
+                    title={
+                        actionInviteId === invite.invitation_id
+                            ? 'Refreshing...'
+                            : invite.login_code
+                                ? 'Refresh Code'
+                                : 'Create Login Code'
+                    }
+                    variant="secondary"
+                    onPress={() => onPrepareLoginCode(invite)}
+                    disabled={!invite.invited_email || actionInviteId === invite.invitation_id}
+                    style={smallButtonStyle}
+                />
                 <ThemedButton
                     title="Copy Text Message"
                     variant="secondary"

@@ -80,11 +80,25 @@ export default {
                 invitation.email
             )
             : null;
+        if (invitation.source === 'customer' && !customerAuth) {
+            await recordAttempt(supabaseUrl, serviceRoleKey, {
+                invitationId: null,
+                ipHash,
+                codeHash,
+                succeeded: false,
+                outcome: 'auth_failed',
+            });
+            return response(req, {
+                ok: false,
+                message: 'The invitation was found, but its secure login session could not be prepared.',
+            }, 500);
+        }
         const verificationToken = customerAuth?.tokenHash || code;
         const verificationTypes = customerAuth
             ? ['email', customerAuth.type, 'invite', 'magiclink'] as const
             : ['invite', 'magiclink'] as const;
 
+        let lastVerificationMessage = '';
         for (const type of [...new Set(verificationTypes)]) {
             const verifyResponse = await fetch(`${supabaseUrl}/auth/v1/verify`, {
                 method: 'POST',
@@ -106,7 +120,16 @@ export default {
             const verifyBody = await verifyResponse.json().catch(() => null) as {
                 access_token?: string;
                 refresh_token?: string;
+                msg?: string;
+                message?: string;
+                error_description?: string;
             } | null;
+            lastVerificationMessage = String(
+                verifyBody?.msg ||
+                verifyBody?.message ||
+                verifyBody?.error_description ||
+                ''
+            ).trim();
 
             if (
                 verifyResponse.ok &&
@@ -145,7 +168,9 @@ export default {
             req,
             {
                 ok: false,
-                message: 'This invitation code has expired or was already used. Ask for a new invitation.',
+                message: lastVerificationMessage
+                    ? `The invitation was found, but login verification failed: ${lastVerificationMessage}`
+                    : 'The invitation was found, but login verification failed.',
             },
             400
         );
