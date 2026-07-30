@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import { themeOptions, type HomeOSTheme } from '../../theme';
+import { DEFAULT_APPEARANCE_PREFERENCES, themeOptions, type HomeOSTheme } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
 export default function OnboardingThemeScreen() {
@@ -21,6 +21,29 @@ export default function OnboardingThemeScreen() {
 
         try {
             await setThemeName(nextThemeName);
+            const selectedTheme = themeOptions.find((option) => option.name === nextThemeName);
+
+            await setAppearance(
+                appearance.appearanceStyle === 'classic'
+                    ? {
+                        ...DEFAULT_APPEARANCE_PREFERENCES,
+                        appearanceStyle: 'classic',
+                        fontSize: appearance.fontSize,
+                        iconSize: appearance.iconSize,
+                    }
+                    : {
+                        ...DEFAULT_APPEARANCE_PREFERENCES,
+                        appearanceStyle: 'glass',
+                        fontSize: appearance.fontSize,
+                        iconSize: appearance.iconSize,
+                        glassPrimary: selectedTheme?.colors.primary
+                            || DEFAULT_APPEARANCE_PREFERENCES.glassPrimary,
+                        glassSecondary: selectedTheme?.colors.secondaryButton
+                            || DEFAULT_APPEARANCE_PREFERENCES.glassSecondary,
+                        glassAccent: selectedTheme?.colors.progressFill
+                            || DEFAULT_APPEARANCE_PREFERENCES.glassAccent,
+                    }
+            );
         } catch (error) {
             setThemeSaveError(
                 error instanceof Error
@@ -30,6 +53,15 @@ export default function OnboardingThemeScreen() {
         } finally {
             setIsSavingTheme(false);
         }
+    }
+
+    async function selectAppearanceStyle(nextStyle: 'glass' | 'classic') {
+        await setAppearance({
+            ...DEFAULT_APPEARANCE_PREFERENCES,
+            appearanceStyle: nextStyle,
+            fontSize: appearance.fontSize,
+            iconSize: appearance.iconSize,
+        });
     }
 
     function continueSetup() {
@@ -80,7 +112,7 @@ export default function OnboardingThemeScreen() {
                         return (
                             <ThemedCard
                                 key={styleOption.name}
-                                onPress={() => void setAppearance({ ...appearance, appearanceStyle: styleOption.name })}
+                                onPress={() => void selectAppearanceStyle(styleOption.name)}
                                 style={{
                                     backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
                                     borderColor: selected ? theme.colors.primary : theme.colors.border,

@@ -285,24 +285,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         }
 
         const previousThemeName = themeName;
-        const previousAppearance = appearance;
-        const selectedTheme = homeOSThemes[nextThemeName];
-        const nextAppearance = {
-            ...appearance,
-            glassPrimary: selectedTheme.colors.primary,
-            glassSecondary: selectedTheme.colors.surfaceAlt,
-            glassAccent: selectedTheme.colors.progressFill,
-            backgroundColor: selectedTheme.colors.background,
-            glassPanelColor: selectedTheme.colors.surface,
-        };
         setThemeNameState(nextThemeName);
-        setAppearanceState(nextAppearance);
 
         try {
-            await Promise.all([
-                AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName),
-                AsyncStorage.setItem(getAppearanceStorageKey(userId), JSON.stringify(nextAppearance)),
-            ]);
+            await AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName);
             const accountResult = await supabase.auth.updateUser({
                 data: {
                     [HOMEOS_THEME_USER_METADATA_KEY]: nextThemeName,
@@ -326,11 +312,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             }
         } catch (error) {
             setThemeNameState(previousThemeName);
-            setAppearanceState(previousAppearance);
-            await Promise.all([
-                AsyncStorage.setItem(getThemeStorageKey(userId), previousThemeName),
-                AsyncStorage.setItem(getAppearanceStorageKey(userId), JSON.stringify(previousAppearance)),
-            ]).catch(() => undefined);
+            await AsyncStorage.setItem(
+                getThemeStorageKey(userId),
+                previousThemeName
+            ).catch(() => undefined);
             throw error;
         }
     }
