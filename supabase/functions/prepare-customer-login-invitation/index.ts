@@ -58,8 +58,13 @@ export default {
                 invite.invited_email,
                 invite.invited_name
             );
-        } catch {
-            return response(req, { ok: false, message: 'The six-digit customer login code could not be created.' }, 500);
+        } catch (error) {
+            return response(req, {
+                ok: false,
+                message: error instanceof Error
+                    ? error.message
+                    : 'The six-digit customer login code could not be created.',
+            }, 500);
         }
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
         const patchResponse = await fetch(
@@ -122,7 +127,12 @@ async function generateLoginCode(
     const payload = {
         type: 'invite',
         email: email.trim().toLowerCase(),
-        options: { data: { full_name: fullName || '', invited_customer: true } },
+        data: {
+            full_name: fullName || '',
+            role: 'HOMEOWNER',
+            invited_customer: true,
+        },
+        redirect_to: customerConfirmRedirect(),
     };
     let result = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, {
         method: 'POST',
@@ -144,10 +154,28 @@ async function generateLoginCode(
             body: JSON.stringify({ ...payload, type: 'magiclink' }),
         });
     }
-    const data = await result.json().catch(() => null) as { properties?: { email_otp?: string } } | null;
+    const data = await result.json().catch(() => null) as {
+        msg?: string;
+        message?: string;
+        error_description?: string;
+        properties?: { email_otp?: string };
+    } | null;
     const code = String(data?.properties?.email_otp || '').trim();
-    if (!result.ok || !/^\d{6}$/.test(code)) throw new Error('The six-digit login code could not be created.');
+    if (!result.ok || !/^\d{6}$/.test(code)) {
+        throw new Error(
+            String(data?.msg || data?.message || data?.error_description || '').trim() ||
+            'The six-digit login code could not be created.'
+        );
+    }
     return code;
+}
+
+function customerConfirmRedirect() {
+    const configuredBaseUrl =
+        Deno.env.get('PUBLIC_APP_URL') ||
+        Deno.env.get('EXPO_PUBLIC_APP_URL') ||
+        'https://barbarosa-v2.vercel.app';
+    return new URL('/auth/confirm', configuredBaseUrl).toString();
 }
 
 async function verifyCaller(supabaseUrl: string, publishableKey: string, authToken: string) {

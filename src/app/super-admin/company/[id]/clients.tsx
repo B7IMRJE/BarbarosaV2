@@ -366,7 +366,10 @@ export default function CompanyClientsScreen() {
         });
 
         if (error) {
-            return { ok: false, message: `Could not create six-digit login code: ${error.message}` };
+            return {
+                ok: false,
+                message: await formatCustomerLoginCodeError(error),
+            };
         }
 
         return (data || {}) as PreparedCustomerLoginInvite;
@@ -1305,6 +1308,24 @@ async function formatCustomerInviteEmailError(error: unknown) {
             return `Customer invite email failed: ${fallbackMessage}`;
         }
     }
+}
+
+async function formatCustomerLoginCodeError(error: unknown) {
+    const context = (
+        typeof error === 'object' &&
+        error !== null &&
+        'context' in error
+    )
+        ? (error as { context?: unknown }).context
+        : null;
+
+    if (context instanceof Response) {
+        const payload = await context.clone().json().catch(() => null) as PreparedCustomerLoginInvite | null;
+        if (payload?.message) return payload.message;
+    }
+
+    const message = error instanceof Error ? error.message : '';
+    return message || 'Could not create the six-digit customer login code.';
 }
 
 function formatCustomerInviteEmailResponse(payload: CustomerInviteEmailResponse) {
