@@ -73,7 +73,19 @@ export default {
             return response(req, { ok: false, message: 'This invitation code is invalid or expired.' }, 400);
         }
 
-        for (const type of ['invite', 'magiclink'] as const) {
+        const customerAuth = invitation.source === 'customer'
+            ? await createCustomerAuthOtp(
+                supabaseUrl,
+                serviceRoleKey,
+                invitation.email
+            )
+            : null;
+        const verificationToken = customerAuth?.token || code;
+        const verificationTypes = customerAuth
+            ? [customerAuth.type, 'invite', 'magiclink'] as const
+            : ['invite', 'magiclink'] as const;
+
+        for (const type of [...new Set(verificationTypes)]) {
             const verifyResponse = await fetch(`${supabaseUrl}/auth/v1/verify`, {
                 method: 'POST',
                 headers: {
@@ -82,7 +94,7 @@ export default {
                 },
                 body: JSON.stringify({
                     email: invitation.email,
-                    token: code,
+                    token: verificationToken,
                     type,
                 }),
             });
@@ -170,6 +182,58 @@ async function findCompanyUserInvitation(supabaseUrl: string, serviceRoleKey: st
         email: invitation.email,
         source: 'company_user' as const,
         connectionCode: '',
+    };
+}
+
+async function createCustomerAuthOtp(
+    supabaseUrl: string,
+    serviceRoleKey: string,
+    email: string
+) {
+    const payload = {
+        type: 'invite',
+        email,
+        data: {
+            role: 'HOMEOWNER',
+            invited_customer: true,
+        },
+        redirect_to: 'https://barbarosa-v2.vercel.app/auth/confirm',
+    };
+    let result = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, {
+        method: 'POST',
+        headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!result.ok && result.status === 422) {
+        result = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, {
+            method: 'POST',
+            headers: {
+                apikey: serviceRoleKey,
+                Authorization: `Bearer ${serviceRoleKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ...payload, type: 'magiclink' }),
+        });
+    }
+
+    const data = await result.json().catch(() => null) as {
+        properties?: {
+            email_otp?: string;
+            verification_type?: 'invite' | 'magiclink';
+        };
+    } | null;
+    const token = String(data?.properties?.email_otp || '').trim();
+
+    if (!result.ok || !token) return null;
+
+    return {
+        token,
+        type: data?.properties?.verification_type || (payload.type as 'invite'),
     };
 }
 

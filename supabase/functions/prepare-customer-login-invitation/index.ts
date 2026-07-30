@@ -49,45 +49,40 @@ export default {
             return response(req, { ok: false, message: 'This customer invitation is no longer active.' }, 409);
         }
 
-        let loginCode = '';
-
-        try {
-            loginCode = await generateLoginCode(
-                supabaseUrl,
-                serviceRoleKey,
-                invite.invited_email,
-                invite.invited_name
-            );
-        } catch (error) {
-            return response(req, {
-                ok: false,
-                message: error instanceof Error
-                    ? error.message
-                    : 'The six-digit customer login code could not be created.',
-            }, 500);
-        }
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-        const patchResponse = await fetch(
-            `${supabaseUrl}/rest/v1/company_customer_invitations?id=eq.${encodeURIComponent(invite.id)}`,
-            {
-                method: 'PATCH',
-                headers: {
-                    apikey: serviceRoleKey,
-                    Authorization: `Bearer ${serviceRoleKey}`,
-                    'Content-Type': 'application/json',
-                    Prefer: 'return=minimal',
-                },
-                body: JSON.stringify({
-                    login_code: loginCode,
-                    login_code_created_at: new Date().toISOString(),
-                    login_code_expires_at: expiresAt,
-                    login_code_used_at: null,
-                }),
-            }
-        );
+        let loginCode = '';
+        let saved = false;
 
-        if (!patchResponse.ok) {
-            return response(req, { ok: false, message: 'The customer login code could not be saved.' }, 500);
+        for (let attempt = 0; attempt < 5 && !saved; attempt += 1) {
+            loginCode = generateSecureLoginCode();
+            const patchResponse = await fetch(
+                `${supabaseUrl}/rest/v1/company_customer_invitations?id=eq.${encodeURIComponent(invite.id)}`,
+                {
+                    method: 'PATCH',
+                    headers: {
+                        apikey: serviceRoleKey,
+                        Authorization: `Bearer ${serviceRoleKey}`,
+                        'Content-Type': 'application/json',
+                        Prefer: 'return=minimal',
+                    },
+                    body: JSON.stringify({
+                        login_code: loginCode,
+                        login_code_created_at: new Date().toISOString(),
+                        login_code_expires_at: expiresAt,
+                        login_code_used_at: null,
+                    }),
+                }
+            );
+
+            if (patchResponse.ok) {
+                saved = true;
+            } else if (patchResponse.status !== 409) {
+                return response(req, { ok: false, message: 'The customer login code could not be saved.' }, 500);
+            }
+        }
+
+        if (!saved) {
+            return response(req, { ok: false, message: 'A unique customer login code could not be created. Try again.' }, 500);
         }
 
         return response(req, {
@@ -118,64 +113,10 @@ async function loadAuthorizedInvite(
     return rows[0] || null;
 }
 
-async function generateLoginCode(
-    supabaseUrl: string,
-    serviceRoleKey: string,
-    email: string,
-    fullName: string | null
-) {
-    const payload = {
-        type: 'invite',
-        email: email.trim().toLowerCase(),
-        data: {
-            full_name: fullName || '',
-            role: 'HOMEOWNER',
-            invited_customer: true,
-        },
-        redirect_to: customerConfirmRedirect(),
-    };
-    let result = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, {
-        method: 'POST',
-        headers: {
-            apikey: serviceRoleKey,
-            Authorization: `Bearer ${serviceRoleKey}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-    });
-    if (!result.ok && result.status === 422) {
-        result = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, {
-            method: 'POST',
-            headers: {
-                apikey: serviceRoleKey,
-                Authorization: `Bearer ${serviceRoleKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ ...payload, type: 'magiclink' }),
-        });
-    }
-    const data = await result.json().catch(() => null) as {
-        msg?: string;
-        message?: string;
-        error_description?: string;
-        properties?: { email_otp?: string };
-    } | null;
-    const code = String(data?.properties?.email_otp || '').trim();
-    if (!result.ok || !/^\d{6}$/.test(code)) {
-        throw new Error(
-            String(data?.msg || data?.message || data?.error_description || '').trim() ||
-            'The six-digit login code could not be created.'
-        );
-    }
-    return code;
-}
-
-function customerConfirmRedirect() {
-    const configuredBaseUrl =
-        Deno.env.get('PUBLIC_APP_URL') ||
-        Deno.env.get('EXPO_PUBLIC_APP_URL') ||
-        'https://barbarosa-v2.vercel.app';
-    return new URL('/auth/confirm', configuredBaseUrl).toString();
+function generateSecureLoginCode() {
+    const random = new Uint32Array(1);
+    crypto.getRandomValues(random);
+    return String(100000 + (random[0] % 900000));
 }
 
 async function verifyCaller(supabaseUrl: string, publishableKey: string, authToken: string) {
