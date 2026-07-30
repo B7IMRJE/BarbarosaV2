@@ -356,6 +356,7 @@ async function createAuthInvitation(
                 manual_invite_token_last4: inviteCode.slice(-4),
                 manual_invite_token_expires_at: expiresAt,
                 manual_invite_token_created_at: new Date().toISOString(),
+                login_code_used_at: null,
             }),
         }
     );
