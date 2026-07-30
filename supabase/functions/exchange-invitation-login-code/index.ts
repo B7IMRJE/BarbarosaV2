@@ -262,20 +262,29 @@ async function createCustomerAuthOtp(
     }
 
     const data = await result.json().catch(() => null) as {
+        action_link?: string;
+        hashed_token?: string;
+        verification_type?: 'email' | 'invite' | 'magiclink';
         properties?: {
             action_link?: string;
             hashed_token?: string;
             verification_type?: 'email' | 'invite' | 'magiclink';
         };
     } | null;
-    const actionLink = String(data?.properties?.action_link || '').trim();
+    const actionLink = String(
+        data?.action_link ||
+        data?.properties?.action_link ||
+        ''
+    ).trim();
     const actionUrl = actionLink ? new URL(actionLink) : null;
     const tokenHash = String(
+        data?.hashed_token ||
         data?.properties?.hashed_token ||
         actionUrl?.searchParams.get('token') ||
         ''
     ).trim();
     const verificationType = String(
+        data?.verification_type ||
         data?.properties?.verification_type ||
         actionUrl?.searchParams.get('type') ||
         'email'
