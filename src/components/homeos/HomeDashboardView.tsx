@@ -146,21 +146,25 @@ export default function HomeDashboardView({
       label: 'White / Empty',
       description: 'Area or service exists, but no items have been added yet.',
       colors: theme.colors.status.unknown,
+      textColor: appearanceTextColor(theme.colors.status.unknown.background, theme.colors.text),
     },
     {
       label: 'Green / Good',
       description: 'Items are added and currently OK.',
       colors: theme.colors.status.good,
+      textColor: '#FFFFFF',
     },
     {
       label: 'Yellow / Needs Review',
       description: 'Missing information, needs confirmation, unknown, or not inspected.',
       colors: theme.colors.status.notInspected,
+      textColor: '#FFFFFF',
     },
     {
       label: 'Red / Critical',
       description: 'Urgent, emergency, active leak, flood, gas smell, or problem.',
       colors: theme.colors.status.emergency,
+      textColor: '#FFFFFF',
     },
   ];
 
@@ -421,7 +425,7 @@ export default function HomeDashboardView({
               >
                 <Text
                   style={{
-                    color: theme.colors.text,
+                    color: item.textColor,
                     fontSize: scaleFont(14),
                     fontWeight: '900',
                     marginBottom: scaleIcon(4),
@@ -431,7 +435,8 @@ export default function HomeDashboardView({
                 </Text>
                 <Text
                   style={{
-                    color: theme.colors.mutedText,
+                    color: item.textColor,
+                    opacity: 0.86,
                     fontSize: scaleFont(12),
                     fontWeight: '700',
                     lineHeight: scaleFont(17),
@@ -601,6 +606,10 @@ function firstText(...values: Array<string | null | undefined>) {
   }
 
   return '';
+}
+
+function appearanceTextColor(background: string, fallback: string) {
+  return background.includes('245, 251, 255') ? '#071B33' : fallback;
 }
 
 function sameText(a?: string | null, b?: string | null) {

@@ -151,12 +151,14 @@ export function resolveGlassHomeTheme(
             danger: '#C45B5B',
             dangerBackground: 'rgba(113, 37, 45, 0.72)',
             status: {
-                unknown: { background: palette.tones.steel.background, border: palette.tones.steel.border },
-                good: { background: palette.tones.emerald.background, border: palette.tones.emerald.border },
-                notInspected: { background: palette.tones.blue.background, border: palette.tones.blue.border },
-                needsAttention: { background: 'rgba(125, 77, 17, 0.76)', border: 'rgba(246, 188, 92, 0.72)' },
-                emergency: { background: 'rgba(113, 37, 45, 0.72)', border: 'rgba(239, 128, 128, 0.72)' },
-                activeEmergency: { background: 'rgba(133, 31, 42, 0.82)', border: 'rgba(255, 121, 121, 0.82)' },
+                // Status colors must keep their meaning regardless of the selected
+                // decorative glass pack or company branding.
+                unknown: { background: 'rgba(245, 251, 255, 0.92)', border: 'rgba(214, 228, 239, 0.96)' },
+                good: { background: 'rgba(35, 132, 82, 0.84)', border: 'rgba(121, 235, 177, 0.92)' },
+                notInspected: { background: 'rgba(170, 124, 24, 0.86)', border: 'rgba(250, 211, 111, 0.94)' },
+                needsAttention: { background: 'rgba(153, 87, 20, 0.86)', border: 'rgba(246, 174, 92, 0.94)' },
+                emergency: { background: 'rgba(153, 53, 61, 0.88)', border: 'rgba(246, 139, 139, 0.94)' },
+                activeEmergency: { background: 'rgba(176, 38, 51, 0.92)', border: 'rgba(255, 121, 121, 0.98)' },
             },
         },
         radii: {
@@ -200,7 +202,7 @@ function companyWorkspaceTone(panelColor: string, accentColor: string, opacity =
     const warmBorder = mixHex(accent, '#FFFFFF', 0.34);
 
     return {
-        background: withAlpha(darkPanel, Math.max(0.88, opacity)),
+        background: withAlpha(darkPanel, Math.max(0.28, Math.min(0.9, opacity))),
         border: withAlpha(warmBorder, 0.9),
         edge: accent,
         glow: withAlpha(accent, 0.2),
