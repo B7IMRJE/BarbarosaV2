@@ -18,6 +18,7 @@ import { CompanyGlassDepthProvider } from '../../theme/glass-depth';
 import { supabase } from '../../lib/supabase';
 import HomeownerActiveRequestStatus from '../serviceRequests/HomeownerActiveRequestStatus';
 import ThemedButton from '../theme/ThemedButton';
+import EmailVerificationNotice from '../auth/EmailVerificationNotice';
 
 type GlobalNavigationProps = {
     children: ReactNode;
@@ -248,6 +249,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
             </View>
 
             <View style={{ flex: 1 }}>
+                <EmailVerificationNotice />
                 {children}
             </View>
 

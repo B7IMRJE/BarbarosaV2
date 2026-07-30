@@ -28,6 +28,7 @@ type RpcErrorBody = {
 type FunctionEnv = {
     supabaseUrl: string;
     publishableKey: string;
+    serviceRoleKey: string;
     publicAppUrl: string;
     fromEmail: string;
     resendApiKey: string;
@@ -40,7 +41,6 @@ type SendResult = {
     message: string;
 };
 
-const COMPANY_INVITE_ROUTE = '/company-invite';
 const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -111,7 +111,12 @@ export default {
                 return json(req, { ok: false, code: 'email_mismatch', message: 'Invite email does not match this invitation.' }, 400);
             }
 
-            const inviteCode = readStringField(body, 'invite_code') || readStringField(body, 'inviteCode');
+            const authInvite = await createAuthInvitation(
+                env,
+                invitation,
+                env.publicAppUrl || readRequestAppBaseUrl(body)
+            );
+            const inviteCode = authInvite.inviteCode;
             const inviteLink = resolveInviteLink(env, body, inviteCode);
 
             if (!inviteLink) {
@@ -172,7 +177,13 @@ export default {
                 );
             }
 
-            return json(req, { ok: true, code: 'sent', message: 'Invitation email sent.' });
+            return json(req, {
+                ok: true,
+                code: 'sent',
+                message: 'Invitation email sent.',
+                invite_code: inviteCode,
+                invite_link: inviteLink,
+            });
         } catch (error) {
             if (error instanceof RequestError) {
                 return json(
@@ -250,6 +261,7 @@ function loadFunctionEnv(): FunctionEnv {
     return {
         supabaseUrl: normalizeUrl(requireEnv('SUPABASE_URL', 'SUPABASE_URL')),
         publishableKey: getPublishableKey(),
+        serviceRoleKey: requireEnv('SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SERVICE_ROLE_KEY'),
         publicAppUrl: normalizeOptionalUrl(
             Deno.env.get('PUBLIC_APP_URL') ||
             Deno.env.get('COMPANY_INVITATION_APP_BASE_URL') ||
@@ -258,6 +270,107 @@ function loadFunctionEnv(): FunctionEnv {
         fromEmail: Deno.env.get('INVITE_FROM_EMAIL') || '',
         resendApiKey: Deno.env.get('RESEND_API_KEY') || '',
         sendgridApiKey: Deno.env.get('SENDGRID_API_KEY') || '',
+    };
+}
+
+async function createAuthInvitation(
+    env: FunctionEnv,
+    invitation: DeliveryInvitation,
+    appBaseUrl: string
+) {
+    if (!appBaseUrl) {
+        throw new RequestError(
+            500,
+            'invite_link_missing',
+            'Company invitation app URL is not configured.'
+        );
+    }
+
+    const redirectTo = new URL('/auth/confirm', appBaseUrl).toString();
+    const payload = {
+        type: 'invite',
+        email: invitation.email,
+        data: {
+            full_name: invitation.full_name,
+            role: 'WORK',
+            company_invitation_id: invitation.invitation_id,
+        },
+        redirect_to: redirectTo,
+    };
+    let response = await fetch(`${env.supabaseUrl}/auth/v1/admin/generate_link`, {
+        method: 'POST',
+        headers: {
+            apikey: env.serviceRoleKey,
+            Authorization: `Bearer ${env.serviceRoleKey}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok && response.status === 422) {
+        response = await fetch(`${env.supabaseUrl}/auth/v1/admin/generate_link`, {
+            method: 'POST',
+            headers: {
+                apikey: env.serviceRoleKey,
+                Authorization: `Bearer ${env.serviceRoleKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                ...payload,
+                type: 'magiclink',
+            }),
+        });
+    }
+
+    const result = await response.json().catch(() => null) as {
+        properties?: {
+            email_otp?: string;
+            verification_type?: string;
+        };
+    } | null;
+    const inviteCode = String(result?.properties?.email_otp || '').trim();
+
+    if (!response.ok || !/^\d{6}$/.test(inviteCode)) {
+        throw new RequestError(
+            500,
+            'auth_invitation_failed',
+            'The work account login code could not be created.'
+        );
+    }
+
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const updateResponse = await fetch(
+        `${env.supabaseUrl}/rest/v1/company_user_invitations?id=eq.${encodeURIComponent(invitation.invitation_id)}`,
+        {
+            method: 'PATCH',
+            headers: {
+                apikey: env.serviceRoleKey,
+                Authorization: `Bearer ${env.serviceRoleKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=minimal',
+            },
+            body: JSON.stringify({
+                manual_invite_code: inviteCode,
+                manual_invite_expires_at: expiresAt,
+                manual_invite_created_at: new Date().toISOString(),
+                manual_invite_token_last4: inviteCode.slice(-4),
+                manual_invite_token_expires_at: expiresAt,
+                manual_invite_token_created_at: new Date().toISOString(),
+            }),
+        }
+    );
+
+    if (!updateResponse.ok) {
+        throw new RequestError(
+            500,
+            'auth_invitation_tracking_failed',
+            'The work account login code could not be saved.'
+        );
+    }
+
+    return {
+        inviteCode,
+        verificationType: result?.properties?.verification_type || 'invite',
     };
 }
 
@@ -430,18 +543,12 @@ async function invokeRpc<T>(
 }
 
 function resolveInviteLink(env: FunctionEnv, body: Record<string, unknown>, inviteCode: string | null) {
-    const explicitLink = readStringField(body, 'invite_link') || readStringField(body, 'inviteLink');
-
-    if (explicitLink && isHttpUrl(explicitLink)) {
-        return explicitLink;
-    }
-
     const appBaseUrl = env.publicAppUrl || readRequestAppBaseUrl(body);
 
     if (!inviteCode || !appBaseUrl) return null;
 
-    const url = new URL(COMPANY_INVITE_ROUTE, appBaseUrl);
-    url.searchParams.set('code', inviteCode);
+    const url = new URL('/auth/login', appBaseUrl);
+    url.searchParams.set('invitationCode', inviteCode);
 
     return url.toString();
 }
@@ -459,16 +566,6 @@ function readRequestAppBaseUrl(body: Record<string, unknown>) {
         return normalizeOptionalUrl(value);
     } catch {
         return '';
-    }
-}
-
-function isHttpUrl(value: string) {
-    try {
-        const url = new URL(value);
-
-        return url.protocol === 'https:' || url.protocol === 'http:';
-    } catch {
-        return false;
     }
 }
 
@@ -505,8 +602,8 @@ function buildCompanyInviteEmail({
         `Open this secure invite link: ${inviteLink}`,
         inviteCode ? `Invite code: ${inviteCode}` : '',
         '',
-        'Sign in or create a ManagementOS work account with this email address, then accept the company invitation.',
-        'Email confirmation only verifies your work account. Your company invite will continue automatically after confirmation.',
+        'Enter this six-digit code on the login page. It verifies your email, signs you in, and opens the correct workspace.',
+        'The code can be used once and expires after the configured invitation period.',
         'This invitation does not expose private HomeOS homeowner data.',
     ].filter((line) => line !== '').join('\n');
     const html = text

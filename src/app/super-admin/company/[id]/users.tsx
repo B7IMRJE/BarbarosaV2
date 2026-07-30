@@ -91,6 +91,8 @@ type ManualInviteResult = {
 type InvitationEmailResult = {
     ok: boolean;
     message: string;
+    inviteCode?: string | null;
+    inviteLink?: string | null;
 };
 
 type SubmitStage = 'idle' | 'creating' | 'sending';
@@ -544,6 +546,20 @@ export default function CompanyUsersScreen() {
         }
 
         const responseMessage = emailResult.message || 'Invitation email sent.';
+
+        if (emailResult.inviteCode) {
+            setManualInvitesById((current) => ({
+                ...current,
+                [invitationId]: {
+                    status: 'ready',
+                    inviteCode: emailResult.inviteCode || null,
+                    inviteUrl: emailResult.inviteLink || null,
+                    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                    warning: null,
+                    message: 'Six-digit invitation login code is ready.',
+                },
+            }));
+        }
 
         await recordCompanyAuditEvent({
             companyId: invitation.company_id,
@@ -2169,6 +2185,8 @@ async function sendCompanyInvitationEmail({
         return {
             ok: true,
             message: body.message || 'Invitation email sent.',
+            inviteCode: body.inviteCode,
+            inviteLink: body.inviteLink,
         };
     } catch (error) {
         return {
@@ -2181,6 +2199,8 @@ async function sendCompanyInvitationEmail({
 async function readInvitationEmailResponse(response: Response): Promise<{
     ok: boolean | null;
     message: string | null;
+    inviteCode: string | null;
+    inviteLink: string | null;
 }> {
     const text = await response.text();
 
@@ -2188,6 +2208,8 @@ async function readInvitationEmailResponse(response: Response): Promise<{
         return {
             ok: response.ok,
             message: null,
+            inviteCode: null,
+            inviteLink: null,
         };
     }
 
@@ -2198,11 +2220,15 @@ async function readInvitationEmailResponse(response: Response): Promise<{
         return {
             ok: typeof record.ok === 'boolean' ? record.ok : response.ok,
             message: readStringField(record, 'message'),
+            inviteCode: readStringField(record, 'invite_code'),
+            inviteLink: readStringField(record, 'invite_link'),
         };
     } catch {
         return {
             ok: response.ok,
             message: text.trim(),
+            inviteCode: null,
+            inviteLink: null,
         };
     }
 }

@@ -28,6 +28,7 @@ export default function LoginScreen() {
         next?: string | string[];
         mode?: string | string[];
         email?: string | string[];
+        invitationCode?: string | string[];
     }>();
     const requestedNextRoute = resolveSafeNext(firstParam(params.next));
     const pendingInvite = getPendingCompanyInviteState();
@@ -42,7 +43,11 @@ export default function LoginScreen() {
     const invitedEmail = normalizeEmail(firstParam(params.email));
     const [email, setEmail] = useState(invitedEmail);
     const [password, setPassword] = useState('');
+    const [invitationCode, setInvitationCode] = useState(
+        String(firstParam(params.invitationCode) || '').replace(/\D/g, '').slice(0, 6)
+    );
     const [loading, setLoading] = useState(false);
+    const [invitationLoading, setInvitationLoading] = useState(false);
     const [resending, setResending] = useState(false);
     const [message, setMessage] = useState('');
     const [unconfirmedEmail, setUnconfirmedEmail] = useState('');
@@ -174,6 +179,56 @@ export default function LoginScreen() {
         setMessage(confirmationResentMessage(confirmNextRoute, workAccountMode));
     }
 
+    async function handleInvitationCodeLogin() {
+        const code = invitationCode.replace(/\D/g, '');
+
+        if (code.length !== 6) {
+            setMessage('Enter the six-digit invitation login code.');
+            return;
+        }
+
+        setInvitationLoading(true);
+        setMessage('Checking invitation code...');
+
+        const { data, error } = await supabase.functions.invoke(
+            'exchange-invitation-login-code',
+            { body: { code } }
+        );
+        const result = data as {
+            ok?: boolean;
+            access_token?: string;
+            refresh_token?: string;
+            next?: string;
+            message?: string;
+        } | null;
+
+        if (
+            error ||
+            !result?.ok ||
+            !result.access_token ||
+            !result.refresh_token
+        ) {
+            setInvitationLoading(false);
+            setMessage(result?.message || 'This invitation code is invalid or expired.');
+            return;
+        }
+
+        const { error: sessionError } = await supabase.auth.setSession({
+            access_token: result.access_token,
+            refresh_token: result.refresh_token,
+        });
+
+        setInvitationLoading(false);
+
+        if (sessionError) {
+            setMessage('The invitation was verified, but HomeOS could not start your session. Try again.');
+            return;
+        }
+
+        setMessage('Invitation verified. Opening your workspace...');
+        router.replace((result.next || '/') as any);
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
@@ -219,7 +274,33 @@ export default function LoginScreen() {
                 <ThemedButton
                     title={loading ? 'Logging in...' : 'Login'}
                     onPress={handleLogin}
-                    disabled={loading || resending}
+                    disabled={loading || resending || invitationLoading}
+                    style={buttonStyle}
+                />
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 22 }}>
+                    <View style={{ height: 1, backgroundColor: '#CBD5E1', flex: 1 }} />
+                    <Text style={{ color: '#637083', fontWeight: '800' }}>or use your invitation</Text>
+                    <View style={{ height: 1, backgroundColor: '#CBD5E1', flex: 1 }} />
+                </View>
+
+                <TextInput
+                    placeholder="Six-digit invitation code"
+                    value={invitationCode}
+                    onChangeText={(value) => setInvitationCode(value.replace(/\D/g, '').slice(0, 6))}
+                    keyboardType="number-pad"
+                    autoCorrect={false}
+                    autoComplete="one-time-code"
+                    textContentType="oneTimeCode"
+                    maxLength={6}
+                    style={[inputStyle, { textAlign: 'center', letterSpacing: 8, fontSize: 22, fontWeight: '900' }]}
+                />
+
+                <ThemedButton
+                    title={invitationLoading ? 'Opening Invitation...' : 'Login with Invitation Code'}
+                    variant="secondary"
+                    onPress={handleInvitationCodeLogin}
+                    disabled={loading || resending || invitationLoading}
                     style={buttonStyle}
                 />
 
