@@ -82,7 +82,7 @@ export default {
             : null;
         const verificationToken = customerAuth?.tokenHash || code;
         const verificationTypes = customerAuth
-            ? [customerAuth.type, 'invite', 'magiclink'] as const
+            ? ['email', customerAuth.type, 'invite', 'magiclink'] as const
             : ['invite', 'magiclink'] as const;
 
         for (const type of [...new Set(verificationTypes)]) {
