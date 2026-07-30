@@ -46,12 +46,14 @@ export default {
             return response(req, { ok: false, message: 'Enter the six-digit invitation code.' }, 400);
         }
 
-        const invitation = await findInvitation(supabaseUrl, serviceRoleKey, code);
+        const invitation =
+            await findCompanyUserInvitation(supabaseUrl, serviceRoleKey, code) ||
+            await findCustomerInvitation(supabaseUrl, serviceRoleKey, code);
         const locked = await isLockedOut(supabaseUrl, serviceRoleKey, ipHash, codeHash);
 
         if (locked) {
             await recordAttempt(supabaseUrl, serviceRoleKey, {
-                invitationId: invitation?.id || null,
+                invitationId: invitation?.source === 'company_user' ? invitation.id : null,
                 ipHash,
                 codeHash,
                 succeeded: false,
@@ -95,9 +97,9 @@ export default {
                 verifyBody.refresh_token
             ) {
                 await Promise.all([
-                    markInvitationCodeUsed(supabaseUrl, serviceRoleKey, invitation.id),
+                    markInvitationCodeUsed(supabaseUrl, serviceRoleKey, invitation),
                     recordAttempt(supabaseUrl, serviceRoleKey, {
-                        invitationId: invitation.id,
+                        invitationId: invitation.source === 'company_user' ? invitation.id : null,
                         ipHash,
                         codeHash,
                         succeeded: true,
@@ -108,13 +110,15 @@ export default {
                     ok: true,
                     access_token: verifyBody.access_token,
                     refresh_token: verifyBody.refresh_token,
-                    next: `/company-invite?code=${encodeURIComponent(code)}`,
+                    next: invitation.source === 'customer'
+                        ? `/customer-invite?code=${encodeURIComponent(invitation.connectionCode)}`
+                        : `/company-invite?code=${encodeURIComponent(code)}`,
                 });
             }
         }
 
         await recordAttempt(supabaseUrl, serviceRoleKey, {
-            invitationId: invitation.id,
+            invitationId: invitation.source === 'company_user' ? invitation.id : null,
             ipHash,
             codeHash,
             succeeded: false,
@@ -131,7 +135,7 @@ export default {
     },
 };
 
-async function findInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
+async function findCompanyUserInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
     const url = new URL('/rest/v1/company_user_invitations', supabaseUrl);
     url.searchParams.set('manual_invite_code', `eq.${code}`);
     url.searchParams.set('status', 'eq.pending');
@@ -161,7 +165,57 @@ async function findInvitation(supabaseUrl: string, serviceRoleKey: string, code:
 
     if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) return null;
 
-    return { id: invitation.id, email: invitation.email };
+    return {
+        id: invitation.id,
+        email: invitation.email,
+        source: 'company_user' as const,
+        connectionCode: '',
+    };
+}
+
+async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
+    const url = new URL('/rest/v1/company_customer_invitations', supabaseUrl);
+    url.searchParams.set('login_code', `eq.${code}`);
+    url.searchParams.set('status', 'eq.pending');
+    url.searchParams.set('revoked_at', 'is.null');
+    url.searchParams.set('accepted_at', 'is.null');
+    url.searchParams.set('login_code_used_at', 'is.null');
+    url.searchParams.set('select', 'id,invited_email,invite_code,login_code_expires_at,expires_at');
+    url.searchParams.set('limit', '1');
+
+    const lookupResponse = await fetch(url, {
+        headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+        },
+    });
+    const rows = await lookupResponse.json().catch(() => []) as Array<{
+        id?: string;
+        invited_email?: string;
+        invite_code?: string;
+        login_code_expires_at?: string | null;
+        expires_at?: string | null;
+    }>;
+    const invitation = rows[0];
+
+    if (
+        !lookupResponse.ok ||
+        !invitation?.id ||
+        !invitation.invited_email ||
+        !invitation.invite_code
+    ) {
+        return null;
+    }
+
+    const expiresAt = invitation.login_code_expires_at || invitation.expires_at;
+    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) return null;
+
+    return {
+        id: invitation.id,
+        email: invitation.invited_email,
+        source: 'customer' as const,
+        connectionCode: invitation.invite_code,
+    };
 }
 
 async function isLockedOut(
@@ -238,10 +292,16 @@ async function recordAttempt(
 async function markInvitationCodeUsed(
     supabaseUrl: string,
     serviceRoleKey: string,
-    invitationId: string
+    invitation: {
+        id: string;
+        source: 'company_user' | 'customer';
+    }
 ) {
+    const table = invitation.source === 'customer'
+        ? 'company_customer_invitations'
+        : 'company_user_invitations';
     await fetch(
-        `${supabaseUrl}/rest/v1/company_user_invitations?id=eq.${encodeURIComponent(invitationId)}`,
+        `${supabaseUrl}/rest/v1/${table}?id=eq.${encodeURIComponent(invitation.id)}`,
         {
             method: 'PATCH',
             headers: {

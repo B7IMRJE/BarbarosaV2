@@ -10,6 +10,8 @@ type CustomerInvite = {
     invited_email: string | null;
     invited_name: string | null;
     invite_code: string | null;
+    login_code: string | null;
+    login_code_expires_at: string | null;
     status: string | null;
     expires_at: string | null;
     revoked_at: string | null;
@@ -52,8 +54,6 @@ type SendResult = {
     code?: string;
     details?: string;
 };
-
-const CUSTOMER_INVITE_ROUTE = '/customer-invite';
 
 export default {
     async fetch(req: Request): Promise<Response> {
@@ -106,8 +106,8 @@ export default {
                 );
             }
 
-            if (!invite.invited_email || !invite.invite_code) {
-                return errorJson(req, 400, 'invite_not_sendable', 'Customer invite email or code is missing.');
+            if (!invite.invited_email || !invite.invite_code || !/^\d{6}$/.test(invite.login_code || '')) {
+                return errorJson(req, 400, 'invite_not_sendable', 'Create a six-digit customer login code before sending the email.');
             }
 
             if (normalizeStatus(invite.status) !== 'pending') {
@@ -124,7 +124,7 @@ export default {
 
             const company = await loadCompany(env, authToken, invite.company_id);
             const companyName = companyNameFromRecord(company);
-            const inviteLink = buildInviteLink(env.publicAppUrl, invite.invite_code);
+            const inviteLink = buildInviteLink(env.publicAppUrl, invite.login_code || '');
             const subject = `${companyName} invited you to connect your home`;
             const text = [
                 `Hi${invite.invited_name ? ` ${invite.invited_name}` : ''},`,
@@ -132,7 +132,8 @@ export default {
                 `${companyName} invited you to securely connect your HomeOS home.`,
                 '',
                 `Open this link: ${inviteLink}`,
-                `Invite code: ${invite.invite_code}`,
+                `Six-digit login code: ${invite.login_code}`,
+                'The code expires after 24 hours and can be used only once.',
                 '',
                 'This connection shares only basic home/customer information. Private HomeOS photos, documents, and history are not shared by this invite.',
             ].join('\n');
@@ -156,7 +157,11 @@ export default {
                 );
             }
 
-            return json(req, { ok: true, message: 'Customer invite email sent.' });
+            return json(req, {
+                ok: true,
+                message: 'Customer login invitation email sent.',
+                login_code: invite.login_code,
+            });
         } catch (error) {
             if (error instanceof RequestError) {
                 return errorJson(req, error.status, error.code, error.safeMessage, error.detail);
@@ -365,7 +370,7 @@ async function readJsonBody(req: Request) {
 async function loadInvite(env: FunctionEnv, authToken: string, invitationId: string) {
     const url = new URL('/rest/v1/company_customer_invitations', env.supabaseUrl);
     url.searchParams.set('id', `eq.${invitationId}`);
-    url.searchParams.set('select', 'id,company_id,invited_email,invited_name,invite_code,status,expires_at,revoked_at,accepted_at');
+    url.searchParams.set('select', 'id,company_id,invited_email,invited_name,invite_code,login_code,login_code_expires_at,status,expires_at,revoked_at,accepted_at');
     url.searchParams.set('limit', '1');
 
     const response = await fetch(url, {
@@ -491,8 +496,8 @@ async function sendWithSendGrid(env: FunctionEnv, to: string, subject: string, t
 }
 
 function buildInviteLink(publicAppUrl: string, inviteCode: string) {
-    const url = new URL(CUSTOMER_INVITE_ROUTE, publicAppUrl);
-    url.searchParams.set('code', inviteCode);
+    const url = new URL('/auth/login', publicAppUrl);
+    url.searchParams.set('invitationCode', inviteCode);
 
     return url.toString();
 }

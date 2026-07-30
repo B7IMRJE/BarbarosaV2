@@ -17,7 +17,6 @@ import {
 } from '../../../../lib/companyClientDirectory';
 import {
     buildCustomerInviteRpcPayload,
-    customerInviteHasContact,
     customerInvitePhoneWasPersisted,
 } from '../../../../lib/customerInviteDraft';
 import { resolveCompanyWorkspaceTheme } from '../../../../lib/companyWorkspaceTheme';
@@ -72,6 +71,8 @@ type CustomerInvite = {
     note: string | null;
     status: string | null;
     invite_code: string | null;
+    login_code: string | null;
+    login_code_expires_at: string | null;
     expires_at: string | null;
     accepted_property_id?: string | null;
     accepted_at?: string | null;
@@ -96,6 +97,14 @@ type CustomerInviteEmailResponse = {
     error?: string;
     code?: string;
     details?: string;
+    login_code?: string;
+};
+
+type PreparedCustomerLoginInvite = {
+    ok?: boolean;
+    login_code?: string;
+    expires_at?: string;
+    message?: string;
 };
 
 export default function CompanyClientsScreen() {
@@ -304,8 +313,8 @@ export default function CompanyClientsScreen() {
 
         const inviteDraft = inviteFormRef.current;
 
-        if (!customerInviteHasContact(inviteDraft)) {
-            setInviteMessage('Add a customer name, email, or phone before creating an invite.');
+        if (!inviteDraft.invitedEmail.trim()) {
+            setInviteMessage('Add the customer email address to create a six-digit login invitation.');
             return;
         }
 
@@ -315,9 +324,8 @@ export default function CompanyClientsScreen() {
 
         const { data, error } = await supabase.rpc('create_company_customer_invite', invitePayload);
 
-        setCreatingInvite(false);
-
         if (error) {
+            setCreatingInvite(false);
             setInviteMessage(`Could not create customer invite: ${error.message}`);
             return;
         }
@@ -325,18 +333,58 @@ export default function CompanyClientsScreen() {
         const createdInvite = firstRow<CustomerInvite>(data);
 
         if (!customerInvitePhoneWasPersisted(invitePayload.p_invited_phone, createdInvite?.invited_phone)) {
+            setCreatingInvite(false);
             setInviteMessage('The connection was created, but its phone number was not saved. Your typed contact details were kept.');
             await loadCustomerInvites(companyId);
             return;
         }
 
+        if (!createdInvite?.invitation_id) {
+            setCreatingInvite(false);
+            setInviteMessage('The customer connection was created, but its login invitation could not be identified.');
+            await loadCustomerInvites(companyId);
+            return;
+        }
+
+        const preparedInvite = await prepareCustomerLoginInvite(createdInvite.invitation_id);
+        setCreatingInvite(false);
+
+        if (!preparedInvite.ok || !preparedInvite.login_code) {
+            setInviteMessage(preparedInvite.message || 'The customer connection was created, but the six-digit login code could not be created.');
+            await loadCustomerInvites(companyId);
+            return;
+        }
+
         updateInviteForm({ invitedName: '', invitedEmail: '', invitedPhone: '', note: '' });
-        setInviteMessage(
-            createdInvite?.invite_code
-                ? `Customer invite created${createdInvite.invited_phone ? ` for ${createdInvite.invited_phone}` : ''}. Code ${createdInvite.invite_code}.`
-                : 'Customer invite created.'
-        );
+        setInviteMessage(`Customer login invitation created. Six-digit code: ${preparedInvite.login_code}`);
         await loadCustomerInvites(companyId);
+    }
+
+    async function prepareCustomerLoginInvite(invitationId: string): Promise<PreparedCustomerLoginInvite> {
+        const { data, error } = await supabase.functions.invoke('prepare-customer-login-invitation', {
+            body: { invitation_id: invitationId },
+        });
+
+        if (error) {
+            return { ok: false, message: `Could not create six-digit login code: ${error.message}` };
+        }
+
+        return (data || {}) as PreparedCustomerLoginInvite;
+    }
+
+    async function createCustomerLoginCode(invite: CustomerInvite) {
+        setInviteActionId(invite.invitation_id);
+        setInviteMessage('Creating six-digit customer login code...');
+        const preparedInvite = await prepareCustomerLoginInvite(invite.invitation_id);
+        setInviteActionId('');
+
+        if (!preparedInvite.ok || !preparedInvite.login_code) {
+            setInviteMessage(preparedInvite.message || 'The six-digit customer login code could not be created.');
+            return;
+        }
+
+        setInviteMessage(`Six-digit customer login code created: ${preparedInvite.login_code}`);
+        await loadCustomerInvites(String(id));
     }
 
     function updateInviteForm(updates: Partial<CustomerInviteForm>) {
@@ -414,15 +462,15 @@ export default function CompanyClientsScreen() {
             return;
         }
 
-        if (!invite.invite_code) {
-            setInviteMessage('Create an invite code before sending an email invite.');
+        if (!invite.login_code) {
+            setInviteMessage('Create the six-digit login code before sending an email invite.');
             return;
         }
 
         setInviteActionId(invite.invitation_id);
         setInviteMessage('Sending email invite...');
 
-        const inviteLink = buildCustomerInviteLink(invite.invite_code).url;
+        const inviteLink = buildCustomerLoginLink(invite.login_code).url;
         const { data, error } = await supabase.functions.invoke('send-customer-invite-email', {
             body: {
                 invitation_id: invite.invitation_id,
@@ -589,6 +637,7 @@ export default function CompanyClientsScreen() {
                     onCopy={copyInviteText}
                     onSendEmail={sendCustomerInviteEmail}
                     onSendText={sendCustomerInviteText}
+                    onPrepareLoginCode={createCustomerLoginCode}
                     onRevoke={revokeCustomerInvite}
                     onDeleteRevoked={deleteRevokedCustomerInvite}
                 />
@@ -759,6 +808,7 @@ function InviteCustomerSection({
     onCopy,
     onSendEmail,
     onSendText,
+    onPrepareLoginCode,
     onRevoke,
     onDeleteRevoked,
 }: {
@@ -774,6 +824,7 @@ function InviteCustomerSection({
     onCopy: (value: string, successMessage: string) => void;
     onSendEmail: (invite: CustomerInvite) => void;
     onSendText: (invite: CustomerInvite) => void;
+    onPrepareLoginCode: (invite: CustomerInvite) => void;
     onRevoke: (invite: CustomerInvite) => void;
     onDeleteRevoked: (invite: CustomerInvite) => void;
 }) {
@@ -785,7 +836,7 @@ function InviteCustomerSection({
         <View style={inviteSectionStyle}>
             <View style={inviteActionRowStyle}>
                 <ThemedButton
-                    title={composerOpen ? 'Close connection form' : 'Connect homeowner'}
+                    title={composerOpen ? 'Close invitation form' : 'Invite homeowner'}
                     onPress={() => setComposerOpen((open) => !open)}
                     style={inviteActionButtonStyle}
                 />
@@ -807,7 +858,10 @@ function InviteCustomerSection({
 
             {composerOpen && (
                 <ThemedCard>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Connect Homeowner</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Homeowner</Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        Creates a six-digit, one-time HomeOS login code. The customer can connect or create their home after signing in.
+                    </Text>
                     <View style={formGridStyle}>
                         <InviteInput
                             label="Customer name"
@@ -838,7 +892,7 @@ function InviteCustomerSection({
                     </View>
                     <View style={buttonRowStyle}>
                         <ThemedButton
-                            title={creating ? 'Creating...' : 'Create Connection'}
+                            title={creating ? 'Creating...' : 'Create Login Invitation'}
                             onPress={onCreate}
                             disabled={creating}
                             style={smallButtonStyle}
@@ -870,6 +924,7 @@ function InviteCustomerSection({
                                 onCopy={onCopy}
                                 onSendEmail={onSendEmail}
                                 onSendText={onSendText}
+                                onPrepareLoginCode={onPrepareLoginCode}
                                 onRevoke={onRevoke}
                                 onDeleteRevoked={onDeleteRevoked}
                             />
@@ -927,6 +982,7 @@ function CustomerInviteRow({
     onCopy,
     onSendEmail,
     onSendText,
+    onPrepareLoginCode,
     onRevoke,
     onDeleteRevoked,
 }: {
@@ -936,13 +992,14 @@ function CustomerInviteRow({
     onCopy: (value: string, successMessage: string) => void;
     onSendEmail: (invite: CustomerInvite) => void;
     onSendText: (invite: CustomerInvite) => void;
+    onPrepareLoginCode: (invite: CustomerInvite) => void;
     onRevoke: (invite: CustomerInvite) => void;
     onDeleteRevoked: (invite: CustomerInvite) => void;
 }) {
     const { theme } = useTheme();
-    const inviteLink = buildCustomerInviteLink(invite.invite_code);
+    const inviteLink = buildCustomerLoginLink(invite.login_code);
     const inviteUrl = inviteLink.url;
-    const textMessage = `Hi, this is ${companyName}. Please use this secure link to connect your home with us: ${inviteUrl}`;
+    const textMessage = `Hi, this is ${companyName}. Open this secure HomeOS login link and use code ${invite.login_code || 'not created'}: ${inviteUrl}`;
     const status = normalizeStatus(invite.status);
     const isPending = status === 'pending';
     const isRevoked = status === 'revoked';
@@ -966,6 +1023,9 @@ function CustomerInviteRow({
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
                 Contact: {[invite.invited_email, invite.invited_phone].filter(Boolean).join(' / ') || 'Not provided'}
             </Text>
+            <Text selectable style={[loginCodeStyle, { color: theme.colors.text }]}>
+                Login code: {invite.login_code || 'Not created'}
+            </Text>
             {!!inviteLink.warning && (
                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                     {inviteLink.warning}
@@ -976,35 +1036,44 @@ function CustomerInviteRow({
                     title="Copy Invite Link"
                     variant="secondary"
                     onPress={() => onCopy(inviteUrl, 'Invite link copied.')}
-                    disabled={!invite.invite_code}
+                    disabled={!invite.login_code}
                     style={smallButtonStyle}
                 />
                 <ThemedButton
                     title="Copy Invite Code"
                     variant="secondary"
-                    onPress={() => onCopy(invite.invite_code || '', 'Invite code copied.')}
-                    disabled={!invite.invite_code}
+                    onPress={() => onCopy(invite.login_code || '', 'Six-digit login code copied.')}
+                    disabled={!invite.login_code}
                     style={smallButtonStyle}
                 />
+                {!invite.login_code && (
+                    <ThemedButton
+                        title={actionInviteId === invite.invitation_id ? 'Creating...' : 'Create Login Code'}
+                        variant="secondary"
+                        onPress={() => onPrepareLoginCode(invite)}
+                        disabled={!invite.invited_email || actionInviteId === invite.invitation_id}
+                        style={smallButtonStyle}
+                    />
+                )}
                 <ThemedButton
                     title="Copy Text Message"
                     variant="secondary"
                     onPress={() => onCopy(textMessage, 'Text message copied.')}
-                    disabled={!invite.invite_code}
+                    disabled={!invite.login_code}
                     style={smallButtonStyle}
                 />
                 <ThemedButton
                     title={actionInviteId === invite.invitation_id ? 'Sending...' : 'Send Email Invite'}
                     variant="secondary"
                     onPress={() => onSendEmail(invite)}
-                    disabled={!invite.invited_email || !invite.invite_code || actionInviteId === invite.invitation_id}
+                    disabled={!invite.invited_email || !invite.login_code || actionInviteId === invite.invitation_id}
                     style={smallButtonStyle}
                 />
                 <ThemedButton
                     title="Send Text Invite"
                     variant="secondary"
                     onPress={() => onSendText(invite)}
-                    disabled={!invite.invited_phone || !invite.invite_code}
+                    disabled={!invite.invited_phone || !invite.login_code}
                     style={smallButtonStyle}
                 />
                 {isPending && (
@@ -1173,14 +1242,14 @@ function firstRow<T>(data: unknown): T | null {
     return (data as T | null) || null;
 }
 
-function buildCustomerInviteLink(code?: string | null): CustomerInviteLink {
+function buildCustomerLoginLink(code?: string | null): CustomerInviteLink {
     const configuredBaseUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_APP_URL);
     const fallbackBaseUrl =
         typeof window !== 'undefined' && window.location?.origin
             ? normalizeBaseUrl(window.location.origin)
             : '';
     const baseUrl = configuredBaseUrl || fallbackBaseUrl;
-    const path = `/customer-invite?code=${encodeURIComponent(code || '')}`;
+    const path = `/auth/login?invitationCode=${encodeURIComponent(code || '')}`;
     const warning = !configuredBaseUrl && isLikelyNonPublicInviteOrigin(fallbackBaseUrl)
         ? 'Warning: this link may not be public. Set EXPO_PUBLIC_APP_URL to your production app URL.'
         : '';
@@ -1379,6 +1448,13 @@ const pendingHeaderStyle = {
 const pendingListStyle = {
     gap: 10,
     marginTop: 14,
+};
+
+const loginCodeStyle = {
+    marginTop: 8,
+    fontSize: 18,
+    fontWeight: '900' as const,
+    letterSpacing: 3,
 };
 
 const refreshInviteButtonStyle = {
