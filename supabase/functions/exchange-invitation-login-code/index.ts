@@ -282,11 +282,10 @@ async function createCustomerAuthOtp(
 async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
     const url = new URL('/rest/v1/company_customer_invitations', supabaseUrl);
     url.searchParams.set('login_code', `eq.${code}`);
-    url.searchParams.set('status', 'eq.pending');
-    url.searchParams.set('revoked_at', 'is.null');
-    url.searchParams.set('accepted_at', 'is.null');
-    url.searchParams.set('login_code_used_at', 'is.null');
-    url.searchParams.set('select', 'id,invited_email,invite_code,login_code_expires_at,expires_at');
+    url.searchParams.set(
+        'select',
+        'id,invited_email,invite_code,status,revoked_at,accepted_at,login_code_used_at,login_code_expires_at,expires_at'
+    );
     url.searchParams.set('limit', '1');
 
     const lookupResponse = await fetch(url, {
@@ -299,6 +298,10 @@ async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: strin
         id?: string;
         invited_email?: string;
         invite_code?: string;
+        status?: string | null;
+        revoked_at?: string | null;
+        accepted_at?: string | null;
+        login_code_used_at?: string | null;
         login_code_expires_at?: string | null;
         expires_at?: string | null;
     }>;
@@ -308,7 +311,11 @@ async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: strin
         !lookupResponse.ok ||
         !invitation?.id ||
         !invitation.invited_email ||
-        !invitation.invite_code
+        !invitation.invite_code ||
+        String(invitation.status || '').trim().toLowerCase() !== 'pending' ||
+        !!invitation.revoked_at ||
+        !!invitation.accepted_at ||
+        !!invitation.login_code_used_at
     ) {
         return null;
     }
