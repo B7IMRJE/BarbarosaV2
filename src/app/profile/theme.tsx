@@ -428,10 +428,10 @@ export default function ThemeScreen() {
 
         setSelectedThemeName(nextThemeName);
 
-        if (nextThemeName === themeName) {
+        if (nextThemeName === themeName && appearance.appearanceStyle === 'classic') {
             setThemeSaveMessage({
                 kind: 'success',
-                text: 'This theme is already saved to your HomeOS account.',
+                text: 'This classic theme is already active.',
             });
             return;
         }
@@ -440,10 +440,18 @@ export default function ThemeScreen() {
         setThemeSaveMessage(null);
 
         try {
-            await setThemeName(nextThemeName);
+            if (nextThemeName !== themeName) {
+                await setThemeName(nextThemeName);
+            }
+            await setAppearance({
+                ...DEFAULT_APPEARANCE_PREFERENCES,
+                appearanceStyle: 'classic',
+                fontSize: appearance.fontSize,
+                iconSize: appearance.iconSize,
+            });
             setThemeSaveMessage({
                 kind: 'success',
-                text: 'Theme applied and saved automatically.',
+                text: 'Complete classic theme applied and saved automatically.',
             });
         } catch (error) {
             setSelectedThemeName(themeName);
@@ -492,16 +500,30 @@ export default function ThemeScreen() {
 
     async function changeInterfaceStyle(nextStyle: 'glass' | 'classic') {
         try {
-            await setAppearance({
-                ...appearance,
-                appearanceStyle: nextStyle,
-            });
+            if (themeName !== DEFAULT_THEME_NAME) {
+                await setThemeName(DEFAULT_THEME_NAME);
+                setSelectedThemeName(DEFAULT_THEME_NAME);
+            }
+
+            await setAppearance(nextStyle === 'classic'
+                ? {
+                    ...DEFAULT_APPEARANCE_PREFERENCES,
+                    appearanceStyle: 'classic',
+                    fontSize: appearance.fontSize,
+                    iconSize: appearance.iconSize,
+                }
+                : {
+                    ...DEFAULT_APPEARANCE_PREFERENCES,
+                    appearanceStyle: 'glass',
+                    fontSize: appearance.fontSize,
+                    iconSize: appearance.iconSize,
+                });
             setThemeSaveMessage({
                 kind: 'success',
                 text:
                     nextStyle === 'classic'
-                        ? 'Classic style is active. HomeOS now uses the flatter original card and button design.'
-                        : 'Glass style is active. HomeOS now uses reflective raised cards and buttons.',
+                        ? 'Complete HomeOS Classic appearance is active.'
+                        : 'Complete default HomeOS Glass appearance is active.',
             });
         } catch {
             setThemeSaveMessage({
@@ -513,9 +535,15 @@ export default function ThemeScreen() {
 
     async function applyGlassThemePack(pack: (typeof glassThemePacks)[number]) {
         try {
+            if (themeName !== DEFAULT_THEME_NAME) {
+                await setThemeName(DEFAULT_THEME_NAME);
+                setSelectedThemeName(DEFAULT_THEME_NAME);
+            }
             await setAppearance({
-                ...appearance,
+                ...DEFAULT_APPEARANCE_PREFERENCES,
                 appearanceStyle: 'glass',
+                fontSize: appearance.fontSize,
+                iconSize: appearance.iconSize,
                 backgroundColor: pack.background,
                 glassPanelColor: pack.panel,
                 glassPrimary: pack.primary,
@@ -605,7 +633,7 @@ export default function ThemeScreen() {
                                 letterSpacing: 0.8,
                             }}
                         >
-                            Current Theme
+                            Current Appearance
                         </Text>
                         <Text
                             style={{
@@ -615,8 +643,9 @@ export default function ThemeScreen() {
                                 marginTop: 4,
                             }}
                         >
-                            {themeOptions.find((option) => option.name === themeName)?.label ||
-                                themeName}
+                            {appearance.appearanceStyle === 'glass'
+                                ? 'HomeOS Glass'
+                                : `${themeOptions.find((option) => option.name === themeName)?.label || themeName} Classic`}
                         </Text>
                         <ThemedButton
                             title={isResettingAppearance ? 'Resetting...' : 'Reset Appearance'}
@@ -1067,7 +1096,18 @@ export default function ThemeScreen() {
                         marginBottom: 12,
                     }}
                 >
-                    Theme Packs
+                    Classic Theme Packs
+                </Text>
+                <Text
+                    style={{
+                        color: theme.colors.mutedText,
+                        fontSize: 14,
+                        fontWeight: '700',
+                        lineHeight: 20,
+                        marginBottom: 12,
+                    }}
+                >
+                    Selecting one applies the complete flat classic appearance and removes glass customization.
                 </Text>
 
                 <View
