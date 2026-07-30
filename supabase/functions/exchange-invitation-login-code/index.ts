@@ -80,7 +80,7 @@ export default {
                 invitation.email
             )
             : null;
-        const verificationToken = customerAuth?.token || code;
+        const verificationToken = customerAuth?.tokenHash || code;
         const verificationTypes = customerAuth
             ? [customerAuth.type, 'invite', 'magiclink'] as const
             : ['invite', 'magiclink'] as const;
@@ -92,11 +92,16 @@ export default {
                     apikey: publishableKey,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
-                    email: invitation.email,
-                    token: verificationToken,
-                    type,
-                }),
+                body: JSON.stringify(customerAuth
+                    ? {
+                        token_hash: verificationToken,
+                        type,
+                    }
+                    : {
+                        email: invitation.email,
+                        token: verificationToken,
+                        type,
+                    }),
             });
             const verifyBody = await verifyResponse.json().catch(() => null) as {
                 access_token?: string;
@@ -223,17 +228,29 @@ async function createCustomerAuthOtp(
 
     const data = await result.json().catch(() => null) as {
         properties?: {
-            email_otp?: string;
-            verification_type?: 'invite' | 'magiclink';
+            action_link?: string;
+            hashed_token?: string;
+            verification_type?: 'email' | 'invite' | 'magiclink';
         };
     } | null;
-    const token = String(data?.properties?.email_otp || '').trim();
+    const actionLink = String(data?.properties?.action_link || '').trim();
+    const actionUrl = actionLink ? new URL(actionLink) : null;
+    const tokenHash = String(
+        data?.properties?.hashed_token ||
+        actionUrl?.searchParams.get('token') ||
+        ''
+    ).trim();
+    const verificationType = String(
+        data?.properties?.verification_type ||
+        actionUrl?.searchParams.get('type') ||
+        'email'
+    ) as 'email' | 'invite' | 'magiclink';
 
-    if (!result.ok || !token) return null;
+    if (!result.ok || !tokenHash) return null;
 
     return {
-        token,
-        type: data?.properties?.verification_type || (payload.type as 'invite'),
+        tokenHash,
+        type: verificationType,
     };
 }
 
