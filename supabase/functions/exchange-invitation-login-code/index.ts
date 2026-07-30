@@ -280,28 +280,19 @@ async function createCustomerAuthOtp(
 }
 
 async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
-    const url = new URL('/rest/v1/company_customer_invitations', supabaseUrl);
-    url.searchParams.set('login_code', `eq.${code}`);
-    url.searchParams.set(
-        'select',
-        'id,invited_email,invite_code,status,revoked_at,accepted_at,login_code_used_at,login_code_expires_at,expires_at'
-    );
-    url.searchParams.set('limit', '1');
-
-    const lookupResponse = await fetch(url, {
+    const lookupResponse = await fetch(`${supabaseUrl}/rest/v1/rpc/resolve_customer_login_invitation`, {
+        method: 'POST',
         headers: {
             apikey: serviceRoleKey,
             Authorization: `Bearer ${serviceRoleKey}`,
+            'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ p_login_code: code }),
     });
     const rows = await lookupResponse.json().catch(() => []) as Array<{
-        id?: string;
+        invitation_id?: string;
         invited_email?: string;
         invite_code?: string;
-        status?: string | null;
-        revoked_at?: string | null;
-        accepted_at?: string | null;
-        login_code_used_at?: string | null;
         login_code_expires_at?: string | null;
         expires_at?: string | null;
     }>;
@@ -309,22 +300,15 @@ async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: strin
 
     if (
         !lookupResponse.ok ||
-        !invitation?.id ||
+        !invitation?.invitation_id ||
         !invitation.invited_email ||
-        !invitation.invite_code ||
-        String(invitation.status || '').trim().toLowerCase() !== 'pending' ||
-        !!invitation.revoked_at ||
-        !!invitation.accepted_at ||
-        !!invitation.login_code_used_at
+        !invitation.invite_code
     ) {
         return null;
     }
 
-    const expiresAt = invitation.login_code_expires_at || invitation.expires_at;
-    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) return null;
-
     return {
-        id: invitation.id,
+        id: invitation.invitation_id,
         email: invitation.invited_email,
         source: 'customer' as const,
         connectionCode: invitation.invite_code,
