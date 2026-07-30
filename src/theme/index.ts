@@ -169,6 +169,33 @@ function parseStoredAppearance(storedAppearance: string | null) {
     }
 }
 
+function repairMixedAppearance(appearance: AppearancePreferences) {
+    if (appearance.appearanceStyle !== 'glass') return appearance;
+
+    const classicSurfaceColors = new Set(
+        Object.values(homeOSThemes).flatMap((theme) => [
+            theme.colors.background.toUpperCase(),
+            theme.colors.surface.toUpperCase(),
+        ])
+    );
+    const hasClassicBackground = classicSurfaceColors.has(
+        appearance.backgroundColor.toUpperCase()
+    );
+    const hasClassicPanel = classicSurfaceColors.has(
+        appearance.glassPanelColor.toUpperCase()
+    );
+
+    if (!hasClassicBackground && !hasClassicPanel) return appearance;
+
+    return {
+        ...DEFAULT_APPEARANCE_PREFERENCES,
+        appearanceStyle: 'glass' as const,
+        fontSize: appearance.fontSize,
+        iconSize: appearance.iconSize,
+        glassDepth: appearance.glassDepth,
+    };
+}
+
 async function clearLegacyGlobalAppearance() {
     await Promise.all([
         AsyncStorage.removeItem(LEGACY_THEME_STORAGE_KEY),
@@ -260,8 +287,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
                 localTheme: storedTheme,
             });
 
+            const parsedAppearance = parseStoredAppearance(storedAppearance);
+            const repairedAppearance = repairMixedAppearance(parsedAppearance);
+
             setThemeNameState(resolvedTheme);
-            setAppearanceState(parseStoredAppearance(storedAppearance));
+            setAppearanceState(repairedAppearance);
+
+            if (repairedAppearance !== parsedAppearance) {
+                await AsyncStorage.setItem(
+                    getAppearanceStorageKey(userId),
+                    JSON.stringify(repairedAppearance)
+                );
+            }
 
             if (!accountTheme && isHomeOSThemeName(storedTheme)) {
                 void supabase.auth.updateUser({
