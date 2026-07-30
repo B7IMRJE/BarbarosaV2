@@ -47,7 +47,7 @@ export default function GlassCard({
         borderBottomWidth: appearance.appearanceStyle === 'classic' ? 1 : edge,
         boxShadow: appearance.appearanceStyle === 'classic'
             ? '0 2px 7px rgba(15, 23, 42, 0.08)'
-            : `0 ${Math.max(2, Math.round(10 * depth))}px ${Math.max(5, Math.round(24 * depth))}px rgba(0, 8, 18, ${0.18 + depth * 0.26}), 0 0 ${Math.round(18 * depth)}px ${colors.glow}, inset 0 2px 0 rgba(255, 255, 255, 0.22)`,
+            : `0 ${Math.max(3, Math.round(12 * depth))}px ${Math.max(8, Math.round(30 * depth))}px rgba(0, 8, 18, ${0.2 + depth * 0.3}), 0 0 ${Math.round(22 * depth)}px ${colors.glow}, inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 1px 0 0 rgba(255, 255, 255, 0.12), inset -1px 0 0 rgba(0, 8, 18, 0.24)`,
         overflow: 'hidden',
     };
 
@@ -59,10 +59,34 @@ export default function GlassCard({
                     position: 'absolute',
                     top: 0,
                     right: 0,
-                    width: '62%',
-                    height: '42%',
-                    backgroundColor: 'rgba(255, 255, 255, 0.075)',
+                    width: '68%',
+                    height: '46%',
+                    backgroundColor: `rgba(255, 255, 255, ${0.07 + depth * 0.08})`,
                     borderBottomLeftRadius: 90,
+                }}
+            />}
+            {appearance.appearanceStyle === 'glass' && <View
+                pointerEvents="none"
+                style={{
+                    position: 'absolute',
+                    top: 1,
+                    left: '7%',
+                    right: '7%',
+                    height: Math.max(1, Math.round(2 * depth)),
+                    borderRadius: 999,
+                    backgroundColor: `rgba(255, 255, 255, ${0.2 + depth * 0.28})`,
+                }}
+            />}
+            {appearance.appearanceStyle === 'glass' && <View
+                pointerEvents="none"
+                style={{
+                    position: 'absolute',
+                    top: '16%',
+                    left: 0,
+                    width: Math.max(1, Math.round(2 * depth)),
+                    height: '58%',
+                    borderRadius: 999,
+                    backgroundColor: `rgba(255, 255, 255, ${0.08 + depth * 0.16})`,
                 }}
             />}
             {children}

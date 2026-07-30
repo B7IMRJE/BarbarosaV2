@@ -17,6 +17,36 @@ const glassColorPresets = [
     { name: 'Black Gold', primary: '#26312D', secondary: '#111820', accent: '#C8A84A' },
 ] as const;
 
+const glassThemePacks = [
+    { name: 'Deep Ocean', description: 'Cool blue glass with bright aqua edges.', background: '#020F20', panel: '#103A59', primary: '#075E68', secondary: '#074B7A', accent: '#38B7C7' },
+    { name: 'Emerald Night', description: 'Rich green glass with soft mint reflections.', background: '#041A18', panel: '#16473E', primary: '#075748', secondary: '#173F4A', accent: '#5BC69A' },
+    { name: 'Aurora', description: 'Blue-violet glass with a luminous cyan accent.', background: '#0A1026', panel: '#2A315F', primary: '#374A8A', secondary: '#24345D', accent: '#60D7E8' },
+    { name: 'Smoked Copper', description: 'Warm architectural glass with copper edges.', background: '#17110F', panel: '#50382E', primary: '#6E422F', secondary: '#293B48', accent: '#D4915E' },
+    { name: 'Black Gold', description: 'Dark dramatic glass with restrained gold light.', background: '#090D0C', panel: '#27322D', primary: '#26312D', secondary: '#111820', accent: '#D3B253' },
+    { name: 'Arctic', description: 'Crisp steel-blue glass with an icy glow.', background: '#071722', panel: '#315469', primary: '#276579', secondary: '#24465F', accent: '#8BE5F0' },
+] as const;
+
+type AppearanceControlKey =
+    | 'interface'
+    | 'background'
+    | 'container'
+    | 'tileColors'
+    | 'depth'
+    | 'sizes';
+
+const appearanceControlCards: Array<{
+    key: AppearanceControlKey;
+    title: string;
+    description: string;
+}> = [
+    { key: 'interface', title: 'Interface Style', description: 'Switch between glass and classic.' },
+    { key: 'background', title: 'Background', description: 'Set the page color and intensity.' },
+    { key: 'container', title: 'Glass Containers', description: 'Tune panel color and opacity.' },
+    { key: 'tileColors', title: 'Glass Tile Colors', description: 'Choose card colors and accents.' },
+    { key: 'depth', title: 'Glass Depth', description: 'Control lift, glow, and shadows.' },
+    { key: 'sizes', title: 'Size Preferences', description: 'Adjust fonts and icon sizing.' },
+];
+
 function ThemeSwatches({ option }: { option: HomeOSTheme }) {
     const { scaleIcon } = useTheme();
     const swatches = [
@@ -349,6 +379,7 @@ export default function ThemeScreen() {
         useState<HomeOSThemeName>(themeName);
     const [isSavingTheme, setIsSavingTheme] = useState(false);
     const [isResettingAppearance, setIsResettingAppearance] = useState(false);
+    const [expandedControl, setExpandedControl] = useState<AppearanceControlKey | null>(null);
     const [themeSaveMessage, setThemeSaveMessage] = useState<{
         kind: 'success' | 'error';
         text: string;
@@ -480,6 +511,29 @@ export default function ThemeScreen() {
         }
     }
 
+    async function applyGlassThemePack(pack: (typeof glassThemePacks)[number]) {
+        try {
+            await setAppearance({
+                ...appearance,
+                appearanceStyle: 'glass',
+                backgroundColor: pack.background,
+                glassPanelColor: pack.panel,
+                glassPrimary: pack.primary,
+                glassSecondary: pack.secondary,
+                glassAccent: pack.accent,
+            });
+            setThemeSaveMessage({
+                kind: 'success',
+                text: `${pack.name} glass pack applied.`,
+            });
+        } catch {
+            setThemeSaveMessage({
+                kind: 'error',
+                text: 'HomeOS could not apply this glass pack. Please try again.',
+            });
+        }
+    }
+
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -578,7 +632,49 @@ export default function ThemeScreen() {
                         />
                     </View>
                 </View>
+
                 <ThemedCard style={{ marginBottom: 18 }}>
+                    <Text style={{ color: theme.colors.text, fontSize: 24, fontWeight: '900' }}>
+                        Customize HomeOS
+                    </Text>
+                    <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
+                        Open only the controls you want to change. Everything else stays neatly tucked away.
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
+                        {appearanceControlCards.map((control) => {
+                            const expanded = expandedControl === control.key;
+
+                            return (
+                                <ThemedCard
+                                    key={control.key}
+                                    onPress={() => setExpandedControl(expanded ? null : control.key)}
+                                    style={{
+                                        flexBasis: 250,
+                                        flexGrow: 1,
+                                        minHeight: 126,
+                                        justifyContent: 'space-between',
+                                        borderColor: expanded ? theme.colors.primary : theme.colors.border,
+                                        borderWidth: expanded ? 2 : 1,
+                                    }}
+                                >
+                                    <View>
+                                        <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '900' }}>
+                                            {control.title}
+                                        </Text>
+                                        <Text style={{ color: theme.colors.mutedText, fontSize: 13, fontWeight: '700', lineHeight: 18, marginTop: 6 }}>
+                                            {control.description}
+                                        </Text>
+                                    </View>
+                                    <Text style={{ color: theme.colors.link, fontSize: 13, fontWeight: '900', marginTop: 12 }}>
+                                        {expanded ? 'Close controls ↑' : 'Open controls ↓'}
+                                    </Text>
+                                </ThemedCard>
+                            );
+                        })}
+                    </View>
+
+                {expandedControl === 'interface' ? (
+                <ThemedCard style={{ marginTop: 16 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 22, fontWeight: '900' }}>
                         Interface Style
                     </Text>
@@ -623,7 +719,9 @@ export default function ThemeScreen() {
                         })}
                     </View>
                 </ThemedCard>
-                <ThemedCard style={{ marginBottom: 18 }}>
+                ) : null}
+                {expandedControl === 'background' ? (
+                <ThemedCard style={{ marginTop: 16 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
                         Background
                     </Text>
@@ -663,7 +761,9 @@ export default function ThemeScreen() {
                         </View>
                     </View>
                 </ThemedCard>
-                <ThemedCard style={{ marginBottom: 18 }}>
+                ) : null}
+                {expandedControl === 'container' ? (
+                <ThemedCard style={{ marginTop: 16 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
                         Glass Container Color
                     </Text>
@@ -703,7 +803,9 @@ export default function ThemeScreen() {
                         </View>
                     </View>
                 </ThemedCard>
-                <ThemedCard style={{ marginBottom: 18 }}>
+                ) : null}
+                {expandedControl === 'tileColors' ? (
+                <ThemedCard style={{ marginTop: 16 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
                         Individual Glass Tile Colors
                     </Text>
@@ -769,7 +871,9 @@ export default function ThemeScreen() {
                         })}
                     </View>
                 </ThemedCard>
-                <ThemedCard style={{ marginBottom: 18 }}>
+                ) : null}
+                {expandedControl === 'depth' ? (
+                <ThemedCard style={{ marginTop: 16 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
                         Glass Depth
                     </Text>
@@ -804,7 +908,9 @@ export default function ThemeScreen() {
                         </Text>
                     </View>
                 </ThemedCard>
-                <ThemedCard style={{ marginBottom: 18 }}>
+                ) : null}
+                {expandedControl === 'sizes' ? (
+                <ThemedCard style={{ marginTop: 16 }}>
                     <View
                         style={{
                             flexDirection: 'row',
@@ -864,6 +970,94 @@ export default function ThemeScreen() {
                         onChange={setIconSize}
                     />
                 </ThemedCard>
+                ) : null}
+                </ThemedCard>
+
+                <Text
+                    style={{
+                        color: theme.colors.text,
+                        fontSize: 24,
+                        fontWeight: '900',
+                        marginBottom: 6,
+                    }}
+                >
+                    Glass Theme Packs
+                </Text>
+                <Text
+                    style={{
+                        color: theme.colors.mutedText,
+                        fontSize: 14,
+                        fontWeight: '700',
+                        lineHeight: 20,
+                        marginBottom: 12,
+                    }}
+                >
+                    One tap applies a complete glass palette. You can fine-tune it later from Customize HomeOS.
+                </Text>
+                <View
+                    style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 14,
+                        alignItems: 'stretch',
+                        marginBottom: 24,
+                    }}
+                >
+                    {glassThemePacks.map((pack) => {
+                        const selected =
+                            appearance.appearanceStyle === 'glass' &&
+                            appearance.backgroundColor === pack.background &&
+                            appearance.glassPanelColor === pack.panel &&
+                            appearance.glassPrimary === pack.primary &&
+                            appearance.glassSecondary === pack.secondary &&
+                            appearance.glassAccent === pack.accent;
+
+                        return (
+                            <ThemedCard
+                                key={pack.name}
+                                onPress={() => void applyGlassThemePack(pack)}
+                                style={{
+                                    flexBasis: 290,
+                                    flexGrow: 1,
+                                    minHeight: 176,
+                                    justifyContent: 'space-between',
+                                    borderColor: selected ? pack.accent : theme.colors.border,
+                                    borderWidth: selected ? 2 : 1,
+                                    backgroundColor: `${pack.panel}E6`,
+                                }}
+                            >
+                                <View>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 10 }}>
+                                        <Text style={{ color: '#F5FBFF', fontSize: 19, fontWeight: '900' }}>
+                                            {pack.name}
+                                        </Text>
+                                        <Text style={{ color: pack.accent, fontSize: 18, fontWeight: '900' }}>
+                                            {selected ? '✓' : '○'}
+                                        </Text>
+                                    </View>
+                                    <Text style={{ color: '#C7D8E5', fontSize: 13, fontWeight: '700', lineHeight: 18, marginTop: 7 }}>
+                                        {pack.description}
+                                    </Text>
+                                </View>
+                                <View style={{ flexDirection: 'row', gap: 9, marginTop: 18 }}>
+                                    {[pack.background, pack.panel, pack.primary, pack.secondary, pack.accent].map((color) => (
+                                        <View
+                                            key={color}
+                                            style={{
+                                                width: 30,
+                                                height: 30,
+                                                borderRadius: 999,
+                                                backgroundColor: color,
+                                                borderWidth: 1,
+                                                borderColor: 'rgba(255,255,255,0.72)',
+                                            }}
+                                        />
+                                    ))}
+                                </View>
+                            </ThemedCard>
+                        );
+                    })}
+                </View>
 
                 <Text
                     style={{
