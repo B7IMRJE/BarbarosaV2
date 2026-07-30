@@ -1,7 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
-import GlassCard from '../../../../components/glass/GlassCard';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
 import {
@@ -48,7 +47,6 @@ import {
     runStarterRecoverySubmission,
 } from '../../../../lib/starterRecoveryConfirmation';
 import { supabase } from '../../../../lib/supabase';
-import { glassToneForIndex, orbitalGlassPalette } from '../../../../theme/glassPalette';
 import { useTheme } from '../../../../theme/useTheme';
 
 type AreaHomeItem = {
@@ -636,7 +634,7 @@ export default function AreaScreen() {
             <ScrollView
                 style={{
                     flex: 1,
-                    backgroundColor: orbitalGlassPalette.screen,
+                    backgroundColor: theme.colors.background,
                 }}
                 contentContainerStyle={{
                     padding: scaleIcon(20),
@@ -656,7 +654,7 @@ export default function AreaScreen() {
                         marginTop: scaleIcon(20),
                         marginBottom: scaleIcon(20),
                         fontSize: scaleFont(18),
-                        color: orbitalGlassPalette.text,
+                        color: theme.colors.text,
                         fontWeight: '900',
                     }}
                 >
@@ -667,7 +665,7 @@ export default function AreaScreen() {
                     style={{
                         fontSize: scaleFont(34),
                         fontWeight: '900',
-                        color: orbitalGlassPalette.text,
+                        color: theme.colors.text,
                         marginBottom: scaleIcon(6),
                     }}
                 >
@@ -677,7 +675,7 @@ export default function AreaScreen() {
                 <Text
                     style={{
                         fontSize: scaleFont(16),
-                        color: orbitalGlassPalette.mutedText,
+                        color: theme.colors.mutedText,
                         marginBottom: scaleIcon(25),
                     }}
                 >
@@ -685,11 +683,11 @@ export default function AreaScreen() {
                 </Text>
 
                 <View style={areaActionGridStyle}>
-                    <GlassCard tone="emerald" style={areaQuickActionCardStyle}>
-                        <Text style={[areaQuickActionTitleStyle, { color: orbitalGlassPalette.text, fontSize: scaleFont(15) }]}>
+                    <ThemedCard style={areaQuickActionCardStyle}>
+                        <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
                             Add Area / Container
                         </Text>
-                        <Text style={[areaQuickActionTextStyle, { color: orbitalGlassPalette.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
+                        <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
                             Closet, cabinet, stove, vanity, or nested space.
                         </Text>
                         <ThemedButton
@@ -699,13 +697,13 @@ export default function AreaScreen() {
                             style={areaQuickActionButtonStyle}
                             textStyle={areaQuickActionButtonTextStyle}
                         />
-                    </GlassCard>
+                    </ThemedCard>
 
-                    <GlassCard tone="blue" style={areaQuickActionCardStyle}>
-                        <Text style={[areaQuickActionTitleStyle, { color: orbitalGlassPalette.text, fontSize: scaleFont(15) }]}>
+                    <ThemedCard style={areaQuickActionCardStyle}>
+                        <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
                             Add Item
                         </Text>
-                        <Text style={[areaQuickActionTextStyle, { color: orbitalGlassPalette.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
+                        <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
                             {getAreaAddItemDescription(systemName)}
                         </Text>
                         <ThemedButton
@@ -714,14 +712,14 @@ export default function AreaScreen() {
                             style={areaQuickActionButtonStyle}
                             textStyle={areaQuickActionButtonTextStyle}
                         />
-                    </GlassCard>
+                    </ThemedCard>
 
                     {currentAreaRecord?.id && (
-                        <GlassCard tone="steel" style={areaQuickActionCardStyle}>
-                            <Text style={[areaQuickActionTitleStyle, { color: orbitalGlassPalette.text, fontSize: scaleFont(15) }]}>
+                        <ThemedCard style={areaQuickActionCardStyle}>
+                            <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
                                 Manage Area
                             </Text>
-                            <Text style={[areaQuickActionTextStyle, { color: orbitalGlassPalette.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
+                            <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
                                 Archive this area or container when it is no longer active.
                             </Text>
                             <ThemedButton
@@ -732,7 +730,7 @@ export default function AreaScreen() {
                                 style={areaQuickActionButtonStyle}
                                 textStyle={areaQuickActionButtonTextStyle}
                             />
-                        </GlassCard>
+                        </ThemedCard>
                     )}
                 </View>
 
@@ -1010,7 +1008,7 @@ function ChildAreaCard({
     const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <GlassCard tone="teal" style={[childAreaCardStyle, {
+        <ThemedCard style={[childAreaCardStyle, {
             minWidth: scaleIcon(132),
             maxWidth: scaleIcon(190),
             minHeight: scaleIcon(166),
@@ -1025,7 +1023,7 @@ function ChildAreaCard({
                     style={[
                         iconCircleStyle,
                         {
-                            backgroundColor: orbitalGlassPalette.tones.teal.iconBackground,
+                            backgroundColor: theme.colors.iconBackground,
                             width: scaleIcon(60),
                             height: scaleIcon(60),
                             marginBottom: scaleIcon(10),
@@ -1039,7 +1037,7 @@ function ChildAreaCard({
                     style={[
                         itemTitleStyle,
                         {
-                            color: orbitalGlassPalette.text,
+                            color: theme.colors.text,
                             fontSize: scaleFont(15),
                             lineHeight: scaleFont(19),
                         },
@@ -1052,7 +1050,7 @@ function ChildAreaCard({
                     style={[
                         childAreaSubtitleStyle,
                         {
-                            color: orbitalGlassPalette.mutedText,
+                            color: theme.colors.mutedText,
                             marginTop: scaleIcon(6),
                             fontSize: scaleFont(12),
                         },
@@ -1082,7 +1080,7 @@ function ChildAreaCard({
                     <Text style={[itemOverflowTextStyle, { color: theme.colors.text }]}>•••</Text>
                 </TouchableOpacity>
             ) : null}
-        </GlassCard>
+        </ThemedCard>
     );
 }
 
@@ -1106,10 +1104,8 @@ function AreaItemCard({
     const systemLabel = item.system ? getSystemLabel(item.system) : '';
     const itemSlug = item.item_slug || '';
 
-    const tone = glassToneForIndex(hashText(itemName));
-
     return (
-        <GlassCard tone={tone} style={[itemCardStyle, {
+        <ThemedCard style={[itemCardStyle, {
             minWidth: scaleIcon(180),
             maxWidth: scaleIcon(250),
             minHeight: scaleIcon(166),
@@ -1125,7 +1121,7 @@ function AreaItemCard({
                     style={[
                         iconCircleStyle,
                         {
-                            backgroundColor: orbitalGlassPalette.tones[tone].iconBackground,
+                            backgroundColor: theme.colors.iconBackground,
                             width: scaleIcon(60),
                             height: scaleIcon(60),
                             marginBottom: scaleIcon(10),
@@ -1139,7 +1135,7 @@ function AreaItemCard({
                     style={[
                         itemTitleStyle,
                         {
-                            color: orbitalGlassPalette.text,
+                            color: theme.colors.text,
                             fontSize: scaleFont(15),
                             lineHeight: scaleFont(19),
                         },
@@ -1155,7 +1151,7 @@ function AreaItemCard({
                         style={[
                             systemLabelStyle,
                             {
-                                color: orbitalGlassPalette.mutedText,
+                                color: theme.colors.mutedText,
                                 marginTop: scaleIcon(6),
                                 fontSize: scaleFont(12),
                             },
@@ -1186,12 +1182,8 @@ function AreaItemCard({
                     <Text style={[itemOverflowTextStyle, { color: theme.colors.text }]}>•••</Text>
                 </TouchableOpacity>
             ) : null}
-        </GlassCard>
+        </ThemedCard>
     );
-}
-
-function hashText(value: string) {
-    return [...value].reduce((total, character) => total + character.charCodeAt(0), 0);
 }
 
 function sortAreaItems(areaName: string, items: AreaHomeItem[]) {
