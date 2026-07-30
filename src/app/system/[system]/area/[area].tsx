@@ -33,8 +33,8 @@ import {
 import {
     buildDefaultStarterHomePlan,
     buildStarterHomeSetupPreview,
+    areEquivalentStarterItemNames,
     createMissingStarterHomeItems,
-    isStarterHomeItemShell,
     starterPlanContainsArea,
     starterSetupHasMissingRecords,
     type StarterHomeArea,
@@ -100,12 +100,13 @@ export default function AreaScreen() {
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
     const starterRecoverySubmittingRef = useRef(false);
+    const starterAutofillAttemptedRef = useRef(false);
     const itemSections = groupItemsBySystem(items);
     const suggestedStarterItems = useMemo(() => {
-        const existingItemNames = new Set(items.map((item) => normalize(item.name || '')));
-
         return getStarterItemsForAreaSystem(areaName, systemName)
-            .filter((item) => !existingItemNames.has(normalize(item.name)))
+            .filter((item) => !items.some((existingItem) =>
+                areEquivalentStarterItemNames(areaName, existingItem.name || '', item.name)
+            ))
             .map<AreaHomeItem>((item) => ({
                 name: item.name,
                 system: item.system,
@@ -182,6 +183,38 @@ export default function AreaScreen() {
     useEffect(() => {
         if (!starterRecoveryPreview) setStarterRecoveryConfirmationVisible(false);
     }, [starterRecoveryPreview]);
+
+    useEffect(() => {
+        if (
+            providerModeContext ||
+            starterAutofillAttemptedRef.current ||
+            !starterRecoveryPreview ||
+            !starterSetupHasMissingRecords(starterRecoveryPreview)
+        ) {
+            return;
+        }
+
+        starterAutofillAttemptedRef.current = true;
+
+        void (async () => {
+            try {
+                const activeProperty = await requireActivePropertyMembership();
+                await createMissingStarterHomeItems(
+                    {
+                        userId: activeProperty.userId,
+                        propertyId: activeProperty.propertyId,
+                    },
+                    starterRecoveryPlan
+                );
+                await loadAreaItems({ preserveMessage: true });
+            } catch (error) {
+                setMessage(error instanceof Error
+                    ? error.message
+                    : 'The standard home cards could not be prepared.'
+                );
+            }
+        })();
+    }, [providerModeContext, starterRecoveryPlan, starterRecoveryPreview]);
 
     async function loadAreaItems(options: { preserveMessage?: boolean } = {}) {
         let activeProperty;
@@ -813,7 +846,6 @@ export default function AreaScreen() {
                                                 <View style={gridStyle}>
                                                     {section.items.map((item) => {
                                                         const archiveKey = item.id || item.item_slug || item.name || '';
-                                                        const starterShell = isStarterHomeItemShell(item);
 
                                                         return (
                                                             <AreaItemCard
@@ -826,11 +858,6 @@ export default function AreaScreen() {
                                                                         router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
                                                                     }
                                                                 }}
-                                                                onActivate={
-                                                                    starterShell && !providerModeContext
-                                                                        ? () => activateStarterCard(item)
-                                                                        : undefined
-                                                                }
                                                                 onArchive={() => confirmArchiveItem(item)}
                                                                 archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
                                                                 archiveDisabled={!!archivingRecordId}
@@ -841,23 +868,6 @@ export default function AreaScreen() {
                                             </View>
                                         ))}
 
-                                        {suggestedStarterItems.length > 0 && (
-                                            <View style={sectionBlockStyle}>
-                                                <Text style={[subsectionHeaderStyle, { color: theme.colors.text }]}>
-                                                    Suggested items
-                                                </Text>
-                                                <View style={gridStyle}>
-                                                    {suggestedStarterItems.map((item) => (
-                                                        <AreaItemCard
-                                                            key={`${item.system}-${item.name}`}
-                                                            item={item}
-                                                            onOpen={() => undefined}
-                                                            onActivate={() => createSuggestedItem(item.category || 'Equipment', item.name || '')}
-                                                        />
-                                                    ))}
-                                                </View>
-                                            </View>
-                                        )}
                                     </>
                                 )}
                             </View>
@@ -1062,14 +1072,15 @@ function ChildAreaCard({
                     textStyle={smallArchiveButtonTextStyle}
                 />
             ) : onArchive ? (
-                <ThemedButton
-                    title={archiveTitle}
-                    variant="glass"
+                <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`${archiveTitle}: ${title}`}
                     disabled={archiveDisabled}
                     onPress={onArchive}
-                    style={smallArchiveButtonStyle}
-                    textStyle={smallArchiveButtonTextStyle}
-                />
+                    style={itemOverflowButtonStyle}
+                >
+                    <Text style={[itemOverflowTextStyle, { color: theme.colors.text }]}>•••</Text>
+                </TouchableOpacity>
             ) : null}
         </GlassCard>
     );
@@ -1165,14 +1176,15 @@ function AreaItemCard({
                     textStyle={smallArchiveButtonTextStyle}
                 />
             ) : onArchive ? (
-                <ThemedButton
-                    title={archiveTitle}
-                    variant="glass"
+                <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`${archiveTitle}: ${itemName}`}
                     disabled={archiveDisabled}
                     onPress={onArchive}
-                    style={smallArchiveButtonStyle}
-                    textStyle={smallArchiveButtonTextStyle}
-                />
+                    style={itemOverflowButtonStyle}
+                >
+                    <Text style={[itemOverflowTextStyle, { color: theme.colors.text }]}>•••</Text>
+                </TouchableOpacity>
             ) : null}
         </GlassCard>
     );
@@ -1491,6 +1503,25 @@ const itemCardStyle = {
     borderCurve: 'continuous' as const,
     alignItems: 'center' as const,
     justifyContent: 'space-between' as const,
+};
+
+const itemOverflowButtonStyle = {
+    position: 'absolute' as const,
+    top: 7,
+    right: 8,
+    width: 30,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: 'rgba(255,255,255,0.52)',
+};
+
+const itemOverflowTextStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    letterSpacing: 1,
+    lineHeight: 13,
 };
 
 const iconCircleStyle = {

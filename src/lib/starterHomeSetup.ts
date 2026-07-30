@@ -46,6 +46,28 @@ export const STARTER_ITEM_INSTALL_STATE = 'Unknown' as const;
 export const ACTIVATED_ITEM_STATUS = 'Not Inspected' as const;
 export const ACTIVATED_ITEM_INSTALL_STATE = 'Installed' as const;
 
+const KITCHEN_ESSENTIAL_NAME_GROUPS = [
+    ['Kitchen Faucet', 'Faucet'],
+    ['Kitchen Sink', 'Sink'],
+    ['Garbage Disposal'],
+    ['Dishwasher Supply Line', 'Dishwasher Connection', 'Supply Lines'],
+    ['Dishwasher Air Gap', 'Air Gap'],
+    ['Refrigerator Water Line', 'Ice Maker Line', 'Refrigerator Line'],
+] as const;
+
+export function areEquivalentStarterItemNames(areaName: string, firstName: string, secondName: string) {
+    const normalizedFirstName = normalizeIdentity(firstName);
+    const normalizedSecondName = normalizeIdentity(secondName);
+
+    if (normalizedFirstName === normalizedSecondName) return true;
+    if (normalizeIdentity(areaName) !== 'kitchen') return false;
+
+    return KITCHEN_ESSENTIAL_NAME_GROUPS.some((names) => {
+        const normalizedNames = names.map(normalizeIdentity);
+        return normalizedNames.includes(normalizedFirstName) && normalizedNames.includes(normalizedSecondName);
+    });
+}
+
 export function isStarterHomeItemShell(item: {
     status?: string | null;
     install_state?: string | null;
@@ -130,7 +152,6 @@ export function buildStarterHomeSetupPreview({
     const existingSlugs = new Set<string>();
 
     existingItems
-        .filter((item) => item.archived !== true)
         .forEach((item) => {
             addAll(existingIdentityKeys, identityKeysForExistingItem(item));
 
@@ -206,8 +227,7 @@ export async function createMissingStarterHomeItems(
     const { data, error } = await supabase
         .from('home_items')
         .select('name, system, category, location, parent_area, item_slug, archived')
-        .eq('property_id', scope.propertyId)
-        .or('archived.eq.false,archived.is.null');
+        .eq('property_id', scope.propertyId);
 
     if (error) {
         throw new Error(`Could not check starter equipment: ${error.message}`);
@@ -287,12 +307,20 @@ function kitchenStarterItems(): StarterHomeItem[] {
 
 function bathroomStarterItems(): StarterHomeItem[] {
     return [
-        starterItem('Bathroom Sink / Faucet', 'Plumbing', 'Fixture', ['Bathroom Faucet']),
+        starterItem('Bathroom Vanity', 'Plumbing', 'Fixture'),
+        starterItem('Bathroom Sink', 'Plumbing', 'Fixture', ['Vanity Sink']),
+        starterItem('Bathroom Faucet', 'Plumbing', 'Fixture', ['Bathroom Sink / Faucet']),
         starterItem('Toilet', 'Plumbing', 'Fixture'),
-        starterItem('Shower / Tub', 'Plumbing', 'Fixture', ['Shower / Tub Valve', 'Shower', 'Tub']),
-        starterItem('Bathroom Drain', 'Drains / Sewer', 'Fixture', ['Lavatory Drain']),
-        starterItem('Bathroom Angle Stops', 'Plumbing', 'Component'),
-        starterItem('Bathroom GFCI / Outlets', 'Electrical', 'Fixture', ['GFCI Outlet']),
+        starterItem('Tub / Shower Combination', 'Plumbing', 'Fixture', ['Shower / Tub', 'Shower / Tub Valve', 'Shower', 'Tub']),
+        starterItem('Hot Angle Stop', 'Plumbing', 'Component', ['Bathroom Hot Angle Stop']),
+        starterItem('Cold Angle Stop', 'Plumbing', 'Component', ['Bathroom Cold Angle Stop']),
+        starterItem('Hot Supply Line', 'Plumbing', 'Component', ['Bathroom Hot Supply Line']),
+        starterItem('Cold Supply Line', 'Plumbing', 'Component', ['Bathroom Cold Supply Line']),
+        starterItem('Pop-Up Assembly', 'Drains / Sewer', 'Component', ['Bathroom Pop-Up Assembly']),
+        starterItem('Bathroom P-Trap', 'Drains / Sewer', 'Component', ['Bathroom Drain', 'Lavatory Drain']),
+        starterItem('Bathroom GFCI Outlet', 'Electrical', 'Fixture', ['Bathroom GFCI / Outlets', 'GFCI Outlet']),
+        starterItem('Bathroom Lights', 'Electrical', 'Fixture', ['Vanity Lights']),
+        starterItem('Lighted Mirror', 'Electrical', 'Fixture'),
     ];
 }
 
@@ -352,11 +380,20 @@ function mechanicalStarterItems(includeWaterHeater: boolean, includeHvac: boolea
 }
 
 function exteriorStarterItems(yardLabel: 'Front Yard' | 'Back Yard'): StarterHomeItem[] {
-    return [
+    const items = [
         starterItem(`${yardLabel} Hose Bibbs`, 'Exterior', 'Fixture', ['Hose Bib', `${yardLabel} Hose Bib`]),
         starterItem(`${yardLabel} Main Cleanout`, 'Exterior', 'Fixture', ['Main Cleanout']),
         starterItem(`Irrigation ${yardLabel}`, 'Irrigation', 'Equipment', ['Irrigation Supply', 'Irrigation Controller']),
     ];
+
+    if (yardLabel === 'Front Yard') {
+        items.push(
+            starterItem('Main Water Service', 'Plumbing', 'Equipment', ['Water Main']),
+            starterItem('Front Yard Main Water Valve', 'Plumbing', 'Component', ['Main Water Valve'])
+        );
+    }
+
+    return items;
 }
 
 function poolStarterItems(): StarterHomeItem[] {
@@ -383,7 +420,7 @@ function buildStarterItemRow(
         location: area.name,
         parent_area: area.parentArea || '',
         status: STARTER_ITEM_STATUS,
-        install_state: STARTER_ITEM_INSTALL_STATE,
+        install_state: ACTIVATED_ITEM_INSTALL_STATE,
         archived: false,
     };
 }

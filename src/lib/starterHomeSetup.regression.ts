@@ -15,7 +15,7 @@ runStarterHomeSetupRegressions();
 export function runStarterHomeSetupRegressions() {
     newlyInitializedHomeCreatesKitchenStarterCards();
     kitchenIncludesRequiredCards();
-    starterItemsAreUnconfirmedUnknownShells();
+    starterItemsBeginActiveAndReadyForDetails();
     starterShellsHaveAnExplicitActivationBoundary();
     repeatedStarterCreationDoesNotDuplicateRows();
     existingCustomItemsAreNotOverwritten();
@@ -79,7 +79,7 @@ function kitchenIncludesRequiredCards() {
     });
 }
 
-function starterItemsAreUnconfirmedUnknownShells() {
+function starterItemsBeginActiveAndReadyForDetails() {
     const kitchenItemRows = previewWith([]).rowsToInsert.filter((row) =>
         normalize(row.location) === 'kitchen' && normalize(row.category) !== 'area'
     );
@@ -88,7 +88,7 @@ function starterItemsAreUnconfirmedUnknownShells() {
     kitchenItemRows.forEach((row) => {
         assert(row.property_id === 'property-1', 'Starter rows should use the requested property id.');
         assert(row.status === STARTER_ITEM_STATUS, 'Starter rows should be Missing Information.');
-        assert(row.install_state === STARTER_ITEM_INSTALL_STATE, 'Starter rows should keep install state Unknown.');
+        assert(row.install_state === ACTIVATED_ITEM_INSTALL_STATE, 'Starter items should begin active.');
         assert(normalize(row.status) !== 'installed', 'Starter rows should not be Installed.');
         assert(normalize(row.status) !== 'confirmed', 'Starter rows should not be Confirmed.');
     });

@@ -18,6 +18,7 @@ import {
     type StarterItemCategory,
 } from '../../lib/areaTemplates';
 import { supabase } from '../../lib/supabase';
+import { ACTIVATED_ITEM_INSTALL_STATE } from '../../lib/starterHomeSetup';
 import { useTheme } from '../../theme/useTheme';
 
 type BathroomCount = '1' | '2' | '3' | '4+';
@@ -508,12 +509,20 @@ function kitchenStarterCards(): StarterCard[] {
 
 function bathroomStarterCards(): StarterCard[] {
     return [
-        starterItem('Bathroom Sink / Faucet', 'Plumbing', 'Fixture'),
+        starterItem('Bathroom Vanity', 'Plumbing', 'Fixture'),
+        starterItem('Bathroom Sink', 'Plumbing', 'Fixture'),
+        starterItem('Bathroom Faucet', 'Plumbing', 'Fixture'),
         starterItem('Toilet', 'Plumbing', 'Fixture'),
-        starterItem('Shower / Tub', 'Plumbing', 'Fixture'),
-        starterItem('Bathroom Drain', 'Drains / Sewer', 'Fixture'),
-        starterItem('Bathroom Angle Stops', 'Plumbing', 'Component'),
-        starterItem('Bathroom GFCI / Outlets', 'Electrical', 'Fixture'),
+        starterItem('Tub / Shower Combination', 'Plumbing', 'Fixture'),
+        starterItem('Hot Angle Stop', 'Plumbing', 'Component'),
+        starterItem('Cold Angle Stop', 'Plumbing', 'Component'),
+        starterItem('Hot Supply Line', 'Plumbing', 'Component'),
+        starterItem('Cold Supply Line', 'Plumbing', 'Component'),
+        starterItem('Pop-Up Assembly', 'Drains / Sewer', 'Component'),
+        starterItem('Bathroom P-Trap', 'Drains / Sewer', 'Component'),
+        starterItem('Bathroom GFCI Outlet', 'Electrical', 'Fixture'),
+        starterItem('Bathroom Lights', 'Electrical', 'Fixture'),
+        starterItem('Lighted Mirror', 'Electrical', 'Fixture'),
     ];
 }
 
@@ -608,7 +617,7 @@ function buildStarterItemRow(
         location: areaName,
         parent_area: '',
         status: 'Missing Information',
-        install_state: 'Unknown',
+        install_state: ACTIVATED_ITEM_INSTALL_STATE,
         archived: false,
     };
 }

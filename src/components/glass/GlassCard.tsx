@@ -46,7 +46,7 @@ export default function GlassCard({
             : colors.edge,
         borderBottomWidth: appearance.appearanceStyle === 'classic' ? 1 : edge,
         boxShadow: appearance.appearanceStyle === 'classic'
-            ? '0 2px 7px rgba(15, 23, 42, 0.08)'
+            ? '0 1px 2px rgba(15, 23, 42, 0.05)'
             : `0 ${Math.max(3, Math.round(12 * depth))}px ${Math.max(8, Math.round(30 * depth))}px rgba(0, 8, 18, ${0.2 + depth * 0.3}), 0 0 ${Math.round(22 * depth)}px ${colors.glow}, inset 0 2px 0 rgba(255, 255, 255, 0.3), inset 1px 0 0 rgba(255, 255, 255, 0.12), inset -1px 0 0 rgba(0, 8, 18, 0.24)`,
         overflow: 'hidden',
     };

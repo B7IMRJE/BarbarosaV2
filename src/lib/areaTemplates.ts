@@ -8,7 +8,7 @@ export type AreaStarterItem = {
     system: string;
     category: StarterItemCategory;
     status: StarterItemStatus;
-    install_state: 'Unknown';
+    install_state: 'Unknown' | 'Installed';
 };
 
 export type AreaTemplate = {
@@ -36,13 +36,14 @@ export type HomeItemInsert = {
     location: string;
     parent_area: string;
     status: StarterItemStatus;
-    install_state: 'Unknown';
+    install_state: 'Unknown' | 'Installed';
     archived: boolean;
 };
 
 const missingInfo = 'Missing Information' as const;
 const notInspected = 'Not Inspected' as const;
 const unknown = 'Unknown' as const;
+const installed = 'Installed' as const;
 
 function item(
     name: string,
@@ -55,7 +56,7 @@ function item(
         system,
         category,
         status,
-        install_state: unknown,
+        install_state: installed,
     };
 }
 
@@ -140,19 +141,27 @@ export const areaTemplates: AreaTemplate[] = [
         icon: '🚿',
         starterItems: {
             Plumbing: [
+                item('Bathroom Vanity', 'Plumbing', 'Fixture'),
+                item('Bathroom Sink', 'Plumbing', 'Fixture'),
                 item('Bathroom Faucet', 'Plumbing', 'Fixture'),
                 item('Toilet', 'Plumbing', 'Fixture'),
-                item('Shower / Tub Valve', 'Plumbing', 'Fixture'),
+                item('Tub / Shower Combination', 'Plumbing', 'Fixture'),
+                item('Hot Angle Stop', 'Plumbing', 'Component'),
+                item('Cold Angle Stop', 'Plumbing', 'Component'),
+                item('Hot Supply Line', 'Plumbing', 'Component'),
+                item('Cold Supply Line', 'Plumbing', 'Component'),
             ],
             'Drains / Sewer': [
-                item('Lavatory Drain', 'Drains / Sewer', 'Fixture'),
+                item('Pop-Up Assembly', 'Drains / Sewer', 'Component'),
+                item('Bathroom P-Trap', 'Drains / Sewer', 'Component'),
                 item('Toilet Drain', 'Drains / Sewer', 'Fixture'),
                 item('Shower / Tub Drain', 'Drains / Sewer', 'Fixture'),
             ],
             Electrical: [
-                item('GFCI Outlet', 'Electrical', 'Fixture', notInspected),
+                item('Bathroom GFCI Outlet', 'Electrical', 'Fixture'),
                 item('Bathroom Fan', 'Electrical', 'Equipment', notInspected),
-                item('Vanity Lighting', 'Electrical', 'Fixture', notInspected),
+                item('Bathroom Lights', 'Electrical', 'Fixture'),
+                item('Lighted Mirror', 'Electrical', 'Fixture'),
             ],
             Safety: [item('GFCI Protection', 'Safety', 'Component', notInspected)],
         },
