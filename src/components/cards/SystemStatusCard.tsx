@@ -8,6 +8,7 @@ type SystemStatusCardProps = {
     status?: string | null;
     onPress?: () => void;
     style?: ViewStyle;
+    compact?: boolean;
 };
 
 export function getStatusCardStyle(
@@ -78,6 +79,7 @@ export default function SystemStatusCard({
     status,
     onPress,
     style,
+    compact = false,
 }: SystemStatusCardProps) {
     const { appearance, scaleFont, scaleIcon, theme } = useTheme();
     const depth = appearance.glassDepth / 100;
@@ -92,8 +94,8 @@ export default function SystemStatusCard({
                 cardStyle,
                 {
                     borderRadius: theme.radii.card,
-                    minHeight: scaleIcon(152),
-                    padding: scaleIcon(18),
+                    minHeight: compact ? 0 : scaleIcon(152),
+                    padding: compact ? 8 : scaleIcon(18),
                     borderTopColor: classic ? theme.colors.border : 'rgba(255, 255, 255, 0.96)',
                     borderBottomColor: classic ? theme.colors.border : theme.colors.primary,
                     borderBottomWidth: classic ? 1 : pressed ? 1 : Math.max(1, Math.round(8 * depth)),
@@ -113,13 +115,13 @@ export default function SystemStatusCard({
                     iconCircleStyle,
                     {
                         backgroundColor: theme.colors.iconBackground,
-                        width: scaleIcon(82),
-                        height: scaleIcon(82),
-                        marginBottom: scaleIcon(14),
+                        width: compact ? 48 : scaleIcon(82),
+                        height: compact ? 48 : scaleIcon(82),
+                        marginBottom: compact ? 7 : scaleIcon(14),
                     },
                 ]}
             >
-                <Text style={[iconTextStyle, { fontSize: scaleIcon(40) }]}>
+                <Text style={[iconTextStyle, { fontSize: compact ? 25 : scaleIcon(40) }]}>
                     {icon}
                 </Text>
             </View>
@@ -129,8 +131,8 @@ export default function SystemStatusCard({
                     titleStyle,
                     {
                         color: statusCardTextColor(status, theme),
-                        fontSize: scaleFont(16),
-                        lineHeight: scaleFont(20),
+                        fontSize: compact ? 11 : scaleFont(16),
+                        lineHeight: compact ? 14 : scaleFont(20),
                     },
                 ]}
                 numberOfLines={2}

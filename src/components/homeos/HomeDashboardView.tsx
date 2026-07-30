@@ -91,8 +91,8 @@ export default function HomeDashboardView({
   const { scaleFont, scaleIcon, theme } = useTheme();
   const { width: viewportWidth } = useWindowDimensions();
   const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 1120);
-  const healthTileGap = scaleIcon(10);
   const isCompactPhone = viewportWidth <= 480;
+  const healthTileGap = isCompactPhone ? scaleIcon(10) : 8;
   const healthTileColumns = isCompactPhone
     ? dashboardContentWidth >= 300 ? 2 : 1
     : 6;
@@ -100,7 +100,7 @@ export default function HomeDashboardView({
     (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns;
   const healthTileSize = isCompactPhone
     ? availableHealthTileSize
-    : Math.min(132, availableHealthTileSize);
+    : Math.min(104, availableHealthTileSize);
   const healthSummary = scoreOverallHomeHealth(items, emergencies);
   const dashboardSystemTiles = buildHomeDashboardSystemTiles(items);
   const systemSummaries = scoreAllSystems(items, dashboardSystemTiles.map((system) => system.key));
@@ -458,6 +458,7 @@ export default function HomeDashboardView({
             icon={system.icon}
             status={statusForCard(systemSummaries[system.key])}
             onPress={() => onOpenSystemTile(system)}
+            compact={!isCompactPhone}
             style={isCompactPhone
               ? {
                   width: '48%',
