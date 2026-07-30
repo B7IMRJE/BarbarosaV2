@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import Slider from '@react-native-community/slider';
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import VisualColorPicker from '../../components/theme/VisualColorPicker';
@@ -46,6 +46,8 @@ const appearanceControlCards: Array<{
     { key: 'depth', title: 'Glass Depth', description: 'Control lift, glow, and shadows.' },
     { key: 'sizes', title: 'Size Preferences', description: 'Adjust fonts and icon sizing.' },
 ];
+
+const glassDepthOptions = Array.from({ length: 10 }, (_, index) => (index + 1) * 10);
 
 function ThemeSwatches({ option }: { option: HomeOSTheme }) {
     const { scaleIcon } = useTheme();
@@ -380,6 +382,7 @@ export default function ThemeScreen() {
     const [isSavingTheme, setIsSavingTheme] = useState(false);
     const [isResettingAppearance, setIsResettingAppearance] = useState(false);
     const [expandedControl, setExpandedControl] = useState<AppearanceControlKey | null>(null);
+    const [glassDepthPickerOpen, setGlassDepthPickerOpen] = useState(false);
     const [themeSaveMessage, setThemeSaveMessage] = useState<{
         kind: 'success' | 'error';
         text: string;
@@ -907,34 +910,45 @@ export default function ThemeScreen() {
                         Glass Depth
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: 14, fontWeight: '700', lineHeight: 20, marginTop: 6 }}>
-                        Choose from 1 for nearly flat to 100 for fully raised glass. This is your personal HomeOS setting.
+                        Choose a depth in simple 10% steps. Scroll the list with a mouse or trackpad, then select a value.
                     </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
-                        <TextInput
-                            accessibilityLabel="HomeOS glass depth"
-                            keyboardType="number-pad"
-                            value={String(appearance.glassDepth)}
-                            onChangeText={(value) => {
-                                const next = Number.parseInt(value, 10);
-                                if (Number.isFinite(next)) void setGlassDepth(next);
-                            }}
+                    <View style={{ marginTop: 14, width: '100%', maxWidth: 360 }}>
+                        <ThemedButton
+                            title={`${appearance.glassDepth}% depth  ${glassDepthPickerOpen ? '▲' : '▼'}`}
+                            variant="secondary"
+                            onPress={() => setGlassDepthPickerOpen((open) => !open)}
                             style={{
-                                width: 110,
-                                minHeight: 52,
-                                borderWidth: 2,
-                                borderColor: theme.colors.primary,
-                                borderRadius: theme.radii.button,
-                                backgroundColor: theme.colors.surface,
-                                color: theme.colors.text,
-                                fontSize: 18,
-                                fontWeight: '900',
-                                paddingHorizontal: 16,
-                                textAlign: 'center',
+                                width: '100%',
+                                minHeight: 50,
                             }}
                         />
-                        <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '900' }}>
-                            {appearance.glassDepth}% depth
-                        </Text>
+                        {glassDepthPickerOpen ? (
+                            <ScrollView
+                                nestedScrollEnabled
+                                style={{
+                                    maxHeight: 220,
+                                    marginTop: 8,
+                                    borderWidth: 1,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: theme.radii.card,
+                                    backgroundColor: theme.colors.surface,
+                                }}
+                                contentContainerStyle={{ padding: 8, gap: 6 }}
+                            >
+                                {glassDepthOptions.map((depth) => (
+                                    <ThemedButton
+                                        key={depth}
+                                        title={`${depth}%`}
+                                        variant={appearance.glassDepth === depth ? 'primary' : 'secondary'}
+                                        onPress={() => {
+                                            void setGlassDepth(depth);
+                                            setGlassDepthPickerOpen(false);
+                                        }}
+                                        style={{ minHeight: 42 }}
+                                    />
+                                ))}
+                            </ScrollView>
+                        ) : null}
                     </View>
                 </ThemedCard>
                 ) : null}

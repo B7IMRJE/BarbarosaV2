@@ -50,7 +50,7 @@ export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
     appearanceStyle: 'glass',
     fontSize: 'standard',
     iconSize: 'standard',
-    glassDepth: 70,
+    glassDepth: 10,
     glassPrimary: '#075748',
     glassSecondary: '#043F69',
     glassAccent: '#2FA5B3',
