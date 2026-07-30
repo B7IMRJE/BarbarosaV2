@@ -124,16 +124,17 @@ export default function HomeScreen() {
     routeParams.jobId,
   ]);
   const { width: viewportWidth } = useWindowDimensions();
-  const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 900);
+  const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 1120);
   const healthTileGap = scaleIcon(10);
-  const isCompactPhone = viewportWidth < 600;
-  const healthTileColumns =
-    dashboardContentWidth >= 680 ? 4 : dashboardContentWidth >= 500 ? 3 : dashboardContentWidth >= 300 ? 2 : 1;
+  const isCompactPhone = viewportWidth <= 480;
+  const healthTileColumns = isCompactPhone
+    ? dashboardContentWidth >= 300 ? 2 : 1
+    : 4;
   const availableHealthTileSize =
     (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns;
   const healthTileSize = isCompactPhone
     ? availableHealthTileSize
-    : Math.max(scaleIcon(118), Math.min(scaleIcon(156), availableHealthTileSize));
+    : Math.min(scaleIcon(156), availableHealthTileSize);
   const actionTileSize = isCompactPhone
     ? availableHealthTileSize
     : Math.max(scaleIcon(188), Math.min(scaleIcon(210), healthTileSize + scaleIcon(54)));
@@ -803,7 +804,7 @@ export default function HomeScreen() {
         alignItems: 'center',
       }}
     >
-      <View style={{ width: '100%', maxWidth: 900 }}>
+      <View style={{ width: '100%', maxWidth: 1120 }}>
         <HomeDashboardView
           identity={homeIdentity}
           identityLoading={homeIdentityLoading}

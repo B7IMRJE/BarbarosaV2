@@ -199,6 +199,9 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                         alignItems: 'center',
                         justifyContent: 'space-between',
                         gap: scaleIcon(10),
+                        alignSelf: 'center',
+                        width: '100%',
+                        maxWidth: 1120,
                     }}
                 >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}>
@@ -259,6 +262,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                         paddingHorizontal: scaleIcon(8),
                         paddingTop: scaleIcon(8),
                         paddingBottom: insets.bottom + scaleIcon(8),
+                        alignItems: 'center',
                     }}
                 >
                     <View
@@ -272,6 +276,8 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                             boxShadow: '0 10px 28px rgba(0, 8, 18, 0.42), inset 0 2px 0 rgba(255,255,255,0.16)',
                             overflow: 'hidden',
                             padding: compactBottomNavigation ? 4 : scaleIcon(6),
+                            width: '100%',
+                            maxWidth: compactBottomNavigation ? undefined : 760,
                         }}
                     >
                         {activePrimaryTabs.map((tab) => {

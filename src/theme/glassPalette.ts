@@ -196,15 +196,15 @@ function colorTone(color: string, fallbackEdge: string, opacity = 0.82): GlassTo
 function companyWorkspaceTone(panelColor: string, accentColor: string, opacity = 0.82): GlassToneColors {
     const panel = validHex(panelColor) || '#4B286D';
     const accent = validHex(accentColor) || '#F59E0B';
-    const lightPanel = mixHex(panel, '#FFFFFF', 0.7);
+    const darkPanel = mixHex(panel, '#03182A', 0.38);
     const warmBorder = mixHex(accent, '#FFFFFF', 0.34);
 
     return {
-        background: withAlpha(lightPanel, Math.max(0.88, opacity)),
+        background: withAlpha(darkPanel, Math.max(0.88, opacity)),
         border: withAlpha(warmBorder, 0.9),
         edge: accent,
         glow: withAlpha(accent, 0.2),
-        iconBackground: withAlpha(mixHex(panel, '#FFFFFF', 0.54), 0.94),
+        iconBackground: withAlpha(mixHex(panel, '#03182A', 0.18), 0.94),
     };
 }
 

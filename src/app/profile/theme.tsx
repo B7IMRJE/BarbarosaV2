@@ -485,7 +485,7 @@ export default function ThemeScreen() {
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 24, alignItems: 'center' }}
         >
-            <View style={{ width: '100%', maxWidth: 980, marginTop: 50 }}>
+            <View style={{ width: '100%', maxWidth: 1120, marginTop: 32 }}>
                 <Text
                     onPress={() => router.push('/profile' as any)}
                     style={{
