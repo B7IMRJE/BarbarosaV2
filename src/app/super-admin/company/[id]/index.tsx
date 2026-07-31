@@ -187,7 +187,7 @@ export default function CompanyDashboardScreen() {
     const isPhoneLayout = viewportWidth <= 640;
     const pagePadding = isPhoneLayout ? 16 : 20;
     const heroLogoSize = isPhoneLayout ? 64 : 86;
-    const previewLogoSize = isPhoneLayout ? 72 : 88;
+    const previewLogoSize = isPhoneLayout ? 112 : 96;
     const [company, setCompany] = useState<Company | null>(null);
     const [brandForm, setBrandForm] = useState<CompanyBrandForm>(defaultBrandForm);
     const [message, setMessage] = useState('Loading company...');
@@ -1157,22 +1157,24 @@ export default function CompanyDashboardScreen() {
                                     borderBottomWidth: 5,
                                     boxShadow: '0 8px 16px rgba(7, 27, 51, 0.16), inset 0 2px 0 rgba(255, 255, 255, 0.96)',
                                     padding: 18,
-                                    flexDirection: 'row',
-                                    flexWrap: 'wrap',
+                                    flexDirection: isPhoneLayout ? 'column' : 'row',
+                                    flexWrap: isPhoneLayout ? 'nowrap' : 'wrap',
                                     alignItems: 'center',
-                                    gap: 18,
+                                    gap: isPhoneLayout ? 14 : 18,
                                     minWidth: 0,
                                 }}
                             >
                                 {logoCanPreview ? (
                                     <Image
                                         source={{ uri: brandForm.logoUrl.trim() }}
+                                        resizeMode="contain"
                                         style={{
                                             width: previewLogoSize,
                                             height: previewLogoSize,
                                             borderRadius: 20,
                                             backgroundColor: '#F8FAFC',
                                             flexShrink: 0,
+                                            alignSelf: isPhoneLayout ? 'center' : 'auto',
                                         }}
                                     />
                                 ) : (
@@ -1185,6 +1187,7 @@ export default function CompanyDashboardScreen() {
                                             alignItems: 'center',
                                             justifyContent: 'center',
                                             flexShrink: 0,
+                                            alignSelf: isPhoneLayout ? 'center' : 'auto',
                                         }}
                                     >
                                         <Text
@@ -1199,7 +1202,14 @@ export default function CompanyDashboardScreen() {
                                     </View>
                                 )}
 
-                                <View style={{ flex: 1, minWidth: 0 }}>
+                                <View
+                                    style={{
+                                        flex: isPhoneLayout ? undefined : 1,
+                                        minWidth: 0,
+                                        width: isPhoneLayout ? '100%' : undefined,
+                                        alignItems: isPhoneLayout ? 'center' : 'flex-start',
+                                    }}
+                                >
                                     <Text
                                         numberOfLines={2}
                                         style={{
@@ -1207,6 +1217,7 @@ export default function CompanyDashboardScreen() {
                                             fontSize: isPhoneLayout ? 21 : 24,
                                             fontWeight: '900',
                                             flexShrink: 1,
+                                            textAlign: isPhoneLayout ? 'center' : 'left',
                                         }}
                                     >
                                         {previewName}
@@ -1217,6 +1228,7 @@ export default function CompanyDashboardScreen() {
                                             marginTop: 4,
                                             fontSize: 14,
                                             fontWeight: '900',
+                                            textAlign: isPhoneLayout ? 'center' : 'left',
                                         }}
                                     >
                                         {previewDba}
@@ -1229,6 +1241,7 @@ export default function CompanyDashboardScreen() {
                                             fontSize: 13,
                                             fontWeight: '700',
                                             lineHeight: 19,
+                                            textAlign: isPhoneLayout ? 'center' : 'left',
                                         }}
                                     >
                                         {brandForm.shortDescription || 'Short company description will appear here.'}
@@ -1238,6 +1251,7 @@ export default function CompanyDashboardScreen() {
                                         style={{
                                             flexDirection: 'row',
                                             flexWrap: 'wrap',
+                                            justifyContent: isPhoneLayout ? 'center' : 'flex-start',
                                             gap: 8,
                                             marginTop: 12,
                                         }}
