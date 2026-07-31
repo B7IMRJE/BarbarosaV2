@@ -47,7 +47,7 @@ export type AppearancePreferences = {
 };
 
 export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
-    appearanceStyle: 'glass',
+    appearanceStyle: 'classic',
     fontSize: 'standard',
     iconSize: 'standard',
     glassDepth: 10,

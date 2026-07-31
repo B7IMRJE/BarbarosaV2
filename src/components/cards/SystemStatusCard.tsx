@@ -68,11 +68,6 @@ export function getStatusCardStyle(
     };
 }
 
-function statusCardTextColor(status: string | null | undefined, theme: HomeOSTheme) {
-    const normalizedStatus = String(status || '').trim().toLowerCase();
-    return normalizedStatus ? '#FFFFFF' : theme.colors.text;
-}
-
 export default function SystemStatusCard({
     title,
     icon,
@@ -130,7 +125,7 @@ export default function SystemStatusCard({
                 style={[
                     titleStyle,
                     {
-                        color: statusCardTextColor(status, theme),
+                        color: theme.colors.text,
                         fontSize: compact ? 11 : scaleFont(16),
                         lineHeight: compact ? 14 : scaleFont(20),
                     },

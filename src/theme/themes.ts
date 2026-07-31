@@ -37,7 +37,7 @@ export type HomeOSTheme = {
     };
 };
 
-export const DEFAULT_THEME_NAME: HomeOSThemeName = 'classic';
+export const DEFAULT_THEME_NAME: HomeOSThemeName = 'ocean';
 
 export const homeOSThemes: Record<HomeOSThemeName, HomeOSTheme> = {
     classic: {
