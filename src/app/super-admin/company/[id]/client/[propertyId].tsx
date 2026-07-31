@@ -15,7 +15,12 @@ import {
     providerStagedWorkTypeLabel,
     type ProviderStagedWorkEntry,
 } from '../../../../../lib/providerStagedWork';
+import { resolveCompanyWorkspaceTheme } from '../../../../../lib/companyWorkspaceTheme';
 import { supabase } from '../../../../../lib/supabase';
+import { ThemeContext } from '../../../../../theme';
+import { CompanyGlassDepthProvider } from '../../../../../theme/glass-depth';
+import { GlassPaletteProvider } from '../../../../../theme/glass-palette-context';
+import { createCompanyGlassPalette } from '../../../../../theme/glassPalette';
 import { useTheme } from '../../../../../theme/useTheme';
 
 type CompanyRecord = {
@@ -23,6 +28,10 @@ type CompanyRecord = {
     name: string | null;
     public_name: string | null;
     dba_name: string | null;
+    primary_color: string | null;
+    secondary_color: string | null;
+    accent_color: string | null;
+    glass_depth: number | null;
 };
 
 type CompanyClient = {
@@ -83,7 +92,7 @@ type CompanyEmergencyIntake = {
 };
 
 export default function CompanyClientDetailScreen() {
-    const { theme } = useTheme();
+    const themeContext = useTheme();
     const { id, propertyId } = useLocalSearchParams<{ id: string; propertyId: string }>();
     const companyId = String(id || '');
     const clientPropertyId = String(propertyId || '');
@@ -103,6 +112,20 @@ export default function CompanyClientDetailScreen() {
     const [savingAction, setSavingAction] = useState('');
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const theme = useMemo(
+        () => resolveCompanyWorkspaceTheme(themeContext.theme, company),
+        [company, themeContext.theme]
+    );
+    const companyGlassPalette = useMemo(
+        () => createCompanyGlassPalette({
+            id: `company-client-${companyId || 'unknown'}`,
+            label: `${getCompanyDisplayName(company)} Customer Home`,
+            primary: company?.primary_color,
+            secondary: company?.secondary_color,
+            accent: company?.accent_color,
+        }),
+        [company, companyId]
+    );
 
     useEffect(() => {
         void loadClientDetail();
@@ -146,7 +169,7 @@ export default function CompanyClientDetailScreen() {
         const [companyResult, clientResult, propertyResult] = await Promise.all([
             supabase
                 .from('companies')
-                .select('id, name, public_name, dba_name')
+                .select('id, name, public_name, dba_name, primary_color, secondary_color, accent_color, glass_depth')
                 .eq('id', companyId)
                 .maybeSingle(),
             supabase
@@ -410,6 +433,18 @@ export default function CompanyClientDetailScreen() {
     }
 
     return (
+        <ThemeContext.Provider
+            value={{
+                ...themeContext,
+                theme,
+                appearance: {
+                    ...themeContext.appearance,
+                    appearanceStyle: 'glass',
+                },
+            }}
+        >
+        <CompanyGlassDepthProvider value={company?.glass_depth}>
+        <GlassPaletteProvider palette={companyGlassPalette}>
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{ padding: 20, paddingBottom: 40, alignItems: 'center' }}
@@ -664,6 +699,9 @@ export default function CompanyClientDetailScreen() {
                 )}
             </View>
         </ScrollView>
+        </GlassPaletteProvider>
+        </CompanyGlassDepthProvider>
+        </ThemeContext.Provider>
     );
 }
 

@@ -22,6 +22,7 @@ import {
 import { resolveCompanyWorkspaceTheme } from '../../../../lib/companyWorkspaceTheme';
 import { supabase } from '../../../../lib/supabase';
 import { ThemeContext } from '../../../../theme';
+import { CompanyGlassDepthProvider } from '../../../../theme/glass-depth';
 import { GlassPaletteProvider } from '../../../../theme/glass-palette-context';
 import { createCompanyGlassPalette } from '../../../../theme/glassPalette';
 import { useTheme } from '../../../../theme/useTheme';
@@ -119,6 +120,7 @@ export default function CompanyClientsScreen() {
         primary_color: string | null;
         secondary_color: string | null;
         accent_color: string | null;
+        glass_depth: number | null;
     } | null>(null);
     const theme = useMemo(
         () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand),
@@ -271,7 +273,7 @@ export default function CompanyClientsScreen() {
     async function loadCompanyName(companyId: string) {
         const { data } = await supabase
             .from('companies')
-            .select('name, public_name, dba_name, primary_color, secondary_color, accent_color')
+            .select('name, public_name, dba_name, primary_color, secondary_color, accent_color, glass_depth')
             .eq('id', companyId)
             .maybeSingle();
         const company = (data || {}) as {
@@ -281,6 +283,7 @@ export default function CompanyClientsScreen() {
             primary_color?: string | null;
             secondary_color?: string | null;
             accent_color?: string | null;
+            glass_depth?: number | null;
         };
 
         setCompanyName(getCompanyDisplayName(company));
@@ -288,6 +291,7 @@ export default function CompanyClientsScreen() {
             primary_color: company.primary_color || null,
             secondary_color: company.secondary_color || null,
             accent_color: company.accent_color || null,
+            glass_depth: company.glass_depth || null,
         });
     }
 
@@ -608,7 +612,17 @@ export default function CompanyClientsScreen() {
     }
 
     return (
-        <ThemeContext.Provider value={{ ...themeContext, theme }}>
+        <ThemeContext.Provider
+            value={{
+                ...themeContext,
+                theme,
+                appearance: {
+                    ...themeContext.appearance,
+                    appearanceStyle: 'glass',
+                },
+            }}
+        >
+        <CompanyGlassDepthProvider value={companyBrand?.glass_depth}>
         <GlassPaletteProvider palette={companyGlassPalette}>
         <ScrollView
             style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -794,6 +808,7 @@ export default function CompanyClientsScreen() {
             </View>
         </ScrollView>
         </GlassPaletteProvider>
+        </CompanyGlassDepthProvider>
         </ThemeContext.Provider>
     );
 }
