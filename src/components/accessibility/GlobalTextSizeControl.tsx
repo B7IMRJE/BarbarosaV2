@@ -18,7 +18,10 @@ export default function GlobalTextSizeControl() {
     const currentIndex = appearanceSizeOptions.findIndex(
         (option) => option.name === appearance.fontSize
     );
-    const safeIndex = currentIndex < 0 ? 1 : currentIndex;
+    const standardIndex = appearanceSizeOptions.findIndex(
+        (option) => option.name === 'standard'
+    );
+    const safeIndex = currentIndex < 0 ? standardIndex : currentIndex;
     const currentOption = appearanceSizeOptions[safeIndex];
 
     function changeSize(nextIndex: number) {

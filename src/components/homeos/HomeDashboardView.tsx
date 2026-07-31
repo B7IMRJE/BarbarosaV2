@@ -101,6 +101,10 @@ export default function HomeDashboardView({
   const healthTileSize = isCompactPhone
     ? availableHealthTileSize
     : Math.min(104, availableHealthTileSize);
+  const compactPhoneHealthTileHeight = Math.min(
+    scaleIcon(156),
+    Math.max(scaleIcon(126), healthTileSize * 0.72)
+  );
   const healthSummary = scoreOverallHomeHealth(items, emergencies);
   const dashboardSystemTiles = buildHomeDashboardSystemTiles(items);
   const systemSummaries = scoreAllSystems(items, dashboardSystemTiles.map((system) => system.key));
@@ -462,7 +466,7 @@ export default function HomeDashboardView({
             style={isCompactPhone
               ? {
                   width: '48%',
-                  aspectRatio: 1,
+                  height: compactPhoneHealthTileHeight,
                   minHeight: 0,
                 }
               : {

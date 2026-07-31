@@ -29,7 +29,7 @@ const LEGACY_APPEARANCE_STORAGE_KEY = 'homeos:appearance-preferences';
 const THEME_STORAGE_KEY_PREFIX = 'homeos_theme_';
 const APPEARANCE_STORAGE_KEY_PREFIX = 'homeos_appearance_';
 
-export type AppearanceSizeName = 'compact' | 'standard' | 'large' | 'extraLarge';
+export type AppearanceSizeName = 'small' | 'compact' | 'standard' | 'large' | 'extraLarge';
 export type AppearanceStyleName = 'glass' | 'classic';
 
 export type AppearancePreferences = {
@@ -65,10 +65,11 @@ export const appearanceSizeOptions: {
     label: string;
     scale: number;
 }[] = [
-    { name: 'compact', label: 'Compact', scale: 0.92 },
+    { name: 'small', label: 'Small', scale: 0.8 },
+    { name: 'compact', label: 'Compact', scale: 0.9 },
     { name: 'standard', label: 'Standard', scale: 1 },
-    { name: 'large', label: 'Large', scale: 1.12 },
-    { name: 'extraLarge', label: 'Extra Large', scale: 1.24 },
+    { name: 'large', label: 'Large', scale: 1.1 },
+    { name: 'extraLarge', label: 'Extra Large', scale: 1.2 },
 ];
 
 type ThemeContextValue = {
@@ -90,6 +91,7 @@ type ThemeContextValue = {
 
 function isAppearanceSizeName(value: unknown): value is AppearanceSizeName {
     return (
+        value === 'small' ||
         value === 'compact' ||
         value === 'standard' ||
         value === 'large' ||
