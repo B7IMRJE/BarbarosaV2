@@ -12,13 +12,16 @@ import { supabase } from '../lib/supabase';
 import {
     DEFAULT_THEME_NAME,
     homeOSThemes,
+    isHomeOSThemeName,
     type HomeOSTheme,
     type HomeOSThemeName,
 } from './themes';
+import { resolveGlassHomeTheme } from './glassPalette';
 import {
     HOMEOS_THEME_USER_METADATA_KEY,
     isHomeOSThemeSaveConfirmed,
     readHomeOSThemeFromUserMetadata,
+    resolvePersistedHomeOSTheme,
 } from '../lib/homeThemePersistence';
 
 const LEGACY_THEME_STORAGE_KEY = 'homeos:selected-theme';
@@ -44,7 +47,7 @@ export type AppearancePreferences = {
 };
 
 export const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
-    appearanceStyle: 'classic',
+    appearanceStyle: 'glass',
     fontSize: 'standard',
     iconSize: 'standard',
     glassDepth: 10,
@@ -94,6 +97,10 @@ function isAppearanceSizeName(value: unknown): value is AppearanceSizeName {
     );
 }
 
+function isAppearanceStyleName(value: unknown): value is AppearanceStyleName {
+    return value === 'glass' || value === 'classic';
+}
+
 function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
     if (!value || typeof value !== 'object') {
         return DEFAULT_APPEARANCE_PREFERENCES;
@@ -106,7 +113,9 @@ function sanitizeAppearancePreferences(value: unknown): AppearancePreferences {
             : fallback;
 
     return {
-        appearanceStyle: 'classic',
+        appearanceStyle: isAppearanceStyleName(candidate.appearanceStyle)
+            ? candidate.appearanceStyle
+            : DEFAULT_APPEARANCE_PREFERENCES.appearanceStyle,
         fontSize: isAppearanceSizeName(candidate.fontSize)
             ? candidate.fontSize
             : DEFAULT_APPEARANCE_PREFERENCES.fontSize,
@@ -246,36 +255,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             if (runId !== loadRunRef.current || activeUserIdRef.current !== userId) return;
 
             const accountTheme = readHomeOSThemeFromUserMetadata(user?.user_metadata);
-
-            const parsedAppearance = parseStoredAppearance(storedAppearance);
-            const repairedAppearance = sanitizeAppearancePreferences({
-                ...parsedAppearance,
-                appearanceStyle: 'classic',
+            const resolvedTheme = resolvePersistedHomeOSTheme({
+                accountTheme,
+                localTheme: storedTheme,
             });
+            const parsedAppearance = parseStoredAppearance(storedAppearance);
 
-            setThemeNameState(DEFAULT_THEME_NAME);
-            setAppearanceState(repairedAppearance);
+            setThemeNameState(resolvedTheme);
+            setAppearanceState(parsedAppearance);
 
-            if (
-                storedTheme !== DEFAULT_THEME_NAME ||
-                parsedAppearance.appearanceStyle !== 'classic'
-            ) {
-                await Promise.all([
-                    AsyncStorage.setItem(
-                        getThemeStorageKey(userId),
-                        DEFAULT_THEME_NAME
-                    ),
-                    AsyncStorage.setItem(
-                    getAppearanceStorageKey(userId),
-                    JSON.stringify(repairedAppearance)
-                    ),
-                ]);
-            }
-
-            if (accountTheme !== DEFAULT_THEME_NAME) {
+            if (!accountTheme && isHomeOSThemeName(storedTheme)) {
                 void supabase.auth.updateUser({
                     data: {
-                        [HOMEOS_THEME_USER_METADATA_KEY]: DEFAULT_THEME_NAME,
+                        [HOMEOS_THEME_USER_METADATA_KEY]: storedTheme,
                     },
                 });
             }
@@ -286,7 +278,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    async function setThemeName(_nextThemeName: HomeOSThemeName) {
+    async function setThemeName(nextThemeName: HomeOSThemeName) {
         const userId = activeUserIdRef.current;
 
         if (!userId) {
@@ -294,8 +286,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         }
 
         const previousThemeName = themeName;
-        const nextThemeName = DEFAULT_THEME_NAME;
-        setThemeNameState(DEFAULT_THEME_NAME);
+        setThemeNameState(nextThemeName);
 
         try {
             await AsyncStorage.setItem(getThemeStorageKey(userId), nextThemeName);
@@ -331,10 +322,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
 
     async function setAppearance(nextAppearance: AppearancePreferences) {
-        const sanitizedAppearance = sanitizeAppearancePreferences({
-            ...nextAppearance,
-            appearanceStyle: 'classic',
-        });
+        const sanitizedAppearance = sanitizeAppearancePreferences(nextAppearance);
         setAppearanceState(sanitizedAppearance);
 
         const userId = activeUserIdRef.current;
@@ -378,7 +366,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const value = useMemo(
         () => ({
             themeName,
-            theme: homeOSThemes[DEFAULT_THEME_NAME],
+            theme:
+                appearance.appearanceStyle === 'classic'
+                    ? homeOSThemes[themeName]
+                    : resolveGlassHomeTheme(homeOSThemes[themeName], {
+                          primary: appearance.glassPrimary,
+                          secondary: appearance.glassSecondary,
+                          accent: appearance.glassAccent,
+                          background: appearance.backgroundColor,
+                          backgroundIntensity: appearance.backgroundIntensity,
+                          panel: appearance.glassPanelColor,
+                          panelOpacity: appearance.glassPanelOpacity,
+                      }),
             setThemeName,
             appearance,
             setAppearance,

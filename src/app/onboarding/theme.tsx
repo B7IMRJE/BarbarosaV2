@@ -1,55 +1,67 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
     DEFAULT_APPEARANCE_PREFERENCES,
-    DEFAULT_THEME_NAME,
+    themeOptions,
 } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
 export default function OnboardingThemeScreen() {
-    const { appearance, scaleFont, scaleIcon, setAppearance, setThemeName, theme } =
+    const {
+        appearance,
+        scaleFont,
+        scaleIcon,
+        setAppearance,
+        setThemeName,
+        theme,
+        themeName,
+    } =
         useTheme();
     const params = useLocalSearchParams<{ next?: string | string[] }>();
     const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
-    const [isPreparing, setIsPreparing] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
     const [saveError, setSaveError] = useState<string | null>(null);
 
-    useEffect(() => {
-        let active = true;
-
-        async function prepareClassic() {
-            try {
-                await setThemeName(DEFAULT_THEME_NAME);
+    async function chooseTheme(nextThemeName: (typeof themeOptions)[number]['name']) {
+        if (isSaving) return;
+        setIsSaving(true);
+        setSaveError(null);
+        try {
+            const option = themeOptions.find((candidate) => candidate.name === nextThemeName);
+            await setThemeName(nextThemeName);
+            if (option && appearance.appearanceStyle === 'glass') {
                 await setAppearance({
-                    ...DEFAULT_APPEARANCE_PREFERENCES,
-                    appearanceStyle: 'classic',
-                    fontSize: appearance.fontSize,
-                    iconSize: appearance.iconSize,
+                    ...appearance,
+                    glassPrimary: option.colors.primary,
+                    glassSecondary: option.colors.secondaryButton,
+                    glassAccent: option.colors.progressFill,
                 });
-            } catch (error) {
-                if (active) {
-                    setSaveError(
-                        error instanceof Error
-                            ? error.message
-                            : 'HomeOS could not prepare its appearance. Please try again.'
-                    );
-                }
-            } finally {
-                if (active) setIsPreparing(false);
             }
+        } catch (error) {
+            setSaveError(
+                error instanceof Error
+                    ? error.message
+                    : 'HomeOS could not save your theme. Please try again.'
+            );
+        } finally {
+            setIsSaving(false);
         }
+    }
 
-        void prepareClassic();
-        return () => {
-            active = false;
-        };
-    }, []);
+    async function chooseStyle(appearanceStyle: 'glass' | 'classic') {
+        await setAppearance({
+            ...DEFAULT_APPEARANCE_PREFERENCES,
+            appearanceStyle,
+            fontSize: appearance.fontSize,
+            iconSize: appearance.iconSize,
+        });
+    }
 
     function continueSetup() {
-        if (isPreparing) return;
+        if (isSaving) return;
         router.replace(buildBaseHomeWizardRoute(nextRoute) as never);
     }
 
@@ -71,7 +83,7 @@ export default function OnboardingThemeScreen() {
                         marginTop: scaleIcon(24),
                     }}
                 >
-                    HomeOS Classic
+                    Choose Your HomeOS Look
                 </Text>
                 <Text
                     style={{
@@ -83,32 +95,115 @@ export default function OnboardingThemeScreen() {
                         marginBottom: scaleIcon(18),
                     }}
                 >
-                    HomeOS now uses one clean, consistent appearance on every screen.
+                    Choose a style and color pack. You can change it later from Profile.
                 </Text>
 
-                <ThemedCard>
-                    <Text
-                        style={{
-                            color: theme.colors.text,
-                            fontSize: scaleFont(22),
-                            fontWeight: '900',
-                        }}
-                    >
-                        ✓ Classic appearance
-                    </Text>
-                    <Text
-                        style={{
-                            color: theme.colors.mutedText,
-                            fontSize: scaleFont(14),
-                            fontWeight: '700',
-                            lineHeight: scaleFont(21),
-                            marginTop: scaleIcon(8),
-                        }}
-                    >
-                        Reliable colors, readable cards, and the same status meanings
-                        throughout HomeOS.
-                    </Text>
-                </ThemedCard>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12) }}>
+                    {(['glass', 'classic'] as const).map((appearanceStyle) => {
+                        const selected = appearance.appearanceStyle === appearanceStyle;
+                        return (
+                            <ThemedCard
+                                key={appearanceStyle}
+                                onPress={() => void chooseStyle(appearanceStyle)}
+                                style={{
+                                    flexGrow: 1,
+                                    flexBasis: 220,
+                                    borderColor: selected
+                                        ? theme.colors.primary
+                                        : theme.colors.border,
+                                    borderWidth: selected ? 2 : 1,
+                                }}
+                            >
+                                <Text
+                                    style={{
+                                        color: theme.colors.text,
+                                        fontSize: scaleFont(18),
+                                        fontWeight: '900',
+                                        textTransform: 'capitalize',
+                                    }}
+                                >
+                                    {selected ? '✓ ' : ''}
+                                    {appearanceStyle}
+                                </Text>
+                            </ThemedCard>
+                        );
+                    })}
+                </View>
+
+                <View
+                    style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: scaleIcon(12),
+                        marginTop: scaleIcon(16),
+                    }}
+                >
+                    {themeOptions.map((option) => {
+                        const selected = option.name === themeName;
+                        return (
+                            <ThemedCard
+                                key={option.name}
+                                onPress={() => void chooseTheme(option.name)}
+                                style={{
+                                    backgroundColor: option.colors.background,
+                                    flexGrow: 1,
+                                    flexBasis: 260,
+                                    borderColor: selected
+                                        ? option.colors.primary
+                                        : option.colors.border,
+                                    borderWidth: selected ? 3 : 1,
+                                }}
+                            >
+                                <Text
+                                    style={{
+                                        color: option.colors.text,
+                                        fontSize: scaleFont(18),
+                                        fontWeight: '900',
+                                    }}
+                                >
+                                    {option.label}
+                                </Text>
+                                <Text
+                                    style={{
+                                        color: selected
+                                            ? option.colors.primary
+                                            : option.colors.mutedText,
+                                        fontSize: scaleFont(13),
+                                        fontWeight: '900',
+                                        marginTop: scaleIcon(6),
+                                    }}
+                                >
+                                    {selected ? 'Selected' : 'Tap to apply'}
+                                </Text>
+                                <View
+                                    style={{
+                                        flexDirection: 'row',
+                                        gap: scaleIcon(6),
+                                        marginTop: scaleIcon(12),
+                                    }}
+                                >
+                                    {[
+                                        option.colors.primary,
+                                        option.colors.surface,
+                                        option.colors.progressFill,
+                                    ].map((color, index) => (
+                                        <View
+                                            key={`${option.name}-${index}`}
+                                            style={{
+                                                width: scaleIcon(24),
+                                                height: scaleIcon(24),
+                                                borderRadius: 999,
+                                                backgroundColor: color,
+                                                borderColor: option.colors.border,
+                                                borderWidth: 1,
+                                            }}
+                                        />
+                                    ))}
+                                </View>
+                            </ThemedCard>
+                        );
+                    })}
+                </View>
 
                 {saveError ? (
                     <Text
@@ -124,8 +219,8 @@ export default function OnboardingThemeScreen() {
                 ) : null}
 
                 <ThemedButton
-                    title={isPreparing ? 'Preparing HomeOS...' : 'Continue'}
-                    disabled={isPreparing}
+                    title={isSaving ? 'Saving Theme...' : 'Continue'}
+                    disabled={isSaving}
                     onPress={continueSetup}
                     style={{ marginTop: scaleIcon(18), minWidth: scaleIcon(180) }}
                 />
