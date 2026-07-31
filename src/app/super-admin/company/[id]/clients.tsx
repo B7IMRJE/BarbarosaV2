@@ -108,6 +108,14 @@ type PreparedCustomerLoginInvite = {
     message?: string;
 };
 
+type LatestLoginInvite = {
+    invitationId: string;
+    code: string;
+    invitedName: string | null;
+    invitedEmail: string | null;
+    expiresAt: string | null;
+};
+
 export default function CompanyClientsScreen() {
     const themeContext = useTheme();
     const { width: windowWidth } = useWindowDimensions();
@@ -147,6 +155,7 @@ export default function CompanyClientsScreen() {
     const [inviteActionId, setInviteActionId] = useState('');
     const [creatingInvite, setCreatingInvite] = useState(false);
     const [inviteMessage, setInviteMessage] = useState('');
+    const [latestLoginInvite, setLatestLoginInvite] = useState<LatestLoginInvite | null>(null);
     const [searchDraft, setSearchDraft] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [activeShelfKey, setActiveShelfKey] = useState('');
@@ -307,7 +316,6 @@ export default function CompanyClientsScreen() {
         }
 
         setCustomerInvites((data || []) as CustomerInvite[]);
-        setInviteMessage('');
     }
 
     async function createCustomerInvite() {
@@ -360,6 +368,13 @@ export default function CompanyClientsScreen() {
         }
 
         updateInviteForm({ invitedName: '', invitedEmail: '', invitedPhone: '', note: '' });
+        setLatestLoginInvite({
+            invitationId: createdInvite.invitation_id,
+            code: preparedInvite.login_code,
+            invitedName: createdInvite.invited_name,
+            invitedEmail: createdInvite.invited_email,
+            expiresAt: preparedInvite.expires_at || createdInvite.login_code_expires_at || null,
+        });
         setInviteMessage(`Customer login invitation created. Six-digit code: ${preparedInvite.login_code}`);
         await loadCustomerInvites(companyId);
     }
@@ -390,6 +405,13 @@ export default function CompanyClientsScreen() {
             return;
         }
 
+        setLatestLoginInvite({
+            invitationId: invite.invitation_id,
+            code: preparedInvite.login_code,
+            invitedName: invite.invited_name,
+            invitedEmail: invite.invited_email,
+            expiresAt: preparedInvite.expires_at || invite.login_code_expires_at || null,
+        });
         setInviteMessage(`Six-digit customer login code created: ${preparedInvite.login_code}`);
         await loadCustomerInvites(String(id));
     }
@@ -648,6 +670,7 @@ export default function CompanyClientsScreen() {
                     creating={creatingInvite}
                     actionInviteId={inviteActionId}
                     message={inviteMessage}
+                    latestLoginInvite={latestLoginInvite}
                     onChangeForm={updateInviteForm}
                     onCreate={createCustomerInvite}
                     onRefresh={() => loadCustomerInvites(String(id))}
@@ -820,6 +843,7 @@ function InviteCustomerSection({
     creating,
     actionInviteId,
     message,
+    latestLoginInvite,
     onChangeForm,
     onCreate,
     onRefresh,
@@ -836,6 +860,7 @@ function InviteCustomerSection({
     creating: boolean;
     actionInviteId: string;
     message: string;
+    latestLoginInvite: LatestLoginInvite | null;
     onChangeForm: (updates: Partial<CustomerInviteForm>) => void;
     onCreate: () => void;
     onRefresh: () => void;
@@ -873,6 +898,50 @@ function InviteCustomerSection({
                     {message}
                 </Text>
             )}
+
+            {latestLoginInvite ? (
+                <ThemedCard>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
+                        Homeowner Login Code
+                    </Text>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        {latestLoginInvite.invitedName ||
+                            latestLoginInvite.invitedEmail ||
+                            'New homeowner invitation'}
+                    </Text>
+                    <Text selectable style={[loginCodeStyle, { color: theme.colors.text }]}>
+                        {latestLoginInvite.code}
+                    </Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        At HomeOS sign-in, choose Invitation Code and enter this six-digit code.
+                    </Text>
+                    {latestLoginInvite.expiresAt ? (
+                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                            Expires {formatDate(latestLoginInvite.expiresAt)}
+                        </Text>
+                    ) : null}
+                    <View style={buttonRowStyle}>
+                        <ThemedButton
+                            title="Copy Code"
+                            onPress={() =>
+                                onCopy(latestLoginInvite.code, 'Login code copied.')
+                            }
+                            style={smallButtonStyle}
+                        />
+                        <ThemedButton
+                            title="Copy Login Link"
+                            onPress={() =>
+                                onCopy(
+                                    buildCustomerLoginLink(latestLoginInvite.code).url,
+                                    'Login link copied.',
+                                )
+                            }
+                            variant="secondary"
+                            style={smallButtonStyle}
+                        />
+                    </View>
+                </ThemedCard>
+            ) : null}
 
             {composerOpen && (
                 <ThemedCard>
