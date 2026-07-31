@@ -17,12 +17,36 @@ export type DispatchWallConnectionStatus = {
 };
 
 export const DISPATCH_WALL_FALLBACK_REFRESH_MS = 30_000;
+export const DISPATCH_WALL_CORE_REFRESH_TIMEOUT_MS = 15_000;
+export const DISPATCH_WALL_TIMING_REFRESH_TIMEOUT_MS = 5_000;
 export const DISPATCH_WALL_STALE_AFTER_MS = 90_000;
 export const DISPATCH_WALL_EVENT_REFRESH_DEBOUNCE_MS = 1_500;
 export const DISPATCH_WALL_RECONNECT_BASE_DELAY_MS = 2_000;
 export const DISPATCH_WALL_RECONNECT_MAX_DELAY_MS = 30_000;
 export const DISPATCH_WALL_RECONNECT_MAX_ATTEMPTS = 6;
 export const DISPATCH_WALL_MANUAL_REFRESH_LABEL = 'Refresh now';
+
+export async function withDispatchWallRefreshTimeout<T>(
+    operation: Promise<T>,
+    timeoutMs = DISPATCH_WALL_CORE_REFRESH_TIMEOUT_MS,
+    message = 'Dispatch wall refresh timed out. Please retry.',
+): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+        return await Promise.race([
+            operation,
+            new Promise<T>((_, reject) => {
+                timeoutId = setTimeout(
+                    () => reject(new Error(message)),
+                    Math.max(1, timeoutMs),
+                );
+            }),
+        ]);
+    } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
+}
 
 type RefreshDecisionInput = {
     nowMs: number;
