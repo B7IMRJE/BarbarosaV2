@@ -35,6 +35,8 @@ export default function CreateAreaScreen() {
         system?: string;
         parentArea?: string;
         areaName?: string;
+        templateId?: string;
+        fillExisting?: string;
         providerMode?: string | string[];
         companyId?: string | string[];
         propertyId?: string | string[];
@@ -47,20 +49,21 @@ export default function CreateAreaScreen() {
     const system = decodeParam(params.system);
     const parentAreaName = decodeParam(params.parentArea).trim();
     const initialAreaName = decodeParam(params.areaName).trim();
+    const initialTemplateId = decodeParam(params.templateId).trim();
+    const fillExisting = decodeParam(params.fillExisting).trim().toLowerCase() === 'true';
     const canonicalSystem = system ? getSystemDefinition(system)?.key || system : 'Plumbing';
     const systemLabel = getSystemLabel(canonicalSystem);
     const customAreaTemplate = areaTemplates.find((template) => template.id === 'custom-area') || null;
     const availableAreaTemplates = parentAreaName && customAreaTemplate ? [customAreaTemplate] : areaTemplates;
+    const initialTemplate = areaTemplates.find((template) => template.id === initialTemplateId) || null;
     const [selectedTemplate, setSelectedTemplate] = useState<AreaTemplate | null>(
-        initialAreaName ? customAreaTemplate : null
+        initialTemplate || (initialAreaName ? customAreaTemplate : null)
     );
     const [customAreaName, setCustomAreaName] = useState(initialAreaName);
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
 
-    const areaName = selectedTemplate?.id === 'custom-area'
-        ? customAreaName.trim()
-        : selectedTemplate?.name || '';
+    const areaName = customAreaName.trim() || selectedTemplate?.name || '';
     const starterItemCount = useMemo(
         () => selectedTemplate ? getStarterItems(selectedTemplate).length : 0,
         [selectedTemplate]
@@ -126,7 +129,7 @@ export default function CreateAreaScreen() {
                 sameAreaText(row.name, areaName)
         );
 
-        if (duplicateAreaExists) {
+        if (duplicateAreaExists && !fillExisting) {
             setSaving(false);
             setMessage('An area with this name already exists for this system.');
             return;
@@ -245,11 +248,11 @@ export default function CreateAreaScreen() {
                                 : 'Area-only creates one area record. Starter items create suggested records across systems and skip duplicates.'}
                         </Text>
 
-                        {selectedTemplate.id === 'custom-area' && (
+                        {(selectedTemplate.id === 'custom-area' || !!initialAreaName) && (
                             <TextInput
                                 value={customAreaName}
                                 onChangeText={setCustomAreaName}
-                                placeholder="Closet, Cabinet, Shelf..."
+                                placeholder="Bathroom 3, Closet, Cabinet..."
                                 placeholderTextColor={theme.colors.mutedText}
                                 style={{
                                     backgroundColor: theme.colors.surface,

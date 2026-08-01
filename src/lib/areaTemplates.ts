@@ -60,6 +60,43 @@ function item(
     };
 }
 
+function bathroomStarterItems(): Record<string, AreaStarterItem[]> {
+    return {
+        Plumbing: [
+            item('Bathroom Vanity', 'Plumbing', 'Fixture'),
+            item('Bathroom Sink', 'Plumbing', 'Fixture'),
+            item('Bathroom Faucet', 'Plumbing', 'Fixture'),
+            item('Toilet', 'Plumbing', 'Fixture'),
+            item('Tub / Shower Combination', 'Plumbing', 'Fixture'),
+            item('Shower Valve', 'Plumbing', 'Component'),
+            item('Shower Cartridge', 'Plumbing', 'Component'),
+            item('Tub / Shower Diverter', 'Plumbing', 'Component'),
+            item('Tub Spout', 'Plumbing', 'Fixture'),
+            item('Shower Head', 'Plumbing', 'Fixture'),
+            item('Hot Angle Stop', 'Plumbing', 'Component'),
+            item('Cold Angle Stop', 'Plumbing', 'Component'),
+            item('Hot Supply Line', 'Plumbing', 'Component'),
+            item('Cold Supply Line', 'Plumbing', 'Component'),
+            item('Toilet Shutoff Valve', 'Plumbing', 'Component'),
+            item('Toilet Supply Line', 'Plumbing', 'Component'),
+        ],
+        'Drains / Sewer': [
+            item('Pop-Up Assembly', 'Drains / Sewer', 'Component'),
+            item('Bathroom P-Trap', 'Drains / Sewer', 'Component'),
+            item('Toilet Drain', 'Drains / Sewer', 'Fixture'),
+            item('Shower / Tub Drain', 'Drains / Sewer', 'Fixture'),
+            item('Tub Waste and Overflow', 'Drains / Sewer', 'Component'),
+        ],
+        Electrical: [
+            item('Bathroom GFCI Outlet', 'Electrical', 'Fixture'),
+            item('Bathroom Fan', 'Electrical', 'Equipment', notInspected),
+            item('Bathroom Lights', 'Electrical', 'Fixture'),
+            item('Lighted Mirror', 'Electrical', 'Fixture'),
+        ],
+        Safety: [item('GFCI Protection', 'Safety', 'Component', notInspected)],
+    };
+}
+
 export const areaTemplates: AreaTemplate[] = [
     {
         id: 'kitchen',
@@ -139,56 +176,13 @@ export const areaTemplates: AreaTemplate[] = [
         id: 'bathroom',
         name: 'Bathroom',
         icon: '🚿',
-        starterItems: {
-            Plumbing: [
-                item('Bathroom Vanity', 'Plumbing', 'Fixture'),
-                item('Bathroom Sink', 'Plumbing', 'Fixture'),
-                item('Bathroom Faucet', 'Plumbing', 'Fixture'),
-                item('Toilet', 'Plumbing', 'Fixture'),
-                item('Tub / Shower Combination', 'Plumbing', 'Fixture'),
-                item('Hot Angle Stop', 'Plumbing', 'Component'),
-                item('Cold Angle Stop', 'Plumbing', 'Component'),
-                item('Hot Supply Line', 'Plumbing', 'Component'),
-                item('Cold Supply Line', 'Plumbing', 'Component'),
-            ],
-            'Drains / Sewer': [
-                item('Pop-Up Assembly', 'Drains / Sewer', 'Component'),
-                item('Bathroom P-Trap', 'Drains / Sewer', 'Component'),
-                item('Toilet Drain', 'Drains / Sewer', 'Fixture'),
-                item('Shower / Tub Drain', 'Drains / Sewer', 'Fixture'),
-            ],
-            Electrical: [
-                item('Bathroom GFCI Outlet', 'Electrical', 'Fixture'),
-                item('Bathroom Fan', 'Electrical', 'Equipment', notInspected),
-                item('Bathroom Lights', 'Electrical', 'Fixture'),
-                item('Lighted Mirror', 'Electrical', 'Fixture'),
-            ],
-            Safety: [item('GFCI Protection', 'Safety', 'Component', notInspected)],
-        },
+        starterItems: bathroomStarterItems(),
     },
     {
         id: 'master-bathroom',
         name: 'Master Bathroom',
         icon: '🛁',
-        starterItems: {
-            Plumbing: [
-                item('Master Bathroom Faucet', 'Plumbing', 'Fixture'),
-                item('Master Bathroom Toilet', 'Plumbing', 'Fixture'),
-                item('Master Shower Valve', 'Plumbing', 'Fixture'),
-                item('Tub Filler', 'Plumbing', 'Fixture'),
-            ],
-            'Drains / Sewer': [
-                item('Master Lavatory Drain', 'Drains / Sewer', 'Fixture'),
-                item('Master Shower Drain', 'Drains / Sewer', 'Fixture'),
-                item('Tub Drain', 'Drains / Sewer', 'Fixture'),
-            ],
-            Electrical: [
-                item('GFCI Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Exhaust Fan', 'Electrical', 'Equipment', notInspected),
-                item('Vanity Lighting', 'Electrical', 'Fixture', notInspected),
-            ],
-            Safety: [item('GFCI Protection', 'Safety', 'Component', notInspected)],
-        },
+        starterItems: bathroomStarterItems(),
     },
     {
         id: 'garage',

@@ -62,6 +62,22 @@ function getItemIcon(item: AreaItem) {
     return '🏠';
 }
 
+function isBathroomArea(area: AreaItem) {
+    return getAreaLabel(area).toLowerCase().includes('bathroom');
+}
+
+function nextBathroomName(areas: AreaItem[]) {
+    const usedNumbers = areas
+        .map((area) => getAreaLabel(area).match(/^bathroom\s+(\d+)$/i))
+        .filter((match): match is RegExpMatchArray => !!match)
+        .map((match) => Number(match[1]));
+    let number = 1;
+
+    while (usedNumbers.includes(number)) number += 1;
+
+    return `Bathroom ${number}`;
+}
+
 export default function PlumbingAreasScreen() {
     const { theme } = useTheme();
     const [areas, setAreas] = useState<AreaItem[]>(fallbackAreas);
@@ -132,6 +148,18 @@ export default function PlumbingAreasScreen() {
             params: {
                 system: 'Plumbing',
                 area: getAreaLabel(area),
+            },
+        } as any);
+    }
+
+    function openBathroomTemplate(area: AreaItem, duplicate: boolean) {
+        router.push({
+            pathname: '/area/create',
+            params: {
+                system: 'Plumbing',
+                templateId: 'bathroom',
+                areaName: duplicate ? nextBathroomName(areas) : getAreaLabel(area),
+                ...(duplicate ? {} : { fillExisting: 'true' }),
             },
         } as any);
     }
@@ -313,6 +341,8 @@ export default function PlumbingAreasScreen() {
                                 area={area}
                                 status={statusForCard(scoreAreaHealth(homeItems, getAreaLabel(area)))}
                                 onPress={() => openArea(area)}
+                                onAddMissingCards={isBathroomArea(area) ? () => openBathroomTemplate(area, false) : undefined}
+                                onDuplicate={isBathroomArea(area) ? () => openBathroomTemplate(area, true) : undefined}
                             />
                         );
                     })}
@@ -373,10 +403,14 @@ function PlumbingAreaCard({
     area,
     status,
     onPress,
+    onAddMissingCards,
+    onDuplicate,
 }: {
     area: AreaItem;
     status: string | null;
     onPress: () => void;
+    onAddMissingCards?: () => void;
+    onDuplicate?: () => void;
 }) {
     const { theme } = useTheme();
     const areaName = getAreaLabel(area);
@@ -416,6 +450,23 @@ function PlumbingAreaCard({
                     {areaName}
                 </Text>
             </TouchableOpacity>
+
+            {!!onAddMissingCards && !!onDuplicate && (
+                <View style={bathroomActionRowStyle}>
+                    <TouchableOpacity
+                        onPress={onAddMissingCards}
+                        style={[bathroomActionStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}
+                    >
+                        <Text style={[bathroomActionTextStyle, { color: theme.colors.text }]}>Add missing cards</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        onPress={onDuplicate}
+                        style={[bathroomActionStyle, { borderColor: theme.colors.primary, backgroundColor: theme.colors.surfaceAlt }]}
+                    >
+                        <Text style={[bathroomActionTextStyle, { color: theme.colors.primary }]}>Duplicate</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
 
         </View>
     );
@@ -512,6 +563,26 @@ const cardOpenAreaStyle = {
     justifyContent: 'center' as const,
     width: '100%' as const,
     flex: 1,
+};
+
+const bathroomActionRowStyle = {
+    width: '100%' as const,
+    gap: 8,
+    marginTop: 10,
+};
+
+const bathroomActionStyle = {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    alignItems: 'center' as const,
+};
+
+const bathroomActionTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
+    textAlign: 'center' as const,
 };
 
 const iconCircleStyle = {

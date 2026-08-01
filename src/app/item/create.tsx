@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
     ScrollView,
     Text,
@@ -142,7 +142,7 @@ export default function CreateItemScreen() {
     const initialCustomCategory = initialCategory === CUSTOM_CATEGORY_CHOICE && initialCategoryParam !== CUSTOM_CATEGORY_LABEL
         ? initialCategoryParam
         : '';
-    const initialName = typeof params.name === 'string' ? params.name : '';
+    const initialName = decodeParam(params.name);
     const hasInitialSystemSelection = typeof params.system === 'string' && !!params.system;
     const hasInitialCategorySelection = !!initialCategoryParam;
 
@@ -166,6 +166,12 @@ export default function CreateItemScreen() {
     const [about, setAbout] = useState('');
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (initialName && !name.trim()) {
+            setName(initialName);
+        }
+    }, [initialName, name]);
     const selectedSystemValue = system === CUSTOM_SYSTEM_CHOICE
         ? customSystem.trim() || OTHER_HOME_SYSTEM
         : system;

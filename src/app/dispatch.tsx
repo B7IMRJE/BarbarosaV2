@@ -3486,7 +3486,7 @@ function DispatchRequestCard({
                         style={{ alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12 }}
                         textStyle={{ fontSize: 12 }}
                     />
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={3}>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         {request.issue_summary || 'No summary available.'}
                     </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
