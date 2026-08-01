@@ -83,16 +83,14 @@ export default {
             return response(req, { ok: false, message: 'This invitation code is invalid or expired.' }, 400);
         }
 
-        const customerAuth = invitation.source === 'customer'
-            ? await createCustomerAuthOtp(
-                supabaseUrl,
-                serviceRoleKey,
-                invitation.email
-            )
-            : null;
-        if (invitation.source === 'customer' && !customerAuth) {
+        const invitationAuth = await createInvitationAuthOtp(
+            supabaseUrl,
+            serviceRoleKey,
+            invitation
+        );
+        if (!invitationAuth) {
             await recordAttempt(supabaseUrl, serviceRoleKey, {
-                invitationId: null,
+                invitationId: invitation.source === 'company_user' ? invitation.id : null,
                 ipHash,
                 codeHash,
                 succeeded: false,
@@ -103,10 +101,8 @@ export default {
                 message: 'The invitation was found, but its secure login session could not be prepared.',
             }, 500);
         }
-        const verificationToken = customerAuth?.tokenHash || code;
-        const verificationTypes = customerAuth
-            ? ['email', customerAuth.type, 'invite', 'magiclink'] as const
-            : ['invite', 'magiclink'] as const;
+        const verificationToken = invitationAuth.tokenHash;
+        const verificationTypes = ['email', invitationAuth.type, 'invite', 'magiclink'] as const;
 
         let lastVerificationMessage = '';
         for (const type of [...new Set(verificationTypes)]) {
@@ -116,16 +112,10 @@ export default {
                     apikey: publishableKey,
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(customerAuth
-                    ? {
-                        token_hash: verificationToken,
-                        type,
-                    }
-                    : {
-                        email: invitation.email,
-                        token: verificationToken,
-                        type,
-                    }),
+                body: JSON.stringify({
+                    token_hash: verificationToken,
+                    type,
+                }),
             });
             const verifyBody = await verifyResponse.json().catch(() => null) as {
                 access_token?: string;
@@ -163,12 +153,14 @@ export default {
                         message: 'Your secure session opened, but HomeOS could not identify the invited account.',
                     }, 500);
                 }
-                const profileReady = await ensureHomeownerProfile(
-                    supabaseUrl,
-                    serviceRoleKey,
-                    userId,
-                    verifyBody.user?.email || invitation.email
-                );
+                const profileReady = invitation.source === 'customer'
+                    ? await ensureHomeownerProfile(
+                        supabaseUrl,
+                        serviceRoleKey,
+                        userId,
+                        verifyBody.user?.email || invitation.email
+                    )
+                    : true;
                 if (!profileReady) {
                     return response(req, {
                         ok: false,
@@ -292,18 +284,28 @@ async function findCompanyUserInvitation(supabaseUrl: string, serviceRoleKey: st
     };
 }
 
-async function createCustomerAuthOtp(
+async function createInvitationAuthOtp(
     supabaseUrl: string,
     serviceRoleKey: string,
-    email: string
+    invitation: {
+        id: string;
+        email: string;
+        source: 'company_user' | 'customer';
+    }
 ) {
+    const isCustomer = invitation.source === 'customer';
     const payload = {
         type: 'invite',
-        email,
-        data: {
-            role: 'HOMEOWNER',
-            invited_customer: true,
-        },
+        email: invitation.email,
+        data: isCustomer
+            ? {
+                role: 'HOMEOWNER',
+                invited_customer: true,
+            }
+            : {
+                role: 'WORK',
+                company_invitation_id: invitation.id,
+            },
         redirect_to: 'https://barbarosa-v2.vercel.app/auth/confirm',
     };
     let result = await fetch(`${supabaseUrl}/auth/v1/admin/generate_link`, {
