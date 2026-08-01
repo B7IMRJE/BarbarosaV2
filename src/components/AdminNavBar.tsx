@@ -1,6 +1,6 @@
 import { router, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { AppState, Text, TouchableOpacity, View } from 'react-native';
+import { AppState, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
     getCompanyLeadCounts,
     LEAD_ALERT_REFRESH_MS,
@@ -23,6 +23,8 @@ type AdminNavBarProps = {
 type ManagementIdentity = {
     userId: string;
     email: string | null;
+    fullName: string | null;
+    companyName: string | null;
     companyUserId: string | null;
     role: string | null;
     status: string | null;
@@ -41,6 +43,8 @@ export default function AdminNavBar({
     const [leadCountLoading, setLeadCountLoading] = useState(false);
     const [identity, setIdentity] = useState<ManagementIdentity | null>(null);
     const [identityError, setIdentityError] = useState('');
+    const [nameDraft, setNameDraft] = useState('');
+    const [savingName, setSavingName] = useState(false);
     const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
     const [signingOut, setSigningOut] = useState(false);
 
@@ -140,9 +144,15 @@ export default function AdminNavBar({
                     return;
                 }
 
-                const [accessResult, platformAdmin] = await Promise.all([
+                const [accessResult, platformAdmin, companyResult, profileResult] = await Promise.all([
                     loadLoggedInUserCompanyAccess(user.id),
                     loadCurrentUserPlatformAdmin(),
+                    supabase
+                        .from('companies')
+                        .select('name, public_name')
+                        .eq('id', normalizedCompanyId)
+                        .maybeSingle(),
+                    supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
                 ]);
 
                 if (!active) return;
@@ -152,10 +162,13 @@ export default function AdminNavBar({
                 setIdentity({
                     userId: user.id,
                     email: user.email || null,
+                    fullName: profileResult.data?.full_name || matchingAccess?.full_name || String(user.user_metadata?.full_name || '').trim() || null,
+                    companyName: companyResult.data?.public_name || companyResult.data?.name || null,
                     companyUserId: matchingAccess?.id || null,
                     role: matchingAccess?.role || null,
                     status: matchingAccess?.status || (matchingAccess ? null : 'no company row'),
                 });
+                setNameDraft(profileResult.data?.full_name || matchingAccess?.full_name || String(user.user_metadata?.full_name || '').trim());
                 setIsPlatformAdmin(platformAdmin);
                 setIdentityError(accessResult.error ? 'Company access check unavailable.' : '');
             } catch {
@@ -183,6 +196,27 @@ export default function AdminNavBar({
         } as never);
     }
 
+    async function saveDisplayName() {
+        const fullName = nameDraft.trim();
+
+        if (!identity || !fullName || savingName) return;
+
+        setSavingName(true);
+        const { error } = await supabase
+            .from('profiles')
+            .update({ full_name: fullName })
+            .eq('id', identity.userId);
+        setSavingName(false);
+
+        if (error) {
+            setIdentityError(`Name update failed: ${error.message}`);
+            return;
+        }
+
+        setIdentity((current) => current ? { ...current, fullName } : current);
+        setIdentityError('');
+    }
+
     async function signOut() {
         if (signingOut) return;
 
@@ -201,7 +235,14 @@ export default function AdminNavBar({
                 onPress={openDispatchBoard}
             />
             <View style={identityActionRowStyle}>
-                <ManagementIdentityBadge identity={identity} error={identityError} />
+                <ManagementIdentityBadge
+                    identity={identity}
+                    error={identityError}
+                    nameDraft={nameDraft}
+                    savingName={savingName}
+                    onChangeName={setNameDraft}
+                    onSaveName={saveDisplayName}
+                />
                 <NavButton
                     label={signingOut ? 'Signing Out...' : 'Sign Out'}
                     onPress={signOut}
@@ -254,9 +295,17 @@ export default function AdminNavBar({
 function ManagementIdentityBadge({
     identity,
     error,
+    nameDraft,
+    savingName,
+    onChangeName,
+    onSaveName,
 }: {
     identity: ManagementIdentity | null;
     error: string;
+    nameDraft: string;
+    savingName: boolean;
+    onChangeName: (value: string) => void;
+    onSaveName: () => void;
 }) {
     const { theme } = useTheme();
     const [showDetails, setShowDetails] = useState(false);
@@ -276,6 +325,7 @@ function ManagementIdentityBadge({
     const role = identity.role ? formatTinyLabel(identity.role) : 'No company role';
     const status = identity.status ? formatTinyLabel(identity.status) : 'Unknown access';
     const welcomeRole = identity.role ? formatWelcomeLabel(identity.role) : 'Team Member';
+    const welcomeName = identity.fullName || identity.email?.split('@')[0] || 'Team Member';
     return (
         <View style={identityBadgeRowStyle}>
             <TouchableOpacity
@@ -292,9 +342,12 @@ function ManagementIdentityBadge({
                 <View style={identitySummaryRowStyle}>
                     <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={[identityWelcomeStyle, { color: theme.colors.text }]} numberOfLines={1}>
-                            Welcome, {welcomeRole}
+                            Welcome, {welcomeName}
                         </Text>
                         <Text style={[identityTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                            {welcomeRole}{identity.companyName ? ` · ${identity.companyName}` : ''}
+                        </Text>
+                        <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
                             {formatTinyLabel(status)} · {BUILD_DISPLAY}
                         </Text>
                     </View>
@@ -304,6 +357,41 @@ function ManagementIdentityBadge({
                 </View>
                 {showDetails && (
                     <View style={[identityDetailsPanelStyle, { borderColor: theme.colors.border }]}>
+                        <Text style={[identityDetailsTextStyle, { color: theme.colors.text }]}>Owner display name</Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                            <TextInput
+                                accessibilityLabel="Owner display name"
+                                value={nameDraft}
+                                onChangeText={onChangeName}
+                                autoCapitalize="words"
+                                style={{
+                                    backgroundColor: theme.colors.background,
+                                    borderColor: theme.colors.border,
+                                    borderRadius: 10,
+                                    borderWidth: 1,
+                                    color: theme.colors.text,
+                                    flexGrow: 1,
+                                    minWidth: 180,
+                                    paddingHorizontal: 10,
+                                    paddingVertical: 8,
+                                }}
+                            />
+                            <TouchableOpacity
+                                onPress={onSaveName}
+                                disabled={savingName || !nameDraft.trim()}
+                                style={{
+                                    backgroundColor: theme.colors.primary,
+                                    borderRadius: 10,
+                                    justifyContent: 'center',
+                                    opacity: savingName || !nameDraft.trim() ? 0.55 : 1,
+                                    paddingHorizontal: 14,
+                                }}
+                            >
+                                <Text style={{ color: theme.colors.primaryText, fontWeight: '900' }}>
+                                    {savingName ? 'Saving...' : 'Save Name'}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
                         <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]}>
                             {identity.email || 'Email unavailable'}
                         </Text>

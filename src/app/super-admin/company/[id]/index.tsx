@@ -659,12 +659,12 @@ export default function CompanyDashboardScreen() {
         setExpandedConfigSection((current) => (current === section ? null : section));
     }
 
-    const previewName = brandForm.dbaName || getCompanyDisplayName({
-        dba_name: company?.dba_name,
+    const previewName = getCompanyDisplayName({
+        dba_name: null,
         public_name: brandForm.publicName || company?.public_name,
         name: company?.name,
     });
-    const previewDba = brandForm.dbaName || 'DBA not set';
+    const previewMotto = brandForm.dbaName || 'Add a short company motto';
     const previewCategories = parseCategories(brandForm.serviceCategories);
     const logoCanPreview = brandForm.logoUrl.trim().startsWith('http');
     const brandPrimary = brandForm.primaryColor || '#071B33';
@@ -816,7 +816,7 @@ export default function CompanyDashboardScreen() {
                                             flexShrink: 1,
                                         }}
                                     >
-                                        {previewDba}
+                                        {previewMotto}
                                     </Text>
                                     <Text
                                         numberOfLines={2}
@@ -1231,7 +1231,7 @@ export default function CompanyDashboardScreen() {
                                             textAlign: isPhoneLayout ? 'center' : 'left',
                                         }}
                                     >
-                                        {previewDba}
+                                        {previewMotto}
                                     </Text>
                                     <Text
                                         numberOfLines={2}
@@ -1338,7 +1338,7 @@ export default function CompanyDashboardScreen() {
                         >
                         <CollapsibleConfigSection
                             title="Company Profile / Identity"
-                            description="Public-facing company name, DBA, logo link, and short description."
+                            description="Public-facing company name, motto, logo, and company description."
                             expanded={expandedConfigSection === 'identity'}
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
@@ -1346,7 +1346,7 @@ export default function CompanyDashboardScreen() {
                             compact
                         >
                             <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
-                            <Field label="DBA Name" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
+                            <Field label="Company Motto" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
                             <Field label="Logo URL" value={brandForm.logoUrl} onChangeText={(value) => updateBrandField('logoUrl', value)} />
                             <View style={{ width: '100%', maxWidth: '100%', minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                                 <TouchableOpacity
@@ -1385,7 +1385,7 @@ export default function CompanyDashboardScreen() {
                                     </Text>
                                 </TouchableOpacity>
                             </View>
-                            <Field label="Short Description" value={brandForm.shortDescription} onChangeText={(value) => updateBrandField('shortDescription', value)} multiline />
+                            <Field label="Company Description" value={brandForm.shortDescription} onChangeText={(value) => updateBrandField('shortDescription', value)} multiline />
                         </CollapsibleConfigSection>
 
                         {isPlatformAdmin && (
