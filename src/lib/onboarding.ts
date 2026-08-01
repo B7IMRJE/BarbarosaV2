@@ -219,12 +219,17 @@ export async function loadLoggedInUserCompanyAccess(
     data: CompanyRouteAccessRow[];
     error: { message: string } | null;
 }> {
-    const directQuery = await loadCompanyUsersAccess(userId);
+    const [directQuery, permissionQuery] = await Promise.all([
+        loadCompanyUsersAccess(userId),
+        loadCompanyPermissionAccess(),
+    ]);
     const directRows = directQuery.error ? [] : normalizeCompanyAccessRows(directQuery.data);
+    const permissionRows = permissionQuery.error ? [] : normalizeCompanyAccessRows(permissionQuery.data);
+    const rows = mergeCompanyAccessRows(directRows, permissionRows);
 
     return {
-        data: directRows,
-        error: directQuery.error,
+        data: rows,
+        error: rows.length ? null : directQuery.error || permissionQuery.error,
     };
 }
 
@@ -235,6 +240,34 @@ async function loadCompanyUsersAccess(userId: string) {
         .eq('auth_user_id', userId)
         .order('created_at', { ascending: true })
         .limit(50);
+}
+
+async function loadCompanyPermissionAccess() {
+    return supabase.rpc('get_my_company_permissions', {
+        p_company_id: null,
+    });
+}
+
+export function mergeCompanyAccessRows(
+    directRows: CompanyRouteAccessRow[],
+    permissionRows: CompanyRouteAccessRow[]
+) {
+    const merged = new Map<string, CompanyRouteAccessRow>();
+
+    for (const row of [...permissionRows, ...directRows]) {
+        const key = row.id || `${row.company_id}:${normalizeCompanyUserRole(row.role)}`;
+        const existing = merged.get(key);
+
+        merged.set(key, {
+            ...existing,
+            ...row,
+            full_name: row.full_name || existing?.full_name || null,
+            email: row.email || existing?.email || null,
+            can_view_techos: row.can_view_techos ?? existing?.can_view_techos ?? null,
+        });
+    }
+
+    return Array.from(merged.values());
 }
 
 function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {

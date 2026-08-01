@@ -687,7 +687,6 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             yesNoQuestion('attic_access', 'Attic access', true),
             selectQuestion('existing_pipe_material', 'Existing pipe material', true, ['copper', 'PEX', 'CPVC', 'galvanized', 'polybutylene', 'mixed / unknown']),
             selectQuestion('proposed_pipe_material', 'Proposed pipe material', true, ['PEX', 'copper', 'management selected']),
-            measurementQuestion('approximate_home_size', 'Approximate home size', true),
             yesNoQuestion('occupied', 'Occupied during work', true),
             yesNoQuestion('permit', 'Permit', true),
             selectQuestion('patching', 'Patching', true, ['included', 'excluded', 'allowance / separate']),
@@ -1803,6 +1802,14 @@ export function photoRequirementAnswerKey(label: string) {
 
 export function measurementRequirementAnswerKey(label: string) {
     return `measurement:${label}`;
+}
+
+export function getMeasurementRequirementPrompt(label: string) {
+    const requirementId = estimateRequirementId(label);
+
+    if (requirementId.includes('home-size')) return 'Approximate home size (square feet)';
+
+    return label;
 }
 
 export function estimateRequirementId(label: string) {

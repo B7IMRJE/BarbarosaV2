@@ -21,6 +21,7 @@ import {
     isPhotoRequirementComplete,
     isRequirementSkipAnswer,
     measurementRequirementAnswerKey,
+    getMeasurementRequirementPrompt,
     photoRequirementAnswerKey,
     toggleEstimateMultiSelectAnswer,
     toHomeownerPresentationChoice,
@@ -2487,7 +2488,7 @@ function renderMeasurementRequirementCard(input: {
     return (
         <View key={key} style={[requirementCardStyle, measurementRequirementToneStyle]}>
             <View style={choiceTitleRowStyle}>
-                <Text style={requirementTitleStyle}>{input.label}</Text>
+                <Text style={requirementTitleStyle}>{getMeasurementRequirementPrompt(input.label)}</Text>
                 <Text style={complete ? donePillStyle : requiredPillStyle}>
                     {formatRequirementState(requirementState)}
                 </Text>
@@ -2499,7 +2500,7 @@ function renderMeasurementRequirementCard(input: {
                     onChangeText={(value) => input.updateMeasurementDraft(input.label, value)}
                     style={measurementInputStyle}
                     keyboardType="decimal-pad"
-                    placeholder="0"
+                    placeholder={unit === 'sq ft' ? 'Enter square feet' : '0'}
                 />
                 <Text style={measurementUnitStyle}>{unit}</Text>
             </View>

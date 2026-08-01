@@ -10,6 +10,7 @@ import {
     filterRuleCompatibleProducts,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
+    getMeasurementRequirementPrompt,
     inferEstimateCategoryForDraftItem,
     inferEstimateCategoryFromDraft,
     isPhotoRequirementComplete,
@@ -62,6 +63,7 @@ export function runEstimateOptionsRegressions() {
     disposalRequiredQuestionsAreEnforced();
     waterHeaterChecklistIsEnforced();
     waterFiltrationChecklistCoversTreatmentStages();
+    repipeHomeSizeIsAskedOnceWithExplicitUnits();
     waterFiltrationIsInferredFromWaterQualityWork();
     mixedDraftUsesTheRequestedItemsWorkflow();
     completeWaterFiltrationChecklistClearsAnswerGate();
@@ -107,6 +109,23 @@ export function runEstimateOptionsRegressions() {
     presentationLayoutCoversPhoneTabletDesktop();
     productImagesHaveLoadingStates();
     homeownerPresentationHidesInternalPricing();
+}
+
+function repipeHomeSizeIsAskedOnceWithExplicitUnits() {
+    const template = getEstimateCategoryTemplate('whole_home_repipe');
+
+    assert(
+        !template.questions.some((question) => question.id === 'approximate_home_size'),
+        'Whole-home repipe should not repeat home size as a separate question after requiring the measurement.'
+    );
+    assert(
+        template.requiredMeasurementLabels.filter((label) => label === 'Approximate home size').length === 1,
+        'Whole-home repipe should require home size exactly once.'
+    );
+    assert(
+        getMeasurementRequirementPrompt('Approximate home size') === 'Approximate home size (square feet)',
+        'The remaining home-size measurement should state that the number represents square feet.'
+    );
 }
 
 function technicianCannotEditManagementPricing() {
