@@ -62,7 +62,10 @@ export default {
                 return json(req, { ok: false, code: 'not_authenticated', message: 'Not authenticated.' }, 401);
             }
 
-            if (!env.resendApiKey && !env.sendgridApiKey) {
+            const body = await readJsonBody(req);
+            const codeOnly = readStringField(body, 'delivery_mode') === 'code_only';
+
+            if (!codeOnly && !env.resendApiKey && !env.sendgridApiKey) {
                 return json(
                     req,
                     {
@@ -74,7 +77,7 @@ export default {
                 );
             }
 
-            if (!env.fromEmail) {
+            if (!codeOnly && !env.fromEmail) {
                 return json(
                     req,
                     {
@@ -86,7 +89,6 @@ export default {
                 );
             }
 
-            const body = await readJsonBody(req);
             const invitationIdInput = body.invitation_id ?? body.invitationId ?? body.p_invitation_id;
             const invitationId = normalizeInvitationId(invitationIdInput);
 
@@ -118,6 +120,17 @@ export default {
             );
             const inviteCode = authInvite.inviteCode;
             const inviteLink = resolveInviteLink(env, body, inviteCode);
+
+            if (codeOnly) {
+                return json(req, {
+                    ok: true,
+                    code: 'code_ready',
+                    message: 'Six-digit invitation login code created.',
+                    invite_code: inviteCode,
+                    invite_link: inviteLink,
+                    expires_at: authInvite.expiresAt,
+                });
+            }
 
             if (!inviteLink) {
                 return json(
@@ -371,6 +384,7 @@ async function createAuthInvitation(
 
     return {
         inviteCode,
+        expiresAt,
         verificationType: result?.properties?.verification_type || 'invite',
     };
 }

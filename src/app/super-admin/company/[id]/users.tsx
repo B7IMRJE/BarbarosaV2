@@ -692,9 +692,9 @@ export default function CompanyUsersScreen() {
         }
 
         const actionKey = `${invitationId}:manual`;
-        const loadingMessage = options?.loadingMessage || 'Creating manual invite link/code...';
-        const successMessage = options?.successMessage || 'Manual invite link/code ready.';
-        const failurePrefix = options?.failurePrefix || 'Manual invite creation failed';
+        const loadingMessage = options?.loadingMessage || 'Creating six-digit invitation login code...';
+        const successMessage = options?.successMessage || 'Six-digit invitation login code ready.';
+        const failurePrefix = options?.failurePrefix || 'Login code creation failed';
 
         setActionLoadingKey(actionKey);
         setManualInvitesById((current) => ({
@@ -1981,9 +1981,9 @@ function InvitationRow({
                                 )}
                             </View>
 
-                            <DetailPanelSection title="Advanced / Manual Invite">
+                            <DetailPanelSection title="Advanced / Manual Login Code">
                                 <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
-                                    Use this backup only if normal email delivery fails or you need to send the invite code another way.
+                                    Create a six-digit login code if email delivery fails or you need to share the code another way.
                                 </Text>
                                 {manualInvite && (
                                     <View
@@ -1995,7 +1995,7 @@ function InvitationRow({
                                             },
                                         ]}
                                     >
-                                        <Text style={[manualInviteTitleStyle, { color: theme.colors.text }]}>Manual Invite</Text>
+                                        <Text style={[manualInviteTitleStyle, { color: theme.colors.text }]}>Six-Digit Login Code</Text>
                                         <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{manualInvite.message}</Text>
                                         {!!manualInvite.warning && (
                                             <Text style={[metaTextStyle, { color: theme.colors.danger }]}>
@@ -2013,7 +2013,7 @@ function InvitationRow({
                                         )}
                                         {!!manualInvite.inviteCode && (
                                             <>
-                                                <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Invite Code</Text>
+                                                <Text style={[manualInviteLabelStyle, { color: theme.colors.text }]}>Six-Digit Login Code</Text>
                                                 <Text selectable style={[manualInviteValueStyle, { color: theme.colors.mutedText }]}>
                                                     {manualInvite.inviteCode}
                                                 </Text>
@@ -2050,7 +2050,7 @@ function InvitationRow({
                                     </View>
                                 )}
                                 <ThemedButton
-                                    title={creatingManualInvite ? 'Creating...' : 'Create / Copy Manual Invite'}
+                                    title={creatingManualInvite ? 'Creating...' : 'Create / Copy Six-Digit Code'}
                                     variant="secondary"
                                     onPress={() => onCreateManualInvite(invitation.id)}
                                     disabled={anyActionLoading || expired}
@@ -2082,7 +2082,7 @@ function parseManualInviteResponse(data: unknown) {
     const record = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
 
     return {
-        inviteCode: readStringField(record, 'invite_code'),
+        inviteCode: (readStringField(record, 'invite_code') || '').replace(/\D/g, '').slice(0, 6),
         inviteUrl: readStringField(record, 'invite_url'),
         expiresAt: readStringField(record, 'expires_at'),
     };
@@ -2090,27 +2090,64 @@ function parseManualInviteResponse(data: unknown) {
 
 async function requestManualInvite(invitationId: string): Promise<ManualInviteResult> {
     const { baseUrl, warning: baseUrlWarning } = getAppBaseUrl();
-    const { data, error } = await supabase.rpc('create_company_user_manual_invite_link', {
-        p_invitation_id: invitationId,
-        p_site_url: baseUrl,
-    });
+    const {
+        data: { session },
+        error: sessionError,
+    } = await supabase.auth.getSession();
 
-    if (error) {
+    if (sessionError || !session?.access_token) {
         return {
             inviteCode: null,
             inviteUrl: null,
             expiresAt: null,
-            warning: error.message,
+            warning: sessionError?.message || 'Sign in again before creating an invitation login code.',
         };
     }
 
-    const manualInvite = parseManualInviteResponse(data);
-    const warning = baseUrlWarning || publicInviteUrlWarning(manualInvite.inviteUrl);
+    try {
+        const response = await fetch(`${supabaseUrl}/functions/v1/send-company-user-invitation`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${session.access_token}`,
+                apikey: supabaseAnonKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                invitation_id: invitationId,
+                delivery_mode: 'code_only',
+                app_base_url: baseUrl,
+            }),
+        });
+        const text = await response.text();
+        const data = text.trim() ? JSON.parse(text) as unknown : null;
+        const record = data && typeof data === 'object' && !Array.isArray(data)
+            ? data as Record<string, unknown>
+            : {};
+        const manualInvite = parseManualInviteResponse(record);
 
-    return {
-        ...manualInvite,
-        warning,
-    };
+        if (!response.ok || !/^\d{6}$/.test(manualInvite.inviteCode || '')) {
+            return {
+                inviteCode: null,
+                inviteUrl: null,
+                expiresAt: null,
+                warning: readStringField(record, 'message') || `Login code creation failed with status ${response.status}.`,
+            };
+        }
+
+        const warning = baseUrlWarning || publicInviteUrlWarning(manualInvite.inviteUrl);
+
+        return {
+            ...manualInvite,
+            warning,
+        };
+    } catch (error) {
+        return {
+            inviteCode: null,
+            inviteUrl: null,
+            expiresAt: null,
+            warning: error instanceof Error ? error.message : 'Network error creating the invitation login code.',
+        };
+    }
 }
 
 async function sendCompanyInvitationEmail({
@@ -2584,8 +2621,7 @@ function isLikelyNonPublicInviteOrigin(originOrUrl: string | null) {
         return (
             hostname === 'localhost' ||
             hostname === '127.0.0.1' ||
-            hostname.endsWith('.local') ||
-            hostname.includes('vercel.app')
+            hostname.endsWith('.local')
         );
     } catch {
         return true;
