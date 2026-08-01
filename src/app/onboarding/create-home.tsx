@@ -312,7 +312,9 @@ function ThemedInput({
                 editable={editable}
                 style={{
                     backgroundColor: theme.colors.surfaceAlt,
+                    borderColor: theme.colors.border,
                     borderRadius: theme.radii.button,
+                    borderWidth: 2,
                     color: theme.colors.text,
                     fontSize: 16,
                     opacity: editable ? 1 : 0.65,

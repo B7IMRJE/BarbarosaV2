@@ -213,7 +213,9 @@ export default function VerifiedAddressPicker({
                     editable={!disabled}
                     style={{
                         backgroundColor: theme.colors.surfaceAlt,
+                        borderColor: theme.colors.border,
                         borderRadius: theme.radii.button,
+                        borderWidth: 2,
                         color: theme.colors.text,
                         fontSize: 16,
                         opacity: disabled ? 0.65 : 1,
@@ -237,7 +239,9 @@ export default function VerifiedAddressPicker({
                     editable={!disabled}
                     style={{
                         backgroundColor: theme.colors.surfaceAlt,
+                        borderColor: theme.colors.border,
                         borderRadius: theme.radii.button,
+                        borderWidth: 2,
                         color: theme.colors.text,
                         fontSize: 16,
                         opacity: disabled ? 0.65 : 1,
