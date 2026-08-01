@@ -46,6 +46,12 @@ import {
 } from '../lib/serviceNotifications';
 import { recordHomeownerAcknowledgedUpdate } from '../lib/serviceRequestActivity';
 import {
+    broadcastServiceRequestRefresh,
+    companyServiceRequestTopic,
+    propertyServiceRequestTopic,
+    SERVICE_REQUEST_REFRESH_EVENT,
+} from '../lib/serviceRequestRealtime';
+import {
     closeServiceVisit,
     getServiceVisitOutcomeLabel,
     SERVICE_VISIT_CLOSEOUT_OPTIONS,
@@ -504,6 +510,24 @@ export default function DispatchBoardScreen() {
                 }
             )
             .subscribe();
+        const serviceRequestChannel = supabase
+            .channel(companyServiceRequestTopic(companyIdToRefresh))
+            .on('broadcast', { event: SERVICE_REQUEST_REFRESH_EVENT }, () => {
+                void refreshDispatchBoardQuietly();
+            })
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'service_requests',
+                    filter: `company_id=eq.${companyIdToRefresh}`,
+                },
+                () => {
+                    void refreshDispatchBoardQuietly();
+                }
+            )
+            .subscribe();
         const soldJobsChannel = supabase
             .channel(`dispatch-sold-jobs:${companyIdToRefresh}`)
             .on(
@@ -572,6 +596,7 @@ export default function DispatchBoardScreen() {
         return () => {
             clearInterval(intervalId);
             void supabase.removeChannel(scheduleChannel);
+            void supabase.removeChannel(serviceRequestChannel);
             void supabase.removeChannel(soldJobsChannel);
             if (soldCelebrationTimer.current) clearTimeout(soldCelebrationTimer.current);
             appStateSubscription.remove();
@@ -1121,6 +1146,14 @@ export default function DispatchBoardScreen() {
                     [request.id]: `Scheduled for ${formatDateTime(startAt.toISOString())}. ${notificationDetail}`,
                 }));
             }
+            void broadcastServiceRequestRefresh(
+                propertyServiceRequestTopic(request.property_id),
+                {
+                    reason: 'technician_assigned',
+                    serviceRequestId: request.id,
+                    scheduleSlotId: scheduledSlot.id,
+                }
+            );
         }
         await recordCompanyAuditEvent({
             companyId: activeCompanyId,
@@ -4474,8 +4507,10 @@ async function queueAssignmentNotifications({
         }));
     }
 
-    const results = await Promise.all(notificationTasks);
-    const pending = results.filter((result) => result.status !== 'recorded');
+    const results = await Promise.allSettled(notificationTasks);
+    const pending = results.filter((result) => (
+        result.status === 'rejected' || result.value.status !== 'recorded'
+    ));
 
     return pending.length > 0
         ? 'Notification event backend is pending; assignment is still saved.'

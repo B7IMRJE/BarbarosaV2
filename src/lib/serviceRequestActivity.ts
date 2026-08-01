@@ -297,7 +297,9 @@ export function normalizeServiceRequestActivityEvents(data: unknown): ServiceReq
 }
 
 function professionalizeCustomerMessage(message?: string | null) {
-    const trimmed = String(message || '').trim();
+    const trimmed = String(message || '')
+        .replace(/(?:\s*·\s*)?Next job: (?:Available after this job|Running late)/gi, '')
+        .trim();
     const normalized = normalizeStatus(trimmed);
 
     if (!trimmed) return '';

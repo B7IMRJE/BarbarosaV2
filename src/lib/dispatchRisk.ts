@@ -35,7 +35,9 @@ export function calculateDispatchRisk(slot: DispatchRiskSlot | null, technicianS
 
     const status = normalizeStatus(slot.status);
     const requestStatus = normalizeStatus(slot.request_status);
-    const note = normalizeStatus(slot.tech_status_note);
+    const note = normalizeStatus(slot.tech_status_note)
+        .replace(/(?:\s*·\s*)?next job: (?:available after this job|running late)/gi, '')
+        .trim();
     const arrivalStart = parseDate(slot.arrival_window_start || slot.start_at);
     const arrivalWindowEnd = parseDate(slot.arrival_window_end);
     const latestDeparture = arrivalStart

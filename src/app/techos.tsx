@@ -75,6 +75,8 @@ import {
     resolveTechWorkflowActionPresentation,
     resolveTechWorkflowTransition,
     TECH_CUSTOM_STATUS_ACTION,
+    TECH_JOB_STATUS_NOTE_PRESETS,
+    TECHNICIAN_NEXT_JOB_STATUS_ACTIONS,
     type TechnicianNextJobStatusAction,
     type TechWorkflowAction,
     type TechWorkflowActionPresentation,
@@ -1475,10 +1477,25 @@ export default function TechOSScreen() {
         }));
 
         try {
-            const nextStatusNote = normalizedStatus === 'custom' ? trimmedStatusNote : null;
+            const requestWorkflowStatus = String(job.request?.status || '').trim();
+            const isRepairingLegacyCustomStatus = normalizedStatus === 'custom'
+                && normalizeStatus(currentWorkflowStatus) === 'custom';
+            const preservedWorkflowStatus = isRepairingLegacyCustomStatus
+                ? (requestWorkflowStatus && normalizeStatus(requestWorkflowStatus) !== 'custom'
+                    ? requestWorkflowStatus
+                    : 'in_progress')
+                : currentWorkflowStatus;
+            const existingNextJobMarker = String(job.slot.tech_status_note || '')
+                .match(/Next job: (?:Available after this job|Running late)/i)?.[0] || '';
+            const cleanStatusNote = trimmedStatusNote
+                .replace(/(?:\s*·\s*)?Next job: (?:Available after this job|Running late)/gi, '')
+                .trim();
+            const nextStatusNote = normalizedStatus === 'custom'
+                ? [cleanStatusNote, existingNextJobMarker].filter(Boolean).join(' · ')
+                : null;
             let updatedAt = new Date().toISOString();
             const serviceRequestId = transition.serviceRequestId;
-            let persistedWorkflowStatus = action.status;
+            let persistedWorkflowStatus = normalizedStatus === 'custom' ? preservedWorkflowStatus : action.status;
             let persistenceMismatchMessage = '';
 
             if (normalizedStatus !== 'custom') {
@@ -1537,9 +1554,12 @@ export default function TechOSScreen() {
                     } : {}),
                 }));
             } else {
+                const customStatusUpdate = isRepairingLegacyCustomStatus
+                    ? { status: preservedWorkflowStatus, tech_status_note: nextStatusNote }
+                    : { tech_status_note: nextStatusNote };
                 const { data, error } = await supabase
                     .from('job_schedule_slots')
-                    .update({ status: action.status, tech_status_note: nextStatusNote })
+                    .update(customStatusUpdate)
                     .eq('id', slotId)
                     .eq('company_id', job.slot.company_id)
                     .eq('technician_company_user_id', job.slot.technician_company_user_id)
@@ -1555,7 +1575,7 @@ export default function TechOSScreen() {
                 }
 
                 updatedAt = readStringField(data as Record<string, unknown>, 'updated_at') || updatedAt;
-                persistedWorkflowStatus = readStringField(data as Record<string, unknown>, 'status') || action.status;
+                persistedWorkflowStatus = readStringField(data as Record<string, unknown>, 'status') || preservedWorkflowStatus;
             }
 
             setAssignedScheduleSlots((current) => current.map((slot) => (
@@ -1618,7 +1638,7 @@ export default function TechOSScreen() {
         }
     }
 
-    function handleTechnicianNextJobStatusAction(
+    async function handleTechnicianNextJobStatusAction(
         job: TechAssignedScheduleJob,
         action: TechnicianNextJobStatusAction,
         currentVisitStatus: string
@@ -1629,10 +1649,47 @@ export default function TechOSScreen() {
             technicianCompanyUserId: job.slot.technician_company_user_id,
         });
 
-        setTechnicianStatusMessageBySlotId((current) => ({
-            ...current,
-            [job.slot.id]: notice.message,
-        }));
+        const marker = action.key === 'available_for_next_job'
+            ? 'Next job: Available after this job'
+            : action.key === 'running_late_for_next_job'
+                ? 'Next job: Running late'
+                : '';
+        const currentNote = String(job.slot.tech_status_note || '')
+            .replace(/(?:\s*·\s*)?Next job: (?:Available after this job|Running late)/gi, '')
+            .trim();
+        const nextNote = [currentNote, marker].filter(Boolean).join(' · ') || null;
+        const currentWorkflowStatus = workflowStatusBySlotId[job.slot.id] || job.slot.status || job.request?.status || '';
+        const requestWorkflowStatus = String(job.request?.status || '').trim();
+        const isRepairingLegacyCustomStatus = normalizeStatus(currentWorkflowStatus) === 'custom';
+        const preservedWorkflowStatus = isRepairingLegacyCustomStatus
+            ? (requestWorkflowStatus && normalizeStatus(requestWorkflowStatus) !== 'custom'
+                ? requestWorkflowStatus
+                : 'in_progress')
+            : currentWorkflowStatus;
+
+        setTechnicianStatusMessageBySlotId((current) => ({ ...current, [job.slot.id]: 'Saving next-job status...' }));
+
+        const { error } = await supabase
+            .from('job_schedule_slots')
+            .update(isRepairingLegacyCustomStatus
+                ? { status: preservedWorkflowStatus, tech_status_note: nextNote }
+                : { tech_status_note: nextNote })
+            .eq('id', job.slot.id)
+            .eq('company_id', job.slot.company_id)
+            .eq('technician_company_user_id', job.slot.technician_company_user_id);
+
+        if (error) {
+            setTechnicianStatusMessageBySlotId((current) => ({
+                ...current,
+                [job.slot.id]: `Next-job status failed: ${normalizeServiceErrorMessage(error.message)}`,
+            }));
+            return;
+        }
+
+        setTechnicianStatusMessageBySlotId((current) => ({ ...current, [job.slot.id]: notice.message }));
+        if (activeCompanyId && assignedTechnicianCompanyUserIds.length > 0) {
+            await loadAssignedScheduleJobs(activeCompanyId, assignedTechnicianCompanyUserIds, { subtle: true });
+        }
     }
 
     async function handleTimingPromptResponse(job: TechAssignedScheduleJob, response: string) {
@@ -2766,6 +2823,12 @@ function TechOSDashboardContent({
                 onOpenEstimate={() => onOpenEstimateForAssignedJob(selectedJob)}
                 onOpenFullJob={onOpenFullJob}
                 onRunWorkflowAction={onRunWorkflowAction}
+                onRunTechnicianNextJobStatusAction={(action) => onRunTechnicianNextJobStatusAction(selectedJob, action, resolveTechWorkflowVisibleStatus({
+                    optimisticStatus: workflowStatusBySlotId[selectedJob.slot.id],
+                    requestStatus: selectedJob.request?.status,
+                    slotStatus: selectedJob.slot.status,
+                }) || 'scheduled')}
+                technicianStatusMessage={technicianStatusMessageBySlotId[selectedJob.slot.id] || ''}
                 updating={updatingWorkflowSlotId === selectedJob.slot.id || closingVisitSlotId === selectedJob.slot.id}
                 workflowStatus={resolveTechWorkflowVisibleStatus({
                     optimisticStatus: workflowStatusBySlotId[selectedJob.slot.id],
@@ -3884,6 +3947,8 @@ function TechOSAssignedJobDetail({
     onOpenEstimate,
     onOpenFullJob,
     onRunWorkflowAction,
+    onRunTechnicianNextJobStatusAction,
+    technicianStatusMessage,
     updating,
     workflowStatus,
 }: {
@@ -3902,6 +3967,8 @@ function TechOSAssignedJobDetail({
     onOpenEstimate: () => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
+    onRunTechnicianNextJobStatusAction: (action: TechnicianNextJobStatusAction) => void;
+    technicianStatusMessage: string;
     updating: boolean;
     workflowStatus: string;
 }) {
@@ -3915,6 +3982,8 @@ function TechOSAssignedJobDetail({
     const estimateActionLabel = getTechOSEstimateActionLabel(estimateDraftCount);
     const [showMoreWorkflowActions, setShowMoreWorkflowActions] = useState(false);
     const [nextActionPickerOpen, setNextActionPickerOpen] = useState(false);
+    const [statusNotePickerOpen, setStatusNotePickerOpen] = useState(false);
+    const [selectedStatusNotePreset, setSelectedStatusNotePreset] = useState('custom');
     const workflowActionPresentation = resolveTechWorkflowActionPresentation(workflowStatus);
     const primaryWorkflowActions = workflowActionPresentation.filter((action) => action.primary);
     const moreWorkflowActions = workflowActionPresentation.filter(isSecondaryTechWorkflowAction);
@@ -4079,22 +4148,45 @@ function TechOSAssignedJobDetail({
                 techOSTheme={techOSTheme}
                 variantKey="note"
             >
-                <TextInput
-                    value={customStatusNote}
-                    onChangeText={onChangeCustomStatusNote}
-                    placeholder="On my way to the store"
-                    placeholderTextColor={techOSTheme.mutedTextColor}
-                    multiline
-                    style={[
-                        techCustomStatusInputStyle,
-                        {
-                            borderColor: techOSTheme.panelBorderColor,
-                            color: techOSTheme.textColor,
-                        },
-                    ]}
-                />
+                <TouchableOpacity
+                    activeOpacity={0.82}
+                    onPress={() => setStatusNotePickerOpen((current) => !current)}
+                    style={[techStatusDropdownStyle, { borderColor: techOSTheme.panelBorderColor }]}
+                >
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.textColor }]}>
+                        {TECH_JOB_STATUS_NOTE_PRESETS.find((preset) => preset.key === selectedStatusNotePreset)?.label || 'Choose status note'} ▾
+                    </Text>
+                </TouchableOpacity>
+                {statusNotePickerOpen && (
+                    <View style={[techStatusDropdownMenuStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
+                        {TECH_JOB_STATUS_NOTE_PRESETS.map((preset) => (
+                            <TouchableOpacity
+                                key={preset.key}
+                                onPress={() => {
+                                    setSelectedStatusNotePreset(preset.key);
+                                    if (preset.message) onChangeCustomStatusNote(preset.message);
+                                    if (preset.key === 'custom') onChangeCustomStatusNote('');
+                                    setStatusNotePickerOpen(false);
+                                }}
+                                style={techStatusDropdownRowStyle}
+                            >
+                                <Text style={[clientMetaTextStyle, { color: techOSTheme.textColor }]}>{preset.label}</Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                )}
+                {selectedStatusNotePreset === 'custom' && (
+                    <TextInput
+                        value={customStatusNote}
+                        onChangeText={onChangeCustomStatusNote}
+                        placeholder="Type a custom job status note"
+                        placeholderTextColor={techOSTheme.mutedTextColor}
+                        multiline
+                        style={[techCustomStatusInputStyle, { borderColor: techOSTheme.panelBorderColor, color: techOSTheme.textColor }]}
+                    />
+                )}
                 <ThemedButton
-                    title="Set Custom Status"
+                    title="Save Job Status Note"
                     variant="secondary"
                     disabled={updating || !trimmedCustomStatusNote}
                     onPress={() => onRunWorkflowAction(job, TECH_CUSTOM_STATUS_ACTION, trimmedCustomStatusNote)}
@@ -4252,9 +4344,21 @@ function TechOSAssignedJobDetail({
                 techOSTheme={techOSTheme}
                 variantKey="status"
             >
-                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
-                    Coming soon. These controls are hidden for this MVP because persistent technician availability storage is not connected yet.
-                </Text>
+                <View style={techWorkflowActionGridStyle}>
+                    {TECHNICIAN_NEXT_JOB_STATUS_ACTIONS.map((action) => (
+                        <ThemedButton
+                            key={action.key}
+                            title={action.label}
+                            variant="secondary"
+                            disabled={updating}
+                            onPress={() => onRunTechnicianNextJobStatusAction(action)}
+                            style={techWorkflowActionButtonStyle}
+                        />
+                    ))}
+                </View>
+                {!!technicianStatusMessage && (
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{technicianStatusMessage}</Text>
+                )}
             </TechOSDetailSection>
         </View>
     );
@@ -6028,6 +6132,32 @@ const techCustomStatusInputStyle = {
     paddingHorizontal: 12,
     paddingVertical: 10,
     textAlignVertical: 'top' as const,
+};
+
+const techStatusDropdownStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+    minHeight: 46,
+    justifyContent: 'center' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const techStatusDropdownMenuStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 6,
+    overflow: 'hidden' as const,
+};
+
+const techStatusDropdownRowStyle = {
+    borderBottomColor: 'rgba(127, 127, 127, 0.22)',
+    borderBottomWidth: 1,
+    minHeight: 42,
+    justifyContent: 'center' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
 };
 
 const techCompactInputStyle = {

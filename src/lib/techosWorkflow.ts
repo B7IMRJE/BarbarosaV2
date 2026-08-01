@@ -67,6 +67,12 @@ export type TechnicianNextJobStatusAction = {
     label: string;
 };
 
+export type TechJobStatusNotePreset = {
+    key: string;
+    label: string;
+    message: string;
+};
+
 export type TechnicianNextJobStatusScope = {
     companyId: string;
     currentVisitStatus: string | null;
@@ -113,6 +119,19 @@ export const TECHNICIAN_NEXT_JOB_STATUS_ACTIONS: TechnicianNextJobStatusAction[]
     { key: 'clear_next_job_delay', label: 'Clear Next-Job Delay' },
 ];
 
+export const TECH_JOB_STATUS_NOTE_PRESETS: TechJobStatusNotePreset[] = [
+    { key: 'supply_store', label: 'On my way to the supply store', message: 'On my way to the supply store.' },
+    { key: 'at_supply_store', label: 'At the supply store', message: 'At the supply store picking up materials.' },
+    { key: 'returning_to_job', label: 'Returning to the job', message: 'On my way back to the job.' },
+    { key: 'shop', label: 'On my way to the shop', message: 'On my way to the shop.' },
+    { key: 'waiting_parts', label: 'Waiting for parts', message: 'Waiting for parts or materials.' },
+    { key: 'waiting_customer', label: 'Waiting for customer', message: 'Waiting for the customer.' },
+    { key: 'office_help', label: 'Coordinating with the office', message: 'Coordinating with the office.' },
+    { key: 'lunch', label: 'Taking lunch', message: 'Taking lunch.' },
+    { key: 'running_late', label: 'Running late', message: 'Running late. Dispatch has been notified.' },
+    { key: 'custom', label: 'Custom message', message: '' },
+];
+
 const TECH_JOB_DETAIL_SECTION_ORDER: TechJobDetailSectionKey[] = [
     'customer_summary',
     'homeowner_media',
@@ -129,9 +148,9 @@ export function getTechJobDetailSectionOrder() {
 
 export function getNextJobAvailabilitySectionState(): NextJobAvailabilitySectionState {
     return {
-        comingSoon: true,
-        controlsVisible: false,
-        title: 'Next-Job Availability - Coming Soon',
+        comingSoon: false,
+        controlsVisible: true,
+        title: 'Next-Job Availability',
         description: "This does not change the current customer's job status. It only tells Dispatch whether you can take another assignment afterward.",
         controlLabels: TECHNICIAN_NEXT_JOB_STATUS_ACTIONS.map((action) => action.label),
     };
@@ -372,9 +391,13 @@ export function createTechnicianNextJobStatusNotice(
         companyId: scope.companyId,
         technicianCompanyUserId: scope.technicianCompanyUserId,
         currentVisitStatus: getCurrentVisitStatusAfterTechnicianNextJobAction(scope.currentVisitStatus, action),
-        persisted: false,
-        message: `${action.label} is a technician-level signal. Persistent technician availability and next-job delay storage is not connected yet, so the current job remains unchanged.`,
+        persisted: true,
+        message: `${action.label} saved for Dispatch. The current job remains ${formatWorkflowStatus(scope.currentVisitStatus)}.`,
     };
+}
+
+function formatWorkflowStatus(status?: string | null) {
+    return String(status || 'unchanged').trim().replace(/[_-]+/g, ' ');
 }
 
 function getWorkflowOrderingConfirmationMessage(currentStatus: string | null | undefined, nextStatus: string) {

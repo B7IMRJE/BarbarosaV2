@@ -34,6 +34,12 @@ import {
   uploadPendingServiceRequestMedia,
   type ServiceRequestMediaDraft,
 } from '../lib/serviceRequestMedia';
+import {
+  broadcastServiceRequestRefresh,
+  companyServiceRequestTopic,
+  propertyServiceRequestTopic,
+  SERVICE_REQUEST_REFRESH_EVENT,
+} from '../lib/serviceRequestRealtime';
 import type { HomeHealthEmergency } from '../lib/homeHealth';
 import { loadActiveHomeIdentity, loadHomeIdentityForProperty, type HomeIdentity } from '../lib/homeIdentity';
 import {
@@ -375,11 +381,16 @@ export default function HomeScreen() {
         refreshHomeServiceRequests
       )
       .subscribe();
+    const propertyRefreshChannel = supabase
+      .channel(propertyServiceRequestTopic(activePropertyId))
+      .on('broadcast', { event: SERVICE_REQUEST_REFRESH_EVENT }, refreshHomeServiceRequests)
+      .subscribe();
     const fallbackRefreshId = setInterval(refreshHomeServiceRequests, HOMEOS_SERVICE_REQUEST_REFRESH_MS);
 
     return () => {
       clearInterval(fallbackRefreshId);
       void supabase.removeChannel(channel);
+      void supabase.removeChannel(propertyRefreshChannel);
     };
   }, [activePropertyId, providerModeContext]);
 
@@ -728,6 +739,10 @@ export default function HomeScreen() {
     setServiceIssueSummary('');
     setServiceRequestType('regular');
     setServiceRequestMessage(`Service request sent. ${formatServiceRequestReference(confirmedRequest)}.`);
+    void broadcastServiceRequestRefresh(
+      companyServiceRequestTopic(confirmedRequest.companyId),
+      { reason: 'homeowner_request_created', serviceRequestId: confirmedRequest.id }
+    );
     await loadHomeServiceRequests(activePropertyId);
   }
 

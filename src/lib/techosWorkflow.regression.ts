@@ -92,11 +92,11 @@ function currentJobAndAvailabilityLabelsStayDistinct() {
 function incompleteNextJobAvailabilityControlsStayHidden() {
     const section = getNextJobAvailabilitySectionState();
 
-    assert(section.title === 'Next-Job Availability - Coming Soon', 'Incomplete next-job availability should be visibly marked Coming Soon.');
+    assert(section.title === 'Next-Job Availability', 'Next-job availability should use its active section title.');
     assert(section.controlLabels.includes('Available After This Job'), 'Next-job availability should use the clearer available-after-this-job label.');
     assert(section.controlLabels.includes('Clear Next-Job Delay'), 'Next-job availability should use the clearer delay-clearing label.');
-    assert(section.comingSoon, 'Next-job availability should remain explicitly marked as coming soon.');
-    assert(section.controlsVisible === false, 'Incomplete next-job availability controls should be hidden for the MVP.');
+    assert(!section.comingSoon, 'Next-job availability should be active.');
+    assert(section.controlsVisible, 'Next-job availability controls should be visible.');
 }
 
 function onlyValidNextWorkflowActionIsPrimary() {
@@ -228,7 +228,7 @@ function technicianNextJobActionsDoNotChangeCurrentVisitStatus() {
             const notice = createNotice(action, currentVisitStatus);
 
             assert(notice.currentVisitStatus === currentVisitStatus, `${action.label} should not change ${currentVisitStatus}.`);
-            assert(notice.persisted === false, `${action.label} should not fake technician-level persistence.`);
+            assert(notice.persisted, `${action.label} should report technician-level persistence.`);
         });
     });
 }

@@ -29,6 +29,10 @@ import {
     uploadPendingServiceRequestMedia,
     type ServiceRequestMediaDraft,
 } from '../../lib/serviceRequestMedia';
+import {
+    broadcastServiceRequestRefresh,
+    companyServiceRequestTopic,
+} from '../../lib/serviceRequestRealtime';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -233,6 +237,14 @@ export default function CreateEmergencyScreen() {
                 serviceRequest,
                 history: currentHistory,
             });
+            void broadcastServiceRequestRefresh(
+                companyServiceRequestTopic(serviceRequest.companyId),
+                {
+                    reason: 'homeowner_emergency_created',
+                    serviceRequestId: serviceRequest.id,
+                    emergencyId,
+                }
+            );
 
             setPendingEmergency(null);
             setMedia([]);
