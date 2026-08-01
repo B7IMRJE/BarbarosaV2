@@ -1337,34 +1337,16 @@ export default function TechOSScreen() {
         }));
 
         try {
+            let soldWorkflowRequiringApproval: SoldJobRecord | null = null;
+
             if (outcome === 'completed_successfully') {
                 const soldWorkflow = await loadSoldJobForScheduleSlot(slotId)
                     || (job.request?.id ? await loadSoldJobForServiceRequest(job.request.id) : null);
-                if (!soldWorkflow) {
-                    setWorkflowMessageBySlotId((current) => ({
-                        ...current,
-                        [slotId]: 'Homeowner completion approval could not open because this sold job has no linked workflow. The visit was not closed.',
-                    }));
-                    return;
-                }
                 if (soldWorkflow && !['customer_completed', 'invoice_sent', 'collection_pending', 'closed'].includes(soldWorkflow.status)) {
                     if (soldWorkflow.status !== 'work_complete') {
                         await completeJobWorkflowFromTechOS(soldWorkflow.id, slotId);
                     }
-                    setWorkflowMessageBySlotId((current) => ({
-                        ...current,
-                        [slotId]: 'Homeowner signature is required before this sold job can be closed.',
-                    }));
-                    router.push({
-                        pathname: '/job-workflow',
-                        params: {
-                            estimateSessionId: soldWorkflow.estimateSessionId,
-                            completion: '1',
-                            source: 'techos',
-                            returnTo: `/techos?companyId=${encodeURIComponent(job.slot.company_id)}`,
-                        },
-                    } as any);
-                    return;
+                    soldWorkflowRequiringApproval = soldWorkflow;
                 }
             }
 
@@ -1419,6 +1401,18 @@ export default function TechOSScreen() {
 
             if (activeCompanyId && assignedTechnicianCompanyUserIds.length > 0) {
                 await loadAssignedScheduleJobs(activeCompanyId, assignedTechnicianCompanyUserIds, { subtle: true });
+            }
+
+            if (soldWorkflowRequiringApproval) {
+                router.push({
+                    pathname: '/job-workflow',
+                    params: {
+                        estimateSessionId: soldWorkflowRequiringApproval.estimateSessionId,
+                        completion: '1',
+                        source: 'techos',
+                        returnTo: `/techos?companyId=${encodeURIComponent(job.slot.company_id)}`,
+                    },
+                } as any);
             }
         } catch (error) {
             setWorkflowMessageBySlotId((current) => ({
