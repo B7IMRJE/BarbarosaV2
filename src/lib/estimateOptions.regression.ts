@@ -65,6 +65,7 @@ export function runEstimateOptionsRegressions() {
     waterFiltrationChecklistCoversTreatmentStages();
     repipeHomeSizeIsAskedOnceWithExplicitUnits();
     waterFiltrationIsInferredFromWaterQualityWork();
+    plumbingReplacementScopesUseRelevantChecklists();
     mixedDraftUsesTheRequestedItemsWorkflow();
     completeWaterFiltrationChecklistClearsAnswerGate();
     waterFiltrationDoesNotUseUnrelatedPriceBookEntries();
@@ -387,6 +388,38 @@ function waterFiltrationIsInferredFromWaterQualityWork() {
     }], null);
 
     assert(category === 'water_filtration', 'Water quality and softener work should open the water-filtration checklist.');
+}
+
+function plumbingReplacementScopesUseRelevantChecklists() {
+    const cases: Array<[string, EstimateOptionCategory]> = [
+        ['Shower Valve', 'valve_replacement'],
+        ['Domestic Water Riser', 'riser_replacement'],
+        ['Water Main', 'water_main_replacement'],
+        ['Building Sewer Line', 'sewer_line_replacement'],
+    ];
+
+    cases.forEach(([name, expected]) => {
+        const item = { ...draftItem(name.toLowerCase().replaceAll(' ', '-')), name };
+        assert(
+            inferEstimateCategoryForDraftItem([item], item.item_slug, null) === expected,
+            `${name} should open the ${expected} checklist.`
+        );
+    });
+
+    const valveTemplate = getEstimateCategoryTemplate('valve_replacement');
+    assert(!valveTemplate.requiredPhotoLabels.includes('Under-sink connections'), 'Valve replacement must not require an unrelated under-sink photo.');
+    assert(valveTemplate.requiredPhotoLabels.includes('Valve access area'), 'Valve replacement should document its actual access area.');
+
+    const skippedAccess = completeAnswers('valve_replacement');
+    skippedAccess[photoRequirementAnswerKey('Valve access area')] = createEstimateRequirementSkipAnswer(
+        'Valve access area',
+        'not_applicable',
+        '2026-08-01T12:00:00.000Z'
+    );
+    const workspace = buildWorkspace({ category: 'valve_replacement', answers: skippedAccess });
+    assert(workspace.draftGate.canDraft, 'A documented not-applicable valve access photo should allow estimate drafting.');
+    assert(workspace.draftGate.skippedForNow.some((entry) => entry.includes('Valve access area')), 'The skipped valve access evidence should remain visible as an assumption.');
+    assert(!workspace.answerValidation.missingRequiredPhotoLabels.includes('Valve access area'), 'A truly not-applicable valve access photo should not leave the estimate incomplete.');
 }
 
 function mixedDraftUsesTheRequestedItemsWorkflow() {

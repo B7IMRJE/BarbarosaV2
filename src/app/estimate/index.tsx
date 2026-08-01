@@ -2769,6 +2769,10 @@ function estimateCategoryTone(category: EstimateOptionCategory) {
         water_heater: cardTone('#FFF8DF', '#F2DC92', '#D99214'),
         garbage_disposal: cardTone('#EAF9FF', '#BCEBFA', '#2C91C9'),
         faucet_replacement: cardTone('#ECFBF5', '#BFEEDC', '#0F8A68'),
+        valve_replacement: cardTone('#FFF4E8', '#F3CFA7', '#B96819'),
+        riser_replacement: cardTone('#EDF3FF', '#C8D9FA', '#486DB0'),
+        water_main_replacement: cardTone('#E8F7FF', '#B9E1F2', '#24799B'),
+        sewer_line_replacement: cardTone('#F3F1E8', '#DDD5B7', '#796B35'),
         water_filtration: cardTone('#E7F8F4', '#B9E8DC', '#087C6A'),
         whole_home_repipe: cardTone('#FFF0F3', '#F5C8D0', '#C94A68'),
     };
@@ -2782,6 +2786,10 @@ function estimateCategoryDescription(category: EstimateOptionCategory) {
         water_heater: 'Tank or tankless sizing, safety, venting, and recirculation',
         garbage_disposal: 'Power, drain, dishwasher, model, and removal scope',
         faucet_replacement: 'Fixture fit, sink layout, shutoffs, and accessories',
+        valve_replacement: 'Valve type, size, access, isolation, and restoration',
+        riser_replacement: 'Service, floors, routing, outage, access, and restoration',
+        water_main_replacement: 'Route, length, trenching, utility work, and restoration',
+        sewer_line_replacement: 'Failure, camera findings, route, access, and cleanouts',
         water_filtration: 'Pre-filter, carbon, softener, post-filter, well, and UV',
         whole_home_repipe: 'Rooms, fixture groups, routing, access, and patching',
     };

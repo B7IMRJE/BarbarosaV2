@@ -3,6 +3,10 @@ export type EstimateOptionCategory =
     | 'water_heater'
     | 'garbage_disposal'
     | 'faucet_replacement'
+    | 'valve_replacement'
+    | 'riser_replacement'
+    | 'water_main_replacement'
+    | 'sewer_line_replacement'
     | 'water_filtration'
     | 'whole_home_repipe';
 
@@ -637,6 +641,103 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         ],
     },
     {
+        id: 'valve_replacement',
+        label: 'Valve Replacement',
+        serviceCategory: 'Valves / Shutoffs',
+        requiredPhotoLabels: ['Existing valve', 'Valve access area', 'Connected piping'],
+        requiredMeasurementLabels: ['Valve or pipe size'],
+        productCategoryFilters: ['valve', 'shutoff', 'angle stop', 'backflow', 'pressure regulator'],
+        pricingCategoryFilters: ['Valves / Shutoffs', 'Backflow', 'Water Service'],
+        requiredScopeCodes: [],
+        recommendedOptionStructures: ['Like-for-Like Valve Replacement', 'Valve and Connection Renewal', 'Professional Access and Valve Package', 'Premium Isolation Upgrade'],
+        warnings: ['Do not request under-sink evidence unless the selected valve is actually below a sink. Concealed access and finish repairs must be described separately.'],
+        blockingConditions: ['Valve type, service, size, access, isolation, connected piping, and finish-restoration scope must be documented.'],
+        questions: [
+            selectQuestion('valve_type', 'Valve type', true, ['shower valve', 'main water shutoff', 'angle stop', 'pressure regulator', 'backflow assembly', 'hose bibb valve', 'other']),
+            selectQuestion('valve_service', 'Service', true, ['domestic water', 'hot water', 'irrigation', 'fire protection', 'gas', 'other']),
+            selectQuestion('valve_material', 'Existing valve / piping material', true, ['copper / brass', 'PEX', 'CPVC', 'galvanized', 'PVC', 'mixed / unknown']),
+            selectQuestion('valve_access', 'Access', true, ['exposed', 'cabinet / under fixture', 'access panel', 'in wall', 'underground / valve box', 'no existing access']),
+            selectQuestion('isolation_method', 'Isolation method', true, ['local shutoff works', 'building main shutoff', 'utility shutoff required', 'system drain-down required', 'unknown']),
+            selectQuestion('connection_method', 'Connection method', true, ['soldered', 'threaded', 'pressed', 'compression', 'push-fit', 'flanged', 'unknown']),
+            selectQuestion('finish_restoration', 'Wall, cabinet, or surface restoration', true, ['not required', 'access panel included', 'patching included', 'patching excluded', 'separate allowance']),
+            yesNoQuestion('permit_or_testing', 'Permit, certification, or backflow testing required', true),
+            noteQuestion('valve_special_conditions', 'Special access or installation conditions', false),
+        ],
+    },
+    {
+        id: 'riser_replacement',
+        label: 'Riser Replacement',
+        serviceCategory: 'Water Service',
+        requiredPhotoLabels: ['Existing riser', 'Lower connection point', 'Upper connection point', 'Access route'],
+        requiredMeasurementLabels: ['Approximate riser length', 'Pipe size'],
+        productCategoryFilters: ['riser', 'water line', 'supply piping'],
+        pricingCategoryFilters: ['Water Service', 'Repipes', 'Valves / Shutoffs'],
+        requiredScopeCodes: [],
+        recommendedOptionStructures: ['Targeted Riser Repair', 'Complete Riser Replacement', 'Riser and Isolation Upgrade', 'Premium Riser Protection'],
+        warnings: ['Confirm the served system and all floors or units affected before presenting the estimate.'],
+        blockingConditions: ['Service type, pipe material, length, occupied areas, isolation, access, and restoration must be documented.'],
+        questions: [
+            selectQuestion('riser_service', 'Riser service', true, ['domestic cold water', 'domestic hot water', 'hot-water return', 'drain / waste', 'vent', 'fire protection', 'other']),
+            selectQuestion('riser_material', 'Existing pipe material', true, ['copper', 'PEX', 'CPVC', 'galvanized', 'cast iron', 'PVC / ABS', 'mixed / unknown']),
+            selectQuestion('floors_or_units', 'Floors or units affected', true, ['one floor / unit', 'two floors / units', 'three or more', 'common area only', 'unknown']),
+            selectQuestion('riser_access', 'Access route', true, ['open / exposed', 'existing chase', 'wall or ceiling opening', 'shaft access', 'exterior access', 'limited / unknown']),
+            selectQuestion('riser_isolation', 'Isolation and outage', true, ['local isolation', 'building shutdown', 'utility coordination', 'temporary bypass needed', 'unknown']),
+            yesNoQuestion('occupied_during_riser_work', 'Occupied during work', true),
+            selectQuestion('riser_restoration', 'Wall, ceiling, and firestopping restoration', true, ['included', 'excluded', 'allowance / separate', 'not required']),
+            yesNoQuestion('riser_permit', 'Permit or inspection required', true),
+            noteQuestion('riser_special_conditions', 'Special routing or access conditions', false),
+        ],
+    },
+    {
+        id: 'water_main_replacement',
+        label: 'Water Main Replacement',
+        serviceCategory: 'Water Service',
+        requiredPhotoLabels: ['Meter or utility connection', 'Main entry to building', 'Proposed route', 'Surface restoration areas'],
+        requiredMeasurementLabels: ['Approximate main length', 'Existing pipe size'],
+        productCategoryFilters: ['water main', 'water service', 'service line'],
+        pricingCategoryFilters: ['Water Service', 'Excavation', 'Valves / Shutoffs'],
+        requiredScopeCodes: [],
+        recommendedOptionStructures: ['Localized Main Repair', 'Open-Trench Main Replacement', 'Trenchless Main Replacement', 'Premium Main and Shutoff Renewal'],
+        warnings: ['Utility locating, permit requirements, meter ownership, and restoration responsibility must be confirmed.'],
+        blockingConditions: ['Route, material, length, installation method, utility coordination, entry point, and restoration scope must be documented.'],
+        questions: [
+            selectQuestion('main_failure', 'Reason for replacement', true, ['active leak', 'low pressure / restricted line', 'corrosion / age', 'undersized service', 'material upgrade', 'other']),
+            selectQuestion('main_material', 'Existing main material', true, ['copper', 'PEX / polyethylene', 'PVC', 'galvanized', 'lead', 'unknown']),
+            selectQuestion('installation_method', 'Installation method', true, ['open trench', 'trenchless pull / bore', 'mixed method', 'needs site review']),
+            multiQuestion('route_surfaces', 'Route surfaces', true, ['soil / landscape', 'concrete', 'asphalt', 'pavers', 'structure / crawlspace', 'public right-of-way']),
+            selectQuestion('building_entry', 'Building entry', true, ['existing sleeve / entry reusable', 'new penetration required', 'crawlspace', 'slab / concealed', 'unknown']),
+            selectQuestion('utility_coordination', 'Utility and meter coordination', true, ['private side only', 'utility shutoff needed', 'meter work involved', 'right-of-way work', 'unknown']),
+            selectQuestion('main_restoration', 'Surface restoration', true, ['included', 'excluded', 'allowance / separate', 'landscape only']),
+            yesNoQuestion('main_permit', 'Permit and inspection required', true),
+            yesNoQuestion('temporary_water', 'Temporary water service needed', true),
+            noteQuestion('main_special_conditions', 'Special route, depth, or access conditions', false),
+        ],
+    },
+    {
+        id: 'sewer_line_replacement',
+        label: 'Sewer / Drain Line Replacement',
+        serviceCategory: 'Drains / Sewer',
+        requiredPhotoLabels: ['Affected drain area', 'Cleanout or access point', 'Proposed route', 'Surface restoration areas'],
+        requiredMeasurementLabels: ['Approximate line length', 'Drain pipe size'],
+        productCategoryFilters: ['sewer', 'drain line', 'waste line'],
+        pricingCategoryFilters: ['Drains / Sewer', 'Excavation'],
+        requiredScopeCodes: [],
+        recommendedOptionStructures: ['Localized Drain Repair', 'Section Replacement', 'Complete Line Replacement', 'Premium Access and Cleanout Upgrade'],
+        warnings: ['Camera findings and verified routing should be documented when available; do not promise trenchless work before site verification.'],
+        blockingConditions: ['Failure, material, route, access method, excavation, cleanouts, and restoration scope must be documented.'],
+        questions: [
+            selectQuestion('drain_failure', 'Observed problem', true, ['leak', 'recurring stoppage', 'root intrusion', 'belly / poor grade', 'collapsed / broken line', 'corrosion', 'other']),
+            selectQuestion('drain_material', 'Existing line material', true, ['ABS', 'PVC', 'cast iron', 'clay', 'Orangeburg', 'galvanized', 'unknown']),
+            selectQuestion('drain_location', 'Line location', true, ['inside wall / ceiling', 'crawlspace / basement', 'under slab', 'yard', 'driveway / hardscape', 'public right-of-way']),
+            selectQuestion('drain_access_method', 'Access method', true, ['open access', 'wall / ceiling opening', 'excavation', 'saw-cut slab', 'trenchless', 'needs site review']),
+            selectQuestion('camera_status', 'Camera inspection', true, ['completed and saved', 'scheduled / required', 'not possible', 'not applicable for exposed repair']),
+            selectQuestion('cleanout_scope', 'Cleanout scope', true, ['existing adequate', 'add cleanout', 'replace cleanout', 'not applicable']),
+            selectQuestion('drain_restoration', 'Surface restoration', true, ['included', 'excluded', 'allowance / separate', 'not required']),
+            yesNoQuestion('drain_permit', 'Permit or inspection required', true),
+            noteQuestion('drain_special_conditions', 'Special grade, access, or routing conditions', false),
+        ],
+    },
+    {
         id: 'water_filtration',
         label: 'Water Filtration',
         serviceCategory: 'Water Quality',
@@ -722,6 +823,10 @@ export function inferEstimateCategoryFromDraft(
         searchable.includes('whole-home filter') ||
         searchable.includes('whole home filter')
     ) return 'water_filtration';
+    if (searchable.includes('water main') || searchable.includes('water service line') || searchable.includes('service main')) return 'water_main_replacement';
+    if (searchable.includes('riser')) return 'riser_replacement';
+    if (searchable.includes('sewer') || searchable.includes('drain line') || searchable.includes('waste line')) return 'sewer_line_replacement';
+    if (searchable.includes('valve') || searchable.includes('angle stop') || searchable.includes('shutoff') || searchable.includes('backflow') || searchable.includes('pressure regulator')) return 'valve_replacement';
     if (searchable.includes('repipe') || searchable.includes('whole home') || searchable.includes('whole-home')) return 'whole_home_repipe';
     if (searchable.includes('water heater') || searchable.includes('tankless')) return 'water_heater';
     if (searchable.includes('garbage disposal') || searchable.includes('disposal')) return 'garbage_disposal';
@@ -747,6 +852,10 @@ export function inferEstimateCategoryForDraftItem(
     if (!preferredItem) return inferEstimateCategoryFromDraft(items, context);
 
     const itemIdentity = `${preferredItem.name} ${preferredItem.item_slug}`.toLowerCase();
+    if (itemIdentity.includes('water main') || itemIdentity.includes('water service line') || itemIdentity.includes('service main')) return 'water_main_replacement';
+    if (itemIdentity.includes('riser')) return 'riser_replacement';
+    if (itemIdentity.includes('sewer') || itemIdentity.includes('drain line') || itemIdentity.includes('waste line')) return 'sewer_line_replacement';
+    if (itemIdentity.includes('valve') || itemIdentity.includes('angle stop') || itemIdentity.includes('shutoff') || itemIdentity.includes('backflow') || itemIdentity.includes('pressure regulator')) return 'valve_replacement';
     if (itemIdentity.includes('repipe') || itemIdentity.includes('whole home') || itemIdentity.includes('whole-home')) {
         return 'whole_home_repipe';
     }
@@ -764,9 +873,10 @@ export function validateEstimateAnswers(template: EstimateCategoryTemplate, answ
     const missingRequiredQuestionIds = missingRequiredQuestions.map((question) => question.id);
     const missingRequiredQuestionLabels = missingRequiredQuestions.map((question) => question.label);
 
-    const missingRequiredPhotoLabels = template.requiredPhotoLabels.filter((label) =>
-        !isPhotoRequirementComplete(answers[photoRequirementAnswerKey(label)])
-    );
+    const missingRequiredPhotoLabels = template.requiredPhotoLabels.filter((label) => {
+        const answer = answers[photoRequirementAnswerKey(label)];
+        return !isPhotoRequirementComplete(answer) && !isRequirementNotApplicable(answer);
+    });
     const missingRequiredMeasurementLabels = template.requiredMeasurementLabels.filter((label) =>
         !isMeasurementRequirementComplete(answers[measurementRequirementAnswerKey(label)])
     );
@@ -1731,6 +1841,10 @@ function buildKeyBenefits(category: EstimateOptionCategory, index: number) {
         water_heater: ['Safety checklist reviewed', 'Approved hot water scope', 'Warranty path visible'],
         garbage_disposal: ['Power and drain fit checked', 'Approved model path', 'Leak and operation check included'],
         faucet_replacement: ['Sink fit confirmed', 'Shutoffs reviewed', 'Approved fixture path'],
+        valve_replacement: ['Correct valve and service confirmed', 'Isolation and access reviewed', 'Restoration scope visible'],
+        riser_replacement: ['Served areas documented', 'Routing and outage reviewed', 'Restoration scope visible'],
+        water_main_replacement: ['Route and installation method reviewed', 'Utility coordination visible', 'Restoration responsibility documented'],
+        sewer_line_replacement: ['Failure and routing documented', 'Access method reviewed', 'Cleanout and restoration scope visible'],
         water_filtration: ['Water goals documented', 'Equipment stages sized', 'Maintenance path visible'],
         whole_home_repipe: ['Fixture point count audited', 'Access factors visible', 'Scope totals remain editable'],
     };
@@ -1851,6 +1965,10 @@ export function isRequirementSkipAnswer(value: EstimateAnswerValue | undefined):
         readText(record.requirementId).length > 0 &&
         (!reason || isEstimateRequirementSkipReason(reason)) &&
         readText(record.skippedAt).length > 0;
+}
+
+function isRequirementNotApplicable(value: EstimateAnswerValue | undefined) {
+    return isRequirementSkipAnswer(value) && value.reason === 'not_applicable';
 }
 
 export function getEstimateRequirementState(
