@@ -16,6 +16,7 @@ import {
     readProviderModeParams,
 } from '../../../../lib/providerMode';
 import {
+    buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     hasAssignedProviderHomeItemsContext,
 } from '../../../../lib/providerHomeItems';
@@ -344,11 +345,6 @@ export default function AreaScreen() {
             recovering: starterRecoverySubmittingRef.current || recoveringStarterSetup,
         });
 
-        if (action.type === 'provider_blocked') {
-            setMessage(action.message);
-            return;
-        }
-
         if (action.type === 'open_confirmation') {
             setMessage('');
             setStarterRecoveryConfirmationVisible(true);
@@ -362,7 +358,10 @@ export default function AreaScreen() {
                 let activeProperty;
 
                 try {
-                    activeProperty = await requireActivePropertyMembership();
+                    activeProperty = await requireActivePropertyMembership({
+                        propertyIdOverride: providerModeContext?.propertyId,
+                        companyId: providerModeContext?.companyId,
+                    });
                 } catch (error) {
                     const errorMessage = activePropertyErrorMessage(error);
 
@@ -376,6 +375,34 @@ export default function AreaScreen() {
                 }
 
                 setMessage(STARTER_RECOVERY_CREATING_MESSAGE);
+
+                if (providerModeContext) {
+                    if (!starterRecoveryPreview) {
+                        throw new Error('The missing starter cards must be checked again.');
+                    }
+
+                    for (const row of starterRecoveryPreview.rowsToInsert) {
+                        const { error } = await supabase.rpc(
+                            'create_provider_homeos_item',
+                            buildProviderHomeItemCreateRpcArgs(providerModeContext, {
+                                itemSlug: row.item_slug,
+                                name: row.name,
+                                system: row.system,
+                                category: row.category,
+                                location: row.location,
+                                parentArea: row.parent_area,
+                                status: row.status,
+                                installState: row.install_state,
+                            })
+                        );
+
+                        if (error) {
+                            throw new Error(`Starter equipment could not be created: ${error.message}`);
+                        }
+                    }
+
+                    return starterRecoveryPreview;
+                }
 
                 return createMissingStarterHomeItems(
                     {
@@ -746,11 +773,9 @@ export default function AreaScreen() {
                         </View>
                         <View style={starterRecoveryBannerActionStyle}>
                             <ThemedButton
-                                title={providerModeContext
-                                    ? 'Provider Recovery Requires Approved Workflow'
-                                    : recoveringStarterSetup
-                                        ? 'Adding Missing Cards...'
-                                        : 'Add Missing Starter Equipment'}
+                                title={recoveringStarterSetup
+                                    ? 'Adding Missing Cards...'
+                                    : 'Add Missing Starter Equipment'}
                                 variant="secondary"
                                 disabled={recoveringStarterSetup}
                                 onPress={confirmAddMissingStarterEquipment}

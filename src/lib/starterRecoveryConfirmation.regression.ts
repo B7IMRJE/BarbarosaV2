@@ -1,5 +1,4 @@
 import {
-    STARTER_RECOVERY_PROVIDER_MESSAGE,
     resolveStarterRecoveryOpenAction,
     runStarterRecoverySubmission,
 } from './starterRecoveryConfirmation';
@@ -10,7 +9,7 @@ void runStarterRecoveryConfirmationRegressions();
 export async function runStarterRecoveryConfirmationRegressions() {
     homeownerClickOpensConfirmationOnWeb();
     cancelCreatesNothing();
-    providerModeStillCannotCreateRecords();
+    providerModeOpensApprovedRecoveryConfirmation();
     await confirmInvokesStarterCreationExactlyOnce();
     await repeatedClicksWhileSavingCannotDuplicateCalls();
     await successReloadsAndUpdatesPreview();
@@ -43,15 +42,14 @@ function cancelCreatesNothing() {
     assert(createCalls === 0, 'Cancel should not create starter equipment.');
 }
 
-function providerModeStillCannotCreateRecords() {
+function providerModeOpensApprovedRecoveryConfirmation() {
     const action = resolveStarterRecoveryOpenAction({
         hasPreview: true,
         providerMode: true,
         recovering: false,
     });
 
-    assert(action.type === 'provider_blocked', 'Provider mode should not open the direct homeowner starter recovery submit flow.');
-    assert(action.message === STARTER_RECOVERY_PROVIDER_MESSAGE, 'Provider mode should keep the approved workflow message.');
+    assert(action.type === 'open_confirmation', 'Provider mode should open the approved starter recovery confirmation.');
 }
 
 async function confirmInvokesStarterCreationExactlyOnce() {

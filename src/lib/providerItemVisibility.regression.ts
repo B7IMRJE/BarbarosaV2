@@ -6,7 +6,6 @@ import {
     resolveAreaVisibleItems,
 } from './providerItemVisibility';
 import {
-    STARTER_RECOVERY_PROVIDER_MESSAGE,
     resolveStarterRecoveryOpenAction,
 } from './starterRecoveryConfirmation';
 
@@ -15,7 +14,7 @@ export function runProviderItemVisibilityRegressions() {
     providerWaterServiceKitchenFindsTheSameItem();
     homeownerAndProviderResolveSamePropertyScopedItemIds();
     providerCannotTreatAnotherPropertyAsVisibleRows();
-    providerRecoveryRemainsBlocked();
+    providerRecoveryUsesApprovedWorkflow();
     providerQueryFailureIsNotDisplayedAsEmptyList();
     providerDashboardShowsCustomTopLevelAreas();
     childContainerDoesNotBecomeDuplicateRootTile();
@@ -90,15 +89,14 @@ function providerCannotTreatAnotherPropertyAsVisibleRows() {
     );
 }
 
-function providerRecoveryRemainsBlocked() {
+function providerRecoveryUsesApprovedWorkflow() {
     const action = resolveStarterRecoveryOpenAction({
         hasPreview: true,
         providerMode: true,
         recovering: false,
     });
 
-    assert(action.type === 'provider_blocked', 'Provider mode starter recovery should remain blocked.');
-    assert(action.message === STARTER_RECOVERY_PROVIDER_MESSAGE, 'Provider recovery should keep the approved workflow message.');
+    assert(action.type === 'open_confirmation', 'Provider mode starter recovery should use the approved workflow.');
 }
 
 function providerQueryFailureIsNotDisplayedAsEmptyList() {

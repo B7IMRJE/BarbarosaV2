@@ -3,8 +3,6 @@ import {
     type StarterHomeSetupPlanResult,
 } from './starterHomeSetup';
 
-export const STARTER_RECOVERY_PROVIDER_MESSAGE =
-    'Provider mode starter recovery must use an approved provider publishing workflow. Nothing was changed in this customer HomeOS.';
 export const STARTER_RECOVERY_CONFIRMATION_TITLE = 'Add missing starter equipment?';
 export const STARTER_RECOVERY_CONFIRMATION_BODY =
     'This creates unconfirmed checklist cards only. It will not overwrite existing items, and it will not add model numbers, serial numbers, photos, documents, or history.';
@@ -14,12 +12,10 @@ export const STARTER_RECOVERY_FALLBACK_ERROR = 'Starter equipment could not be c
 
 export type StarterRecoveryOpenAction =
     | { type: 'open_confirmation' }
-    | { type: 'provider_blocked'; message: string }
     | { type: 'noop' };
 
 export function resolveStarterRecoveryOpenAction({
     hasPreview,
-    providerMode,
     recovering,
 }: {
     hasPreview: boolean;
@@ -27,7 +23,6 @@ export function resolveStarterRecoveryOpenAction({
     recovering: boolean;
 }): StarterRecoveryOpenAction {
     if (!hasPreview || recovering) return { type: 'noop' };
-    if (providerMode) return { type: 'provider_blocked', message: STARTER_RECOVERY_PROVIDER_MESSAGE };
 
     return { type: 'open_confirmation' };
 }
