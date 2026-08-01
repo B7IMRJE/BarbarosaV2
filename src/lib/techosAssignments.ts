@@ -109,6 +109,20 @@ export function isOpenTechOSAssignmentStatus(status?: string | null) {
     ].includes(normalizeAssignmentStatus(status));
 }
 
+export function isTechOSVisitCloseable(slot: TechOSAssignmentScheduleSlot) {
+    if (normalizeAssignmentId(slot.visit_outcome) || normalizeAssignmentId(slot.visit_closed_at)) {
+        return false;
+    }
+
+    const status = normalizeAssignmentStatus(slot.status);
+
+    return isOpenTechOSAssignmentStatus(status) || [
+        'completed',
+        'complete',
+        'work_complete',
+    ].includes(status);
+}
+
 function getTechOSAssignmentSlotWorkKey(slot: TechOSAssignmentScheduleSlot) {
     const serviceRequestId = normalizeAssignmentId(slot.service_request_id);
 

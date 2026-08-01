@@ -102,6 +102,7 @@ import {
     collapseTechOSAssignmentSlots,
     filterTechOSAssignmentSlots,
     isOpenTechOSAssignmentStatus,
+    isTechOSVisitCloseable,
     normalizeTechOSAssignmentCompanyUserIds,
     resolveTechOSAssignmentCompanyUserIds,
 } from '../lib/techosAssignments';
@@ -4013,6 +4014,7 @@ function TechOSAssignedJobDetail({
     const noPrimaryWorkflowActionMessage = getTechWorkflowNextStepMessage(workflowStatus) ||
         'There is no next workflow action for the current status.';
     const nextJobAvailability = getNextJobAvailabilitySectionState();
+    const visitCloseable = isTechOSVisitCloseable(job.slot);
 
     return (
         <View style={[techJobDetailStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
@@ -4264,15 +4266,12 @@ function TechOSAssignedJobDetail({
                             key={option.outcome}
                             title={option.label}
                             variant={closeoutForm.outcome === option.outcome ? 'primary' : 'secondary'}
-                            disabled={updating || !isActiveScheduleSlot(job.slot.status)}
+                            disabled={updating || !visitCloseable}
                             onPress={() => {
                                 onChangeCloseoutForm({
                                     outcome: option.outcome,
                                     notifyHomeowner: option.homeownerDefault,
                                 });
-                                if (option.outcome === 'completed_successfully') {
-                                    onCloseServiceVisit(option.outcome);
-                                }
                             }}
                             style={techWorkflowActionButtonStyle}
                             textStyle={techWorkflowActionButtonTextStyle}
@@ -4348,13 +4347,13 @@ function TechOSAssignedJobDetail({
                     <ThemedButton
                         title={updating ? 'Closing Visit...' : 'Close Visit'}
                         variant="danger"
-                        disabled={updating || !closeoutForm.outcome || !isActiveScheduleSlot(job.slot.status)}
+                        disabled={updating || !closeoutForm.outcome || !visitCloseable}
                         onPress={onCloseServiceVisit}
                         style={techWorkflowActionButtonStyle}
                         textStyle={techWorkflowActionButtonTextStyle}
                     />
                 </View>
-                {!isActiveScheduleSlot(job.slot.status) && (
+                {!visitCloseable && (
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                         This visit is already closed.
                     </Text>

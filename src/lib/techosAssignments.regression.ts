@@ -3,6 +3,7 @@ import {
     filterTechOSAssignmentSlots,
     isLiveTechOSAssignmentStatus,
     isOpenTechOSAssignmentStatus,
+    isTechOSVisitCloseable,
     normalizeTechOSAssignmentCompanyUserIds,
     resolveTechOSAssignmentCompanyUserIds,
 } from './techosAssignments';
@@ -16,9 +17,25 @@ export function runTechOSAssignmentRegressions() {
     assignmentSlotsFilterToVisibleTechnicianIdentities();
     liveWorkflowStatusesStayVisibleAsActiveAssignments();
     overdueScheduledAssignmentsStayOpenUntilClosed();
+    completedWorkRemainsCloseableUntilVisitCloseoutIsSaved();
     duplicateScheduleSlotsForOneRequestCollapseToCurrentVisit();
     differentRequestsRemainSeparateAfterSlotCollapse();
     olderClosedVisitCannotDuplicateNewerActiveVisit();
+}
+
+function completedWorkRemainsCloseableUntilVisitCloseoutIsSaved() {
+    assert(
+        isTechOSVisitCloseable({ status: 'completed', visit_outcome: null, visit_closed_at: null }),
+        'A completed sold-job workflow should not disable the final visit closeout action.'
+    );
+    assert(
+        !isTechOSVisitCloseable({
+            status: 'completed',
+            visit_outcome: 'completed_successfully',
+            visit_closed_at: '2026-08-01T05:00:00.000Z',
+        }),
+        'A visit with a saved closeout should not be closeable again.'
+    );
 }
 
 function duplicateSameAccountTechnicianRowsLoadTogether() {
