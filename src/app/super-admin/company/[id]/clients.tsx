@@ -23,7 +23,7 @@ import { resolveCompanyWorkspaceTheme } from '../../../../lib/companyWorkspaceTh
 import { supabase } from '../../../../lib/supabase';
 import { ThemeContext } from '../../../../theme';
 import { CompanyGlassDepthProvider } from '../../../../theme/glass-depth';
-import { GlassPaletteProvider } from '../../../../theme/glass-palette-context';
+import { GlassPaletteProvider, useGlassPalette } from '../../../../theme/glass-palette-context';
 import { createCompanyGlassPalette } from '../../../../theme/glassPalette';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -872,6 +872,7 @@ function InviteCustomerSection({
     onDeleteRevoked: (invite: CustomerInvite) => void;
 }) {
     const { theme } = useTheme();
+    const glassPalette = useGlassPalette();
     const [composerOpen, setComposerOpen] = useState(false);
     const [pendingOpen, setPendingOpen] = useState(false);
 
@@ -901,22 +902,22 @@ function InviteCustomerSection({
 
             {latestLoginInvite ? (
                 <ThemedCard>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>
+                    <Text style={[sectionTitleStyle, { color: glassPalette.text }]}>
                         Homeowner Login Code
                     </Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[metaTextStyle, { color: glassPalette.mutedText }]}>
                         {latestLoginInvite.invitedName ||
                             latestLoginInvite.invitedEmail ||
                             'New homeowner invitation'}
                     </Text>
-                    <Text selectable style={[loginCodeStyle, { color: theme.colors.text }]}>
+                    <Text selectable style={[loginCodeStyle, { color: glassPalette.text }]}>
                         {latestLoginInvite.code}
                     </Text>
-                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[bodyTextStyle, { color: glassPalette.mutedText }]}>
                         At HomeOS sign-in, choose Invitation Code and enter this six-digit code.
                     </Text>
                     {latestLoginInvite.expiresAt ? (
-                        <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        <Text style={[metaTextStyle, { color: glassPalette.mutedText }]}>
                             Expires {formatDate(latestLoginInvite.expiresAt)}
                         </Text>
                     ) : null}
@@ -945,8 +946,8 @@ function InviteCustomerSection({
 
             {composerOpen && (
                 <ThemedCard>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Invite Homeowner</Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                    <Text style={[sectionTitleStyle, { color: glassPalette.text }]}>Invite Homeowner</Text>
+                    <Text style={[metaTextStyle, { color: glassPalette.mutedText }]}>
                         Creates a six-digit, one-time HomeOS login code. The customer can connect or create their home after signing in.
                     </Text>
                     <View style={formGridStyle}>
@@ -991,7 +992,7 @@ function InviteCustomerSection({
             {pendingOpen && invites.length > 0 && (
                 <ThemedCard>
                     <View style={pendingHeaderStyle}>
-                        <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 0 }]}>
+                        <Text style={[sectionTitleStyle, { color: glassPalette.text, marginBottom: 0 }]}>
                             Pending Invitations
                         </Text>
                         <ThemedButton
@@ -1038,23 +1039,24 @@ function InviteInput({
     autoComplete?: TextInputProps['autoComplete'];
     onChangeText: (value: string) => void;
 }) {
-    const { theme } = useTheme();
+    const glassPalette = useGlassPalette();
 
     return (
         <View style={inputWrapStyle}>
-            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{label}</Text>
+            <Text style={[metaTextStyle, { color: glassPalette.mutedText }]}>{label}</Text>
             <TextInput
                 value={value}
                 onChangeText={onChangeText}
                 placeholder={placeholder}
-                placeholderTextColor={theme.colors.mutedText}
+                placeholderTextColor={glassPalette.mutedText}
                 keyboardType={keyboardType}
                 autoComplete={autoComplete}
                 style={[
                     inputStyle,
                     {
-                        borderColor: theme.colors.border,
-                        color: theme.colors.text,
+                        backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                        borderColor: glassPalette.tones.steel.border,
+                        color: glassPalette.text,
                     },
                 ]}
             />
