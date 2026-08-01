@@ -10,6 +10,7 @@ import { BUILD_DISPLAY } from '../lib/appVersion';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { safeBack } from '../lib/navigation';
 import { loadLoggedInUserCompanyAccess } from '../lib/onboarding';
+import { isInvitationPasswordSetupPending } from '../lib/invitation-password-setup';
 import { loadCurrentUserPlatformAdmin } from '../lib/roles';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
@@ -219,6 +220,11 @@ export default function AdminNavBar({
 
     async function signOut() {
         if (signingOut) return;
+
+        if (await isInvitationPasswordSetupPending()) {
+            router.push('/profile/change-password?first=1&beforeSignOut=1' as Href);
+            return;
+        }
 
         setSigningOut(true);
         clearPendingCompanyInviteState();

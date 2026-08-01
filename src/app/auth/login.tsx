@@ -16,6 +16,7 @@ import {
 } from '../../lib/companyInviteState';
 import { isCustomerInvitePending } from '../../lib/customerInviteStatus';
 import { resolveLoggedInUserRoute } from '../../lib/onboarding';
+import { markInvitationPasswordSetupPending } from '../../lib/invitation-password-setup';
 import { supabase } from '../../lib/supabase';
 import ThemedButton from '../../components/theme/ThemedButton';
 
@@ -230,8 +231,13 @@ export default function LoginScreen() {
             return;
         }
 
-        setMessage('Invitation verified. Opening your workspace...');
-        router.replace((result.next || '/') as any);
+        const nextRoute = result.next || '/';
+        await markInvitationPasswordSetupPending();
+        setMessage('Invitation verified. Create your password to protect this account.');
+        router.replace({
+            pathname: '/profile/change-password',
+            params: { first: '1', next: nextRoute },
+        } as any);
     }
 
     return (

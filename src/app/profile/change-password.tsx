@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ScrollView,
@@ -7,9 +7,17 @@ import {
     View,
 } from 'react-native';
 import PasswordField from '../../components/auth/password-field';
+import {
+    clearInvitationPasswordSetupPending,
+    markInvitationPasswordSetupPending,
+} from '../../lib/invitation-password-setup';
 import { supabase } from '../../lib/supabase';
 
 export default function ChangePasswordScreen() {
+    const params = useLocalSearchParams<{ first?: string; next?: string; beforeSignOut?: string }>();
+    const firstPasswordSetup = params.first === '1';
+    const beforeSignOut = params.beforeSignOut === '1';
+    const nextRoute = safeNextRoute(params.next);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -79,12 +87,20 @@ export default function ChangePasswordScreen() {
             return;
         }
 
-        setMessage('Password updated successfully. Redirecting to login...');
+        await clearInvitationPasswordSetupPending();
+        setMessage('Password created successfully. Opening your account...');
+        router.replace(nextRoute as any);
+    }
 
-        setTimeout(async () => {
-            await supabase.auth.signOut();
-            router.replace('/auth/login' as any);
-        }, 1500);
+    async function skipForNow() {
+        await markInvitationPasswordSetupPending();
+        router.replace(nextRoute as any);
+    }
+
+    async function signOutAnyway() {
+        await markInvitationPasswordSetupPending();
+        await supabase.auth.signOut();
+        router.replace('/auth/login' as any);
     }
 
     return (
@@ -106,11 +122,13 @@ export default function ChangePasswordScreen() {
                 </Text>
 
                 <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33' }}>
-                    Change Password
+                    {firstPasswordSetup ? 'Create Your Password' : 'Change Password'}
                 </Text>
 
                 <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
-                    Update your HomeOS password.
+                    {firstPasswordSetup
+                        ? 'Protect your new account with a password. You may skip temporarily, but HomeOS will remind you before signing out.'
+                        : 'Update your HomeOS password.'}
                 </Text>
 
                 <PasswordField
@@ -133,9 +151,21 @@ export default function ChangePasswordScreen() {
                     style={buttonStyle}
                 >
                     <Text style={buttonTextStyle}>
-                        {loading ? 'Updating...' : 'Update Password'}
+                        {loading ? 'Saving...' : firstPasswordSetup ? 'Create Password' : 'Update Password'}
                     </Text>
                 </TouchableOpacity>
+
+                {firstPasswordSetup && (
+                    <TouchableOpacity
+                        onPress={beforeSignOut ? signOutAnyway : skipForNow}
+                        disabled={loading}
+                        style={secondaryButtonStyle}
+                    >
+                        <Text style={secondaryButtonTextStyle}>
+                            {beforeSignOut ? 'Sign Out Anyway' : 'Skip for Now'}
+                        </Text>
+                    </TouchableOpacity>
+                )}
 
                 <View style={messageBoxStyle}>
                     <Text style={messageTextStyle}>{message}</Text>
@@ -143,6 +173,12 @@ export default function ChangePasswordScreen() {
             </View>
         </ScrollView>
     );
+}
+
+function safeNextRoute(value?: string) {
+    const route = String(value || '/').trim();
+
+    return route.startsWith('/') && !route.startsWith('//') ? route : '/';
 }
 
 const inputStyle = {
@@ -164,6 +200,21 @@ const buttonStyle = {
 const buttonTextStyle = {
     color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const secondaryButtonStyle = {
+    alignItems: 'center' as const,
+    borderColor: '#CBD5E1',
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 12,
+    padding: 16,
+};
+
+const secondaryButtonTextStyle = {
+    color: '#071B33',
+    fontSize: 15,
     fontWeight: '900' as const,
 };
 
