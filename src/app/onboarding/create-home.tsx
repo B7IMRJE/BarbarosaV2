@@ -197,6 +197,12 @@ export default function CreateHomeOnboardingScreen() {
                             </Text>
                         )}
 
+                        {!verifiedAddress && (
+                            <Text style={[addressHelpStyle, { color: theme.colors.mutedText }]}>
+                                To enable Create Home, select an address result and then choose Use This Address.
+                            </Text>
+                        )}
+
                         <ThemedButton
                             title={submitting ? 'Creating home...' : 'Create Home'}
                             disabled={submitting || !verifiedAddress}
@@ -355,6 +361,13 @@ const sectionTitleStyle = {
     fontSize: 22,
     fontWeight: '900' as const,
     marginBottom: 18,
+};
+
+const addressHelpStyle = {
+    fontSize: 14,
+    fontWeight: '800' as const,
+    lineHeight: 20,
+    marginTop: 16,
 };
 
 const inputGroupStyle = {

@@ -227,7 +227,7 @@ export default function VerifiedAddressPicker({
 
             <View style={inputGroupStyle}>
                 <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>
-                    Apartment, suite, or unit number
+                    Apartment, suite, or unit number (optional)
                 </Text>
                 <TextInput
                     placeholder="Optional"
@@ -249,6 +249,9 @@ export default function VerifiedAddressPicker({
                         paddingVertical: 16,
                     }}
                 />
+                <Text style={[inputHintStyle, { color: theme.colors.mutedText }]}>
+                    Enter the unit manually if your home has one.
+                </Text>
             </View>
 
             {loadingPredictions && (
@@ -271,9 +274,14 @@ export default function VerifiedAddressPicker({
                         },
                     ]}
                 >
+                    <Text style={[resultsHeadingStyle, { color: theme.colors.text }]}>
+                        Choose your address
+                    </Text>
                     {predictions.map((prediction) => (
                         <TouchableOpacity
                             key={prediction.placeId}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Use ${prediction.description}`}
                             onPress={() => selectPrediction(prediction)}
                             disabled={disabled || validatingAddress}
                             activeOpacity={0.82}
@@ -290,6 +298,9 @@ export default function VerifiedAddressPicker({
                                     {prediction.secondaryText}
                                 </Text>
                             )}
+                            <Text style={[selectAddressStyle, { color: theme.colors.primary }]}>
+                                Select this address
+                            </Text>
                         </TouchableOpacity>
                     ))}
                 </View>
@@ -374,6 +385,13 @@ const helperTextStyle = {
     marginTop: 6,
 };
 
+const inputHintStyle = {
+    fontSize: 13,
+    fontWeight: '700' as const,
+    lineHeight: 18,
+    marginTop: 6,
+};
+
 const inlineStatusStyle = {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
@@ -385,6 +403,14 @@ const predictionsContainerStyle = {
     borderWidth: 1,
     marginBottom: 14,
     overflow: 'hidden' as const,
+};
+
+const resultsHeadingStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 4,
 };
 
 const predictionRowStyle = {
@@ -403,6 +429,12 @@ const predictionMetaStyle = {
     fontWeight: '800' as const,
     lineHeight: 18,
     marginTop: 4,
+};
+
+const selectAddressStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+    marginTop: 8,
 };
 
 const confirmedAddressStyle = {
