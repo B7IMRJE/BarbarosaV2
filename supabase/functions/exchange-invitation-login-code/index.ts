@@ -419,14 +419,18 @@ async function createInvitationAuthOtp(
 }
 
 async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
-    const lookupResponse = await fetch(`${supabaseUrl}/rest/v1/rpc/resolve_customer_login_invitation`, {
-        method: 'POST',
+    const url = new URL('/rest/v1/company_customer_invitations', supabaseUrl);
+    url.searchParams.set('login_code', `eq.${code}`);
+    url.searchParams.set('status', 'in.(pending,accepted)');
+    url.searchParams.set('revoked_at', 'is.null');
+    url.searchParams.set('login_code_used_at', 'is.null');
+    url.searchParams.set('select', 'id,invited_email,invite_code,login_code_expires_at,expires_at');
+    url.searchParams.set('limit', '1');
+    const lookupResponse = await fetch(url, {
         headers: {
             apikey: serviceRoleKey,
             Authorization: `Bearer ${serviceRoleKey}`,
-            'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ p_login_code: code }),
     });
     const rows = await lookupResponse.json().catch(() => []) as Array<{
         invitation_id?: string;

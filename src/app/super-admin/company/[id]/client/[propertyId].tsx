@@ -72,6 +72,7 @@ type PropertyConnection = {
 };
 
 type CustomerInvite = {
+    id: string;
     invited_email: string | null;
     invited_phone: string | null;
     invited_name: string | null;
@@ -112,6 +113,9 @@ export default function CompanyClientDetailScreen() {
     const [savingAction, setSavingAction] = useState('');
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const [customerLoginCode, setCustomerLoginCode] = useState('');
+    const [customerLoginCodeMessage, setCustomerLoginCodeMessage] = useState('');
+    const [creatingCustomerLoginCode, setCreatingCustomerLoginCode] = useState(false);
     const theme = useMemo(
         () => resolveCompanyWorkspaceTheme(themeContext.theme, company),
         [company, themeContext.theme]
@@ -251,13 +255,56 @@ export default function CompanyClientDetailScreen() {
     async function loadAcceptedInvite() {
         const { data } = await supabase
             .from('company_customer_invitations')
-            .select('invited_email, invited_phone, invited_name, status, accepted_at')
+            .select('id, invited_email, invited_phone, invited_name, status, accepted_at')
             .eq('company_id', companyId)
             .eq('accepted_property_id', clientPropertyId)
             .order('accepted_at', { ascending: false })
             .limit(1);
 
         setInvite(((data || []) as CustomerInvite[])[0] || null);
+    }
+
+    async function generateCustomerLoginCode() {
+        if (!invite?.id || creatingCustomerLoginCode) {
+            setCustomerLoginCodeMessage('The accepted customer invitation could not be found.');
+            return;
+        }
+
+        setCreatingCustomerLoginCode(true);
+        setCustomerLoginCodeMessage('Creating a new customer login code...');
+        const { data, error } = await supabase.functions.invoke('prepare-customer-login-invitation', {
+            body: { invitation_id: invite.id },
+        });
+        setCreatingCustomerLoginCode(false);
+
+        const record = data && typeof data === 'object' && !Array.isArray(data)
+            ? data as Record<string, unknown>
+            : {};
+        const code = String(record.login_code || '').replace(/\D/g, '').slice(0, 6);
+
+        if (error || !/^\d{6}$/.test(code)) {
+            setCustomerLoginCode('');
+            setCustomerLoginCodeMessage(String(record.message || error?.message || 'The customer login code could not be created.'));
+            return;
+        }
+
+        setCustomerLoginCode(code);
+        setCustomerLoginCodeMessage('Give this code to the customer. They must create a password after signing in.');
+    }
+
+    async function copyCustomerLoginCode() {
+        if (!customerLoginCode) return;
+
+        try {
+            const clipboard = (globalThis as typeof globalThis & {
+                navigator?: { clipboard?: { writeText?: (text: string) => Promise<void> } };
+            }).navigator?.clipboard;
+            if (!clipboard?.writeText) throw new Error('Clipboard unavailable');
+            await clipboard.writeText(customerLoginCode);
+            setCustomerLoginCodeMessage('Customer login code copied.');
+        } catch {
+            setCustomerLoginCodeMessage(`Copy is unavailable. Customer login code: ${customerLoginCode}`);
+        }
     }
 
     async function loadCustomerStagedEntries() {
@@ -515,6 +562,37 @@ export default function CompanyClientDetailScreen() {
                                         </Text>
                                     </View>
                                 ))}
+                            </View>
+                        </ThemedCard>
+
+                        <ThemedCard style={sectionCardStyle}>
+                            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Customer Account Access</Text>
+                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                                If this customer forgot their password or lost their original code, create a new six-digit login code here.
+                            </Text>
+                            {!!customerLoginCode && (
+                                <DetailRow label="Six-Digit Login Code" value={customerLoginCode} />
+                            )}
+                            {!!customerLoginCodeMessage && (
+                                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{customerLoginCodeMessage}</Text>
+                            )}
+                            <View style={noteButtonRowStyle}>
+                                <ThemedButton
+                                    title={creatingCustomerLoginCode ? 'Creating...' : 'Generate New Login Code'}
+                                    onPress={generateCustomerLoginCode}
+                                    disabled={creatingCustomerLoginCode || !invite?.id}
+                                    style={smallButtonStyle}
+                                    textStyle={smallButtonTextStyle}
+                                />
+                                {!!customerLoginCode && (
+                                    <ThemedButton
+                                        title="Copy Login Code"
+                                        variant="secondary"
+                                        onPress={copyCustomerLoginCode}
+                                        style={smallButtonStyle}
+                                        textStyle={smallButtonTextStyle}
+                                    />
+                                )}
                             </View>
                         </ThemedCard>
 

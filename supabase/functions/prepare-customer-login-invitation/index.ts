@@ -41,12 +41,7 @@ export default {
 
         if (!invite) return response(req, { ok: false, message: 'Customer invitation was not found.' }, 404);
         if (!invite.invited_email) return response(req, { ok: false, message: 'Add an email address before creating a login code.' }, 400);
-        if (
-            String(invite.status || '').toLowerCase() !== 'pending' ||
-            invite.revoked_at ||
-            invite.accepted_at ||
-            (invite.expires_at && Date.parse(invite.expires_at) <= Date.now())
-        ) {
+        if (invite.revoked_at || !['pending', 'accepted'].includes(String(invite.status || '').toLowerCase())) {
             return response(req, { ok: false, message: 'This customer invitation is no longer active.' }, 409);
         }
 

@@ -9,14 +9,12 @@ import {
 import PasswordField from '../../components/auth/password-field';
 import {
     clearInvitationPasswordSetupPending,
-    markInvitationPasswordSetupPending,
 } from '../../lib/invitation-password-setup';
 import { supabase } from '../../lib/supabase';
 
 export default function ChangePasswordScreen() {
-    const params = useLocalSearchParams<{ first?: string; next?: string; beforeSignOut?: string }>();
+    const params = useLocalSearchParams<{ first?: string; next?: string }>();
     const firstPasswordSetup = params.first === '1';
-    const beforeSignOut = params.beforeSignOut === '1';
     const nextRoute = safeNextRoute(params.next);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -92,13 +90,7 @@ export default function ChangePasswordScreen() {
         router.replace(nextRoute as any);
     }
 
-    async function skipForNow() {
-        await markInvitationPasswordSetupPending();
-        router.replace(nextRoute as any);
-    }
-
-    async function signOutAnyway() {
-        await markInvitationPasswordSetupPending();
+    async function cancelInvitationLogin() {
         await supabase.auth.signOut();
         router.replace('/auth/login' as any);
     }
@@ -110,7 +102,7 @@ export default function ChangePasswordScreen() {
         >
             <View style={{ width: '100%', maxWidth: 500, marginTop: 50 }}>
                 <Text
-                    onPress={() => router.back()}
+                    onPress={firstPasswordSetup ? cancelInvitationLogin : () => router.back()}
                     style={{
                         fontSize: 18,
                         fontWeight: '900',
@@ -118,7 +110,7 @@ export default function ChangePasswordScreen() {
                         marginBottom: 20,
                     }}
                 >
-                    ← Back
+                    {firstPasswordSetup ? '← Sign Out' : '← Back'}
                 </Text>
 
                 <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33' }}>
@@ -127,7 +119,7 @@ export default function ChangePasswordScreen() {
 
                 <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
                     {firstPasswordSetup
-                        ? 'Protect your new account with a password. You may skip temporarily, but HomeOS will remind you before signing out.'
+                        ? 'Create a password to finish this invitation-code login and protect your account.'
                         : 'Update your HomeOS password.'}
                 </Text>
 
@@ -154,18 +146,6 @@ export default function ChangePasswordScreen() {
                         {loading ? 'Saving...' : firstPasswordSetup ? 'Create Password' : 'Update Password'}
                     </Text>
                 </TouchableOpacity>
-
-                {firstPasswordSetup && (
-                    <TouchableOpacity
-                        onPress={beforeSignOut ? signOutAnyway : skipForNow}
-                        disabled={loading}
-                        style={secondaryButtonStyle}
-                    >
-                        <Text style={secondaryButtonTextStyle}>
-                            {beforeSignOut ? 'Sign Out Anyway' : 'Skip for Now'}
-                        </Text>
-                    </TouchableOpacity>
-                )}
 
                 <View style={messageBoxStyle}>
                     <Text style={messageTextStyle}>{message}</Text>
@@ -200,21 +180,6 @@ const buttonStyle = {
 const buttonTextStyle = {
     color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '900' as const,
-};
-
-const secondaryButtonStyle = {
-    alignItems: 'center' as const,
-    borderColor: '#CBD5E1',
-    borderRadius: 18,
-    borderWidth: 1,
-    marginTop: 12,
-    padding: 16,
-};
-
-const secondaryButtonTextStyle = {
-    color: '#071B33',
-    fontSize: 15,
     fontWeight: '900' as const,
 };
 
