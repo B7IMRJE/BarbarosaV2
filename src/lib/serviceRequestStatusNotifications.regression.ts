@@ -4,6 +4,7 @@ import {
     createStatusTransitionIdempotencyKey,
     getHomeownerStatusTemplate,
 } from './serviceRequestStatusNotifications';
+import { buildHomeownerTechnicianNoteMessage } from './serviceRequestActivity';
 
 runServiceRequestStatusNotificationRegressions();
 
@@ -16,6 +17,18 @@ export function runServiceRequestStatusNotificationRegressions() {
     requestedWorkflowStatusesCreateHomeownerActivity();
     delayedCopyHidesLunchDetails();
     idempotencyKeyIncludesSlotStatusVersionAndRecipient();
+    technicianNotesUseHomeownerVisibleCopy();
+}
+
+function technicianNotesUseHomeownerVisibleCopy() {
+    assert(
+        buildHomeownerTechnicianNoteMessage('On my way to the shop.', 'Selena Velez') === 'Selena Velez: On my way to the shop.',
+        'A technician job-status note should preserve the technician name and customer-safe update.'
+    );
+    assert(
+        buildHomeownerTechnicianNoteMessage('Waiting for parts.', 'Selena Velez') === 'Selena Velez: Your technician is coordinating parts for your service.',
+        'Operational parts wording should be professionalized before it reaches the homeowner timeline.'
+    );
 }
 
 function acknowledgeBuildsHomeownerActivity() {

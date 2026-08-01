@@ -31,7 +31,10 @@ import {
 } from '../lib/homeServiceRequests';
 import { completeJobWorkflowFromTechOS } from '../lib/jobWorkflow';
 import { loadLoggedInUserCompanyAccess, type CompanyRouteAccessRow } from '../lib/onboarding';
-import { recordServiceRequestEvent } from '../lib/serviceRequestActivity';
+import {
+    recordHomeownerTechnicianNoteUpdate,
+    recordServiceRequestEvent,
+} from '../lib/serviceRequestActivity';
 import {
     createStatusTransitionIdempotencyKey,
     recordServiceRequestVisitStatus,
@@ -1596,10 +1599,30 @@ export default function TechOSScreen() {
                 ...current,
                 [slotId]: persistedWorkflowStatus,
             }));
+            let homeownerTimelineMessage = '';
+
+            if (normalizedStatus === 'custom' && serviceRequestId && cleanStatusNote) {
+                try {
+                    const homeownerUpdate = await recordHomeownerTechnicianNoteUpdate({
+                        companyId: job.slot.company_id,
+                        serviceRequestId,
+                        scheduleSlotId: slotId,
+                        statusNote: cleanStatusNote,
+                        technicianName,
+                        eventVersion: updatedAt,
+                    });
+
+                    homeownerTimelineMessage = homeownerUpdate.status === 'recorded'
+                        ? ' The homeowner timeline was updated.'
+                        : ' The note was saved, but the homeowner timeline update is pending.';
+                } catch {
+                    homeownerTimelineMessage = ' The note was saved, but the homeowner timeline could not be updated.';
+                }
+            }
             setWorkflowMessageBySlotId((current) => ({
                 ...current,
                 [slotId]: normalizedStatus === 'custom'
-                    ? `Custom status updated: ${trimmedStatusNote}.`
+                    ? `Job status note updated: ${trimmedStatusNote}.${homeownerTimelineMessage}`
                     : persistenceMismatchMessage || getTechWorkflowStatusFeedback(persistedWorkflowStatus),
             }));
             if (!transition.serviceRequestId) {

@@ -1401,7 +1401,7 @@ export default function HomeScreen() {
                       <HomeownerRequestTimeline
                         title="Appointment Updates"
                         emptyMessage="Updates will appear here when your appointment is scheduled or your technician shares a customer-visible status."
-                        entries={timelineEvents.slice(-5).map((event) => ({
+                        entries={timelineEvents.map((event) => ({
                           id: event.id,
                           title: formatServiceTimelineTitle(event.event_type),
                           message: event.message || 'Appointment update',

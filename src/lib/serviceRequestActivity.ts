@@ -43,6 +43,15 @@ export type RecordHomeownerAcknowledgedUpdateInput = {
     metadata?: Record<string, unknown>;
 };
 
+export type RecordHomeownerTechnicianNoteInput = {
+    companyId: string;
+    serviceRequestId: string;
+    scheduleSlotId: string;
+    statusNote: string;
+    technicianName?: string | null;
+    eventVersion: string;
+};
+
 export type ServiceRequestEventWriteResult = {
     status: 'recorded' | 'pending';
     event: ServiceRequestActivityEvent | null;
@@ -230,6 +239,49 @@ export async function recordHomeownerAcknowledgedUpdate(
         },
         notificationChannels: activity.notificationChannels,
     });
+}
+
+export async function recordHomeownerTechnicianNoteUpdate(
+    input: RecordHomeownerTechnicianNoteInput
+): Promise<ServiceRequestEventWriteResult> {
+    const message = buildHomeownerTechnicianNoteMessage(input.statusNote, input.technicianName);
+
+    if (!message) {
+        return {
+            status: 'pending',
+            event: null,
+            message: 'The technician update was empty and was not shared with the homeowner.',
+        };
+    }
+
+    return recordServiceRequestEvent({
+        companyId: input.companyId,
+        serviceRequestId: input.serviceRequestId,
+        eventType: 'technician_status_note',
+        message,
+        eventVisibility: 'system_homeowner_update',
+        audience: 'homeowner',
+        scheduleSlotId: input.scheduleSlotId,
+        dedupeKey: `homeowner-tech-note:${input.scheduleSlotId}:${input.eventVersion}`,
+        metadata: {
+            homeowner_status: 'technician_update',
+            homeowner_status_title: 'Technician Update',
+            technician_name: String(input.technicianName || '').trim() || null,
+            status_note: professionalizeCustomerMessage(input.statusNote),
+            source: 'techos_job_status_note',
+        },
+        notificationChannels: ['in_app', 'push'],
+    });
+}
+
+export function buildHomeownerTechnicianNoteMessage(statusNote?: string | null, technicianName?: string | null) {
+    const note = professionalizeCustomerMessage(statusNote);
+
+    if (!note) return '';
+
+    const name = String(technicianName || '').trim();
+
+    return name ? `${name}: ${note}` : `Technician update: ${note}`;
 }
 
 export async function recordHomeownerStatusUpdate(input: {

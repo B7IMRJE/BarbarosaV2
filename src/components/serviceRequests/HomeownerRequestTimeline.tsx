@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { useState } from 'react';
+import { Text, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 
 export type HomeownerRequestTimelineEntry = {
@@ -10,14 +11,20 @@ export type HomeownerRequestTimelineEntry = {
 
 export default function HomeownerRequestTimeline({
     entries,
+    collapsedEntryCount = 3,
     emptyMessage = 'Updates will appear here as the company works on your request.',
     title = 'Timeline',
 }: {
     entries: HomeownerRequestTimelineEntry[];
+    collapsedEntryCount?: number;
     emptyMessage?: string;
     title?: string;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const [expanded, setExpanded] = useState(false);
+    const visibleEntryCount = Math.max(1, collapsedEntryCount);
+    const hasEarlierEntries = entries.length > visibleEntryCount;
+    const visibleEntries = expanded ? entries : entries.slice(-visibleEntryCount);
 
     return (
         <View
@@ -29,16 +36,35 @@ export default function HomeownerRequestTimeline({
                 padding: scaleIcon(12),
             }}
         >
-            <Text style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>
-                {title}
-            </Text>
+            <View style={{ alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between', gap: scaleIcon(8) }}>
+                <Text style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>
+                    {title}
+                </Text>
+                {hasEarlierEntries && (
+                    <TouchableOpacity
+                        accessibilityRole="button"
+                        onPress={() => setExpanded((current) => !current)}
+                        style={{
+                            borderColor: theme.colors.border,
+                            borderRadius: theme.radii.button,
+                            borderWidth: 1,
+                            paddingHorizontal: scaleIcon(10),
+                            paddingVertical: scaleIcon(6),
+                        }}
+                    >
+                        <Text style={{ color: theme.colors.primary, fontSize: scaleFont(12), fontWeight: '900' }}>
+                            {expanded ? 'Show latest' : `View full (${entries.length})`}
+                        </Text>
+                    </TouchableOpacity>
+                )}
+            </View>
             {entries.length === 0 ? (
                 <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(7) }}>
                     {emptyMessage}
                 </Text>
             ) : (
                 <View style={{ gap: scaleIcon(10), marginTop: scaleIcon(10) }}>
-                    {entries.map((entry) => (
+                    {visibleEntries.map((entry) => (
                         <View
                             key={entry.id}
                             style={{
@@ -52,7 +78,10 @@ export default function HomeownerRequestTimeline({
                                     {entry.title}
                                 </Text>
                             )}
-                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: entry.title ? '700' : '900', lineHeight: scaleFont(18) }}>
+                            <Text
+                                numberOfLines={expanded ? undefined : 2}
+                                style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: entry.title ? '700' : '900', lineHeight: scaleFont(18) }}
+                            >
                                 {entry.message || 'Request update'}
                             </Text>
                             {!!entry.createdAt && (
