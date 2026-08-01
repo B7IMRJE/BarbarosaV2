@@ -440,6 +440,18 @@ function isAllowedCompanyClientPath(
   return (allowedCompanyIds || []).includes(companyId);
 }
 
+function isAllowedCompanyPriceBookPath(
+  pathname: string,
+  allowedCompanyIds: string[] | undefined
+) {
+  if (!pathname.match(/^\/super-admin\/company\/[^/]+\/price-book\/?$/)) return false;
+
+  const companyId = extractCompanyIdFromManagementPath(pathname);
+  if (!companyId) return false;
+
+  return (allowedCompanyIds || []).includes(companyId);
+}
+
 function isTechOSPath(pathname: string) {
   return pathname === TECHOS_ROUTE || pathname.startsWith(`${TECHOS_ROUTE}/`);
 }
@@ -569,6 +581,7 @@ function resolveRedirectForPath(
 
     if (
       isAllowedCompanyClientPath(pathname, routeDecision.allowedCompanyIds) ||
+      isAllowedCompanyPriceBookPath(pathname, routeDecision.allowedCompanyIds) ||
       isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
       isTechOSPath(pathname) ||
       isEstimatePath(pathname) ||
