@@ -1532,6 +1532,38 @@ function TeamMemberRow({
     const permissions = resolveCompanyPermissions(member);
     const techOSAllowed = canAccessCompanyTechOS(member);
     const companyOwner = isCompanyOwnerRole(member.role);
+    const [recoveryCode, setRecoveryCode] = useState('');
+    const [recoveryMessage, setRecoveryMessage] = useState('');
+    const [creatingRecoveryCode, setCreatingRecoveryCode] = useState(false);
+
+    async function createRecoveryCode() {
+        if (creatingRecoveryCode) return;
+
+        setCreatingRecoveryCode(true);
+        setRecoveryMessage('Creating a new login code...');
+        const result = await requestMemberRecoveryCode(member.id);
+        setCreatingRecoveryCode(false);
+
+        if (!result.inviteCode) {
+            setRecoveryCode('');
+            setRecoveryMessage(result.warning || 'The login code could not be created.');
+            return;
+        }
+
+        setRecoveryCode(result.inviteCode);
+        setRecoveryMessage(`Code expires ${formatDate(result.expiresAt)}.`);
+    }
+
+    async function copyRecoveryCode() {
+        if (!recoveryCode) return;
+
+        try {
+            await writeClipboardText(recoveryCode);
+            setRecoveryMessage('Login code copied.');
+        } catch {
+            setRecoveryMessage(`Copy is unavailable. Login code: ${recoveryCode}`);
+        }
+    }
 
     return (
         <GlassGridCard expanded={expanded} onPress={onToggle}>
@@ -1668,6 +1700,30 @@ function TeamMemberRow({
                     </DetailPanelSection>
 
                     <DetailPanelSection title="Security">
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                            If this member logged out before creating a password, generate a new six-digit code so they can sign in again.
+                        </Text>
+                        {!!recoveryCode && (
+                            <>
+                                <DetailLine label="Six-Digit Login Code" value={recoveryCode} />
+                                <ThemedButton
+                                    title="Copy Login Code"
+                                    variant="secondary"
+                                    onPress={copyRecoveryCode}
+                                    style={actionButtonStyle}
+                                />
+                            </>
+                        )}
+                        {!!recoveryMessage && (
+                            <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>{recoveryMessage}</Text>
+                        )}
+                        <ThemedButton
+                            title={creatingRecoveryCode ? 'Creating...' : 'Generate New Login Code'}
+                            variant="secondary"
+                            onPress={createRecoveryCode}
+                            disabled={creatingRecoveryCode || status !== 'active'}
+                            style={actionButtonStyle}
+                        />
                         <StatusActionButtons
                             status={status}
                             memberId={member.id}
@@ -2127,6 +2183,66 @@ async function requestManualInvite(invitationId: string): Promise<ManualInviteRe
             inviteUrl: null,
             expiresAt: null,
             warning: error instanceof Error ? error.message : 'Network error creating the invitation login code.',
+        };
+    }
+}
+
+async function requestMemberRecoveryCode(companyUserId: string): Promise<ManualInviteResult> {
+    const {
+        data: { session },
+        error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+        return {
+            inviteCode: null,
+            inviteUrl: null,
+            expiresAt: null,
+            warning: sessionError?.message || 'Sign in again before creating a recovery login code.',
+        };
+    }
+
+    try {
+        const response = await fetch(`${supabaseUrl}/functions/v1/send-company-user-invitation`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${session.access_token}`,
+                apikey: supabaseAnonKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                company_user_id: companyUserId,
+                delivery_mode: 'recovery_code',
+            }),
+        });
+        const text = await response.text();
+        const data = text.trim() ? JSON.parse(text) as unknown : null;
+        const record = data && typeof data === 'object' && !Array.isArray(data)
+            ? data as Record<string, unknown>
+            : {};
+        const inviteCode = (readStringField(record, 'invite_code') || '').replace(/\D/g, '').slice(0, 6);
+
+        if (!response.ok || !/^\d{6}$/.test(inviteCode)) {
+            return {
+                inviteCode: null,
+                inviteUrl: null,
+                expiresAt: null,
+                warning: readStringField(record, 'message') || `Login code creation failed with status ${response.status}.`,
+            };
+        }
+
+        return {
+            inviteCode,
+            inviteUrl: null,
+            expiresAt: readStringField(record, 'expires_at'),
+            warning: null,
+        };
+    } catch (error) {
+        return {
+            inviteCode: null,
+            inviteUrl: null,
+            expiresAt: null,
+            warning: error instanceof Error ? error.message : 'Network error creating the recovery login code.',
         };
     }
 }

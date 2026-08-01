@@ -64,8 +64,9 @@ export default {
 
             const body = await readJsonBody(req);
             const codeOnly = readStringField(body, 'delivery_mode') === 'code_only';
+            const recoveryCodeOnly = readStringField(body, 'delivery_mode') === 'recovery_code';
 
-            if (!codeOnly && !env.resendApiKey && !env.sendgridApiKey) {
+            if (!codeOnly && !recoveryCodeOnly && !env.resendApiKey && !env.sendgridApiKey) {
                 return json(
                     req,
                     {
@@ -77,7 +78,7 @@ export default {
                 );
             }
 
-            if (!codeOnly && !env.fromEmail) {
+            if (!codeOnly && !recoveryCodeOnly && !env.fromEmail) {
                 return json(
                     req,
                     {
@@ -89,6 +90,36 @@ export default {
                 );
             }
 
+            const userVerified = await verifyCaller(env, authToken);
+
+            if (!userVerified) {
+                return json(req, { ok: false, code: 'not_authenticated', message: 'Not authenticated.' }, 401);
+            }
+
+            if (recoveryCodeOnly) {
+                const companyUserId = normalizeInvitationId(body.company_user_id ?? body.companyUserId);
+
+                if (!companyUserId) {
+                    return json(req, { ok: false, code: 'invalid_company_user', message: 'Company member is required.' }, 400);
+                }
+
+                const recoveryInvitation = await prepareMemberRecoveryInvitation(
+                    env,
+                    authToken,
+                    userVerified,
+                    companyUserId
+                );
+                const recoveryCode = await createManualLoginCode(env, recoveryInvitation);
+
+                return json(req, {
+                    ok: true,
+                    code: 'recovery_code_ready',
+                    message: 'New six-digit login code created.',
+                    invite_code: recoveryCode.inviteCode,
+                    expires_at: recoveryCode.expiresAt,
+                });
+            }
+
             const invitationIdInput = body.invitation_id ?? body.invitationId ?? body.p_invitation_id;
             const invitationId = normalizeInvitationId(invitationIdInput);
 
@@ -98,12 +129,6 @@ export default {
                     : 'Invitation id is required.';
 
                 return json(req, { ok: false, code: 'invalid_invitation', message }, 400);
-            }
-
-            const userVerified = await verifyCaller(env, authToken);
-
-            if (!userVerified) {
-                return json(req, { ok: false, code: 'not_authenticated', message: 'Not authenticated.' }, 401);
             }
 
             const invitation = codeOnly
@@ -564,11 +589,109 @@ async function verifyCaller(env: FunctionEnv, authToken: string) {
         },
     });
 
-    if (!response.ok) return false;
+    if (!response.ok) return null;
 
     const data = (await response.json().catch(() => null)) as { id?: unknown } | null;
 
-    return typeof data?.id === 'string' && data.id.length > 0;
+    return typeof data?.id === 'string' && data.id.length > 0 ? data.id : null;
+}
+
+async function prepareMemberRecoveryInvitation(
+    env: FunctionEnv,
+    authToken: string,
+    callerUserId: string,
+    companyUserId: string
+): Promise<DeliveryInvitation> {
+    const memberUrl = new URL('/rest/v1/company_users', env.supabaseUrl);
+    memberUrl.searchParams.set('id', `eq.${companyUserId}`);
+    memberUrl.searchParams.set('select', 'company_id,email,full_name,role,status');
+    memberUrl.searchParams.set('limit', '1');
+    const memberResponse = await fetch(memberUrl, {
+        headers: {
+            apikey: env.serviceRoleKey,
+            Authorization: `Bearer ${env.serviceRoleKey}`,
+        },
+    });
+    const members = await memberResponse.json().catch(() => []) as {
+        company_id?: string;
+        email?: string;
+        full_name?: string | null;
+        role?: string;
+        status?: string;
+    }[];
+    const member = members[0];
+
+    if (!memberResponse.ok || !member?.company_id || !member.email || member.status !== 'active') {
+        throw new RequestError(404, 'company_member_not_found', 'Active company member was not found.');
+    }
+
+    const allowed = await invokeRpc<boolean>(env, authToken, 'can_manage_company_users', {
+        p_company_id: member.company_id,
+    });
+    if (!allowed) {
+        throw new RequestError(403, 'not_authorized', 'You are not allowed to create login codes for this company.');
+    }
+
+    const invitationUrl = new URL('/rest/v1/company_user_invitations', env.supabaseUrl);
+    invitationUrl.searchParams.set('company_id', `eq.${member.company_id}`);
+    invitationUrl.searchParams.set('email', `eq.${normalizeEmail(member.email)}`);
+    invitationUrl.searchParams.set('status', 'eq.pending');
+    invitationUrl.searchParams.set('select', 'id,expires_at');
+    invitationUrl.searchParams.set('limit', '1');
+    let invitationResponse = await fetch(invitationUrl, {
+        headers: {
+            apikey: env.serviceRoleKey,
+            Authorization: `Bearer ${env.serviceRoleKey}`,
+        },
+    });
+    let invitations = await invitationResponse.json().catch(() => []) as {
+        id?: string;
+        expires_at?: string | null;
+    }[];
+
+    if (!invitationResponse.ok) {
+        throw new RequestError(500, 'recovery_invitation_failed', 'The recovery login code could not be prepared.');
+    }
+
+    if (!invitations[0]?.id) {
+        invitationResponse = await fetch(`${env.supabaseUrl}/rest/v1/company_user_invitations`, {
+            method: 'POST',
+            headers: {
+                apikey: env.serviceRoleKey,
+                Authorization: `Bearer ${env.serviceRoleKey}`,
+                'Content-Type': 'application/json',
+                Prefer: 'return=representation',
+            },
+            body: JSON.stringify({
+                company_id: member.company_id,
+                email: normalizeEmail(member.email),
+                full_name: member.full_name || null,
+                role: member.role || 'technician',
+                status: 'pending',
+                invited_by_user_id: callerUserId,
+            }),
+        });
+        invitations = await invitationResponse.json().catch(() => []) as typeof invitations;
+    }
+
+    const invitation = invitations[0];
+    if (!invitationResponse.ok || !invitation?.id) {
+        throw new RequestError(500, 'recovery_invitation_failed', 'The recovery login code could not be prepared.');
+    }
+
+    return {
+        invitation_id: invitation.id,
+        company_id: member.company_id,
+        company_name: null,
+        email: normalizeEmail(member.email),
+        invited_role: member.role || 'technician',
+        full_name: member.full_name || null,
+        expires_at: invitation.expires_at || null,
+        last_email_attempted_at: null,
+        last_email_sent_at: null,
+        email_send_count: 0,
+        cooldown_ends_at: null,
+    };
 }
 
 async function prepareInvitationDelivery(env: FunctionEnv, authToken: string, invitationId: string) {
