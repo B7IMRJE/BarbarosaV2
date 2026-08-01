@@ -167,6 +167,28 @@ export default {
                         message: 'Your secure session opened, but HomeOS could not prepare the homeowner profile.',
                     }, 500);
                 }
+                const acceptedCompanyUser = invitation.source === 'company_user'
+                    ? await acceptCompanyUserInvitation(
+                        supabaseUrl,
+                        publishableKey,
+                        verifyBody.access_token,
+                        invitation.id,
+                        code
+                    )
+                    : null;
+                if (invitation.source === 'company_user' && !acceptedCompanyUser) {
+                    await recordAttempt(supabaseUrl, serviceRoleKey, {
+                        invitationId: invitation.id,
+                        ipHash,
+                        codeHash,
+                        succeeded: false,
+                        outcome: 'auth_failed',
+                    });
+                    return response(req, {
+                        ok: false,
+                        message: 'Your secure session opened, but HomeOS could not activate the company membership. Please retry the same code.',
+                    }, 500);
+                }
                 await Promise.all([
                     markInvitationCodeUsed(supabaseUrl, serviceRoleKey, invitation),
                     recordAttempt(supabaseUrl, serviceRoleKey, {
@@ -183,7 +205,7 @@ export default {
                     refresh_token: verifyBody.refresh_token,
                     next: invitation.source === 'customer'
                         ? `/customer-invite?code=${encodeURIComponent(invitation.connectionCode)}`
-                        : `/company-invite?code=${encodeURIComponent(code)}`,
+                        : `/super-admin/company/${encodeURIComponent(acceptedCompanyUser?.company_id || '')}`,
                 });
             }
         }
@@ -246,13 +268,42 @@ async function ensureHomeownerProfile(
     return result.ok;
 }
 
+async function acceptCompanyUserInvitation(
+    supabaseUrl: string,
+    publishableKey: string,
+    accessToken: string,
+    invitationId: string,
+    code: string
+) {
+    const result = await fetch(`${supabaseUrl}/rest/v1/rpc/accept_company_user_invitation_by_code`, {
+        method: 'POST',
+        headers: {
+            apikey: publishableKey,
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            p_invitation_id: invitationId,
+            p_invite_code: code,
+        }),
+    });
+    const responseData = await result.json().catch(() => null) as
+        | { company_id?: string | null }
+        | { company_id?: string | null }[]
+        | null;
+    const data = Array.isArray(responseData) ? responseData[0] : responseData;
+
+    if (!result.ok || !data?.company_id) return null;
+
+    return { company_id: String(data.company_id) };
+}
+
 async function findCompanyUserInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
     const url = new URL('/rest/v1/company_user_invitations', supabaseUrl);
     url.searchParams.set('manual_invite_code', `eq.${code}`);
     url.searchParams.set('status', 'eq.pending');
     url.searchParams.set('revoked_at', 'is.null');
     url.searchParams.set('accepted_at', 'is.null');
-    url.searchParams.set('login_code_used_at', 'is.null');
     url.searchParams.set('select', 'id,email,manual_invite_expires_at,expires_at');
     url.searchParams.set('limit', '1');
 
