@@ -1,10 +1,22 @@
-import { mergeCompanyAccessRows, type CompanyRouteAccessRow } from './onboarding';
+import {
+    mergeCompanyAccessRows,
+    resolveActiveCompanyRoute,
+    type CompanyRouteAccessRow,
+} from './onboarding';
 
 runOnboardingRegressions();
 
 export function runOnboardingRegressions() {
     technicianPermissionFallbackSurvivesBlockedDirectRosterRead();
     directRosterDetailsEnrichPermissionFallback();
+    technicianCompanyRouteDoesNotDependOnAHomeownerProfile();
+}
+
+function technicianCompanyRouteDoesNotDependOnAHomeownerProfile() {
+    const route = resolveActiveCompanyRoute([createTechnicianAccess()]);
+
+    assert(route?.reason === 'company-technician', 'Active technician access should resolve before homeowner profile onboarding.');
+    assert(route?.route === '/techos?companyId=company-1', 'Active technician should open the correct company TechOS workspace.');
 }
 
 function technicianPermissionFallbackSurvivesBlockedDirectRosterRead() {

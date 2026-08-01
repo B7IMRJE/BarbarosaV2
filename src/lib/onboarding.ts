@@ -60,6 +60,24 @@ export async function resolveLoggedInUserRoute(
 ): Promise<LoggedInUserRouteDecision> {
     try {
         const profileQuery = await loadRouteProfile(userId);
+        const profile = profileQuery.data;
+
+        if (isSuperAdminProfile(profile)) {
+            return {
+                route: SUPER_ADMIN_ROUTE,
+                reason: 'super-admin',
+            };
+        }
+
+        const companyAccessQuery = await loadLoggedInUserCompanyAccess(userId);
+        const activeCompanyAccess = companyAccessQuery.data
+            .filter((companyUser) => normalizeCompanyUserStatus(companyUser.status) === 'active');
+        const companyRoute = resolveActiveCompanyRoute(activeCompanyAccess, options.preferredCompanyId);
+        if (companyRoute) return companyRoute;
+
+        if (companyAccessQuery.error) {
+            return serviceUnavailableRouteDecision(companyAccessQuery.error.message);
+        }
 
         if (profileQuery.error) {
             return isServiceUnavailableError(profileQuery.error)
@@ -71,8 +89,6 @@ export async function resolveLoggedInUserRoute(
                 };
         }
 
-        const profile = profileQuery.data;
-
         if (!profile) {
             return {
                 route: HOME_ROUTE,
@@ -81,58 +97,7 @@ export async function resolveLoggedInUserRoute(
             };
         }
 
-        if (isSuperAdminProfile(profile)) {
-            return {
-                route: SUPER_ADMIN_ROUTE,
-                reason: 'super-admin',
-            };
-        }
-
         const role = normalizeRole(profile.role);
-        const companyAccessQuery = await loadLoggedInUserCompanyAccess(userId);
-
-        if (companyAccessQuery.error) {
-            return serviceUnavailableRouteDecision(companyAccessQuery.error.message);
-        }
-
-        const activeCompanyAccess = companyAccessQuery.data
-            .filter((companyUser) => normalizeCompanyUserStatus(companyUser.status) === 'active');
-
-        const managementAccess = pickCompanyAccessForRoles(
-            activeCompanyAccess,
-            MANAGEMENT_COMPANY_ROLES,
-            options.preferredCompanyId
-        );
-
-        if (managementAccess) {
-            const allowedCompanyIds = activeCompanyAccess
-                .filter((companyUser) => MANAGEMENT_COMPANY_ROLES.includes(normalizeCompanyUserRole(companyUser.role)))
-                .map((companyUser) => companyUser.company_id);
-
-            return {
-                route: companyManagementRoute(managementAccess.company_id),
-                reason: 'company-management',
-                companyId: managementAccess.company_id,
-                companyRole: normalizeCompanyUserRole(managementAccess.role),
-                allowedCompanyIds,
-            };
-        }
-
-        const technicianAccess = pickCompanyAccessForRoles(
-            activeCompanyAccess,
-            TECHOS_COMPANY_ROLES,
-            options.preferredCompanyId
-        ) || pickCompanyAccessForTechOS(activeCompanyAccess, options.preferredCompanyId);
-
-        if (technicianAccess) {
-            return {
-                route: techOSRoute(technicianAccess.company_id),
-                reason: 'company-technician',
-                companyId: technicianAccess.company_id,
-                companyRole: normalizeCompanyUserRole(technicianAccess.role),
-                allowedCompanyIds: [technicianAccess.company_id],
-            };
-        }
 
         if (isStaffRole(role) || COMPANY_PROFILE_ROLES.includes(role)) {
             const fallbackCompanyAccess = pickCompanyAccess(activeCompanyAccess, options.preferredCompanyId);
@@ -200,6 +165,47 @@ export async function resolveLoggedInUserRoute(
     } catch (error) {
         return serviceUnavailableRouteDecision(getErrorMessage(error));
     }
+}
+
+export function resolveActiveCompanyRoute(
+    activeCompanyAccess: CompanyRouteAccessRow[],
+    preferredCompanyId?: string | null
+): LoggedInUserRouteDecision | null {
+    const managementAccess = pickCompanyAccessForRoles(
+        activeCompanyAccess,
+        MANAGEMENT_COMPANY_ROLES,
+        preferredCompanyId
+    );
+
+    if (managementAccess) {
+        const allowedCompanyIds = activeCompanyAccess
+            .filter((companyUser) => MANAGEMENT_COMPANY_ROLES.includes(normalizeCompanyUserRole(companyUser.role)))
+            .map((companyUser) => companyUser.company_id);
+
+        return {
+            route: companyManagementRoute(managementAccess.company_id),
+            reason: 'company-management',
+            companyId: managementAccess.company_id,
+            companyRole: normalizeCompanyUserRole(managementAccess.role),
+            allowedCompanyIds,
+        };
+    }
+
+    const technicianAccess = pickCompanyAccessForRoles(
+        activeCompanyAccess,
+        TECHOS_COMPANY_ROLES,
+        preferredCompanyId
+    ) || pickCompanyAccessForTechOS(activeCompanyAccess, preferredCompanyId);
+
+    if (!technicianAccess) return null;
+
+    return {
+        route: techOSRoute(technicianAccess.company_id),
+        reason: 'company-technician',
+        companyId: technicianAccess.company_id,
+        companyRole: normalizeCompanyUserRole(technicianAccess.role),
+        allowedCompanyIds: [technicianAccess.company_id],
+    };
 }
 
 export type CompanyRouteAccessRow = {
