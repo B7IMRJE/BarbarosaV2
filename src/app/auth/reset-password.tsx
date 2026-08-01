@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react';
 import {
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
+import PasswordField from '../../components/auth/password-field';
 import { supabase } from '../../lib/supabase';
 
 export default function ResetPasswordScreen() {
@@ -116,19 +116,17 @@ export default function ResetPasswordScreen() {
                     Create a new password for your HomeOS account.
                 </Text>
 
-                <TextInput
+                <PasswordField
                     placeholder="New Password"
                     value={password}
                     onChangeText={setPassword}
-                    secureTextEntry
                     style={inputStyle}
                 />
 
-                <TextInput
+                <PasswordField
                     placeholder="Confirm New Password"
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
-                    secureTextEntry
                     style={inputStyle}
                 />
 

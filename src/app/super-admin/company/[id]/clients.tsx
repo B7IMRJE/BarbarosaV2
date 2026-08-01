@@ -1202,6 +1202,7 @@ function ClientCard({
     width: number;
 }) {
     const { theme } = useTheme();
+    const glassPalette = useGlassPalette();
     const clientRoute = `/super-admin/company/${companyId}/client/${entry.propertyId}` as Href;
 
     return (
@@ -1211,18 +1212,18 @@ function ClientCard({
             contentStyle={{ borderColor: theme.colors.border }}
         >
             <View style={customerCardMetaStyle}>
-                <Text style={[customerNumberStyle, { color: theme.colors.primary }]}>
+                <Text style={[customerNumberStyle, { color: glassPalette.text }]}>
                     #{entry.customerNumber}
                 </Text>
-                <Text style={[customerTenureStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                <Text style={[customerTenureStyle, { color: glassPalette.mutedText }]} numberOfLines={1}>
                     {entry.tenure}
                 </Text>
             </View>
             <View style={customerCardIdentityStyle}>
-                <Text style={[customerNameStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                <Text style={[customerNameStyle, { color: glassPalette.text }]} numberOfLines={2}>
                     {entry.name}
                 </Text>
-                <Text style={[customerAddressStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
+                <Text style={[customerAddressStyle, { color: glassPalette.mutedText }]} numberOfLines={2}>
                     {entry.address}
                 </Text>
             </View>

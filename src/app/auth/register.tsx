@@ -8,6 +8,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import PasswordField from '../../components/auth/password-field';
 import {
     buildCompanyInviteAuthConfirmRedirect,
     getPendingCompanyInviteState,
@@ -256,11 +257,10 @@ export default function RegisterScreen() {
                             style={inputStyle}
                         />
 
-                        <TextInput
+                        <PasswordField
                             placeholder="Password"
                             value={password}
                             onChangeText={setPassword}
-                            secureTextEntry
                             autoCapitalize="none"
                             autoCorrect={false}
                             autoComplete="new-password"
@@ -269,11 +269,10 @@ export default function RegisterScreen() {
                             style={inputStyle}
                         />
 
-                        <TextInput
+                        <PasswordField
                             placeholder="Confirm Password"
                             value={confirmPassword}
                             onChangeText={setConfirmPassword}
-                            secureTextEntry
                             autoCapitalize="none"
                             autoCorrect={false}
                             autoComplete="off"

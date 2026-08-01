@@ -6,6 +6,7 @@ import {
     TextInput,
     View,
 } from 'react-native';
+import PasswordField from '../../components/auth/password-field';
 import {
     buildCompanyInviteAuthConfirmRedirect,
     clearPendingCompanyInviteState,
@@ -260,14 +261,13 @@ export default function LoginScreen() {
                     style={inputStyle}
                 />
 
-                <TextInput
+                <PasswordField
                     placeholder="Password"
                     value={password}
                     onChangeText={(value) => {
                         setPassword(value);
                         if (unconfirmedEmail) setUnconfirmedEmail('');
                     }}
-                    secureTextEntry
                     autoCapitalize="none"
                     autoCorrect={false}
                     autoComplete="current-password"

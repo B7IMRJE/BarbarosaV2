@@ -106,17 +106,25 @@ export default {
                 return json(req, { ok: false, code: 'not_authenticated', message: 'Not authenticated.' }, 401);
             }
 
-            const invitation = await prepareInvitationDelivery(env, authToken, invitationId);
+            const invitation = codeOnly
+                ? await loadInvitationForCodeCreation(env, authToken, invitationId)
+                : await prepareInvitationDelivery(env, authToken, invitationId);
             const clientEmail = readStringField(body, 'email');
 
             if (clientEmail && normalizeEmail(clientEmail) !== normalizeEmail(invitation.email)) {
                 return json(req, { ok: false, code: 'email_mismatch', message: 'Invite email does not match this invitation.' }, 400);
             }
 
-            const appBaseUrl = env.publicAppUrl || readRequestAppBaseUrl(body);
-            const authInvite = codeOnly
-                ? await createManualLoginCode(env, invitation)
-                : await createAuthInvitation(env, invitation, appBaseUrl);
+            const requestedInviteCode = String(body.invite_code || body.inviteCode || '')
+                .replace(/\D/g, '')
+                .slice(0, 6);
+            const authInvite = /^\d{6}$/.test(requestedInviteCode) && !codeOnly
+                ? {
+                    inviteCode: requestedInviteCode,
+                    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                    verificationType: 'manual',
+                }
+                : await createManualLoginCode(env, invitation);
             const inviteCode = authInvite.inviteCode;
             const inviteLink = resolveInviteLink(env, body, inviteCode);
 
@@ -579,6 +587,51 @@ async function prepareInvitationDelivery(env: FunctionEnv, authToken: string, in
     }
 
     return invitation;
+}
+
+async function loadInvitationForCodeCreation(
+    env: FunctionEnv,
+    authToken: string,
+    invitationId: string
+): Promise<DeliveryInvitation> {
+    const url = new URL('/rest/v1/company_user_invitations', env.supabaseUrl);
+    url.searchParams.set('id', `eq.${invitationId}`);
+    url.searchParams.set('status', 'eq.pending');
+    url.searchParams.set('select', 'id,company_id,email,role,full_name,expires_at');
+    url.searchParams.set('limit', '1');
+    const response = await fetch(url, {
+        headers: {
+            apikey: env.publishableKey,
+            Authorization: `Bearer ${authToken}`,
+        },
+    });
+    const rows = await response.json().catch(() => []) as Array<{
+        id?: string;
+        company_id?: string;
+        email?: string;
+        role?: string;
+        full_name?: string | null;
+        expires_at?: string | null;
+    }>;
+    const invitation = rows[0];
+
+    if (!response.ok || !invitation?.id || !invitation.company_id || !invitation.email) {
+        throw new RequestError(404, 'invitation_not_found', 'Invitation login code cannot be created.');
+    }
+
+    return {
+        invitation_id: invitation.id,
+        company_id: invitation.company_id,
+        company_name: null,
+        email: invitation.email,
+        invited_role: invitation.role || 'technician',
+        full_name: invitation.full_name || null,
+        expires_at: invitation.expires_at || null,
+        last_email_attempted_at: null,
+        last_email_sent_at: null,
+        email_send_count: 0,
+        cooldown_ends_at: null,
+    };
 }
 
 async function recordDelivery(

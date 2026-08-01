@@ -373,11 +373,10 @@ export default function CompanyUsersScreen() {
             findReusablePendingInvitation(normalizedEmail, invitations, nowMs) ||
             await loadReusablePendingInvitation(String(id), normalizedEmail, nowMs);
         let invitationToSend: CompanyInvitation | null = existingPendingInvite;
-        let createdNewInvitation = false;
 
-        setSubmitStage(existingPendingInvite ? 'sending' : 'creating');
+        setSubmitStage('creating');
         setMessage(existingPendingInvite
-            ? `A pending invite already exists for ${normalizedEmail}. Sending that invitation email...`
+            ? `A pending invite already exists for ${normalizedEmail}. Creating a new six-digit code...`
             : 'Creating invitation...');
 
         if (!existingPendingInvite) {
@@ -395,8 +394,6 @@ export default function CompanyUsersScreen() {
             }
 
             invitationToSend = normalizeInvitationRecord(data);
-            createdNewInvitation = true;
-
             await recordCompanyAuditEvent({
                 companyId: String(id),
                 action: 'company_user_invitation_created',
@@ -415,30 +412,36 @@ export default function CompanyUsersScreen() {
         if (!invitationToSend) {
             setSubmitStage('idle');
             await loadCompanyUsers(false);
-            setMessage('Invitation was created, but the app could not read the invitation id. Refresh and use the pending invites list to resend.');
+            setMessage('Invitation was created, but the app could not read its id. Refresh the pending invitations list and create the code there.');
             return;
         }
 
-        setSubmitStage('sending');
-        setMessage('Sending email...');
-        const emailResult = await sendInvitationEmailForInvitation(invitationToSend, {
-            messagePrefixOnFailure: createdNewInvitation
-                ? 'Invite was created, but email sending failed. You can resend it from the pending invites list.'
-                : 'A pending invite already exists, but email sending failed. You can resend it from the pending invites list.',
-        });
+        const manualInvite = await requestManualInvite(invitationToSend.id);
 
         setSubmitStage('idle');
         await loadCompanyUsers(false);
 
-        if (!emailResult.ok) {
-            setMessage(emailResult.message);
+        if (!manualInvite.inviteCode) {
+            setMessage(manualInvite.warning || 'Invitation was created, but the six-digit code could not be prepared.');
             return;
         }
+
+        setManualInvitesById((current) => ({
+            ...current,
+            [invitationToSend.id]: {
+                status: 'ready',
+                inviteCode: manualInvite.inviteCode,
+                inviteUrl: manualInvite.inviteUrl,
+                expiresAt: manualInvite.expiresAt,
+                warning: manualInvite.warning,
+                message: 'Six-digit invitation code is ready.',
+            },
+        }));
 
         setFullName('');
         setEmail('');
         setRole('technician');
-        setMessage(`Invitation sent to ${normalizedEmail}`);
+        setMessage(`Invitation code ready for ${normalizedEmail}: ${manualInvite.inviteCode}`);
     }
 
     async function sendInvitationEmail(invitationId: string) {
@@ -909,10 +912,8 @@ export default function CompanyUsersScreen() {
     const normalizedSearch = normalizeSearch(searchQuery);
     const submitting = submitStage !== 'idle';
     const inviteSubmitTitle = submitStage === 'creating'
-        ? 'Creating invitation...'
-        : submitStage === 'sending'
-            ? 'Sending email...'
-            : 'Send Invitation';
+        ? 'Creating invitation code...'
+        : 'Create Invitation Code';
     const filteredMembers = useMemo(
         () => members.filter((member) => matchesMemberSearch(member, normalizedSearch)),
         [members, normalizedSearch]
@@ -1385,7 +1386,6 @@ export default function CompanyUsersScreen() {
                                         manualInvite={manualInvitesById[invitation.id]}
                                         nowMs={nowMs}
                                         onToggle={() => toggleRow(`invitation:${invitation.id}`)}
-                                        onSendEmail={sendInvitationEmail}
                                         onCreateManualInvite={createManualInvite}
                                         onCopyManualInviteValue={copyManualInviteValue}
                                         onRevoke={revokeInvitation}
@@ -1842,7 +1842,6 @@ function InvitationRow({
     manualInvite,
     nowMs,
     onToggle,
-    onSendEmail,
     onCreateManualInvite,
     onCopyManualInviteValue,
     onRevoke,
@@ -1855,27 +1854,21 @@ function InvitationRow({
     manualInvite?: ManualInviteDetails;
     nowMs: number;
     onToggle: () => void;
-    onSendEmail: (invitationId: string) => void;
     onCreateManualInvite: (invitationId: string) => void;
     onCopyManualInviteValue: (invitationId: string, label: string, value: string) => void;
     onRevoke: (invitationId: string) => void;
     onDeleteInvitation: (invitationId: string) => void;
 }) {
     const { theme } = useTheme();
-    const emailKey = `${invitation.id}:email`;
     const manualKey = `${invitation.id}:manual`;
     const revokeKey = `${invitation.id}:revoke`;
     const deleteKey = `${invitation.id}:delete`;
     const status = normalizeStatus(invitation.status);
     const expired = isInvitationExpired(invitation, nowMs);
     const displayStatus = expired ? 'expired' : status;
-    const sendable = status === 'pending' && !expired;
-    const cooldownRemainingMs = getCooldownRemainingMs(invitation, nowMs);
-    const sending = actionLoadingKey === emailKey;
     const creatingManualInvite = actionLoadingKey === manualKey;
     const deletingInvitation = actionLoadingKey === deleteKey;
     const anyActionLoading = actionLoadingKey !== null;
-    const emailSendCount = invitation.email_send_count || 0;
     const inviteTitle = invitation.full_name || invitation.email || 'Unnamed invitee';
 
     return (
@@ -1952,18 +1945,6 @@ function InvitationRow({
                         <>
                             <View style={actionRowStyle}>
                                 <ThemedButton
-                                    title={getEmailButtonTitle({
-                                        sending,
-                                        sendable,
-                                        cooldownRemainingMs,
-                                        emailSendCount,
-                                    })}
-                                    variant={feedback?.status === 'failed' ? 'danger' : 'secondary'}
-                                    onPress={() => onSendEmail(invitation.id)}
-                                    disabled={anyActionLoading || !sendable || cooldownRemainingMs > 0}
-                                    style={actionButtonStyle}
-                                />
-                                <ThemedButton
                                     title={actionLoadingKey === revokeKey ? 'Revoking...' : 'Revoke Invitation'}
                                     variant="danger"
                                     onPress={() => onRevoke(invitation.id)}
@@ -1981,9 +1962,9 @@ function InvitationRow({
                                 )}
                             </View>
 
-                            <DetailPanelSection title="Advanced / Manual Login Code">
+                            <DetailPanelSection title="Invitation Login Code">
                                 <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
-                                    Create a six-digit login code if email delivery fails or you need to share the code another way.
+                                    Create or refresh the six-digit code, then share it directly with the invited person.
                                 </Text>
                                 {manualInvite && (
                                     <View
