@@ -26,7 +26,7 @@ export default function ForgotPasswordScreen() {
             return;
         }
 
-        Alert.alert('Reset email sent', 'Check your email for the password reset link.');
+        Alert.alert('Reset email sent', 'Check your email for the secure link to create or change your password.');
         router.push('/auth/login' as any);
     }
 
@@ -41,10 +41,18 @@ export default function ForgotPasswordScreen() {
                 </Text>
 
                 <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
-                    Enter your email and HomeOS will send a reset link.
+                    Enter the email used for your HomeOS account or company invitation. We will send a secure link to create or change your password.
                 </Text>
 
-                <TextInput placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" style={inputStyle} />
+                <TextInput
+                    placeholder="Email"
+                    value={email}
+                    onChangeText={setEmail}
+                    autoCapitalize="none"
+                    autoComplete="email"
+                    keyboardType="email-address"
+                    style={inputStyle}
+                />
 
                 <TouchableOpacity onPress={handleReset} style={buttonStyle}>
                     <Text style={buttonTextStyle}>{loading ? 'Sending...' : 'Send Reset Link'}</Text>

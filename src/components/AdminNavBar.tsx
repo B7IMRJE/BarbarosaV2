@@ -401,6 +401,31 @@ function ManagementIdentityBadge({
                         <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]}>
                             {identity.email || 'Email unavailable'}
                         </Text>
+                        <TouchableOpacity
+                            accessibilityRole="button"
+                            accessibilityLabel="Create or change password"
+                            onPress={() => router.push('/profile/change-password' as Href)}
+                            style={{
+                                backgroundColor: theme.colors.primary,
+                                borderRadius: 10,
+                                marginTop: 10,
+                                paddingHorizontal: 14,
+                                paddingVertical: 10,
+                            }}
+                        >
+                            <Text style={{ color: theme.colors.primaryText, fontWeight: '900', textAlign: 'center' }}>
+                                Create or Change Password
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            accessibilityRole="link"
+                            onPress={() => router.push('/auth/forgot-password' as Href)}
+                            style={{ paddingVertical: 9 }}
+                        >
+                            <Text style={{ color: theme.colors.primary, fontWeight: '800', textAlign: 'center' }}>
+                                Send Password Reset Link
+                            </Text>
+                        </TouchableOpacity>
                         <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]}>
                             Role: {role} · User {shortId(identity.userId)} · Company record {identity.companyUserId ? shortId(identity.companyUserId) : 'none'}
                         </Text>
