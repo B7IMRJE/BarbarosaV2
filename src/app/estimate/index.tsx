@@ -6,6 +6,7 @@ import { Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } fro
 import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
+    canManageEstimatePricing,
     createEstimateRequirementSkipAnswer,
     estimateCategoryTemplates,
     estimateRequirementId,
@@ -1781,8 +1782,22 @@ export default function EstimateScreen() {
                         <View style={smallEmptyStyle}>
                             <Text style={smallEmptyTitleStyle}>Pricing setup required</Text>
                             <Text style={smallEmptyTextStyle}>
-                                Add active company price-book entries before generating homeowner choices.
+                                {priceBookItems.some((item) => item.active && (item.recommended_selling_price != null || item.base_price != null))
+                                    ? `No active selling price matches ${phase1Workspace.template.label}. Add or update a matching company Price Book item before generating homeowner choices.`
+                                    : 'The company Price Book is connected, but it has no active selling prices yet.'}
                             </Text>
+                            {canManageEstimatePricing(estimateAccess) && estimateAccess?.companyId ? (
+                                <TouchableOpacity
+                                    onPress={() => router.push(`/super-admin/company/${encodeURIComponent(estimateAccess.companyId)}/price-book` as never)}
+                                    style={secondaryButtonStyle}
+                                >
+                                    <Text style={secondaryButtonTextStyle}>Open Company Price Book</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <Text style={smallEmptyTextStyle}>
+                                    Ask a company owner, manager, or admin to add the selling price.
+                                </Text>
+                            )}
                         </View>
                     ) : (
                         <View style={foundationGridStyle}>

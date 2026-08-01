@@ -45,6 +45,7 @@ export function runEstimateOptionsRegressions() {
     anotherCompanyCannotReadPriceBook();
     inactiveEntriesCannotBeUsedInNewOptions();
     missingPriceBookBlocksPresentation();
+    showerValvePriceBookEntryClearsPricingSetup();
     priceSnapshotsRemainStableAfterEdits();
     belowMinimumRequiresApproval();
     maximumRulesAreEnforced();
@@ -165,6 +166,20 @@ function missingPriceBookBlocksPresentation() {
 
     assert(workspace.pricingSetupRequired, 'Empty price book should require pricing setup.');
     assert(workspace.presentationGate.blockers.includes('Pricing setup required.'), 'Missing pricing must block presentation.');
+}
+
+function showerValvePriceBookEntryClearsPricingSetup() {
+    const workspace = buildWorkspace({
+        category: 'valve_replacement',
+        answers: completeAnswers('valve_replacement'),
+        priceBookItems: [priceBookItem('company-a', 1, 'Fixtures', 895, {
+            name: 'Shower valve replacement',
+        })],
+        technicianApproved: true,
+    });
+
+    assert(!workspace.pricingSetupRequired, 'A priced shower-valve entry should clear pricing setup.');
+    assert(workspace.eligiblePriceBookEntries.some((entry) => entry.name === 'Shower valve replacement'), 'Shower-valve pricing should be selected for valve estimates.');
 }
 
 function priceSnapshotsRemainStableAfterEdits() {
@@ -1086,7 +1101,13 @@ function faucetPriceBookItem(
     };
 }
 
-function priceBookItem(companyId: string, index: number, category: string, price: number): CompanyPriceBookItemLike {
+function priceBookItem(
+    companyId: string,
+    index: number,
+    category: string,
+    price: number,
+    overrides: Partial<CompanyPriceBookItemLike> = {}
+): CompanyPriceBookItemLike {
     return {
         id: `${companyId}-price-${index}`,
         company_id: companyId,
@@ -1104,6 +1125,7 @@ function priceBookItem(companyId: string, index: number, category: string, price
         created_at: '2026-07-13T00:00:00.000Z',
         updated_at: '2026-07-13T00:00:00.000Z',
         source: 'backend',
+        ...overrides,
     };
 }
 
