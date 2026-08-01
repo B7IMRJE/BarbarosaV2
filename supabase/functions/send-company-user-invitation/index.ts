@@ -113,11 +113,10 @@ export default {
                 return json(req, { ok: false, code: 'email_mismatch', message: 'Invite email does not match this invitation.' }, 400);
             }
 
-            const authInvite = await createAuthInvitation(
-                env,
-                invitation,
-                env.publicAppUrl || readRequestAppBaseUrl(body)
-            );
+            const appBaseUrl = env.publicAppUrl || readRequestAppBaseUrl(body);
+            const authInvite = codeOnly
+                ? await createManualLoginCode(env, invitation)
+                : await createAuthInvitation(env, invitation, appBaseUrl);
             const inviteCode = authInvite.inviteCode;
             const inviteLink = resolveInviteLink(env, body, inviteCode);
 
@@ -284,6 +283,75 @@ function loadFunctionEnv(): FunctionEnv {
         resendApiKey: Deno.env.get('RESEND_API_KEY') || '',
         sendgridApiKey: Deno.env.get('SENDGRID_API_KEY') || '',
     };
+}
+
+async function createManualLoginCode(
+    env: FunctionEnv,
+    invitation: DeliveryInvitation
+) {
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        const inviteCode = generateSecureLoginCode();
+        const lookupUrl = new URL('/rest/v1/company_user_invitations', env.supabaseUrl);
+        lookupUrl.searchParams.set('manual_invite_code', `eq.${inviteCode}`);
+        lookupUrl.searchParams.set('select', 'id');
+        lookupUrl.searchParams.set('limit', '1');
+        const lookupResponse = await fetch(lookupUrl, {
+            headers: {
+                apikey: env.serviceRoleKey,
+                Authorization: `Bearer ${env.serviceRoleKey}`,
+            },
+        });
+        const existingCodes = await lookupResponse.json().catch(() => []) as Array<{ id?: string }>;
+
+        if (!lookupResponse.ok) {
+            throw new RequestError(
+                500,
+                'auth_invitation_tracking_failed',
+                'The work account login code could not be checked.'
+            );
+        }
+        if (existingCodes.length > 0) continue;
+
+        const updateResponse = await fetch(
+            `${env.supabaseUrl}/rest/v1/company_user_invitations?id=eq.${encodeURIComponent(invitation.invitation_id)}`,
+            {
+                method: 'PATCH',
+                headers: {
+                    apikey: env.serviceRoleKey,
+                    Authorization: `Bearer ${env.serviceRoleKey}`,
+                    'Content-Type': 'application/json',
+                    Prefer: 'return=minimal',
+                },
+                body: JSON.stringify({
+                    manual_invite_code: inviteCode,
+                    manual_invite_expires_at: expiresAt,
+                    manual_invite_created_at: new Date().toISOString(),
+                    manual_invite_token_last4: inviteCode.slice(-4),
+                    manual_invite_token_expires_at: expiresAt,
+                    manual_invite_token_created_at: new Date().toISOString(),
+                    login_code_used_at: null,
+                }),
+            }
+        );
+
+        if (updateResponse.ok) {
+            return { inviteCode, expiresAt, verificationType: 'manual' };
+        }
+    }
+
+    throw new RequestError(
+        500,
+        'auth_invitation_tracking_failed',
+        'A unique work account login code could not be created. Try again.'
+    );
+}
+
+function generateSecureLoginCode() {
+    const bytes = new Uint32Array(1);
+    crypto.getRandomValues(bytes);
+    return String(100000 + (bytes[0] % 900000));
 }
 
 async function createAuthInvitation(
