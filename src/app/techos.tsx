@@ -4348,7 +4348,7 @@ function TechOSAssignedJobDetail({
                         title={updating ? 'Closing Visit...' : 'Close Visit'}
                         variant="danger"
                         disabled={updating || !closeoutForm.outcome || !visitCloseable}
-                        onPress={onCloseServiceVisit}
+                        onPress={() => onCloseServiceVisit()}
                         style={techWorkflowActionButtonStyle}
                         textStyle={techWorkflowActionButtonTextStyle}
                     />
