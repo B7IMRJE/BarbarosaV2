@@ -304,7 +304,8 @@ function skippedNoncriticalEvidenceAllowsDraftCreation() {
 
     assert(workspace.draftGate.canDraft, 'Skipped noncritical evidence should still allow a working AI draft.');
     assert(workspace.draftGate.skippedForNow.some((entry) => entry.includes('Existing unit photo')), 'Skipped evidence should be listed separately.');
-    assert(workspace.presentationGate.blockers.some((entry) => entry.includes('Required photos still missing')), 'Skipped photo evidence should still block final presentation.');
+    assert(!workspace.answerValidation.missingRequiredPhotoLabels.includes('Existing unit photo'), 'A skipped photo should no longer remain required.');
+    assert(!workspace.presentationGate.blockers.some((entry) => entry.includes('Required photos still missing')), 'Skipped photo evidence should not block final presentation.');
 }
 
 function criticalSafetyEvidenceStillBlocksPresentation() {
@@ -413,13 +414,19 @@ function plumbingReplacementScopesUseRelevantChecklists() {
     const skippedAccess = completeAnswers('valve_replacement');
     skippedAccess[photoRequirementAnswerKey('Valve access area')] = createEstimateRequirementSkipAnswer(
         'Valve access area',
-        'not_applicable',
+        'inaccessible',
         '2026-08-01T12:00:00.000Z'
     );
+    skippedAccess[measurementRequirementAnswerKey('Valve or pipe size')] = createEstimateRequirementSkipAnswer(
+        'Valve or pipe size',
+        'unsafe_to_capture',
+        '2026-08-01T12:01:00.000Z'
+    );
     const workspace = buildWorkspace({ category: 'valve_replacement', answers: skippedAccess });
-    assert(workspace.draftGate.canDraft, 'A documented not-applicable valve access photo should allow estimate drafting.');
+    assert(workspace.draftGate.canDraft, 'Documented skipped valve evidence should allow estimate drafting.');
     assert(workspace.draftGate.skippedForNow.some((entry) => entry.includes('Valve access area')), 'The skipped valve access evidence should remain visible as an assumption.');
-    assert(!workspace.answerValidation.missingRequiredPhotoLabels.includes('Valve access area'), 'A truly not-applicable valve access photo should not leave the estimate incomplete.');
+    assert(!workspace.answerValidation.missingRequiredPhotoLabels.includes('Valve access area'), 'An inaccessible valve access photo should not leave the estimate incomplete.');
+    assert(!workspace.answerValidation.missingRequiredMeasurementLabels.includes('Valve or pipe size'), 'An unsafe measurement should not leave the estimate incomplete.');
 }
 
 function mixedDraftUsesTheRequestedItemsWorkflow() {

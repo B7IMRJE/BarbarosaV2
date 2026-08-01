@@ -875,11 +875,12 @@ export function validateEstimateAnswers(template: EstimateCategoryTemplate, answ
 
     const missingRequiredPhotoLabels = template.requiredPhotoLabels.filter((label) => {
         const answer = answers[photoRequirementAnswerKey(label)];
-        return !isPhotoRequirementComplete(answer) && !isRequirementNotApplicable(answer);
+        return !isPhotoRequirementComplete(answer) && !isRequirementSkipAnswer(answer);
     });
-    const missingRequiredMeasurementLabels = template.requiredMeasurementLabels.filter((label) =>
-        !isMeasurementRequirementComplete(answers[measurementRequirementAnswerKey(label)])
-    );
+    const missingRequiredMeasurementLabels = template.requiredMeasurementLabels.filter((label) => {
+        const answer = answers[measurementRequirementAnswerKey(label)];
+        return !isMeasurementRequirementComplete(answer) && !isRequirementSkipAnswer(answer);
+    });
     const blockingConditions = missingRequiredQuestionIds.length > 0 ||
         missingRequiredPhotoLabels.length > 0 ||
         missingRequiredMeasurementLabels.length > 0
@@ -1965,10 +1966,6 @@ export function isRequirementSkipAnswer(value: EstimateAnswerValue | undefined):
         readText(record.requirementId).length > 0 &&
         (!reason || isEstimateRequirementSkipReason(reason)) &&
         readText(record.skippedAt).length > 0;
-}
-
-function isRequirementNotApplicable(value: EstimateAnswerValue | undefined) {
-    return isRequirementSkipAnswer(value) && value.reason === 'not_applicable';
 }
 
 export function getEstimateRequirementState(
