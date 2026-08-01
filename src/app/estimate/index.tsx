@@ -50,6 +50,7 @@ import {
     loadCompanyPriceBook,
     type CompanyPriceBookItem,
 } from '../../lib/companyPriceBook';
+import { plumbingPriceBookCatalogItems } from '../../lib/plumbingPriceBookCatalog';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
     applyEstimateChoicePriceAdjustment,
@@ -1376,6 +1377,25 @@ export default function EstimateScreen() {
         technicianApproved,
         aiValidationFailed: aiValidationErrors.length > 0,
     });
+    const focusedPriceBookItem = findPriceBookCatalogItem(items, phase1Workspace.template.label);
+    const estimateReturnRoute = buildInternalRoute('/estimate', [
+        ['companyId', requestedCompanyId],
+        ['propertyId', requestedPropertyId],
+        ['itemSlug', requestedItemSlug],
+        ['mode', requestedMode],
+        ['providerMode', firstParam(providerMode)],
+        ['returnTo', requestedReturnTo],
+        ['serviceRequestId', firstParam(serviceRequestId)],
+        ['scheduleSlotId', firstParam(scheduleSlotId)],
+        ['jobId', firstParam(jobId)],
+    ]);
+    const companyPriceBookRoute = buildInternalRoute(
+        `/super-admin/company/${encodeURIComponent(estimateAccess.companyId)}/price-book`,
+        [
+            ['focusPriceKey', focusedPriceBookItem?.price_key],
+            ['returnTo', estimateReturnRoute],
+        ]
+    );
     const choiceSource: PersistableEstimateChoice[] = persistedOptionChoices.length > 0
         ? persistedOptionChoices
         : phase1Workspace.choices;
@@ -1803,7 +1823,7 @@ export default function EstimateScreen() {
                             <Text style={smallEmptyTextStyle}>{priceBookMessage}</Text>
                             {canUseEstimatePricing(estimateAccess) && estimateAccess?.companyId ? (
                                 <TouchableOpacity
-                                    onPress={() => router.push(`/super-admin/company/${encodeURIComponent(estimateAccess.companyId)}/price-book` as never)}
+                                    onPress={() => router.push(companyPriceBookRoute as never)}
                                     style={secondaryButtonStyle}
                                 >
                                     <Text style={secondaryButtonTextStyle}>
@@ -2279,6 +2299,30 @@ function StaffOnlyMessage({ message, detail, homeRoute = '/' }: { message: strin
 
 function firstParam(value?: string | string[]) {
     return Array.isArray(value) ? value[0] || null : value || null;
+}
+
+function normalizePriceLookupText(value: string) {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function findPriceBookCatalogItem(draftItems: EstimateDraftItem[], templateLabel: string) {
+    const names = [templateLabel, ...draftItems.map((item) => item.name)]
+        .map(normalizePriceLookupText)
+        .filter(Boolean);
+
+    return plumbingPriceBookCatalogItems.find((item) => {
+        const catalogName = normalizePriceLookupText(item.name);
+        return names.some((name) => catalogName.includes(name) || name.includes(catalogName));
+    });
+}
+
+function buildInternalRoute(path: string, entries: Array<[string, string | null | undefined]>) {
+    const query = entries
+        .filter((entry): entry is [string, string] => Boolean(entry[1]?.trim()))
+        .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value.trim())}`)
+        .join('&');
+
+    return query ? `${path}?${query}` : path;
 }
 
 function shortId(value?: string | null) {

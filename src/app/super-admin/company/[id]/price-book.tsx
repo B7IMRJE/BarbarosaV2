@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import SystemStatusCard from '../../../../components/cards/SystemStatusCard';
@@ -348,8 +348,15 @@ const priceResearchImportColumnSet = new Set<string>(priceResearchImportColumns)
 
 export default function CompanyPriceBookScreen() {
     const { theme } = useTheme();
-    const { id } = useLocalSearchParams<{ id: string | string[] }>();
+    const { id, focusPriceKey, returnTo } = useLocalSearchParams<{
+        id: string | string[];
+        focusPriceKey?: string | string[];
+        returnTo?: string | string[];
+    }>();
     const companyId = normalizeCompanyIdInput(id);
+    const requestedPriceKey = normalizeOptionalRouteParam(focusPriceKey);
+    const requestedReturnRoute = normalizeInternalReturnRoute(returnTo);
+    const deepLinkHandledRef = useRef('');
     const companyRoute = `/super-admin/company/${encodeURIComponent(companyId)}`;
     const [company, setCompany] = useState<CompanyRecord | null>(null);
     const [items, setItems] = useState<CompanyPriceBookItem[]>([]);
@@ -435,6 +442,38 @@ export default function CompanyPriceBookScreen() {
         [displayItems, filteredItems, bulkScope, selectedPriceKeys, bulkSystem, bulkCategory, bulkPercent]
     );
     const calculatorResult = useMemo(() => calculatePrice(calculatorForm), [calculatorForm]);
+
+    useEffect(() => {
+        if (loading || !canView || !requestedPriceKey || displayItems.length === 0) return;
+
+        const marker = `${companyId}:${requestedPriceKey}:${manageAccess ? 'manage' : 'view'}`;
+        if (deepLinkHandledRef.current === marker) return;
+        deepLinkHandledRef.current = marker;
+
+        const item = displayItems.find((candidate) => candidate.price_key === requestedPriceKey);
+        if (!item) {
+            setSearch(requestedPriceKey);
+            setView('items');
+            setMessage('The matching Price Book item could not be opened automatically. Search results are shown.');
+            return;
+        }
+
+        const systemKey = getCatalogSystemKeyForItem(item);
+        if (systemKey) setSelectedSystem(systemKey);
+        setSelectedArea(getPriceBookItemArea(item));
+        setSelectedPriceKey(item.price_key);
+        setView('detail');
+
+        if (manageAccess) {
+            setEditorForm(editorFormForPriceBookItem(item));
+            setEditorOpen(true);
+            setMessage(`Add the missing selling price for ${item.name}, then save to return to the estimate.`);
+        } else {
+            setEditorOpen(false);
+            setMessage(`${item.name} is open. A company owner, manager, or admin must add its selling price.`);
+        }
+    }, [loading, canView, requestedPriceKey, displayItems, companyId, manageAccess]);
+
     async function loadPriceBook() {
         if (!companyId) {
             setMessage('Missing company id.');
@@ -536,7 +575,6 @@ export default function CompanyPriceBookScreen() {
     }
 
     function editItem(item: CompanyPriceBookItem) {
-        const pricingDetails = getPriceBookPricingDetails(item);
         const systemKey = getCatalogSystemKeyForItem(item);
 
         if (systemKey) {
@@ -547,26 +585,7 @@ export default function CompanyPriceBookScreen() {
         setSelectedPriceKey(item.price_key);
         setView('detail');
 
-        setEditorForm({
-            id: item.source === 'backend' || item.source === 'local' ? item.id : undefined,
-            priceKey: item.price_key,
-            name: item.name,
-            system: item.system,
-            area: getPriceBookItemArea(item),
-            category: item.category,
-            unit: item.unit,
-            basePrice: item.base_price === null ? '' : String(item.base_price),
-            laborHours: item.labor_hours === null ? '' : String(item.labor_hours),
-            materialCost: item.material_cost === null ? '' : String(item.material_cost),
-            linearFootPrice: pricingDetails.linearFootPrice,
-            packageDiscountPercent: pricingDetails.packageDiscountPercent,
-            packageDiscountNote: pricingDetails.packageDiscountNote,
-            customerDescription: item.customer_description || '',
-            internalNotes: removePriceBookMetadataFromNotes(item.internal_notes || ''),
-            active: item.active,
-            originalUnsupportedUnit: item.unsupported_unit || '',
-            unitCorrectionRequired: Boolean(item.unsupported_unit),
-        });
+        setEditorForm(editorFormForPriceBookItem(item));
         setEditorOpen(true);
         setMessage(item.unit_validation_message || `Editing: ${item.name}`);
     }
@@ -639,6 +658,9 @@ export default function CompanyPriceBookScreen() {
             setEditorOpen(false);
             setSelectedPriceKey(draft.price_key);
             setView('detail');
+            if (requestedReturnRoute && (!requestedPriceKey || draft.price_key === requestedPriceKey)) {
+                router.replace(requestedReturnRoute as never);
+            }
         } catch (error) {
             setMessage(`Save price failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
@@ -1346,6 +1368,15 @@ export default function CompanyPriceBookScreen() {
                         )}
 
                         <View style={tabRowStyle}>
+                            {requestedReturnRoute ? (
+                                <ThemedButton
+                                    title="Back to Estimate"
+                                    variant="secondary"
+                                    onPress={() => router.push(requestedReturnRoute as never)}
+                                    style={compactButtonStyle}
+                                    textStyle={compactButtonTextStyle}
+                                />
+                            ) : null}
                             <ThemedButton
                                 title="Company Dashboard"
                                 variant="secondary"
@@ -3690,6 +3721,31 @@ function getPriceBookPricingDetails(item: CompanyPriceBookItem): PriceBookPricin
     return getPriceBookPricingDetailsFromNotes(item.internal_notes);
 }
 
+function editorFormForPriceBookItem(item: CompanyPriceBookItem): EditorForm {
+    const pricingDetails = getPriceBookPricingDetails(item);
+
+    return {
+        id: item.source === 'backend' || item.source === 'local' ? item.id : undefined,
+        priceKey: item.price_key,
+        name: item.name,
+        system: item.system,
+        area: getPriceBookItemArea(item),
+        category: item.category,
+        unit: item.unit,
+        basePrice: item.base_price === null ? '' : String(item.base_price),
+        laborHours: item.labor_hours === null ? '' : String(item.labor_hours),
+        materialCost: item.material_cost === null ? '' : String(item.material_cost),
+        linearFootPrice: pricingDetails.linearFootPrice,
+        packageDiscountPercent: pricingDetails.packageDiscountPercent,
+        packageDiscountNote: pricingDetails.packageDiscountNote,
+        customerDescription: item.customer_description || '',
+        internalNotes: removePriceBookMetadataFromNotes(item.internal_notes || ''),
+        active: item.active,
+        originalUnsupportedUnit: item.unsupported_unit || '',
+        unitCorrectionRequired: Boolean(item.unsupported_unit),
+    };
+}
+
 function getPriceBookPricingDetailsFromNotes(notes?: string | null): PriceBookPricingDetails {
     const noteText = notes || '';
 
@@ -4384,6 +4440,15 @@ function normalizeCompanyIdInput(value: string | string[] | undefined | null) {
     const uuidMatch = UUID_SUBSTRING_PATTERN.exec(rawValue);
 
     return uuidMatch?.[0] || rawValue;
+}
+
+function normalizeOptionalRouteParam(value?: string | string[]) {
+    return (Array.isArray(value) ? value[0] || '' : value || '').trim();
+}
+
+function normalizeInternalReturnRoute(value?: string | string[]) {
+    const route = normalizeOptionalRouteParam(value);
+    return route.startsWith('/') && !route.startsWith('//') ? route : '';
 }
 
 function resolveAiCompanyId(company: CompanyRecord | null, routeCompanyId: string): CompanyIdResolution {
