@@ -2220,7 +2220,7 @@ function TechOSProfileHeader({
             <View style={techProfileStatsRowStyle}>
                 <View style={[techProfileStatStyle, { borderColor: techOSTheme.panelBorderColor }]}>
                     <Text style={[techProfileStatValueStyle, { color: techOSTheme.textColor }]}>{todayCount}</Text>
-                    <Text style={[techProfileStatLabelStyle, { color: techOSTheme.mutedTextColor }]}>Today's Jobs</Text>
+                    <Text style={[techProfileStatLabelStyle, { color: techOSTheme.mutedTextColor }]}>Today’s Jobs</Text>
                 </View>
                 <View style={[techProfileStatStyle, { borderColor: techOSTheme.panelBorderColor }]}>
                     <Text style={[techProfileStatValueStyle, { color: techOSTheme.textColor }]}>{upcomingJobCount}</Text>

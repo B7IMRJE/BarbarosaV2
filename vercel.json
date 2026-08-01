@@ -1,4 +1,5 @@
 {
+  "cleanUrls": true,
   "headers": [
     {
       "source": "/",
@@ -21,8 +22,64 @@
   ],
   "rewrites": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/item/:slug",
+      "destination": "/item/[slug]"
+    },
+    {
+      "source": "/jobs/:id",
+      "destination": "/jobs/[id]"
+    },
+    {
+      "source": "/emergency/:id",
+      "destination": "/emergency/[id]"
+    },
+    {
+      "source": "/maintenance/:id",
+      "destination": "/maintenance/[id]"
+    },
+    {
+      "source": "/plumbing-item/:itemId",
+      "destination": "/plumbing-item/[itemId]"
+    },
+    {
+      "source": "/system/:system",
+      "destination": "/system/[system]"
+    },
+    {
+      "source": "/system/:system/area/:area",
+      "destination": "/system/[system]/area/[area]"
+    },
+    {
+      "source": "/techos/job/:jobId",
+      "destination": "/techos/job/[jobId]"
+    },
+    {
+      "source": "/super-admin/company/:id",
+      "destination": "/super-admin/company/[id]"
+    },
+    {
+      "source": "/super-admin/company/:id/:page",
+      "destination": "/super-admin/company/[id]/:page"
+    },
+    {
+      "source": "/super-admin/company/:id/client/:propertyId",
+      "destination": "/super-admin/company/[id]/client/[propertyId]"
+    },
+    {
+      "source": "/super-admin/company/:id/client/:propertyId/:page",
+      "destination": "/super-admin/company/[id]/client/[propertyId]/:page"
+    },
+    {
+      "source": "/super-admin/company/:id/client/:propertyId/item/:slug",
+      "destination": "/super-admin/company/[id]/client/[propertyId]/item/[slug]"
+    },
+    {
+      "source": "/super-admin/property/:propertyId",
+      "destination": "/super-admin/property/[propertyId]"
+    },
+    {
+      "source": "/super-admin/property/:propertyId/:page",
+      "destination": "/super-admin/property/[propertyId]/:page"
     }
   ]
 }

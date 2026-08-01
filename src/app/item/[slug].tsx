@@ -3611,7 +3611,7 @@ export default function ItemScreen() {
         return (
             <ThemedCard style={scaleStyle(providerFormCardStyle)}>
                 <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>
-                    Update Client's HomeOS
+                    Update Client’s HomeOS
                 </Text>
                 <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
                     Publishing is not installed yet. These staged photos/notes are saved for the provider but have not been copied to the client’s permanent HomeOS.

@@ -102,7 +102,7 @@ export default function ResetHomeSetupScreen() {
                         Reset This Home
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: 15, lineHeight: 22, marginTop: 10 }}>
-                        This removes data for this signed-in account's single active HomeOS home only. It does not delete your account, login, or profile.
+                        This removes data for this signed-in account’s single active HomeOS home only. It does not delete your account, login, or profile.
                     </Text>
                     <Text style={{ color: theme.colors.mutedText, fontSize: 15, lineHeight: 22, marginTop: 10 }}>
                         Use this for testing start-fresh flows. Export or download anything important first.

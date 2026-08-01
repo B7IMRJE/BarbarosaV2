@@ -387,7 +387,7 @@ export default function CompanyInviteScreen() {
                                     <View style={actionGroupStyle}>
                                         {!!invitation && (
                                             <Text style={[bodyTextStyle, { color: theme.colors.text }]}>
-                                                You're creating a work account for {invitation.company_name || 'this company'}.
+                                                You’re creating a work account for {invitation.company_name || 'this company'}.
                                             </Text>
                                         )}
                                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>

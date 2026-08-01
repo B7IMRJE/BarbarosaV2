@@ -116,7 +116,7 @@ export default function EmergencyCenterScreen() {
                         marginBottom: 20,
                     }}
                 >
-                    Document urgent home issues in HomeOS, then open an issue to send it to your provider's Dispatch Board.
+                    Document urgent home issues in HomeOS, then open an issue to send it to your provider’s Dispatch Board.
                 </Text>
 
                 <ThemedButton

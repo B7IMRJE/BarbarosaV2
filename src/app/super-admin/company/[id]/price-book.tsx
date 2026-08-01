@@ -1995,7 +1995,7 @@ function PriceBookItemDetail({
                     </View>
                     {form.unitCorrectionRequired ? (
                         <Text style={[metaTextStyle, { color: '#B42318' }]}>
-                            Stored unit "{form.originalUnsupportedUnit}" is not supported by the live price-book schema. Select a supported unit before saving.
+                            Stored unit “{form.originalUnsupportedUnit}” is not supported by the live price-book schema. Select a supported unit before saving.
                         </Text>
                     ) : null}
 
