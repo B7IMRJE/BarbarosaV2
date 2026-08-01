@@ -433,7 +433,7 @@ async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: strin
         },
     });
     const rows = await lookupResponse.json().catch(() => []) as Array<{
-        invitation_id?: string;
+        id?: string;
         invited_email?: string;
         invite_code?: string;
         login_code_expires_at?: string | null;
@@ -445,7 +445,7 @@ async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: strin
     const invitation = rows[0];
 
     if (
-        !invitation?.invitation_id ||
+        !invitation?.id ||
         !invitation.invited_email ||
         !invitation.invite_code
     ) {
@@ -453,7 +453,7 @@ async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: strin
     }
 
     return {
-        id: invitation.invitation_id,
+        id: invitation.id,
         email: invitation.invited_email,
         source: 'customer' as const,
         connectionCode: invitation.invite_code,
