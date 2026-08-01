@@ -15,6 +15,7 @@ import {
     type CompanyPermissionKey,
     type CompanyPermissionSet,
 } from '../../../../lib/companyPermissions';
+import { loadLoggedInUserCompanyAccess } from '../../../../lib/onboarding';
 import { loadCurrentUserPlatformAdmin } from '../../../../lib/roles';
 import { supabase } from '../../../../lib/supabase';
 import { resolveCompanyTechOSTheme, type TechOSThemePalette } from '../../../../lib/techosAppearance';
@@ -214,8 +215,31 @@ export default function CompanyDashboardScreen() {
         void loadCurrentUserPlatformAdmin().then(setIsPlatformAdmin);
         if (routeCompanyId) {
             void loadCompanyDashboardPermissions(routeCompanyId).then(setCompanyPermissions);
+            void redirectTechnicianAwayFromCompanyDashboard(routeCompanyId);
         }
     }, [routeCompanyId]);
+
+    async function redirectTechnicianAwayFromCompanyDashboard(companyId: string) {
+        const platformAdmin = await loadCurrentUserPlatformAdmin();
+        if (platformAdmin) return;
+
+        const userResult = await supabase.auth.getUser();
+        const userId = userResult.data.user?.id || '';
+        if (!userId) return;
+
+        const accessResult = await loadLoggedInUserCompanyAccess(userId);
+        if (accessResult.error) return;
+
+        const companyAccess = accessResult.data.find((access) => (
+            access.company_id === companyId &&
+            String(access.status || '').trim().toLowerCase() === 'active'
+        ));
+        const role = String(companyAccess?.role || '').trim().toLowerCase();
+
+        if (['technician', 'tech', 'field_tech', 'field-tech', 'field technician'].includes(role)) {
+            router.replace({ pathname: '/techos', params: { companyId } } as never);
+        }
+    }
 
     useEffect(() => {
         const companyIdToLoad = activeCompanyId;
