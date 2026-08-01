@@ -7,6 +7,7 @@ import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
     canManageEstimatePricing,
+    canUseEstimatePricing,
     createEstimateRequirementSkipAnswer,
     estimateCategoryTemplates,
     estimateRequirementId,
@@ -402,12 +403,25 @@ export default function EstimateScreen() {
 
         try {
             const priceBook = await loadCompanyPriceBook(access.companyId);
+            const pricingPreview = buildEstimateOptionWorkspace({
+                companyId: access.companyId,
+                draftItems,
+                draftContext: nextDraftContext,
+                category: inferredCategory,
+                answers: {},
+                priceBookItems: priceBook.items,
+                technicianApproved: false,
+            });
 
             setPriceBookItems(priceBook.items);
             setPriceBookMessage(priceBook.backendStatus.message);
+            if (pricingPreview.pricingSetupRequired) {
+                setExpandedWorkspaceSection('pricing');
+            }
         } catch (error) {
             setPriceBookItems([]);
             setPriceBookMessage(`Price book unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            setExpandedWorkspaceSection('pricing');
         }
     }
 
@@ -1713,7 +1727,7 @@ export default function EstimateScreen() {
                                 id: 'pricing',
                                 title: 'Pricing',
                                 value: phase1Workspace.pricingSetupRequired
-                                    ? 'Setup needed'
+                                    ? `No ${phase1Workspace.template.label} price`
                                     : `${phase1Workspace.pricingResults.length} totals`,
                                 description: 'Deterministic prices and scope.',
                                 tone: cardTone('#FFF8DF', '#F2DC92', '#D99214'),
@@ -1786,18 +1800,22 @@ export default function EstimateScreen() {
                                     ? `No active selling price matches ${phase1Workspace.template.label}. Add or update a matching company Price Book item before generating homeowner choices.`
                                     : 'The company Price Book is connected, but it has no active selling prices yet.'}
                             </Text>
-                            {canManageEstimatePricing(estimateAccess) && estimateAccess?.companyId ? (
+                            <Text style={smallEmptyTextStyle}>{priceBookMessage}</Text>
+                            {canUseEstimatePricing(estimateAccess) && estimateAccess?.companyId ? (
                                 <TouchableOpacity
                                     onPress={() => router.push(`/super-admin/company/${encodeURIComponent(estimateAccess.companyId)}/price-book` as never)}
                                     style={secondaryButtonStyle}
                                 >
-                                    <Text style={secondaryButtonTextStyle}>Open Company Price Book</Text>
+                                    <Text style={secondaryButtonTextStyle}>
+                                        {canManageEstimatePricing(estimateAccess) ? 'Open Company Price Book' : 'View Company Price Book'}
+                                    </Text>
                                 </TouchableOpacity>
-                            ) : (
+                            ) : null}
+                            {!canManageEstimatePricing(estimateAccess) ? (
                                 <Text style={smallEmptyTextStyle}>
-                                    Ask a company owner, manager, or admin to add the selling price.
+                                    A company owner, manager, or admin must add the selling price before this estimate can be completed.
                                 </Text>
-                            )}
+                            ) : null}
                         </View>
                     ) : (
                         <View style={foundationGridStyle}>
