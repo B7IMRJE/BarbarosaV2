@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import GlobalTextSizeControl from '../../components/accessibility/GlobalTextSizeControl';
 import {
     DEFAULT_THEME_NAME,
     appearanceSizeOptions,
@@ -323,6 +324,7 @@ export default function ThemeScreen() {
                     value={appearance.fontSize}
                     onChange={setFontSize}
                 />
+                <GlobalTextSizeControl embedded />
                 <SizeSelector
                     title="Icon Size"
                     value={appearance.iconSize}

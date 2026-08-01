@@ -160,12 +160,13 @@ export function classifyDispatchWallRequest(
     now: Date
 ): DispatchWallSectionKey | null {
     const slotStatus = normalizeStatus(slot?.status);
+    const operationalStatus = getReconciledOperationalStatus(request, slot);
     const emergency = isEmergencyDispatchRequest(request);
     const effectiveState = resolveDispatchWallEffectiveState(request, slot);
     const currentDayOperational = isCurrentDayOperationalItem(request, slot, now);
     const runningLateCandidate = isWallRunningLateCandidate(request, slot, risk, slotStatus, now);
     const activeAssignedSlot = Boolean(slot?.technician_company_user_id && slot && isActiveWallScheduleSlot(slot));
-    const explicitOperationalSection = getExplicitWallOperationalSection(slot, slotStatus);
+    const explicitOperationalSection = getExplicitWallOperationalSection(slot, operationalStatus);
     const leadCandidate = isNewLeadStatus(request.status) && !activeAssignedSlot;
 
     if (effectiveState.terminal) {
@@ -189,11 +190,11 @@ export function classifyDispatchWallRequest(
             return 'assigned_ready';
         }
 
-        if (isInProgressStatus(slotStatus) || isFieldWaitingStatus(slotStatus) || isActiveCustomFieldStatus(slot)) {
+        if (isInProgressStatus(operationalStatus) || isFieldWaitingStatus(operationalStatus) || isActiveCustomFieldStatus(slot)) {
             return 'in_progress';
         }
 
-        if (isOnMyWayStatus(slotStatus)) {
+        if (isOnMyWayStatus(operationalStatus)) {
             return 'on_my_way';
         }
 
@@ -1050,16 +1051,30 @@ function isActiveCustomFieldStatus(slot: DispatchWallScheduleSlot | null) {
 
 function getWallStatusLabel(request: DispatchWallRequest, slot: DispatchWallScheduleSlot | null, risk: DispatchRiskResult) {
     const effectiveState = resolveDispatchWallEffectiveState(request, slot);
-    const slotStatus = normalizeStatus(slot?.status);
-    const explicitOperationalSection = getExplicitWallOperationalSection(slot, slotStatus);
+    const operationalStatus = getReconciledOperationalStatus(request, slot);
+    const explicitOperationalSection = getExplicitWallOperationalSection(slot, operationalStatus);
 
     if (effectiveState.terminalLabel) return effectiveState.terminalLabel;
-    if (explicitOperationalSection) return formatWallStatusLabel(slot?.status);
+    if (explicitOperationalSection) return formatWallStatusLabel(operationalStatus);
     if (risk.state === 'AT_RISK') return 'At Risk';
     if (risk.state === 'RUNNING_LATE') return risk.needsReassignment ? 'Needs Reassignment' : 'Running Late';
     if (isTerminalWallStatus(slot?.status)) return formatWallStatusLabel(slot?.status);
 
     return formatWallStatusLabel(slot?.status || request.status);
+}
+
+function getReconciledOperationalStatus(
+    request: DispatchWallRequest,
+    slot: DispatchWallScheduleSlot | null
+) {
+    const slotStatus = normalizeStatus(slot?.status);
+    const requestStatus = normalizeStatus(request.status);
+
+    if (slotStatus === 'custom' && isInProgressStatus(requestStatus)) {
+        return requestStatus;
+    }
+
+    return slotStatus;
 }
 
 function getWallSortTime(

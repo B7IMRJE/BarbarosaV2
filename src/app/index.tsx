@@ -9,6 +9,7 @@ import HomeDashboardView, {
 } from '../components/homeos/HomeDashboardView';
 import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
 import ServiceRequestMediaPicker from '../components/serviceRequests/ServiceRequestMediaPicker';
+import HomeownerRequestTimeline from '../components/serviceRequests/HomeownerRequestTimeline';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import {
@@ -1396,40 +1397,17 @@ export default function HomeScreen() {
                       compact
                     />
 
-                    <View
-                      style={{
-                        borderWidth: 1,
-                        borderColor: theme.colors.border,
-                        borderRadius: theme.radii.card,
-                        padding: scaleIcon(10),
-                        marginTop: scaleIcon(10),
-                        backgroundColor: theme.colors.background,
-                      }}
-                    >
-                      <Text style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>
-                        Appointment Updates
-                      </Text>
-                      {timelineEvents.length === 0 ? (
-                        <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(19), marginTop: scaleIcon(4) }}>
-                          Updates will appear here when your appointment is scheduled or your technician shares a customer-visible status.
-                        </Text>
-                      ) : (
-                        <View style={{ gap: scaleIcon(8), marginTop: scaleIcon(8) }}>
-                          {timelineEvents.slice(-5).map((event) => (
-                            <View key={event.id}>
-                              <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '900' }}>
-                                {formatServiceTimelineTitle(event.event_type)}
-                              </Text>
-                              <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '700', lineHeight: scaleFont(18) }}>
-                                {event.message || 'Appointment update'}
-                              </Text>
-                              <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '700', marginTop: scaleIcon(2) }}>
-                                {formatDateTime(event.created_at)}
-                              </Text>
-                            </View>
-                          ))}
-                        </View>
-                      )}
+                    <View style={{ marginTop: scaleIcon(10) }}>
+                      <HomeownerRequestTimeline
+                        title="Appointment Updates"
+                        emptyMessage="Updates will appear here when your appointment is scheduled or your technician shares a customer-visible status."
+                        entries={timelineEvents.slice(-5).map((event) => ({
+                          id: event.id,
+                          title: formatServiceTimelineTitle(event.event_type),
+                          message: event.message || 'Appointment update',
+                          createdAt: event.created_at,
+                        }))}
+                      />
                     </View>
 
                     {isActiveRequest && (

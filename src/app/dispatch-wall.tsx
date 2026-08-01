@@ -2175,7 +2175,7 @@ function getDispatchWallTechnicianDisplayText(
         return item.technician ? getPersonName(item.technician) : unassignedLabel;
     }
 
-    if (item.technician) return getPersonName(item.technician);
+    if (item.technician) return `Tech: ${getPersonName(item.technician)}`;
     if (item.slot?.technician_company_user_id) return ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE;
 
     return unassignedLabel;

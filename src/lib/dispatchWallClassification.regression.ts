@@ -27,6 +27,7 @@ export function runDispatchWallClassificationRegressions() {
     futureScheduledAssignedRequestStaysOutOfLivePanels();
     futureAssignedOnMyWayMovesForward();
     futureAssignedLiveWorkMovesForward();
+    legacyCustomSlotUsesNewerInProgressRequestState();
     futureAssignedTechnicianRehydratesConsistently();
     currentDayOperationalStatesRemainUnchanged();
     completedEmergencyVisitFromYesterdayIsExcluded();
@@ -34,6 +35,43 @@ export function runDispatchWallClassificationRegressions() {
     olderCompletedVisitDoesNotOverrideNewerOnMyWayVisit();
     terminalSelectedVisitDoesNotEnterActivePanels();
     classifiedRequestsDoNotDuplicateAcrossSections();
+}
+
+function legacyCustomSlotUsesNewerInProgressRequestState() {
+    const request = {
+        ...createEmergencyScheduledRequest('shakira-active-job'),
+        status: 'in_progress',
+        customer_display_name: 'Shakira',
+    };
+    const slot = createSlot({
+        id: 'shakira-active-job-slot',
+        service_request_id: request.id,
+        technician_company_user_id: 'selena-tech',
+        status: 'custom',
+        tech_status_note: 'On my way to the supply store.',
+        start_at: localIso(0, 11),
+        end_at: localIso(0, 13),
+        arrival_window_start: localIso(0, 11),
+        arrival_window_end: localIso(0, 12),
+        updated_at: localIso(0, 11),
+    });
+    const sections = buildDispatchWallSections(
+        [request],
+        [slot],
+        [createTechnician('selena-tech', 'Selena Velez')],
+        now
+    );
+    const item = getSingleRequestItem(sections, request.id);
+
+    assert(item.sectionKey === 'in_progress', 'A legacy Custom slot must follow its newer In Progress service-request state.');
+    assert(item.statusLabel === 'In Progress', 'The repaired wall card should be labeled In Progress instead of Custom.');
+    assert(item.technician?.full_name === 'Selena Velez', 'The in-progress wall card should retain Selena as the assigned technician.');
+    assertRequestNotInSections(
+        sections,
+        request.id,
+        ['assigned_ready'],
+        'The Shakira/Selena in-progress job must not remain in Assigned / Ready.'
+    );
 }
 
 function emergencyUnassignedRequestAppearsInEmergency() {

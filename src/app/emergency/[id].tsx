@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
+import HomeownerRequestTimeline from '../../components/serviceRequests/HomeownerRequestTimeline';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
@@ -783,37 +784,14 @@ export default function EmergencyDetailScreen() {
                     )}
                 </ThemedCard>
 
-                <ThemedCard>
-                    <Text style={{ color: theme.colors.text, fontSize: 20, fontWeight: '900' }}>
-                        Timeline
-                    </Text>
-
-                    {history.length === 0 && (
-                        <Text style={{ color: theme.colors.mutedText, marginTop: 10 }}>
-                            No timeline entries yet.
-                        </Text>
-                    )}
-
-                    <View style={{ gap: 10, marginTop: 12 }}>
-                        {history.map((entry) => (
-                            <View
-                                key={entry.id}
-                                style={{
-                                    borderLeftWidth: 3,
-                                    borderLeftColor: theme.colors.border,
-                                    paddingLeft: 12,
-                                }}
-                            >
-                                <Text style={{ color: theme.colors.text, fontWeight: '900' }}>
-                                    {entry.message}
-                                </Text>
-                                <Text style={{ color: theme.colors.mutedText, marginTop: 4 }}>
-                                    {formatDate(entry.created_at)}
-                                </Text>
-                            </View>
-                        ))}
-                    </View>
-                </ThemedCard>
+                <HomeownerRequestTimeline
+                    emptyMessage="No timeline entries yet."
+                    entries={history.map((entry) => ({
+                        id: entry.id,
+                        message: entry.message,
+                        createdAt: entry.created_at,
+                    }))}
+                />
 
             </View>
         </ScrollView>

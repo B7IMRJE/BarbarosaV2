@@ -5,7 +5,7 @@ import {
 } from '../../theme';
 import { useTheme } from '../../theme/useTheme';
 
-export default function GlobalTextSizeControl() {
+export default function GlobalTextSizeControl({ embedded = false }: { embedded?: boolean }) {
     const {
         appearance,
         isThemeLoaded,
@@ -36,6 +36,7 @@ export default function GlobalTextSizeControl() {
             accessibilityLabel={`Text size: ${currentOption.label}`}
             style={[
                 controlStyle,
+                embedded ? embeddedControlStyle : floatingControlStyle,
                 {
                     backgroundColor: theme.colors.surface,
                     borderColor: theme.colors.border,
@@ -91,10 +92,6 @@ export default function GlobalTextSizeControl() {
 }
 
 const controlStyle = {
-    position: 'absolute' as const,
-    right: 12,
-    bottom: 76,
-    zIndex: 9500,
     minHeight: 38,
     padding: 3,
     borderWidth: 1,
@@ -102,6 +99,17 @@ const controlStyle = {
     borderCurve: 'continuous' as const,
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
+};
+
+const floatingControlStyle = {
+    position: 'absolute' as const,
+    right: 12,
+    bottom: 76,
+    zIndex: 9500,
+};
+
+const embeddedControlStyle = {
+    alignSelf: 'flex-start' as const,
 };
 
 const buttonStyle = {

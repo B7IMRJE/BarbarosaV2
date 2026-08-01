@@ -17,6 +17,7 @@ import { requestHomeownerServiceRequestUpdate } from '../../lib/homeServiceReque
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 import ServiceRequestMediaGallery from './ServiceRequestMediaGallery';
+import HomeownerRequestTimeline from './HomeownerRequestTimeline';
 import ThemedButton from '../theme/ThemedButton';
 
 type HomeownerActiveRequestStatusProps = {
@@ -389,36 +390,13 @@ export default function HomeownerActiveRequestStatus({ bottomOffset }: Homeowner
                         )}
 
                         <View style={{ marginTop: scaleIcon(16) }}>
-                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>
-                                Timeline
-                            </Text>
-                            {selectedTracker.timeline.length === 0 ? (
-                                <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '800', lineHeight: scaleFont(19), marginTop: scaleIcon(6) }}>
-                                    Updates will appear here as the company works on your request.
-                                </Text>
-                            ) : (
-                                <View style={{ gap: scaleIcon(9), marginTop: scaleIcon(9) }}>
-                                    {selectedTracker.timeline.map((event) => (
-                                        <View
-                                            key={event.id}
-                                            style={{
-                                                backgroundColor: theme.colors.surface,
-                                                borderColor: theme.colors.border,
-                                                borderRadius: theme.radii.card,
-                                                borderWidth: 1,
-                                                padding: scaleIcon(10),
-                                            }}
-                                        >
-                                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '900' }}>
-                                                {event.message || 'Request update'}
-                                            </Text>
-                                            <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '800', marginTop: scaleIcon(4) }}>
-                                                {formatDateTime(event.created_at)}
-                                            </Text>
-                                        </View>
-                                    ))}
-                                </View>
-                            )}
+                            <HomeownerRequestTimeline
+                                entries={selectedTracker.timeline.map((event) => ({
+                                    id: event.id,
+                                    message: event.message || 'Request update',
+                                    createdAt: event.created_at,
+                                }))}
+                            />
                         </View>
 
                         <ServiceRequestMediaGallery

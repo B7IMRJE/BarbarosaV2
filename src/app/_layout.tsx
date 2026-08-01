@@ -16,7 +16,6 @@ import {
 } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import GlobalNavigation from '../components/navigation/GlobalNavigation';
-import GlobalTextSizeControl from '../components/accessibility/GlobalTextSizeControl';
 import { ThemeProvider } from '../theme';
 
 const LOGIN_ROUTE = '/auth/login';
@@ -269,7 +268,6 @@ export default function Layout() {
           <GlobalNavigation>
             <Slot />
           </GlobalNavigation>
-          <GlobalTextSizeControl />
           {!routeIsSettled && (
             <View
               accessibilityLabel="Opening secure workspace"
