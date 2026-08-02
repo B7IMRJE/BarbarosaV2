@@ -1676,30 +1676,45 @@ function buildPresentationGate(input: {
     };
 }
 
+const replacementOnlyEstimateCategories = new Set<EstimateOptionCategory>([
+    'valve_replacement',
+    'riser_replacement',
+    'water_main_replacement',
+    'sewer_line_replacement',
+]);
+
 function selectEligiblePriceBookEntries(
     entries: EstimatePriceBookEntry[],
     companyId: string,
     template: EstimateCategoryTemplate
 ) {
-    const exactMatches = entries.filter((entry) =>
+    const companyEntries = entries.filter((entry) =>
         entry.companyId === companyId &&
         entry.active &&
-        entry.recommendedSellingPrice !== null &&
+        entry.recommendedSellingPrice !== null
+    );
+    const actionCompatibleEntries = replacementOnlyEstimateCategories.has(template.id)
+        ? companyEntries.filter((entry) =>
+            [entry.name, entry.serviceCategory, ...entry.applicableCategories].some((value) =>
+                normalizeText(value).includes('replacement')
+            )
+        )
+        : companyEntries;
+
+    const exactMatches = actionCompatibleEntries.filter((entry) =>
         template.pricingCategoryFilters.some((filter) =>
             normalizeText(entry.serviceCategory).includes(normalizeText(filter)) ||
             normalizeText(entry.name).includes(normalizeText(filter)) ||
-            entry.applicableCategories.some((category) => normalizeText(category).includes(normalizeText(filter)))
+            entry.applicableCategories.some((category) =>
+                normalizeText(category).includes(normalizeText(filter))
+            )
         )
     );
 
     if (exactMatches.length > 0) return sortPriceEntries(exactMatches);
     if (template.id === 'water_filtration') return [];
 
-    return sortPriceEntries(entries.filter((entry) =>
-        entry.companyId === companyId &&
-        entry.active &&
-        entry.recommendedSellingPrice !== null
-    ));
+    return sortPriceEntries(actionCompatibleEntries);
 }
 
 function sortPriceEntries(entries: EstimatePriceBookEntry[]) {

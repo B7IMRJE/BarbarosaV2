@@ -1,7 +1,7 @@
 import HomeHeader from '../../components/HomeHeader';
 
-import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
@@ -50,7 +50,7 @@ import {
     loadCompanyPriceBook,
     type CompanyPriceBookItem,
 } from '../../lib/companyPriceBook';
-import { plumbingPriceBookCatalogItems } from '../../lib/plumbingPriceBookCatalog';
+import { findEstimatePriceBookCatalogItem } from '../../lib/estimatePriceBookTarget';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
     applyEstimateChoicePriceAdjustment,
@@ -214,6 +214,34 @@ export default function EstimateScreen() {
         providerModeContext?.scheduleSlotId,
         providerModeContext?.jobId,
     ]);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!estimateAccess?.companyId) return undefined;
+
+            let active = true;
+
+            void loadCompanyPriceBook(estimateAccess.companyId)
+                .then((priceBook) => {
+                    if (!active) return;
+                    setPriceBookItems(priceBook.items);
+                    setPriceBookMessage(priceBook.backendStatus.message);
+                })
+                .catch((error) => {
+                    if (!active) return;
+                    setPriceBookItems([]);
+                    setPriceBookMessage(
+                        `Price book unavailable: ${
+                            error instanceof Error ? error.message : 'Unknown error'
+                        }`
+                    );
+                });
+
+            return () => {
+                active = false;
+            };
+        }, [estimateAccess?.companyId])
+    );
 
     useEffect(() => {
         if (!expandedCategory) return;
@@ -1377,7 +1405,7 @@ export default function EstimateScreen() {
         technicianApproved,
         aiValidationFailed: aiValidationErrors.length > 0,
     });
-    const focusedPriceBookItem = findPriceBookCatalogItem(items, phase1Workspace.template.label);
+    const focusedPriceBookItem = findEstimatePriceBookCatalogItem(items, phase1Workspace.template.label);
     const estimateReturnRoute = buildInternalRoute('/estimate', [
         ['companyId', requestedCompanyId],
         ['propertyId', requestedPropertyId],
@@ -2301,20 +2329,6 @@ function firstParam(value?: string | string[]) {
     return Array.isArray(value) ? value[0] || null : value || null;
 }
 
-function normalizePriceLookupText(value: string) {
-    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function findPriceBookCatalogItem(draftItems: EstimateDraftItem[], templateLabel: string) {
-    const names = [templateLabel, ...draftItems.map((item) => item.name)]
-        .map(normalizePriceLookupText)
-        .filter(Boolean);
-
-    return plumbingPriceBookCatalogItems.find((item) => {
-        const catalogName = normalizePriceLookupText(item.name);
-        return names.some((name) => catalogName.includes(name) || name.includes(catalogName));
-    });
-}
 
 function buildInternalRoute(path: string, entries: Array<[string, string | null | undefined]>) {
     const query = entries

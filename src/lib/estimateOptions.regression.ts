@@ -37,6 +37,7 @@ import {
     type RepipeRoomBlock,
     type RepipeStructureInput,
 } from './estimateOptions';
+import { findEstimatePriceBookCatalogItem } from './estimatePriceBookTarget';
 
 runEstimateOptionsRegressions();
 
@@ -46,6 +47,8 @@ export function runEstimateOptionsRegressions() {
     inactiveEntriesCannotBeUsedInNewOptions();
     missingPriceBookBlocksPresentation();
     showerValvePriceBookEntryClearsPricingSetup();
+    showerValveDeepLinkTargetsReplacementCatalogItem();
+    repairPriceDoesNotSatisfyValveReplacement();
     priceSnapshotsRemainStableAfterEdits();
     belowMinimumRequiresApproval();
     maximumRulesAreEnforced();
@@ -180,6 +183,45 @@ function showerValvePriceBookEntryClearsPricingSetup() {
 
     assert(!workspace.pricingSetupRequired, 'A priced shower-valve entry should clear pricing setup.');
     assert(workspace.eligiblePriceBookEntries.some((entry) => entry.name === 'Shower valve replacement'), 'Shower-valve pricing should be selected for valve estimates.');
+}
+
+function showerValveDeepLinkTargetsReplacementCatalogItem() {
+    const target = findEstimatePriceBookCatalogItem(
+        [{ name: 'Shower Valve' }],
+        'Valve Replacement'
+    );
+
+    assert(target !== null, 'Shower Valve pricing must deep-link to a catalog entry.');
+    assert(
+        target.name.toLowerCase().includes('replacement'),
+        'Shower Valve pricing must target replacement pricing.'
+    );
+    assert(
+        !target.name.toLowerCase().includes('repair'),
+        'Shower Valve replacement must not target repair pricing.'
+    );
+}
+
+function repairPriceDoesNotSatisfyValveReplacement() {
+    const workspace = buildWorkspace({
+        category: 'valve_replacement',
+        answers: completeAnswers('valve_replacement'),
+        priceBookItems: [
+            priceBookItem('company-a', 1, 'Fixtures', 495, {
+                name: 'Shower valve repair',
+            }),
+        ],
+        technicianApproved: true,
+    });
+
+    assert(
+        workspace.pricingSetupRequired,
+        'Repair pricing must not satisfy a valve replacement estimate.'
+    );
+    assert(
+        workspace.eligiblePriceBookEntries.length === 0,
+        'Repair pricing must not appear as a replacement option.'
+    );
 }
 
 function priceSnapshotsRemainStableAfterEdits() {
@@ -437,7 +479,15 @@ function plumbingReplacementScopesUseRelevantChecklists() {
         'unsafe_to_capture',
         '2026-08-01T12:01:00.000Z'
     );
-    const workspace = buildWorkspace({ category: 'valve_replacement', answers: skippedAccess });
+    const workspace = buildWorkspace({
+        category: 'valve_replacement',
+        answers: skippedAccess,
+        priceBookItems: [
+            priceBookItem('company-a', 1, 'Valves / Shutoffs', 495, {
+                name: 'Shower valve replacement',
+            }),
+        ],
+    });
     assert(workspace.draftGate.canDraft, 'Documented skipped valve evidence should allow estimate drafting.');
     assert(workspace.draftGate.skippedForNow.some((entry) => entry.includes('Valve access area')), 'The skipped valve access evidence should remain visible as an assumption.');
     assert(!workspace.answerValidation.missingRequiredPhotoLabels.includes('Valve access area'), 'An inaccessible valve access photo should not leave the estimate incomplete.');
