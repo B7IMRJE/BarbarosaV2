@@ -47,6 +47,8 @@ export function runEstimateOptionsRegressions() {
     inactiveEntriesCannotBeUsedInNewOptions();
     missingPriceBookBlocksPresentation();
     showerValvePriceBookEntryClearsPricingSetup();
+    showerValveChoicesNeverStackUnrelatedPlumbingWork();
+    tubShowerConfigurationUsesOneValveAtTheReviewedPrice();
     showerValveDeepLinkTargetsReplacementCatalogItem();
     repairPriceDoesNotSatisfyValveReplacement();
     priceSnapshotsRemainStableAfterEdits();
@@ -183,6 +185,50 @@ function showerValvePriceBookEntryClearsPricingSetup() {
 
     assert(!workspace.pricingSetupRequired, 'A priced shower-valve entry should clear pricing setup.');
     assert(workspace.eligiblePriceBookEntries.some((entry) => entry.name === 'Shower valve replacement'), 'Shower-valve pricing should be selected for valve estimates.');
+}
+
+function showerValveChoicesNeverStackUnrelatedPlumbingWork() {
+    const answers = completeAnswers('valve_replacement');
+    answers.valve_type = 'shower valve';
+    answers.shower_configuration = 'shower only';
+    answers.tub_spout_scope = 'not applicable';
+    const workspace = buildWorkspace({
+        category: 'valve_replacement',
+        answers,
+        priceBookItems: valvePriceBookItems(),
+        technicianApproved: true,
+    });
+    const choice = workspace.individualOptions[0];
+    const lineNames = choice?.pricingResult.lineItems.map((line) => line.name) || [];
+
+    assert(workspace.eligiblePriceBookEntries.length === 1, 'Shower-only work should select exactly one matching valve price.');
+    assert(lineNames.length === 1 && lineNames[0] === 'Shower valve replacement', 'A shower-only option should contain one shower valve replacement line.');
+    assert(!lineNames.some((name) => /tub|backflow|angle stop/i.test(name)), 'Shower-only work must not add tub, backflow, or angle-stop lines.');
+    assert(workspace.packages.length === 0, 'Valve replacement should not generate an unrelated reliability package.');
+    assert(choice?.title.includes('Like-for-Like Shower Valve Replacement'), 'The shower-only option should use normal plumbing language.');
+    assert(workspace.presentationGate.canPresent, 'One verified valve scope should be presentable after technician approval.');
+}
+
+function tubShowerConfigurationUsesOneValveAtTheReviewedPrice() {
+    const answers = completeAnswers('valve_replacement');
+    answers.valve_type = 'shower valve';
+    answers.shower_configuration = 'tub and shower combination';
+    answers.tub_spout_scope = 'replace tub spout';
+    const workspace = buildWorkspace({
+        category: 'valve_replacement',
+        answers,
+        priceBookItems: valvePriceBookItems(),
+        technicianApproved: true,
+    });
+    const choice = workspace.individualOptions[0];
+
+    assert(workspace.eligiblePriceBookEntries.length === 2, 'Tub-and-shower work should select one valve price and the explicitly requested tub-spout price.');
+    assert(choice?.pricingResult.lineItems.length === 2, 'Tub-and-shower work with a selected spout should include one valve and one tub-spout line.');
+    assert(choice?.pricingResult.lineItems[0]?.name === 'Tub/shower valve replacement', 'Tub-and-shower work should use only the matching valve line.');
+    assert(choice?.pricingResult.lineItems[1]?.name === 'Tub spout replacement', 'The selected tub-spout replacement should be the only related add-on.');
+    assert(choice?.pricingResult.lineItems.filter((line) => /valve replacement/i.test(line.name)).length === 1, 'Tub-and-shower work must contain exactly one valve replacement.');
+    assert(choice?.pricingResult.totalAmount === 1395, 'Tub-and-shower valve replacement should be $200 above the $1,195 shower-only scope.');
+    assert(choice?.title.includes('Tub and Shower Valve Replacement'), 'Tub-and-shower work should use a clear plumber-facing title.');
 }
 
 function showerValveDeepLinkTargetsReplacementCatalogItem() {
@@ -961,13 +1007,19 @@ function homeownerPresentationHidesInternalPricing() {
 
     assert(choice, 'Workspace should produce a choice.');
 
-    const presentation = toHomeownerPresentationChoice(choice);
+    const presentation = toHomeownerPresentationChoice({
+        ...choice,
+        priceAdjustmentPercentage: -5,
+        priceAdjustmentLabel: 'Military Discount',
+    });
     const serialized = JSON.stringify(presentation);
 
     assert(!serialized.includes('totalCost'), 'Homeowner presentation must hide internal cost.');
     assert(!serialized.includes('grossMargin'), 'Homeowner presentation must hide margin.');
     assert(!serialized.includes('minimumAllowedTotal'), 'Homeowner presentation must hide minimum limits.');
     assert(!serialized.includes('maximumAllowedTotal'), 'Homeowner presentation must hide maximum limits.');
+    assert(presentation.priceAdjustmentPercentage === -5, 'Homeowner presentation should retain the signed discount percentage.');
+    assert(presentation.priceAdjustmentLabel === 'Military Discount', 'Homeowner presentation should retain the required discount name.');
 }
 
 function completeWorkspace(options: {
@@ -1098,6 +1150,31 @@ function faucetPriceBookItems() {
     return [
         faucetPriceBookItem('faucet-reinstall-existing', 375),
         faucetPriceBookItem('faucet-install-company-approved', 725),
+    ];
+}
+
+function valvePriceBookItems() {
+    return [
+        priceBookItem('company-a', 1, 'Fixtures', 1195, {
+            price_key: 'water_service_bathroom_shower_valve_replacement',
+            name: 'Shower valve replacement',
+        }),
+        priceBookItem('company-a', 2, 'Fixtures', 1195, {
+            price_key: 'water_service_bathroom_tub_shower_valve_replacement',
+            name: 'Tub/shower valve replacement',
+        }),
+        priceBookItem('company-a', 5, 'Fixtures', 200, {
+            price_key: 'water_service_bathroom_tub_spout_replacement',
+            name: 'Tub spout replacement',
+        }),
+        priceBookItem('company-a', 3, 'Valves / Shutoffs', 795, {
+            price_key: 'water_service_garage_mechanical_backflow_device_replacement',
+            name: 'Backflow device replacement',
+        }),
+        priceBookItem('company-a', 4, 'Valves / Shutoffs', 295, {
+            price_key: 'water_service_bathroom_angle_stop_replacement',
+            name: 'Bathroom angle stop replacement',
+        }),
     ];
 }
 

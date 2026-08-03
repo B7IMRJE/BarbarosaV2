@@ -123,6 +123,15 @@ type RequirementUploadState = {
 
 type RequirementKind = 'photo' | 'measurement';
 type EstimateWorkspaceSection = 'pricing' | 'editor' | 'presentation' | 'findings';
+type PriceAdjustmentDirection = 'discount' | 'increase';
+
+const discountReasonSuggestions = [
+    'Military Discount',
+    'First-Time Customer Discount',
+    'Senior Discount',
+    'Loyalty Discount',
+    'Promotional Discount',
+];
 
 const requirementSkipReasons: Array<{ label: string; reason: EstimateRequirementSkipReason | null }> = [
     { label: 'Skip for now', reason: null },
@@ -194,6 +203,8 @@ export default function EstimateScreen() {
     const [editableCopyByChoiceId, setEditableCopyByChoiceId] = useState<Record<string, EditableChoiceCopy>>({});
     const [priceAdjustmentByChoiceId, setPriceAdjustmentByChoiceId] = useState<Record<string, number>>({});
     const [customPriceAdjustmentByChoiceId, setCustomPriceAdjustmentByChoiceId] = useState<Record<string, string>>({});
+    const [priceAdjustmentDirectionByChoiceId, setPriceAdjustmentDirectionByChoiceId] = useState<Record<string, PriceAdjustmentDirection>>({});
+    const [priceAdjustmentLabelByChoiceId, setPriceAdjustmentLabelByChoiceId] = useState<Record<string, string>>({});
     const estimateScrollRef = useRef<ScrollView | null>(null);
     const estimateContentRef = useRef<View | null>(null);
     const expandedChecklistRef = useRef<View | null>(null);
@@ -482,9 +493,28 @@ export default function EstimateScreen() {
             setPriceAdjustmentByChoiceId(savedSet.options.reduce<Record<string, number>>((adjustments, choice) => {
                 const percentage = Number(choice.priceAdjustmentPercentage || 0);
 
-                if (percentage > 0) adjustments[choice.id] = percentage;
+                if (percentage !== 0) adjustments[choice.id] = percentage;
 
                 return adjustments;
+            }, {}));
+            setCustomPriceAdjustmentByChoiceId(savedSet.options.reduce<Record<string, string>>((adjustments, choice) => {
+                const percentage = Number(choice.priceAdjustmentPercentage || 0);
+
+                if (percentage !== 0) adjustments[choice.id] = String(Math.abs(percentage));
+
+                return adjustments;
+            }, {}));
+            setPriceAdjustmentDirectionByChoiceId(savedSet.options.reduce<Record<string, PriceAdjustmentDirection>>((directions, choice) => {
+                directions[choice.id] = Number(choice.priceAdjustmentPercentage || 0) < 0 ? 'discount' : 'increase';
+
+                return directions;
+            }, {}));
+            setPriceAdjustmentLabelByChoiceId(savedSet.options.reduce<Record<string, string>>((labels, choice) => {
+                const label = String(choice.priceAdjustmentLabel || '').trim();
+
+                if (label) labels[choice.id] = label;
+
+                return labels;
             }, {}));
         } catch (error) {
             setMessage(`Saved option set could not be restored: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -524,6 +554,8 @@ export default function EstimateScreen() {
         setPersistedOptionChoices([]);
         setPriceAdjustmentByChoiceId({});
         setCustomPriceAdjustmentByChoiceId({});
+        setPriceAdjustmentDirectionByChoiceId({});
+        setPriceAdjustmentLabelByChoiceId({});
         setMessage('Estimate draft cleared. Start a fresh estimate from the assigned job or Client HomeOS item.');
     }
 
@@ -1035,8 +1067,10 @@ export default function EstimateScreen() {
         });
     }
 
-    function setChoicePriceAdjustment(choiceId: string, percentage: number) {
+    function setChoicePriceAdjustment(choiceId: string, percentage: number, adjustmentLabel: string | null) {
         const nextPercentage = normalizeEstimatePriceAdjustmentPercentage(percentage);
+        const isDiscount = nextPercentage < 0;
+        const normalizedLabel = isDiscount ? String(adjustmentLabel || '').trim() : '';
 
         setTechnicianApproved(false);
         setPresentationMode(false);
@@ -1046,14 +1080,32 @@ export default function EstimateScreen() {
         }));
         setCustomPriceAdjustmentByChoiceId((current) => ({
             ...current,
-            [choiceId]: nextPercentage === 0 ? '' : String(nextPercentage),
+            [choiceId]: nextPercentage === 0 ? '' : String(Math.abs(nextPercentage)),
         }));
+        setPriceAdjustmentDirectionByChoiceId((current) => ({
+            ...current,
+            [choiceId]: isDiscount ? 'discount' : 'increase',
+        }));
+        setPriceAdjustmentLabelByChoiceId((current) => {
+            const next = { ...current };
+
+            if (normalizedLabel) next[choiceId] = normalizedLabel;
+            else delete next[choiceId];
+
+            return next;
+        });
+        const adjustmentDescription = isDiscount
+            ? `${formatEstimatePriceAdjustmentPercentage(nextPercentage)} ${normalizedLabel}`
+            : `${formatEstimatePriceAdjustmentPercentage(nextPercentage)} increase`;
+
         setOptionsWorkspaceNotice(nextPercentage === 0
             ? 'Option restored to its original company price-book amount.'
-            : `Price increase changed to ${formatEstimatePriceAdjustmentPercentage(nextPercentage)}.`);
+            : `Price adjustment changed to ${adjustmentDescription}.`);
         setMessage(nextPercentage === 0
             ? 'Option price reset to the company price-book amount.'
-            : `Option price increased by ${formatEstimatePriceAdjustmentPercentage(nextPercentage)}.`);
+            : isDiscount
+                ? `${normalizedLabel} applied at ${formatEstimatePriceAdjustmentPercentage(nextPercentage)}.`
+                : `Option price increased by ${formatEstimatePriceAdjustmentPercentage(nextPercentage)}.`);
     }
 
     function resetChoicePrice(choice: Phase1EstimateChoice) {
@@ -1073,6 +1125,17 @@ export default function EstimateScreen() {
 
             return next;
         });
+        setPriceAdjustmentDirectionByChoiceId((current) => ({
+            ...current,
+            [choice.id]: 'increase',
+        }));
+        setPriceAdjustmentLabelByChoiceId((current) => {
+            const next = { ...current };
+
+            delete next[choice.id];
+
+            return next;
+        });
         setOptionsWorkspaceNotice(
             `${choice.title} reset to ${formatMoney(phase1Workspace.choices.find((candidate) => candidate.id === choice.id)?.pricingResult.totalAmount || 0)}.`
         );
@@ -1081,14 +1144,37 @@ export default function EstimateScreen() {
 
     function applyCustomChoicePriceAdjustment(choiceId: string) {
         const draft = customPriceAdjustmentByChoiceId[choiceId] || '';
-        const percentage = Number(draft);
+        const magnitude = Math.abs(Number(draft));
+        const direction = priceAdjustmentDirectionByChoiceId[choiceId] || 'increase';
 
-        if (!Number.isFinite(percentage) || percentage < 0) {
-            setMessage('Enter a valid price increase of 0% or more.');
+        if (!Number.isFinite(magnitude) || magnitude <= 0) {
+            setMessage('Enter a percentage greater than 0.');
             return;
         }
 
-        setChoicePriceAdjustment(choiceId, percentage);
+        if (direction === 'discount') {
+            const discountLabel = String(priceAdjustmentLabelByChoiceId[choiceId] || '').trim();
+
+            if (magnitude > 100) {
+                setMessage('A discount cannot be greater than 100%.');
+                return;
+            }
+
+            if (!discountLabel) {
+                setMessage('Choose or enter a discount name before applying the discount.');
+                return;
+            }
+
+            setChoicePriceAdjustment(choiceId, -magnitude, discountLabel);
+            return;
+        }
+
+        if (magnitude > 500) {
+            setMessage('A price increase cannot be greater than 500%.');
+            return;
+        }
+
+        setChoicePriceAdjustment(choiceId, magnitude, null);
     }
 
     function redoOptionDrafts() {
@@ -1104,6 +1190,8 @@ export default function EstimateScreen() {
         setPersistedOptionChoices([]);
         setPriceAdjustmentByChoiceId({});
         setCustomPriceAdjustmentByChoiceId({});
+        setPriceAdjustmentDirectionByChoiceId({});
+        setPriceAdjustmentLabelByChoiceId({});
         setOptionsWorkspaceNotice('All options were rebuilt from the current checklist and original company price-book amounts.');
         setMessage('Options reset to the current checklist and company price-book values.');
     }
@@ -1111,6 +1199,17 @@ export default function EstimateScreen() {
     async function approveForPresentation(workspaceChoices: Phase1EstimateChoice[]) {
         if (workspaceChoices.length === 0) {
             setMessage('Pricing setup required before presentation.');
+            return;
+        }
+
+        const unnamedDiscount = workspaceChoices.find((choice) =>
+            Number(choice.priceAdjustmentPercentage || 0) < 0 &&
+            !String(choice.priceAdjustmentLabel || '').trim()
+        );
+
+        if (unnamedDiscount) {
+            setOptionsWorkspaceNotice(`Name the discount on ${unnamedDiscount.title} before approving the option set.`);
+            setMessage('Every discount must have a name before homeowner presentation.');
             return;
         }
 
@@ -1127,6 +1226,7 @@ export default function EstimateScreen() {
                     choiceSource.find((candidate) => candidate.id === choice.id) as PersistableEstimateChoice | undefined
                 )?.basePricingResult || choiceSource.find((candidate) => candidate.id === choice.id)?.pricingResult,
                 priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] || 0,
+                priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
             }));
 
             await saveEstimateOptionSet({
@@ -1441,7 +1541,13 @@ export default function EstimateScreen() {
             editableCopyByChoiceId[choice.id]
         );
 
-        return applyEstimateChoicePriceAdjustment(editedChoice, priceAdjustmentByChoiceId[choice.id] || 0);
+        const priceAdjustmentPercentage = priceAdjustmentByChoiceId[choice.id] || 0;
+
+        return {
+            ...applyEstimateChoicePriceAdjustment(editedChoice, priceAdjustmentPercentage),
+            priceAdjustmentPercentage,
+            priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
+        };
     });
     const estimateChoices = allEstimateChoices.filter((choice) => !removedChoiceIds.includes(choice.id));
     const optionChoices = estimateChoices.filter((choice) => choice.kind === 'individual');
@@ -1989,10 +2095,10 @@ export default function EstimateScreen() {
 
                     {!presentationMode ? (
                     <View style={workspaceDetailStyle}>
-                    {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
+                        {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
                     <View style={compactActionRowStyle}>
                         <Text style={priceAdjustmentHelpStyle}>
-                            Price increases apply to each option separately. Use a quick percentage or enter your own.
+                            Enter one percentage, choose minus for a named discount or plus for an increase, then apply it to that option.
                         </Text>
                     </View>
 
@@ -2044,9 +2150,13 @@ export default function EstimateScreen() {
                                     <View style={priceAdjustmentPanelStyle}>
                                         <View style={priceAdjustmentHeaderStyle}>
                                             <View>
-                                                <Text style={priceAdjustmentLabelStyle}>Price increase</Text>
+                                                <Text style={priceAdjustmentLabelStyle}>Price adjustment</Text>
                                                 <Text style={priceAdjustmentCurrentStyle}>
-                                                    {formatEstimatePriceAdjustmentPercentage(priceAdjustmentByChoiceId[choice.id] || 0)} applied
+                                                    {(priceAdjustmentByChoiceId[choice.id] || 0) === 0
+                                                        ? 'No adjustment applied'
+                                                        : (priceAdjustmentByChoiceId[choice.id] || 0) < 0
+                                                            ? `${formatEstimatePriceAdjustmentPercentage(priceAdjustmentByChoiceId[choice.id])} ${priceAdjustmentLabelByChoiceId[choice.id] || 'discount'} applied`
+                                                            : `${formatEstimatePriceAdjustmentPercentage(priceAdjustmentByChoiceId[choice.id])} increase applied`}
                                                 </Text>
                                             </View>
                                             <TouchableOpacity
@@ -2056,27 +2166,26 @@ export default function EstimateScreen() {
                                                 <Text style={compactSecondaryButtonTextStyle}>Reset Price</Text>
                                             </TouchableOpacity>
                                         </View>
-                                        <View style={compactActionRowStyle}>
-                                            {[5, 10, 15, 20].map((percentage) => (
-                                                <TouchableOpacity
-                                                    key={`${choice.id}-${percentage}`}
-                                                    onPress={() => setChoicePriceAdjustment(choice.id, percentage)}
-                                                    style={(priceAdjustmentByChoiceId[choice.id] || 0) === percentage
-                                                        ? compactPrimaryButtonStyle
-                                                        : compactSecondaryButtonStyle}
-                                                >
-                                                    <Text style={(priceAdjustmentByChoiceId[choice.id] || 0) === percentage
-                                                        ? compactPrimaryButtonTextStyle
-                                                        : compactSecondaryButtonTextStyle}
-                                                    >
-                                                        +{percentage}%
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            ))}
-                                        </View>
                                         <View style={customPriceAdjustmentRowStyle}>
+                                            <TouchableOpacity
+                                                accessibilityLabel={`Apply a discount to ${choice.title}`}
+                                                onPress={() => setPriceAdjustmentDirectionByChoiceId((current) => ({
+                                                    ...current,
+                                                    [choice.id]: 'discount',
+                                                }))}
+                                                style={(priceAdjustmentDirectionByChoiceId[choice.id] || 'increase') === 'discount'
+                                                    ? adjustmentSignSelectedStyle
+                                                    : adjustmentSignButtonStyle}
+                                            >
+                                                <Text style={(priceAdjustmentDirectionByChoiceId[choice.id] || 'increase') === 'discount'
+                                                    ? compactPrimaryButtonTextStyle
+                                                    : compactSecondaryButtonTextStyle}
+                                                >
+                                                    −
+                                                </Text>
+                                            </TouchableOpacity>
                                             <TextInput
-                                                accessibilityLabel={`Custom price increase for ${choice.title}`}
+                                                accessibilityLabel={`Price adjustment percentage for ${choice.title}`}
                                                 inputMode="decimal"
                                                 keyboardType="decimal-pad"
                                                 onChangeText={(value) => setCustomPriceAdjustmentByChoiceId((current) => ({
@@ -2084,20 +2193,73 @@ export default function EstimateScreen() {
                                                     [choice.id]: value,
                                                 }))}
                                                 onSubmitEditing={() => applyCustomChoicePriceAdjustment(choice.id)}
-                                                placeholder="Custom %"
+                                                placeholder="Percent"
                                                 style={customPriceAdjustmentInputStyle}
                                                 value={customPriceAdjustmentByChoiceId[choice.id] || ''}
                                             />
                                             <TouchableOpacity
+                                                accessibilityLabel={`Apply a price increase to ${choice.title}`}
+                                                onPress={() => setPriceAdjustmentDirectionByChoiceId((current) => ({
+                                                    ...current,
+                                                    [choice.id]: 'increase',
+                                                }))}
+                                                style={(priceAdjustmentDirectionByChoiceId[choice.id] || 'increase') === 'increase'
+                                                    ? adjustmentSignSelectedStyle
+                                                    : adjustmentSignButtonStyle}
+                                            >
+                                                <Text style={(priceAdjustmentDirectionByChoiceId[choice.id] || 'increase') === 'increase'
+                                                    ? compactPrimaryButtonTextStyle
+                                                    : compactSecondaryButtonTextStyle}
+                                                >
+                                                    +
+                                                </Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
                                                 onPress={() => applyCustomChoicePriceAdjustment(choice.id)}
                                                 style={compactSecondaryButtonStyle}
                                             >
-                                                <Text style={compactSecondaryButtonTextStyle}>Apply %</Text>
+                                                <Text style={compactSecondaryButtonTextStyle}>Apply</Text>
                                             </TouchableOpacity>
                                         </View>
+                                        {(priceAdjustmentDirectionByChoiceId[choice.id] || 'increase') === 'discount' && (
+                                            <View style={discountReasonPanelStyle}>
+                                                <Text style={discountReasonLabelStyle}>Discount name required</Text>
+                                                <View style={discountReasonChipRowStyle}>
+                                                    {discountReasonSuggestions.map((reason) => (
+                                                        <TouchableOpacity
+                                                            key={`${choice.id}-${reason}`}
+                                                            onPress={() => setPriceAdjustmentLabelByChoiceId((current) => ({
+                                                                ...current,
+                                                                [choice.id]: reason,
+                                                            }))}
+                                                            style={priceAdjustmentLabelByChoiceId[choice.id] === reason
+                                                                ? discountReasonChipSelectedStyle
+                                                                : discountReasonChipStyle}
+                                                        >
+                                                            <Text style={priceAdjustmentLabelByChoiceId[choice.id] === reason
+                                                                ? discountReasonChipSelectedTextStyle
+                                                                : discountReasonChipTextStyle}
+                                                            >
+                                                                {reason.replace(/ Discount$/, '')}
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                                <TextInput
+                                                    accessibilityLabel={`Discount name for ${choice.title}`}
+                                                    onChangeText={(value) => setPriceAdjustmentLabelByChoiceId((current) => ({
+                                                        ...current,
+                                                        [choice.id]: value,
+                                                    }))}
+                                                    placeholder="Custom discount name"
+                                                    style={discountReasonInputStyle}
+                                                    value={priceAdjustmentLabelByChoiceId[choice.id] || ''}
+                                                />
+                                            </View>
+                                        )}
                                         {choice.pricingResult.requiredManagementApproval && (
                                             <Text style={warningTextStyle}>
-                                                This price exceeds a company price-book limit and requires management approval.
+                                                This adjustment is outside company price-book limits and requires management approval.
                                             </Text>
                                         )}
                                     </View>
@@ -2664,6 +2826,11 @@ function renderPresentationChoice(choice: Phase1EstimateChoice) {
                 {presentationChoice.recommended && <Text style={recommendedPillStyle}>Recommended</Text>}
             </View>
             <Text style={presentationPriceStyle}>{formatMoney(presentationChoice.totalAmount)}</Text>
+            {presentationChoice.priceAdjustmentPercentage < 0 && presentationChoice.priceAdjustmentLabel && (
+                <Text style={presentationDiscountStyle}>
+                    {presentationChoice.priceAdjustmentLabel}: {formatEstimatePriceAdjustmentPercentage(presentationChoice.priceAdjustmentPercentage)}
+                </Text>
+            )}
             <Text style={choiceDescriptionStyle}>{presentationChoice.homeownerExplanation}</Text>
             <View style={chipRowStyle}>
                 {presentationChoice.keyBenefits.map((benefit) => (
@@ -3626,6 +3793,13 @@ const presentationPriceStyle = {
     marginTop: 10,
 };
 
+const presentationDiscountStyle = {
+    color: '#7A5700',
+    fontSize: 13,
+    fontWeight: '900' as const,
+    marginTop: 4,
+};
+
 const recommendedPillStyle = {
     color: '#14533A',
     backgroundColor: '#E8F7F0',
@@ -4118,6 +4292,7 @@ const priceAdjustmentCurrentStyle = {
 const customPriceAdjustmentRowStyle = {
     alignItems: 'center' as const,
     flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
     gap: 8,
     marginTop: 8,
 };
@@ -4134,6 +4309,80 @@ const customPriceAdjustmentInputStyle = {
     minWidth: 100,
     paddingHorizontal: 10,
     paddingVertical: 9,
+};
+
+const adjustmentSignButtonStyle = {
+    alignItems: 'center' as const,
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D8E0EA',
+    borderRadius: 12,
+    borderWidth: 1,
+    minWidth: 38,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+};
+
+const adjustmentSignSelectedStyle = {
+    alignItems: 'center' as const,
+    backgroundColor: '#071B33',
+    borderRadius: 12,
+    minWidth: 38,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+};
+
+const discountReasonPanelStyle = {
+    backgroundColor: '#FFF9E8',
+    borderColor: '#E9D292',
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 8,
+    marginTop: 10,
+    padding: 10,
+};
+
+const discountReasonLabelStyle = {
+    color: '#634600',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const discountReasonChipRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 6,
+};
+
+const discountReasonChipStyle = {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#D9C27E',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+};
+
+const discountReasonChipSelectedStyle = {
+    ...discountReasonChipStyle,
+    backgroundColor: '#7A5700',
+    borderColor: '#7A5700',
+};
+
+const discountReasonChipTextStyle = {
+    color: '#634600',
+    fontSize: 11,
+    fontWeight: '800' as const,
+};
+
+const discountReasonChipSelectedTextStyle = {
+    ...discountReasonChipTextStyle,
+    color: '#FFFFFF',
+};
+
+const discountReasonInputStyle = {
+    ...customPriceAdjustmentInputStyle,
+    minWidth: 0,
+    width: '100%' as const,
 };
 
 const chipRowStyle = {

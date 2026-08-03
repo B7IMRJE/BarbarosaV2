@@ -305,6 +305,8 @@ export type EstimateChoice = {
     pricingResult: EstimatePricingResult;
     recommended: boolean;
     displayOrder: number;
+    priceAdjustmentPercentage?: number;
+    priceAdjustmentLabel?: string | null;
 };
 
 export type EstimatePresentationGate = {
@@ -361,6 +363,8 @@ export type HomeownerPresentationChoice = {
     totalAmount: number;
     recommended: boolean;
     displayOrder: number;
+    priceAdjustmentPercentage: number;
+    priceAdjustmentLabel: string | null;
 };
 
 export type RepipeFixtureKey =
@@ -657,11 +661,13 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             'Water Service',
         ],
         requiredScopeCodes: [],
-        recommendedOptionStructures: ['Like-for-Like Valve Replacement', 'Valve and Connection Renewal', 'Professional Access and Valve Package', 'Premium Isolation Upgrade'],
-        warnings: ['Do not request under-sink evidence unless the selected valve is actually below a sink. Concealed access and finish repairs must be described separately.'],
-        blockingConditions: ['Valve type, service, size, access, isolation, connected piping, and finish-restoration scope must be documented.'],
+        recommendedOptionStructures: ['Like-for-Like Valve Replacement'],
+        warnings: ['Only include the documented valve and directly related access or protection work. Do not add backflow devices, angle stops, or other fixtures unless they are the selected valve or a verified part of the repair.'],
+        blockingConditions: ['Valve type, fixture setup, tub-spout scope, service, size, access, isolation, connected piping, and finish-restoration scope must be documented.'],
         questions: [
             selectQuestion('valve_type', 'Valve type', true, ['shower valve', 'main water shutoff', 'angle stop', 'pressure regulator', 'backflow assembly', 'hose bibb valve', 'other']),
+            selectQuestion('shower_configuration', 'Shower or tub setup', true, ['shower only', 'tub and shower combination', 'tub only', 'not applicable - different valve type']),
+            selectQuestion('tub_spout_scope', 'Tub spout', true, ['not applicable', 'existing tub spout remains', 'replace tub spout']),
             selectQuestion('valve_service', 'Service', true, ['domestic water', 'hot water', 'irrigation', 'fire protection', 'gas', 'other']),
             selectQuestion('valve_material', 'Existing valve / piping material', true, ['copper / brass', 'PEX', 'CPVC', 'galvanized', 'PVC', 'mixed / unknown']),
             selectQuestion('valve_access', 'Access', true, ['exposed', 'cabinet / under fixture', 'access panel', 'in wall', 'underground / valve box', 'no existing access']),
@@ -1045,6 +1051,8 @@ export function toHomeownerPresentationChoice(choice: EstimateChoice): Homeowner
         totalAmount: choice.pricingResult.totalAmount,
         recommended: choice.recommended,
         displayOrder: choice.displayOrder,
+        priceAdjustmentPercentage: choice.priceAdjustmentPercentage || 0,
+        priceAdjustmentLabel: choice.priceAdjustmentLabel || null,
     };
 }
 
@@ -1231,7 +1239,12 @@ export function buildEstimateOptionWorkspace(input: {
     const answerValidation = validateEstimateAnswers(template, input.answers);
     const approvedProducts = filterApprovedActiveProducts(input.approvedProducts || [], input.companyId, template);
     const priceBookEntries = input.priceBookItems.map(mapCompanyPriceBookItemToEstimateEntry);
-    const eligiblePriceBookEntries = selectEligiblePriceBookEntries(priceBookEntries, input.companyId, template);
+    const eligiblePriceBookEntries = selectEligiblePriceBookEntries(
+        priceBookEntries,
+        input.companyId,
+        template,
+        input.answers
+    );
     const priceBookEntriesUnavailable = eligiblePriceBookEntries.length === 0;
     const pricingResults = priceBookEntriesUnavailable
         ? []
@@ -1263,6 +1276,7 @@ export function buildEstimateOptionWorkspace(input: {
         aiValidationFailed: input.aiValidationFailed || false,
         pricingSetupRequired,
         approvedProducts,
+        minimumIndividualChoiceCount: input.category === 'valve_replacement' ? 1 : 2,
     });
 
     return {
@@ -1358,6 +1372,30 @@ function buildPricingResults(
         return buildFaucetPricingResults(companyId, entries, answers);
     }
 
+    if (category === 'valve_replacement') {
+        const tubSpoutEntries = entries.filter((entry) =>
+            normalizeText(entry.code).includes('tub spout replacement') ||
+            normalizeText(entry.name).includes('tub spout replacement')
+        );
+        const valveEntries = entries.filter((entry) => !tubSpoutEntries.includes(entry));
+
+        return valveEntries.slice(0, 4).map((entry, index) =>
+            calculateEstimateOptionPrice({
+                id: `valve-pricing-${index + 1}`,
+                companyId,
+                priceBookEntries: entries,
+                lineInputs: [entry, ...tubSpoutEntries].map((lineEntry, lineIndex) => ({
+                    priceBookEntryId: lineEntry.id,
+                    quantity: 1,
+                    source: lineIndex === 0 ? 'base_installation' as const : 'modifier' as const,
+                    required: true,
+                    removable: false,
+                })),
+                priceBookVersion: createPriceBookVersion(entries),
+            })
+        );
+    }
+
     const cappedEntries = entries.slice(0, 4);
 
     return cappedEntries.map((entry, index) => {
@@ -1451,6 +1489,10 @@ function buildDeterministicChoices(input: {
         return buildFaucetDeterministicChoices(validPricingResults, input.products);
     }
 
+    if (input.category === 'valve_replacement') {
+        return buildValveDeterministicChoices(validPricingResults, input.draftContext);
+    }
+
     const individualResults = validPricingResults.slice(0, 4);
     const homeownerName = preferredHomeownerFirstName(input.draftContext);
     const choices: EstimateChoice[] = individualResults.map((pricingResult, index) => {
@@ -1512,6 +1554,57 @@ function buildDeterministicChoices(input: {
     }
 
     return choices.slice(0, 6);
+}
+
+function buildValveDeterministicChoices(
+    pricingResults: EstimatePricingResult[],
+    draftContext: EstimateDraftContextLike | null
+) {
+    const homeownerName = preferredHomeownerFirstName(draftContext);
+
+    return pricingResults.slice(0, 4).map((pricingResult, index): EstimateChoice => {
+        const primaryLine = pricingResult.lineItems[0];
+        const lineNames = pricingResult.lineItems.map((line) => line.name);
+        const scopeName = valveScopeChoiceName(primaryLine?.name || 'Valve Replacement');
+        const title = homeownerName ? `${homeownerName}'s ${scopeName}` : scopeName;
+
+        return {
+            id: `individual-valve-${index + 1}`,
+            kind: 'individual',
+            title,
+            shortSummary: lineNames.join(' + ') || scopeName,
+            homeownerExplanation: `Replace the documented ${valveScopeDescription(primaryLine?.name || scopeName)}, reconnect the existing compatible piping, complete only the selected related items, and test operation.`,
+            keyBenefits: ['Matches the documented valve', 'Only selected related work included', 'Operation tested after replacement'],
+            whyItDiffers: 'This choice follows the selected valve type and shower or tub configuration without stacking unrelated fixtures.',
+            recommendedReason: index === 0 ? 'Matches the documented service scope.' : null,
+            productIds: [],
+            scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+            warrantyIds: [],
+            inclusionIds: pricingResult.lineItems.map((line) => line.code),
+            exclusionIds: ['unselected-valves', 'unrelated-fixtures'],
+            pricingResult,
+            recommended: index === 0,
+            displayOrder: index + 1,
+        };
+    });
+}
+
+function valveScopeChoiceName(value: string) {
+    const normalized = normalizeText(value);
+
+    if (normalized.includes('tub shower valve')) return 'Tub and Shower Valve Replacement';
+    if (normalized.includes('shower valve')) return 'Like-for-Like Shower Valve Replacement';
+    if (normalized.includes('main water shutoff')) return 'Main Water Shutoff Replacement';
+    if (normalized.includes('angle stop')) return 'Angle Stop Replacement';
+    if (normalized.includes('pressure regulator') || normalized.includes('prv')) return 'Pressure Regulator Replacement';
+    if (normalized.includes('backflow')) return 'Backflow Assembly Replacement';
+    if (normalized.includes('hose bib')) return 'Hose Bibb Replacement';
+
+    return value;
+}
+
+function valveScopeDescription(value: string) {
+    return valveScopeChoiceName(value).replace(/\breplacement\b/i, '').trim().toLowerCase();
 }
 
 function buildFaucetDeterministicChoices(
@@ -1635,6 +1728,7 @@ function buildPresentationGate(input: {
     aiValidationFailed: boolean;
     pricingSetupRequired: boolean;
     approvedProducts: EstimateApprovedProduct[];
+    minimumIndividualChoiceCount: number;
 }): EstimatePresentationGate {
     const blockers: string[] = [];
     const warnings: string[] = [];
@@ -1657,9 +1751,13 @@ function buildPresentationGate(input: {
     if (input.pricingResults.some((result) => result.requiredManagementApproval)) blockers.push('Management approval is required for pricing guardrails.');
     if (input.aiValidationFailed) blockers.push('AI validation failed.');
     const individualChoiceCount = input.choices.filter((choice) => choice.kind === 'individual').length;
-    const hasEnoughIndividualChoices = individualChoiceCount >= 2;
+    const hasEnoughIndividualChoices = individualChoiceCount >= input.minimumIndividualChoiceCount;
 
-    if (!hasEnoughIndividualChoices) blockers.push('At least two materially different individual options are required.');
+    if (!hasEnoughIndividualChoices) {
+        blockers.push(input.minimumIndividualChoiceCount === 1
+            ? 'At least one verified valve option is required.'
+            : 'At least two materially different individual options are required.');
+    }
     if (input.choices.filter((choice) => choice.kind === 'package').length > 2) blockers.push('No more than two packages may be presented.');
     if (input.choices.length > 6) blockers.push('No more than six homeowner-facing choices may be presented.');
     if (hasEnoughIndividualChoices && !input.technicianApproved) blockers.push('Technician approval is required before presentation.');
@@ -1686,7 +1784,8 @@ const replacementOnlyEstimateCategories = new Set<EstimateOptionCategory>([
 function selectEligiblePriceBookEntries(
     entries: EstimatePriceBookEntry[],
     companyId: string,
-    template: EstimateCategoryTemplate
+    template: EstimateCategoryTemplate,
+    answers: EstimateAnswerSet
 ) {
     const companyEntries = entries.filter((entry) =>
         entry.companyId === companyId &&
@@ -1700,6 +1799,10 @@ function selectEligiblePriceBookEntries(
             )
         )
         : companyEntries;
+
+    if (template.id === 'valve_replacement') {
+        return selectEligibleValvePriceBookEntries(actionCompatibleEntries, answers);
+    }
 
     const exactMatches = actionCompatibleEntries.filter((entry) =>
         template.pricingCategoryFilters.some((filter) =>
@@ -1715,6 +1818,60 @@ function selectEligiblePriceBookEntries(
     if (template.id === 'water_filtration') return [];
 
     return sortPriceEntries(actionCompatibleEntries);
+}
+
+function selectEligibleValvePriceBookEntries(
+    entries: EstimatePriceBookEntry[],
+    answers: EstimateAnswerSet
+) {
+    const valveType = normalizeText(readAnswerText(answers.valve_type));
+    const fixtureSetup = normalizeText(readAnswerText(answers.shower_configuration));
+    const tubSpoutScope = normalizeText(readAnswerText(answers.tub_spout_scope));
+
+    if (!valveType) return [];
+
+    if (valveType === 'shower valve') {
+        const tubConfiguration = fixtureSetup === 'tub and shower combination' || fixtureSetup === 'tub only';
+        const preferredCode = tubConfiguration
+            ? 'water_service_bathroom_tub_shower_valve_replacement'
+            : 'water_service_bathroom_shower_valve_replacement';
+        const exactCodeMatches = entries.filter((entry) => normalizeText(entry.code) === normalizeText(preferredCode));
+        const tubSpoutMatches = tubConfiguration && tubSpoutScope === 'replace tub spout'
+            ? entries.filter((entry) =>
+                normalizeText(entry.code) === normalizeText('water_service_bathroom_tub_spout_replacement') ||
+                normalizeText(entry.name).includes('tub spout replacement')
+            )
+            : [];
+
+        if (exactCodeMatches.length > 0) return sortPriceEntries([...exactCodeMatches, ...tubSpoutMatches]);
+
+        const valveMatches = entries.filter((entry) => {
+            const identity = normalizeText(`${entry.name} ${entry.serviceCategory} ${entry.applicableCategories.join(' ')}`);
+            const isTubShower = identity.includes('tub shower valve');
+            const isShowerValve = identity.includes('shower valve');
+
+            return tubConfiguration ? isTubShower : isShowerValve && !isTubShower;
+        });
+
+        return sortPriceEntries([...valveMatches, ...tubSpoutMatches]);
+    }
+
+    const matchingTerms: Record<string, string[]> = {
+        'main water shutoff': ['main water shutoff'],
+        'angle stop': ['angle stop'],
+        'pressure regulator': ['pressure regulator', 'prv'],
+        'backflow assembly': ['backflow'],
+        'hose bibb valve': ['hose bib', 'hose bibb'],
+    };
+    const terms = matchingTerms[valveType] || [];
+
+    if (terms.length === 0) return [];
+
+    return sortPriceEntries(entries.filter((entry) => {
+        const identity = normalizeText(`${entry.code} ${entry.name} ${entry.serviceCategory} ${entry.applicableCategories.join(' ')}`);
+
+        return terms.some((term) => identity.includes(normalizeText(term)));
+    }));
 }
 
 function sortPriceEntries(entries: EstimatePriceBookEntry[]) {

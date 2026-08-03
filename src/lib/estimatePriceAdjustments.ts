@@ -23,8 +23,18 @@ export function applyEstimateChoicePriceAdjustment(
         };
     });
     const totalAmount = roundCurrency(lineItems.reduce((total, line) => total + line.totalAmount, 0));
+    const minimumAllowedTotal = choice.pricingResult.minimumAllowedTotal;
     const maximumAllowedTotal = choice.pricingResult.maximumAllowedTotal;
+    const belowMinimum = minimumAllowedTotal !== null && totalAmount < minimumAllowedTotal;
     const exceedsMaximum = maximumAllowedTotal !== null && totalAmount > maximumAllowedTotal;
+    const adjustmentWarnings = [
+        ...(belowMinimum
+            ? [`Adjusted price is below the company minimum of ${formatMoney(minimumAllowedTotal)}.`]
+            : []),
+        ...(exceedsMaximum
+            ? [`Adjusted price exceeds the company maximum of ${formatMoney(maximumAllowedTotal)}.`]
+            : []),
+    ];
 
     return {
         ...choice,
@@ -35,13 +45,8 @@ export function applyEstimateChoicePriceAdjustment(
             grossMargin: totalAmount > 0
                 ? roundRatio((totalAmount - choice.pricingResult.totalCost) / totalAmount)
                 : null,
-            requiredManagementApproval: choice.pricingResult.requiredManagementApproval || exceedsMaximum,
-            warnings: exceedsMaximum
-                ? [
-                    ...choice.pricingResult.warnings,
-                    `Adjusted price exceeds the company maximum of ${formatMoney(maximumAllowedTotal)}.`,
-                ]
-                : choice.pricingResult.warnings,
+            requiredManagementApproval: choice.pricingResult.requiredManagementApproval || belowMinimum || exceedsMaximum,
+            warnings: [...choice.pricingResult.warnings, ...adjustmentWarnings],
         },
     };
 }
@@ -49,11 +54,14 @@ export function applyEstimateChoicePriceAdjustment(
 export function normalizeEstimatePriceAdjustmentPercentage(value: number) {
     if (!Number.isFinite(value)) return 0;
 
-    return Math.min(500, Math.max(0, Math.round(value * 100) / 100));
+    return Math.min(500, Math.max(-100, Math.round(value * 100) / 100));
 }
 
 export function formatEstimatePriceAdjustmentPercentage(value: number) {
-    return `${normalizeEstimatePriceAdjustmentPercentage(value).toLocaleString(undefined, {
+    const normalized = normalizeEstimatePriceAdjustmentPercentage(value);
+    const prefix = normalized > 0 ? '+' : '';
+
+    return `${prefix}${normalized.toLocaleString(undefined, {
         maximumFractionDigits: 2,
     })}%`;
 }

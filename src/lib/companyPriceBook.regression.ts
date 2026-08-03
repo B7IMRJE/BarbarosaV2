@@ -236,7 +236,11 @@ function starterRecommendationsMakeUnpricedEstimateServicesUsable() {
         }],
         draftContext: null,
         category: 'valve_replacement',
-        answers: {},
+        answers: {
+            valve_type: 'shower valve',
+            shower_configuration: 'shower only',
+            tub_spout_scope: 'not applicable',
+        },
         priceBookItems: items,
         technicianApproved: false,
     });

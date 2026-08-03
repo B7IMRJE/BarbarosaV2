@@ -1,4 +1,8 @@
-import { applyEstimateChoicePriceAdjustment } from './estimatePriceAdjustments';
+import {
+    applyEstimateChoicePriceAdjustment,
+    formatEstimatePriceAdjustmentPercentage,
+    normalizeEstimatePriceAdjustmentPercentage,
+} from './estimatePriceAdjustments';
 import type { EstimateChoice } from './estimateOptions';
 
 runEstimatePriceAdjustmentRegression();
@@ -6,6 +10,8 @@ runEstimatePriceAdjustmentRegression();
 function runEstimatePriceAdjustmentRegression() {
     const baseChoice = choice();
     const adjustedChoice = applyEstimateChoicePriceAdjustment(baseChoice, 10);
+    const discountedChoice = applyEstimateChoicePriceAdjustment(baseChoice, -10);
+    const belowMinimumChoice = applyEstimateChoicePriceAdjustment(baseChoice, -30);
 
     assert(adjustedChoice.pricingResult.totalAmount === 110, 'A 10% increase should change a $100 option to $110.');
     assert(adjustedChoice.pricingResult.lineItems[0]?.unitAmount === 110, 'Line item selling prices should increase with the option.');
@@ -14,6 +20,14 @@ function runEstimatePriceAdjustmentRegression() {
     assert(adjustedChoice.pricingResult.requiredManagementApproval, 'Prices above the company maximum should require approval.');
     assert(baseChoice.pricingResult.totalAmount === 100, 'The base deterministic option must remain unchanged.');
     assert(applyEstimateChoicePriceAdjustment(baseChoice, 0) === baseChoice, 'Resetting to 0% should restore the base option.');
+    assert(discountedChoice.pricingResult.totalAmount === 90, 'A 10% discount should change a $100 option to $90.');
+    assert(!discountedChoice.pricingResult.requiredManagementApproval, 'A discount at the company minimum should not require approval.');
+    assert(belowMinimumChoice.pricingResult.totalAmount === 70, 'A 30% discount should change a $100 option to $70.');
+    assert(belowMinimumChoice.pricingResult.requiredManagementApproval, 'A discount below the company minimum should require approval.');
+    assert(belowMinimumChoice.pricingResult.warnings.some((warning) => warning.includes('below the company minimum')), 'Below-minimum discounts should show a clear warning.');
+    assert(normalizeEstimatePriceAdjustmentPercentage(-150) === -100, 'Discount normalization should prevent totals below zero.');
+    assert(formatEstimatePriceAdjustmentPercentage(20) === '+20%', 'Price increases should display with a plus sign.');
+    assert(formatEstimatePriceAdjustmentPercentage(-5) === '-5%', 'Discounts should display with a minus sign.');
 }
 
 function choice(): EstimateChoice {

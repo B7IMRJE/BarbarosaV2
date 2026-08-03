@@ -11,6 +11,7 @@ export function runTemporaryRiversidePlumbingPriceListRegressions() {
     everyCatalogCardHasAPlanningRecommendation();
     planningRecommendationsStayWithinGuardrails();
     guidedEstimateScopesHaveDedicatedCardsAndPrices();
+    tubShowerValvePriceStaysTwoHundredAboveShowerOnly();
     exportContainsEveryReviewedCatalogRow();
 }
 
@@ -64,6 +65,20 @@ function guidedEstimateScopesHaveDedicatedCardsAndPrices() {
         assert(recommendation, `Expected a dedicated price-book card for ${priceKey}.`);
         assert(recommendation.recommendedPrice > 0, `${priceKey} should have a positive planning recommendation.`);
     });
+}
+
+function tubShowerValvePriceStaysTwoHundredAboveShowerOnly() {
+    const showerOnly = getTemporaryRiversidePlumbingPrice('water_service_bathroom_shower_valve_replacement');
+    const tubShower = getTemporaryRiversidePlumbingPrice('water_service_bathroom_tub_shower_valve_replacement');
+    const tubSpout = getTemporaryRiversidePlumbingPrice('water_service_bathroom_tub_spout_replacement');
+
+    assert(showerOnly?.recommendedPrice === 1195, 'Shower-only valve replacement should remain $1,195.');
+    assert(tubShower?.recommendedPrice === 1195, 'The tub-and-shower valve itself should remain $1,195.');
+    assert(tubSpout?.recommendedPrice === 200, 'A selected tub-spout replacement should add $200.');
+    assert(
+        tubShower.recommendedPrice + tubSpout.recommendedPrice - showerOnly.recommendedPrice === 200,
+        'Tub-and-shower valve plus a selected tub spout should stay $200 above shower-only pricing.'
+    );
 }
 
 function exportContainsEveryReviewedCatalogRow() {

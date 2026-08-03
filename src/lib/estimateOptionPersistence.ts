@@ -4,6 +4,7 @@ import type { EstimateChoice, EstimatePricingResult } from './estimateOptions';
 export type PersistableEstimateChoice = EstimateChoice & {
     basePricingResult?: EstimatePricingResult;
     priceAdjustmentPercentage?: number;
+    priceAdjustmentLabel?: string | null;
 };
 
 export type PersistedEstimateOptionSet = {
