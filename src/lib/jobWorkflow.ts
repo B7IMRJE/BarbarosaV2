@@ -25,7 +25,7 @@ export type JobWorkflow = {
     homeowner_accepted_at: string | null;
     cancellation_rule_snapshot: ContractRule | null;
     sold_at: string | null;
-    execution_timing: 'now' | 'later' | 'same_day_service_repair' | null;
+    execution_timing: 'now' | 'later' | 'same_day_service_repair' | 'same_day_standard' | 'same_day_emergency' | null;
     selected_total: number | null;
     scheduled_for: string | null;
     same_day_service_repair_reason: string | null;
@@ -33,6 +33,13 @@ export type JobWorkflow = {
     same_day_service_repair_acknowledgment: Record<string, unknown> | null;
     same_day_service_repair_acknowledged_at: string | null;
     same_day_service_repair_technician_confirmed_at: string | null;
+    same_day_start_type: 'standard_same_day' | 'service_and_repair' | 'emergency_immediate_protection' | null;
+    same_day_start_reason: string | null;
+    same_day_start_homeowner_name: string | null;
+    same_day_start_acknowledgment: Record<string, unknown> | null;
+    same_day_start_acknowledged_at: string | null;
+    same_day_start_technician_confirmed_at: string | null;
+    same_day_emergency_waived_at: string | null;
     store_name: string | null;
     store_address: string | null;
     issue_summary: string | null;
@@ -93,29 +100,35 @@ export async function advanceJobWorkflow(
     return data as JobWorkflow;
 }
 
-export async function startSameDayServiceAndRepair(input: {
+export async function startSameDayWork(input: {
     workflowId: string;
+    startType: 'standard_same_day' | 'service_and_repair' | 'emergency_immediate_protection';
     reason: string;
     homeownerName: string;
     homeownerSignature: string;
     customerInitiated: boolean;
+    signedContractConfirmed: boolean;
+    technicianConfirmed: boolean;
     shortNoticeRequested: boolean;
-    signedServiceRepairAgreementConfirmed: boolean;
     scopeLimitedToRepair: boolean;
     noPaymentBeforeCompletion: boolean;
-    technicianConfirmed: boolean;
+    immediateProtectionConfirmed: boolean;
+    emergencyWaiverSignature: string;
 }): Promise<JobWorkflow> {
-    const { data, error } = await supabase.rpc('start_company_job_workflow_same_day_service_repair', {
+    const { data, error } = await supabase.rpc('start_company_job_workflow_same_day', {
         p_workflow_id: input.workflowId,
+        p_start_type: input.startType,
         p_reason: input.reason,
         p_homeowner_name: input.homeownerName,
         p_homeowner_signature: input.homeownerSignature,
         p_customer_initiated: input.customerInitiated,
+        p_signed_contract_confirmed: input.signedContractConfirmed,
+        p_technician_confirmed: input.technicianConfirmed,
         p_short_notice_requested: input.shortNoticeRequested,
-        p_signed_service_repair_agreement_confirmed: input.signedServiceRepairAgreementConfirmed,
         p_scope_limited_to_repair: input.scopeLimitedToRepair,
         p_no_payment_before_completion: input.noPaymentBeforeCompletion,
-        p_technician_confirmed: input.technicianConfirmed,
+        p_immediate_protection_confirmed: input.immediateProtectionConfirmed,
+        p_emergency_waiver_signature: input.emergencyWaiverSignature || null,
     });
     if (error) throw error;
     return data as JobWorkflow;
