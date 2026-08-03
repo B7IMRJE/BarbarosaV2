@@ -1,4 +1,10 @@
 import type { HomeOSTheme } from '../theme/themes';
+import { resolveGlassHomeTheme } from '../theme/glassPalette';
+import {
+    chooseReadableThemeText,
+    getThemeContrastRatio,
+    MINIMUM_BODY_TEXT_CONTRAST,
+} from '../theme/colorContrast';
 
 export type CompanyWorkspaceBrand = {
     primary_color?: string | null;
@@ -6,20 +12,45 @@ export type CompanyWorkspaceBrand = {
     accent_color?: string | null;
 };
 
+type CompanyWorkspaceThemeOptions = {
+    appearanceStyle?: 'classic' | 'glass';
+};
+
 export function resolveCompanyWorkspaceTheme(
     baseTheme: HomeOSTheme,
-    company: CompanyWorkspaceBrand | null
+    company: CompanyWorkspaceBrand | null,
+    options: CompanyWorkspaceThemeOptions = {}
 ): HomeOSTheme {
-    if (!company) return baseTheme;
+    if (!company) {
+        return options.appearanceStyle === 'glass'
+            ? isResolvedGlassTheme(baseTheme)
+                ? baseTheme
+                : resolveGlassHomeTheme(baseTheme)
+            : baseTheme;
+    }
 
     const primary = safeBrandColor(company.primary_color, baseTheme.colors.primary);
     const secondary = safeBrandColor(company.secondary_color, primary);
     const accent = safeBrandColor(company.accent_color, baseTheme.colors.primary);
+
+    if (options.appearanceStyle === 'glass') {
+        return resolveGlassHomeTheme(baseTheme, {
+            primary,
+            secondary,
+            accent,
+            background: isResolvedGlassTheme(baseTheme)
+                ? baseTheme.colors.background
+                : undefined,
+            panel: mixWorkspaceColor(primary, secondary, 0.32),
+            panelOpacity: 82,
+        });
+    }
+
     const background = mixWorkspaceColor(secondary, '#FFFFFF', 0.9);
     const surface = mixWorkspaceColor(secondary, '#FFFFFF', 0.78);
     const surfaceAlt = mixWorkspaceColor(primary, '#FFFFFF', 0.82);
     const text = readableWorkspaceColor(surface);
-    const mutedText = mixWorkspaceColor(text, surface, 0.42);
+    const mutedText = readableMutedWorkspaceColor(text, surface);
     const border = mixWorkspaceColor(accent, '#FFFFFF', 0.34);
 
     return {
@@ -62,10 +93,24 @@ function mixWorkspaceColor(first: string, second: string, secondWeight: number) 
 }
 
 function readableWorkspaceColor(color: string) {
-    const value = safeBrandColor(color, '#075748').slice(1);
-    const red = parseInt(value.slice(0, 2), 16);
-    const green = parseInt(value.slice(2, 4), 16);
-    const blue = parseInt(value.slice(4, 6), 16);
-    const luma = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-    return luma < 145 ? '#FFFFFF' : '#071B33';
+    return chooseReadableThemeText(safeBrandColor(color, '#075748'));
+}
+
+function readableMutedWorkspaceColor(text: string, surface: string) {
+    let mutedText = mixWorkspaceColor(text, surface, 0.42);
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+        if (getThemeContrastRatio(mutedText, surface) >= MINIMUM_BODY_TEXT_CONTRAST) {
+            return mutedText;
+        }
+
+        mutedText = mixWorkspaceColor(mutedText, text, 0.14);
+    }
+
+    return text;
+}
+
+function isResolvedGlassTheme(theme: HomeOSTheme) {
+    return /^rgba?\(/i.test(theme.colors.surface)
+        || /^rgba?\(/i.test(theme.colors.surfaceAlt);
 }

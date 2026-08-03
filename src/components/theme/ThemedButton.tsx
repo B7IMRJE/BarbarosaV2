@@ -43,9 +43,9 @@ export default function ThemedButton({
             color: theme.colors.primaryText,
         },
         secondary: {
-            backgroundColor: theme.colors.surface,
+            backgroundColor: theme.colors.secondaryButton,
             borderColor: theme.colors.primary,
-            color: theme.colors.primary,
+            color: theme.colors.secondaryButtonText,
         },
         danger: {
             backgroundColor: theme.colors.danger,

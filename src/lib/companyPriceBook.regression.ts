@@ -1,4 +1,5 @@
 import {
+    applyStarterPriceBookRecommendationsForEstimate,
     companyPriceBookUnitConstraintValues,
     getCompanyPriceBookRpcNames,
     getCompanyPriceBookUpsertRpcName,
@@ -7,7 +8,11 @@ import {
     validateCompanyPriceBookDraftUnit,
     type CompanyPriceBookDraft,
 } from './companyPriceBook';
-import { mapCompanyPriceBookItemToEstimateEntry } from './estimateOptions';
+import {
+    buildEstimateOptionWorkspace,
+    mapCompanyPriceBookItemToEstimateEntry,
+} from './estimateOptions';
+import { temporaryRiversidePlumbingPrices } from './temporaryRiversidePlumbingPriceList';
 
 runCompanyPriceBookRegressions();
 
@@ -21,6 +26,9 @@ export function runCompanyPriceBookRegressions() {
     unsupportedLegacyUnitShowsCorrectionMessage();
     legacyRpcShapeStillMapsForExistingCallers();
     versionedRpcShapeSuppliesEstimateOptionFields();
+    starterRecommendationsMakeUnpricedEstimateServicesUsable();
+    savedCompanyPricesOverrideStarterRecommendations();
+    archivedCompanyItemsStayInactive();
 }
 
 function estimateLoaderPrefersVersionedRpcWithLegacyFallback() {
@@ -192,6 +200,107 @@ function versionedRpcShapeSuppliesEstimateOptionFields() {
     assert(entry.maximumPermittedSellingPrice === 2600, 'Versioned RPC should supply maximum price guard.');
     assert(entry.requiredAddOnCodes.includes('permit-inspection'), 'Versioned RPC should supply required add-on codes.');
     assert(entry.incompatibleCodes.includes('spot-repair'), 'Versioned RPC should supply incompatible price keys.');
+}
+
+function starterRecommendationsMakeUnpricedEstimateServicesUsable() {
+    const items = applyStarterPriceBookRecommendationsForEstimate('company-1', []);
+    const showerValve = items.find((item) =>
+        item.price_key === 'water_service_bathroom_shower_valve_replacement'
+    );
+
+    assert(
+        items.length === temporaryRiversidePlumbingPrices.length,
+        'Estimate fallback should cover every Riverside plumbing catalog item.'
+    );
+    assert(showerValve, 'Estimate fallback should include shower valve replacement pricing.');
+    assert(showerValve.recommended_selling_price === 1195, 'Shower valve replacement should use the Riverside starter recommendation.');
+    assert(showerValve.source === 'template', 'Starter recommendation should remain distinguishable from a saved company price.');
+
+    const workspace = buildEstimateOptionWorkspace({
+        companyId: 'company-1',
+        draftItems: [{
+            id: 'shower-valve-1',
+            property_id: 'property-1',
+            name: 'Shower valve replacement',
+            item_slug: 'bathroom-shower-valve',
+            system: 'Water Service',
+            category: 'Shower Valve',
+            location: 'Bathroom',
+            parent_area: 'Bathroom',
+            status: 'Needs service',
+            install_state: 'Existing',
+            company_id: 'company-1',
+            company_user_id: 'company-user-1',
+            source: 'provider_mode',
+            created_at: '2026-08-02T12:00:00.000Z',
+        }],
+        draftContext: null,
+        category: 'valve_replacement',
+        answers: {},
+        priceBookItems: items,
+        technicianApproved: false,
+    });
+
+    assert(!workspace.pricingSetupRequired, 'Starter recommendations should clear the estimate pricing setup blocker.');
+    assert(workspace.pricingResults.length > 0, 'Starter recommendations should produce deterministic estimate pricing.');
+}
+
+function savedCompanyPricesOverrideStarterRecommendations() {
+    const savedItem = readCompanyPriceBookRpcRowForRegression({
+        id: 'saved-shower-valve',
+        company_id: 'company-1',
+        price_key: 'water_service_bathroom_shower_valve_replacement',
+        name: 'Shower valve replacement',
+        system: 'Water Service',
+        category: 'Valves / Shutoffs',
+        unit: 'each',
+        base_price: 1775,
+        labor_hours: 6,
+        material_cost: 400,
+        customer_description: 'Saved company scope.',
+        internal_notes: 'Saved by management.',
+        active: true,
+        created_at: '2026-08-02T12:00:00.000Z',
+        updated_at: '2026-08-02T12:00:00.000Z',
+        recommended_selling_price: 1775,
+    });
+
+    assert(savedItem, 'Saved price-book item should load for starter override regression.');
+
+    const items = applyStarterPriceBookRecommendationsForEstimate('company-1', [savedItem]);
+    const showerValve = items.find((item) => item.price_key === savedItem.price_key);
+
+    assert(showerValve?.id === savedItem.id, 'Saved company price should keep its persisted identity.');
+    assert(showerValve?.recommended_selling_price === 1775, 'Saved company selling price should override the starter recommendation.');
+    assert(showerValve?.source === 'backend', 'Saved company price should remain identified as backend data.');
+}
+
+function archivedCompanyItemsStayInactive() {
+    const archivedItem = readCompanyPriceBookRpcRowForRegression({
+        id: 'archived-shower-valve',
+        company_id: 'company-1',
+        price_key: 'water_service_bathroom_shower_valve_replacement',
+        name: 'Shower valve replacement',
+        system: 'Water Service',
+        category: 'Valves / Shutoffs',
+        unit: 'each',
+        base_price: null,
+        labor_hours: null,
+        material_cost: null,
+        customer_description: null,
+        internal_notes: null,
+        active: false,
+        created_at: '2026-08-02T12:00:00.000Z',
+        updated_at: '2026-08-02T12:00:00.000Z',
+    });
+
+    assert(archivedItem, 'Archived price-book item should load for starter fallback regression.');
+
+    const items = applyStarterPriceBookRecommendationsForEstimate('company-1', [archivedItem]);
+    const showerValve = items.find((item) => item.price_key === archivedItem.price_key);
+
+    assert(showerValve?.active === false, 'Starter fallback should not reactivate a service archived by management.');
+    assert(showerValve?.recommended_selling_price === null, 'Archived unpriced service should remain unavailable to estimates.');
 }
 
 function assert(condition: unknown, message: string): asserts condition {

@@ -1,5 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
+import {
+    temporaryRiversidePlumbingPrices,
+    type TemporaryPlumbingPrice,
+} from './temporaryRiversidePlumbingPriceList';
 
 const PRICE_BOOK_STORAGE_KEY = 'homeos_company_price_book_v1';
 const COMPANY_PRICE_BOOK_RPC_NAMES = ['get_company_price_book_v2', 'get_company_price_book'] as const;
@@ -76,6 +80,10 @@ export type CompanyPriceBookLoadResult = {
     backendStatus: CompanyPriceBookBackendStatus;
 };
 
+export type CompanyPriceBookLoadOptions = {
+    includeStarterRecommendations?: boolean;
+};
+
 type WebStorage = {
     getItem: (key: string) => string | null;
     setItem: (key: string, value: string) => void;
@@ -114,27 +122,62 @@ export function getCompanyPriceBookUpsertRpcName() {
     return COMPANY_PRICE_BOOK_UPSERT_RPC_NAME;
 }
 
-export async function loadCompanyPriceBook(companyId: string): Promise<CompanyPriceBookLoadResult> {
+export async function loadCompanyPriceBook(
+    companyId: string,
+    options: CompanyPriceBookLoadOptions = {}
+): Promise<CompanyPriceBookLoadResult> {
     const backendItems = await loadCompanyPriceBookFromBackend(companyId);
     const localItems = await loadLocalCompanyPriceBook(companyId);
 
     if (backendItems) {
+        const savedItems = mergePriceBookItems(backendItems, localItems);
+
         return {
-            items: mergePriceBookItems(backendItems, localItems),
+            items: options.includeStarterRecommendations
+                ? applyStarterPriceBookRecommendationsForEstimate(companyId, savedItems)
+                : savedItems,
             backendStatus: {
                 status: 'connected',
-                message: 'Price book backend: connected',
+                message: options.includeStarterRecommendations
+                    ? 'Price book connected · Riverside starter pricing fills unpriced estimate services'
+                    : 'Price book backend: connected',
             },
         };
     }
 
     return {
-        items: localItems,
+        items: options.includeStarterRecommendations
+            ? applyStarterPriceBookRecommendationsForEstimate(companyId, localItems)
+            : localItems,
         backendStatus: {
             status: 'fallback',
-            message: 'Price book backend unavailable: using local price book draft',
+            message: options.includeStarterRecommendations
+                ? 'Price book backend unavailable · Riverside starter pricing is available for estimates'
+                : 'Price book backend unavailable: using local price book draft',
         },
     };
+}
+
+export function applyStarterPriceBookRecommendationsForEstimate(
+    companyId: string,
+    savedItems: CompanyPriceBookItem[]
+) {
+    const savedByPriceKey = new Map(savedItems.map((item) => [item.price_key, item]));
+    const starterItems = temporaryRiversidePlumbingPrices.map((starterPrice) => {
+        const savedItem = savedByPriceKey.get(starterPrice.priceKey);
+
+        if (savedItem) {
+            savedByPriceKey.delete(starterPrice.priceKey);
+
+            if (!savedItem.active || hasSavedSellingPrice(savedItem)) return savedItem;
+
+            return applyStarterPriceToItem(savedItem, starterPrice);
+        }
+
+        return createStarterPriceBookItem(companyId, starterPrice);
+    });
+
+    return sortPriceBookItems([...starterItems, ...savedByPriceKey.values()]);
 }
 
 export async function upsertCompanyPriceBookItem(companyId: string, draft: CompanyPriceBookDraft) {
@@ -194,6 +237,88 @@ function mergePriceBookItems(backendItems: CompanyPriceBookItem[], localItems: C
     });
 
     return sortPriceBookItems(Array.from(byKey.values()));
+}
+
+function hasSavedSellingPrice(item: CompanyPriceBookItem) {
+    return isFiniteNumber(item.recommended_selling_price) || isFiniteNumber(item.base_price);
+}
+
+function applyStarterPriceToItem(
+    item: CompanyPriceBookItem,
+    starterPrice: TemporaryPlumbingPrice
+): CompanyPriceBookItem {
+    return {
+        ...item,
+        base_price: starterPrice.recommendedPrice,
+        labor_hours: item.labor_hours ?? starterPrice.laborHours,
+        material_cost: item.material_cost ?? starterPrice.materialCost,
+        customer_description: item.customer_description || starterPrice.customerDescription,
+        internal_notes: appendStarterPricingNote(item.internal_notes),
+        service_category: item.service_category || starterPrice.category,
+        homeowner_description: item.homeowner_description || starterPrice.customerDescription,
+        estimated_labor_hours: item.estimated_labor_hours ?? starterPrice.laborHours,
+        internal_material_cost: item.internal_material_cost ?? starterPrice.materialCost,
+        recommended_selling_price: starterPrice.recommendedPrice,
+        minimum_permitted_selling_price: item.minimum_permitted_selling_price ?? starterPrice.marketLow,
+        maximum_permitted_selling_price: item.maximum_permitted_selling_price ?? starterPrice.marketHigh,
+        version_label: item.version_label || 'Riverside 2026 starter recommendation',
+        applicable_systems: item.applicable_systems?.length ? item.applicable_systems : [starterPrice.system],
+        applicable_areas: item.applicable_areas?.length ? item.applicable_areas : [starterPrice.area],
+        applicable_categories: item.applicable_categories?.length
+            ? item.applicable_categories
+            : [starterPrice.category],
+        management_notes: appendStarterPricingNote(item.management_notes),
+    };
+}
+
+function createStarterPriceBookItem(
+    companyId: string,
+    starterPrice: TemporaryPlumbingPrice
+): CompanyPriceBookItem {
+    return {
+        id: `starter-${companyId}-${starterPrice.priceKey}`,
+        company_id: companyId,
+        price_key: starterPrice.priceKey,
+        name: starterPrice.name,
+        system: starterPrice.system,
+        category: starterPrice.category,
+        unit: starterPrice.unit,
+        base_price: starterPrice.recommendedPrice,
+        labor_hours: starterPrice.laborHours,
+        material_cost: starterPrice.materialCost,
+        customer_description: starterPrice.customerDescription,
+        internal_notes: appendStarterPricingNote(null),
+        active: true,
+        created_at: null,
+        updated_at: null,
+        source: 'template',
+        service_category: starterPrice.category,
+        homeowner_description: starterPrice.customerDescription,
+        estimated_labor_hours: starterPrice.laborHours,
+        internal_material_cost: starterPrice.materialCost,
+        recommended_selling_price: starterPrice.recommendedPrice,
+        minimum_permitted_selling_price: starterPrice.marketLow,
+        maximum_permitted_selling_price: starterPrice.marketHigh,
+        version_label: 'Riverside 2026 starter recommendation',
+        applicable_systems: [starterPrice.system],
+        applicable_areas: [starterPrice.area],
+        applicable_categories: [starterPrice.category],
+        management_notes: appendStarterPricingNote(null),
+    };
+}
+
+function appendStarterPricingNote(existingNote: string | null | undefined) {
+    const starterNote = 'Riverside 2026 starter recommendation; replace with a saved company price after management review.';
+    const note = String(existingNote || '').trim();
+
+    if (!note) return starterNote;
+    if (note.includes(starterNote)) return note;
+
+    return `${note} ${starterNote}`;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
 }
 
 async function loadCompanyPriceBookFromBackend(companyId: string) {

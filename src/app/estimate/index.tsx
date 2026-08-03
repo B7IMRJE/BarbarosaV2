@@ -221,7 +221,9 @@ export default function EstimateScreen() {
 
             let active = true;
 
-            void loadCompanyPriceBook(estimateAccess.companyId)
+            void loadCompanyPriceBook(estimateAccess.companyId, {
+                includeStarterRecommendations: true,
+            })
                 .then((priceBook) => {
                     if (!active) return;
                     setPriceBookItems(priceBook.items);
@@ -431,7 +433,9 @@ export default function EstimateScreen() {
         }
 
         try {
-            const priceBook = await loadCompanyPriceBook(access.companyId);
+            const priceBook = await loadCompanyPriceBook(access.companyId, {
+                includeStarterRecommendations: true,
+            });
             const pricingPreview = buildEstimateOptionWorkspace({
                 companyId: access.companyId,
                 draftItems,

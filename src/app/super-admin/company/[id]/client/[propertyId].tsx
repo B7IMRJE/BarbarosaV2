@@ -117,7 +117,9 @@ export default function CompanyClientDetailScreen() {
     const [customerLoginCodeMessage, setCustomerLoginCodeMessage] = useState('');
     const [creatingCustomerLoginCode, setCreatingCustomerLoginCode] = useState(false);
     const theme = useMemo(
-        () => resolveCompanyWorkspaceTheme(themeContext.theme, company),
+        () => resolveCompanyWorkspaceTheme(themeContext.theme, company, {
+            appearanceStyle: 'glass',
+        }),
         [company, themeContext.theme]
     );
     const companyGlassPalette = useMemo(

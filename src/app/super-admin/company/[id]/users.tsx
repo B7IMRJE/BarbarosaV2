@@ -152,8 +152,10 @@ export default function CompanyUsersScreen() {
     const [companyName, setCompanyName] = useState('Company');
     const [companyBrand, setCompanyBrand] = useState<CompanyWorkspaceBrand | null>(null);
     const theme = useMemo(
-        () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand),
-        [companyBrand, themeContext.theme]
+        () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand, {
+            appearanceStyle: themeContext.appearance.appearanceStyle,
+        }),
+        [companyBrand, themeContext.appearance.appearanceStyle, themeContext.theme]
     );
     const companyGlassPalette = useMemo(
         () => createCompanyGlassPalette({

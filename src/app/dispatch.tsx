@@ -371,8 +371,10 @@ export default function DispatchBoardScreen() {
     const [companyChoices, setCompanyChoices] = useState<CompanyAccess[]>([]);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
     const theme = useMemo(
-        () => resolveCompanyWorkspaceTheme(themeContext.theme, company),
-        [company, themeContext.theme]
+        () => resolveCompanyWorkspaceTheme(themeContext.theme, company, {
+            appearanceStyle: themeContext.appearance.appearanceStyle,
+        }),
+        [company, themeContext.appearance.appearanceStyle, themeContext.theme]
     );
     const [requests, setRequests] = useState<DispatchRequest[]>([]);
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);

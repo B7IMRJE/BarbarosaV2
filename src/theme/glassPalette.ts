@@ -1,4 +1,8 @@
 import type { HomeOSTheme } from './themes';
+import {
+    chooseReadableThemeText,
+    getThemeContrastRatio,
+} from './colorContrast';
 
 export type GlassTone = 'emerald' | 'teal' | 'blue' | 'steel';
 
@@ -19,12 +23,17 @@ export type GlassPalette = {
     tones: Record<GlassTone, GlassToneColors>;
 };
 
+const GLASS_SCREEN = '#03182A';
+const GLASS_TEXT = '#F5FBFF';
+const GLASS_MUTED_TEXT = '#D6E4EE';
+const GLASS_PANEL_BASE_CONTRAST = 6;
+
 export const orbitalGlassPalette: GlassPalette = {
     id: 'orbital-green-blue',
     label: 'Orbital Green + Blue',
-    screen: '#03182A',
-    text: '#F5FBFF',
-    mutedText: '#AFC2D2',
+    screen: GLASS_SCREEN,
+    text: GLASS_TEXT,
+    mutedText: GLASS_MUTED_TEXT,
     tones: {
         emerald: {
             background: 'rgba(7, 87, 72, 0.78)',
@@ -119,13 +128,14 @@ export function resolveGlassHomeTheme(
         1,
         Math.min(100, Number(custom?.backgroundIntensity) || 100)
     ) / 100;
-    const background = mixHex(
+    const requestedBackground = mixHex(
         validHex(custom?.background) || orbitalGlassPalette.screen,
         '#01070D',
         1 - backgroundIntensity
     );
+    const background = ensureReadableGlassPanel(requestedBackground);
     const panelOpacity = Math.max(1, Math.min(100, Number(custom?.panelOpacity) || 78)) / 100;
-    const panelColor = validHex(custom?.panel) || '#1E4160';
+    const panelColor = ensureReadableGlassPanel(validHex(custom?.panel) || '#1E4160');
     const panelBackground = withAlpha(panelColor, panelOpacity);
 
     return {
@@ -134,15 +144,15 @@ export function resolveGlassHomeTheme(
         colors: {
             ...source.colors,
             background,
-            surface: withAlpha(mixHex(panelColor, '#03182A', 0.2), Math.min(0.98, panelOpacity + 0.12)),
+            surface: withAlpha(ensureReadableGlassPanel(mixHex(panelColor, GLASS_SCREEN, 0.2)), Math.min(0.98, panelOpacity + 0.12)),
             surfaceAlt: panelBackground,
-            text: orbitalGlassPalette.text,
-            mutedText: orbitalGlassPalette.mutedText,
+            text: GLASS_TEXT,
+            mutedText: GLASS_MUTED_TEXT,
             border: 'rgba(174, 205, 229, 0.48)',
             primary: accent,
-            primaryText: '#FFFFFF',
+            primaryText: chooseReadableThemeText(accent),
             secondaryButton: palette.tones.steel.background,
-            secondaryButtonText: orbitalGlassPalette.text,
+            secondaryButtonText: GLASS_TEXT,
             iconBackground: palette.tones.teal.iconBackground,
             progressTrack: 'rgba(174, 205, 229, 0.2)',
             progressFill: accent,
@@ -186,8 +196,10 @@ function isNearWhite(value: string) {
 }
 
 function colorTone(color: string, fallbackEdge: string, opacity = 0.82): GlassToneColors {
+    const panelColor = ensureReadableGlassPanel(mixHex(color, GLASS_SCREEN, 0.32));
+
     return {
-        background: withAlpha(mixHex(color, '#03182A', 0.32), opacity),
+        background: withAlpha(panelColor, opacity),
         border: withAlpha(mixHex(color, '#FFFFFF', 0.58), 0.76),
         edge: validHex(color) || fallbackEdge,
         glow: withAlpha(color, 0.24),
@@ -198,7 +210,7 @@ function colorTone(color: string, fallbackEdge: string, opacity = 0.82): GlassTo
 function companyWorkspaceTone(panelColor: string, accentColor: string, opacity = 0.82): GlassToneColors {
     const panel = validHex(panelColor) || '#4B286D';
     const accent = validHex(accentColor) || '#F59E0B';
-    const darkPanel = mixHex(panel, '#03182A', 0.38);
+    const darkPanel = ensureReadableGlassPanel(mixHex(panel, GLASS_SCREEN, 0.38));
     const warmBorder = mixHex(accent, '#FFFFFF', 0.34);
 
     return {
@@ -208,6 +220,23 @@ function companyWorkspaceTone(panelColor: string, accentColor: string, opacity =
         glow: withAlpha(accent, 0.2),
         iconBackground: withAlpha(mixHex(panel, '#03182A', 0.18), 0.94),
     };
+}
+
+function ensureReadableGlassPanel(color: string) {
+    let panel = validHex(color) || GLASS_SCREEN;
+
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+        if (
+            getThemeContrastRatio(GLASS_TEXT, panel) >= GLASS_PANEL_BASE_CONTRAST
+            && getThemeContrastRatio(GLASS_MUTED_TEXT, panel) >= GLASS_PANEL_BASE_CONTRAST
+        ) {
+            return panel;
+        }
+
+        panel = mixHex(panel, GLASS_SCREEN, 0.14);
+    }
+
+    return GLASS_SCREEN;
 }
 
 function validHex(value?: string | null) {

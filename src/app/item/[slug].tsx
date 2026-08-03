@@ -2177,6 +2177,46 @@ export default function ItemScreen() {
         } as any);
     }
 
+    function openCurrentItemEstimate() {
+        router.push({
+            pathname: '/estimate',
+            params: {
+                mode: isManagementMode ? 'management' : '',
+                itemSlug: item.item_slug || String(slug),
+                ...(providerModeContext
+                    ? providerModeQueryParams(providerModeContext)
+                    : {
+                        companyId: estimateAccess?.companyId || managementCompanyId || '',
+                        propertyId: item.property_id || managementPropertyId || '',
+                    }),
+            },
+        } as never);
+    }
+
+    async function handleViewEstimate() {
+        if (!estimateAccess) {
+            setMessage(estimatePermissionMessage || 'You do not have permission to view estimates.');
+            return;
+        }
+
+        const estimateCompanyId = providerModeContext?.companyId || estimateAccess.companyId;
+        const estimatePropertyId = providerModeContext?.propertyId || item.property_id || managementPropertyId || '';
+        const draftItemId = String(item.id || item.item_slug || slug);
+        const existingDraft = await loadEstimateDraft({
+            userId: estimateAccess.userId,
+            companyId: estimateCompanyId,
+            propertyId: estimatePropertyId || null,
+        });
+
+        if (!existingDraft.some((draftItem) => draftItem.id === draftItemId)) {
+            setMessage('Adding this service to the estimate...');
+            await handleAddToEstimate();
+            return;
+        }
+
+        openCurrentItemEstimate();
+    }
+
     async function handleAddToEstimate() {
         if (!estimateAccess) {
             setMessage(estimatePermissionMessage || 'You do not have permission to add estimates.');
@@ -3009,21 +3049,7 @@ export default function ItemScreen() {
 
                                 <ThemedButton
                                     title="View Estimate"
-                                    onPress={() => router.push({
-                                        pathname: '/estimate',
-                                        params: {
-                                            mode: isManagementMode ? 'management' : '',
-                                            itemSlug: item.item_slug || String(slug),
-                                            ...(providerModeContext
-                                                ? {
-                                                    ...providerModeQueryParams(providerModeContext),
-                                                }
-                                                : {
-                                                    companyId: estimateAccess?.companyId || managementCompanyId || '',
-                                                    propertyId: item.property_id || managementPropertyId || '',
-                                                }),
-                                        },
-                                    } as never)}
+                                    onPress={handleViewEstimate}
                                     style={scaleStyle(buttonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
@@ -4741,21 +4767,7 @@ export default function ItemScreen() {
 
                             <ThemedButton
                                 title="View Estimate"
-                                onPress={() => router.push({
-                                    pathname: '/estimate',
-                                    params: {
-                                        mode: isManagementMode ? 'management' : '',
-                                        itemSlug: item.item_slug || String(slug),
-                                        ...(providerModeContext
-                                            ? {
-                                                ...providerModeQueryParams(providerModeContext),
-                                            }
-                                            : {
-                                                companyId: estimateAccess?.companyId || managementCompanyId || '',
-                                                propertyId: item.property_id || managementPropertyId || '',
-                                            }),
-                                    },
-                                } as never)}
+                                onPress={handleViewEstimate}
                                 style={scaleStyle(buttonStyle)}
                                 textStyle={scaleStyle(buttonTextStyle)}
                             />

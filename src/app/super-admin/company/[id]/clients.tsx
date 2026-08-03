@@ -131,7 +131,9 @@ export default function CompanyClientsScreen() {
         glass_depth: number | null;
     } | null>(null);
     const theme = useMemo(
-        () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand),
+        () => resolveCompanyWorkspaceTheme(themeContext.theme, companyBrand, {
+            appearanceStyle: 'glass',
+        }),
         [companyBrand, themeContext.theme]
     );
     const companyGlassPalette = useMemo(
