@@ -25,8 +25,14 @@ export type JobWorkflow = {
     homeowner_accepted_at: string | null;
     cancellation_rule_snapshot: ContractRule | null;
     sold_at: string | null;
-    execution_timing: 'now' | 'later' | null;
+    execution_timing: 'now' | 'later' | 'same_day_service_repair' | null;
+    selected_total: number | null;
     scheduled_for: string | null;
+    same_day_service_repair_reason: string | null;
+    same_day_service_repair_homeowner_name: string | null;
+    same_day_service_repair_acknowledgment: Record<string, unknown> | null;
+    same_day_service_repair_acknowledged_at: string | null;
+    same_day_service_repair_technician_confirmed_at: string | null;
     store_name: string | null;
     store_address: string | null;
     issue_summary: string | null;
@@ -36,6 +42,7 @@ export type JobWorkflow = {
     completion_accepted_at: string | null;
     invoice_sent_at: string | null;
     payment_status: string;
+    closed_at: string | null;
 };
 
 export type ContractRule = {
@@ -81,6 +88,54 @@ export async function advanceJobWorkflow(
         p_workflow_id: workflowId,
         p_action: action,
         p_payload: payload,
+    });
+    if (error) throw error;
+    return data as JobWorkflow;
+}
+
+export async function startSameDayServiceAndRepair(input: {
+    workflowId: string;
+    reason: string;
+    homeownerName: string;
+    homeownerSignature: string;
+    customerInitiated: boolean;
+    shortNoticeRequested: boolean;
+    signedServiceRepairAgreementConfirmed: boolean;
+    scopeLimitedToRepair: boolean;
+    noPaymentBeforeCompletion: boolean;
+    technicianConfirmed: boolean;
+}): Promise<JobWorkflow> {
+    const { data, error } = await supabase.rpc('start_company_job_workflow_same_day_service_repair', {
+        p_workflow_id: input.workflowId,
+        p_reason: input.reason,
+        p_homeowner_name: input.homeownerName,
+        p_homeowner_signature: input.homeownerSignature,
+        p_customer_initiated: input.customerInitiated,
+        p_short_notice_requested: input.shortNoticeRequested,
+        p_signed_service_repair_agreement_confirmed: input.signedServiceRepairAgreementConfirmed,
+        p_scope_limited_to_repair: input.scopeLimitedToRepair,
+        p_no_payment_before_completion: input.noPaymentBeforeCompletion,
+        p_technician_confirmed: input.technicianConfirmed,
+    });
+    if (error) throw error;
+    return data as JobWorkflow;
+}
+
+export async function closeJobWorkflow(
+    workflowId: string,
+    paymentHandling: 'paid_externally' | 'balance_due_to_office'
+): Promise<JobWorkflow> {
+    const { data, error } = await supabase.rpc('close_company_job_workflow', {
+        p_workflow_id: workflowId,
+        p_payment_handling: paymentHandling,
+    });
+    if (error) throw error;
+    return data as JobWorkflow;
+}
+
+export async function recordCloseoutPayment(workflowId: string): Promise<JobWorkflow> {
+    const { data, error } = await supabase.rpc('record_company_job_workflow_closeout_payment', {
+        p_workflow_id: workflowId,
     });
     if (error) throw error;
     return data as JobWorkflow;

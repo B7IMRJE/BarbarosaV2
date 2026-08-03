@@ -9,7 +9,10 @@ import { formatMoney } from '../../lib/estimateOptions';
 import {
     acceptJobWorkflowQuote,
     advanceJobWorkflow,
+    closeJobWorkflow,
     loadOrCreateJobWorkflow,
+    recordCloseoutPayment,
+    startSameDayServiceAndRepair,
     uploadJobWorkflowPhoto,
     type JobWorkflowAttachment,
     type JobWorkflowBundle,
@@ -48,6 +51,15 @@ export default function JobWorkflowScreen() {
     const [resolutionSummary, setResolutionSummary] = useState('');
     const [completionName, setCompletionName] = useState('');
     const [completionSignature, setCompletionSignature] = useState('');
+    const [sameDayReason, setSameDayReason] = useState('');
+    const [sameDayHomeownerName, setSameDayHomeownerName] = useState('');
+    const [sameDayHomeownerSignature, setSameDayHomeownerSignature] = useState('');
+    const [sameDayCustomerInitiated, setSameDayCustomerInitiated] = useState(false);
+    const [sameDayShortNoticeRequested, setSameDayShortNoticeRequested] = useState(false);
+    const [sameDayAgreementConfirmed, setSameDayAgreementConfirmed] = useState(false);
+    const [sameDayScopeLimited, setSameDayScopeLimited] = useState(false);
+    const [sameDayNoPaymentBeforeCompletion, setSameDayNoPaymentBeforeCompletion] = useState(false);
+    const [sameDayTechnicianConfirmed, setSameDayTechnicianConfirmed] = useState(false);
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
     const workflowScrollRef = useRef<ScrollView | null>(null);
 
@@ -147,6 +159,64 @@ export default function JobWorkflowScreen() {
         }
     }
 
+    async function startSameDayWork() {
+        if (!bundle || busy) return;
+        setBusy(true);
+        setMessage('Saving the Same-Day Service and Repair acknowledgement...');
+        try {
+            await startSameDayServiceAndRepair({
+                workflowId: bundle.workflow.id,
+                reason: sameDayReason,
+                homeownerName: sameDayHomeownerName,
+                homeownerSignature: sameDayHomeownerSignature,
+                customerInitiated: sameDayCustomerInitiated,
+                shortNoticeRequested: sameDayShortNoticeRequested,
+                signedServiceRepairAgreementConfirmed: sameDayAgreementConfirmed,
+                scopeLimitedToRepair: sameDayScopeLimited,
+                noPaymentBeforeCompletion: sameDayNoPaymentBeforeCompletion,
+                technicianConfirmed: sameDayTechnicianConfirmed,
+            });
+            await refresh();
+            setMessage('Same-Day Service and Repair recorded. Document the work area before starting work.');
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function closeOutJob(paymentHandling: 'paid_externally' | 'balance_due_to_office') {
+        if (!bundle || busy) return;
+        setBusy(true);
+        setMessage('Closing out the job...');
+        try {
+            await closeJobWorkflow(bundle.workflow.id, paymentHandling);
+            await refresh();
+            setMessage(paymentHandling === 'paid_externally'
+                ? 'Job closed out and payment recorded.'
+                : 'Job closed out. The balance is now with the office.');
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function recordPaymentAfterCloseout() {
+        if (!bundle || busy) return;
+        setBusy(true);
+        setMessage('Recording payment...');
+        try {
+            await recordCloseoutPayment(bundle.workflow.id);
+            await refresh();
+            setMessage('Closeout balance recorded as paid.');
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
     async function addPhoto(stage: JobWorkflowAttachment['stage']) {
         if (!bundle || busy) return;
         setBusy(true);
@@ -182,6 +252,18 @@ export default function JobWorkflowScreen() {
         && cancellationNoticeSigned
         && !!homeownerName.trim()
         && isDrawnSignature(signature);
+    const authorizedTotal = workflow.selected_total ?? selectedTotal;
+    const sameDayEligibleByPrice = authorizedTotal <= 750;
+    const sameDayReady = sameDayEligibleByPrice
+        && !!sameDayReason.trim()
+        && !!sameDayHomeownerName.trim()
+        && isDrawnSignature(sameDayHomeownerSignature)
+        && sameDayCustomerInitiated
+        && sameDayShortNoticeRequested
+        && sameDayAgreementConfirmed
+        && sameDayScopeLimited
+        && sameDayNoPaymentBeforeCompletion
+        && sameDayTechnicianConfirmed;
 
     function toggleChoice(choiceId: string) {
         setSelectedChoiceIds((current) => current.includes(choiceId)
@@ -344,14 +426,94 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'sold' && (
-                <Section title="When will the work happen?" subtitle="Ordinary work must be scheduled after the cancellation period.">
+                <Section title="When will the work happen?" subtitle="Choose the controlled path that matches this job.">
                     <View style={policyExplanationStyle}>
-                        <Text style={optionTitleStyle}>Immediate start is not available for this contract</Text>
+                        <Text style={optionTitleStyle}>Ordinary work</Text>
                         <Text style={bodyStyle}>
-                            Starting work requires either the cancellation period to expire or a separately validated California
-                            Service and Repair or emergency-repair exception. This approval does not waive that requirement.
+                            Regular work stays scheduled after the cancellation period. The original approval does not, by itself,
+                            let a technician begin early.
                         </Text>
                     </View>
+
+                    <View style={sameDayCardStyle}>
+                        <Text style={optionTitleStyle}>Same-Day Service & Repair</Text>
+                        <Text style={bodyStyle}>
+                            Use this only for a customer-requested, short-notice repair with a total contract price of $750 or less.
+                            It records the separate acknowledgement that accompanies your company’s attorney-approved Service & Repair agreement.
+                        </Text>
+                        <Text style={mutedStyle}>Authorized total: {formatMoney(authorizedTotal)}</Text>
+                        {!sameDayEligibleByPrice ? (
+                            <View style={warningStyle}>
+                                <Text style={warningTextStyle}>
+                                    This approved work is over $750, so it cannot use the Same-Day Service & Repair path. Schedule it normally,
+                                    or use a separately documented emergency process where legally appropriate.
+                                </Text>
+                            </View>
+                        ) : (
+                            <>
+                                <Field
+                                    label="Specific repair the customer wants done today"
+                                    value={sameDayReason}
+                                    onChangeText={setSameDayReason}
+                                    multiline
+                                />
+                                <WorkflowCheck
+                                    checked={sameDayCustomerInitiated}
+                                    onPress={() => setSameDayCustomerInitiated((value) => !value)}
+                                    label="The customer contacted us and initiated this service request."
+                                />
+                                <WorkflowCheck
+                                    checked={sameDayShortNoticeRequested}
+                                    onPress={() => setSameDayShortNoticeRequested((value) => !value)}
+                                    label="The customer asked for service or repair on short notice."
+                                />
+                                <WorkflowCheck
+                                    checked={sameDayAgreementConfirmed}
+                                    onPress={() => setSameDayAgreementConfirmed((value) => !value)}
+                                    label="The company’s attorney-approved Service & Repair agreement is complete, signed, and given to the customer."
+                                />
+                                <WorkflowCheck
+                                    checked={sameDayScopeLimited}
+                                    onPress={() => setSameDayScopeLimited((value) => !value)}
+                                    label="The scope is limited to repairs reasonably necessary for the issue described above."
+                                />
+                                <WorkflowCheck
+                                    checked={sameDayNoPaymentBeforeCompletion}
+                                    onPress={() => setSameDayNoPaymentBeforeCompletion((value) => !value)}
+                                    label="No payment will be collected before the work is completed."
+                                />
+                                <WorkflowCheck
+                                    checked={sameDayTechnicianConfirmed}
+                                    onPress={() => setSameDayTechnicianConfirmed((value) => !value)}
+                                    label="Technician confirms that this is a qualifying Same-Day Service & Repair job."
+                                />
+                                <View style={completionAcknowledgementStyle}>
+                                    <Text style={optionTitleStyle}>Customer acknowledgement</Text>
+                                    <Text style={bodyStyle}>
+                                        I requested this repair on short notice. I received a completed, signed Service & Repair agreement.
+                                        The total contract price shown above is $750 or less. The work is limited to the repair described above,
+                                        and no payment is due before the work is completed. I authorize the company to begin after I sign below.
+                                    </Text>
+                                </View>
+                                <Field
+                                    label="Customer full name"
+                                    value={sameDayHomeownerName}
+                                    onChangeText={setSameDayHomeownerName}
+                                />
+                                <SignaturePad
+                                    label="Same-Day Service & Repair acknowledgement signature"
+                                    value={sameDayHomeownerSignature}
+                                    onChange={setSameDayHomeownerSignature}
+                                />
+                                <PrimaryButton
+                                    title={busy ? 'Saving acknowledgement...' : 'Start Same-Day Service & Repair'}
+                                    disabled={busy || !sameDayReady}
+                                    onPress={startSameDayWork}
+                                />
+                            </>
+                        )}
+                    </View>
+
                     <Field
                         label="Return date and time (example: 2026-07-28T09:00:00-07:00)"
                         value={scheduleDate}
@@ -410,7 +572,7 @@ export default function JobWorkflowScreen() {
                     <Field label="Issue found" value={issueSummary} onChangeText={setIssueSummary} multiline />
                     <SecondaryButton title="Pause — Issue Found" disabled={busy} onPress={() => run('report_issue', { issue_summary: issueSummary })} />
                     <PhotoButton label="Take Completed-Work Photo" count={attachmentCounts.after} onPress={() => addPhoto('after')} />
-                    <PrimaryButton title="Technician Work Complete" disabled={busy} onPress={() => run('complete_work')} />
+                    <PrimaryButton title="Technician Finished — Open Close Out" disabled={busy} onPress={() => run('complete_work')} />
                     <Field label="Store name (if another trip is needed)" value={storeName} onChangeText={setStoreName} />
                     <Field label="Store address (optional)" value={storeAddress} onChangeText={setStoreAddress} />
                     <SecondaryButton title="Go to Store" disabled={busy} onPress={() => run('start_store_trip', {
@@ -429,30 +591,39 @@ export default function JobWorkflowScreen() {
 
             {status === 'work_complete' && (
                 <Section
-                    title="6. Homeowner inspection and completion approval"
+                    title="6. Close Out — Customer Acknowledgement"
                     subtitle="Please inspect the completed work before signing. Your signature confirms that the work described in the approved scope has been completed and that, based on your inspection at this time, you are satisfied with the completed work."
                 >
                     <View style={completionAcknowledgementStyle}>
                         <Text style={optionTitleStyle}>Homeowner acknowledgement</Text>
+                        <Text style={mutedStyle}>Final invoice total: {formatMoney(authorizedTotal)}</Text>
                         <Text style={bodyStyle}>
                             I have had an opportunity to inspect the completed work, ask questions, and identify any visible concerns. I acknowledge that the approved work has been performed and is satisfactory at the time of signing. This acknowledgement does not waive warranties or rights that cannot legally be waived.
                         </Text>
                     </View>
                     <Field label="Homeowner full name" value={completionName} onChangeText={setCompletionName} />
                     <SignaturePad
-                        label="Homeowner satisfactory-completion signature"
+                        label="Customer closeout signature"
                         value={completionSignature}
                         onChange={setCompletionSignature}
                     />
-                    <PrimaryButton title="Confirm and Accept Completed Work" disabled={busy || !completionName.trim() || !isDrawnSignature(completionSignature)} onPress={() => run('accept_completion', {
+                    <PrimaryButton title="Save Customer Acknowledgement" disabled={busy || !completionName.trim() || !isDrawnSignature(completionSignature)} onPress={() => run('accept_completion', {
                         homeowner_name: completionName, signature: completionSignature,
                     })} />
                 </Section>
             )}
 
             {status === 'customer_completed' && (
-                <Section title="7. Invoice and collection" subtitle="No payment processor is connected yet.">
-                    <PrimaryButton title="Mark Invoice Sent" disabled={busy} onPress={() => run('send_invoice')} />
+                <Section title="7. Close Out Job" subtitle="The technician work, customer acknowledgement, and required closeout items are complete.">
+                    <View style={completionAcknowledgementStyle}>
+                        <Text style={optionTitleStyle}>Ready to close</Text>
+                        <Text style={bodyStyle}>
+                            Close this job after finalizing the invoice and deciding whether payment was collected in the field or the balance
+                            should go to the office. Closing the field job does not erase an unpaid balance.
+                        </Text>
+                    </View>
+                    <PrimaryButton title="Close Job — Payment Collected" disabled={busy} onPress={() => closeOutJob('paid_externally')} />
+                    <SecondaryButton title="Close Job — Balance Due to Office" disabled={busy} onPress={() => closeOutJob('balance_due_to_office')} />
                 </Section>
             )}
 
@@ -463,7 +634,16 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'closed' && (
-                <Section title="Job closed" subtitle="Quote, signatures, photos, invoice, and external payment record are complete." />
+                <Section
+                    title="Job closed"
+                    subtitle={workflow.payment_status === 'collection_pending'
+                        ? 'The field job is closed. The balance is awaiting office collection.'
+                        : 'Quote, signatures, photos, invoice, and payment record are complete.'}
+                >
+                    {workflow.payment_status === 'collection_pending' && (
+                        <SecondaryButton title="Record Closeout Balance Collected" disabled={busy} onPress={recordPaymentAfterCloseout} />
+                    )}
+                </Section>
             )}
 
             {!presentationMode && !completionMode && status !== 'presenting' && <Section title="Job timeline" subtitle="A timestamped audit trail for the company.">
@@ -485,6 +665,14 @@ function Section({ title, subtitle, children }: { title: string; subtitle: strin
 }
 function Field(props: { label: string; value: string; onChangeText: (value: string) => void; multiline?: boolean; disabled?: boolean }) {
     return <View><Text style={fieldLabelStyle}>{props.label}</Text><TextInput {...props} editable={!props.disabled} style={[inputStyle, props.multiline && textAreaStyle, props.disabled && disabledStyle]} placeholderTextColor="#7391a5" /></View>;
+}
+function WorkflowCheck({ checked, label, onPress }: { checked: boolean; label: string; onPress: () => void }) {
+    return (
+        <TouchableOpacity accessibilityRole="checkbox" accessibilityState={{ checked }} style={checkRowStyle} onPress={onPress}>
+            <Text style={checkStyle}>{checked ? '☑' : '☐'}</Text>
+            <Text style={bodyStyle}>{label}</Text>
+        </TouchableOpacity>
+    );
 }
 function PrimaryButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
     return <TouchableOpacity onPress={onPress} disabled={disabled} style={[primaryButtonStyle, disabled && disabledStyle]}><Text style={primaryButtonTextStyle}>{title}</Text></TouchableOpacity>;
@@ -559,5 +747,8 @@ const timelineStyle = { borderLeftColor: '#35aaa5', borderLeftWidth: 3, paddingL
 const totalStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } as const;
 const totalAmountStyle = { color: '#52e0a4', fontSize: 24, fontWeight: '900' } as const;
 const policyExplanationStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 14, gap: 10 } as const;
+const sameDayCardStyle = { backgroundColor: '#15372f', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 11 } as const;
+const warningStyle = { backgroundColor: '#4b2a14', borderColor: '#e8a84b', borderWidth: 1, borderRadius: 10, padding: 12 } as const;
+const warningTextStyle = { color: '#fff0cc', fontSize: 14, lineHeight: 20, fontWeight: '700' } as const;
 const completionAcknowledgementStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 } as const;
 const twoButtonRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' } as const;
