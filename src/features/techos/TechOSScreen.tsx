@@ -309,6 +309,7 @@ export default function TechOSScreen() {
     const [showAssignedClients, setShowAssignedClients] = useState(false);
     const [techOSMode, setTechOSMode] = useState<TechOSMode>('technician');
     const [dashboardView, setDashboardView] = useState<TechDashboardView>('jobs');
+    const [dashboardContentScrollRequest, setDashboardContentScrollRequest] = useState(0);
     const [activeTechnicians, setActiveTechnicians] = useState<CompanyUser[]>([]);
     const [expandedAssignmentJobs, setExpandedAssignmentJobs] = useState<Record<string, boolean>>({});
     const [selectedTechnicianByJob, setSelectedTechnicianByJob] = useState<Record<string, string>>({});
@@ -338,6 +339,27 @@ export default function TechOSScreen() {
     const [scheduleDiagnostics, setScheduleDiagnostics] = useState<TechOSScheduleDiagnostics | null>(null);
     const knownAssignedSlotIdsRef = useRef<Set<string>>(new Set());
     const workflowStatusBySlotIdRef = useRef<Record<string, string>>({});
+    const technicianScrollRef = useRef<ScrollView>(null);
+    const dashboardContentOffsetRef = useRef(0);
+
+    useEffect(() => {
+        if (dashboardContentScrollRequest === 0) return;
+
+        const frame = requestAnimationFrame(() => {
+            technicianScrollRef.current?.scrollTo({
+                animated: true,
+                y: Math.max(0, dashboardContentOffsetRef.current - 12),
+            });
+        });
+
+        return () => cancelAnimationFrame(frame);
+    }, [dashboardContentScrollRequest]);
+
+    function openDashboardView(view: TechDashboardView) {
+        setSelectedAssignedJobId('');
+        setDashboardView(view);
+        setDashboardContentScrollRequest((current) => current + 1);
+    }
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
     const requestedSlotId = useMemo(() => firstParam(slotId), [slotId]);
@@ -1842,6 +1864,7 @@ export default function TechOSScreen() {
     return (
         <CompanyGlassDepthProvider value={company?.glass_depth}>
         <ScrollView
+            ref={technicianScrollRef}
             style={{ flex: 1, backgroundColor: techOSTheme.screenBackgroundColor || theme.colors.background }}
             contentContainerStyle={{ padding: pagePadding, paddingBottom: 36, alignItems: 'center' }}
         >
@@ -1918,17 +1941,19 @@ export default function TechOSScreen() {
                     activeView={dashboardView}
                     historyCount={dashboardHistoryCount}
                     jobsCount={dashboardJobsCount}
-                    onSelectView={(view) => {
-                        setSelectedAssignedJobId('');
-                        setDashboardView(view);
-                    }}
+                    onSelectView={openDashboardView}
                     scheduleCount={calendarScheduleGroups.length}
                     techOSTheme={techOSTheme}
                     todayCount={dashboardTodayCount}
                     upcomingCount={dashboardFutureCount}
                 />
 
-                {isTechnicianWorkspace ? (
+                <View
+                    onLayout={(event) => {
+                        dashboardContentOffsetRef.current = event.nativeEvent.layout.y;
+                    }}
+                >
+                    {isTechnicianWorkspace ? (
                     <TechOSDashboardContent
                         activeJobs={currentFutureAssignedScheduleJobs}
                         activeView={dashboardView}
@@ -2048,7 +2073,8 @@ export default function TechOSScreen() {
                             emptyMessage="Jobs will appear here after ManagementOS dispatch creates or assigns company service jobs."
                         />
                     </>
-                )}
+                    )}
+                </View>
 
                 {!isTechnicianWorkspace && (
                     <AssignedClientsCard
@@ -2089,10 +2115,7 @@ export default function TechOSScreen() {
                                     key={view}
                                     accessibilityRole="button"
                                     accessibilityLabel={`Open ${label}`}
-                                    onPress={() => {
-                                        setSelectedAssignedJobId('');
-                                        setDashboardView(view);
-                                    }}
+                                    onPress={() => openDashboardView(view)}
                                     style={{
                                         alignItems: 'center',
                                         backgroundColor: active
