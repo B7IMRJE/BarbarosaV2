@@ -47,6 +47,10 @@ import {
 } from '../../lib/serviceVisitCloseout';
 import { supabase } from '../../lib/supabase';
 import {
+    formatTechnicianHours,
+    getTechnicianShiftHourSummary,
+} from '../../lib/technician-time-summary';
+import {
     getSoldJobNextAction,
     loadSoldJobForScheduleSlot,
     loadSoldJobForServiceRequest,
@@ -3194,6 +3198,10 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     const latestEntry = entries[0] || null;
     const activeBreak = !!openEntry?.breakStartedAt && !openEntry.breakEndedAt;
     const activeRestBreak = !!openEntry?.restBreakStartedAt;
+    const summaryEntry = openEntry || latestEntry;
+    const hourSummary = summaryEntry
+        ? getTechnicianShiftHourSummary(summaryEntry, now)
+        : { regularSeconds: 0, overtimeSeconds: 0, workedSeconds: 0 };
     const shiftSeconds = openEntry
         ? Math.max(0, Math.floor((now - new Date(openEntry.clockedInAt).getTime()) / 1000))
         : 0;
@@ -3201,7 +3209,7 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     const mealWarning = !!openEntry && !mealRecorded && shiftSeconds >= 4.5 * 60 * 60;
     const mealOverdue = !!openEntry && !mealRecorded && shiftSeconds >= 5 * 60 * 60;
     const warningVisible = !mealOverdue || Math.floor(now / 500) % 2 === 0;
-    const workedSeconds = Math.max(0, shiftSeconds - (openEntry?.breakMinutes || 0) * 60);
+    const workedSeconds = openEntry ? hourSummary.workedSeconds : 0;
     const overtimeApproaching = !!openEntry && workedSeconds >= 7.5 * 60 * 60;
     const overtimeActive = !!openEntry && workedSeconds >= 8 * 60 * 60;
 
@@ -3309,6 +3317,48 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
             <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Time Clock</Text>
             <Text style={[summaryValueStyle, { color: openEntry ? '#36D994' : theme.colors.text }]}>
                 {openEntry ? 'Clocked In' : 'Clocked Out'}
+            </Text>
+            <View style={techHourSummaryGridStyle}>
+                <View
+                    style={[
+                        techHourSummaryCardStyle,
+                        { backgroundColor: theme.colors.background, borderColor: theme.colors.border },
+                    ]}
+                >
+                    <Text selectable style={[techHourSummaryLabelStyle, { color: theme.colors.mutedText }]}>
+                        REGULAR HOURS
+                    </Text>
+                    <Text selectable style={[techHourSummaryValueStyle, { color: theme.colors.text }]}>
+                        {formatTechnicianHours(hourSummary.regularSeconds)}
+                    </Text>
+                </View>
+                <View
+                    style={[
+                        techHourSummaryCardStyle,
+                        {
+                            backgroundColor: theme.colors.background,
+                            borderColor: overtimeActive ? '#55A7E8' : theme.colors.border,
+                        },
+                    ]}
+                >
+                    <Text selectable style={[techHourSummaryLabelStyle, { color: theme.colors.mutedText }]}>
+                        OVERTIME HOURS
+                    </Text>
+                    <Text
+                        selectable
+                        style={[
+                            techHourSummaryValueStyle,
+                            { color: hourSummary.overtimeSeconds > 0 ? '#55A7E8' : theme.colors.text },
+                        ]}
+                    >
+                        {formatTechnicianHours(hourSummary.overtimeSeconds)}
+                    </Text>
+                </View>
+            </View>
+            <Text selectable style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                {summaryEntry
+                    ? `${openEntry ? 'Current' : 'Latest'} shift · first 8 worked hours are regular · recorded lunch excluded`
+                    : 'No shift recorded yet · regular and overtime hours will appear here'}
             </Text>
             {!!openEntry && (
                 <>
@@ -5841,6 +5891,36 @@ const techRunningClockStyle = {
     marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 9,
+};
+
+const techHourSummaryGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 10,
+};
+
+const techHourSummaryCardStyle = {
+    borderCurve: 'continuous' as const,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexBasis: 135,
+    flexGrow: 1,
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const techHourSummaryLabelStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+    letterSpacing: 0.5,
+};
+
+const techHourSummaryValueStyle = {
+    fontSize: 24,
+    fontVariant: ['tabular-nums'] as ('tabular-nums')[],
+    fontWeight: '900' as const,
 };
 
 const techClockStateStyle = {
