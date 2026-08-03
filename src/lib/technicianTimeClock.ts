@@ -74,7 +74,7 @@ export async function setTechnicianClock(technicianCompanyUserId: string, action
         p_action: action,
     });
 
-    if (error) throw error;
+    if (error) throw new Error(error.message);
 
     return data;
 }
@@ -279,6 +279,6 @@ export async function registerTechnicianDevice(
         p_device_role: deviceRole,
         p_device_label: deviceLabel,
     });
-    if (error) throw error;
+    if (error) throw new Error(error.message);
     return data;
 }

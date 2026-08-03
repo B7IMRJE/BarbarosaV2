@@ -45,6 +45,7 @@ import {
     type ServiceVisitOutcome,
 } from '../../lib/serviceVisitCloseout';
 import { supabase } from '../../lib/supabase';
+import { runTechnicianClockIn } from '../../lib/technician-clock-in';
 import {
     formatTechnicianHours,
     getTechnicianShiftHourSummary,
@@ -535,18 +536,26 @@ export default function TechOSScreen() {
         setAccessModeLoading(true);
         setAccessModeMessage('Clocking in and opening TechOS...');
         try {
-            await registerTechnicianDevice(
-                technicianId,
-                getOrCreateTechOSDeviceKey(),
-                'primary_phone',
-                'Primary TechOS phone'
-            );
-            await setTechnicianClock(technicianId, 'clock_in');
+            const result = await runTechnicianClockIn({
+                clockIn: () => setTechnicianClock(technicianId, 'clock_in'),
+                registerDevice: () => registerTechnicianDevice(
+                    technicianId,
+                    getOrCreateTechOSDeviceKey(),
+                    'primary_phone',
+                    'Primary TechOS phone'
+                ),
+            });
             setAccessMode('working');
             setDashboardView('jobs');
             setAccessModeMessage('');
+            if (result.deviceRegistrationError) {
+                logTechOSDebug('Clock-in succeeded while primary device registration was unavailable.', {
+                    error: getErrorMessage(result.deviceRegistrationError),
+                    technician_company_user_id: technicianId,
+                });
+            }
         } catch (error) {
-            setAccessModeMessage(`Could not clock in: ${getErrorMessage(error)}`);
+            setAccessModeMessage(`Could not clock in: ${normalizeServiceErrorMessage(getErrorMessage(error))}`);
         } finally {
             setAccessModeLoading(false);
         }
