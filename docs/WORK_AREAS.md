@@ -18,7 +18,7 @@ HomeOS is one application, but each change should belong to one work area. The p
 | Price Book | `src/features/price-book/CompanyPriceBookScreen.tsx` | `src/lib/companyPriceBook.ts` | company service cards, prices, limits, products |
 | Dispatch | `src/features/dispatch/DispatchScreen.tsx`, `src/features/dispatch/DispatchWallScreen.tsx` | dispatch and service-request helpers | assignment, scheduling, live board, technician status |
 | TechOS | `src/features/techos/TechOSScreen.tsx`, `src/features/techos/TechOSJobDetailScreen.tsx` | TechOS workflow helpers | technician jobs, job actions, provider experience |
-| HomeOS | `src/app/index.tsx`, `src/app/system`, `src/app/item` | active-property and home-item helpers | homeowner systems, areas, equipment, maintenance |
+| HomeOS | `src/app/index.tsx`, `src/app/system`, `src/features/homeos-items` | active-property and home-item helpers | homeowner systems, areas, equipment, maintenance |
 | Company Management | `src/app/super-admin/company` | company permissions and management data | team, clients, providers, company configuration |
 
 ## Refactoring order
@@ -29,6 +29,6 @@ Job Workflow is the first focused feature module. Move the next large screen onl
 2. Dispatch
 3. Price Book
 4. TechOS
-5. HomeOS equipment and item details
+5. HomeOS equipment and item details (completed for the item detail and setup flow)
 
 This avoids a risky all-at-once rewrite while ensuring every new repair becomes smaller from this point forward.
