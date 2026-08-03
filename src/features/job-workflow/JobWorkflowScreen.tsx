@@ -54,17 +54,26 @@ export default function JobWorkflowScreen() {
     const [sameDayReason, setSameDayReason] = useState('');
     const [sameDayHomeownerName, setSameDayHomeownerName] = useState('');
     const [sameDayHomeownerSignature, setSameDayHomeownerSignature] = useState('');
-    const [sameDayCustomerInitiated, setSameDayCustomerInitiated] = useState(false);
-    const [sameDayShortNoticeRequested, setSameDayShortNoticeRequested] = useState(false);
     const [sameDayAgreementConfirmed, setSameDayAgreementConfirmed] = useState(false);
-    const [sameDayScopeLimited, setSameDayScopeLimited] = useState(false);
-    const [sameDayNoPaymentBeforeCompletion, setSameDayNoPaymentBeforeCompletion] = useState(false);
     const [sameDayTechnicianConfirmed, setSameDayTechnicianConfirmed] = useState(false);
-    const [sameDayStartType, setSameDayStartType] = useState<'standard_same_day' | 'service_and_repair' | 'emergency_immediate_protection'>('standard_same_day');
-    const [sameDayImmediateProtection, setSameDayImmediateProtection] = useState(false);
-    const [sameDayEmergencyWaiverSignature, setSameDayEmergencyWaiverSignature] = useState('');
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
     const workflowScrollRef = useRef<ScrollView | null>(null);
+
+    const approvedWorkSummary = useMemo(() => {
+        if (!bundle) return '';
+
+        const selectedIds = bundle.workflow.selected_source_choice_ids?.length
+            ? bundle.workflow.selected_source_choice_ids
+            : bundle.workflow.selected_source_choice_id
+                ? [bundle.workflow.selected_source_choice_id]
+                : [];
+        const titles = bundle.options
+            .filter((option) => selectedIds.includes(option.id))
+            .map((option) => option.title.trim())
+            .filter(Boolean);
+
+        return titles.join(', ') || 'Approved work described in the signed work order';
+    }, [bundle]);
 
     useEffect(() => {
         if (!sessionId) {
@@ -92,6 +101,13 @@ export default function JobWorkflowScreen() {
             void supabase.removeChannel(channel);
         };
     }, [bundle?.workflow.id, sessionId]);
+
+    useEffect(() => {
+        if (bundle?.workflow.status !== 'sold') return;
+
+        setSameDayReason((current) => current.trim() || approvedWorkSummary);
+        setSameDayHomeownerName((current) => current.trim() || bundle.workflow.homeowner_name || '');
+    }, [approvedWorkSummary, bundle?.workflow.homeowner_name, bundle?.workflow.status]);
 
     const attachmentCounts = useMemo(() => {
         const counts: Record<string, number> = {};
@@ -165,22 +181,15 @@ export default function JobWorkflowScreen() {
     async function startWorkToday() {
         if (!bundle || busy) return;
         setBusy(true);
-        setMessage('Saving the Same-Day Service and Repair acknowledgement...');
+        setMessage('Saving the same-day authorization...');
         try {
             await startSameDayWork({
                 workflowId: bundle.workflow.id,
-                startType: sameDayStartType,
                 reason: sameDayReason,
                 homeownerName: sameDayHomeownerName,
                 homeownerSignature: sameDayHomeownerSignature,
-                customerInitiated: sameDayStartType !== 'standard_same_day' && sameDayCustomerInitiated,
                 signedContractConfirmed: sameDayAgreementConfirmed,
                 technicianConfirmed: sameDayTechnicianConfirmed,
-                shortNoticeRequested: sameDayStartType === 'service_and_repair' && sameDayShortNoticeRequested,
-                scopeLimitedToRepair: sameDayScopeLimited,
-                noPaymentBeforeCompletion: sameDayStartType === 'service_and_repair' && sameDayNoPaymentBeforeCompletion,
-                immediateProtectionConfirmed: sameDayStartType === 'emergency_immediate_protection' && sameDayImmediateProtection,
-                emergencyWaiverSignature: sameDayEmergencyWaiverSignature,
             });
             await refresh();
             setMessage('Same-day start authorization recorded. Document the work area before starting work.');
@@ -264,19 +273,7 @@ export default function JobWorkflowScreen() {
         && isDrawnSignature(sameDayHomeownerSignature)
         && sameDayAgreementConfirmed
         && sameDayTechnicianConfirmed;
-    const sameDayReady = sameDayBaseReady
-        && (sameDayStartType !== 'service_and_repair' || (
-            authorizedTotal <= 750
-            && sameDayCustomerInitiated
-            && sameDayShortNoticeRequested
-            && sameDayScopeLimited
-            && sameDayNoPaymentBeforeCompletion
-        ))
-        && (sameDayStartType !== 'emergency_immediate_protection' || (
-            sameDayCustomerInitiated
-            && sameDayImmediateProtection
-            && isDrawnSignature(sameDayEmergencyWaiverSignature)
-        ));
+    const sameDayReady = sameDayBaseReady;
 
     function toggleChoice(choiceId: string) {
         setSelectedChoiceIds((current) => current.includes(choiceId)
@@ -446,43 +443,14 @@ export default function JobWorkflowScreen() {
                             This is never automatic. Use it when the customer approves today’s plan and the technician confirms the job can be
                             handled today—whether that means a small repair, stabilizing a leak, or completing the full approved project.
                         </Text>
-                        <Text style={mutedStyle}>Approved total: {formatMoney(authorizedTotal)} · No price limit applies to standard same-day work.</Text>
-
-                        <Text style={fieldLabelStyle}>Same-day documentation path</Text>
-                        <View style={startTypeGridStyle}>
-                            <StartTypeChoice
-                                title="Standard same-day work"
-                                detail="A complete signed agreement is in place. The applicable cancellation notice remains part of the agreement."
-                                selected={sameDayStartType === 'standard_same_day'}
-                                onPress={() => setSameDayStartType('standard_same_day')}
-                            />
-                            <StartTypeChoice
-                                title="Emergency / immediate protection"
-                                detail="For a current condition that needs immediate protection of people or property. A separate signed emergency waiver is required."
-                                selected={sameDayStartType === 'emergency_immediate_protection'}
-                                onPress={() => setSameDayStartType('emergency_immediate_protection')}
-                            />
-                            <StartTypeChoice
-                                title="Service & Repair contract"
-                                detail="Use only for the separate small-repair contract type. This option has its own $750 contract requirements."
-                                selected={sameDayStartType === 'service_and_repair'}
-                                onPress={() => setSameDayStartType('service_and_repair')}
-                            />
-                        </View>
+                        <Text style={mutedStyle}>Approved total: {formatMoney(authorizedTotal)} · The signed job approval stays attached to this start record.</Text>
 
                         <Field
-                            label="Today’s approved work (you can stabilize today and complete a larger project later)"
+                            label="Approved work starting today"
                             value={sameDayReason}
                             onChangeText={setSameDayReason}
                             multiline
                         />
-                        {sameDayStartType !== 'standard_same_day' && (
-                            <WorkflowCheck
-                                checked={sameDayCustomerInitiated}
-                                onPress={() => setSameDayCustomerInitiated((value) => !value)}
-                                label="The customer initiated this request for same-day work."
-                            />
-                        )}
                         <WorkflowCheck
                             checked={sameDayAgreementConfirmed}
                             onPress={() => setSameDayAgreementConfirmed((value) => !value)}
@@ -494,63 +462,10 @@ export default function JobWorkflowScreen() {
                             label="Technician confirms today’s plan, staffing, materials, and time make this start workable."
                         />
 
-                        {sameDayStartType === 'service_and_repair' && (
-                            <View style={policyExplanationStyle}>
-                                <Text style={optionTitleStyle}>Service & Repair contract requirements</Text>
-                                <Text style={bodyStyle}>
-                                    This is the separate small-repair contract category. It is not the path for a full repipe or other larger approved work.
-                                </Text>
-                                <WorkflowCheck
-                                    checked={sameDayShortNoticeRequested}
-                                    onPress={() => setSameDayShortNoticeRequested((value) => !value)}
-                                    label="The customer asked for service or repair on short notice."
-                                />
-                                <WorkflowCheck
-                                    checked={sameDayScopeLimited}
-                                    onPress={() => setSameDayScopeLimited((value) => !value)}
-                                    label="The scope is limited to the repair that caused the customer to contact us."
-                                />
-                                <WorkflowCheck
-                                    checked={sameDayNoPaymentBeforeCompletion}
-                                    onPress={() => setSameDayNoPaymentBeforeCompletion((value) => !value)}
-                                    label="No payment will be collected before the work is completed."
-                                />
-                                {authorizedTotal > 750 && (
-                                    <View style={warningStyle}>
-                                        <Text style={warningTextStyle}>
-                                            This option is over $750, so select Standard Same-Day Work or Emergency / Immediate Protection instead.
-                                        </Text>
-                                    </View>
-                                )}
-                            </View>
-                        )}
-
-                        {sameDayStartType === 'emergency_immediate_protection' && (
-                            <View style={warningStyle}>
-                                <Text style={warningTextStyle}>
-                                    Use this only when immediate work is necessary to protect people or property. The customer signs a separate emergency waiver below.
-                                </Text>
-                                <WorkflowCheck
-                                    checked={sameDayImmediateProtection}
-                                    onPress={() => setSameDayImmediateProtection((value) => !value)}
-                                    label="The described condition requires immediate protection of people or property."
-                                />
-                                <SignaturePad
-                                    label="Separate emergency waiver signature"
-                                    value={sameDayEmergencyWaiverSignature}
-                                    onChange={setSameDayEmergencyWaiverSignature}
-                                />
-                            </View>
-                        )}
-
                         <View style={completionAcknowledgementStyle}>
                             <Text style={optionTitleStyle}>Customer same-day authorization</Text>
                             <Text style={bodyStyle}>
-                                {sameDayStartType === 'emergency_immediate_protection'
-                                    ? 'I requested immediate work to protect people or property as described above. I received the signed agreement and authorize the company to begin today. I separately acknowledge the emergency waiver below.'
-                                    : sameDayStartType === 'service_and_repair'
-                                        ? 'I requested this repair on short notice, received the signed Service & Repair agreement, and authorize the company to begin today.'
-                                        : 'I requested that the approved work described above begin today. I received the signed agreement and authorize the company to start today. Any applicable cancellation notice remains part of my agreement.'}
+                                I requested that the approved work described above begin today. I received the signed agreement and authorize the company to start today. Any applicable cancellation notice remains part of my agreement.
                             </Text>
                         </View>
                         <Field
@@ -736,29 +651,6 @@ function WorkflowCheck({ checked, label, onPress }: { checked: boolean; label: s
         </TouchableOpacity>
     );
 }
-function StartTypeChoice({
-    title,
-    detail,
-    selected,
-    onPress,
-}: {
-    title: string;
-    detail: string;
-    selected: boolean;
-    onPress: () => void;
-}) {
-    return (
-        <TouchableOpacity
-            accessibilityRole="radio"
-            accessibilityState={{ selected }}
-            style={[startTypeChoiceStyle, selected && startTypeChoiceSelectedStyle]}
-            onPress={onPress}
-        >
-            <Text style={startTypeChoiceTitleStyle}>{selected ? '● ' : '○ '}{title}</Text>
-            <Text style={mutedStyle}>{detail}</Text>
-        </TouchableOpacity>
-    );
-}
 function PrimaryButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
     return <TouchableOpacity onPress={onPress} disabled={disabled} style={[primaryButtonStyle, disabled && disabledStyle]}><Text style={primaryButtonTextStyle}>{title}</Text></TouchableOpacity>;
 }
@@ -833,11 +725,5 @@ const totalStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderW
 const totalAmountStyle = { color: '#52e0a4', fontSize: 24, fontWeight: '900' } as const;
 const policyExplanationStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 14, gap: 10 } as const;
 const sameDayCardStyle = { backgroundColor: '#15372f', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 11 } as const;
-const startTypeGridStyle = { gap: 8 } as const;
-const startTypeChoiceStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 10, padding: 12, gap: 5 } as const;
-const startTypeChoiceSelectedStyle = { backgroundColor: '#0e4a43', borderColor: '#52e0a4', borderWidth: 2 } as const;
-const startTypeChoiceTitleStyle = { color: '#f2fbff', fontSize: 14, fontWeight: '900' } as const;
-const warningStyle = { backgroundColor: '#4b2a14', borderColor: '#e8a84b', borderWidth: 1, borderRadius: 10, padding: 12 } as const;
-const warningTextStyle = { color: '#fff0cc', fontSize: 14, lineHeight: 20, fontWeight: '700' } as const;
 const completionAcknowledgementStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 } as const;
 const twoButtonRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' } as const;

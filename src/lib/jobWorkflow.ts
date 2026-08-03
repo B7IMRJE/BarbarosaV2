@@ -102,33 +102,26 @@ export async function advanceJobWorkflow(
 
 export async function startSameDayWork(input: {
     workflowId: string;
-    startType: 'standard_same_day' | 'service_and_repair' | 'emergency_immediate_protection';
     reason: string;
     homeownerName: string;
     homeownerSignature: string;
-    customerInitiated: boolean;
     signedContractConfirmed: boolean;
     technicianConfirmed: boolean;
-    shortNoticeRequested: boolean;
-    scopeLimitedToRepair: boolean;
-    noPaymentBeforeCompletion: boolean;
-    immediateProtectionConfirmed: boolean;
-    emergencyWaiverSignature: string;
 }): Promise<JobWorkflow> {
     const { data, error } = await supabase.rpc('start_company_job_workflow_same_day', {
         p_workflow_id: input.workflowId,
-        p_start_type: input.startType,
+        p_start_type: 'standard_same_day',
         p_reason: input.reason,
         p_homeowner_name: input.homeownerName,
         p_homeowner_signature: input.homeownerSignature,
-        p_customer_initiated: input.customerInitiated,
+        p_customer_initiated: true,
         p_signed_contract_confirmed: input.signedContractConfirmed,
         p_technician_confirmed: input.technicianConfirmed,
-        p_short_notice_requested: input.shortNoticeRequested,
-        p_scope_limited_to_repair: input.scopeLimitedToRepair,
-        p_no_payment_before_completion: input.noPaymentBeforeCompletion,
-        p_immediate_protection_confirmed: input.immediateProtectionConfirmed,
-        p_emergency_waiver_signature: input.emergencyWaiverSignature || null,
+        p_short_notice_requested: false,
+        p_scope_limited_to_repair: false,
+        p_no_payment_before_completion: false,
+        p_immediate_protection_confirmed: false,
+        p_emergency_waiver_signature: null,
     });
     if (error) throw error;
     return data as JobWorkflow;
