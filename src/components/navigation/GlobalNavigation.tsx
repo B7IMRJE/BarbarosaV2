@@ -11,6 +11,7 @@ import {
 } from '../../lib/homeownerActiveRequests';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
+import { isHomeOSPhoneLayout } from '../../lib/homeos-responsive-layout';
 import { orbitalGlassPalette } from '../../theme/glassPalette';
 import { createCompanyGlassPalette, type GlassPalette } from '../../theme/glassPalette';
 import { GlassPaletteProvider } from '../../theme/glass-palette-context';
@@ -70,7 +71,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const { appearance, scaleFont, scaleIcon, theme } = useTheme();
     const { width: viewportWidth } = useWindowDimensions();
     const insets = useSafeAreaInsets();
-    const compactBottomNavigation = viewportWidth <= 480;
+    const compactBottomNavigation = isHomeOSPhoneLayout(viewportWidth);
     const homeownerPalette = useMemo(
         () =>
             createCompanyGlassPalette({

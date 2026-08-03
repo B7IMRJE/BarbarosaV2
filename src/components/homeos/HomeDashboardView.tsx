@@ -19,6 +19,10 @@ import {
 import { homeSystems } from '../../lib/homeSystems';
 import type { HomeIdentity } from '../../lib/homeIdentity';
 import { labelDueStatus, type DueStatusLabel } from '../../lib/maintenanceTimers';
+import {
+  isHomeOSPhoneLayout,
+  resolveHomeOSHealthCardHeight,
+} from '../../lib/homeos-responsive-layout';
 import { useTheme } from '../../theme/useTheme';
 
 export type { DashboardSystemTile } from '../../lib/homeDashboardSystems';
@@ -91,7 +95,7 @@ export default function HomeDashboardView({
   const { scaleFont, scaleIcon, theme } = useTheme();
   const { width: viewportWidth } = useWindowDimensions();
   const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 1120);
-  const isCompactPhone = viewportWidth <= 480;
+  const isCompactPhone = isHomeOSPhoneLayout(viewportWidth);
   const healthTileGap = isCompactPhone ? scaleIcon(10) : 8;
   const healthTileColumns = isCompactPhone
     ? dashboardContentWidth >= 300 ? 2 : 1
@@ -101,9 +105,10 @@ export default function HomeDashboardView({
   const healthTileSize = isCompactPhone
     ? availableHealthTileSize
     : Math.min(104, availableHealthTileSize);
-  const compactPhoneHealthTileHeight = Math.min(
-    scaleIcon(156),
-    Math.max(scaleIcon(126), healthTileSize * 0.72)
+  const compactPhoneHealthTileHeight = resolveHomeOSHealthCardHeight(
+    healthTileSize,
+    scaleIcon(144),
+    scaleIcon(224)
   );
   const healthSummary = scoreOverallHomeHealth(items, emergencies);
   const dashboardSystemTiles = buildHomeDashboardSystemTiles(items);

@@ -42,6 +42,7 @@ import {
   SERVICE_REQUEST_REFRESH_EVENT,
 } from '../lib/serviceRequestRealtime';
 import type { HomeHealthEmergency } from '../lib/homeHealth';
+import { isHomeOSPhoneLayout } from '../lib/homeos-responsive-layout';
 import { loadActiveHomeIdentity, loadHomeIdentityForProperty, type HomeIdentity } from '../lib/homeIdentity';
 import {
   providerModePath,
@@ -133,7 +134,7 @@ export default function HomeScreen() {
   const { width: viewportWidth } = useWindowDimensions();
   const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 1120);
   const healthTileGap = scaleIcon(10);
-  const isCompactPhone = viewportWidth <= 480;
+  const isCompactPhone = isHomeOSPhoneLayout(viewportWidth);
   const healthTileColumns = isCompactPhone
     ? dashboardContentWidth >= 300 ? 2 : 1
     : 4;

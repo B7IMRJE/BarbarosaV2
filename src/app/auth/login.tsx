@@ -559,6 +559,7 @@ function getErrorMessage(error: unknown) {
 const inputStyle = {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
+    fontSize: 16,
     padding: 16,
     marginBottom: 14,
     borderWidth: 1,
