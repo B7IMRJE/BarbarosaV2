@@ -198,7 +198,7 @@ export default function EstimateScreen() {
     const [technicianApproved, setTechnicianApproved] = useState(false);
     const [presentationMode, setPresentationMode] = useState(false);
     const [aiDrafting, setAiDrafting] = useState(false);
-    const [aiValidationErrors, setAiValidationErrors] = useState<string[]>([]);
+    const [aiDraftWarnings, setAiDraftWarnings] = useState<string[]>([]);
     const [aiDraftsByChoiceId, setAiDraftsByChoiceId] = useState<Record<string, AiEstimateDraftChoice>>({});
     const [editableCopyByChoiceId, setEditableCopyByChoiceId] = useState<Record<string, EditableChoiceCopy>>({});
     const [priceAdjustmentByChoiceId, setPriceAdjustmentByChoiceId] = useState<Record<string, number>>({});
@@ -326,7 +326,7 @@ export default function EstimateScreen() {
         setPriceBookMessage('Price book loading...');
         setTechnicianApproved(false);
         setPresentationMode(false);
-        setAiValidationErrors([]);
+        setAiDraftWarnings([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
         setPersistedOptionChoices([]);
@@ -427,7 +427,7 @@ export default function EstimateScreen() {
         setMeasurementErrorByKey({});
         setTechnicianApproved(false);
         setPresentationMode(false);
-        setAiValidationErrors([]);
+        setAiDraftWarnings([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
         setPersistedOptionChoices([]);
@@ -548,7 +548,7 @@ export default function EstimateScreen() {
         setMeasurementErrorByKey({});
         setTechnicianApproved(false);
         setPresentationMode(false);
-        setAiValidationErrors([]);
+        setAiDraftWarnings([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
         setPersistedOptionChoices([]);
@@ -597,7 +597,7 @@ export default function EstimateScreen() {
             answers,
             priceBookItems,
             technicianApproved,
-            aiValidationFailed: aiValidationErrors.length > 0,
+            aiValidationFailed: false,
         }).choices.some((choice) => choice.id === selectedChoiceId)) {
             setSelectedChoiceId('');
         }
@@ -1184,7 +1184,7 @@ export default function EstimateScreen() {
         setPendingRemoveChoiceId('');
         setTechnicianApproved(false);
         setPresentationMode(false);
-        setAiValidationErrors([]);
+        setAiDraftWarnings([]);
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
         setPersistedOptionChoices([]);
@@ -1349,7 +1349,7 @@ export default function EstimateScreen() {
         }
 
         setAiDrafting(true);
-        setAiValidationErrors([]);
+        setAiDraftWarnings([]);
         setMessage('Drafting option copy...');
 
         try {
@@ -1359,7 +1359,10 @@ export default function EstimateScreen() {
             } = await supabase.auth.getSession();
 
             if (sessionError || !session) {
-                setMessage(`AI drafting unavailable: ${sessionError?.message || 'Sign in again.'}`);
+                const warning = formatAiDraftWarning(sessionError?.message || 'Sign in again.');
+
+                setAiDraftWarnings([warning]);
+                setMessage(warning);
                 return;
             }
 
@@ -1415,16 +1418,20 @@ export default function EstimateScreen() {
             if (!response.ok) {
                 const messageText = readFunctionMessage(data, response.status);
 
-                setAiValidationErrors([messageText]);
-                setMessage(messageText);
+                const warning = formatAiDraftWarning(messageText);
+
+                setAiDraftWarnings([warning]);
+                setMessage(warning);
                 return;
             }
 
             const validation = validateAiEstimateDraftResponse(data, referenceContext);
 
             if (!validation.valid) {
-                setAiValidationErrors(validation.errors);
-                setMessage(`AI draft validation failed: ${validation.errors[0] || 'Invalid structured output.'}`);
+                const warning = formatAiDraftWarning(validation.errors[0] || 'The returned draft did not pass the app safety check.');
+
+                setAiDraftWarnings([warning]);
+                setMessage(warning);
                 return;
             }
 
@@ -1446,9 +1453,13 @@ export default function EstimateScreen() {
                 ...current,
                 ...nextEditableCopy,
             }));
-            setMessage('AI drafts ready for technician review.');
+            setAiDraftWarnings([]);
+            setMessage('AI wording is ready for technician review.');
         } catch (error) {
-            setMessage(`AI drafting unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            const warning = formatAiDraftWarning(error instanceof Error ? error.message : 'Unknown error');
+
+            setAiDraftWarnings([warning]);
+            setMessage(warning);
         } finally {
             setAiDrafting(false);
         }
@@ -1507,7 +1518,7 @@ export default function EstimateScreen() {
         answers,
         priceBookItems,
         technicianApproved,
-        aiValidationFailed: aiValidationErrors.length > 0,
+        aiValidationFailed: false,
     });
     const focusedPriceBookItem = findEstimatePriceBookCatalogItem(items, phase1Workspace.template.label);
     const estimateReturnRoute = buildInternalRoute('/estimate', [
@@ -2060,7 +2071,7 @@ export default function EstimateScreen() {
                                     disabled={aiDrafting || requirementUploadInProgress}
                                 >
                                     <Text style={compactPrimaryButtonTextStyle}>
-                                        {aiDrafting ? 'Drafting...' : requirementUploadInProgress ? 'Uploading...' : 'Draft with AI'}
+                                        {aiDrafting ? 'Drafting wording...' : requirementUploadInProgress ? 'Uploading...' : 'Draft wording with AI'}
                                     </Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity
@@ -2121,10 +2132,10 @@ export default function EstimateScreen() {
                         </View>
                     )}
 
-                    {aiValidationErrors.length > 0 && (
+                    {aiDraftWarnings.length > 0 && (
                         <View style={warningBoxStyle}>
-                            {aiValidationErrors.slice(0, 4).map((error) => (
-                                <Text key={error} style={warningTextStyle}>{error}</Text>
+                            {aiDraftWarnings.slice(0, 4).map((warning) => (
+                                <Text key={warning} style={warningTextStyle}>{warning}</Text>
                             ))}
                         </View>
                     )}
@@ -2886,6 +2897,22 @@ function readFunctionMessage(data: Record<string, unknown>, status: number) {
     const detail = typeof data.detail === 'string' ? data.detail : '';
 
     return message || detail || `AI drafting failed with status ${status}.`;
+}
+
+function formatAiDraftWarning(error: string) {
+    const message = String(error || '').trim();
+    const normalized = message.toLowerCase();
+
+    if (
+        normalized.includes('no credits remaining') ||
+        normalized.includes('insufficient_quota') ||
+        normalized.includes('insufficient quota') ||
+        normalized.includes('billing')
+    ) {
+        return 'AI wording is unavailable because the OpenAI API account needs credits. Your verified scope, price, and homeowner presentation can still continue without AI wording.';
+    }
+
+    return `AI wording was not used. Your verified scope, price, and homeowner presentation can still continue. ${message || 'Please try AI wording again later.'}`;
 }
 
 function pickEstimateRequirementPhoto(capture: boolean) {

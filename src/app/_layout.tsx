@@ -35,6 +35,7 @@ const DISPATCH_ROUTE = '/dispatch';
 const DISPATCH_WALL_ROUTE = '/dispatch-wall';
 const SCHEDULE_ROUTE = '/schedule';
 const ESTIMATE_ROUTE = '/estimate';
+const JOB_WORKFLOW_ROUTE = '/job-workflow';
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 const PUBLIC_AUTH_ROUTES = new Set<string>([
   LOGIN_ROUTE,
@@ -472,6 +473,10 @@ function isEstimatePath(pathname: string) {
   return pathname === ESTIMATE_ROUTE || pathname.startsWith(`${ESTIMATE_ROUTE}/`);
 }
 
+function isJobWorkflowPath(pathname: string) {
+  return pathname === JOB_WORKFLOW_ROUTE || pathname.startsWith(`${JOB_WORKFLOW_ROUTE}/`);
+}
+
 function hasValidProviderModeRouteParams(
   routeParams: ProviderModeRouteParams,
   allowedCompanyIds?: string[]
@@ -544,6 +549,7 @@ function resolveRedirectForPath(
       isDispatchPath(pathname) ||
       isDispatchWallPath(pathname) ||
       isSchedulePath(pathname) ||
+      isJobWorkflowPath(pathname) ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {
       return null;
@@ -565,6 +571,7 @@ function resolveRedirectForPath(
       isDispatchWallPath(pathname) ||
       isSchedulePath(pathname) ||
       isEstimatePath(pathname) ||
+      isJobWorkflowPath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {
@@ -585,6 +592,7 @@ function resolveRedirectForPath(
       isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
       isTechOSPath(pathname) ||
       isEstimatePath(pathname) ||
+      isJobWorkflowPath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {
@@ -601,6 +609,7 @@ function resolveRedirectForPath(
 
     if (
       isTechOSPath(pathname) ||
+      isJobWorkflowPath(pathname) ||
       pathname === COMPANY_INVITATIONS_ROUTE ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {
