@@ -814,14 +814,19 @@ alter table public.company_message_read_states enable row level security;
 
 revoke all on table public.company_message_channels from public;
 revoke all on table public.company_message_channels from anon;
+revoke all on table public.company_message_channels from authenticated;
 revoke all on table public.company_message_channel_members from public;
 revoke all on table public.company_message_channel_members from anon;
+revoke all on table public.company_message_channel_members from authenticated;
 revoke all on table public.company_message_posts from public;
 revoke all on table public.company_message_posts from anon;
+revoke all on table public.company_message_posts from authenticated;
 revoke all on table public.company_message_attachments from public;
 revoke all on table public.company_message_attachments from anon;
+revoke all on table public.company_message_attachments from authenticated;
 revoke all on table public.company_message_read_states from public;
 revoke all on table public.company_message_read_states from anon;
+revoke all on table public.company_message_read_states from authenticated;
 
 grant select on table public.company_message_channels to authenticated;
 grant select on table public.company_message_channel_members to authenticated;
