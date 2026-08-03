@@ -11,6 +11,7 @@ export function runCompanyPermissionsRegressions() {
     activeTechAliasCanUseEstimateWorkflow();
     inactiveTechnicianCannotUseEstimateWorkflow();
     estimateWorkflowDoesNotGrantTechnicianManagementFlags();
+    managementRolesCanManagePriceBookByDefault();
     unrelatedCompanyRolesCannotUseEstimateWorkflow();
     activeDispatcherCanUseDispatchWithoutManagementFlags();
     inactiveDispatcherCannotUseDispatch();
@@ -62,6 +63,13 @@ function estimateWorkflowDoesNotGrantTechnicianManagementFlags() {
     assert(canUseCompanyEstimateWorkflow(technician), 'Technician estimate workflow access should stay enabled.');
     assert(!hasCompanyPermission(technician, 'can_create_estimates'), 'Technician legacy create-estimate flag should remain false.');
     assert(!hasCompanyPermission(technician, 'can_add_item_to_estimate'), 'Technician legacy add-item flag should remain false.');
+    assert(!hasCompanyPermission(technician, 'can_manage_price_book'), 'Technicians should not change company selling prices by default.');
+}
+
+function managementRolesCanManagePriceBookByDefault() {
+    assert(hasCompanyPermission({ role: 'owner', status: 'active' }, 'can_manage_price_book'), 'Owners should manage the Price Book.');
+    assert(hasCompanyPermission({ role: 'admin', status: 'active' }, 'can_manage_price_book'), 'Admins should manage the Price Book.');
+    assert(hasCompanyPermission({ role: 'manager', status: 'active' }, 'can_manage_price_book'), 'Managers should manage the Price Book.');
 }
 
 function unrelatedCompanyRolesCannotUseEstimateWorkflow() {

@@ -175,6 +175,7 @@ const COMPANY_DASHBOARD_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_view_techos',
     'can_create_estimates',
     'can_add_item_to_estimate',
+    'can_manage_price_book',
     'can_view_customers',
     'can_view_jobs',
     'can_manage_company_users',
@@ -2148,6 +2149,7 @@ async function loadCompanyDashboardPermissions(companyId: string): Promise<Compa
         can_view_techos: false,
         can_create_estimates: false,
         can_add_item_to_estimate: false,
+        can_manage_price_book: false,
         can_view_customers: false,
         can_view_jobs: false,
         can_manage_company_users: false,
@@ -2172,7 +2174,7 @@ function canViewCompanyModule(card: string, permissions: CompanyPermissionSet | 
     if (card === 'Team / Technicians') return permissions.can_manage_company_users;
     if (card === 'Activity / Audit Log') return permissions.can_manage_company_users;
     if (card === 'Price Book') {
-        return permissions.can_create_estimates || permissions.can_add_item_to_estimate;
+        return permissions.can_view_techos || permissions.can_manage_price_book;
     }
     if (card === 'Knowledge Engine') return permissions.can_view_jobs;
     if (card === 'Settings / Permissions') {

@@ -1,3 +1,8 @@
+import {
+    plumbingPriceBookCatalogItems,
+    type PlumbingPriceBookCatalogItem,
+} from './plumbingPriceBookCatalog';
+
 export type TemporaryPlumbingPrice = {
     priceKey: string;
     name: string;
@@ -11,18 +16,19 @@ export type TemporaryPlumbingPrice = {
     materialCost: number;
     laborHours: number;
     customerDescription: string;
+    pricingBasis: 'direct benchmark' | 'catalog planning model';
 };
 
 const riverside2026Source =
-    'Temporary Riverside 2026 planning price. Review before customer use. Market references: https://davisphinc.com/2026/05/05/how-much-does-a-plumber-cost-in-riverside-county-2026-pricing-guide/ | https://www.homedepot.com/services/c/cost-install-faucet/482125d2a | https://www.homedepot.com/services/c/cost-install-water-heater/9058c024e | https://riversideca.gov/finance/PDF/Fees-and-Charges-as-of-July-1%2C2026.pdf';
+    'Riverside 2026 planning recommendation; management review required. References: https://www.bls.gov/news.release/ocwage.htm | https://www.dir.ca.gov/oprl/residential/riverside.pdf | https://www.homedepot.com/services/h/plumbing | https://www.homedepot.com/services/c/cost-install-water-heater/9058c024e | https://riversideca.gov/finance/PDF/Fees-and-Charges-as-of-July-1%2C-2026.pdf';
 
-export const temporaryRiversidePlumbingPrices: TemporaryPlumbingPrice[] = [
+const riversideBenchmarks: TemporaryPlumbingPrice[] = [
     price('diagnostic-service-call', 'Plumbing diagnostic / service call', 'Water Service', 'Whole Home', 'Diagnostics / Inspections', 'inspection', 89, 129, 175, 5, 1, 'On-site plumbing diagnosis and written repair options.'),
     price('emergency-after-hours-add-on', 'Emergency / after-hours add-on', 'Water Service', 'Whole Home', 'Emergency / After Hours', 'each', 75, 149, 225, 0, 0.5, 'Additional charge for approved nights weekends or emergency response.'),
     price('water-leak-diagnostic', 'Water leak diagnostic', 'Water Service', 'Whole Home', 'Water Service', 'inspection', 150, 295, 500, 15, 2, 'Diagnose an active or suspected potable-water leak.'),
     price('slab-leak-diagnostic', 'Slab leak diagnostic', 'Water Service', 'Whole Home', 'Water Service', 'inspection', 350, 595, 900, 40, 3, 'Electronic and field evaluation of a suspected under-slab leak.'),
     price('water-pressure-test', 'Water pressure test', 'Water Service', 'Whole Home', 'Water Service', 'inspection', 95, 165, 275, 10, 1, 'Test static and operating residential water pressure.'),
-    price('whole-home-repipe-estimate', 'Whole-home repipe estimate', 'Water Service', 'Whole Home', 'Water Service', 'inspection', 0, 0, 199, 0, 1.5, 'Site review and written whole-home repipe proposal.'),
+    price('whole-home-repipe-estimate', 'Whole-home repipe estimate', 'Water Service', 'Whole Home', 'Water Service', 'inspection', 135, 195, 295, 5, 1.5, 'Site review and written whole-home repipe proposal.'),
     price('partial-repipe-per-fixture', 'Partial repipe per fixture', 'Water Service', 'Whole Home', 'Water Service', 'each', 650, 1050, 1650, 160, 5, 'Replace accessible hot and cold branch piping serving one fixture.'),
     price('whole-home-repipe-small', 'Whole-home repipe - small home', 'Water Service', 'Whole Home', 'Water Service', 'package', 6500, 8950, 12500, 2100, 40, 'Temporary planning allowance for a small single-story home. Final scope required.'),
     price('whole-home-repipe-medium', 'Whole-home repipe - medium home', 'Water Service', 'Whole Home', 'Water Service', 'package', 9000, 12950, 18000, 3200, 60, 'Temporary planning allowance for a medium home. Final scope required.'),
@@ -119,8 +125,8 @@ export function buildTemporaryRiversidePlumbingPriceListTsv() {
         entry.materialCost,
         entry.laborHours,
         entry.customerDescription,
-        'TEMPORARY MARKET-BASED PRICE - management review required before long-term use.',
-        riverside2026Source,
+        `PLANNING RECOMMENDATION - ${entry.pricingBasis}; management review required before customer use.`,
+        `${riverside2026Source} Basis: ${entry.pricingBasis}.`,
     ]);
 
     return [header, ...rows]
@@ -155,7 +161,190 @@ function price(
         materialCost,
         laborHours,
         customerDescription,
+        pricingBasis: 'direct benchmark',
     };
+}
+
+function buildCatalogPlanningPrice(catalogItem: PlumbingPriceBookCatalogItem): TemporaryPlumbingPrice {
+    const directBenchmark = findDirectBenchmark(catalogItem);
+
+    if (directBenchmark) {
+        return {
+            ...directBenchmark,
+            priceKey: catalogItem.price_key,
+            name: catalogItem.name,
+            system: catalogItem.system,
+            area: catalogItem.area,
+            category: catalogItem.category,
+            unit: catalogItem.unit,
+            customerDescription: catalogItem.defaultDescription,
+            pricingBasis: 'direct benchmark',
+        };
+    }
+
+    const planning = calculatePlanningRecommendation(catalogItem);
+
+    return {
+        priceKey: catalogItem.price_key,
+        name: catalogItem.name,
+        system: catalogItem.system,
+        area: catalogItem.area,
+        category: catalogItem.category,
+        unit: catalogItem.unit,
+        marketLow: planning.marketLow,
+        recommendedPrice: planning.recommendedPrice,
+        marketHigh: planning.marketHigh,
+        materialCost: planning.materialCost,
+        laborHours: planning.laborHours,
+        customerDescription: catalogItem.defaultDescription,
+        pricingBasis: 'catalog planning model',
+    };
+}
+
+function findDirectBenchmark(catalogItem: PlumbingPriceBookCatalogItem) {
+    const exactKey = riversideBenchmarks.find((entry) => entry.priceKey === catalogItem.price_key);
+
+    if (exactKey) return exactKey;
+
+    const catalogNames = [catalogItem.name, ...(catalogItem.aliases || [])].map(normalizePricingText);
+
+    return riversideBenchmarks.find((entry) =>
+        catalogNames.includes(normalizePricingText(entry.name)) &&
+        normalizePricingText(entry.category) === normalizePricingText(catalogItem.category)
+    ) || null;
+}
+
+type PlanningRecommendation = Pick<
+    TemporaryPlumbingPrice,
+    'marketLow' | 'recommendedPrice' | 'marketHigh' | 'materialCost' | 'laborHours'
+>;
+
+const planningPriceOverrides: Record<string, { price: number; material: number; hours: number }> = {
+    water_service_whole_home_repipe_estimate: { price: 195, material: 5, hours: 1.5 },
+    water_service_whole_home_main_water_service_replacement_estimate: { price: 129, material: 5, hours: 1.5 },
+    water_service_whole_home_main_water_service_replacement_linear_foot: { price: 295, material: 95, hours: 1.25 },
+    water_service_whole_home_main_water_service_replacement_package: { price: 8950, material: 2600, hours: 36 },
+    water_service_whole_home_domestic_water_riser_replacement_linear_foot: { price: 375, material: 90, hours: 1.75 },
+    water_service_whole_home_slab_leak_reroute: { price: 3250, material: 650, hours: 16 },
+    'faucet-reinstall-existing': { price: 375, material: 35, hours: 2 },
+    'faucet-install-company-approved': { price: 725, material: 235, hours: 2.5 },
+    water_service_bathroom_shower_cartridge_replacement: { price: 425, material: 115, hours: 2 },
+    water_service_bathroom_shower_valve_repair: { price: 595, material: 145, hours: 3 },
+    water_service_bathroom_shower_valve_replacement: { price: 1195, material: 325, hours: 5.5 },
+    water_service_bathroom_tub_shower_valve_replacement: { price: 1295, material: 350, hours: 6 },
+    drain_sewer_whole_home_sewer_line_replacement_linear_foot: { price: 395, material: 125, hours: 1.5 },
+    drain_sewer_exterior_main_line_hydro_jetting: { price: 795, material: 35, hours: 4 },
+    drain_sewer_exterior_trenchless_sewer_lining_linear_foot: { price: 275, material: 115, hours: 1 },
+    drain_sewer_exterior_sewer_spot_repair: { price: 2750, material: 625, hours: 14 },
+};
+
+function calculatePlanningRecommendation(catalogItem: PlumbingPriceBookCatalogItem): PlanningRecommendation {
+    const override = planningPriceOverrides[catalogItem.price_key];
+
+    if (override) return planningRange(override.price, override.material, override.hours);
+
+    const text = normalizePricingText(`${catalogItem.name} ${catalogItem.category} ${catalogItem.system}`);
+
+    if (catalogItem.unit === 'linear foot') {
+        if (text.includes('gas')) return planningRange(85, 25, 0.5);
+        if (text.includes('sewer') || text.includes('drain')) return planningRange(325, 110, 1.5);
+        return planningRange(225, 75, 1);
+    }
+
+    if (text.includes('tankless water heater replacement')) return planningRange(4750, 2100, 10);
+    if (text.includes('tank water heater replacement')) return planningRange(2450, 1100, 6.5);
+    if (text.includes('water heater')) {
+        if (text.includes('flush')) return planningRange(275, 25, 1.5);
+        if (text.includes('diagnostic') || text.includes('inspection')) return planningRange(195, 10, 1.25);
+        if (text.includes('expansion tank')) return planningRange(395, 110, 1.75);
+        if (text.includes('t p valve') || text.includes('drain valve')) return planningRange(345, 75, 1.5);
+        if (text.includes('supply line') || text.includes('connector')) return planningRange(325, 85, 1.5);
+        if (text.includes('pan') || text.includes('stand') || text.includes('seismic strap')) return planningRange(375, 100, 2);
+        if (text.includes('code') || text.includes('permit')) return planningRange(595, 180, 3);
+        return planningRange(425, 120, 2);
+    }
+
+    if (text.includes('whole home repipe') || text.includes('whole-home repipe')) return planningRange(12950, 3200, 60);
+    if (text.includes('partial repipe')) return planningRange(1050, 160, 5);
+    if (text.includes('slab leak')) return planningRange(595, 40, 3);
+    if (text.includes('main water shutoff') || text.includes('whole home water shutoff')) return planningRange(750, 160, 4);
+    if (text.includes('pressure regulator') || text.includes('prv')) return planningRange(795, 225, 4);
+    if (text.includes('shower valve')) return planningRange(text.includes('replacement') ? 1195 : 595, text.includes('replacement') ? 325 : 145, text.includes('replacement') ? 5.5 : 3);
+    if (text.includes('faucet')) return planningRange(text.includes('repair') ? 295 : 595, text.includes('repair') ? 45 : 195, text.includes('repair') ? 1.5 : 2.5);
+    if (text.includes('toilet')) {
+        if (text.includes('replacement') || text.includes('installation')) return planningRange(695, 260, 2.5);
+        if (text.includes('reset') || text.includes('wax ring')) return planningRange(395, 55, 2);
+        if (text.includes('tank rebuild')) return planningRange(425, 95, 2);
+        if (text.includes('fill valve') || text.includes('flush valve')) return planningRange(245, 45, 1);
+        if (text.includes('flapper') || text.includes('handle')) return planningRange(195, 30, 0.75);
+        if (text.includes('stoppage')) return planningRange(225, 15, 1.25);
+        return planningRange(245, 45, 1.25);
+    }
+
+    if (text.includes('laundry box')) return planningRange(995, 225, 6);
+    if (text.includes('angle stop') || text.includes('shutoff') || text.includes('valve replacement')) return planningRange(295, 55, 1.5);
+    if (text.includes('supply line') || text.includes('flex connector') || text.includes('hose replacement')) return planningRange(195, 35, 1);
+    if (text.includes('garbage disposal')) return planningRange(text.includes('removal') ? 350 : 425, text.includes('removal') ? 70 : 145, 2);
+    if (text.includes('p trap') || text.includes('basket') || text.includes('tubular drain')) return planningRange(285, 45, 1.5);
+    if (text.includes('hydro jet')) return planningRange(795, 35, 4);
+    if (text.includes('camera') || text.includes('video inspection')) return planningRange(325, 25, 2);
+    if (text.includes('main line cleanout') || text.includes('main sewer stoppage')) return planningRange(525, 45, 3);
+    if (text.includes('stoppage') || text.includes('drain cleaning') || text.includes('floor drain')) return planningRange(295, 20, 1.75);
+    if (text.includes('sewer') && text.includes('repair')) return planningRange(2750, 625, 14);
+    if (text.includes('gas')) {
+        if (text.includes('leak diagnostic') || text.includes('pressure test')) return planningRange(425, 30, 2.5);
+        if (text.includes('connection') || text.includes('connector')) return planningRange(325, 75, 1.75);
+        if (text.includes('shutoff')) return planningRange(375, 80, 2);
+        return planningRange(395, 80, 2);
+    }
+
+    if (text.includes('water softener installation')) return planningRange(2950, 1400, 8);
+    if (text.includes('whole home filter installation')) return planningRange(2150, 950, 7);
+    if (text.includes('reverse osmosis installation')) return planningRange(895, 400, 4);
+    if (catalogItem.category === 'Water Quality') return planningRange(text.includes('installation') ? 995 : 325, text.includes('installation') ? 400 : 95, text.includes('installation') ? 4 : 1.5);
+    if (catalogItem.category === 'Emergency / After Hours') return planningRange(text.includes('response') ? 395 : 149, 10, text.includes('response') ? 2 : 0.5);
+    if (catalogItem.category === 'Diagnostics / Inspections') return planningRange(text.includes('home sale') ? 395 : 195, 10, text.includes('home sale') ? 2.5 : 1.25);
+    if (catalogItem.category === 'Drains / Sewer') return planningRange(text.includes('replacement') ? 495 : 325, text.includes('replacement') ? 125 : 45, text.includes('replacement') ? 3 : 2);
+    if (catalogItem.category === 'Faucets / Sinks') return planningRange(text.includes('replacement') || text.includes('installation') ? 525 : 295, text.includes('replacement') || text.includes('installation') ? 175 : 45, text.includes('replacement') || text.includes('installation') ? 2 : 1.5);
+    if (catalogItem.category === 'Valves / Shutoffs') return planningRange(325, 65, 1.75);
+    if (catalogItem.category === 'Laundry / Dishwasher') return planningRange(425, 95, 2.5);
+    if (catalogItem.category === 'Fixtures') return planningRange(395, 110, 2);
+    if (catalogItem.category === 'Water Service') return planningRange(text.includes('repair') ? 525 : 295, text.includes('repair') ? 100 : 35, text.includes('repair') ? 3 : 1.5);
+    if (catalogItem.unit === 'inspection') return planningRange(195, 10, 1.25);
+    if (catalogItem.unit === 'other') return planningRange(195, 25, 1);
+
+    return planningRange(295, 55, 1.5);
+}
+
+function planningRange(price: number, material: number, hours: number): PlanningRecommendation {
+    const recommendedPrice = roundToFive(price);
+
+    return {
+        marketLow: recommendedPrice === 0 ? 0 : roundToFive(recommendedPrice * 0.7),
+        recommendedPrice,
+        marketHigh: recommendedPrice === 0 ? 199 : roundToFive(recommendedPrice * 1.5),
+        materialCost: roundToFive(material),
+        laborHours: Math.round(Math.max(0, hours) * 4) / 4,
+    };
+}
+
+function roundToFive(value: number) {
+    return Math.max(0, Math.round(value / 5) * 5);
+}
+
+function normalizePricingText(value: string) {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+export const temporaryRiversidePlumbingPrices: TemporaryPlumbingPrice[] =
+    plumbingPriceBookCatalogItems.map(buildCatalogPlanningPrice);
+
+const temporaryRiversidePlumbingPriceByKey = new Map(
+    temporaryRiversidePlumbingPrices.map((entry) => [entry.priceKey, entry])
+);
+
+export function getTemporaryRiversidePlumbingPrice(priceKey: string) {
+    return temporaryRiversidePlumbingPriceByKey.get(priceKey) || null;
 }
 
 function sanitizeTsvCell(value: string | number) {

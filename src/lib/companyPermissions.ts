@@ -11,6 +11,7 @@ export type CompanyPermissionKey =
     | 'can_view_techos'
     | 'can_create_estimates'
     | 'can_add_item_to_estimate'
+    | 'can_manage_price_book'
     | 'can_view_customers'
     | 'can_view_jobs'
     | 'can_manage_company_users'
@@ -42,6 +43,7 @@ export const COMPANY_PERMISSION_LABELS: Record<CompanyPermissionKey, string> = {
     can_view_techos: 'View TechOS',
     can_create_estimates: 'Create estimates',
     can_add_item_to_estimate: 'Add items to estimates',
+    can_manage_price_book: 'Manage price book',
     can_view_customers: 'View customers',
     can_view_jobs: 'View jobs',
     can_manage_company_users: 'Manage company users',
@@ -52,6 +54,7 @@ const EMPTY_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: false,
     can_create_estimates: false,
     can_add_item_to_estimate: false,
+    can_manage_price_book: false,
     can_view_customers: false,
     can_view_jobs: false,
     can_manage_company_users: false,
@@ -62,6 +65,7 @@ const TECHNICIAN_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
     can_create_estimates: false,
     can_add_item_to_estimate: false,
+    can_manage_price_book: false,
     can_view_customers: false,
     can_view_jobs: true,
     can_manage_company_users: false,
@@ -72,6 +76,7 @@ const DISPATCH_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
     can_create_estimates: false,
     can_add_item_to_estimate: false,
+    can_manage_price_book: false,
     can_view_customers: true,
     can_view_jobs: true,
     can_manage_company_users: false,
@@ -82,6 +87,7 @@ const MANAGER_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
     can_create_estimates: true,
     can_add_item_to_estimate: true,
+    can_manage_price_book: true,
     can_view_customers: true,
     can_view_jobs: true,
     can_manage_company_users: true,
@@ -92,6 +98,7 @@ const ADMIN_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
     can_create_estimates: true,
     can_add_item_to_estimate: true,
+    can_manage_price_book: true,
     can_view_customers: true,
     can_view_jobs: true,
     can_manage_company_users: true,
@@ -102,6 +109,7 @@ const OWNER_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
     can_create_estimates: true,
     can_add_item_to_estimate: true,
+    can_manage_price_book: true,
     can_view_customers: true,
     can_view_jobs: true,
     can_manage_company_users: true,
@@ -245,6 +253,7 @@ type CompanyPermissionRow = {
     can_view_techos?: boolean | null;
     can_create_estimates?: boolean | null;
     can_add_item_to_estimate?: boolean | null;
+    can_manage_price_book?: boolean | null;
     can_view_customers?: boolean | null;
     can_view_jobs?: boolean | null;
     can_manage_company_users?: boolean | null;
@@ -451,6 +460,7 @@ function readCompanyPermissionRow(value: unknown): CompanyPermissionRow {
         can_view_techos: readNullableBoolean(value, 'can_view_techos'),
         can_create_estimates: readNullableBoolean(value, 'can_create_estimates'),
         can_add_item_to_estimate: readNullableBoolean(value, 'can_add_item_to_estimate'),
+        can_manage_price_book: readNullableBoolean(value, 'can_manage_price_book'),
         can_view_customers: readNullableBoolean(value, 'can_view_customers'),
         can_view_jobs: readNullableBoolean(value, 'can_view_jobs'),
         can_manage_company_users: readNullableBoolean(value, 'can_manage_company_users'),
@@ -463,6 +473,7 @@ function hasResolvedPermissionBooleans(row: CompanyPermissionRow) {
         typeof row.can_view_techos === 'boolean' ||
         typeof row.can_create_estimates === 'boolean' ||
         typeof row.can_add_item_to_estimate === 'boolean' ||
+        typeof row.can_manage_price_book === 'boolean' ||
         typeof row.can_view_customers === 'boolean' ||
         typeof row.can_view_jobs === 'boolean' ||
         typeof row.can_manage_company_users === 'boolean' ||
@@ -477,6 +488,7 @@ function readResolvedPermissionBooleans(row: CompanyPermissionRow): CompanyPermi
         can_view_techos: typeof row.can_view_techos === 'boolean' ? row.can_view_techos : defaults.can_view_techos,
         can_create_estimates: typeof row.can_create_estimates === 'boolean' ? row.can_create_estimates : defaults.can_create_estimates,
         can_add_item_to_estimate: typeof row.can_add_item_to_estimate === 'boolean' ? row.can_add_item_to_estimate : defaults.can_add_item_to_estimate,
+        can_manage_price_book: typeof row.can_manage_price_book === 'boolean' ? row.can_manage_price_book : defaults.can_manage_price_book,
         can_view_customers: typeof row.can_view_customers === 'boolean' ? row.can_view_customers : defaults.can_view_customers,
         can_view_jobs: typeof row.can_view_jobs === 'boolean' ? row.can_view_jobs : defaults.can_view_jobs,
         can_manage_company_users: typeof row.can_manage_company_users === 'boolean' ? row.can_manage_company_users : defaults.can_manage_company_users,

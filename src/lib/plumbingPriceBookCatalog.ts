@@ -44,6 +44,10 @@ export const plumbingPriceBookCatalog: PlumbingPriceBookCatalogSystem[] = [
             item('water_service_whole_home_partial_repipe_by_fixture', 'Partial repipe by fixture', 'Water Service', 'Whole Home', 'Water Service', 'each', 'Price partial domestic water repipe work by fixture.'),
             item('water_service_whole_home_water_service_line_repair', 'Water service line repair', 'Water Service', 'Whole Home', 'Water Service', 'each', 'Repair an accessible water service line.'),
             item('water_service_whole_home_main_water_service_replacement_estimate', 'Main water service replacement estimate', 'Water Service', 'Whole Home', 'Water Service', 'inspection', 'Estimate replacement of the main water service.'),
+            item('water_service_whole_home_main_water_service_replacement_linear_foot', 'Main water service replacement by linear foot', 'Water Service', 'Whole Home', 'Water Service', 'linear foot', 'Replace private-side main water service piping by measured linear foot.'),
+            item('water_service_whole_home_main_water_service_replacement_package', 'Main water service replacement package', 'Water Service', 'Whole Home', 'Water Service', 'package', 'Replace a standard private-side residential water service after route, access, permit, and restoration review.'),
+            item('water_service_whole_home_domestic_water_riser_replacement_linear_foot', 'Domestic water riser replacement by linear foot', 'Water Service', 'Whole Home', 'Water Service', 'linear foot', 'Replace accessible domestic water riser piping by measured linear foot.'),
+            item('water_service_whole_home_slab_leak_reroute', 'Slab leak reroute', 'Water Service', 'Whole Home', 'Water Service', 'package', 'Reroute an isolated under-slab water line after leak location and access are confirmed.'),
             item('water_service_whole_home_emergency_water_shutoff_service', 'Emergency water shutoff service', 'Water Service', 'Whole Home', 'Emergency / After Hours', 'each', 'Emergency service to shut off or isolate water supply.'),
         ]),
         area('Garage / Mechanical', [
@@ -78,6 +82,8 @@ export const plumbingPriceBookCatalog: PlumbingPriceBookCatalogSystem[] = [
         area('Kitchen', [
             item('water_service_kitchen_kitchen_faucet_repair', 'Kitchen faucet repair', 'Water Service', 'Kitchen', 'Faucets / Sinks', 'each', 'Repair a leaking or malfunctioning kitchen faucet.'),
             item('water_service_kitchen_kitchen_faucet_replacement', 'Kitchen faucet replacement', 'Water Service', 'Kitchen', 'Faucets / Sinks', 'each', 'Replace a kitchen faucet.'),
+            item('faucet-reinstall-existing', 'Reinstall existing or customer-supplied faucet', 'Water Service', 'Kitchen', 'Faucets / Sinks', 'each', 'Remove as needed, then clean, reseat, reconnect, and test an existing or customer-supplied faucet.'),
+            item('faucet-install-company-approved', 'Install company-approved faucet', 'Water Service', 'Kitchen', 'Faucets / Sinks', 'each', 'Remove the existing faucet and install a company-approved replacement with approved reconnect materials.'),
             item('water_service_kitchen_pull_down_kitchen_faucet_replacement', 'Pull-down kitchen faucet replacement', 'Water Service', 'Kitchen', 'Faucets / Sinks', 'each', 'Replace a pull-down kitchen faucet.'),
             item('water_service_kitchen_pot_filler_installation', 'Pot filler installation', 'Water Service', 'Kitchen', 'Faucets / Sinks', 'each', 'Install a kitchen pot filler water line and fixture.'),
             item('water_service_kitchen_kitchen_angle_stop_replacement', 'Kitchen angle stop replacement', 'Water Service', 'Kitchen', 'Valves / Shutoffs', 'each', 'Replace an accessible kitchen angle stop valve.'),
@@ -165,6 +171,7 @@ export const plumbingPriceBookCatalog: PlumbingPriceBookCatalogSystem[] = [
             item('drain_sewer_whole_home_main_sewer_stoppage', 'Main sewer stoppage', 'Drain / Sewer', 'Whole Home', 'Drains / Sewer', 'each', 'Clear or diagnose a main sewer stoppage.'),
             item('drain_sewer_whole_home_sewer_line_repair_estimate', 'Sewer line repair estimate', 'Drain / Sewer', 'Whole Home', 'Drains / Sewer', 'inspection', 'Estimate sewer line repair scope.'),
             item('drain_sewer_whole_home_sewer_line_repair_linear_foot', 'Sewer line repair by linear foot', 'Drain / Sewer', 'Whole Home', 'Drains / Sewer', 'linear foot', 'Repair accessible sewer line by measured linear foot.'),
+            item('drain_sewer_whole_home_sewer_line_replacement_linear_foot', 'Sewer line replacement by linear foot', 'Drain / Sewer', 'Whole Home', 'Drains / Sewer', 'linear foot', 'Replace verified sewer or building-drain piping by measured linear foot.'),
             item('drain_sewer_whole_home_cleanout_install', 'Cleanout install', 'Drain / Sewer', 'Whole Home', 'Drains / Sewer', 'each', 'Install an accessible sewer or drain cleanout.'),
         ]),
         area('Garage / Mechanical', [
@@ -226,7 +233,10 @@ export const plumbingPriceBookCatalog: PlumbingPriceBookCatalogSystem[] = [
             item('drain_sewer_exterior_cleanout_installation', 'Cleanout installation', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'each', 'Install an exterior cleanout.'),
             item('drain_sewer_exterior_main_line_cleanout', 'Main line cleanout', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'each', 'Clear a main sewer line from an exterior cleanout.'),
             item('drain_sewer_exterior_sewer_camera_inspection', 'Sewer camera inspection', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'inspection', 'Camera inspect accessible sewer piping from exterior access.'),
+            item('drain_sewer_exterior_main_line_hydro_jetting', 'Main line hydro jetting', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'each', 'Hydro jet an accessible residential main sewer line after camera and access review.'),
             item('drain_sewer_exterior_sewer_line_repair_linear_foot', 'Sewer line repair by linear foot', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'linear foot', 'Repair exterior sewer line by measured linear foot.'),
+            item('drain_sewer_exterior_trenchless_sewer_lining_linear_foot', 'Trenchless sewer lining by linear foot', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'linear foot', 'Install approved trenchless sewer lining by measured linear foot after camera and suitability review.'),
+            item('drain_sewer_exterior_sewer_spot_repair', 'Exterior sewer spot repair', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'package', 'Excavate and repair one verified exterior sewer failure location with restoration scope listed separately.'),
             item('drain_sewer_exterior_yard_sewer_repair', 'Yard sewer repair', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'each', 'Repair accessible exterior sewer piping.'),
             item('drain_sewer_exterior_sewer_access_excavation_placeholder', 'Sewer access excavation placeholder', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'other', 'Placeholder line item for sewer access excavation scope.'),
             item('drain_sewer_exterior_sewer_cleanout_cap_replacement', 'Sewer cleanout cap replacement', 'Drain / Sewer', 'Exterior', 'Drains / Sewer', 'each', 'Replace a sewer cleanout cap.'),

@@ -25,7 +25,11 @@ import {
     plumbingPriceBookCategories,
     type PlumbingPriceBookCatalogItem,
 } from '../../../../lib/plumbingPriceBookCatalog';
-import { buildTemporaryRiversidePlumbingPriceListTsv } from '../../../../lib/temporaryRiversidePlumbingPriceList';
+import {
+    buildTemporaryRiversidePlumbingPriceListTsv,
+    getTemporaryRiversidePlumbingPrice,
+    temporaryRiversidePlumbingPrices,
+} from '../../../../lib/temporaryRiversidePlumbingPriceList';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../../../lib/supabase';
 import { useTheme } from '../../../../theme/useTheme';
 
@@ -369,6 +373,7 @@ export default function CompanyPriceBookScreen() {
     const [pricedFilter, setPricedFilter] = useState<'all' | 'priced' | 'not_priced'>('all');
     const [activeFilter, setActiveFilter] = useState<ActiveFilter>('active');
     const [manageAccess, setManageAccess] = useState<CompanyPermissionAccess | null>(null);
+    const [viewAccess, setViewAccess] = useState<CompanyPermissionAccess | null>(null);
     const [canView, setCanView] = useState(false);
     const [backendStatusMessage, setBackendStatusMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -465,14 +470,14 @@ export default function CompanyPriceBookScreen() {
         setView('detail');
 
         if (manageAccess) {
-            setEditorForm(editorFormForPriceBookItem(item));
+            setEditorForm(editorFormForPriceBookItem(item, true));
             setEditorOpen(true);
-            setMessage(`Add the missing selling price for ${item.name}, then save to return to the estimate.`);
+            setMessage(`Review the Riverside planning recommendation for ${item.name}, adjust it for company costs, then save to return to the estimate.`);
         } else {
             setEditorOpen(false);
-            setMessage(`${item.name} is open. A company owner, manager, or admin must add its selling price.`);
+            setMessage(`${item.name} is open in view mode. This ${formatAccessRole(viewAccess)} account needs the Manage price book permission before it can change company selling prices.`);
         }
-    }, [loading, canView, requestedPriceKey, displayItems, companyId, manageAccess]);
+    }, [loading, canView, requestedPriceKey, displayItems, companyId, manageAccess, viewAccess]);
 
     async function loadPriceBook() {
         if (!companyId) {
@@ -485,6 +490,7 @@ export default function CompanyPriceBookScreen() {
         setMessage('');
         setCanView(false);
         setManageAccess(null);
+        setViewAccess(null);
 
         const access = await resolvePriceBookAccess(companyId);
 
@@ -501,6 +507,7 @@ export default function CompanyPriceBookScreen() {
 
         setCanView(true);
         setManageAccess(access.manageAccess);
+        setViewAccess(access.viewAccess);
 
         const [companyResult, priceBookResult] = await Promise.all([
             supabase
@@ -575,6 +582,11 @@ export default function CompanyPriceBookScreen() {
     }
 
     function editItem(item: CompanyPriceBookItem) {
+        if (!manageAccess) {
+            setMessage(`This ${formatAccessRole(viewAccess)} account can view company pricing but cannot change it. An owner or manager can enable Manage price book under Team / Permissions.`);
+            return;
+        }
+
         const systemKey = getCatalogSystemKeyForItem(item);
 
         if (systemKey) {
@@ -585,9 +597,12 @@ export default function CompanyPriceBookScreen() {
         setSelectedPriceKey(item.price_key);
         setView('detail');
 
-        setEditorForm(editorFormForPriceBookItem(item));
+        setEditorForm(editorFormForPriceBookItem(item, item.base_price === null));
         setEditorOpen(true);
-        setMessage(item.unit_validation_message || `Editing: ${item.name}`);
+        setMessage(item.unit_validation_message || (item.base_price === null
+            ? `Reviewing Riverside planning recommendation: ${item.name}`
+            : `Editing company price: ${item.name}`
+        ));
     }
 
     function addCustomItem() {
@@ -614,7 +629,7 @@ export default function CompanyPriceBookScreen() {
 
     async function saveEditor() {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can edit the price book.');
+            setMessage('This account needs the Manage price book permission before it can save company pricing.');
             return;
         }
 
@@ -670,7 +685,7 @@ export default function CompanyPriceBookScreen() {
 
     async function archiveItem(item: CompanyPriceBookItem) {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can archive price book items.');
+            setMessage('This account needs the Manage price book permission to archive price book items.');
             return;
         }
 
@@ -707,7 +722,7 @@ export default function CompanyPriceBookScreen() {
 
     function previewBulkUpdate() {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can apply bulk price updates.');
+            setMessage('This account needs the Manage price book permission to apply bulk price updates.');
             return;
         }
 
@@ -728,7 +743,7 @@ export default function CompanyPriceBookScreen() {
 
     async function applyBulkUpdate() {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can apply bulk price updates.');
+            setMessage('This account needs the Manage price book permission to apply bulk price updates.');
             return;
         }
 
@@ -790,7 +805,7 @@ export default function CompanyPriceBookScreen() {
 
     async function applyCalculatorToSelectedItems() {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can apply calculator pricing.');
+            setMessage('This account needs the Manage price book permission to apply calculator pricing.');
             return;
         }
 
@@ -856,7 +871,7 @@ export default function CompanyPriceBookScreen() {
 
     async function applyPriceImportRow(row: PriceResearchImportRow) {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can apply imported pricing.');
+            setMessage('This account needs the Manage price book permission to apply imported pricing.');
             return;
         }
 
@@ -889,7 +904,7 @@ export default function CompanyPriceBookScreen() {
 
     async function applyAllReadyPriceImportRows() {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can apply imported pricing.');
+            setMessage('This account needs the Manage price book permission to apply imported pricing.');
             return;
         }
 
@@ -901,11 +916,17 @@ export default function CompanyPriceBookScreen() {
         }
 
         setSaving(true);
-        setMessage(`Applying ${readyRows.length} reviewed temporary price rows...`);
+        setMessage(`Applying ${readyRows.length} reviewed starter recommendations...`);
 
         try {
-            for (const row of readyRows) {
+            for (let index = 0; index < readyRows.length; index += 1) {
+                const row = readyRows[index];
+
                 await upsertCompanyPriceBookItem(companyId, row.draft);
+
+                if ((index + 1) % 10 === 0 || index === readyRows.length - 1) {
+                    setMessage(`Applied ${index + 1} of ${readyRows.length} reviewed starter recommendations...`);
+                }
             }
 
             const refreshed = await loadCompanyPriceBook(companyId);
@@ -915,7 +936,7 @@ export default function CompanyPriceBookScreen() {
             setBackendStatusMessage(refreshed.backendStatus.message);
             setPriceImportRows((current) => current.filter((row) => !readyIds.has(row.id)));
             setMessage(refreshed.backendStatus.status === 'connected'
-                ? `Applied ${readyRows.length} temporary Riverside plumbing prices.`
+                ? `Applied ${readyRows.length} reviewed Riverside planning recommendations as company prices.`
                 : 'Price book backend unavailable: using local price book draft'
             );
         } catch (error) {
@@ -976,7 +997,7 @@ export default function CompanyPriceBookScreen() {
     async function requestAiResearch() {
         if (!manageAccess) {
             const companyIdResolution = resolveAiCompanyId(company, companyId);
-            setMessage('Only company owners, admins, managers, or platform admins can request AI price research.');
+            setMessage('This account needs the Manage price book permission to request AI price research.');
             setResearchStatus({
                 kind: 'auth_error',
                 message: 'Auth/session error: Only authorized company users can request AI price research.',
@@ -1188,7 +1209,7 @@ export default function CompanyPriceBookScreen() {
 
     async function applySuggestionAtPrice(suggestion: PriceSuggestion, price: number, successMessage: string) {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can apply suggested pricing.');
+            setMessage('This account needs the Manage price book permission to apply suggested pricing.');
             return;
         }
 
@@ -1279,7 +1300,7 @@ export default function CompanyPriceBookScreen() {
 
     async function createPriceBookItemFromSuggestion(suggestion: PriceSuggestion) {
         if (!manageAccess) {
-            setMessage('Only company owners, admins, managers, or platform admins can create suggested price items.');
+            setMessage('This account needs the Manage price book permission to create suggested price items.');
             return;
         }
 
@@ -1348,6 +1369,7 @@ export default function CompanyPriceBookScreen() {
                         <View style={summaryGridStyle}>
                             <SummaryCard label="Items" value={String(displayItems.length)} />
                             <SummaryCard label="Priced" value={String(pricedCount)} />
+                            <SummaryCard label="Planning" value={String(temporaryRiversidePlumbingPrices.length)} />
                             <SummaryCard label="Active" value={String(activeCount)} />
                             <SummaryCard label="Mode" value={manageAccess ? 'Edit' : 'View'} />
                         </View>
@@ -1357,8 +1379,13 @@ export default function CompanyPriceBookScreen() {
                                 {backendStatusMessage || 'Price book backend: checking'}
                             </Text>
                             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                No fake prices are generated. Starter items are priceable templates until your company saves real pricing.
+                                {temporaryRiversidePlumbingPrices.length} Riverside planning recommendations are available. They do not become company selling prices until an authorized team member reviews and saves them.
                             </Text>
+                            {!manageAccess && viewAccess ? (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Signed in as {formatAccessRole(viewAccess)}: view-only. An owner or manager can enable Manage price book under Team / Permissions.
+                                </Text>
+                            ) : null}
                         </ThemedCard>
 
                         {!!message && (
@@ -1727,7 +1754,7 @@ export default function CompanyPriceBookScreen() {
                                         onLoadTemporary={() => {
                                             setPriceImportText(buildTemporaryRiversidePlumbingPriceListTsv());
                                             setPriceImportRows([]);
-                                            setMessage('Temporary Riverside plumbing list loaded. Select Review Import before applying it.');
+                                            setMessage(`Loaded ${temporaryRiversidePlumbingPrices.length} Riverside planning recommendations. Select Review Import before applying any company prices.`);
                                         }}
                                         onPreview={previewPriceResearchImport}
                                         onApply={applyPriceImportRow}
@@ -1811,6 +1838,7 @@ function PriceBookItemCard({
     const packageDiscountPercent = parseOptionalNumber(pricingDetails.packageDiscountPercent);
     const showLinearFootPrice = item.unit === 'linear foot' || linearFootPrice !== null;
     const showPackageDiscount = packageDiscountPercent !== null || Boolean(pricingDetails.packageDiscountNote.trim());
+    const planningPrice = !priced ? getTemporaryRiversidePlumbingPrice(item.price_key) : null;
 
     return (
         <ThemedCard style={priceItemCardStyle}>
@@ -1826,6 +1854,11 @@ function PriceBookItemCard({
                 <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}>
                     {priced ? formatPrice(item.base_price) : 'Not priced'}
                 </Text>
+                {planningPrice ? (
+                    <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}>
+                        Planning {formatPrice(planningPrice.recommendedPrice)}
+                    </Text>
+                ) : null}
                 <Text style={[chipStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}>
                     {item.unit}
                 </Text>
@@ -1834,6 +1867,11 @@ function PriceBookItemCard({
                 </Text>
             </View>
             <View style={detailGridStyle}>
+                {planningPrice ? (
+                    <Text style={[detailLineStyle, { color: theme.colors.mutedText }]}>
+                        Riverside range: {formatPrice(planningPrice.marketLow)}–{formatPrice(planningPrice.marketHigh)} · review before saving
+                    </Text>
+                ) : null}
                 {item.labor_hours !== null && (
                     <Text style={[detailLineStyle, { color: theme.colors.mutedText }]}>
                         Labor: {formatHours(item.labor_hours)}
@@ -1878,7 +1916,7 @@ function PriceBookItemCard({
                     textStyle={compactButtonTextStyle}
                 />
                 <ThemedButton
-                    title="Edit Price"
+                    title={canManage ? priced ? 'Edit Price' : 'Review Price' : 'View Only'}
                     variant={canManage ? 'primary' : 'secondary'}
                     disabled={!canManage}
                     onPress={onEdit}
@@ -1934,6 +1972,7 @@ function PriceBookItemDetail({
     const pricingDetails = getPriceBookPricingDetails(item);
     const linearFootPrice = parseOptionalNumber(pricingDetails.linearFootPrice);
     const packageDiscountPercent = parseOptionalNumber(pricingDetails.packageDiscountPercent);
+    const planningPrice = item.base_price === null ? getTemporaryRiversidePlumbingPrice(item.price_key) : null;
 
     function renderEditorActions() {
         return (
@@ -2050,6 +2089,13 @@ function PriceBookItemDetail({
                 <>
                     <View style={detailGridStyle}>
                         <PriceBookDetailRow label="Current base price" value={formatPrice(item.base_price)} />
+                        {planningPrice ? (
+                            <>
+                                <PriceBookDetailRow label="Riverside planning recommendation" value={formatPrice(planningPrice.recommendedPrice)} />
+                                <PriceBookDetailRow label="Planning range" value={`${formatPrice(planningPrice.marketLow)}–${formatPrice(planningPrice.marketHigh)}`} />
+                                <PriceBookDetailRow label="Planning basis" value={`${planningPrice.pricingBasis}; management review required`} />
+                            </>
+                        ) : null}
                         <PriceBookDetailRow label="Unit" value={item.unit} />
                         <PriceBookDetailRow label="Labor hours" value={formatHours(item.labor_hours)} />
                         <PriceBookDetailRow label="Material cost" value={formatPrice(item.material_cost)} />
@@ -2065,7 +2111,7 @@ function PriceBookItemDetail({
 
                     <View style={editorActionRowStyle}>
                         <ThemedButton
-                            title="Edit Price"
+                            title={canManage ? item.base_price === null ? 'Review Planning Price' : 'Edit Price' : 'View Only'}
                             disabled={!canManage}
                             onPress={onEdit}
                             style={compactButtonStyle}
@@ -2394,7 +2440,7 @@ function PriceResearchImportTool({
                 Paste CSV or tab-separated research rows, then review before saving.
             </Text>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                The temporary Riverside list is market-based planning data. Review and replace it with company costs before long-term use.
+                Riverside recommendations are planning data based on current labor, installation, and local fee references. Review company costs, access, warranty, overhead, and margin before customer use.
             </Text>
 
             <TextInput
@@ -2417,7 +2463,7 @@ function PriceResearchImportTool({
 
             <View style={editorActionRowStyle}>
                 <ThemedButton
-                    title="Load Temporary Riverside List"
+                    title={`Load All Starter Recommendations (${temporaryRiversidePlumbingPrices.length})`}
                     variant="secondary"
                     disabled={saving}
                     onPress={onLoadTemporary}
@@ -3138,28 +3184,34 @@ async function resolvePriceBookAccess(companyId: string) {
             allowed: false,
             userId: null,
             manageAccess: null,
+            viewAccess: null,
             error: 'Sign in to open this company price book.',
         };
     }
 
     if (await isPlatformAdmin(user.id)) {
+        const access = platformAdminAccess(user.id, companyId);
+
         return {
             allowed: true,
             userId: user.id,
-            manageAccess: platformAdminAccess(user.id, companyId),
+            manageAccess: access,
+            viewAccess: access,
             error: null,
         };
     }
 
     const [manageLookup, viewLookup] = await Promise.all([
-        loadCurrentCompanyPermissionAccess('can_create_estimates', { companyId }),
+        loadCurrentCompanyPermissionAccess('can_manage_price_book', { companyId }),
         loadCurrentCompanyPermissionAccess('can_view_techos', { companyId }),
     ]);
+    const viewAccess = manageLookup.access || viewLookup.access;
 
     return {
-        allowed: Boolean(manageLookup.access || viewLookup.access),
+        allowed: Boolean(viewAccess),
         userId: user.id,
         manageAccess: manageLookup.access,
+        viewAccess,
         error: manageLookup.error || viewLookup.error || 'No active company access for this price book.',
     };
 }
@@ -3175,12 +3227,19 @@ function platformAdminAccess(userId: string, companyId: string): CompanyPermissi
             can_view_techos: true,
             can_create_estimates: true,
             can_add_item_to_estimate: true,
+            can_manage_price_book: true,
             can_view_customers: true,
             can_view_jobs: true,
             can_manage_company_users: true,
             can_manage_company_profile: true,
         },
     };
+}
+
+function formatAccessRole(access?: CompanyPermissionAccess | null) {
+    const role = String(access?.role || 'team member').trim().replace(/[_-]+/g, ' ');
+
+    return role.replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 async function isPlatformAdmin(userId: string) {
@@ -3721,8 +3780,15 @@ function getPriceBookPricingDetails(item: CompanyPriceBookItem): PriceBookPricin
     return getPriceBookPricingDetailsFromNotes(item.internal_notes);
 }
 
-function editorFormForPriceBookItem(item: CompanyPriceBookItem): EditorForm {
+function editorFormForPriceBookItem(item: CompanyPriceBookItem, includePlanningRecommendation = false): EditorForm {
     const pricingDetails = getPriceBookPricingDetails(item);
+    const planningPrice = includePlanningRecommendation && item.base_price === null
+        ? getTemporaryRiversidePlumbingPrice(item.price_key)
+        : null;
+    const existingNotes = removePriceBookMetadataFromNotes(item.internal_notes || '');
+    const planningNote = planningPrice
+        ? `Riverside 2026 planning recommendation (${planningPrice.pricingBasis}); management reviewed before customer use.`
+        : '';
 
     return {
         id: item.source === 'backend' || item.source === 'local' ? item.id : undefined,
@@ -3732,14 +3798,14 @@ function editorFormForPriceBookItem(item: CompanyPriceBookItem): EditorForm {
         area: getPriceBookItemArea(item),
         category: item.category,
         unit: item.unit,
-        basePrice: item.base_price === null ? '' : String(item.base_price),
-        laborHours: item.labor_hours === null ? '' : String(item.labor_hours),
-        materialCost: item.material_cost === null ? '' : String(item.material_cost),
+        basePrice: item.base_price === null ? planningPrice ? String(planningPrice.recommendedPrice) : '' : String(item.base_price),
+        laborHours: item.labor_hours === null ? planningPrice ? String(planningPrice.laborHours) : '' : String(item.labor_hours),
+        materialCost: item.material_cost === null ? planningPrice ? String(planningPrice.materialCost) : '' : String(item.material_cost),
         linearFootPrice: pricingDetails.linearFootPrice,
         packageDiscountPercent: pricingDetails.packageDiscountPercent,
         packageDiscountNote: pricingDetails.packageDiscountNote,
         customerDescription: item.customer_description || '',
-        internalNotes: removePriceBookMetadataFromNotes(item.internal_notes || ''),
+        internalNotes: [existingNotes, planningNote].filter(Boolean).join(' '),
         active: item.active,
         originalUnsupportedUnit: item.unsupported_unit || '',
         unitCorrectionRequired: Boolean(item.unsupported_unit),
