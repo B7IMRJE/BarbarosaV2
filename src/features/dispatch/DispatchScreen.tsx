@@ -4,6 +4,7 @@ import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollVi
 import AdminNavBar from '../../components/AdminNavBar';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
+import ServiceRequestThread from '../../components/serviceRequests/ServiceRequestThread';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../lib/companyAuditLogs';
@@ -3598,6 +3599,20 @@ function DispatchRequestCard({
                             {formatLabel(event.event_type)}: {event.message || 'No message.'}
                         </Text>
                     ))}
+                    {!!currentScheduleSlot ? (
+                        <ServiceRequestThread
+                            companyId={request.company_id}
+                            serviceRequestId={request.id}
+                            scheduleSlotId={currentScheduleSlot.id}
+                            viewer="dispatch"
+                            title={`Job messages · ${assignedTechnicianLabel}`}
+                        />
+                    ) : (
+                        <View style={[secondaryActionPanelStyle, { borderColor: theme.colors.border }]}>
+                            <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Job messages</Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>Assign a technician before opening the private job conversation.</Text>
+                        </View>
+                    )}
                     <Text style={[requestTypeStyle, { color: theme.colors.text, marginTop: 12 }]}>
                         Schedule / Assign
                     </Text>
@@ -3823,13 +3838,6 @@ function DispatchRequestCard({
                             title={acknowledging ? 'Scheduling...' : 'Assign Tech / Schedule'}
                             disabled={acknowledging}
                             onPress={onScheduleRequest}
-                            style={compactActionButtonStyle}
-                            textStyle={{ fontSize: 12 }}
-                        />
-                        <ThemedButton
-                            title="Respond / Note Soon"
-                            disabled
-                            variant="secondary"
                             style={compactActionButtonStyle}
                             textStyle={{ fontSize: 12 }}
                         />

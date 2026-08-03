@@ -107,6 +107,7 @@ import {
     resolveTechOSAssignmentCompanyUserIds,
 } from '../../lib/techosAssignments';
 import { useTheme } from '../../theme/useTheme';
+import TechOSMessageThreadsPanel from './TechOSMessageThreadsPanel';
 
 declare const __DEV__: boolean;
 
@@ -2948,9 +2949,8 @@ function TechOSDashboardContent({
 
     if (activeView === 'messages') {
         return (
-            <TechOSModulePlaceholder
-                title="Messages"
-                message="Customer, office, and dispatch updates will appear here when the messaging thread is connected."
+            <TechOSMessageThreadsPanel
+                jobs={[...activeJobs, ...historyJobs]}
             />
         );
     }
