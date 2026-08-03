@@ -19,7 +19,7 @@ HomeOS is one application, but each change should belong to one work area. The p
 | Dispatch | `src/features/dispatch/DispatchScreen.tsx`, `src/features/dispatch/DispatchWallScreen.tsx` | dispatch and service-request helpers | assignment, scheduling, live board, technician status |
 | TechOS | `src/features/techos/TechOSScreen.tsx`, `src/features/techos/TechOSJobDetailScreen.tsx` | TechOS workflow helpers | technician jobs, job actions, provider experience |
 | HomeOS | `src/app/index.tsx`, `src/app/system`, `src/features/homeos-items` | active-property and home-item helpers | homeowner systems, areas, equipment, maintenance |
-| Company Management | `src/app/super-admin/company` | company permissions and management data | team, clients, providers, company configuration |
+| Company Management | `src/features/company-management`, `src/app/super-admin/company` | company permissions and management data | team, clients, providers, company configuration |
 
 ## Refactoring order
 
