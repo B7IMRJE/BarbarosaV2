@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
@@ -13,7 +13,6 @@ import {
     canAccessTechOS,
     isActiveCompanyStatus,
     isTechnicianCompanyRole,
-    normalizeCompanyRole,
     normalizeCompanyStatus,
 } from '../../lib/companyPermissions';
 import { clearPendingCompanyInviteState } from '../../lib/companyInviteState';
@@ -89,7 +88,6 @@ import {
     type TechWorkflowActionPresentation,
 } from '../../lib/techosWorkflow';
 import {
-    buildTechOSCurrentJobRoute,
     buildTechOSEstimateRoute,
     buildTechOSProviderHomeRoute,
     getTechOSEstimateActionLabel,
@@ -377,6 +375,7 @@ export default function TechOSScreen() {
             : [],
         [membership?.id, technicianCompanyUserIds, techOSMode]
     );
+    const primaryTechnicianCompanyUserId = assignedTechnicianCompanyUserIds[0] || '';
     const visibleClients = useMemo(
         () => clients.filter((client) => normalizeStatus(client.status) !== 'archived'),
         [clients]
@@ -450,7 +449,26 @@ export default function TechOSScreen() {
         )).sort(),
         [assignedScheduleJobs]
     );
-    const assignedEstimatePropertyKey = assignedEstimatePropertyIds.join('|');
+    const loadAssignedEstimateDraftCounts = useCallback(async () => {
+        if (!authUserId || !activeCompanyId || assignedEstimatePropertyIds.length === 0) {
+            setEstimateDraftCountByPropertyId({});
+            return;
+        }
+
+        const entries = await Promise.all(
+            assignedEstimatePropertyIds.map(async (propertyId) => {
+                const draftItems = await loadEstimateDraft({
+                    userId: authUserId,
+                    companyId: activeCompanyId,
+                    propertyId,
+                });
+
+                return [propertyId, draftItems.length] as const;
+            })
+        );
+
+        setEstimateDraftCountByPropertyId(Object.fromEntries(entries));
+    }, [activeCompanyId, assignedEstimatePropertyIds, authUserId]);
     const techOSTheme = useMemo(() => resolveCompanyTechOSTheme({
         primaryColor: company?.primary_color,
         secondaryColor: company?.secondary_color,
@@ -488,14 +506,13 @@ export default function TechOSScreen() {
 
     useEffect(() => {
         void loadAssignedEstimateDraftCounts();
-    }, [activeCompanyId, assignedEstimatePropertyKey, authUserId]);
+    }, [loadAssignedEstimateDraftCounts]);
 
     useEffect(() => {
-        const technicianId = assignedTechnicianCompanyUserIds[0] || '';
-        if (!technicianId || !isTechnicianCompanyRole(membership?.role)) return;
+        if (!primaryTechnicianCompanyUserId || !isTechnicianCompanyRole(membership?.role)) return;
         let active = true;
         setAccessModeLoading(true);
-        void loadTechnicianTimeEntries(technicianId)
+        void loadTechnicianTimeEntries(primaryTechnicianCompanyUserId)
             .then((entries) => {
                 if (!active) return;
                 setAccessMode(entries.some((entry) => !entry.clockedOutAt) ? 'working' : 'choosing');
@@ -510,7 +527,7 @@ export default function TechOSScreen() {
         return () => {
             active = false;
         };
-    }, [assignedTechnicianCompanyUserIds[0], membership?.role]);
+    }, [membership?.role, primaryTechnicianCompanyUserId]);
 
     async function startWorkFromAccessGate() {
         const technicianId = assignedTechnicianCompanyUserIds[0] || '';
@@ -1311,27 +1328,6 @@ export default function TechOSScreen() {
                 mode: 'techos',
             },
         } as any);
-    }
-
-    async function loadAssignedEstimateDraftCounts() {
-        if (!authUserId || !activeCompanyId || assignedEstimatePropertyIds.length === 0) {
-            setEstimateDraftCountByPropertyId({});
-            return;
-        }
-
-        const entries = await Promise.all(
-            assignedEstimatePropertyIds.map(async (propertyId) => {
-                const draftItems = await loadEstimateDraft({
-                    userId: authUserId,
-                    companyId: activeCompanyId,
-                    propertyId,
-                });
-
-                return [propertyId, draftItems.length] as const;
-            })
-        );
-
-        setEstimateDraftCountByPropertyId(Object.fromEntries(entries));
     }
 
     async function handleCloseServiceVisit(job: TechAssignedScheduleJob, outcomeOverride?: ServiceVisitOutcome) {
@@ -2689,7 +2685,7 @@ function TechOSDashboardCards({
     todayCount: number;
     upcomingCount: number;
 }) {
-    const cards: Array<{ key: TechDashboardView; title: string; value: string; note: string; priority?: boolean }> = [
+    const cards: { key: TechDashboardView; title: string; value: string; note: string; priority?: boolean }[] = [
         {
             key: 'jobs',
             title: 'Jobs',
@@ -2819,7 +2815,7 @@ function TechOSDashboardContent({
     activeCompanyId: string;
     activeJobs: TechAssignedScheduleJob[];
     activeView: TechDashboardView;
-    calendarGroups: Array<{ key: string; label: string; jobs: TechAssignedScheduleJob[] }>;
+    calendarGroups: { key: string; label: string; jobs: TechAssignedScheduleJob[] }[];
     estimateDraftCountByPropertyId: Record<string, number>;
     futureJobs: TechAssignedScheduleJob[];
     historyJobs: TechAssignedScheduleJob[];
@@ -3175,7 +3171,7 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     const [daySignature, setDaySignature] = useState('');
     const [historyOpen, setHistoryOpen] = useState(false);
 
-    async function refreshClock() {
+    const refreshClock = useCallback(async () => {
         if (!technicianCompanyUserId) {
             setEntries([]);
             setClockMessage('A technician profile is required.');
@@ -3188,11 +3184,11 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
         } catch (error) {
             setClockMessage(`Time clock could not load: ${getErrorMessage(error)}`);
         }
-    }
+    }, [technicianCompanyUserId]);
 
     useEffect(() => {
         void refreshClock();
-    }, [technicianCompanyUserId]);
+    }, [refreshClock]);
 
     const openEntry = entries.find((entry) => !entry.clockedOutAt) || null;
     const latestEntry = entries[0] || null;
@@ -3212,12 +3208,13 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     const workedSeconds = openEntry ? hourSummary.workedSeconds : 0;
     const overtimeApproaching = !!openEntry && workedSeconds >= 7.5 * 60 * 60;
     const overtimeActive = !!openEntry && workedSeconds >= 8 * 60 * 60;
+    const openEntryId = openEntry?.id || '';
 
     useEffect(() => {
-        if (!openEntry) return;
+        if (!openEntryId) return;
         const timer = setInterval(() => setNow(Date.now()), 1000);
         return () => clearInterval(timer);
-    }, [openEntry?.id]);
+    }, [openEntryId]);
 
     async function toggleClock() {
         if (!technicianCompanyUserId || updatingClock) return;
@@ -3893,7 +3890,7 @@ function TechOSCalendarView({
     onRefresh,
     onOpenDetails,
 }: {
-    groups: Array<{ key: string; label: string; jobs: TechAssignedScheduleJob[] }>;
+    groups: { key: string; label: string; jobs: TechAssignedScheduleJob[] }[];
     loading: boolean;
     message: string;
     onRefresh: () => void;
@@ -5173,10 +5170,6 @@ function isPlatformAdminProfile(profile?: PlatformProfile | null) {
     );
 }
 
-function normalizeRole(role?: string | null) {
-    return normalizeCompanyRole(role);
-}
-
 function formatLabel(value?: string | null) {
     return String(value || 'unknown')
         .trim()
@@ -5203,33 +5196,6 @@ function formatStatus(status?: string | null) {
     if (normalized === 'archived') return 'Archived';
 
     return normalized ? formatLabel(normalized) : 'Unknown';
-}
-
-function formatTechOSStatusLabel(status?: string | null) {
-    const normalized = normalizeStatus(status);
-    const labels: Record<string, string> = {
-        scheduled: 'Scheduled',
-        on_my_way: 'On My Way',
-        arrived: 'Arrived',
-        in_progress: 'In Progress',
-        estimate_needed: 'Estimate Needed',
-        completed: 'Completed',
-        closed: 'Closed',
-        cancelled: 'Cancelled',
-        canceled: 'Cancelled',
-        archived: 'Archived',
-        waiting_for_parts: 'Waiting for Parts',
-        needs_follow_up: 'Needs Follow-Up',
-        return_visit_required: 'Return Visit Required',
-        on_hold: 'On Hold',
-        customer_no_show: 'Customer No-Show',
-        unable_to_complete: 'Unable to Complete',
-        running_late: 'Running Late',
-        available: 'Available',
-        custom: 'Custom',
-    };
-
-    return labels[normalized] || formatStatus(status);
 }
 
 function formatSource(source?: string | null) {
