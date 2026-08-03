@@ -179,12 +179,14 @@ export async function acceptJobWorkflowQuote(input: {
     return data as JobWorkflow;
 }
 
-export async function uploadJobWorkflowPhoto(input: {
+export async function uploadJobWorkflowMedia(input: {
     workflow: JobWorkflow;
     stage: JobWorkflowAttachment['stage'];
     asset: ImagePicker.ImagePickerAsset;
 }) {
-    const extension = fileExtension(input.asset.fileName || '', input.asset.mimeType || '');
+    const mimeType = input.asset.mimeType
+        || (input.asset.type === 'video' || input.asset.type === 'pairedVideo' ? 'video/mp4' : 'image/jpeg');
+    const extension = fileExtension(input.asset.fileName || '', mimeType);
     const fileName = sanitizeName(input.asset.fileName || `${input.stage}-${Date.now()}.${extension}`);
     const storagePath = [
         'companies', input.workflow.company_id, 'workflows', input.workflow.id,
@@ -194,7 +196,7 @@ export async function uploadJobWorkflowPhoto(input: {
     const { error: uploadError } = await supabase.storage
         .from('company-job-files')
         .upload(storagePath, body, {
-            contentType: input.asset.mimeType || 'image/jpeg',
+            contentType: mimeType,
             upsert: false,
         });
     if (uploadError) throw uploadError;
@@ -204,7 +206,7 @@ export async function uploadJobWorkflowPhoto(input: {
         p_stage: input.stage,
         p_storage_path: storagePath,
         p_file_name: fileName,
-        p_mime_type: input.asset.mimeType || 'image/jpeg',
+        p_mime_type: mimeType,
         p_size_bytes: input.asset.fileSize || null,
         p_caption: null,
     });
@@ -222,6 +224,9 @@ function sanitizeName(value: string) {
 function fileExtension(name: string, mimeType: string) {
     const match = name.match(/\.([a-zA-Z0-9]+)$/);
     if (match) return match[1].toLowerCase();
+    if (mimeType.includes('quicktime')) return 'mov';
+    if (mimeType.includes('mp4')) return 'mp4';
+    if (mimeType.includes('webm')) return 'webm';
     if (mimeType.includes('png')) return 'png';
     if (mimeType.includes('webp')) return 'webp';
     return 'jpg';

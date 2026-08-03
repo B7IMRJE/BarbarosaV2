@@ -690,7 +690,7 @@ export default function DispatchWallScreen() {
                 }, {})
             );
             loadedSoldJobs.forEach((soldJob) => {
-                if (!soldJob.serviceRequestId || seenSoldWorkflowIdsRef.current.has(soldJob.id)) return;
+                if (soldJob.status !== 'sold' || !soldJob.serviceRequestId || seenSoldWorkflowIdsRef.current.has(soldJob.id)) return;
 
                 seenSoldWorkflowIdsRef.current.add(soldJob.id);
                 setFlashingSoldRequestIds((current) => ({ ...current, [soldJob.serviceRequestId!]: true }));
@@ -1159,6 +1159,7 @@ function DispatchWallCard({
     const showRiskChip = item.risk.state !== 'ON_TIME';
     const showEmergencyChip = item.sectionKey !== 'emergency' && isEmergencyDispatchRequest(request);
     const showStatusChip = showEmergencyChip || showRiskChip || ['available', 'in_progress', 'closed_today', 'emergency'].includes(item.sectionKey);
+    const isNewlySoldWorkflow = soldJob?.status === 'sold';
 
     if (previewSlot) {
         return (
@@ -1168,7 +1169,7 @@ function DispatchWallCard({
                 onPress={onPress}
                 style={[
                     wallPreviewCardStyle,
-                    soldJob ? wallSoldCardStyle : null,
+                    isNewlySoldWorkflow ? wallSoldCardStyle : null,
                     {
                         backgroundColor: config.cardColor,
                         borderColor: config.cardBorderColor,
@@ -1233,7 +1234,7 @@ function DispatchWallCard({
             onPress={onPress}
             style={[
                 wallCardStyle,
-                soldJob ? wallSoldCardStyle : null,
+                isNewlySoldWorkflow ? wallSoldCardStyle : null,
                 {
                     backgroundColor: config.cardColor,
                     borderColor: config.cardBorderColor,
@@ -1301,6 +1302,8 @@ function SoldJobBanner({
     compact?: boolean;
 }) {
     const glow = useRef(new Animated.Value(1)).current;
+    const isPaused = soldJob.status === 'issue_found';
+    const isSold = soldJob.status === 'sold';
 
     useEffect(() => {
         if (!flashing) {
@@ -1333,15 +1336,36 @@ function SoldJobBanner({
     return (
         <Animated.View style={[
             wallSoldBannerStyle,
+            !isSold && wallWorkflowBannerStyle,
+            isPaused && wallWorkflowPausedBannerStyle,
             compact ? wallSoldBannerCompactStyle : null,
             { opacity: glow },
         ]}>
-            <Text style={[wallSoldLabelStyle, compact ? wallSoldLabelCompactStyle : null]}>✦ JOB SOLD ✦</Text>
+            <Text style={[wallSoldLabelStyle, compact ? wallSoldLabelCompactStyle : null]}>{getWorkflowBannerLabel(soldJob.status)}</Text>
             <Text style={[wallSoldPriceStyle, compact ? wallSoldPriceCompactStyle : null]}>
                 {formatWallSoldMoney(soldJob.selectedTotal)}
             </Text>
         </Animated.View>
     );
+}
+
+function getWorkflowBannerLabel(status: string) {
+    const labels: Record<string, string> = {
+        sold: '✦ JOB SOLD ✦',
+        scheduled_later: 'RETURN VISIT SCHEDULED',
+        prework: 'BEFORE MEDIA',
+        store_trip: 'STORE RUN',
+        returning_to_job: 'RETURNING TO JOB',
+        work_in_progress: 'WORK IN PROGRESS',
+        issue_found: 'WORK PAUSED — ISSUE FOUND',
+        work_complete: 'READY FOR CUSTOMER SIGN-OFF',
+        customer_completed: 'READY TO INVOICE',
+        invoice_sent: 'INVOICE SENT',
+        collection_pending: 'PAYMENT FOLLOW-UP',
+        closed: 'JOB CLOSED',
+    };
+
+    return labels[status] || 'JOB UPDATE';
 }
 
 function formatWallSoldMoney(value: number) {
@@ -3184,6 +3208,16 @@ const wallSoldBannerStyle: ViewStyle = {
     borderWidth: 1,
     borderColor: '#FFF0A3',
     backgroundColor: '#5A3A00',
+};
+
+const wallWorkflowBannerStyle: ViewStyle = {
+    borderColor: '#6EE7E0',
+    backgroundColor: '#07545E',
+};
+
+const wallWorkflowPausedBannerStyle: ViewStyle = {
+    borderColor: '#FDBA74',
+    backgroundColor: '#7C2D12',
 };
 
 const wallSoldBannerCompactStyle: ViewStyle = {

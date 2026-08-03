@@ -13,7 +13,7 @@ import {
     loadOrCreateJobWorkflow,
     recordCloseoutPayment,
     startSameDayWork,
-    uploadJobWorkflowPhoto,
+    uploadJobWorkflowMedia,
     type JobWorkflowAttachment,
     type JobWorkflowBundle,
 } from '../../lib/jobWorkflow';
@@ -44,8 +44,6 @@ export default function JobWorkflowScreen() {
     const [cancellationName, setCancellationName] = useState('');
     const [cancellationSignature, setCancellationSignature] = useState('');
     const [scheduleDate, setScheduleDate] = useState('');
-    const [storeName, setStoreName] = useState('');
-    const [storeAddress, setStoreAddress] = useState('');
     const [conditionUnchanged, setConditionUnchanged] = useState(false);
     const [issueSummary, setIssueSummary] = useState('');
     const [resolutionSummary, setResolutionSummary] = useState('');
@@ -232,24 +230,79 @@ export default function JobWorkflowScreen() {
         }
     }
 
-    async function addPhoto(stage: JobWorkflowAttachment['stage']) {
+    async function saveMedia(stage: JobWorkflowAttachment['stage'], assets: ImagePicker.ImagePickerAsset[]) {
+        if (!bundle || assets.length === 0) return;
+
+        let savedCount = 0;
+        for (const [index, asset] of assets.entries()) {
+            setMessage(`Saving media ${index + 1} of ${assets.length}...`);
+            await uploadJobWorkflowMedia({ workflow: bundle.workflow, stage, asset });
+            savedCount += 1;
+        }
+
+        await refresh();
+        setMessage(`${savedCount} media item${savedCount === 1 ? '' : 's'} saved to the job.`);
+    }
+
+    async function addMediaFromLibrary(stage: JobWorkflowAttachment['stage']) {
         if (!bundle || busy) return;
         setBusy(true);
         try {
-            const permission = await ImagePicker.requestCameraPermissionsAsync();
-            const result = permission.granted
-                ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 })
-                : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
-            if (!result.canceled && result.assets[0]) {
-                await uploadJobWorkflowPhoto({ workflow: bundle.workflow, stage, asset: result.assets[0] });
-                await refresh();
-                setMessage('Photo saved to the job.');
+            const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (!permission.granted) {
+                setMessage('Photo and video library permission is required.');
+                return;
             }
+
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images', 'videos'],
+                allowsMultipleSelection: true,
+                selectionLimit: 0,
+                orderedSelection: true,
+                quality: 0.8,
+            });
+            if (!result.canceled) await saveMedia(stage, result.assets);
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
             setBusy(false);
         }
+    }
+
+    async function captureMedia(stage: JobWorkflowAttachment['stage'], mediaType: 'images' | 'videos') {
+        if (!bundle || busy) return;
+        setBusy(true);
+        try {
+            const permission = await ImagePicker.requestCameraPermissionsAsync();
+            if (!permission.granted) {
+                setMessage('Camera permission is required. You can add existing media from the library instead.');
+                return;
+            }
+
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: [mediaType],
+                quality: 0.8,
+                videoMaxDuration: 0,
+            });
+            if (!result.canceled) await saveMedia(stage, result.assets);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function pauseForIssue() {
+        const summary = issueSummary.trim() || 'Technician paused work to assess an issue.';
+        setIssueSummary(summary);
+        await run('report_issue', { issue_summary: summary });
+    }
+
+    async function startStoreRun() {
+        await run('start_store_trip', {
+            store_name: 'Store run',
+            store_address: '',
+        });
     }
 
     if (!bundle) {
@@ -511,8 +564,15 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'prework' && (
-                <Section title="3. Document the work area" subtitle="A before photo and condition confirmation are required.">
-                    <PhotoButton label="Take Before Photo" count={attachmentCounts.before} onPress={() => addPhoto('before')} />
+                <Section title="3. Document the work area" subtitle="Add as many before photos and videos as needed, then confirm the condition.">
+                    <MediaActions
+                        label="Before-work media"
+                        count={attachmentCounts.before}
+                        disabled={busy}
+                        onTakePhoto={() => captureMedia('before', 'images')}
+                        onRecordVideo={() => captureMedia('before', 'videos')}
+                        onAddFromLibrary={() => addMediaFromLibrary('before')}
+                    />
                     <TouchableOpacity style={checkRowStyle} onPress={() => setConditionUnchanged((value) => !value)}>
                         <Text style={checkStyle}>{conditionUnchanged ? '☑' : '☐'}</Text>
                         <Text style={bodyStyle}>The area matches the condition shown and is ready for work.</Text>
@@ -522,18 +582,28 @@ export default function JobWorkflowScreen() {
                         disabled={busy}
                         onPress={() => run('confirm_prework', { condition_unchanged: conditionUnchanged })}
                     />
-                    <SecondaryButton title="Need to Go to a Store" disabled={busy} onPress={() => run('start_store_trip', {
-                        store_name: storeName, store_address: storeAddress,
-                    })} />
-                    <Field label="Store name (complete before tapping store trip)" value={storeName} onChangeText={setStoreName} />
-                    <Field label="Store address (optional)" value={storeAddress} onChangeText={setStoreAddress} />
+                    <SecondaryButton title="Go to Store" disabled={busy} onPress={startStoreRun} />
                 </Section>
             )}
 
             {status === 'store_trip' && (
-                <Section title="4. Store purchase" subtitle={`${workflow.store_name || 'Store'} · Company-only purchase records`}>
-                    <PhotoButton label="Photograph Receipt" count={attachmentCounts.receipt} onPress={() => addPhoto('receipt')} />
-                    <PhotoButton label="Photograph Purchased Items" count={attachmentCounts.purchased_item} onPress={() => addPhoto('purchased_item')} />
+                <Section title="4. Store run" subtitle="Record receipts and purchased parts for the company.">
+                    <MediaActions
+                        label="Receipt media"
+                        count={attachmentCounts.receipt}
+                        disabled={busy}
+                        onTakePhoto={() => captureMedia('receipt', 'images')}
+                        onRecordVideo={() => captureMedia('receipt', 'videos')}
+                        onAddFromLibrary={() => addMediaFromLibrary('receipt')}
+                    />
+                    <MediaActions
+                        label="Purchased-parts media"
+                        count={attachmentCounts.purchased_item}
+                        disabled={busy}
+                        onTakePhoto={() => captureMedia('purchased_item', 'images')}
+                        onRecordVideo={() => captureMedia('purchased_item', 'videos')}
+                        onAddFromLibrary={() => addMediaFromLibrary('purchased_item')}
+                    />
                     <PrimaryButton title="Purchase Complete — On My Way Back" disabled={busy} onPress={() => run('complete_purchase')} />
                 </Section>
             )}
@@ -546,21 +616,31 @@ export default function JobWorkflowScreen() {
 
             {status === 'work_in_progress' && (
                 <Section title="5. Work in progress" subtitle="Report a problem or complete the work with after photos.">
-                    <Field label="Issue found" value={issueSummary} onChangeText={setIssueSummary} multiline />
-                    <SecondaryButton title="Pause — Issue Found" disabled={busy} onPress={() => run('report_issue', { issue_summary: issueSummary })} />
-                    <PhotoButton label="Take Completed-Work Photo" count={attachmentCounts.after} onPress={() => addPhoto('after')} />
+                    <Field label="Issue notes (optional)" value={issueSummary} onChangeText={setIssueSummary} multiline />
+                    <SecondaryButton title="Pause Work — Issue Found" disabled={busy} onPress={pauseForIssue} />
+                    <MediaActions
+                        label="Completed-work media"
+                        count={attachmentCounts.after}
+                        disabled={busy}
+                        onTakePhoto={() => captureMedia('after', 'images')}
+                        onRecordVideo={() => captureMedia('after', 'videos')}
+                        onAddFromLibrary={() => addMediaFromLibrary('after')}
+                    />
                     <PrimaryButton title="Technician Finished — Open Close Out" disabled={busy} onPress={() => run('complete_work')} />
-                    <Field label="Store name (if another trip is needed)" value={storeName} onChangeText={setStoreName} />
-                    <Field label="Store address (optional)" value={storeAddress} onChangeText={setStoreAddress} />
-                    <SecondaryButton title="Go to Store" disabled={busy} onPress={() => run('start_store_trip', {
-                        store_name: storeName, store_address: storeAddress,
-                    })} />
+                    <SecondaryButton title="Go to Store" disabled={busy} onPress={startStoreRun} />
                 </Section>
             )}
 
             {status === 'issue_found' && (
                 <Section title="Issue found — work paused" subtitle={workflow.issue_summary || ''}>
-                    <PhotoButton label="Photograph Issue (Company Only)" count={attachmentCounts.issue} onPress={() => addPhoto('issue')} />
+                    <MediaActions
+                        label="Issue media (company only)"
+                        count={attachmentCounts.issue}
+                        disabled={busy}
+                        onTakePhoto={() => captureMedia('issue', 'images')}
+                        onRecordVideo={() => captureMedia('issue', 'videos')}
+                        onAddFromLibrary={() => addMediaFromLibrary('issue')}
+                    />
                     <Field label="Resolution / approved change" value={resolutionSummary} onChangeText={setResolutionSummary} multiline />
                     <PrimaryButton title="Resume Work" disabled={busy} onPress={() => run('resume_work', { resolution_summary: resolutionSummary })} />
                 </Section>
@@ -657,8 +737,38 @@ function PrimaryButton({ title, onPress, disabled }: { title: string; onPress: (
 function SecondaryButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
     return <TouchableOpacity onPress={onPress} disabled={disabled} style={[secondaryButtonStyle, disabled && disabledStyle]}><Text style={secondaryButtonTextStyle}>{title}</Text></TouchableOpacity>;
 }
-function PhotoButton({ label, count = 0, onPress }: { label: string; count?: number; onPress: () => void }) {
-    return <SecondaryButton title={`${label}${count ? ` (${count} saved)` : ''}`} onPress={onPress} />;
+function MediaActions({
+    label,
+    count = 0,
+    disabled,
+    onTakePhoto,
+    onRecordVideo,
+    onAddFromLibrary,
+}: {
+    label: string;
+    count?: number;
+    disabled?: boolean;
+    onTakePhoto: () => void;
+    onRecordVideo: () => void;
+    onAddFromLibrary: () => void;
+}) {
+    return (
+        <View style={mediaActionsStyle}>
+            <View style={mediaActionsHeaderStyle}>
+                <Text style={optionTitleStyle}>{label}</Text>
+                <Text style={mediaCountStyle}>{count ? `${count} saved` : 'Nothing saved yet'}</Text>
+            </View>
+            <Text style={mutedStyle}>Take more photos or videos whenever needed, or select a full batch from your library.</Text>
+            <View style={mediaActionRowStyle}>
+                <MediaActionButton title="Take Photo" disabled={disabled} onPress={onTakePhoto} />
+                <MediaActionButton title="Record Video" disabled={disabled} onPress={onRecordVideo} />
+                <MediaActionButton title="Add From Library" disabled={disabled} onPress={onAddFromLibrary} />
+            </View>
+        </View>
+    );
+}
+function MediaActionButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
+    return <TouchableOpacity onPress={onPress} disabled={disabled} style={[mediaActionButtonStyle, disabled && disabledStyle]}><Text style={mediaActionButtonTextStyle}>{title}</Text></TouchableOpacity>;
 }
 function actionMessage(action: string) {
     return ({
@@ -666,7 +776,7 @@ function actionMessage(action: string) {
         choose_now: 'Work-now workflow started.',
         choose_later: 'Return visit scheduled.',
         confirm_prework: 'Work started.',
-        start_store_trip: 'Dispatch updated: technician is going to the store.',
+        start_store_trip: 'Store run started. Add receipt and purchased-parts media when you arrive.',
         complete_purchase: 'Purchase saved. Technician is returning.',
         arrive_from_store: 'Arrival recorded. Work resumed.',
         report_issue: 'Issue recorded and work paused.',
@@ -719,6 +829,12 @@ const primaryButtonStyle = { backgroundColor: '#10a8a2', borderRadius: 11, paddi
 const primaryButtonTextStyle = { color: '#02151c', fontSize: 14, fontWeight: '900' } as const;
 const secondaryButtonStyle = { borderColor: '#3b7188', borderWidth: 1, borderRadius: 11, paddingVertical: 11, paddingHorizontal: 14, alignItems: 'center' } as const;
 const secondaryButtonTextStyle = { color: '#d8f8ff', fontSize: 14, fontWeight: '800' } as const;
+const mediaActionsStyle = { backgroundColor: '#0a2230', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 12, gap: 9 } as const;
+const mediaActionsHeaderStyle = { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 } as const;
+const mediaCountStyle = { color: '#5ce5df', fontSize: 12, fontWeight: '800' } as const;
+const mediaActionRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 8 } as const;
+const mediaActionButtonStyle = { flexGrow: 1, minWidth: 110, borderColor: '#3b7188', borderWidth: 1, borderRadius: 9, paddingVertical: 10, paddingHorizontal: 10, alignItems: 'center' } as const;
+const mediaActionButtonTextStyle = { color: '#d8f8ff', fontSize: 12, fontWeight: '800' } as const;
 const disabledStyle = { opacity: 0.5 } as const;
 const timelineStyle = { borderLeftColor: '#35aaa5', borderLeftWidth: 3, paddingLeft: 12, gap: 3 } as const;
 const totalStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } as const;
