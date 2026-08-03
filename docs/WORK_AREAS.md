@@ -14,7 +14,7 @@ HomeOS is one application, but each change should belong to one work area. The p
 | Work area | Main UI | Domain and data boundary | Use it for |
 | --- | --- | --- | --- |
 | Job Workflow | `src/features/job-workflow/JobWorkflowScreen.tsx` | `src/lib/jobWorkflow.ts`, Job Workflow migrations | approval, scheduling, active work, signatures, invoices, closeout |
-| Estimates | `src/app/estimate/index.tsx` | `src/lib/estimateOptions.ts`, estimate sessions and price book | scope questions, options, discounts, presentation |
+| Estimates | `src/features/estimates/EstimateScreen.tsx` | `src/lib/estimateOptions.ts`, estimate sessions and price book | scope questions, options, discounts, presentation |
 | Price Book | `src/app/super-admin/company/[id]/price-book.tsx` | `src/lib/companyPriceBook.ts` | company service cards, prices, limits, products |
 | Dispatch | `src/app/dispatch.tsx`, `src/app/dispatch-wall.tsx` | dispatch and service-request helpers | assignment, scheduling, live board, technician status |
 | TechOS | `src/app/techos.tsx`, `src/app/techos/job/[jobId].tsx` | TechOS workflow helpers | technician jobs, job actions, provider experience |
