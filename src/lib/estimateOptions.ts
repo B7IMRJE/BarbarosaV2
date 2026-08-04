@@ -29,6 +29,8 @@ export type EstimateOptionCategory =
 
 const FAUCET_REINSTALL_EXISTING_PRICE_KEY = 'faucet-reinstall-existing';
 const FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY = 'faucet-install-company-approved';
+const WATER_HEATER_CUSTOM_SCOPE_LABEL = 'Custom repair / service';
+const WATER_HEATER_CUSTOM_SCOPE_ANSWER_ID = 'water_heater_service_custom_scope';
 
 export type EstimateRequirementPhotoAnswer = {
     kind: 'requirement_photo';
@@ -168,6 +170,12 @@ export type EstimateQuestionDefinition = {
     allowedAnswers?: string[];
     min?: number;
     max?: number;
+    customAnswer?: {
+        optionLabel: string;
+        answerId: string;
+        label: string;
+        placeholder: string;
+    };
 };
 
 export type EstimateCategoryTemplate = {
@@ -605,6 +613,12 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             'water_service_garage_mechanical_water_heater_pan_installation',
             'water_service_garage_mechanical_water_heater_stand_installation',
             'water_service_garage_mechanical_water_heater_seismic_strap_installation',
+            'water_service_garage_mechanical_water_heater_tp_valve_replacement',
+            'water_service_garage_mechanical_water_heater_permit_code_correction',
+            'drain_sewer_garage_mechanical_water_heater_drain_pan_line_installation',
+            'gas_service_garage_mechanical_gas_shutoff_replacement',
+            'gas_service_garage_mechanical_gas_flex_connector_replacement',
+            'gas_service_garage_mechanical_gas_sediment_trap_installation',
         ],
         requiredScopeCodes: [],
         recommendedOptionStructures: ['Minimum Code-Safe Repair', 'Essential Replacement', 'Professional Replacement', 'Premium Hot Water Protection'],
@@ -943,9 +957,27 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             'water_service_garage_mechanical_water_heater_warranty_diagnostic',
             'water_service_garage_mechanical_water_heater_drain_valve_replacement',
             'water_service_garage_mechanical_water_heater_tp_valve_replacement',
+            'water_service_garage_mechanical_water_heater_gas_control_valve_replacement',
+            'water_service_garage_mechanical_water_heater_thermopile_replacement',
+            'water_service_garage_mechanical_water_heater_thermocouple_replacement',
+            'water_service_garage_mechanical_water_heater_anode_rod_replacement',
+            'water_service_garage_mechanical_water_heater_heating_element_replacement',
+            'water_service_garage_mechanical_water_heater_thermostat_replacement',
+            'water_service_garage_mechanical_water_heater_pilot_igniter_service',
+            'water_service_garage_mechanical_tankless_water_heater_igniter_flame_sensor_service',
+            'water_service_garage_mechanical_tankless_water_heater_inlet_filter_service',
+            'water_service_garage_mechanical_tankless_water_heater_flow_sensor_replacement',
+            'water_service_garage_mechanical_tankless_water_heater_service_valve_replacement',
             'water_service_garage_mechanical_pressure_regulator_adjustment',
             'water_service_garage_mechanical_recirculation_timer_setup',
         ],
+        customScope: {
+            optionLabel: WATER_HEATER_CUSTOM_SCOPE_LABEL,
+            answerId: WATER_HEATER_CUSTOM_SCOPE_ANSWER_ID,
+            label: 'Describe the custom repair or service',
+            placeholder: 'Enter the exact component, diagnosis, or work being proposed.',
+        },
+        scopeQuestionAfter: 2,
         requiredPhotoLabels: ['Unit and model / serial label', 'Visible problem or service connections'],
         questions: [
             selectQuestion('service_unit_type', 'Unit type', true, ['tank', 'tankless', 'heat pump', 'recirculation system', 'unknown']),
@@ -1188,9 +1220,24 @@ function scopedEstimateTemplate(input: {
     productCategoryFilters?: string[];
     questions?: EstimateQuestionDefinition[];
     warnings?: string[];
+    customScope?: NonNullable<EstimateQuestionDefinition['customAnswer']>;
+    scopeQuestionAfter?: number;
 }): EstimateCategoryTemplate {
     const scopeNames = catalogNamesForPriceKeys(input.scopePriceKeys);
     const actionLabel = input.workType === 'replacement' ? 'Replacement' : 'Repair / Service';
+    const scopeQuestion: EstimateQuestionDefinition = {
+        ...multiQuestion(
+            input.scopeQuestionId,
+            input.scopeQuestionLabel,
+            true,
+            input.customScope ? [...scopeNames, input.customScope.optionLabel] : scopeNames
+        ),
+        customAnswer: input.customScope,
+    };
+    const questions = [...(input.questions || [])];
+    const scopeQuestionIndex = Math.max(0, Math.min(input.scopeQuestionAfter || 0, questions.length));
+
+    questions.splice(scopeQuestionIndex, 0, scopeQuestion);
 
     return {
         id: input.id,
@@ -1212,10 +1259,7 @@ function scopedEstimateTemplate(input: {
         ],
         warnings: input.warnings || [],
         blockingConditions: ['The exact service scope and required site conditions must be selected before homeowner presentation.'],
-        questions: [
-            multiQuestion(input.scopeQuestionId, input.scopeQuestionLabel, true, scopeNames),
-            ...(input.questions || []),
-        ],
+        questions,
     };
 }
 
@@ -1342,8 +1386,21 @@ export function inferEstimateCategoryForDraftItem(
 export function validateEstimateAnswers(template: EstimateCategoryTemplate, answers: EstimateAnswerSet): EstimateAnswerValidation {
     const missingRequiredQuestions = template.questions
         .filter((question) => question.required && !isAnswerComplete(answers[question.id]));
-    const missingRequiredQuestionIds = missingRequiredQuestions.map((question) => question.id);
-    const missingRequiredQuestionLabels = missingRequiredQuestions.map((question) => question.label);
+    const missingCustomAnswers = template.questions
+        .filter((question) =>
+            question.customAnswer &&
+            isQuestionOptionSelected(answers[question.id], question.customAnswer.optionLabel) &&
+            !isAnswerComplete(answers[question.customAnswer.answerId])
+        )
+        .map((question) => question.customAnswer!);
+    const missingRequiredQuestionIds = [
+        ...missingRequiredQuestions.map((question) => question.id),
+        ...missingCustomAnswers.map((customAnswer) => customAnswer.answerId),
+    ];
+    const missingRequiredQuestionLabels = [
+        ...missingRequiredQuestions.map((question) => question.label),
+        ...missingCustomAnswers.map((customAnswer) => customAnswer.label),
+    ];
 
     const missingRequiredPhotoLabels = template.requiredPhotoLabels.filter((label) => {
         const answer = answers[photoRequirementAnswerKey(label)];
@@ -1729,7 +1786,7 @@ export function buildEstimateOptionWorkspace(input: {
         aiValidationFailed: input.aiValidationFailed || false,
         pricingSetupRequired,
         approvedProducts,
-        minimumIndividualChoiceCount: input.category === 'valve_replacement' ? 1 : 2,
+        minimumIndividualChoiceCount: 1,
     });
 
     return {
@@ -1821,6 +1878,8 @@ function buildPricingResults(
     category: EstimateOptionCategory,
     answers: EstimateAnswerSet
 ) {
+    if (hasSelectedCustomScope(template, answers)) return [];
+
     if (category === 'faucet_replacement') {
         return buildFaucetPricingResults(companyId, entries, answers);
     }
@@ -1849,26 +1908,162 @@ function buildPricingResults(
         );
     }
 
-    const cappedEntries = entries.slice(0, 4);
+    if (category === 'water_heater') {
+        return buildWaterHeaterPricingResults(companyId, entries, answers);
+    }
 
-    return cappedEntries.map((entry, index) => {
-        const lineInputs: EstimateLineInput[] = cappedEntries.slice(0, index + 1).map((candidate, candidateIndex) => ({
-            priceBookEntryId: candidate.id,
-            quantity: 1,
-            source: candidateIndex === 0 ? 'base_installation' : 'modifier',
-            required: candidate.requiredAddOnCodes.length > 0 || template.requiredScopeCodes.includes(candidate.code),
-            removable: candidateIndex !== 0,
-        }));
+    if (template.scopeQuestionId) {
+        return buildConfirmedScopePricingResults(companyId, entries, template, answers);
+    }
 
-        return calculateEstimateOptionPrice({
+    return buildIndependentPricingResults(companyId, entries, template);
+}
+
+function buildIndependentPricingResults(
+    companyId: string,
+    entries: EstimatePriceBookEntry[],
+    template: EstimateCategoryTemplate
+) {
+    return entries.slice(0, 4).map((entry, index) =>
+        calculateEstimateOptionPrice({
             id: `pricing-${index + 1}`,
             companyId,
             priceBookEntries: entries,
-            lineInputs,
+            lineInputs: [{
+                priceBookEntryId: entry.id,
+                quantity: 1,
+                source: 'base_installation',
+                required: true,
+                removable: false,
+            }],
             priceBookVersion: createPriceBookVersion(entries),
             requiredScopeCodes: template.requiredScopeCodes,
-        });
-    });
+        })
+    );
+}
+
+function buildConfirmedScopePricingResults(
+    companyId: string,
+    entries: EstimatePriceBookEntry[],
+    template: EstimateCategoryTemplate,
+    answers: EstimateAnswerSet
+) {
+    const selectedScopeKeys = getSelectedScopePriceKeys(template, answers);
+    const catalogByKey = new Map(plumbingPriceBookCatalogItems.map((item) => [item.price_key, normalizeText(item.name)]));
+    const selectedEntries = selectedScopeKeys
+        .map((priceKey) => entries.find((entry) =>
+            normalizeText(entry.code) === normalizeText(priceKey) ||
+            normalizeText(entry.name) === (catalogByKey.get(priceKey) || normalizeText(formatPriceKeyLabel(priceKey)))
+        ))
+        .filter((entry): entry is EstimatePriceBookEntry => Boolean(entry));
+
+    if (selectedEntries.length === 0 || selectedEntries.length !== selectedScopeKeys.length) return [];
+
+    return [calculateEstimateOptionPrice({
+        id: 'pricing-confirmed-scope',
+        companyId,
+        priceBookEntries: entries,
+        lineInputs: selectedEntries.map((entry, index) => ({
+            priceBookEntryId: entry.id,
+            quantity: 1,
+            source: index === 0 ? 'base_installation' : 'modifier',
+            required: true,
+            removable: false,
+        })),
+        priceBookVersion: createPriceBookVersion(entries),
+        requiredScopeCodes: template.requiredScopeCodes,
+    })];
+}
+
+function buildWaterHeaterPricingResults(
+    companyId: string,
+    entries: EstimatePriceBookEntry[],
+    answers: EstimateAnswerSet
+) {
+    const selectedEquipment = normalizeText(readAnswerText(answers.tank_or_tankless));
+
+    if (!selectedEquipment) return [];
+
+    const standardTankKey = 'water_service_garage_mechanical_standard_tank_water_heater_replacement';
+    const tanklessKey = 'water_service_garage_mechanical_tankless_water_heater_replacement';
+    const selectedBaseKey = selectedEquipment.includes('tankless') ? tanklessKey : standardTankKey;
+    const selectedPriceKeys = new Set([selectedBaseKey]);
+    const codeCorrections = Array.isArray(answers.code_corrections)
+        ? answers.code_corrections.map(normalizeText)
+        : [];
+    const expansionTankAnswer = normalizeText(readAnswerText(answers.expansion_tank));
+    const drainPanAnswer = normalizeText(readAnswerText(answers.drain_pan_route));
+    const platformAnswer = normalizeText(readAnswerText(answers.platform));
+    const gasValveAnswer = normalizeText(readAnswerText(answers.gas_valve_line));
+    const fuelType = normalizeText(readAnswerText(answers.fuel_type));
+    const usesGas = fuelType === 'gas' || fuelType === 'propane';
+
+    if (
+        expansionTankAnswer === 'replace' ||
+        expansionTankAnswer === 'add' ||
+        codeCorrections.includes('expansion tank')
+    ) {
+        selectedPriceKeys.add('water_service_garage_mechanical_water_heater_expansion_tank_installation');
+    }
+
+    if (drainPanAnswer === 'add pan' || codeCorrections.includes('pan')) {
+        selectedPriceKeys.add('water_service_garage_mechanical_water_heater_pan_installation');
+    }
+
+    if (drainPanAnswer === 'add drain route') {
+        selectedPriceKeys.add('drain_sewer_garage_mechanical_water_heater_drain_pan_line_installation');
+    }
+
+    if (platformAnswer === 'replace / build') {
+        selectedPriceKeys.add('water_service_garage_mechanical_water_heater_stand_installation');
+    }
+
+    if (codeCorrections.includes('straps')) {
+        selectedPriceKeys.add('water_service_garage_mechanical_water_heater_seismic_strap_installation');
+    }
+
+    if (codeCorrections.includes('t&p')) {
+        selectedPriceKeys.add('water_service_garage_mechanical_water_heater_tp_valve_replacement');
+    }
+
+    if (codeCorrections.includes('permit') || codeCorrections.includes('venting')) {
+        selectedPriceKeys.add('water_service_garage_mechanical_water_heater_permit_code_correction');
+    }
+
+    if (usesGas && gasValveAnswer === 'replace recommended') {
+        selectedPriceKeys.add('gas_service_garage_mechanical_gas_shutoff_replacement');
+    }
+
+    if (usesGas && codeCorrections.includes('gas connector')) {
+        selectedPriceKeys.add('gas_service_garage_mechanical_gas_flex_connector_replacement');
+    }
+
+    if (usesGas && codeCorrections.includes('sediment trap')) {
+        selectedPriceKeys.add('gas_service_garage_mechanical_gas_sediment_trap_installation');
+    }
+
+    const selectedEntries = [...selectedPriceKeys]
+        .map((priceKey) => entries.find((entry) => normalizeText(entry.code) === normalizeText(priceKey)))
+        .filter((entry): entry is EstimatePriceBookEntry => Boolean(entry));
+
+    if (
+        selectedEntries.length !== selectedPriceKeys.size ||
+        normalizeText(selectedEntries[0]?.code || '') !== normalizeText(selectedBaseKey)
+    ) return [];
+
+    return [calculateEstimateOptionPrice({
+        id: 'water-heater-confirmed-scope',
+        companyId,
+        priceBookEntries: entries,
+        lineInputs: selectedEntries.map((entry, index) => ({
+            priceBookEntryId: entry.id,
+            quantity: 1,
+            source: index === 0 ? 'base_installation' : 'modifier',
+            required: true,
+            removable: false,
+        })),
+        priceBookVersion: createPriceBookVersion(entries),
+    })];
 }
 
 function buildFaucetPricingResults(
@@ -1959,11 +2154,13 @@ function buildDeterministicChoices(input: {
     const choices: EstimateChoice[] = [
         ...prebuiltChoices,
         ...individualResults.map<EstimateChoice>((pricingResult, index) => {
-        const structureName = input.template.recommendedOptionStructures[index] || `Option ${index + 1}`;
+        const lineNames = pricingResult.lineItems.map((line) => line.name);
+        const structureName = lineNames.length === 1
+            ? lineNames[0]
+            : `${input.template.label} — Confirmed Scope`;
         const title = homeownerName
             ? `${homeownerName}'s ${structureName}`
             : structureName;
-        const lineNames = pricingResult.lineItems.map((line) => line.name);
 
         return {
             id: `individual-${prebuiltChoices.length + index + 1}`,
@@ -1972,11 +2169,11 @@ function buildDeterministicChoices(input: {
             shortSummary: lineNames.slice(0, 2).join(' + ') || input.template.label,
             homeownerExplanation: buildHomeownerExplanation(input.template.label, lineNames),
             keyBenefits: buildKeyBenefits(input.category, index),
-            whyItDiffers: index === 0
-                ? 'Focused minimum approved scope.'
-                : `Adds ${lineNames[lineNames.length - 1] || 'approved scope'} compared with the previous option.`,
-            recommendedReason: index === Math.min(1, individualResults.length - 1)
-                ? 'Balanced scope with approved pricing and fewer missing decisions.'
+            whyItDiffers: lineNames.length === 1
+                ? 'This is an independent approved price-book choice and is not combined with unrelated service lines.'
+                : 'Includes only the base work and add-ons explicitly confirmed in the estimate checklist.',
+            recommendedReason: validPricingResults.length === 1
+                ? 'Matches the service scope confirmed in the estimate checklist.'
                 : null,
             productIds: input.products.slice(index, index + 1).map((product) => product.id),
             scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
@@ -1986,38 +2183,13 @@ function buildDeterministicChoices(input: {
             inclusionIds: pricingResult.lineItems.map((line) => line.code),
             exclusionIds: [],
             pricingResult,
-            recommended: index === Math.min(1, individualResults.length - 1),
+            recommended: validPricingResults.length === 1,
             displayOrder: prebuiltChoices.length + index + 1,
         };
         }),
     ];
 
-    if (validPricingResults.length >= 3) {
-        const packagePricingResult = validPricingResults[validPricingResults.length - 1];
-
-        choices.push({
-            id: 'package-1',
-            kind: 'package',
-            title: homeownerName
-                ? `${homeownerName}'s Home Reliability Package`
-                : 'Home Reliability Package',
-            shortSummary: 'Combines approved related improvements into one reviewed package.',
-            homeownerExplanation: buildHomeownerExplanation(input.template.label, packagePricingResult.lineItems.map((line) => line.name)),
-            keyBenefits: ['Combines related work', 'Keeps pricing deterministic', 'Reduces repeat visits when approved'],
-            whyItDiffers: 'Packages related approved improvements instead of presenting another renamed single option.',
-            recommendedReason: 'Best fit when the homeowner wants broader reliability from the same visit.',
-            productIds: input.products.slice(0, 2).map((product) => product.id),
-            scopeIds: packagePricingResult.lineItems.map((line) => line.priceBookEntryId),
-            warrantyIds: [],
-            inclusionIds: packagePricingResult.lineItems.map((line) => line.code),
-            exclusionIds: [],
-            pricingResult: packagePricingResult,
-            recommended: false,
-            displayOrder: choices.length + 1,
-        });
-    }
-
-    return choices.slice(0, 6);
+    return choices.slice(0, 4);
 }
 
 function buildValveDeterministicChoices(
@@ -2219,7 +2391,7 @@ function buildPresentationGate(input: {
 
     if (!hasEnoughIndividualChoices) {
         blockers.push(input.minimumIndividualChoiceCount === 1
-            ? 'At least one verified valve option is required.'
+            ? 'At least one approved priced option is required.'
             : 'At least two materially different individual options are required.');
     }
     if (input.choices.filter((choice) => choice.kind === 'package').length > 2) blockers.push('No more than two packages may be presented.');
@@ -2492,6 +2664,19 @@ function preferredHomeownerFirstName(context: EstimateDraftContextLike | null) {
 
 function readAnswerText(value: EstimateAnswerValue | undefined) {
     return typeof value === 'string' ? value : '';
+}
+
+function isQuestionOptionSelected(value: EstimateAnswerValue | undefined, optionLabel: string) {
+    if (Array.isArray(value)) return value.includes(optionLabel);
+
+    return value === optionLabel;
+}
+
+function hasSelectedCustomScope(template: EstimateCategoryTemplate, answers: EstimateAnswerSet) {
+    return template.questions.some((question) =>
+        question.customAnswer &&
+        isQuestionOptionSelected(answers[question.id], question.customAnswer.optionLabel)
+    );
 }
 
 export function isAnswerComplete(value: EstimateAnswerValue | undefined) {

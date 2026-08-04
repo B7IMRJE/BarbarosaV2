@@ -2638,9 +2638,20 @@ function renderQuestion(
 ) {
     const currentAnswer = answers[question.id];
     const complete = isAnswerComplete(currentAnswer);
+    const isScopeQuestion = question.id.endsWith('_scope');
+    const customAnswer = question.customAnswer;
+    const customSelected = Boolean(
+        customAnswer &&
+        Array.isArray(currentAnswer) &&
+        currentAnswer.includes(customAnswer.optionLabel)
+    );
+    const customAnswerValue = customAnswer ? answers[customAnswer.answerId] : undefined;
 
     return (
-        <View key={question.id} style={[questionCardStyle, estimateQuestionTone(question.id)]}>
+        <View
+            key={question.id}
+            style={[questionCardStyle, isScopeQuestion ? wideQuestionCardStyle : null, estimateQuestionTone(question.id)]}
+        >
             <View style={choiceTitleRowStyle}>
                 <Text style={questionLabelStyle}>{question.label}</Text>
                 {question.required && (
@@ -2656,9 +2667,14 @@ function renderQuestion(
                         <TouchableOpacity
                             key={`${question.id}-${answer}`}
                             onPress={() => updateAnswer(question, answer)}
-                            style={currentAnswer === answer ? [answerButtonStyle, selectedAnswerButtonStyle] : answerButtonStyle}
+                            style={currentAnswer === answer
+                                ? [answerButtonStyle, isScopeQuestion ? scopeAnswerButtonStyle : null, selectedAnswerButtonStyle]
+                                : [answerButtonStyle, isScopeQuestion ? scopeAnswerButtonStyle : null]}
                         >
-                            <Text style={currentAnswer === answer ? selectedAnswerButtonTextStyle : answerButtonTextStyle}>
+                            <Text style={currentAnswer === answer
+                                ? [selectedAnswerButtonTextStyle, isScopeQuestion ? scopeAnswerButtonTextStyle : null]
+                                : [answerButtonTextStyle, isScopeQuestion ? scopeAnswerButtonTextStyle : null]}
+                            >
                                 {answer}
                             </Text>
                         </TouchableOpacity>
@@ -2673,9 +2689,14 @@ function renderQuestion(
                             <TouchableOpacity
                                 key={`${question.id}-${answer}`}
                                 onPress={() => toggleMultiAnswer(question, answer)}
-                                style={selected ? [answerButtonStyle, selectedAnswerButtonStyle] : answerButtonStyle}
+                                style={selected
+                                    ? [answerButtonStyle, isScopeQuestion ? scopeAnswerButtonStyle : null, selectedAnswerButtonStyle]
+                                    : [answerButtonStyle, isScopeQuestion ? scopeAnswerButtonStyle : null]}
                             >
-                                <Text style={selected ? selectedAnswerButtonTextStyle : answerButtonTextStyle}>
+                                <Text style={selected
+                                    ? [selectedAnswerButtonTextStyle, isScopeQuestion ? scopeAnswerButtonTextStyle : null]
+                                    : [answerButtonTextStyle, isScopeQuestion ? scopeAnswerButtonTextStyle : null]}
+                                >
                                     {answer}
                                 </Text>
                             </TouchableOpacity>
@@ -2706,6 +2727,29 @@ function renderQuestion(
                     multiline
                     placeholder="Notes"
                 />
+            )}
+
+            {customAnswer && customSelected && (
+                <View style={customScopeStyle}>
+                    <Text style={customScopeLabelStyle}>{customAnswer.label}</Text>
+                    <TextInput
+                        value={typeof customAnswerValue === 'string'
+                            ? customAnswerValue
+                            : ''}
+                        onChangeText={(value) => updateAnswer({
+                            id: customAnswer.answerId,
+                            label: customAnswer.label,
+                            type: 'short_note',
+                            required: true,
+                        }, value)}
+                        style={copyTextAreaStyle}
+                        multiline
+                        placeholder={customAnswer.placeholder}
+                    />
+                    <Text style={customScopeHelpStyle}>
+                        Custom work is saved here, but it must have an approved company price-book line before automatic pricing.
+                    </Text>
+                </View>
             )}
         </View>
     );
@@ -3542,13 +3586,22 @@ const questionGridStyle = {
 
 const questionCardStyle = {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
     borderColor: '#E3E8EF',
-    width: 220,
-    minHeight: 124,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 360,
+    minWidth: 280,
+    minHeight: 148,
     overflow: 'hidden' as const,
+};
+
+const wideQuestionCardStyle = {
+    width: '100%' as const,
+    flexBasis: '100%' as const,
+    minHeight: 180,
 };
 
 const questionLabelStyle = {
@@ -3602,6 +3655,43 @@ const selectedAnswerButtonTextStyle = {
     color: '#14533A',
     fontSize: 12,
     fontWeight: '900' as const,
+};
+
+const scopeAnswerButtonStyle = {
+    borderRadius: 12,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 240,
+    minHeight: 50,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    justifyContent: 'center' as const,
+};
+
+const scopeAnswerButtonTextStyle = {
+    fontSize: 13,
+    lineHeight: 17,
+    textAlign: 'center' as const,
+};
+
+const customScopeStyle = {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#D8E0EA',
+};
+
+const customScopeLabelStyle = {
+    color: '#071B33',
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const customScopeHelpStyle = {
+    color: '#637083',
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 8,
 };
 
 const counterRowStyle = {

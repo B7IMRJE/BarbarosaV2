@@ -49,6 +49,12 @@ export function runEstimateOptionsRegressions() {
     toiletRepairChecklistCoversServiceableComponents();
     selectedRepairScopeFiltersDeterministicPricing();
     replacementEstimateRejectsRepairPriceLines();
+    waterHeaterPricingRejectsUnrelatedGasRows();
+    waterHeaterPricingIncludesOnlyConfirmedAddOns();
+    waterHeaterMissingSelectedAddOnBlocksPartialQuote();
+    skippedWaterHeaterPhotosDoNotChangePricing();
+    waterHeaterRepairChecklistCoversFieldComponents();
+    customWaterHeaterRepairRequiresDetailsAndManualPricing();
     expandedServiceBranchesCoverRequestedPlumbingWork();
     everyExpandedScopeUsesACatalogPriceKey();
     technicianCannotEditManagementPricing();
@@ -110,7 +116,7 @@ export function runEstimateOptionsRegressions() {
     pricingCalculationIsDeterministic();
     storyAndAccessModifiersOnlyApplyWhenSelected();
     requiredSafetyLinesCannotBeRemoved();
-    generatesTwoToFourOptions();
+    generatesOneToFourOptions();
     generatesNoMoreThanTwoPackages();
     maximumChoicesIsSix();
     optionsAreMateriallyDifferent();
@@ -194,6 +200,172 @@ function replacementEstimateRejectsRepairPriceLines() {
 
     assert(workspace.eligiblePriceBookEntries.some((entry) => entry.code.endsWith('toilet_replacement')), 'Replacement estimate should retain approved replacement pricing.');
     assert(!workspace.eligiblePriceBookEntries.some((entry) => entry.code.includes('running_repair')), 'Replacement estimate must never include a repair line.');
+}
+
+function waterHeaterPricingRejectsUnrelatedGasRows() {
+    const answers = waterHeaterAnswers();
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers,
+        priceBookItems: [
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_standard_tank_water_heater_replacement',
+                'Standard tank water heater replacement',
+                'Water Heaters',
+                2500
+            ),
+            scopedPriceBookItem('gas_service_exterior_gas_line_repair_linear_foot', 'Exterior gas line repair by linear foot', 'Gas', 85),
+            scopedPriceBookItem('gas_service_exterior_gas_shutoff_replacement', 'Exterior gas shutoff replacement', 'Gas', 295),
+            scopedPriceBookItem('gas_service_exterior_connect_gas_appliance', 'Connect gas appliance', 'Gas', 295),
+            scopedPriceBookItem('gas_service_exterior_gas_appliance_connector_replacement', 'Gas appliance connector replacement', 'Gas', 325),
+        ],
+    });
+
+    assert(workspace.pricingResults.length === 1, 'A confirmed water-heater scope should produce one deterministic quote instead of a cumulative option ladder.');
+    assert(workspace.pricingResults[0]?.totalAmount === 2500, 'The water-heater quote should use the selected water-heater base price only.');
+    assert(workspace.pricingResults[0]?.lineItems.length === 1, 'Unrelated gas rows must not be attached to the water-heater quote.');
+    assert(!workspace.pricingResults[0]?.lineItems.some((line) => line.code.startsWith('gas_service_')), 'Unrelated gas service rows must never leak into water-heater pricing.');
+}
+
+function waterHeaterPricingIncludesOnlyConfirmedAddOns() {
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers: {
+            ...waterHeaterAnswers(),
+            expansion_tank: 'add',
+            drain_pan_route: 'add pan',
+            code_corrections: ['pan', 'straps', 'expansion tank'],
+        },
+        priceBookItems: [
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_standard_tank_water_heater_replacement',
+                'Standard tank water heater replacement',
+                'Water Heaters',
+                2500
+            ),
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_water_heater_expansion_tank_installation',
+                'Water heater expansion tank installation',
+                'Water Heaters',
+                450
+            ),
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_water_heater_pan_installation',
+                'Water heater pan installation',
+                'Water Heaters',
+                300
+            ),
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_water_heater_seismic_strap_installation',
+                'Water heater seismic strap installation',
+                'Water Heaters',
+                200
+            ),
+        ],
+    });
+
+    assert(workspace.pricingResults.length === 1, 'Confirmed water-heater add-ons should remain one quote.');
+    assert(workspace.pricingResults[0]?.totalAmount === 3450, 'The quote should total the base and explicitly selected add-ons once.');
+    assert(workspace.pricingResults[0]?.lineItems.length === 4, 'The quote should contain one base line and the three confirmed add-ons.');
+    assert(new Set(workspace.pricingResults[0]?.lineItems.map((line) => line.code)).size === 4, 'Repeated checklist signals must not duplicate an add-on charge.');
+}
+
+function waterHeaterMissingSelectedAddOnBlocksPartialQuote() {
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers: {
+            ...waterHeaterAnswers(),
+            expansion_tank: 'add',
+        },
+        priceBookItems: [scopedPriceBookItem(
+            'water_service_garage_mechanical_standard_tank_water_heater_replacement',
+            'Standard tank water heater replacement',
+            'Water Heaters',
+            2500
+        )],
+    });
+
+    assert(workspace.pricingResults.length === 0, 'A selected unpriced add-on must block a silently incomplete quote.');
+    assert(workspace.pricingSetupRequired, 'Missing selected add-on pricing should require price-book setup.');
+}
+
+function skippedWaterHeaterPhotosDoNotChangePricing() {
+    const answers = waterHeaterAnswers();
+    const template = getEstimateCategoryTemplate('water_heater');
+
+    template.requiredPhotoLabels.forEach((label) => {
+        answers[photoRequirementAnswerKey(label)] = createEstimateRequirementSkipAnswer(label);
+    });
+
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers,
+        priceBookItems: [scopedPriceBookItem(
+            'water_service_garage_mechanical_standard_tank_water_heater_replacement',
+            'Standard tank water heater replacement',
+            'Water Heaters',
+            2500
+        )],
+    });
+
+    assert(workspace.pricingResults[0]?.totalAmount === 2500, 'Skipped photos must not alter deterministic price calculation.');
+    assert(!workspace.pricingSetupRequired, 'A valid base price should remain available when field photos are skipped.');
+}
+
+function waterHeaterAnswers(): EstimateAnswerSet {
+    return {
+        ...completeAnswers('water_heater'),
+        tank_or_tankless: '50 gallon',
+        expansion_tank: 'existing good',
+        drain_pan_route: 'existing good',
+        platform: 'acceptable',
+        code_corrections: ['None required'],
+    };
+}
+
+function waterHeaterRepairChecklistCoversFieldComponents() {
+    const scopes = getScopeAnswers('water_heater_service_scope', 'water_heater_service');
+
+    assert(includesScope(scopes, 'gas control valve'), 'Water-heater repair should include gas control valve replacement.');
+    assert(includesScope(scopes, 'thermopile'), 'Water-heater repair should include thermopile replacement.');
+    assert(includesScope(scopes, 'thermocouple'), 'Water-heater repair should include thermocouple replacement.');
+    assert(includesScope(scopes, 'T&P valve'), 'Water-heater repair should include T&P relief-valve replacement.');
+    assert(includesScope(scopes, 'anode rod'), 'Water-heater repair should include anode-rod replacement.');
+    assert(includesScope(scopes, 'tankless service / isolation valve'), 'Tankless repair should include service or isolation valve replacement.');
+    assert(includesScope(scopes, 'custom repair'), 'Water-heater repair should include a custom scope option.');
+}
+
+function customWaterHeaterRepairRequiresDetailsAndManualPricing() {
+    const template = getEstimateCategoryTemplate('water_heater_service');
+    const scopeQuestion = template.questions.find((question) => question.id === 'water_heater_service_scope');
+    const customAnswer = scopeQuestion?.customAnswer;
+
+    assert(Boolean(customAnswer), 'Custom water-heater repair should expose a linked detail field.');
+    if (!customAnswer) return;
+
+    const incomplete = validateEstimateAnswers(template, {
+        ...completeAnswers('water_heater_service'),
+        water_heater_service_scope: [customAnswer.optionLabel],
+        [customAnswer.answerId]: '',
+    });
+    const workspace = buildWorkspace({
+        category: 'water_heater_service',
+        answers: {
+            ...completeAnswers('water_heater_service'),
+            water_heater_service_scope: [customAnswer.optionLabel],
+            [customAnswer.answerId]: 'Replace the documented manufacturer-specific bypass valve assembly.',
+        },
+        priceBookItems: [scopedPriceBookItem(
+            'water_service_garage_mechanical_water_heater_diagnostic',
+            'Water heater diagnostic',
+            'Water Heaters',
+            195
+        )],
+    });
+
+    assert(incomplete.missingRequiredQuestionIds.includes(customAnswer.answerId), 'Selecting Custom should require written repair details.');
+    assert(workspace.pricingResults.length === 0, 'Custom scope must not silently reuse an unrelated price-book amount.');
+    assert(workspace.pricingSetupRequired, 'Custom scope should require an approved priced company line before presentation.');
 }
 
 function expandedServiceBranchesCoverRequestedPlumbingWork() {
@@ -848,8 +1020,8 @@ function inactiveOrIncompatibleFaucetEntriesDoNotCount() {
 
     assert(inactiveWorkspace.individualOptions.length === 1, 'Inactive faucet entry should not count as a valid option.');
     assert(incompatibleWorkspace.individualOptions.length === 1, 'Hole-spread-incompatible faucet entry should not count as a valid option.');
-    assert(inactiveWorkspace.presentationGate.blockers.includes('At least two materially different individual options are required.'), 'Inactive entry should leave the two-option gate blocked.');
-    assert(incompatibleWorkspace.presentationGate.blockers.includes('At least two materially different individual options are required.'), 'Incompatible entry should leave the two-option gate blocked.');
+    assert(!inactiveWorkspace.presentationGate.blockers.includes('At least one approved priced option is required.'), 'One valid faucet path should be enough for an honest single-option estimate.');
+    assert(!incompatibleWorkspace.presentationGate.blockers.includes('At least one approved priced option is required.'), 'An incompatible alternative must not invalidate the remaining approved estimate path.');
 }
 
 function faucetSourceSelectionFiltersApprovedProductScope() {
@@ -1006,10 +1178,10 @@ function requiredSafetyLinesCannotBeRemoved() {
     assert(result.missingPricingInputs.some((message) => message.includes('Required safety/code scope')), 'Required safety/code lines cannot be removed.');
 }
 
-function generatesTwoToFourOptions() {
+function generatesOneToFourOptions() {
     const workspace = completeWorkspace();
 
-    assert(workspace.individualOptions.length >= 2, 'Should generate at least 2 individual options.');
+    assert(workspace.individualOptions.length >= 1, 'Should generate at least one honest priced option.');
     assert(workspace.individualOptions.length <= 4, 'Should generate no more than 4 individual options.');
 }
 
