@@ -281,7 +281,7 @@ function createDefaultScheduleForm(): ScheduleRequestForm {
         closeoutNotes: '',
         closeoutHomeownerNote: '',
         closeoutNextActionDate: '',
-        closeoutNotifyHomeowner: false,
+        closeoutNotifyHomeowner: true,
         closeoutPartsDescription: '',
         closeoutOrderReference: '',
     };
@@ -1230,8 +1230,6 @@ export default function DispatchBoardScreen() {
         }
 
         const nextActionAt = parseCloseoutDate(form.closeoutNextActionDate)?.toISOString() || null;
-        const outcomeOption = SERVICE_VISIT_CLOSEOUT_OPTIONS.find((option) => option.outcome === outcome) || null;
-
         setActionRequestId(request.id);
         setRequestActionMessageById((current) => ({
             ...current,
@@ -1247,7 +1245,7 @@ export default function DispatchBoardScreen() {
                 notes: form.closeoutNotes || form.notes,
                 homeownerNote: form.closeoutHomeownerNote,
                 nextActionAt,
-                notifyHomeowner: form.closeoutNotifyHomeowner || Boolean(outcomeOption?.homeownerDefault),
+                notifyHomeowner: form.closeoutNotifyHomeowner,
                 metadata: {
                     parts_description: form.closeoutPartsDescription.trim() || null,
                     order_reference: form.closeoutOrderReference.trim() || null,

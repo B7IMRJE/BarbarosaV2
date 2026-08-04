@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { providerModePath, readProviderModeParams } from '../../lib/providerMode';
 import {
     shouldShowHomeownerActiveRequestStatus,
+    shouldShowHomeownerFloatingSosButton,
 } from '../../lib/homeownerActiveRequests';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
@@ -54,6 +55,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const providerModeContext = readProviderModeParams(routeParams);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+    const [staffAccessResolved, setStaffAccessResolved] = useState(false);
     const { scaleFont, scaleIcon, theme } = useTheme();
     const insets = useSafeAreaInsets();
 
@@ -66,6 +68,12 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
         pathname: currentPath,
         providerModeActive: Boolean(providerModeContext),
     });
+    const shouldShowFloatingSos = shouldShowHomeownerFloatingSosButton({
+        pathname: currentPath,
+        providerModeActive: Boolean(providerModeContext),
+        staffAccessResolved,
+        isStaff: canUseStaffTools,
+    });
 
     useEffect(() => {
         loadDrawerAccess();
@@ -75,6 +83,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
         const role = await loadCurrentUserRole();
 
         setCanUseStaffTools(isStaffRole(role));
+        setStaffAccessResolved(true);
     }
 
     if (shouldHideNavigation) {
@@ -207,6 +216,45 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
             <View style={{ flex: 1 }}>
                 {children}
             </View>
+
+            {shouldShowFloatingSos && (
+                <TouchableOpacity
+                    activeOpacity={0.86}
+                    accessibilityLabel="Emergency SOS"
+                    accessibilityRole="button"
+                    onPress={() => goTo('/emergency/create')}
+                    style={{
+                        alignItems: 'center',
+                        backgroundColor: theme.colors.danger,
+                        borderColor: '#FFFFFF',
+                        borderRadius: scaleIcon(30),
+                        borderWidth: 2,
+                        bottom: insets.bottom + scaleIcon(78),
+                        elevation: 9,
+                        height: scaleIcon(58),
+                        justifyContent: 'center',
+                        left: scaleIcon(14),
+                        position: 'absolute',
+                        shadowColor: '#000000',
+                        shadowOffset: { width: 0, height: 6 },
+                        shadowOpacity: 0.2,
+                        shadowRadius: 14,
+                        width: scaleIcon(58),
+                        zIndex: 39,
+                    }}
+                >
+                    <Text
+                        style={{
+                            color: '#FFFFFF',
+                            fontSize: scaleFont(14),
+                            fontWeight: '900',
+                            letterSpacing: 0.5,
+                        }}
+                    >
+                        SOS
+                    </Text>
+                </TouchableOpacity>
+            )}
 
             {shouldShowActiveRequestStatus && (
                 <HomeownerActiveRequestStatus bottomOffset={insets.bottom + scaleIcon(78)} />

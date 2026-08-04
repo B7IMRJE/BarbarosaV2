@@ -324,6 +324,20 @@ export function shouldShowHomeownerActiveRequestStatus(input: {
     return !hiddenPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
+export function shouldShowHomeownerFloatingSosButton(input: {
+    pathname?: string | null;
+    providerModeActive?: boolean;
+    staffAccessResolved?: boolean;
+    isStaff?: boolean;
+}) {
+    if (!input.staffAccessResolved || input.isStaff) return false;
+
+    return shouldShowHomeownerActiveRequestStatus({
+        pathname: input.pathname,
+        providerModeActive: input.providerModeActive,
+    });
+}
+
 async function loadActiveRequestsWithRpc(propertyId: string) {
     const { data, error } = await supabase.rpc('get_homeowner_active_service_requests', {
         p_property_id: propertyId,

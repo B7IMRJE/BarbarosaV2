@@ -13,6 +13,7 @@ import {
     isActiveHomeownerServiceRequest,
     selectFeaturedHomeownerActiveRequest,
     shouldShowHomeownerActiveRequestStatus,
+    shouldShowHomeownerFloatingSosButton,
     type HomeownerActiveServiceRequest,
 } from './homeownerActiveRequests';
 import type { ServiceRequestActivityEvent } from './serviceRequestActivity';
@@ -28,6 +29,7 @@ export function runHomeownerActiveRequestRegressions() {
     trackerReopensAsExpandedRequestCard();
     onMyWayShowsTechnicianEtaAndFallback();
     rootShellKeepsTrackerVisibleAcrossHomeownerRoutes();
+    rootShellKeepsSosVisibleForHomeownersOnly();
     multipleActiveRequestsShowCountAndSelectHighestPriority();
     terminalRequestsDisappear();
     noRawUuidOrInternalStatusIsDisplayed();
@@ -145,6 +147,27 @@ function rootShellKeepsTrackerVisibleAcrossHomeownerRoutes() {
         assert(!shouldShowHomeownerActiveRequestStatus({ pathname }), `${pathname} should not show the homeowner tracker.`);
     });
     assert(!shouldShowHomeownerActiveRequestStatus({ pathname: '/', providerModeActive: true }), 'Provider mode should not show the homeowner tracker.');
+}
+
+function rootShellKeepsSosVisibleForHomeownersOnly() {
+    assert(shouldShowHomeownerFloatingSosButton({
+        pathname: '/',
+        staffAccessResolved: true,
+    }), 'Homeowners should keep the floating SOS action.');
+    assert(!shouldShowHomeownerFloatingSosButton({
+        pathname: '/',
+        staffAccessResolved: false,
+    }), 'SOS should wait until role access is resolved.');
+    assert(!shouldShowHomeownerFloatingSosButton({
+        pathname: '/',
+        staffAccessResolved: true,
+        isStaff: true,
+    }), 'Staff shells should not show the homeowner SOS action.');
+    assert(!shouldShowHomeownerFloatingSosButton({
+        pathname: '/',
+        providerModeActive: true,
+        staffAccessResolved: true,
+    }), 'Provider mode should not show the homeowner SOS action.');
 }
 
 function multipleActiveRequestsShowCountAndSelectHighestPriority() {

@@ -29,10 +29,14 @@ export type CompanyDispatchRequest = {
 export type CompanyLeadCounts = {
     newLeads: number;
     emergencyLeads: number;
+    newLeadIds: string[];
+    emergencyLeadIds: string[];
     totalRequests: number;
     countedStatuses: string[];
     updatedAt: string;
 };
+
+export type CompanyLeadAlertKind = 'lead' | 'emergency';
 
 export type CompanyActivityBoard = {
     newUnassigned: CompanyDispatchRequest[];
@@ -78,14 +82,34 @@ export async function getCompanyActivityBoard(companyId: string): Promise<Compan
 
 export function calculateCompanyLeadCounts(requests: CompanyDispatchRequest[]): CompanyLeadCounts {
     const newLeadRequests = requests.filter((request) => isNewLeadStatus(request.status));
+    const emergencyLeadRequests = newLeadRequests.filter(isEmergencyDispatchRequest);
 
     return {
         newLeads: newLeadRequests.length,
-        emergencyLeads: newLeadRequests.filter(isEmergencyDispatchRequest).length,
+        emergencyLeads: emergencyLeadRequests.length,
+        newLeadIds: newLeadRequests.map((request) => request.id).sort(),
+        emergencyLeadIds: emergencyLeadRequests.map((request) => request.id).sort(),
         totalRequests: requests.length,
         countedStatuses: [...NEW_LEAD_STATUSES],
         updatedAt: new Date().toISOString(),
     };
+}
+
+export function getCompanyLeadAlertKind(
+    previous: CompanyLeadCounts,
+    current: CompanyLeadCounts
+): CompanyLeadAlertKind | null {
+    const previousEmergencyIds = new Set(previous.emergencyLeadIds);
+
+    if (current.emergencyLeadIds.some((requestId) => !previousEmergencyIds.has(requestId))) {
+        return 'emergency';
+    }
+
+    const previousLeadIds = new Set(previous.newLeadIds);
+
+    return current.newLeadIds.some((requestId) => !previousLeadIds.has(requestId))
+        ? 'lead'
+        : null;
 }
 
 export function getCompanyActivityBoardFromRequests(

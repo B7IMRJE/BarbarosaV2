@@ -11,6 +11,7 @@ import { safeBack } from '../lib/navigation';
 import { loadLoggedInUserCompanyAccess } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
+import CompanyLeadSoundAlert from './CompanyLeadSoundAlert';
 
 type AdminNavBarProps = {
     companyId?: string | string[] | null;
@@ -102,12 +103,28 @@ export default function AdminNavBar({
         };
 
         focusTarget.addEventListener?.('focus', handleFocus);
+        const requestChannel = supabase
+            .channel(`company-lead-alerts:${normalizedCompanyId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'service_requests',
+                    filter: `company_id=eq.${normalizedCompanyId}`,
+                },
+                () => {
+                    void loadLeadCounts();
+                }
+            )
+            .subscribe();
 
         return () => {
             active = false;
             clearInterval(intervalId);
             appStateSubscription.remove();
             focusTarget.removeEventListener?.('focus', handleFocus);
+            void supabase.removeChannel(requestChannel);
         };
     }, [normalizedCompanyId]);
 
@@ -186,6 +203,7 @@ export default function AdminNavBar({
 
     return (
         <View style={navShellStyle}>
+            <CompanyLeadSoundAlert companyId={normalizedCompanyId} counts={leadCounts} />
             <LeadAlertBadges
                 counts={leadCounts}
                 error={leadCountError}

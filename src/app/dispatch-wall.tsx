@@ -2,7 +2,9 @@ import { router, useLocalSearchParams } from 'expo-router';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import CompanyLeadSoundAlert from '../components/CompanyLeadSoundAlert';
 import {
+    calculateCompanyLeadCounts,
     getCompanyDispatchRequests,
     isEmergencyDispatchRequest,
     type CompanyDispatchRequest,
@@ -538,6 +540,7 @@ export default function DispatchWallScreen() {
     const sections = useMemo(() => (
         buildDispatchWallSections(requests, scheduleSlots, companyUsers, dataNow, timingEvents)
     ), [requests, scheduleSlots, companyUsers, dataNow, timingEvents]);
+    const leadCounts = useMemo(() => calculateCompanyLeadCounts(requests), [requests]);
     const companyName = getCompanyName(company) || (demoMode ? 'Bravo Dispatch' : 'Dispatch');
     const expandedItems = expandedSectionKey ? sections[expandedSectionKey] : [];
     const connectionStatus = getDispatchWallConnectionStatus({
@@ -778,6 +781,7 @@ export default function DispatchWallScreen() {
 
     return (
         <View style={wallRootStyle}>
+            <CompanyLeadSoundAlert companyId={demoMode ? null : activeCompanyId} counts={leadCounts} />
             <View style={[wallHeaderStyle, narrowLayout ? wallHeaderNarrowStyle : null]}>
                 <View style={[wallHeaderLeftStyle, narrowLayout ? wallHeaderLeftNarrowStyle : null]}>
                     <Pressable
