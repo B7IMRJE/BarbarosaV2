@@ -1,7 +1,7 @@
 import HomeHeader from '../../components/HomeHeader';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
@@ -293,6 +293,28 @@ export default function EstimateScreen() {
 
         return focusExpandedSection(workspaceDetailsRef);
     }, [expandedWorkspaceSection]);
+
+    useEffect(() => {
+        let secondFrame: number | null = null;
+        const scrollToStepStart = () => estimateScrollRef.current?.scrollTo({
+            y: 0,
+            animated: guidedStep !== 'build',
+        });
+
+        if (typeof requestAnimationFrame === 'function') {
+            const firstFrame = requestAnimationFrame(() => {
+                secondFrame = requestAnimationFrame(scrollToStepStart);
+            });
+
+            return () => {
+                cancelAnimationFrame(firstFrame);
+                if (secondFrame !== null) cancelAnimationFrame(secondFrame);
+            };
+        }
+
+        const timeout = setTimeout(scrollToStepStart, 0);
+        return () => clearTimeout(timeout);
+    }, [guidedStep]);
 
     function focusExpandedSection(targetRef: { readonly current: View | null }) {
         let secondFrame: number | null = null;
@@ -1951,6 +1973,7 @@ export default function EstimateScreen() {
         requirementUploadInProgress,
         saveRequirementMeasurement,
         savingGuidedOption,
+        scrollRef: estimateScrollRef,
         selectEstimateCategory,
         selectedCategory,
         selectedWorkType,
@@ -2959,6 +2982,7 @@ type GuidedEstimateBuilderProps = {
     requirementUploadInProgress: boolean;
     saveRequirementMeasurement: (label: string) => Promise<void>;
     savingGuidedOption: boolean;
+    scrollRef: RefObject<ScrollView | null>;
     selectEstimateCategory: (category: EstimateOptionCategory) => void;
     selectedCategory: EstimateOptionCategory;
     selectedWorkType: EstimateWorkType | null;
@@ -3036,6 +3060,7 @@ function renderGuidedEstimateBuilder({
     requirementUploadInProgress,
     saveRequirementMeasurement,
     savingGuidedOption,
+    scrollRef,
     selectEstimateCategory,
     selectedCategory,
     selectedWorkType,
@@ -3086,7 +3111,7 @@ function renderGuidedEstimateBuilder({
 
     return (
         <ScrollView
-            ref={undefined}
+            ref={scrollRef}
             style={guidedScreenStyle}
             contentContainerStyle={guidedContentStyle}
             contentInsetAdjustmentBehavior="automatic"
@@ -3423,21 +3448,19 @@ function renderGuidedEstimateBuilder({
                             Option {estimateChoices.length} added
                         </Text>
                         <Text style={guidedDecisionTextStyle}>Would you like to add another option for this customer?</Text>
-                        <View style={guidedDecisionButtonsStyle}>
-                            <TouchableOpacity onPress={() => setGuidedStep('recommendations')} style={guidedPrimaryButtonStyle}>
-                                <Text style={guidedPrimaryButtonTextStyle}>Add another option</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setGuidedStep('review')} style={guidedSecondaryButtonStyle}>
-                                <Text style={guidedSecondaryButtonTextStyle}>Review quote</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <Text style={guidedDecisionTextStyle}>Choose a related option below, search the Price Book, or continue with the options you have.</Text>
+                        <TouchableOpacity onPress={() => setGuidedStep('review')} style={guidedPrimaryButtonStyle}>
+                            <Text style={guidedPrimaryButtonTextStyle}>No — review & continue</Text>
+                        </TouchableOpacity>
                     </View>
                 )}
 
-                {guidedStep === 'recommendations' && (
+                {(guidedStep === 'option_added' || guidedStep === 'recommendations') && (
                     <View style={guidedSectionStyle}>
                         <Text style={guidedStepStyle}>RELATED OPTIONS</Text>
-                        <Text style={guidedSectionTitleStyle}>Based only on documented findings</Text>
+                        <Text style={guidedSectionTitleStyle}>
+                            {guidedStep === 'option_added' ? 'Yes — choose another option' : 'Choose another customer option'}
+                        </Text>
                         <Text style={guidedSectionDescriptionStyle}>
                             HomeOS shows up to four rule-based choices. Nothing is added until you tap Add option.
                         </Text>
@@ -4754,12 +4777,6 @@ const guidedDecisionTextStyle = {
     fontSize: 15,
     lineHeight: 22,
     textAlign: 'center' as const,
-};
-
-const guidedDecisionButtonsStyle = {
-    width: '100%' as const,
-    gap: 10,
-    marginTop: 6,
 };
 
 const guidedRecommendationGridStyle = {
