@@ -9,7 +9,6 @@ import {
     canManageEstimatePricing,
     canUseEstimatePricing,
     createEstimateRequirementSkipAnswer,
-    estimateCategoryTemplates,
     estimateRequirementId,
     formatMoney,
     getEstimateCategoriesForWorkType,
@@ -17,7 +16,6 @@ import {
     getEstimateCategoryTemplate,
     getMeasurementRequirementPrompt,
     inferEstimateCategoryForDraftItem,
-    inferEstimateCategoryFromDraft,
     isEstimateCategoryForWorkType,
     isAnswerComplete,
     isMeasurementRequirementAnswer,
@@ -66,6 +64,12 @@ import {
     saveEstimateOptionSet,
     type PersistableEstimateChoice,
 } from '../../lib/estimateOptionPersistence';
+import {
+    buildRecommendedEstimateChoice,
+    getEligibleEstimateRecommendations,
+    type EligibleEstimateRecommendation,
+    type EstimateRecommendationRelationship,
+} from '../../lib/estimate-option-rulebook';
 import {
     canUseCompanyEstimateWorkflow,
     loadCurrentCompanyEstimateAccess,
@@ -128,6 +132,8 @@ type RequirementUploadState = {
 type RequirementKind = 'photo' | 'measurement';
 type EstimateWorkspaceSection = 'pricing' | 'editor' | 'presentation' | 'findings';
 type PriceAdjustmentDirection = 'discount' | 'increase';
+type GuidedEstimateStep = 'build' | 'option_added' | 'recommendations' | 'review';
+type GuidedPriceAdjustmentMode = 'none' | 'discount' | 'markup' | 'override';
 
 const discountReasonSuggestions = [
     'Military Discount',
@@ -137,7 +143,7 @@ const discountReasonSuggestions = [
     'Promotional Discount',
 ];
 
-const requirementSkipReasons: Array<{ label: string; reason: EstimateRequirementSkipReason | null }> = [
+const requirementSkipReasons: { label: string; reason: EstimateRequirementSkipReason | null }[] = [
     { label: 'Skip for now', reason: null },
     { label: 'Inaccessible', reason: 'inaccessible' },
     { label: 'Unsafe', reason: 'unsafe_to_capture' },
@@ -211,6 +217,14 @@ export default function EstimateScreen() {
     const [customPriceAdjustmentByChoiceId, setCustomPriceAdjustmentByChoiceId] = useState<Record<string, string>>({});
     const [priceAdjustmentDirectionByChoiceId, setPriceAdjustmentDirectionByChoiceId] = useState<Record<string, PriceAdjustmentDirection>>({});
     const [priceAdjustmentLabelByChoiceId, setPriceAdjustmentLabelByChoiceId] = useState<Record<string, string>>({});
+    const [guidedStep, setGuidedStep] = useState<GuidedEstimateStep>('build');
+    const [documentationExpanded, setDocumentationExpanded] = useState(false);
+    const [scopePickerExpanded, setScopePickerExpanded] = useState(false);
+    const [relatedSearch, setRelatedSearch] = useState('');
+    const [guidedAdjustmentMode, setGuidedAdjustmentMode] = useState<GuidedPriceAdjustmentMode>('none');
+    const [guidedAdjustmentValue, setGuidedAdjustmentValue] = useState('');
+    const [guidedDiscountLabel, setGuidedDiscountLabel] = useState('');
+    const [savingGuidedOption, setSavingGuidedOption] = useState(false);
     const estimateScrollRef = useRef<ScrollView | null>(null);
     const estimateContentRef = useRef<View | null>(null);
     const expandedChecklistRef = useRef<View | null>(null);
@@ -342,6 +356,14 @@ export default function EstimateScreen() {
         setRequirementUploadByKey({});
         setMeasurementDraftByKey({});
         setMeasurementErrorByKey({});
+        setGuidedStep('build');
+        setDocumentationExpanded(false);
+        setScopePickerExpanded(false);
+        setRelatedSearch('');
+        setGuidedAdjustmentMode('none');
+        setGuidedAdjustmentValue('');
+        setGuidedDiscountLabel('');
+        setSavingGuidedOption(false);
         setMessage('Loading estimate draft...');
 
         if (providerContextIncomplete) {
@@ -409,12 +431,6 @@ export default function EstimateScreen() {
             loadEstimateDraft(scope),
             loadEstimateDraftContext(scope),
         ]);
-        const requestedDraftItem = requestedItemSlug
-            ? draftItems.find((item) =>
-                item.item_slug?.toLowerCase() === requestedItemSlug.toLowerCase() ||
-                item.id.toLowerCase() === requestedItemSlug.toLowerCase()
-            )
-            : null;
         const inferredCategory = inferEstimateCategoryForDraftItem(
             draftItems,
             requestedItemSlug,
@@ -438,6 +454,13 @@ export default function EstimateScreen() {
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
         setPersistedOptionChoices([]);
+        setGuidedStep('build');
+        setDocumentationExpanded(false);
+        setScopePickerExpanded(false);
+        setRelatedSearch('');
+        setGuidedAdjustmentMode('none');
+        setGuidedAdjustmentValue('');
+        setGuidedDiscountLabel('');
         setMessage(providerModeContext && draftItems.length === 0 && !nextDraftContext
             ? 'No provider estimate draft found.'
             : ''
@@ -495,6 +518,7 @@ export default function EstimateScreen() {
             if (!savedSet || savedSet.options.length === 0) return;
 
             setPersistedOptionChoices(savedSet.options);
+            setGuidedStep('review');
             setSelectedChoiceId(savedSet.selectedSourceChoiceId || '');
             setTechnicianApproved(!!savedSet.technicianApprovedAt);
             setPriceAdjustmentByChoiceId(savedSet.options.reduce<Record<string, number>>((adjustments, choice) => {
@@ -563,6 +587,13 @@ export default function EstimateScreen() {
         setCustomPriceAdjustmentByChoiceId({});
         setPriceAdjustmentDirectionByChoiceId({});
         setPriceAdjustmentLabelByChoiceId({});
+        setGuidedStep('build');
+        setDocumentationExpanded(false);
+        setScopePickerExpanded(false);
+        setRelatedSearch('');
+        setGuidedAdjustmentMode('none');
+        setGuidedAdjustmentValue('');
+        setGuidedDiscountLabel('');
         setMessage('Estimate draft cleared. Start a fresh estimate from the assigned job or Client HomeOS item.');
     }
 
@@ -615,12 +646,18 @@ export default function EstimateScreen() {
 
     function selectWorkType(workType: EstimateWorkType) {
         const categories = getEstimateCategoriesForWorkType(workType);
+        const currentServiceCategory = getEstimateCategoryTemplate(selectedCategory).serviceCategory;
+        const matchingCategory = items.length > 0
+            ? categories.find((category) => category.serviceCategory === currentServiceCategory) || null
+            : null;
 
         setSelectedWorkType(workType);
-        setEstimateCategoryChosen(false);
-        setSelectedCategory(categories[0]?.id || 'faucet_replacement');
+        setSelectedCategory(matchingCategory?.id || categories[0]?.id || 'faucet_replacement');
         resetEstimateChecklist();
-        setMessage(`${estimateWorkTypeOptions.find((option) => option.id === workType)?.label || 'Work type'} selected. Now choose the exact service.`);
+        setEstimateCategoryChosen(Boolean(matchingCategory));
+        setMessage(matchingCategory
+            ? `${estimateWorkTypeOptions.find((option) => option.id === workType)?.label || 'Work type'} selected for ${matchingCategory.label}.`
+            : `${estimateWorkTypeOptions.find((option) => option.id === workType)?.label || 'Work type'} selected. Now choose the exact service.`);
     }
 
     function selectEstimateCategory(category: EstimateOptionCategory) {
@@ -652,6 +689,12 @@ export default function EstimateScreen() {
         setCustomPriceAdjustmentByChoiceId({});
         setPriceAdjustmentDirectionByChoiceId({});
         setPriceAdjustmentLabelByChoiceId({});
+        setGuidedStep('build');
+        setDocumentationExpanded(false);
+        setRelatedSearch('');
+        setGuidedAdjustmentMode('none');
+        setGuidedAdjustmentValue('');
+        setGuidedDiscountLabel('');
     }
 
     function configureDraftItem(item: EstimateDraftItem) {
@@ -1227,6 +1270,173 @@ export default function EstimateScreen() {
         setChoicePriceAdjustment(choiceId, magnitude, null);
     }
 
+    function applyGuidedPriceAdjustment(choice: Phase1EstimateChoice) {
+        if (guidedAdjustmentMode === 'none') {
+            resetChoicePrice(choice);
+            setGuidedAdjustmentValue('');
+            setGuidedDiscountLabel('');
+            return;
+        }
+
+        const enteredValue = Number(guidedAdjustmentValue);
+
+        if (!Number.isFinite(enteredValue) || enteredValue <= 0) {
+            setMessage(guidedAdjustmentMode === 'override'
+                ? 'Enter the authorized final option price.'
+                : 'Enter a percentage greater than 0.');
+            return;
+        }
+
+        if (guidedAdjustmentMode === 'discount') {
+            const label = guidedDiscountLabel.trim();
+
+            if (!label) {
+                setMessage('Name the discount before applying it.');
+                return;
+            }
+
+            if (enteredValue > 100) {
+                setMessage('A discount cannot be greater than 100%.');
+                return;
+            }
+
+            setChoicePriceAdjustment(choice.id, -enteredValue, label);
+            return;
+        }
+
+        if (guidedAdjustmentMode === 'markup') {
+            if (enteredValue > 500) {
+                setMessage('A markup cannot be greater than 500%.');
+                return;
+            }
+
+            setChoicePriceAdjustment(choice.id, enteredValue, null);
+            return;
+        }
+
+        const baseTotal = choice.pricingResult.totalAmount;
+        const percentage = baseTotal > 0
+            ? ((enteredValue - baseTotal) / baseTotal) * 100
+            : 0;
+
+        setChoicePriceAdjustment(
+            choice.id,
+            percentage,
+            percentage < 0 ? 'Authorized Price Override' : null,
+        );
+        setMessage(`Authorized final price set to ${formatMoney(enteredValue)}. Management approval applies when company limits are exceeded.`);
+    }
+
+    async function addCurrentChoiceToOptions(choice: Phase1EstimateChoice) {
+        const nextId = nextGuidedOptionId(persistedOptionChoices);
+        const baseChoice = phase1Workspace.choices.find((candidate) => candidate.id === choice.id);
+        const nextChoice: PersistableEstimateChoice = {
+            ...choice,
+            id: nextId,
+            displayOrder: persistedOptionChoices.length + 1,
+            basePricingResult: baseChoice?.pricingResult || choice.pricingResult,
+            priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] || 0,
+            priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
+        };
+
+        await persistGuidedOptions(
+            [...persistedOptionChoices, nextChoice],
+            `${nextChoice.title} added as Option ${persistedOptionChoices.length + 1}.`,
+            'option_added',
+        );
+    }
+
+    async function addRecommendedOption(
+        recommendation: EligibleEstimateRecommendation,
+        baseChoice: PersistableEstimateChoice,
+    ) {
+        if (!estimateAccess) return;
+
+        const nextChoice = buildRecommendedEstimateChoice({
+            id: nextGuidedOptionId(persistedOptionChoices),
+            companyId: estimateAccess.companyId,
+            baseChoice,
+            recommendation,
+            priceBookItems,
+            displayOrder: persistedOptionChoices.length + 1,
+        });
+
+        if (!nextChoice) {
+            setMessage('That option could not be priced from the active company Price Book.');
+            return;
+        }
+
+        await persistGuidedOptions(
+            [...persistedOptionChoices, nextChoice],
+            `${nextChoice.title} added as Option ${persistedOptionChoices.length + 1}.`,
+            'option_added',
+        );
+    }
+
+    async function addSearchedPriceBookOption(
+        item: CompanyPriceBookItem,
+        baseChoice: PersistableEstimateChoice,
+    ) {
+        const recommendation: EligibleEstimateRecommendation = {
+            id: `manual-${item.price_key}`,
+            categories: [selectedCategory],
+            title: item.name,
+            reason: 'The technician selected this active company Price Book item as a separate customer choice.',
+            relationship: 'alternative',
+            priceKeys: [item.price_key],
+            supersedesPriceKeys: baseChoice.pricingResult.lineItems.map((line) => line.code),
+            availablePriceKeys: [item.price_key],
+            priority: 100,
+        };
+
+        await addRecommendedOption(recommendation, baseChoice);
+    }
+
+    async function removeGuidedOption(choiceId: string) {
+        const nextChoices = persistedOptionChoices
+            .filter((choice) => choice.id !== choiceId)
+            .map((choice, index) => ({ ...choice, displayOrder: index + 1 }));
+
+        await persistGuidedOptions(
+            nextChoices,
+            'Option removed from this estimate.',
+            nextChoices.length > 0 ? 'review' : 'build',
+        );
+    }
+
+    async function persistGuidedOptions(
+        nextChoices: PersistableEstimateChoice[],
+        successMessage: string,
+        nextStep: GuidedEstimateStep,
+    ) {
+        if (savingGuidedOption) return;
+
+        setSavingGuidedOption(true);
+        setMessage('Saving estimate options...');
+
+        try {
+            const session = await resolveSessionForDraft(selectedCategory);
+
+            if (!session) return;
+
+            await saveEstimateOptionSet({
+                sessionId: session.id,
+                options: nextChoices,
+                selectedSourceChoiceId: selectedChoiceId || null,
+                technicianApproved: false,
+            });
+            setPersistedOptionChoices(nextChoices);
+            setTechnicianApproved(false);
+            setGuidedStep(nextStep);
+            setRelatedSearch('');
+            setMessage(successMessage);
+        } catch (error) {
+            setMessage(`Option was not added: ${error instanceof Error ? error.message : 'The estimate could not be saved.'}`);
+        } finally {
+            setSavingGuidedOption(false);
+        }
+    }
+
     function redoOptionDrafts() {
         setSelectedChoiceId('');
         setDetailChoiceId('');
@@ -1378,6 +1588,29 @@ export default function EstimateScreen() {
 
             await saveEstimateSessionAnswer(sessionId, key, value);
         }));
+    }
+
+    function updateGuidedTechnicianNotes(value: string) {
+        setDraftContext((current) => current ? {
+            ...current,
+            issue_summary: value,
+            updated_at: new Date().toISOString(),
+        } : current);
+        setTechnicianApproved(false);
+    }
+
+    async function saveGuidedTechnicianNotes() {
+        if (!estimateAccess || !draftContext) return;
+
+        try {
+            await saveEstimateDraftContext(draftContext, {
+                userId: estimateAccess.userId,
+                companyId: estimateAccess.companyId,
+                propertyId: draftContext.property_id || requestedPropertyId,
+            });
+        } catch (error) {
+            setMessage(`Technician notes could not be saved: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
     }
 
     async function draftWithAi(workspaceChoices: Phase1EstimateChoice[], draftGate: EstimateDraftGate) {
@@ -1594,10 +1827,7 @@ export default function EstimateScreen() {
             ['returnTo', estimateReturnRoute],
         ]
     );
-    const choiceSource: PersistableEstimateChoice[] = persistedOptionChoices.length > 0
-        ? persistedOptionChoices
-        : phase1Workspace.choices;
-    const allEstimateChoices = choiceSource.map((choice) => {
+    const decorateEstimateChoice = (choice: PersistableEstimateChoice) => {
         const baseChoice = choice.basePricingResult
             ? { ...choice, pricingResult: choice.basePricingResult }
             : choice;
@@ -1613,7 +1843,16 @@ export default function EstimateScreen() {
             priceAdjustmentPercentage,
             priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
         };
-    });
+    };
+    const candidateEstimateChoices = phase1Workspace.choices.map(decorateEstimateChoice);
+    const currentCandidateChoice = candidateEstimateChoices.find((choice) => choice.id === selectedChoiceId)
+        || candidateEstimateChoices.find((choice) => choice.kind === 'individual')
+        || candidateEstimateChoices[0]
+        || null;
+    const choiceSource: PersistableEstimateChoice[] = persistedOptionChoices.length > 0
+        ? persistedOptionChoices
+        : phase1Workspace.choices;
+    const allEstimateChoices = choiceSource.map(decorateEstimateChoice);
     const estimateChoices = estimateScopeSelected
         ? allEstimateChoices.filter((choice) => !removedChoiceIds.includes(choice.id))
         : [];
@@ -1637,6 +1876,103 @@ export default function EstimateScreen() {
     const editorStatusHeadline = readinessIssueLabels.length > 0
         ? readinessHeadline
         : phase1Workspace.presentationGate.blockers[0] || readinessHeadline;
+    const activeDraftItem = requestedItemSlug
+        ? items.find((item) => item.item_slug === requestedItemSlug || item.id === requestedItemSlug) || items[0] || null
+        : items[0] || null;
+    const recommendationBaseChoice = persistedOptionChoices[0] || null;
+    const recommendationPriceKeys = recommendationBaseChoice
+        ? recommendationBaseChoice.pricingResult.lineItems.map((line) => line.code)
+        : currentCandidateChoice?.pricingResult.lineItems.map((line) => line.code) || [];
+    const eligibleRecommendations = getEligibleEstimateRecommendations({
+        category: selectedCategory,
+        answers,
+        currentPriceKeys: recommendationPriceKeys,
+        priceBookItems,
+    });
+    const normalizedRelatedSearch = relatedSearch.trim().toLowerCase();
+    const relatedSearchResults = normalizedRelatedSearch.length < 2
+        ? []
+        : priceBookItems
+            .filter((item) => item.active && Number(item.recommended_selling_price ?? item.base_price) > 0)
+            .filter((item) => !recommendationPriceKeys.includes(item.price_key))
+            .filter((item) => [item.name, item.category, item.customer_description]
+                .some((value) => String(value || '').toLowerCase().includes(normalizedRelatedSearch)))
+            .slice(0, 8);
+
+    if (isGuidedEstimateBuilderEnabled()) return renderGuidedEstimateBuilder({
+        activeDraftItem,
+        aiDrafting,
+        answers,
+        approveForPresentation,
+        canManagePricing: canManageEstimatePricing(estimateAccess),
+        canUsePricing: canUseEstimatePricing(estimateAccess),
+        categoryPickerExpanded: scopePickerExpanded,
+        chooseRequirementPhoto,
+        clearCurrentDraft,
+        clearSkippedRequirement,
+        clearRequirementMeasurement,
+        companyPriceBookRoute,
+        currentCandidateChoice,
+        documentationExpanded,
+        draftContext,
+        eligibleRecommendations,
+        estimateAccess,
+        estimateChoices,
+        estimateScopeSelected,
+        getCategoriesForWorkType: getEstimateCategoriesForWorkType,
+        goBackFromEstimate,
+        goBackToClientHomeOs,
+        goBackToItem,
+        goToCompanyDashboard,
+        guidedAdjustmentMode,
+        guidedAdjustmentValue,
+        guidedDiscountLabel,
+        guidedStep,
+        items,
+        measurementDraftByKey,
+        measurementErrorByKey,
+        message,
+        openHomeownerApproval,
+        persistAddCurrent: addCurrentChoiceToOptions,
+        persistAddRecommendation: addRecommendedOption,
+        persistAddSearchResult: addSearchedPriceBookOption,
+        persistRemoveOption: removeGuidedOption,
+        phase1Workspace,
+        photoPreviewByKey,
+        priceBookItems,
+        priceBookMessage,
+        providerModeContext: Boolean(providerModeContext),
+        recommendationBaseChoice,
+        relatedSearch,
+        relatedSearchResults,
+        removeRequirementPhoto,
+        requestedMode,
+        requirementUploadByKey,
+        requirementUploadInProgress,
+        saveRequirementMeasurement,
+        savingGuidedOption,
+        selectEstimateCategory,
+        selectedCategory,
+        selectedWorkType,
+        selectWorkType,
+        setCategoryPickerExpanded: setScopePickerExpanded,
+        setDocumentationExpanded,
+        setGuidedAdjustmentMode,
+        setGuidedAdjustmentValue,
+        setGuidedDiscountLabel,
+        setGuidedStep,
+        setRelatedSearch,
+        skipRequirement,
+        technicianApproved,
+        updateAnswer,
+        updateChoiceCopy,
+        updateGuidedTechnicianNotes,
+        updateMeasurementDraft,
+        toggleMultiAnswer,
+        applyGuidedPriceAdjustment,
+        draftWithAi,
+        saveGuidedTechnicianNotes,
+    });
 
     return (
         <ScrollView
@@ -2565,6 +2901,704 @@ export default function EstimateScreen() {
     );
 }
 
+type GuidedEstimateBuilderProps = {
+    activeDraftItem: EstimateDraftItem | null;
+    aiDrafting: boolean;
+    answers: EstimateAnswerSet;
+    approveForPresentation: (choices: Phase1EstimateChoice[]) => Promise<void>;
+    canManagePricing: boolean;
+    canUsePricing: boolean;
+    categoryPickerExpanded: boolean;
+    chooseRequirementPhoto: (label: string, capture: boolean) => Promise<void>;
+    clearCurrentDraft: () => Promise<void>;
+    clearSkippedRequirement: (kind: RequirementKind, label: string) => Promise<void>;
+    clearRequirementMeasurement: (label: string) => Promise<void>;
+    companyPriceBookRoute: string;
+    currentCandidateChoice: Phase1EstimateChoice | null;
+    documentationExpanded: boolean;
+    draftContext: EstimateDraftContext | null;
+    eligibleRecommendations: EligibleEstimateRecommendation[];
+    estimateAccess: CompanyPermissionAccess;
+    estimateChoices: Phase1EstimateChoice[];
+    estimateScopeSelected: boolean;
+    getCategoriesForWorkType: typeof getEstimateCategoriesForWorkType;
+    goBackFromEstimate: () => void;
+    goBackToClientHomeOs: () => void;
+    goBackToItem: () => void;
+    goToCompanyDashboard: () => void;
+    guidedAdjustmentMode: GuidedPriceAdjustmentMode;
+    guidedAdjustmentValue: string;
+    guidedDiscountLabel: string;
+    guidedStep: GuidedEstimateStep;
+    items: EstimateDraftItem[];
+    measurementDraftByKey: Record<string, string>;
+    measurementErrorByKey: Record<string, string>;
+    message: string;
+    openHomeownerApproval: () => Promise<void>;
+    persistAddCurrent: (choice: Phase1EstimateChoice) => Promise<void>;
+    persistAddRecommendation: (
+        recommendation: EligibleEstimateRecommendation,
+        baseChoice: PersistableEstimateChoice,
+    ) => Promise<void>;
+    persistAddSearchResult: (
+        item: CompanyPriceBookItem,
+        baseChoice: PersistableEstimateChoice,
+    ) => Promise<void>;
+    persistRemoveOption: (choiceId: string) => Promise<void>;
+    phase1Workspace: ReturnType<typeof buildEstimateOptionWorkspace>;
+    photoPreviewByKey: Record<string, string>;
+    priceBookItems: CompanyPriceBookItem[];
+    priceBookMessage: string;
+    providerModeContext: boolean;
+    recommendationBaseChoice: PersistableEstimateChoice | null;
+    relatedSearch: string;
+    relatedSearchResults: CompanyPriceBookItem[];
+    removeRequirementPhoto: (label: string) => Promise<void>;
+    requestedMode: string | null;
+    requirementUploadByKey: Record<string, RequirementUploadState>;
+    requirementUploadInProgress: boolean;
+    saveRequirementMeasurement: (label: string) => Promise<void>;
+    savingGuidedOption: boolean;
+    selectEstimateCategory: (category: EstimateOptionCategory) => void;
+    selectedCategory: EstimateOptionCategory;
+    selectedWorkType: EstimateWorkType | null;
+    selectWorkType: (workType: EstimateWorkType) => void;
+    setCategoryPickerExpanded: (expanded: boolean) => void;
+    setDocumentationExpanded: (expanded: boolean) => void;
+    setGuidedAdjustmentMode: (mode: GuidedPriceAdjustmentMode) => void;
+    setGuidedAdjustmentValue: (value: string) => void;
+    setGuidedDiscountLabel: (value: string) => void;
+    setGuidedStep: (step: GuidedEstimateStep) => void;
+    setRelatedSearch: (value: string) => void;
+    skipRequirement: (
+        kind: RequirementKind,
+        label: string,
+        reason: EstimateRequirementSkipReason | null,
+    ) => Promise<void>;
+    technicianApproved: boolean;
+    updateAnswer: (question: EstimateQuestionDefinition, value: string | number | boolean) => void;
+    updateChoiceCopy: (choiceId: string, field: keyof EditableChoiceCopy, value: string) => void;
+    updateGuidedTechnicianNotes: (value: string) => void;
+    updateMeasurementDraft: (label: string, value: string) => void;
+    toggleMultiAnswer: (question: EstimateQuestionDefinition, value: string) => void;
+    applyGuidedPriceAdjustment: (choice: Phase1EstimateChoice) => void;
+    draftWithAi: (choices: Phase1EstimateChoice[], draftGate: EstimateDraftGate) => Promise<void>;
+    saveGuidedTechnicianNotes: () => Promise<void>;
+};
+
+function renderGuidedEstimateBuilder({
+    activeDraftItem,
+    aiDrafting,
+    answers,
+    approveForPresentation,
+    canManagePricing,
+    canUsePricing,
+    categoryPickerExpanded,
+    chooseRequirementPhoto,
+    clearCurrentDraft,
+    clearSkippedRequirement,
+    clearRequirementMeasurement,
+    companyPriceBookRoute,
+    currentCandidateChoice,
+    documentationExpanded,
+    draftContext,
+    eligibleRecommendations,
+    estimateChoices,
+    estimateScopeSelected,
+    getCategoriesForWorkType,
+    goBackFromEstimate,
+    goBackToClientHomeOs,
+    goBackToItem,
+    goToCompanyDashboard,
+    guidedAdjustmentMode,
+    guidedAdjustmentValue,
+    guidedDiscountLabel,
+    guidedStep,
+    items,
+    measurementDraftByKey,
+    measurementErrorByKey,
+    message,
+    openHomeownerApproval,
+    persistAddCurrent,
+    persistAddRecommendation,
+    persistAddSearchResult,
+    persistRemoveOption,
+    phase1Workspace,
+    photoPreviewByKey,
+    priceBookMessage,
+    providerModeContext,
+    recommendationBaseChoice,
+    relatedSearch,
+    relatedSearchResults,
+    removeRequirementPhoto,
+    requestedMode,
+    requirementUploadByKey,
+    requirementUploadInProgress,
+    saveRequirementMeasurement,
+    savingGuidedOption,
+    selectEstimateCategory,
+    selectedCategory,
+    selectedWorkType,
+    selectWorkType,
+    setCategoryPickerExpanded,
+    setDocumentationExpanded,
+    setGuidedAdjustmentMode,
+    setGuidedAdjustmentValue,
+    setGuidedDiscountLabel,
+    setGuidedStep,
+    setRelatedSearch,
+    skipRequirement,
+    technicianApproved,
+    updateAnswer,
+    updateChoiceCopy,
+    updateGuidedTechnicianNotes,
+    updateMeasurementDraft,
+    toggleMultiAnswer,
+    applyGuidedPriceAdjustment,
+    draftWithAi,
+    saveGuidedTechnicianNotes,
+}: GuidedEstimateBuilderProps) {
+    const baseCandidate = currentCandidateChoice
+        ? phase1Workspace.choices.find((choice) => choice.id === currentCandidateChoice.id) || currentCandidateChoice
+        : null;
+    const baseTotal = baseCandidate?.pricingResult.totalAmount || 0;
+    const finalTotal = currentCandidateChoice?.pricingResult.totalAmount || 0;
+    const adjustmentAmount = finalTotal - baseTotal;
+    const missingQuestionCount = phase1Workspace.answerValidation.missingRequiredQuestionLabels.length;
+    const missingPhotoCount = phase1Workspace.answerValidation.missingRequiredPhotoLabels.length;
+    const missingMeasurementCount = phase1Workspace.answerValidation.missingRequiredMeasurementLabels.length;
+    const attentionParts = [
+        missingQuestionCount > 0 ? `${missingQuestionCount} question${missingQuestionCount === 1 ? '' : 's'}` : '',
+        missingPhotoCount > 0 ? `${missingPhotoCount} photo${missingPhotoCount === 1 ? '' : 's'}` : '',
+        missingMeasurementCount > 0 ? `${missingMeasurementCount} measurement${missingMeasurementCount === 1 ? '' : 's'}` : '',
+        phase1Workspace.pricingSetupRequired ? 'pricing' : '',
+    ].filter(Boolean);
+    const canAddCurrent = Boolean(
+        estimateScopeSelected &&
+        currentCandidateChoice &&
+        currentCandidateChoice.pricingResult.totalAmount > 0 &&
+        currentCandidateChoice.pricingResult.missingPricingInputs.length === 0
+    );
+    const canApprove = phase1Workspace.answerValidation.complete &&
+        !phase1Workspace.pricingSetupRequired &&
+        estimateChoices.length > 0 &&
+        !requirementUploadInProgress;
+
+    return (
+        <ScrollView
+            ref={undefined}
+            style={guidedScreenStyle}
+            contentContainerStyle={guidedContentStyle}
+            contentInsetAdjustmentBehavior="automatic"
+        >
+            <View style={guidedShellStyle}>
+                <HomeHeader />
+
+                <View style={guidedTopBarStyle}>
+                    <TouchableOpacity onPress={providerModeContext ? goBackToItem : goBackFromEstimate} style={guidedBackButtonStyle}>
+                        <Text style={guidedBackButtonTextStyle}>{requestedMode === 'techos' ? 'Back to TechOS' : 'Back'}</Text>
+                    </TouchableOpacity>
+                    <View style={guidedTopActionsStyle}>
+                        {providerModeContext && (
+                            <TouchableOpacity onPress={goBackToClientHomeOs} style={guidedTextButtonStyle}>
+                                <Text style={guidedTextButtonTextStyle}>Client HomeOS</Text>
+                            </TouchableOpacity>
+                        )}
+                        {providerModeContext && (
+                            <TouchableOpacity onPress={goToCompanyDashboard} style={guidedTextButtonStyle}>
+                                <Text style={guidedTextButtonTextStyle}>Company</Text>
+                            </TouchableOpacity>
+                        )}
+                        <TouchableOpacity onPress={clearCurrentDraft} style={guidedTextButtonStyle}>
+                            <Text style={guidedTextButtonTextStyle}>Clear</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                <View style={guidedHeroStyle}>
+                    <Text style={guidedEyebrowStyle}>CREATE QUOTE / ESTIMATE</Text>
+                    <Text style={guidedTitleStyle}>Build one clear option at a time</Text>
+                    <Text style={guidedSubtitleStyle}>
+                        Document the selected work, confirm its price and summary, then decide whether the customer needs another option.
+                    </Text>
+                </View>
+
+                <View style={guidedProgressStyle}>
+                    {['1 Work', '2 Findings', '3 Price & summary', '4 Options'].map((label, index) => (
+                        <View key={label} style={guidedProgressItemStyle}>
+                            <View style={index <= guidedProgressIndex(guidedStep, estimateScopeSelected) ? guidedProgressDotActiveStyle : guidedProgressDotStyle} />
+                            <Text style={guidedProgressTextStyle}>{label}</Text>
+                        </View>
+                    ))}
+                </View>
+
+                {!!message && (
+                    <View style={guidedMessageStyle}>
+                        <Text style={guidedMessageTextStyle}>{message}</Text>
+                    </View>
+                )}
+
+                {guidedStep === 'build' && (
+                    <>
+                        <View style={guidedSectionStyle}>
+                            <View style={guidedSectionHeadingRowStyle}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={guidedStepStyle}>STEP 1</Text>
+                                    <Text style={guidedSectionTitleStyle}>Selected work</Text>
+                                </View>
+                                {estimateScopeSelected && (
+                                    <TouchableOpacity onPress={() => setCategoryPickerExpanded(!categoryPickerExpanded)} style={guidedTextButtonStyle}>
+                                        <Text style={guidedTextButtonTextStyle}>Change service</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+
+                            {!!activeDraftItem && (
+                                <View style={guidedSelectedItemStyle}>
+                                    <View style={guidedSelectedItemIconStyle}><Text style={guidedSelectedItemIconTextStyle}>✓</Text></View>
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={guidedSelectedItemTitleStyle}>{activeDraftItem.name}</Text>
+                                        <Text style={guidedSelectedItemMetaStyle}>
+                                            {[activeDraftItem.location, activeDraftItem.parent_area].filter(Boolean).join(' · ') || activeDraftItem.system}
+                                        </Text>
+                                    </View>
+                                    <Text style={guidedSelectedItemBadgeStyle}>{phase1Workspace.template.serviceCategory}</Text>
+                                </View>
+                            )}
+
+                            {(!estimateScopeSelected || categoryPickerExpanded) && (
+                                <View style={guidedPickerStyle}>
+                                    <Text style={guidedPromptStyle}>What kind of work is this?</Text>
+                                    <View style={guidedTwoColumnStyle}>
+                                        {estimateWorkTypeOptions.map((option) => (
+                                            <TouchableOpacity
+                                                key={option.id}
+                                                onPress={() => selectWorkType(option.id)}
+                                                style={selectedWorkType === option.id ? guidedChoiceCardSelectedStyle : guidedChoiceCardStyle}
+                                            >
+                                                <Text style={guidedChoiceTitleStyle}>{option.label}</Text>
+                                                <Text style={guidedChoiceDescriptionStyle}>{option.description}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                    {!!selectedWorkType && (
+                                        <>
+                                            <Text style={guidedPromptStyle}>Choose the exact service</Text>
+                                            <View style={guidedCategoryGridStyle}>
+                                                {getCategoriesForWorkType(selectedWorkType).map((template) => (
+                                                    <TouchableOpacity
+                                                        key={template.id}
+                                                        onPress={() => {
+                                                            selectEstimateCategory(template.id);
+                                                            setCategoryPickerExpanded(false);
+                                                        }}
+                                                        style={selectedCategory === template.id && estimateScopeSelected
+                                                            ? guidedCategoryChipSelectedStyle
+                                                            : guidedCategoryChipStyle}
+                                                    >
+                                                        <Text style={selectedCategory === template.id && estimateScopeSelected
+                                                            ? guidedCategoryChipSelectedTextStyle
+                                                            : guidedCategoryChipTextStyle}
+                                                        >
+                                                            {template.label}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                            </View>
+                                        </>
+                                    )}
+                                </View>
+                            )}
+
+                            {estimateScopeSelected && !categoryPickerExpanded && (
+                                <View style={guidedServiceSummaryStyle}>
+                                    <Text style={guidedServiceSummaryLabelStyle}>Service selected</Text>
+                                    <Text style={guidedServiceSummaryTitleStyle}>{phase1Workspace.template.label}</Text>
+                                </View>
+                            )}
+                        </View>
+
+                        {estimateScopeSelected && !categoryPickerExpanded && (
+                            <>
+                                <View style={guidedSectionStyle}>
+                                    <Text style={guidedStepStyle}>STEP 2</Text>
+                                    <Text style={guidedSectionTitleStyle}>Findings for this work</Text>
+                                    <Text style={guidedSectionDescriptionStyle}>
+                                        Tap the findings that apply. Only this service is shown—unrelated price-book work stays out of the page.
+                                    </Text>
+                                    <View style={guidedQuestionGridStyle}>
+                                        {phase1Workspace.template.questions.map((question) =>
+                                            renderQuestion(question, answers, updateAnswer, toggleMultiAnswer)
+                                        )}
+                                    </View>
+
+                                    {attentionParts.length > 0 ? (
+                                        <View style={guidedAttentionStyle}>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={guidedAttentionTitleStyle}>Needs attention</Text>
+                                                <Text style={guidedAttentionTextStyle}>
+                                                    {attentionParts.join(' · ')} still needed before homeowner presentation. You can price and save an option now.
+                                                </Text>
+                                            </View>
+                                            <TouchableOpacity onPress={() => setDocumentationExpanded(!documentationExpanded)} style={guidedAttentionButtonStyle}>
+                                                <Text style={guidedAttentionButtonTextStyle}>{documentationExpanded ? 'Hide' : 'Open'}</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    ) : (
+                                        <View style={guidedReadyStyle}>
+                                            <Text style={guidedReadyTextStyle}>✓ Findings and required documentation are complete.</Text>
+                                        </View>
+                                    )}
+
+                                    {documentationExpanded && (
+                                        <View style={guidedDocumentationStyle}>
+                                            <Text style={guidedDocumentationTitleStyle}>Photos & measurements</Text>
+                                            <Text style={guidedSectionDescriptionStyle}>
+                                                Add these in the field when needed. Skipping does not change the deterministic price, but final presentation still shows what is missing.
+                                            </Text>
+                                            <View style={requirementGridStyle}>
+                                                {phase1Workspace.template.requiredPhotoLabels.map((label) => renderPhotoRequirementCard({
+                                                    label,
+                                                    answers,
+                                                    previewByKey: photoPreviewByKey,
+                                                    uploadByKey: requirementUploadByKey,
+                                                    choosePhoto: chooseRequirementPhoto,
+                                                    removePhoto: removeRequirementPhoto,
+                                                    skipRequirement: (requirementLabel, reason) => skipRequirement('photo', requirementLabel, reason),
+                                                    clearSkippedRequirement: (requirementLabel) => clearSkippedRequirement('photo', requirementLabel),
+                                                }))}
+                                                {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderMeasurementRequirementCard({
+                                                    label,
+                                                    answers,
+                                                    measurementDraftByKey,
+                                                    measurementErrorByKey,
+                                                    updateMeasurementDraft,
+                                                    saveMeasurement: saveRequirementMeasurement,
+                                                    clearMeasurement: clearRequirementMeasurement,
+                                                    skipRequirement: (requirementLabel, reason) => skipRequirement('measurement', requirementLabel, reason),
+                                                    clearSkippedRequirement: (requirementLabel) => clearSkippedRequirement('measurement', requirementLabel),
+                                                }))}
+                                            </View>
+                                        </View>
+                                    )}
+                                </View>
+
+                                <View style={guidedSectionStyle}>
+                                    <Text style={guidedStepStyle}>STEP 3</Text>
+                                    <Text style={guidedSectionTitleStyle}>Price & customer summary</Text>
+
+                                    {phase1Workspace.pricingSetupRequired || !currentCandidateChoice ? (
+                                        <View style={guidedPricingMissingStyle}>
+                                            <Text style={guidedPricingMissingTitleStyle}>Price setup needed</Text>
+                                            <Text style={guidedSectionDescriptionStyle}>
+                                                {priceBookMessage}. Choose the exact repair above, or add an active company selling price for this work.
+                                            </Text>
+                                            {canUsePricing && (
+                                                <TouchableOpacity onPress={() => router.push(companyPriceBookRoute as never)} style={guidedSecondaryButtonStyle}>
+                                                    <Text style={guidedSecondaryButtonTextStyle}>{canManagePricing ? 'Open Company Price Book' : 'View Company Price Book'}</Text>
+                                                </TouchableOpacity>
+                                            )}
+                                        </View>
+                                    ) : (
+                                        <>
+                                            <View style={guidedPriceCardStyle}>
+                                                <View style={guidedPriceHeaderStyle}>
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={guidedPriceLabelStyle}>THIS OPTION</Text>
+                                                        <Text style={guidedPriceTitleStyle}>{currentCandidateChoice.title}</Text>
+                                                    </View>
+                                                    <Text style={guidedPriceTotalStyle}>{formatMoney(finalTotal)}</Text>
+                                                </View>
+                                                {currentCandidateChoice.pricingResult.lineItems.map((line) => (
+                                                    <View key={line.id} style={guidedLineItemStyle}>
+                                                        <Text style={guidedLineItemNameStyle}>{line.name}</Text>
+                                                        <Text style={guidedLineItemPriceStyle}>{formatMoney(line.totalAmount)}</Text>
+                                                    </View>
+                                                ))}
+                                            </View>
+
+                                            <View style={guidedAdjustmentStyle}>
+                                                <Text style={guidedFieldLabelStyle}>Price adjustment</Text>
+                                                <Text style={guidedFieldHelpStyle}>Choose what you mean first. The final amount is shown before you apply it.</Text>
+                                                <View style={guidedModeRowStyle}>
+                                                    {([
+                                                        ['none', 'No adjustment'],
+                                                        ['discount', 'Discount'],
+                                                        ['markup', 'Markup'],
+                                                        ['override', 'Authorized override'],
+                                                    ] as [GuidedPriceAdjustmentMode, string][]).map(([mode, label]) => (
+                                                        <TouchableOpacity
+                                                            key={mode}
+                                                            onPress={() => setGuidedAdjustmentMode(mode)}
+                                                            style={guidedAdjustmentMode === mode ? guidedModeChipSelectedStyle : guidedModeChipStyle}
+                                                        >
+                                                            <Text style={guidedAdjustmentMode === mode ? guidedModeChipSelectedTextStyle : guidedModeChipTextStyle}>{label}</Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                                {guidedAdjustmentMode !== 'none' && (
+                                                    <View style={guidedAdjustmentInputRowStyle}>
+                                                        <TextInput
+                                                            inputMode="decimal"
+                                                            keyboardType="decimal-pad"
+                                                            onChangeText={setGuidedAdjustmentValue}
+                                                            placeholder={guidedAdjustmentMode === 'override' ? 'Final price in dollars' : 'Percentage'}
+                                                            style={guidedAdjustmentInputStyle}
+                                                            value={guidedAdjustmentValue}
+                                                        />
+                                                        <Text style={guidedAdjustmentUnitStyle}>{guidedAdjustmentMode === 'override' ? '$ final' : '%'}</Text>
+                                                    </View>
+                                                )}
+                                                {guidedAdjustmentMode === 'discount' && (
+                                                    <TextInput
+                                                        onChangeText={setGuidedDiscountLabel}
+                                                        placeholder="Discount name (required)"
+                                                        style={guidedAdjustmentInputStyle}
+                                                        value={guidedDiscountLabel}
+                                                    />
+                                                )}
+                                                <View style={guidedAdjustmentSummaryStyle}>
+                                                    <Text style={guidedAdjustmentSummaryTextStyle}>Company price {formatMoney(baseTotal)}</Text>
+                                                    <Text style={guidedAdjustmentSummaryTextStyle}>
+                                                        {adjustmentAmount === 0 ? 'No change' : `${adjustmentAmount > 0 ? '+' : '−'}${formatMoney(Math.abs(adjustmentAmount))}`}
+                                                    </Text>
+                                                    <Text style={guidedAdjustmentFinalStyle}>Final {formatMoney(finalTotal)}</Text>
+                                                </View>
+                                                <TouchableOpacity onPress={() => applyGuidedPriceAdjustment(baseCandidate || currentCandidateChoice)} style={guidedSecondaryButtonStyle}>
+                                                    <Text style={guidedSecondaryButtonTextStyle}>Apply adjustment</Text>
+                                                </TouchableOpacity>
+                                            </View>
+
+                                            <Text style={guidedFieldLabelStyle}>Technician notes / dictation</Text>
+                                            <Text style={guidedFieldHelpStyle}>Type here or use the microphone on the phone keyboard.</Text>
+                                            <TextInput
+                                                multiline
+                                                onBlur={() => void saveGuidedTechnicianNotes()}
+                                                onChangeText={updateGuidedTechnicianNotes}
+                                                placeholder="Describe what you found and why this work is recommended."
+                                                style={guidedNotesInputStyle}
+                                                value={draftContext?.issue_summary || ''}
+                                            />
+
+                                            <View style={guidedSummaryHeaderStyle}>
+                                                <View style={{ flex: 1 }}>
+                                                    <Text style={guidedFieldLabelStyle}>Customer summary</Text>
+                                                    <Text style={guidedFieldHelpStyle}>AI can organize documented facts, but it cannot add work or change the price.</Text>
+                                                </View>
+                                                <TouchableOpacity
+                                                    disabled={aiDrafting || requirementUploadInProgress}
+                                                    onPress={() => void draftWithAi([currentCandidateChoice], phase1Workspace.draftGate)}
+                                                    style={aiDrafting ? guidedMutedButtonStyle : guidedAiButtonStyle}
+                                                >
+                                                    <Text style={guidedAiButtonTextStyle}>{aiDrafting ? 'Writing…' : 'Write with AI'}</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                            <TextInput
+                                                multiline
+                                                onChangeText={(value) => updateChoiceCopy(currentCandidateChoice.id, 'homeownerExplanation', value)}
+                                                placeholder="Customer-facing explanation"
+                                                style={guidedSummaryInputStyle}
+                                                value={currentCandidateChoice.homeownerExplanation}
+                                            />
+
+                                            <TouchableOpacity
+                                                disabled={!canAddCurrent || savingGuidedOption}
+                                                onPress={() => void persistAddCurrent(currentCandidateChoice)}
+                                                style={!canAddCurrent || savingGuidedOption ? guidedMutedPrimaryButtonStyle : guidedPrimaryButtonStyle}
+                                            >
+                                                <Text style={guidedPrimaryButtonTextStyle}>{savingGuidedOption ? 'Saving option…' : 'Add to Options'}</Text>
+                                            </TouchableOpacity>
+                                        </>
+                                    )}
+                                </View>
+                            </>
+                        )}
+                    </>
+                )}
+
+                {guidedStep === 'option_added' && (
+                    <View style={guidedDecisionStyle}>
+                        <View style={guidedDecisionCheckStyle}><Text style={guidedDecisionCheckTextStyle}>✓</Text></View>
+                        <Text style={guidedDecisionTitleStyle}>
+                            Option {estimateChoices.length} added
+                        </Text>
+                        <Text style={guidedDecisionTextStyle}>Would you like to add another option for this customer?</Text>
+                        <View style={guidedDecisionButtonsStyle}>
+                            <TouchableOpacity onPress={() => setGuidedStep('recommendations')} style={guidedPrimaryButtonStyle}>
+                                <Text style={guidedPrimaryButtonTextStyle}>Add another option</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setGuidedStep('review')} style={guidedSecondaryButtonStyle}>
+                                <Text style={guidedSecondaryButtonTextStyle}>Review quote</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
+
+                {guidedStep === 'recommendations' && (
+                    <View style={guidedSectionStyle}>
+                        <Text style={guidedStepStyle}>RELATED OPTIONS</Text>
+                        <Text style={guidedSectionTitleStyle}>Based only on documented findings</Text>
+                        <Text style={guidedSectionDescriptionStyle}>
+                            HomeOS shows up to four rule-based choices. Nothing is added until you tap Add option.
+                        </Text>
+
+                        {eligibleRecommendations.length > 0 ? (
+                            <View style={guidedRecommendationGridStyle}>
+                                {eligibleRecommendations.map((recommendation) => (
+                                    <View key={recommendation.id} style={guidedRecommendationCardStyle}>
+                                        <Text style={guidedRelationshipStyle}>{guidedRelationshipLabel(recommendation.relationship)}</Text>
+                                        <Text style={guidedRecommendationTitleStyle}>{recommendation.title}</Text>
+                                        <Text style={guidedRecommendationReasonStyle}>{recommendation.reason}</Text>
+                                        <TouchableOpacity
+                                            disabled={!recommendationBaseChoice || savingGuidedOption}
+                                            onPress={() => recommendationBaseChoice && void persistAddRecommendation(recommendation, recommendationBaseChoice)}
+                                            style={guidedRecommendationButtonStyle}
+                                        >
+                                            <Text style={guidedRecommendationButtonTextStyle}>Add option</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                ))}
+                            </View>
+                        ) : (
+                            <View style={guidedNoRecommendationStyle}>
+                                <Text style={guidedNoRecommendationTitleStyle}>No automatic recommendation</Text>
+                                <Text style={guidedSectionDescriptionStyle}>
+                                    The findings do not support another configured option. Search the active company Price Book if you need a technician-selected choice.
+                                </Text>
+                            </View>
+                        )}
+
+                        <View style={guidedSearchStyle}>
+                            <Text style={guidedFieldLabelStyle}>Pick my own</Text>
+                            <TextInput
+                                onChangeText={setRelatedSearch}
+                                placeholder="Search active company Price Book"
+                                style={guidedSearchInputStyle}
+                                value={relatedSearch}
+                            />
+                            {relatedSearchResults.map((item) => (
+                                <View key={item.id} style={guidedSearchResultStyle}>
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <Text style={guidedSearchResultTitleStyle}>{item.name}</Text>
+                                        <Text style={guidedSearchResultMetaStyle}>{item.category} · {formatMoney(Number(item.recommended_selling_price ?? item.base_price))}</Text>
+                                    </View>
+                                    <TouchableOpacity
+                                        disabled={!recommendationBaseChoice || savingGuidedOption}
+                                        onPress={() => recommendationBaseChoice && void persistAddSearchResult(item, recommendationBaseChoice)}
+                                        style={guidedSearchAddStyle}
+                                    >
+                                        <Text style={guidedSearchAddTextStyle}>Add</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                        </View>
+
+                        <TouchableOpacity onPress={() => setGuidedStep('review')} style={guidedSecondaryButtonStyle}>
+                            <Text style={guidedSecondaryButtonTextStyle}>Review current options</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
+
+                {guidedStep === 'review' && (
+                    <View style={guidedSectionStyle}>
+                        <Text style={guidedStepStyle}>QUOTE REVIEW</Text>
+                        <Text style={guidedSectionTitleStyle}>{estimateChoices.length} customer option{estimateChoices.length === 1 ? '' : 's'}</Text>
+                        <Text style={guidedSectionDescriptionStyle}>Each card contains only the work and price included in that option.</Text>
+
+                        <View style={guidedReviewListStyle}>
+                            {estimateChoices.map((choice, index) => (
+                                <View key={choice.id} style={guidedReviewCardStyle}>
+                                    <View style={guidedReviewHeaderStyle}>
+                                        <View style={{ flex: 1, minWidth: 0 }}>
+                                            <Text style={guidedRelationshipStyle}>OPTION {index + 1}</Text>
+                                            <Text style={guidedReviewTitleStyle}>{choice.title}</Text>
+                                        </View>
+                                        <Text style={guidedReviewPriceStyle}>{formatMoney(choice.pricingResult.totalAmount)}</Text>
+                                    </View>
+                                    <Text style={guidedReviewSummaryStyle}>{choice.homeownerExplanation}</Text>
+                                    {choice.pricingResult.lineItems.map((line) => (
+                                        <View key={line.id} style={guidedLineItemStyle}>
+                                            <Text style={guidedLineItemNameStyle}>{line.name}</Text>
+                                            <Text style={guidedLineItemPriceStyle}>{formatMoney(line.totalAmount)}</Text>
+                                        </View>
+                                    ))}
+                                    <TouchableOpacity onPress={() => void persistRemoveOption(choice.id)} style={guidedRemoveButtonStyle}>
+                                        <Text style={guidedRemoveButtonTextStyle}>Remove option</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                        </View>
+
+                        {attentionParts.length > 0 && (
+                            <View style={guidedAttentionStyle}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={guidedAttentionTitleStyle}>Before homeowner presentation</Text>
+                                    <Text style={guidedAttentionTextStyle}>{attentionParts.join(' · ')} still needed.</Text>
+                                </View>
+                                <TouchableOpacity onPress={() => setGuidedStep('build')} style={guidedAttentionButtonStyle}>
+                                    <Text style={guidedAttentionButtonTextStyle}>Finish</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        <View style={guidedReviewActionsStyle}>
+                            <TouchableOpacity onPress={() => setGuidedStep('recommendations')} style={guidedSecondaryButtonStyle}>
+                                <Text style={guidedSecondaryButtonTextStyle}>Add another option</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                disabled={!canApprove}
+                                onPress={() => void approveForPresentation(estimateChoices)}
+                                style={canApprove ? guidedPrimaryButtonStyle : guidedMutedPrimaryButtonStyle}
+                            >
+                                <Text style={guidedPrimaryButtonTextStyle}>{technicianApproved ? 'Option set approved ✓' : canApprove ? 'Approve option set' : 'Complete required items first'}</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                disabled={!technicianApproved}
+                                onPress={() => void openHomeownerApproval()}
+                                style={technicianApproved ? guidedPresentButtonStyle : guidedMutedPrimaryButtonStyle}
+                            >
+                                <Text style={guidedPrimaryButtonTextStyle}>Present to homeowner</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
+
+                <Text style={guidedFooterStyle}>{BUILD_DISPLAY} · {items.length} selected HomeOS item{items.length === 1 ? '' : 's'}</Text>
+            </View>
+        </ScrollView>
+    );
+}
+
+function guidedProgressIndex(step: GuidedEstimateStep, scopeSelected: boolean) {
+    if (step === 'option_added' || step === 'recommendations' || step === 'review') return 3;
+    return scopeSelected ? 2 : 0;
+}
+
+function isGuidedEstimateBuilderEnabled() {
+    return true;
+}
+
+function guidedRelationshipLabel(relationship: EstimateRecommendationRelationship) {
+    const labels: Record<EstimateRecommendationRelationship, string> = {
+        alternative: 'ALTERNATIVE',
+        add_on: 'RELATED ADD-ON',
+        upgrade: 'UPGRADE',
+        protection: 'PROTECTION',
+        required_correction: 'DOCUMENTED CORRECTION',
+    };
+
+    return labels[relationship];
+}
+
+function nextGuidedOptionId(choices: PersistableEstimateChoice[]) {
+    const usedIds = new Set(choices.map((choice) => choice.id));
+    let index = choices.length + 1;
+
+    while (usedIds.has(`option-${index}`)) index += 1;
+
+    return `option-${index}`;
+}
+
 function StaffOnlyMessage({ message, detail, homeRoute = '/' }: { message: string; detail?: string; homeRoute?: string }) {
     return (
         <ScrollView
@@ -2595,7 +3629,7 @@ function firstParam(value?: string | string[]) {
 }
 
 
-function buildInternalRoute(path: string, entries: Array<[string, string | null | undefined]>) {
+function buildInternalRoute(path: string, entries: [string, string | null | undefined][]) {
     const query = entries
         .filter((entry): entry is [string, string] => Boolean(entry[1]?.trim()))
         .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value.trim())}`)
@@ -3013,6 +4047,915 @@ function resolveEstimateSessionSource(value?: string | null): EstimateSessionSou
         ? normalized as EstimateSessionSource
         : 'techos';
 }
+
+const guidedScreenStyle = {
+    flex: 1,
+    backgroundColor: '#F3F7FA',
+};
+
+const guidedContentStyle = {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 150,
+    alignItems: 'center' as const,
+};
+
+const guidedShellStyle = {
+    width: '100%' as const,
+    maxWidth: 820,
+    gap: 16,
+};
+
+const guidedTopBarStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+};
+
+const guidedTopActionsStyle = {
+    flex: 1,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'flex-end' as const,
+    gap: 8,
+};
+
+const guidedBackButtonStyle = {
+    minHeight: 44,
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#0B6F82',
+};
+
+const guidedBackButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800' as const,
+};
+
+const guidedTextButtonStyle = {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#E8F1F5',
+};
+
+const guidedTextButtonTextStyle = {
+    color: '#0A5364',
+    fontSize: 13,
+    fontWeight: '800' as const,
+};
+
+const guidedHeroStyle = {
+    padding: 20,
+    borderRadius: 24,
+    backgroundColor: '#08263F',
+};
+
+const guidedEyebrowStyle = {
+    color: '#70DBE8',
+    fontSize: 12,
+    fontWeight: '900' as const,
+    letterSpacing: 1.2,
+};
+
+const guidedTitleStyle = {
+    color: '#FFFFFF',
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '900' as const,
+    marginTop: 6,
+};
+
+const guidedSubtitleStyle = {
+    color: '#C8D8E3',
+    fontSize: 15,
+    lineHeight: 22,
+    marginTop: 8,
+};
+
+const guidedProgressStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+    paddingHorizontal: 4,
+};
+
+const guidedProgressItemStyle = {
+    flexGrow: 1,
+    flexBasis: 76,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 6,
+    minWidth: 76,
+};
+
+const guidedProgressDotStyle = {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: '#B7C7D2',
+};
+
+const guidedProgressDotActiveStyle = {
+    ...guidedProgressDotStyle,
+    backgroundColor: '#0B8DA5',
+};
+
+const guidedProgressTextStyle = {
+    color: '#526675',
+    fontSize: 12,
+    fontWeight: '800' as const,
+};
+
+const guidedMessageStyle = {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#B8DCE4',
+    backgroundColor: '#EBF8FA',
+};
+
+const guidedMessageTextStyle = {
+    color: '#164C59',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700' as const,
+};
+
+const guidedSectionStyle = {
+    width: '100%' as const,
+    padding: 18,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#D9E3EA',
+    backgroundColor: '#FFFFFF',
+    gap: 14,
+};
+
+const guidedSectionHeadingRowStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+};
+
+const guidedStepStyle = {
+    color: '#0B8196',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    letterSpacing: 1.1,
+};
+
+const guidedSectionTitleStyle = {
+    color: '#09243C',
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '900' as const,
+};
+
+const guidedSectionDescriptionStyle = {
+    color: '#607180',
+    fontSize: 15,
+    lineHeight: 22,
+};
+
+const guidedSelectedItemStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#B9E3E9',
+    backgroundColor: '#EFFAFC',
+};
+
+const guidedSelectedItemIconStyle = {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#0C8A70',
+};
+
+const guidedSelectedItemIconTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const guidedSelectedItemTitleStyle = {
+    color: '#0A2B43',
+    fontSize: 17,
+    fontWeight: '900' as const,
+};
+
+const guidedSelectedItemMetaStyle = {
+    color: '#617482',
+    fontSize: 13,
+    lineHeight: 18,
+    marginTop: 2,
+};
+
+const guidedSelectedItemBadgeStyle = {
+    flexShrink: 1,
+    color: '#0B6F82',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: '#D9F2F6',
+};
+
+const guidedPickerStyle = {
+    gap: 12,
+};
+
+const guidedPromptStyle = {
+    color: '#18344B',
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginTop: 4,
+};
+
+const guidedTwoColumnStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const guidedChoiceCardStyle = {
+    flexGrow: 1,
+    flexBasis: 260,
+    minWidth: 0,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#D8E1E7',
+    backgroundColor: '#FFFFFF',
+};
+
+const guidedChoiceCardSelectedStyle = {
+    ...guidedChoiceCardStyle,
+    borderColor: '#0B8DA5',
+    backgroundColor: '#EAF8FA',
+};
+
+const guidedChoiceTitleStyle = {
+    color: '#09243C',
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const guidedChoiceDescriptionStyle = {
+    color: '#607180',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 5,
+};
+
+const guidedCategoryGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 9,
+};
+
+const guidedCategoryChipStyle = {
+    maxWidth: '100%' as const,
+    minHeight: 44,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#CCD8E0',
+    justifyContent: 'center' as const,
+    backgroundColor: '#F7F9FB',
+};
+
+const guidedCategoryChipSelectedStyle = {
+    ...guidedCategoryChipStyle,
+    borderColor: '#0B8DA5',
+    backgroundColor: '#DFF5F8',
+};
+
+const guidedCategoryChipTextStyle = {
+    color: '#314A5D',
+    fontSize: 13,
+    fontWeight: '800' as const,
+};
+
+const guidedCategoryChipSelectedTextStyle = {
+    ...guidedCategoryChipTextStyle,
+    color: '#086A7D',
+};
+
+const guidedServiceSummaryStyle = {
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: '#F2F6F9',
+};
+
+const guidedServiceSummaryLabelStyle = {
+    color: '#71818E',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    textTransform: 'uppercase' as const,
+};
+
+const guidedServiceSummaryTitleStyle = {
+    color: '#0A2B43',
+    fontSize: 18,
+    fontWeight: '900' as const,
+    marginTop: 3,
+};
+
+const guidedQuestionGridStyle = {
+    width: '100%' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 12,
+};
+
+const guidedAttentionStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#EAD089',
+    backgroundColor: '#FFF9E8',
+};
+
+const guidedAttentionTitleStyle = {
+    color: '#7A4B06',
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const guidedAttentionTextStyle = {
+    color: '#805B21',
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 3,
+};
+
+const guidedAttentionButtonStyle = {
+    minHeight: 38,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#F4D982',
+};
+
+const guidedAttentionButtonTextStyle = {
+    color: '#63400B',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const guidedReadyStyle = {
+    padding: 13,
+    borderRadius: 14,
+    backgroundColor: '#EAF8F2',
+};
+
+const guidedReadyTextStyle = {
+    color: '#0B6F58',
+    fontSize: 14,
+    fontWeight: '800' as const,
+};
+
+const guidedDocumentationStyle = {
+    gap: 12,
+    paddingTop: 4,
+};
+
+const guidedDocumentationTitleStyle = {
+    color: '#0A2B43',
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const guidedPricingMissingStyle = {
+    gap: 12,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#FFF6E1',
+};
+
+const guidedPricingMissingTitleStyle = {
+    color: '#6E4608',
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const guidedPriceCardStyle = {
+    overflow: 'hidden' as const,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#C9D9E3',
+    backgroundColor: '#FAFCFD',
+};
+
+const guidedPriceHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    gap: 12,
+    padding: 16,
+    backgroundColor: '#EAF6F8',
+};
+
+const guidedPriceLabelStyle = {
+    color: '#0B8196',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    letterSpacing: 0.8,
+};
+
+const guidedPriceTitleStyle = {
+    color: '#09243C',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900' as const,
+    marginTop: 3,
+};
+
+const guidedPriceTotalStyle = {
+    color: '#08735B',
+    fontSize: 22,
+    fontWeight: '900' as const,
+};
+
+const guidedLineItemStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E3E9EE',
+};
+
+const guidedLineItemNameStyle = {
+    flex: 1,
+    color: '#20394D',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '700' as const,
+};
+
+const guidedLineItemPriceStyle = {
+    color: '#0A664F',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const guidedAdjustmentStyle = {
+    gap: 10,
+    padding: 15,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D8E1E7',
+    backgroundColor: '#F8FAFB',
+};
+
+const guidedFieldLabelStyle = {
+    color: '#17344B',
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const guidedFieldHelpStyle = {
+    color: '#6A7B88',
+    fontSize: 12,
+    lineHeight: 18,
+};
+
+const guidedModeRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const guidedModeChipStyle = {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD7DF',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#FFFFFF',
+};
+
+const guidedModeChipSelectedStyle = {
+    ...guidedModeChipStyle,
+    borderColor: '#0B8DA5',
+    backgroundColor: '#DDF4F7',
+};
+
+const guidedModeChipTextStyle = {
+    color: '#445A6A',
+    fontSize: 12,
+    fontWeight: '800' as const,
+};
+
+const guidedModeChipSelectedTextStyle = {
+    ...guidedModeChipTextStyle,
+    color: '#076B7D',
+};
+
+const guidedAdjustmentInputRowStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+};
+
+const guidedAdjustmentInputStyle = {
+    flex: 1,
+    flexGrow: 1,
+    minHeight: 46,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#C8D5DE',
+    color: '#102D43',
+    fontSize: 15,
+    backgroundColor: '#FFFFFF',
+};
+
+const guidedAdjustmentUnitStyle = {
+    color: '#546B7B',
+    fontSize: 13,
+    fontWeight: '800' as const,
+};
+
+const guidedAdjustmentSummaryStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#EAF0F4',
+};
+
+const guidedAdjustmentSummaryTextStyle = {
+    color: '#536A79',
+    fontSize: 12,
+    fontWeight: '700' as const,
+};
+
+const guidedAdjustmentFinalStyle = {
+    color: '#0A664F',
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const guidedNotesInputStyle = {
+    minHeight: 100,
+    padding: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#C8D5DE',
+    color: '#102D43',
+    fontSize: 15,
+    lineHeight: 21,
+    textAlignVertical: 'top' as const,
+    backgroundColor: '#FFFFFF',
+};
+
+const guidedSummaryHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 10,
+};
+
+const guidedSummaryInputStyle = {
+    minHeight: 130,
+    padding: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#AFCAD5',
+    color: '#102D43',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlignVertical: 'top' as const,
+    backgroundColor: '#F9FCFD',
+};
+
+const guidedAiButtonStyle = {
+    minHeight: 42,
+    paddingHorizontal: 13,
+    borderRadius: 13,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#6554C0',
+};
+
+const guidedMutedButtonStyle = {
+    ...guidedAiButtonStyle,
+    backgroundColor: '#AEB5C5',
+};
+
+const guidedAiButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const guidedPrimaryButtonStyle = {
+    width: '100%' as const,
+    minHeight: 52,
+    paddingHorizontal: 18,
+    borderRadius: 16,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#087F94',
+};
+
+const guidedMutedPrimaryButtonStyle = {
+    ...guidedPrimaryButtonStyle,
+    backgroundColor: '#AEBCC5',
+};
+
+const guidedPrimaryButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '900' as const,
+};
+
+const guidedSecondaryButtonStyle = {
+    width: '100%' as const,
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: '#9CB8C4',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#FFFFFF',
+};
+
+const guidedSecondaryButtonTextStyle = {
+    color: '#0B6173',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const guidedDecisionStyle = {
+    width: '100%' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    padding: 26,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#B8E0D2',
+    backgroundColor: '#F0FBF7',
+};
+
+const guidedDecisionCheckStyle = {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#0A8A6B',
+};
+
+const guidedDecisionCheckTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 28,
+    fontWeight: '900' as const,
+};
+
+const guidedDecisionTitleStyle = {
+    color: '#092F27',
+    fontSize: 25,
+    fontWeight: '900' as const,
+    textAlign: 'center' as const,
+};
+
+const guidedDecisionTextStyle = {
+    color: '#41685D',
+    fontSize: 15,
+    lineHeight: 22,
+    textAlign: 'center' as const,
+};
+
+const guidedDecisionButtonsStyle = {
+    width: '100%' as const,
+    gap: 10,
+    marginTop: 6,
+};
+
+const guidedRecommendationGridStyle = {
+    gap: 12,
+};
+
+const guidedRecommendationCardStyle = {
+    width: '100%' as const,
+    padding: 16,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#C8D9E2',
+    backgroundColor: '#F9FCFD',
+};
+
+const guidedRelationshipStyle = {
+    color: '#0B8196',
+    fontSize: 10,
+    fontWeight: '900' as const,
+    letterSpacing: 1,
+};
+
+const guidedRecommendationTitleStyle = {
+    color: '#0A2B43',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900' as const,
+    marginTop: 5,
+};
+
+const guidedRecommendationReasonStyle = {
+    color: '#607180',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+};
+
+const guidedRecommendationButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    minHeight: 42,
+    paddingHorizontal: 16,
+    borderRadius: 13,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#087F94',
+    marginTop: 12,
+};
+
+const guidedRecommendationButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const guidedNoRecommendationStyle = {
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#F2F6F8',
+};
+
+const guidedNoRecommendationTitleStyle = {
+    color: '#294457',
+    fontSize: 16,
+    fontWeight: '900' as const,
+    marginBottom: 4,
+};
+
+const guidedSearchStyle = {
+    gap: 10,
+    paddingTop: 4,
+};
+
+const guidedSearchInputStyle = {
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#BFCFD8',
+    color: '#102D43',
+    fontSize: 15,
+    backgroundColor: '#FFFFFF',
+};
+
+const guidedSearchResultStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    padding: 13,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#D7E1E7',
+    backgroundColor: '#FAFCFD',
+};
+
+const guidedSearchResultTitleStyle = {
+    color: '#18344B',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const guidedSearchResultMetaStyle = {
+    color: '#667987',
+    fontSize: 12,
+    marginTop: 3,
+};
+
+const guidedSearchAddStyle = {
+    minHeight: 38,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    backgroundColor: '#DDF4F7',
+};
+
+const guidedSearchAddTextStyle = {
+    color: '#076B7D',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const guidedReviewListStyle = {
+    gap: 12,
+};
+
+const guidedReviewCardStyle = {
+    overflow: 'hidden' as const,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#CAD8E1',
+    backgroundColor: '#FAFCFD',
+};
+
+const guidedReviewHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    gap: 12,
+    padding: 16,
+    backgroundColor: '#EAF6F8',
+};
+
+const guidedReviewTitleStyle = {
+    color: '#09243C',
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900' as const,
+    marginTop: 4,
+};
+
+const guidedReviewPriceStyle = {
+    color: '#08735B',
+    fontSize: 20,
+    fontWeight: '900' as const,
+};
+
+const guidedReviewSummaryStyle = {
+    color: '#526877',
+    fontSize: 14,
+    lineHeight: 20,
+    padding: 16,
+};
+
+const guidedRemoveButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    minHeight: 38,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E1B5B5',
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    margin: 14,
+    backgroundColor: '#FFF7F7',
+};
+
+const guidedRemoveButtonTextStyle = {
+    color: '#9B3333',
+    fontSize: 12,
+    fontWeight: '900' as const,
+};
+
+const guidedReviewActionsStyle = {
+    gap: 10,
+};
+
+const guidedPresentButtonStyle = {
+    ...guidedPrimaryButtonStyle,
+    backgroundColor: '#0A765C',
+};
+
+const guidedFooterStyle = {
+    color: '#7A8994',
+    fontSize: 11,
+    textAlign: 'center' as const,
+    paddingVertical: 8,
+};
 
 async function readFunctionJson(response: Response) {
     const text = await response.text();

@@ -641,6 +641,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('clearances', 'Clearances', true, ['acceptable', 'limited', 'blocked']),
             selectQuestion('platform', 'Platform', true, ['acceptable', 'replace / build', 'not applicable']),
             selectQuestion('recirculation', 'Recirculation', false, ['none', 'existing', 'add option', 'repair / replace']),
+            selectQuestion('water_quality_observation', 'Water quality observed', false, ['no concern observed', 'scale / sediment', 'hard water confirmed', 'unknown']),
             multiQuestion('code_corrections', 'Code corrections', true, ['None required', 'permit', 'pan', 'straps', 'T&P', 'venting', 'gas connector', 'sediment trap', 'expansion tank']),
             selectQuestion('desired_warranty', 'Desired warranty', false, ['Not discussed yet', 'Let homeowner choose', 'standard', 'extended', 'premium']),
             multiQuestion('homeowner_priorities', 'Homeowner priorities', false, ['lowest cost', 'reliability', 'efficiency', 'faster hot water', 'warranty', 'space saving']),
@@ -939,6 +940,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('toilet_repair_bowl_shape', 'Bowl / seat shape', true, ['round', 'elongated', 'not applicable / unknown']),
             multiQuestion('toilet_symptoms', 'Observed symptoms', true, ['running', 'leaking at base', 'leaking at tank', 'weak / incomplete flush', 'loose toilet', 'handle does not work', 'seat issue', 'stoppage']),
             selectQuestion('toilet_flange_observation', 'Flange condition', false, ['not exposed', 'appears sound', 'repair needed', 'replacement needed']),
+            selectQuestion('toilet_fixture_condition', 'Overall fixture condition', false, ['serviceable', 'worn but serviceable', 'cracked / damaged', 'replacement recommended']),
         ],
     }),
     scopedEstimateTemplate({
@@ -984,6 +986,9 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('service_fuel_type', 'Fuel / power type', true, ['gas', 'electric', 'propane', 'heat pump', 'unknown']),
             multiQuestion('water_heater_symptoms', 'Symptoms or reason for service', true, ['no hot water', 'not hot enough', 'leak', 'noise / sediment', 'error code', 'maintenance due', 'warranty call', 'recirculation issue']),
             selectQuestion('warranty_status', 'Warranty status', false, ['not a warranty call', 'manufacturer warranty', 'company workmanship warranty', 'unknown']),
+            selectQuestion('water_heater_repairability', 'Repairability finding', false, ['repair recommended', 'replacement recommended', 'unsafe / not repairable', 'needs more diagnosis']),
+            selectQuestion('water_quality_observation', 'Water quality observed', false, ['no concern observed', 'scale / sediment', 'hard water confirmed', 'unknown']),
+            multiQuestion('water_heater_safety_findings', 'Safety checks', false, ['burner condition acceptable', 'combustion reset / thermal cutoff tripped', 'gas leak concern', 'venting concern', 'no safety concern observed']),
         ],
         warnings: ['Do not promise warranty coverage until the manufacturer or company approves the claim.'],
     }),
@@ -1036,6 +1041,9 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('faucet_repair_configuration', 'Faucet configuration', true, ['single handle', 'two handle centerset', 'widespread', 'pull-down / sprayer', 'wall mount', 'unknown']),
             multiQuestion('faucet_symptoms', 'Observed symptoms', true, ['loose', 'dripping', 'low / clogged flow', 'sprayer hose leak', 'handle problem', 'cartridge issue', 'leak below fixture']),
             selectQuestion('faucet_parts_available', 'Compatible repair parts', false, ['confirmed available', 'special order', 'unknown', 'obsolete / replacement recommended']),
+            selectQuestion('valve_body_condition', 'Valve body condition', false, ['not exposed', 'good condition', 'rough / rusted / pitted', 'replacement recommended']),
+            selectQuestion('faucet_mineral_condition', 'Mineral condition', false, ['none observed', 'visible mineral buildup', 'hard water confirmed', 'unknown']),
+            selectQuestion('fixture_pressure_condition', 'Water pressure finding', false, ['acceptable', 'high pressure', 'low pressure', 'regulator failed', 'unknown']),
         ],
     }),
     scopedEstimateTemplate({
@@ -1137,6 +1145,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('filtration_service_system', 'System type', true, ['whole-home filter', 'softener', 'reverse osmosis', 'under-sink filter', 'UV treatment', 'conditioner', 'unknown']),
             multiQuestion('filtration_symptoms', 'Service need or symptoms', true, ['scheduled maintenance', 'filter / cartridge due', 'leak', 'low flow', 'hard water', 'taste / odor', 'error / control issue']),
             selectQuestion('filtration_parts', 'Replacement media or parts', false, ['onsite / confirmed', 'special order', 'customer supplied', 'unknown']),
+            selectQuestion('filtration_system_condition', 'Overall equipment condition', false, ['serviceable', 'replacement recommended', 'obsolete / not repairable', 'unknown']),
         ],
     }),
     scopedEstimateTemplate({
