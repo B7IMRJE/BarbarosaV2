@@ -7,6 +7,7 @@ import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { getCompanyDisplayName } from '../../lib/companyDisplayName';
 import { supabase } from '../../lib/supabase';
+import { getTechnicianAssignmentDisplayName } from '../../lib/technicianDisplay';
 import { resolveCompanyTechOSTheme } from '../../lib/techosAppearance';
 import { useTheme } from '../../theme/useTheme';
 
@@ -320,7 +321,7 @@ export default function TechOSJobDetailScreen() {
         if (!job?.company_id || !job.id) return;
 
         setAssigningUserId(member.id);
-        setAssignmentMessage(`Assigning ${getMemberDisplayName(member)}...`);
+        setAssignmentMessage(`Assigning ${getTechnicianAssignmentDisplayName(member)}...`);
 
         const assignResult = await supabase.rpc('assign_technician_to_job', {
             p_company_id: job.company_id,
@@ -342,7 +343,7 @@ export default function TechOSJobDetailScreen() {
         }
 
         setAssignmentPickerOpen(false);
-        setAssignmentMessage(`${getMemberDisplayName(member)} was assigned. Refreshing job...`);
+        setAssignmentMessage(`${getTechnicianAssignmentDisplayName(member)} was assigned. Refreshing job...`);
         setAssigningUserId(null);
         await loadJobDetail();
     }
@@ -591,12 +592,7 @@ function AssignmentCard({
                                 >
                                     <View style={assignmentRowTextStyle}>
                                         <Text style={[assignmentNameStyle, { color: theme.colors.text }]}>
-                                            {getMemberDisplayName(member)}
-                                        </Text>
-                                        <Text style={[assignmentMetaStyle, { color: theme.colors.mutedText }]}>
-                                            {member.email || shortId(member.auth_user_id || member.id)}
-                                            {' / '}
-                                            {formatLabel(member.role)}
+                                            {getTechnicianAssignmentDisplayName(member)}
                                         </Text>
                                     </View>
                                     <Text style={[pickerActionTextStyle, { color: theme.colors.primary }]}>
@@ -827,15 +823,11 @@ function isActiveAssignmentStatus(status?: string | null) {
 function getAssignmentDisplayName(assignment: JobAssignment, members: CompanyUser[]) {
     const member = members.find((candidate) => candidate.id === assignment.technician_company_user_id);
 
-    if (member) return getMemberDisplayName(member);
+    if (member) return getTechnicianAssignmentDisplayName(member);
     if (assignment.technician_auth_user_id) return `User ${shortId(assignment.technician_auth_user_id)}`;
     if (assignment.technician_company_user_id) return `Team member ${shortId(assignment.technician_company_user_id)}`;
 
     return 'Assigned technician';
-}
-
-function getMemberDisplayName(member: CompanyUser) {
-    return member.full_name || member.email || `Team member ${shortId(member.auth_user_id || member.id)}`;
 }
 
 function shortId(value: string) {

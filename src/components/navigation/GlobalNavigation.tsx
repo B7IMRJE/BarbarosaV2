@@ -8,6 +8,7 @@ import { providerModePath, readProviderModeParams } from '../../lib/providerMode
 import { resolveGlobalHomeRoute } from '../../lib/techosClientAccess';
 import {
     shouldShowHomeownerActiveRequestStatus,
+    shouldShowHomeownerFloatingSosButton,
 } from '../../lib/homeownerActiveRequests';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
@@ -66,6 +67,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const providerModeContext = readProviderModeParams(routeParams);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+    const [staffAccessResolved, setStaffAccessResolved] = useState(false);
     const [companyPalette, setCompanyPalette] = useState<GlassPalette | null>(null);
     const [companyGlassDepth, setCompanyGlassDepth] = useState<number | null>(null);
     const { appearance, scaleFont, scaleIcon, theme } = useTheme();
@@ -103,6 +105,12 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
         pathname: currentPath,
         providerModeActive: Boolean(providerModeContext),
     });
+    const shouldShowFloatingSos = shouldShowHomeownerFloatingSosButton({
+        pathname: currentPath,
+        providerModeActive: Boolean(providerModeContext),
+        staffAccessResolved,
+        isStaff: canUseStaffTools,
+    });
 
     useEffect(() => {
         loadDrawerAccess();
@@ -139,6 +147,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
         const role = await loadCurrentUserRole();
 
         setCanUseStaffTools(isStaffRole(role));
+        setStaffAccessResolved(true);
     }
 
     if (shouldHideNavigation) {
@@ -253,6 +262,41 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                 <EmailVerificationNotice />
                 {children}
             </View>
+
+            {shouldShowFloatingSos && (
+                <TouchableOpacity
+                    activeOpacity={0.86}
+                    accessibilityLabel="Emergency SOS"
+                    accessibilityRole="button"
+                    onPress={() => goTo('/emergency/create')}
+                    style={{
+                        alignItems: 'center',
+                        backgroundColor: theme.colors.danger,
+                        borderColor: '#FFFFFF',
+                        borderRadius: scaleIcon(30),
+                        borderWidth: 2,
+                        bottom: insets.bottom + scaleIcon(78),
+                        boxShadow: '0 6px 14px rgba(0, 0, 0, 0.2)',
+                        height: scaleIcon(58),
+                        justifyContent: 'center',
+                        left: scaleIcon(14),
+                        position: 'absolute',
+                        width: scaleIcon(58),
+                        zIndex: 39,
+                    }}
+                >
+                    <Text
+                        style={{
+                            color: '#FFFFFF',
+                            fontSize: scaleFont(14),
+                            fontWeight: '900',
+                            letterSpacing: 0.5,
+                        }}
+                    >
+                        SOS
+                    </Text>
+                </TouchableOpacity>
+            )}
 
             {shouldShowActiveRequestStatus && (
                 <HomeownerActiveRequestStatus bottomOffset={insets.bottom + scaleIcon(78)} />

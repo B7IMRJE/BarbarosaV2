@@ -2,6 +2,7 @@ import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
+import DispatchChatOverlay from '../../components/dispatch/DispatchChatOverlay';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
 import ServiceRequestThread from '../../components/serviceRequests/ServiceRequestThread';
@@ -60,6 +61,7 @@ import {
 } from '../../lib/serviceVisitCloseout';
 import { supabase } from '../../lib/supabase';
 import { normalizeSoldJobRecord, type SoldJobRecord } from '../../lib/soldJobs';
+import { getTechnicianAssignmentDisplayName } from '../../lib/technicianDisplay';
 import {
     loadPendingClockInCorrections,
     loadPendingTimeApprovals,
@@ -1488,6 +1490,7 @@ export default function DispatchBoardScreen() {
         <ThemeContext.Provider value={{ ...themeContext, theme }}>
         <GlassPaletteProvider palette={companyGlassPalette}>
         <CompanyGlassDepthProvider value={company?.glass_depth}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
         <Modal visible={!!soldJobCelebration} transparent animationType="fade">
             <View pointerEvents="none" style={soldCelebrationBackdropStyle}>
                 <Animated.View style={[soldCelebrationCardStyle, { transform: [{ scale: soldCelebrationScale }] }]}>
@@ -1734,6 +1737,8 @@ export default function DispatchBoardScreen() {
                 )}
             </View>
         </ScrollView>
+        <DispatchChatOverlay companyId={dispatchCompanyId} bottomOffset={18} />
+        </View>
         </CompanyGlassDepthProvider>
         </GlassPaletteProvider>
         </ThemeContext.Provider>
@@ -3370,7 +3375,7 @@ function DispatchRequestCard({
     const visibleTechnicians = activeTechnicians.filter((technician) => {
         if (!technicianSearch) return true;
 
-        return normalizeStatus(`${getMemberDisplayName(technician)} ${technician.email || ''} ${technician.role || ''}`).includes(technicianSearch);
+        return normalizeStatus(`${getTechnicianAssignmentDisplayName(technician)} ${technician.role || ''}`).includes(technicianSearch);
     });
     const durationMinutes = getScheduleDurationMinutes(scheduleForm);
     const arrivalWindowHours = getArrivalWindowHours(scheduleForm);
@@ -3621,7 +3626,7 @@ function DispatchRequestCard({
                             <View style={schedulePanelHeaderStyle}>
                                 <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Technician</Text>
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                    {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'No technician selected'}
+                                    {selectedTechnician ? getTechnicianAssignmentDisplayName(selectedTechnician) : 'No technician selected'}
                                 </Text>
                             </View>
                             <TextInput
@@ -3647,7 +3652,7 @@ function DispatchRequestCard({
                                         return (
                                             <ThemedButton
                                                 key={technician.id}
-                                                title={`${getMemberDisplayName(technician)}${technician.email ? ` / ${technician.email}` : ''}`}
+                                                title={getTechnicianAssignmentDisplayName(technician)}
                                                 variant={selected ? 'primary' : 'secondary'}
                                                 onPress={() => onUpdateScheduleForm({ technicianCompanyUserId: technician.id })}
                                                 style={technicianButtonStyle}

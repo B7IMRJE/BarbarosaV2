@@ -6,8 +6,10 @@ import {
     canUseEstimatePricing,
     createEstimateRequirementSkipAnswer,
     dedupeEstimateDraftItems,
+    estimateCategoryTemplates,
     filterApprovedActiveProducts,
     filterRuleCompatibleProducts,
+    getEstimateCategoriesForWorkType,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
     getMeasurementRequirementPrompt,
@@ -37,11 +39,18 @@ import {
     type RepipeRoomBlock,
     type RepipeStructureInput,
 } from './estimateOptions';
+import { plumbingPriceBookCatalogItems } from './plumbingPriceBookCatalog';
 import { findEstimatePriceBookCatalogItem } from './estimatePriceBookTarget';
 
 runEstimateOptionsRegressions();
 
 export function runEstimateOptionsRegressions() {
+    workTypeBranchesStayExplicitAndSeparate();
+    toiletRepairChecklistCoversServiceableComponents();
+    selectedRepairScopeFiltersDeterministicPricing();
+    replacementEstimateRejectsRepairPriceLines();
+    expandedServiceBranchesCoverRequestedPlumbingWork();
+    everyExpandedScopeUsesACatalogPriceKey();
     technicianCannotEditManagementPricing();
     anotherCompanyCannotReadPriceBook();
     inactiveEntriesCannotBeUsedInNewOptions();
@@ -133,6 +142,98 @@ function repipeHomeSizeIsAskedOnceWithExplicitUnits() {
         getMeasurementRequirementPrompt('Approximate home size') === 'Approximate home size (square feet)',
         'The remaining home-size measurement should state that the number represents square feet.'
     );
+}
+
+function workTypeBranchesStayExplicitAndSeparate() {
+    const repairTemplates = getEstimateCategoriesForWorkType('repair_service');
+    const replacementTemplates = getEstimateCategoriesForWorkType('replacement');
+
+    assert(repairTemplates.length >= 10, 'Repair / Service should expose the expanded plumbing service categories.');
+    assert(replacementTemplates.length >= 10, 'Replacement / Installation should expose its own equipment and infrastructure categories.');
+    assert(repairTemplates.every((template) => template.workType === 'repair_service'), 'Repair branch must not include replacement templates.');
+    assert(replacementTemplates.every((template) => template.workType === 'replacement'), 'Replacement branch must not include repair templates.');
+}
+
+function toiletRepairChecklistCoversServiceableComponents() {
+    const template = getEstimateCategoryTemplate('toilet_repair');
+    const scopeQuestion = template.questions.find((question) => question.id === 'toilet_repair_scope');
+    const scopes = scopeQuestion?.allowedAnswers || [];
+
+    assert(includesScope(scopes, 'fill valve'), 'Toilet repair should include the fill valve / ballcock / float assembly path.');
+    assert(includesScope(scopes, 'trip lever'), 'Toilet repair should include the trip lever mechanism.');
+    assert(includesScope(scopes, 'wax ring'), 'Toilet repair should include toilet reset and wax-ring work.');
+    assert(includesScope(scopes, 'flange'), 'Toilet repair should include flange repair or replacement.');
+    assert(includesScope(scopes, 'closet bolts'), 'Toilet repair should include closet bolts and bolt caps.');
+    assert(includesScope(scopes, 'soft-close'), 'Toilet repair should include round and elongated soft-close seats.');
+}
+
+function selectedRepairScopeFiltersDeterministicPricing() {
+    const workspace = buildWorkspace({
+        category: 'toilet_repair',
+        answers: { toilet_repair_scope: ['Toilet fill valve / ballcock / float assembly replacement'] },
+        priceBookItems: [
+            scopedPriceBookItem('water_service_bathroom_fill_valve_replacement', 'Toilet fill valve / ballcock / float assembly replacement', 'Toilets', 225),
+            scopedPriceBookItem('water_service_bathroom_flapper_replacement', 'Flapper replacement', 'Toilets', 145),
+            scopedPriceBookItem('water_service_bathroom_toilet_replacement', 'Toilet replacement', 'Toilets', 950),
+        ],
+    });
+
+    assert(workspace.eligiblePriceBookEntries.length === 1, 'Only the selected repair scope should become an eligible charge line.');
+    assert(workspace.eligiblePriceBookEntries[0]?.code.includes('fill_valve'), 'Selected fill-valve repair should map to its matching price-book key.');
+}
+
+function replacementEstimateRejectsRepairPriceLines() {
+    const workspace = buildWorkspace({
+        category: 'toilet_replacement',
+        answers: {},
+        priceBookItems: [
+            scopedPriceBookItem('water_service_bathroom_toilet_replacement', 'Toilet replacement', 'Toilets', 950),
+            scopedPriceBookItem('water_service_bathroom_toilet_running_repair', 'Toilet running repair', 'Toilets', 245),
+        ],
+    });
+
+    assert(workspace.eligiblePriceBookEntries.some((entry) => entry.code.endsWith('toilet_replacement')), 'Replacement estimate should retain approved replacement pricing.');
+    assert(!workspace.eligiblePriceBookEntries.some((entry) => entry.code.includes('running_repair')), 'Replacement estimate must never include a repair line.');
+}
+
+function expandedServiceBranchesCoverRequestedPlumbingWork() {
+    const waterHeaterScopes = getScopeAnswers('water_heater_service_scope', 'water_heater_service');
+    const disposalScopes = getScopeAnswers('disposal_repair_scope', 'garbage_disposal_repair');
+    const faucetScopes = getScopeAnswers('faucet_repair_scope', 'faucet_repair');
+    const leakScopes = getScopeAnswers('leak_search_scope', 'leak_search_isolation');
+
+    assert(includesScope(waterHeaterScopes, 'descaling'), 'Tankless descaling should be chargeable from Water Heater Service.');
+    assert(includesScope(waterHeaterScopes, 'warranty'), 'Water-heater warranty diagnostics should be available.');
+    assert(includesScope(disposalScopes, 'reinstall'), 'Garbage disposal reinstall / resecure should be available.');
+    assert(includesScope(disposalScopes, 'cord'), 'Garbage disposal existing cord / connection service should be available.');
+    assert(includesScope(faucetScopes, 'cartridge'), 'Faucet repair should include cartridge work.');
+    assert(includesScope(faucetScopes, 'sprayer hose'), 'Faucet repair should include sprayer-hose work.');
+    assert(includesScope(leakScopes, 'acoustic / sonic'), 'Leak search should include acoustic / sonic listening.');
+    assert(getEstimateCategoryTemplate('water_main_repair').scopePriceKeys.some((key) => key.includes('spot_repair')), 'Water-main spot repair should be available.');
+    assert(getEstimateCategoryTemplate('sewer_service_repair').scopePriceKeys.some((key) => key.includes('spot_repair')), 'Sewer spot repair should be available.');
+    assert(getEstimateCategoryTemplate('gas_service_repair').scopePriceKeys.some((key) => key.includes('sniff') || key.includes('electronic')), 'Gas leak detection / sniff testing should be available.');
+    assert(getEstimateCategoryTemplate('plumbing_reroute').scopePriceKeys.some((key) => key.includes('reroute')), 'Repipe repair should expose reroute paths.');
+    assert(getEstimateCategoryTemplate('irrigation_service_repair').scopePriceKeys.some((key) => key.includes('pool_autofill')), 'Irrigation service should include pool auto-fill valves.');
+}
+
+function everyExpandedScopeUsesACatalogPriceKey() {
+    const catalogKeys = new Set(plumbingPriceBookCatalogItems.map((item) => item.price_key));
+    const legacyFaucetKeys = new Set(['faucet-reinstall-existing', 'faucet-install-company-approved']);
+    const missingKeys = estimateCategoryTemplates
+        .flatMap((template) => template.scopePriceKeys)
+        .filter((priceKey) => !catalogKeys.has(priceKey) && !legacyFaucetKeys.has(priceKey));
+
+    assert(missingKeys.length === 0, `Every estimate scope should resolve to the price-book catalog. Missing: ${missingKeys.join(', ')}`);
+}
+
+function getScopeAnswers(questionId: string, category: EstimateOptionCategory) {
+    return getEstimateCategoryTemplate(category).questions.find((question) => question.id === questionId)?.allowedAnswers || [];
+}
+
+function includesScope(scopes: string[], text: string) {
+    const normalizedText = text.toLowerCase();
+
+    return scopes.some((scope) => scope.toLowerCase().includes(normalizedText));
 }
 
 function technicianCannotEditManagementPricing() {
@@ -470,7 +571,7 @@ function waterHeaterChecklistIsEnforced() {
 }
 
 function waterFiltrationChecklistCoversTreatmentStages() {
-    const template = getEstimateCategoryTemplate('water_filtration');
+    const template = getEstimateCategoryTemplate('water_filtration_replacement');
     const questionById = new Map(template.questions.map((question) => [question.id, question]));
 
     assert(template.serviceCategory === 'Water Quality', 'Water filtration should use the existing Water Quality price-book category.');
@@ -491,7 +592,7 @@ function waterFiltrationIsInferredFromWaterQualityWork() {
         category: 'Water Quality',
     }], null);
 
-    assert(category === 'water_filtration', 'Water quality and softener work should open the water-filtration checklist.');
+    assert(category === 'water_filtration_replacement', 'Water quality and softener work should open the water-filtration replacement checklist.');
 }
 
 function plumbingReplacementScopesUseRelevantChecklists() {
@@ -592,8 +693,8 @@ function mixedDraftUsesTheRequestedItemsWorkflow() {
 
 function completeWaterFiltrationChecklistClearsAnswerGate() {
     const validation = validateEstimateAnswers(
-        getEstimateCategoryTemplate('water_filtration'),
-        completeAnswers('water_filtration')
+        getEstimateCategoryTemplate('water_filtration_replacement'),
+        completeAnswers('water_filtration_replacement')
     );
 
     assert(validation.complete, 'Completed filtration questions, photos, and measurements should clear the answer gate.');
@@ -604,8 +705,8 @@ function completeWaterFiltrationChecklistClearsAnswerGate() {
 
 function waterFiltrationDoesNotUseUnrelatedPriceBookEntries() {
     const workspace = buildWorkspace({
-        category: 'water_filtration',
-        answers: completeAnswers('water_filtration'),
+        category: 'water_filtration_replacement',
+        answers: completeAnswers('water_filtration_replacement'),
         priceBookItems: pricedItems('Toilets'),
     });
 
@@ -1235,11 +1336,13 @@ function priceBookItem(
     price: number,
     overrides: Partial<CompanyPriceBookItemLike> = {}
 ): CompanyPriceBookItemLike {
+    const scope = getRegressionPriceBookScope(category, index);
+
     return {
         id: `${companyId}-price-${index}`,
         company_id: companyId,
-        price_key: `price-key-${index}`,
-        name: `Approved ${category} Scope ${index}`,
+        price_key: scope.priceKey,
+        name: scope.name,
         system: 'Plumbing',
         category,
         unit: 'each',
@@ -1253,6 +1356,55 @@ function priceBookItem(
         updated_at: '2026-07-13T00:00:00.000Z',
         source: 'backend',
         ...overrides,
+    };
+}
+
+function scopedPriceBookItem(
+    priceKey: string,
+    name: string,
+    category: string,
+    price: number
+): CompanyPriceBookItemLike {
+    return {
+        id: `company-a-${priceKey}`,
+        company_id: 'company-a',
+        price_key: priceKey,
+        name,
+        system: 'Plumbing',
+        category,
+        unit: 'each',
+        base_price: price,
+        labor_hours: 1,
+        material_cost: 25,
+        customer_description: name,
+        internal_notes: null,
+        active: true,
+        created_at: '2026-08-03T00:00:00.000Z',
+        updated_at: '2026-08-03T00:00:00.000Z',
+        source: 'backend',
+    };
+}
+
+function getRegressionPriceBookScope(category: string, index: number) {
+    const scopesByCategory: Record<string, Array<{ priceKey: string; name: string }>> = {
+        Toilets: [
+            { priceKey: 'water_service_bathroom_toilet_replacement', name: 'Toilet replacement' },
+            { priceKey: 'water_service_bathroom_round_front_toilet_replacement', name: 'Round-front toilet replacement' },
+            { priceKey: 'water_service_bathroom_elongated_toilet_replacement', name: 'Elongated toilet replacement' },
+            { priceKey: 'water_service_bathroom_one_piece_toilet_replacement', name: 'One-piece toilet replacement' },
+        ],
+        'Water Heaters': [
+            { priceKey: 'water_service_garage_mechanical_standard_tank_water_heater_replacement', name: 'Standard tank water heater replacement' },
+            { priceKey: 'water_service_garage_mechanical_tankless_water_heater_replacement', name: 'Tankless water heater replacement' },
+            { priceKey: 'water_service_garage_mechanical_water_heater_expansion_tank_installation', name: 'Water heater expansion tank installation' },
+            { priceKey: 'water_service_garage_mechanical_water_heater_pan_installation', name: 'Water heater pan installation' },
+        ],
+    };
+    const scopes = scopesByCategory[category] || [];
+
+    return scopes[(index - 1) % scopes.length] || {
+        priceKey: `price-key-${index}`,
+        name: `Approved ${category} Scope ${index}`,
     };
 }
 

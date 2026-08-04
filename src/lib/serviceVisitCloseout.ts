@@ -53,7 +53,7 @@ export const SERVICE_VISIT_CLOSEOUT_OPTIONS: ServiceVisitCloseoutOption[] = [
         label: 'Follow-Up Required',
         description: 'The visit ended, but Dispatch needs to follow up before closing.',
         technicianAllowed: true,
-        homeownerDefault: false,
+        homeownerDefault: true,
     },
     {
         outcome: 'return_visit_required',
@@ -67,21 +67,21 @@ export const SERVICE_VISIT_CLOSEOUT_OPTIONS: ServiceVisitCloseoutOption[] = [
         label: 'Waiting for Parts',
         description: 'The visit ended while parts or materials are being sourced.',
         technicianAllowed: true,
-        homeownerDefault: false,
+        homeownerDefault: true,
     },
     {
         outcome: 'paused_on_hold',
         label: 'Pause / Put On Hold',
         description: 'The visit ended or paused and the request needs a resume action later.',
         technicianAllowed: true,
-        homeownerDefault: false,
+        homeownerDefault: true,
     },
     {
         outcome: 'customer_no_show',
         label: 'Customer No-Show',
         description: 'The appointment was missed, but the request may still be rescheduled.',
         technicianAllowed: true,
-        homeownerDefault: false,
+        homeownerDefault: true,
     },
     {
         outcome: 'cancelled',
@@ -95,14 +95,14 @@ export const SERVICE_VISIT_CLOSEOUT_OPTIONS: ServiceVisitCloseoutOption[] = [
         label: 'Unable to Complete',
         description: 'The visit ended, and Dispatch must decide the next action.',
         technicianAllowed: true,
-        homeownerDefault: false,
+        homeownerDefault: true,
     },
     {
         outcome: 'duplicate_or_void',
         label: 'Duplicate / Void',
         description: 'The record should be archived as a duplicate, test, or void request.',
         technicianAllowed: false,
-        homeownerDefault: false,
+        homeownerDefault: true,
     },
 ];
 

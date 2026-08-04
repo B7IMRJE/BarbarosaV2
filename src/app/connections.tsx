@@ -5,6 +5,14 @@ import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import { buildCurrentProviderConnections } from '../lib/homeConnectionSummary';
+import {
+    filterAvailableProviderCompanies,
+    formatProviderCategoryLabel,
+    getExplicitProviderCategoryKeys,
+    getExplicitProviderCategoryOptions,
+    hasExplicitProviderClassification,
+    normalizeExplicitProviderCategory,
+} from '../lib/providerVisibility';
 import { supabase } from '../lib/supabase';
 import type { HomeOSTheme } from '../theme';
 import { useTheme } from '../theme/useTheme';
@@ -35,6 +43,7 @@ type PreferredProviderRow = {
     status: string | null;
     source: string | null;
     selected_at: string | null;
+    service_category_key: string | null;
 };
 
 type CompanyRecord = {
@@ -54,12 +63,6 @@ type CompanyRecord = {
     phone: string | null;
     website: string | null;
     short_description: string | null;
-};
-
-type CompanyCategoryOption = {
-    key: string;
-    label: string;
-    inferred: boolean;
 };
 
 type ConnectionAction = 'approve' | 'decline';
@@ -84,9 +87,6 @@ type RelationshipHistorySection = {
 type LoadConnectionsOptions = {
     preserveMessage?: boolean;
 };
-
-const companyProfileSelect =
-    'id, name, public_name, dba_name, logo_url, primary_color, secondary_color, accent_color, service_categories, homeos_rating, homeos_rating_count, combined_experience_years, license_number, phone, website, short_description';
 
 export default function ConnectionsScreen() {
     const { theme } = useTheme();
@@ -118,60 +118,63 @@ export default function ConnectionsScreen() {
         );
     }, [approvedCompanies, companiesById]);
     const currentProviderConnections = useMemo(
-        () => buildCurrentProviderConnections(connections, preferredProviders),
-        [connections, preferredProviders]
+        () =>
+            buildCurrentProviderConnections(connections, preferredProviders).filter((connection) =>
+                hasExplicitProviderClassification(allCompaniesById[connection.company_id])
+            ),
+        [allCompaniesById, connections, preferredProviders]
     );
     const currentProviderCompanyIds = useMemo(
         () => Array.from(new Set(currentProviderConnections.map((connection) => connection.company_id))),
         [currentProviderConnections]
     );
     const selectedProviderCategoryKeys = useMemo(() => {
-        const keys = currentProviderCompanyIds.flatMap((companyId) =>
-            getCompanyCategoryKeys(allCompaniesById[companyId])
+        const preferredCategoryKeys = preferredProviders
+            .filter((provider) => normalizeStatus(provider.status) === 'active')
+            .map((provider) => normalizeExplicitProviderCategory(provider.service_category_key))
+            .filter((categoryKey): categoryKey is string => !!categoryKey);
+        const preferredCompanyIds = new Set(
+            preferredProviders
+                .filter((provider) => normalizeStatus(provider.status) === 'active')
+                .map((provider) => provider.company_id)
         );
+        const fallbackCategoryKeys = currentProviderCompanyIds
+            .filter((companyId) => !preferredCompanyIds.has(companyId))
+            .flatMap((companyId) => getCompanyCategoryKeys(allCompaniesById[companyId]));
 
-        return Array.from(new Set(keys));
-    }, [allCompaniesById, currentProviderCompanyIds]);
+        return Array.from(new Set([...preferredCategoryKeys, ...fallbackCategoryKeys]));
+    }, [allCompaniesById, currentProviderCompanyIds, preferredProviders]);
     const selectedProviderCategoryLabels = useMemo(() => {
         return selectedProviderCategoryKeys.map((categoryKey) => formatProviderCategoryLabel(categoryKey));
     }, [selectedProviderCategoryKeys]);
     const availableProviderFilterResult = useMemo(() => {
-        return approvedCompanies.reduce<{
-            companies: CompanyRecord[];
-            categoryHiddenCount: number;
-        }>(
-            (result, company) => {
-                if (currentProviderCompanyIds.includes(company.id)) {
-                    return result;
-                }
-
-                const companyCategoryKeys = getCompanyCategoryKeys(company);
-
-                if (
-                    selectedProviderCategoryKeys.length > 0 &&
-                    companyCategoryKeys.length > 0 &&
-                    hasCategoryOverlap(companyCategoryKeys, selectedProviderCategoryKeys)
-                ) {
-                    result.categoryHiddenCount += 1;
-                    return result;
-                }
-
-                result.companies.push(company);
-                return result;
-            },
-            { companies: [], categoryHiddenCount: 0 }
+        return filterAvailableProviderCompanies(
+            approvedCompanies,
+            selectedProviderCategoryKeys,
+            currentProviderCompanyIds
         );
     }, [approvedCompanies, currentProviderCompanyIds, selectedProviderCategoryKeys]);
     const availableProviderCompanies = availableProviderFilterResult.companies;
-    const hiddenAvailableProviderCount = availableProviderFilterResult.categoryHiddenCount;
+    const hiddenAvailableProviderCount = availableProviderFilterResult.hiddenByOccupiedCategoryCount;
+    const connectedConnections = useMemo(
+        () =>
+            connections.filter(
+                (connection) =>
+                    normalizeStatus(connection.status) === 'connected' &&
+                    hasExplicitProviderClassification(allCompaniesById[connection.company_id]) &&
+                    !currentProviderCompanyIds.includes(connection.company_id)
+            ),
+        [allCompaniesById, connections, currentProviderCompanyIds]
+    );
     const pendingConnections = useMemo(
         () =>
             connections.filter(
                 (connection) =>
                     normalizeStatus(connection.status) === 'pending' &&
+                    hasExplicitProviderClassification(allCompaniesById[connection.company_id]) &&
                     !currentProviderCompanyIds.includes(connection.company_id)
             ),
-        [connections, currentProviderCompanyIds]
+        [allCompaniesById, connections, currentProviderCompanyIds]
     );
     const providerStatusByCompanyId = useMemo(() => {
         return currentProviderCompanyIds.reduce<Record<string, string>>((statuses, companyId) => {
@@ -180,12 +183,22 @@ export default function ConnectionsScreen() {
         }, {});
     }, [currentProviderCompanyIds]);
     const revokedConnections = useMemo(
-        () => connections.filter((connection) => normalizeStatus(connection.status) === 'revoked'),
-        [connections]
+        () =>
+            connections.filter(
+                (connection) =>
+                    normalizeStatus(connection.status) === 'revoked' &&
+                    hasExplicitProviderClassification(allCompaniesById[connection.company_id])
+            ),
+        [allCompaniesById, connections]
     );
     const declinedConnections = useMemo(
-        () => connections.filter((connection) => normalizeStatus(connection.status) === 'declined'),
-        [connections]
+        () =>
+            connections.filter(
+                (connection) =>
+                    normalizeStatus(connection.status) === 'declined' &&
+                    hasExplicitProviderClassification(allCompaniesById[connection.company_id])
+            ),
+        [allCompaniesById, connections]
     );
 
     async function loadConnections(options: LoadConnectionsOptions = {}) {
@@ -209,8 +222,6 @@ export default function ConnectionsScreen() {
             return;
         }
 
-        await loadApprovedCompanies();
-
         const { data: memberships, error: membershipError } = await supabase
             .from('property_memberships')
             .select('property_id')
@@ -233,6 +244,8 @@ export default function ConnectionsScreen() {
             setConnections([]);
             setPreferredProviders([]);
             setCompaniesById({});
+            setApprovedCompanies([]);
+            setApprovedCompaniesLoading(false);
             setProviderRequestPropertyId('');
             setProviderRequestUnavailableReason('Create your first home before choosing a provider.');
             setLoading(false);
@@ -242,7 +255,11 @@ export default function ConnectionsScreen() {
         if (propertyIds.length === 1) {
             setProviderRequestPropertyId(propertyIds[0]);
             setProviderRequestUnavailableReason('');
+            await loadApprovedCompanies(propertyIds[0]);
         } else {
+            setApprovedCompanies([]);
+            setApprovedCompaniesLoading(false);
+            setApprovedCompaniesError('Provider discovery is available after choosing one active home.');
             setProviderRequestPropertyId('');
             setProviderRequestUnavailableReason(
                 'Provider requests need one active home. Multi-home provider selection is not implemented yet.'
@@ -266,7 +283,7 @@ export default function ConnectionsScreen() {
         const loadedConnections = (data || []) as PropertyConnection[];
         const { data: preferredData, error: preferredError } = await supabase
             .from('property_preferred_providers')
-            .select('id, property_id, company_id, property_connection_id, status, source, selected_at')
+            .select('id, property_id, company_id, property_connection_id, status, source, selected_at, service_category_key')
             .in('property_id', propertyIds)
             .eq('status', 'active')
             .order('selected_at', { ascending: false });
@@ -281,40 +298,28 @@ export default function ConnectionsScreen() {
 
         setConnections(loadedConnections);
         setPreferredProviders(loadedPreferredProviders);
-        await loadCompanies(loadedConnections, loadedPreferredProviders);
         setLoading(false);
     }
 
-    async function loadCompanies(
-        loadedConnections: PropertyConnection[],
-        loadedPreferredProviders: PreferredProviderRow[] = []
-    ) {
-        const companyIds = Array.from(
-            new Set(
-                [
-                    ...loadedConnections.map((connection) => connection.company_id),
-                    ...loadedPreferredProviders.map((provider) => provider.company_id),
-                ].filter(Boolean)
-            )
-        );
+    async function loadApprovedCompanies(propertyId: string) {
+        setApprovedCompaniesLoading(true);
+        setApprovedCompaniesError('');
 
-        if (companyIds.length === 0) {
-            setCompaniesById({});
-            return;
-        }
+        const { data, error } = await supabase.rpc('get_homeowner_connection_providers', {
+            p_property_id: propertyId,
+        });
 
-        const { data, error } = await supabase
-            .from('companies')
-            .select(companyProfileSelect)
-            .in('id', companyIds);
+        setApprovedCompaniesLoading(false);
 
         if (error) {
+            setApprovedCompanies([]);
             setCompaniesById({});
-            setMessage(`Could not load company profiles: ${error.message}`);
+            setApprovedCompaniesError(`Could not load available providers: ${error.message}`);
             return;
         }
 
-        const nextCompaniesById = ((data || []) as CompanyRecord[]).reduce<Record<string, CompanyRecord>>(
+        const classifiedCompanies = ((data || []) as CompanyRecord[]).filter(hasExplicitProviderClassification);
+        const nextCompaniesById = classifiedCompanies.reduce<Record<string, CompanyRecord>>(
             (accumulator, company) => {
                 accumulator[company.id] = company;
                 return accumulator;
@@ -322,29 +327,8 @@ export default function ConnectionsScreen() {
             {}
         );
 
+        setApprovedCompanies(classifiedCompanies);
         setCompaniesById(nextCompaniesById);
-    }
-
-    async function loadApprovedCompanies() {
-        setApprovedCompaniesLoading(true);
-        setApprovedCompaniesError('');
-
-        const { data, error } = await supabase
-            .from('companies')
-            .select(companyProfileSelect)
-            .in('status', ['ACTIVE', 'active'])
-            .order('public_name', { ascending: true, nullsFirst: false })
-            .order('name', { ascending: true });
-
-        setApprovedCompaniesLoading(false);
-
-        if (error) {
-            setApprovedCompanies([]);
-            setApprovedCompaniesError(`Could not load available providers: ${error.message}`);
-            return;
-        }
-
-        setApprovedCompanies((data || []) as CompanyRecord[]);
     }
 
     async function handleConnectionDecision(connectionId: string, decision: ConnectionAction) {
@@ -497,31 +481,27 @@ export default function ConnectionsScreen() {
 
         const selectedCompanyId = result?.company_id || company.id;
         const selectedCategoryKeys = getCompanyCategoryKeys(company);
-        const nextProvider: PreferredProviderRow = {
-            id: result?.preferred_provider_id || `local-${propertyId}-${selectedCompanyId}`,
+        const nextProviders = selectedCategoryKeys.map<PreferredProviderRow>((categoryKey, index) => ({
+            id:
+                index === 0 && result?.preferred_provider_id
+                    ? result.preferred_provider_id
+                    : `local-${propertyId}-${selectedCompanyId}-${categoryKey}`,
             property_id: propertyId,
             company_id: selectedCompanyId,
             property_connection_id: result?.connection_id || null,
             status: 'active',
             source: 'homeowner_provider_request',
             selected_at: new Date().toISOString(),
-        };
+            service_category_key: categoryKey,
+        }));
 
         setPreferredProviders((currentProviders) => {
-            const filteredProviders = currentProviders.filter((provider) => {
-                if (provider.property_id !== propertyId) return true;
-                if (provider.company_id === selectedCompanyId) return false;
+            const filteredProviders = currentProviders.filter(
+                (provider) =>
+                    provider.property_id !== propertyId || provider.company_id !== selectedCompanyId
+            );
 
-                const providerCompany =
-                    companiesById[provider.company_id] ||
-                    approvedCompanies.find((approvedCompany) => approvedCompany.id === provider.company_id);
-
-                if (selectedCategoryKeys.length === 0) return true;
-
-                return !hasCategoryOverlap(getCompanyCategoryKeys(providerCompany), selectedCategoryKeys);
-            });
-
-            return [nextProvider, ...filteredProviders];
+            return [...nextProviders, ...filteredProviders];
         });
     }
 
@@ -602,7 +582,7 @@ export default function ConnectionsScreen() {
                             },
                             {
                                 title: 'Connected Companies',
-                                connections: currentProviderConnections,
+                                connections: connectedConnections,
                                 emptyText: 'No connected companies yet.',
                                 tone: 'connected',
                             },
@@ -1357,147 +1337,15 @@ function getCompanyDbaName(company: CompanyRecord | undefined, displayName: stri
 }
 
 function getCompanyCategories(company?: CompanyRecord) {
-    const categories = getCompanyCategoryOptions(company).map((category) => category.label);
-
-    return categories.length > 0 ? categories : ['No categories listed'];
+    return getCompanyCategoryOptions(company).map((category) => category.label);
 }
 
 function getCompanyCategoryKeys(company?: CompanyRecord) {
-    const keys = getCompanyCategoryOptions(company).map((category) => category.key);
-
-    return Array.from(new Set(keys));
+    return getExplicitProviderCategoryKeys(company?.service_categories);
 }
 
 function getCompanyCategoryOptions(company?: CompanyRecord) {
-    const categoriesByKey = new Map<string, CompanyCategoryOption>();
-
-    (company?.service_categories || []).forEach((category) => {
-        const label = category.trim();
-
-        if (!label) return;
-
-        const categoryKeys = inferProviderCategoryKeysFromText(label);
-        const keys = categoryKeys.length > 0 ? categoryKeys : [slugifyProviderCategory(label)];
-
-        keys.forEach((categoryKey) => {
-            addCompanyCategoryOption(categoriesByKey, {
-                key: categoryKey,
-                label,
-                inferred: false,
-            });
-        });
-    });
-
-    inferProviderCategoryKeysFromText(getCompanyCategoryInferenceText(company)).forEach((categoryKey) => {
-        addCompanyCategoryOption(categoriesByKey, {
-            key: categoryKey,
-            label: formatProviderCategoryLabel(categoryKey),
-            inferred: true,
-        });
-    });
-
-    return Array.from(categoriesByKey.values());
-}
-
-function addCompanyCategoryOption(
-    categoriesByKey: Map<string, CompanyCategoryOption>,
-    category: CompanyCategoryOption
-) {
-    const existingCategory = categoriesByKey.get(category.key);
-
-    if (existingCategory && !existingCategory.inferred) return;
-
-    categoriesByKey.set(category.key, category);
-}
-
-function getCompanyCategoryInferenceText(company?: CompanyRecord) {
-    return [
-        company?.public_name,
-        company?.name,
-        company?.dba_name,
-        company?.short_description,
-        company?.website,
-    ]
-        .map((value) => value?.trim() || '')
-        .filter(Boolean)
-        .join(' ');
-}
-
-function inferProviderCategoryKeysFromText(value: string) {
-    const compactText = normalizeProviderCategoryText(value);
-    const categoryKeys: string[] = [];
-
-    if (!compactText) return [];
-
-    if (
-        compactText.includes('plumb') ||
-        compactText.includes('plumber') ||
-        compactText.includes('water heater') ||
-        compactText.includes('waterheater') ||
-        compactText.includes('tankless') ||
-        compactText.includes('drain') ||
-        compactText.includes('sewer') ||
-        compactText.includes('repipe') ||
-        compactText.includes('slab leak') ||
-        compactText.includes('leak') ||
-        compactText.includes('gas line') ||
-        compactText.includes('gasline') ||
-        compactText.includes('water line') ||
-        compactText.includes('waterline') ||
-        compactText.includes('water treatment') ||
-        compactText.includes('water quality')
-    ) {
-        categoryKeys.push('plumbing');
-    }
-
-    if (/\b(hvac|heating|cooling|air conditioning|air conditioner|furnace)\b/.test(compactText)) {
-        categoryKeys.push('hvac');
-    }
-
-    if (/\b(electric|electrical|outlet|breaker|panel)\b/.test(compactText)) {
-        categoryKeys.push('electrical');
-    }
-
-    if (/\b(roof|roofing|gutter)\b/.test(compactText)) {
-        categoryKeys.push('roofing');
-    }
-
-    if (/\b(paint|painting|drywall)\b/.test(compactText)) {
-        categoryKeys.push('painting');
-    }
-
-    if (/\b(siding|stucco|exterior)\b/.test(compactText)) {
-        categoryKeys.push('exterior');
-    }
-
-    return Array.from(new Set(categoryKeys));
-}
-
-function normalizeProviderCategoryText(value: string) {
-    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-}
-
-function slugifyProviderCategory(value: string) {
-    return normalizeProviderCategoryText(value).replace(/\s+/g, '-');
-}
-
-function formatProviderCategoryLabel(categoryKey: string) {
-    const labels: Record<string, string> = {
-        plumbing: 'Plumbing',
-        hvac: 'HVAC',
-        electrical: 'Electrical',
-        roofing: 'Roofing',
-        painting: 'Painting',
-        exterior: 'Exterior',
-    };
-
-    if (labels[categoryKey]) return labels[categoryKey];
-
-    return categoryKey
-        .split('-')
-        .filter(Boolean)
-        .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
-        .join(' ');
+    return getExplicitProviderCategoryOptions(company?.service_categories);
 }
 
 function formatAvailableProviderEmptyText(selectedCategoryLabels: string[]) {
@@ -1508,12 +1356,6 @@ function formatAvailableProviderEmptyText(selectedCategoryLabels: string[]) {
     }
 
     return `You already have providers selected for ${selectedCategoryLabels.join(', ')}.`;
-}
-
-function hasCategoryOverlap(firstCategoryKeys: string[], secondCategoryKeys: string[]) {
-    if (firstCategoryKeys.length === 0 || secondCategoryKeys.length === 0) return false;
-
-    return firstCategoryKeys.some((categoryKey) => secondCategoryKeys.includes(categoryKey));
 }
 
 function getFallbackInitial(displayName: string) {

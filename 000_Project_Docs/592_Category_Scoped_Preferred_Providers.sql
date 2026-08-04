@@ -1,5 +1,8 @@
 -- 592_Category_Scoped_Preferred_Providers.sql
 -- Review-only proposal. Do not run until reviewed in Supabase.
+-- Superseded by supabase/migrations/20260803120000_strict_provider_category_visibility.sql.
+-- This older proposal permits inferred/general categories and must not be used
+-- for the strict HomeOS provider visibility contract.
 --
 -- Product goal:
 -- - A property can have one active preferred provider per service category.
