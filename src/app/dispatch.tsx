@@ -2,6 +2,7 @@ import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import AdminNavBar from '../components/AdminNavBar';
+import DispatchChatOverlay from '../components/dispatch/DispatchChatOverlay';
 import HomeHeader from '../components/HomeHeader';
 import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -48,6 +49,7 @@ import {
     type ServiceVisitOutcome,
 } from '../lib/serviceVisitCloseout';
 import { supabase } from '../lib/supabase';
+import { getTechnicianAssignmentDisplayName } from '../lib/technicianDisplay';
 import { useTheme } from '../theme/useTheme';
 
 type CompanyAccess = {
@@ -1348,11 +1350,12 @@ export default function DispatchBoardScreen() {
         : ('/super-admin' as Href);
 
     return (
-        <ScrollView
-            style={{ flex: 1, backgroundColor: theme.colors.background }}
-            contentContainerStyle={{ padding: viewportWidth <= 760 ? 12 : 20, paddingBottom: viewportWidth <= 760 ? 112 : 64, alignItems: 'center' }}
-        >
-            <View style={{ width: '100%', maxWidth: 1120 }}>
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+            <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={{ padding: viewportWidth <= 760 ? 12 : 20, paddingBottom: viewportWidth <= 760 ? 112 : 64, alignItems: 'center' }}
+            >
+                <View style={{ width: '100%', maxWidth: 1120 }}>
                 <HomeHeader />
                 <AdminNavBar companyId={dispatchCompanyId} backFallback={dispatchBackFallback} />
 
@@ -1565,8 +1568,10 @@ export default function DispatchBoardScreen() {
                         </>
                     )
                 )}
-            </View>
-        </ScrollView>
+                </View>
+            </ScrollView>
+            <DispatchChatOverlay companyId={dispatchCompanyId} bottomOffset={18} />
+        </View>
     );
 }
 
@@ -2975,7 +2980,7 @@ function DispatchRequestCard({
     const visibleTechnicians = activeTechnicians.filter((technician) => {
         if (!technicianSearch) return true;
 
-        return normalizeStatus(`${getMemberDisplayName(technician)} ${technician.email || ''} ${technician.role || ''}`).includes(technicianSearch);
+        return normalizeStatus(`${getTechnicianAssignmentDisplayName(technician)} ${technician.role || ''}`).includes(technicianSearch);
     });
     const durationMinutes = getScheduleDurationMinutes(scheduleForm);
     const arrivalWindowHours = getArrivalWindowHours(scheduleForm);
@@ -3212,7 +3217,7 @@ function DispatchRequestCard({
                             <View style={schedulePanelHeaderStyle}>
                                 <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Technician</Text>
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                    {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'No technician selected'}
+                                    {selectedTechnician ? getTechnicianAssignmentDisplayName(selectedTechnician) : 'No technician selected'}
                                 </Text>
                             </View>
                             <TextInput
@@ -3238,7 +3243,7 @@ function DispatchRequestCard({
                                         return (
                                             <ThemedButton
                                                 key={technician.id}
-                                                title={`${getMemberDisplayName(technician)}${technician.email ? ` / ${technician.email}` : ''}`}
+                                                title={getTechnicianAssignmentDisplayName(technician)}
                                                 variant={selected ? 'primary' : 'secondary'}
                                                 onPress={() => onUpdateScheduleForm({ technicianCompanyUserId: technician.id })}
                                                 style={technicianButtonStyle}

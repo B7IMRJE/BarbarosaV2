@@ -3,6 +3,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import CompanyLeadSoundAlert from '../components/CompanyLeadSoundAlert';
+import DispatchChatOverlay from '../components/dispatch/DispatchChatOverlay';
 import {
     calculateCompanyLeadCounts,
     getCompanyDispatchRequests,
@@ -782,6 +783,11 @@ export default function DispatchWallScreen() {
     return (
         <View style={wallRootStyle}>
             <CompanyLeadSoundAlert companyId={demoMode ? null : activeCompanyId} counts={leadCounts} />
+            <DispatchChatOverlay
+                companyId={demoMode ? null : activeCompanyId}
+                bottomOffset={72}
+                wallMode
+            />
             <View style={[wallHeaderStyle, narrowLayout ? wallHeaderNarrowStyle : null]}>
                 <View style={[wallHeaderLeftStyle, narrowLayout ? wallHeaderLeftNarrowStyle : null]}>
                     <Pressable

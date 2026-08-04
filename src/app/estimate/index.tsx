@@ -9,9 +9,11 @@ import {
     createEstimateRequirementSkipAnswer,
     estimateRequirementId,
     formatMoney,
+    getEstimateCategoriesForWorkType,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
     inferEstimateCategoryFromDraft,
+    isEstimateCategoryForWorkType,
     isAnswerComplete,
     isMeasurementRequirementAnswer,
     isMeasurementRequirementComplete,
@@ -19,6 +21,7 @@ import {
     isPhotoRequirementComplete,
     isRequirementSkipAnswer,
     measurementRequirementAnswerKey,
+    estimateWorkTypeOptions,
     photoRequirementAnswerKey,
     toggleEstimateMultiSelectAnswer,
     toHomeownerPresentationChoice,
@@ -32,6 +35,7 @@ import {
     type EstimateQuestionDefinition,
     type EstimateRequirementMeasurementAnswer,
     type EstimateRequirementSkipReason,
+    type EstimateWorkType,
 } from '../../lib/estimateOptions';
 import {
     createEstimateRequirementPhotoPreview,
@@ -147,6 +151,8 @@ export default function EstimateScreen() {
     const [selectedChoiceId, setSelectedChoiceId] = useState('');
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
+    const [selectedWorkType, setSelectedWorkType] = useState<EstimateWorkType | null>(null);
+    const [estimateCategoryChosen, setEstimateCategoryChosen] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
     const [answers, setAnswers] = useState<EstimateAnswerSet>({});
     const [photoPreviewByKey, setPhotoPreviewByKey] = useState<Record<string, string>>({});
@@ -182,6 +188,8 @@ export default function EstimateScreen() {
         setItems([]);
         setPriceBookItems([]);
         setPriceBookMessage('Price book loading...');
+        setSelectedWorkType(null);
+        setEstimateCategoryChosen(false);
         setTechnicianApproved(false);
         setPresentationMode(false);
         setAiValidationErrors([]);
@@ -264,6 +272,8 @@ export default function EstimateScreen() {
         setDraftContext(nextDraftContext);
         setEstimateSession(null);
         setSelectedCategory(inferredCategory);
+        setSelectedWorkType(null);
+        setEstimateCategoryChosen(false);
         setAnswers({});
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
@@ -348,10 +358,43 @@ export default function EstimateScreen() {
         }).choices.some((choice) => choice.id === selectedChoiceId)) {
             setSelectedChoiceId('');
         }
-        setSelectedCategory(inferEstimateCategoryFromDraft(nextItems, draftContext));
         setTechnicianApproved(false);
         setPresentationMode(false);
         setMessage('Item removed from estimate.');
+    }
+
+    function selectWorkType(workType: EstimateWorkType) {
+        const categories = getEstimateCategoriesForWorkType(workType);
+
+        setSelectedWorkType(workType);
+        setEstimateCategoryChosen(false);
+        setSelectedCategory(categories[0]?.id || 'faucet_replacement');
+        resetEstimateChecklist();
+        setMessage(`${estimateWorkTypeOptions.find((option) => option.id === workType)?.label || 'Work type'} selected. Now choose the exact service.`);
+    }
+
+    function selectEstimateCategory(category: EstimateOptionCategory) {
+        if (!selectedWorkType || !isEstimateCategoryForWorkType(category, selectedWorkType)) return;
+
+        setSelectedCategory(category);
+        setEstimateCategoryChosen(true);
+        resetEstimateChecklist();
+        setMessage(`${getEstimateCategoryTemplate(category).label} checklist ready.`);
+    }
+
+    function resetEstimateChecklist() {
+        setEstimateSession(null);
+        setAnswers({});
+        setPhotoPreviewByKey({});
+        setRequirementUploadByKey({});
+        setMeasurementDraftByKey({});
+        setMeasurementErrorByKey({});
+        setSelectedChoiceId('');
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setAiValidationErrors([]);
+        setAiDraftsByChoiceId({});
+        setEditableCopyByChoiceId({});
     }
 
     function selectChoice(choice: Phase1EstimateChoice) {
@@ -445,9 +488,16 @@ export default function EstimateScreen() {
     }
 
     async function persistAnswerIfSessionReady(key: string, value: EstimateAnswerValue) {
-        const sessionId = estimateSession?.id || draftContext?.estimate_session_id || null;
+        let sessionId = estimateSession?.category === selectedCategory
+            ? estimateSession.id
+            : null;
 
-        if (!sessionId) return;
+        if (!sessionId) {
+            const resolvedSession = await resolveSessionForDraft(selectedCategory);
+
+            if (!resolvedSession) return;
+            sessionId = resolvedSession.id;
+        }
 
         try {
             await saveEstimateSessionAnswer(sessionId, key, value);
@@ -987,9 +1037,16 @@ export default function EstimateScreen() {
         technicianApproved,
         aiValidationFailed: aiValidationErrors.length > 0,
     });
-    const estimateChoices = phase1Workspace.choices.map((choice) =>
-        applyEditableChoiceCopy(choice, aiDraftsByChoiceId[choice.id], editableCopyByChoiceId[choice.id])
+    const estimateScopeSelected = Boolean(
+        selectedWorkType &&
+        estimateCategoryChosen &&
+        isEstimateCategoryForWorkType(selectedCategory, selectedWorkType)
     );
+    const estimateChoices = estimateScopeSelected
+        ? phase1Workspace.choices.map((choice) =>
+            applyEditableChoiceCopy(choice, aiDraftsByChoiceId[choice.id], editableCopyByChoiceId[choice.id])
+        )
+        : [];
     const optionChoices = estimateChoices.filter((choice) => choice.kind === 'individual');
     const bundleChoices = estimateChoices.filter((choice) => choice.kind === 'package');
     const selectedChoice = estimateChoices.find((choice) => choice.id === selectedChoiceId) || null;
@@ -1058,7 +1115,15 @@ export default function EstimateScreen() {
                         {renderSummaryCard('Draft Items', String(items.length), 'Selected HomeOS records')}
                         {renderSummaryCard('Options', String(optionChoices.length), '2 to 4 individual choices')}
                         {renderSummaryCard('Packages', String(bundleChoices.length), 'Up to 2 broader packages')}
-                        {renderSummaryCard('Status', phase1Workspace.statusMessage, 'Technician review gate')}
+                        {renderSummaryCard(
+                            'Status',
+                            estimateScopeSelected
+                                ? phase1Workspace.statusMessage
+                                : selectedWorkType
+                                    ? 'Choose exact service'
+                                    : 'Choose repair or replacement',
+                            'Technician review gate'
+                        )}
                     </View>
                 </View>
 
@@ -1072,9 +1137,16 @@ export default function EstimateScreen() {
                         {!!draftContext?.service_request_id && renderInfoChip('Request', shortId(draftContext.service_request_id))}
                         {!!draftContext?.job_id && renderInfoChip('Job', shortId(draftContext.job_id))}
                         {!!draftContext?.technician_name && renderInfoChip('Technician', draftContext.technician_name)}
-                        {renderInfoChip('Pricing', phase1Workspace.pricingSetupRequired ? 'Pricing setup required' : 'Deterministic')}
+                        {renderInfoChip('Pricing', !estimateScopeSelected
+                            ? 'Waiting for service selection'
+                            : phase1Workspace.pricingSetupRequired
+                                ? 'Pricing setup required'
+                                : 'Deterministic')}
                         {renderInfoChip('Price Book', priceBookMessage)}
-                        {renderInfoChip('Category', phase1Workspace.template.label)}
+                        {renderInfoChip('Work Type', selectedWorkType
+                            ? estimateWorkTypeOptions.find((option) => option.id === selectedWorkType)?.label || selectedWorkType
+                            : 'Not selected')}
+                        {renderInfoChip('Category', estimateScopeSelected ? phase1Workspace.template.label : 'Not selected')}
                     </View>
                     {!!draftContext?.issue_summary && (
                         <Text style={contextSummaryStyle}>
@@ -1090,113 +1162,167 @@ export default function EstimateScreen() {
                 )}
 
                 <View style={sectionStyle}>
-                    {renderSectionHeader('Category Questions', phase1Workspace.template.label)}
-                    <View style={categoryTabRowStyle}>
-                        {(['toilet_replacement', 'water_heater', 'garbage_disposal', 'faucet_replacement', 'whole_home_repipe'] as EstimateOptionCategory[]).map((category) => (
+                    {renderSectionHeader(
+                        'Estimate Checklist',
+                        estimateScopeSelected
+                            ? phase1Workspace.template.label
+                            : 'Start by choosing Repair / Service or Replacement / Installation.'
+                    )}
+                    <Text style={estimateStepLabelStyle}>1. What kind of work is this?</Text>
+                    <View style={workTypeGridStyle}>
+                        {estimateWorkTypeOptions.map((option) => (
                             <TouchableOpacity
-                                key={category}
-                                onPress={() => {
-                                    setSelectedCategory(category);
-                                    setAnswers({});
-                                    setPhotoPreviewByKey({});
-                                    setRequirementUploadByKey({});
-                                    setMeasurementDraftByKey({});
-                                    setMeasurementErrorByKey({});
-                                    setTechnicianApproved(false);
-                                    setPresentationMode(false);
-                                }}
-                                style={selectedCategory === category ? [categoryButtonStyle, selectedCategoryButtonStyle] : categoryButtonStyle}
+                                key={option.id}
+                                onPress={() => selectWorkType(option.id)}
+                                style={selectedWorkType === option.id
+                                    ? [workTypeCardStyle, selectedWorkTypeCardStyle]
+                                    : workTypeCardStyle}
                             >
-                                <Text style={selectedCategory === category ? selectedCategoryButtonTextStyle : categoryButtonTextStyle}>
-                                    {getEstimateCategoryTemplate(category).label}
+                                <Text style={selectedWorkType === option.id ? selectedWorkTypeTitleStyle : workTypeTitleStyle}>
+                                    {option.label}
+                                </Text>
+                                <Text style={selectedWorkType === option.id ? selectedWorkTypeDescriptionStyle : workTypeDescriptionStyle}>
+                                    {option.description}
                                 </Text>
                             </TouchableOpacity>
                         ))}
                     </View>
 
-                    <View style={questionGridStyle}>
-                        {phase1Workspace.template.questions.map((question) => renderQuestion(question, answers, updateAnswer, toggleMultiAnswer))}
-                    </View>
-
-                    <View style={requirementGridStyle}>
-                        {phase1Workspace.template.requiredPhotoLabels.map((label) => renderPhotoRequirementCard({
-                            label,
-                            answers,
-                            previewByKey: photoPreviewByKey,
-                            uploadByKey: requirementUploadByKey,
-                            choosePhoto: chooseRequirementPhoto,
-                            removePhoto: removeRequirementPhoto,
-                            skipRequirement: (label, reason) => skipRequirement('photo', label, reason),
-                            clearSkippedRequirement: (label) => clearSkippedRequirement('photo', label),
-                        }))}
-                        {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderMeasurementRequirementCard({
-                            label,
-                            answers,
-                            measurementDraftByKey,
-                            measurementErrorByKey,
-                            updateMeasurementDraft,
-                            saveMeasurement: saveRequirementMeasurement,
-                            clearMeasurement: clearRequirementMeasurement,
-                            skipRequirement: (label, reason) => skipRequirement('measurement', label, reason),
-                            clearSkippedRequirement: (label) => clearSkippedRequirement('measurement', label),
-                        }))}
-                    </View>
-
-                    {!phase1Workspace.answerValidation.complete && (
-                        <View style={missingAnswerBoxStyle}>
-                            {phase1Workspace.answerValidation.missingRequiredQuestionLabels.length > 0 && (
-                                <Text style={missingAnswerTextStyle}>
-                                    Questions still needed: {phase1Workspace.answerValidation.missingRequiredQuestionLabels.join(', ')}
-                                </Text>
-                            )}
-                            {phase1Workspace.answerValidation.missingRequiredPhotoLabels.length > 0 && (
-                                <Text style={missingAnswerTextStyle}>
-                                    Photos still needed: {phase1Workspace.answerValidation.missingRequiredPhotoLabels.join(', ')}
-                                </Text>
-                            )}
-                            {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.length > 0 && (
-                                <Text style={missingAnswerTextStyle}>
-                                    Measurements still needed: {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.join(', ')}
-                                </Text>
-                            )}
-                        </View>
+                    {!!selectedWorkType && (
+                        <>
+                            <Text style={estimateStepLabelStyle}>
+                                2. {selectedWorkType === 'repair_service'
+                                    ? 'What are we repairing, servicing, or diagnosing?'
+                                    : 'What are we replacing or installing?'}
+                            </Text>
+                            <View style={categoryTabRowStyle}>
+                                {getEstimateCategoriesForWorkType(selectedWorkType).map((template) => (
+                                    <TouchableOpacity
+                                        key={template.id}
+                                        onPress={() => selectEstimateCategory(template.id)}
+                                        style={estimateCategoryChosen && selectedCategory === template.id
+                                            ? [categoryButtonStyle, selectedCategoryButtonStyle]
+                                            : categoryButtonStyle}
+                                    >
+                                        <Text style={estimateCategoryChosen && selectedCategory === template.id
+                                            ? selectedCategoryButtonTextStyle
+                                            : categoryButtonTextStyle}
+                                        >
+                                            {template.label}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </>
                     )}
 
-                    {phase1Workspace.draftGate.missingBeforeFinalPresentation.length > 0 && (
+                    {estimateScopeSelected ? (
+                        <>
+                            <Text style={estimateStepLabelStyle}>3. Complete the {phase1Workspace.template.label} questions.</Text>
+                            <View style={questionGridStyle}>
+                                {phase1Workspace.template.questions.map((question) => renderQuestion(question, answers, updateAnswer, toggleMultiAnswer))}
+                            </View>
+
+                            <View style={requirementGridStyle}>
+                                {phase1Workspace.template.requiredPhotoLabels.map((label) => renderPhotoRequirementCard({
+                                    label,
+                                    answers,
+                                    previewByKey: photoPreviewByKey,
+                                    uploadByKey: requirementUploadByKey,
+                                    choosePhoto: chooseRequirementPhoto,
+                                    removePhoto: removeRequirementPhoto,
+                                    skipRequirement: (label, reason) => skipRequirement('photo', label, reason),
+                                    clearSkippedRequirement: (label) => clearSkippedRequirement('photo', label),
+                                }))}
+                                {phase1Workspace.template.requiredMeasurementLabels.map((label) => renderMeasurementRequirementCard({
+                                    label,
+                                    answers,
+                                    measurementDraftByKey,
+                                    measurementErrorByKey,
+                                    updateMeasurementDraft,
+                                    saveMeasurement: saveRequirementMeasurement,
+                                    clearMeasurement: clearRequirementMeasurement,
+                                    skipRequirement: (label, reason) => skipRequirement('measurement', label, reason),
+                                    clearSkippedRequirement: (label) => clearSkippedRequirement('measurement', label),
+                                }))}
+                            </View>
+
+                            {!phase1Workspace.answerValidation.complete && (
+                                <View style={missingAnswerBoxStyle}>
+                                    {phase1Workspace.answerValidation.missingRequiredQuestionLabels.length > 0 && (
+                                        <Text style={missingAnswerTextStyle}>
+                                            Questions still needed: {phase1Workspace.answerValidation.missingRequiredQuestionLabels.join(', ')}
+                                        </Text>
+                                    )}
+                                    {phase1Workspace.answerValidation.missingRequiredPhotoLabels.length > 0 && (
+                                        <Text style={missingAnswerTextStyle}>
+                                            Photos still needed: {phase1Workspace.answerValidation.missingRequiredPhotoLabels.join(', ')}
+                                        </Text>
+                                    )}
+                                    {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.length > 0 && (
+                                        <Text style={missingAnswerTextStyle}>
+                                            Measurements still needed: {phase1Workspace.answerValidation.missingRequiredMeasurementLabels.join(', ')}
+                                        </Text>
+                                    )}
+                                </View>
+                            )}
+
+                            {phase1Workspace.draftGate.missingBeforeFinalPresentation.length > 0 && (
                         <View style={missingAnswerBoxStyle}>
                             <Text style={smallEmptyTitleStyle}>Missing before final presentation</Text>
                             {phase1Workspace.draftGate.missingBeforeFinalPresentation.slice(0, 8).map((entry) => (
                                 <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
                             ))}
                         </View>
-                    )}
+                            )}
 
-                    {phase1Workspace.draftGate.skippedForNow.length > 0 && (
+                            {phase1Workspace.draftGate.skippedForNow.length > 0 && (
                         <View style={missingAnswerBoxStyle}>
                             <Text style={smallEmptyTitleStyle}>Skipped for now</Text>
                             {phase1Workspace.draftGate.skippedForNow.map((entry) => (
                                 <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
                             ))}
                         </View>
-                    )}
+                            )}
 
-                    {phase1Workspace.draftGate.assumptionsUsedInDraft.length > 0 && (
+                            {phase1Workspace.draftGate.assumptionsUsedInDraft.length > 0 && (
                         <View style={missingAnswerBoxStyle}>
                             <Text style={smallEmptyTitleStyle}>Assumptions used in draft</Text>
                             {phase1Workspace.draftGate.assumptionsUsedInDraft.slice(0, 6).map((entry) => (
                                 <Text key={entry} style={missingAnswerTextStyle}>{entry}</Text>
                             ))}
                         </View>
+                            )}
+                        </>
+                    ) : (
+                        <View style={smallEmptyStyle}>
+                            <Text style={smallEmptyTitleStyle}>
+                                {selectedWorkType ? 'Choose the exact service' : 'Choose Repair or Replacement'}
+                            </Text>
+                            <Text style={smallEmptyTextStyle}>
+                                The checklist and price-book choices will appear only after both selections are made.
+                            </Text>
+                        </View>
                     )}
                 </View>
 
                 <View style={sectionStyle}>
-                    {renderSectionHeader('Deterministic Pricing', phase1Workspace.statusMessage)}
-                    {phase1Workspace.pricingSetupRequired ? (
+                    {renderSectionHeader(
+                        'Deterministic Pricing',
+                        estimateScopeSelected ? phase1Workspace.statusMessage : 'Waiting for estimate checklist selection'
+                    )}
+                    {!estimateScopeSelected ? (
+                        <View style={smallEmptyStyle}>
+                            <Text style={smallEmptyTitleStyle}>Select the work type and exact service first</Text>
+                            <Text style={smallEmptyTextStyle}>
+                                Repair price-book lines cannot appear in a replacement estimate, and replacement lines cannot appear in a repair estimate.
+                            </Text>
+                        </View>
+                    ) : phase1Workspace.pricingSetupRequired ? (
                         <View style={smallEmptyStyle}>
                             <Text style={smallEmptyTitleStyle}>Pricing setup required</Text>
                             <Text style={smallEmptyTextStyle}>
-                                Add active company price-book entries before generating homeowner choices.
+                                Add active company price-book entries for the selected service scopes before generating homeowner choices.
                             </Text>
                         </View>
                     ) : (
@@ -1218,7 +1344,9 @@ export default function EstimateScreen() {
                     )}
                 </View>
 
-                <View style={sectionStyle}>
+                {estimateScopeSelected && (
+                    <>
+                        <View style={sectionStyle}>
                     {renderSectionHeader('Technician Option Editor', selectedChoice?.title || 'Review choices before presentation.')}
                     <View style={compactActionRowStyle}>
                         <TouchableOpacity
@@ -1323,9 +1451,9 @@ export default function EstimateScreen() {
                             ))}
                         </View>
                     )}
-                </View>
+                        </View>
 
-                <View style={sectionStyle}>
+                        <View style={sectionStyle}>
                     {renderSectionHeader('Homeowner Presentation', phase1Workspace.presentationGate.canPresent ? 'Ready' : 'Blocked')}
                     {!presentationMode ? (
                         <View style={smallEmptyStyle}>
@@ -1344,7 +1472,9 @@ export default function EstimateScreen() {
                             {estimateChoices.map((choice) => renderPresentationChoice(choice))}
                         </View>
                     )}
-                </View>
+                        </View>
+                    </>
+                )}
 
                 <View style={sectionStyle}>
                     {renderSectionHeader('Items in Draft', 'Compact item cards stay removable and recalculate options immediately.')}
@@ -1985,6 +2115,60 @@ const secondaryButtonTextStyle = {
 
 const sectionStyle = {
     marginBottom: 18,
+};
+
+const estimateStepLabelStyle = {
+    color: '#34465A',
+    fontSize: 13,
+    fontWeight: '900' as const,
+    marginBottom: 8,
+};
+
+const workTypeGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginBottom: 16,
+};
+
+const workTypeCardStyle = {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 2,
+    borderColor: '#D8E0EA',
+    flexGrow: 1,
+    flexBasis: 280,
+    maxWidth: 520,
+};
+
+const selectedWorkTypeCardStyle = {
+    backgroundColor: '#071B33',
+    borderColor: '#071B33',
+};
+
+const workTypeTitleStyle = {
+    color: '#071B33',
+    fontSize: 17,
+    fontWeight: '900' as const,
+    marginBottom: 5,
+};
+
+const selectedWorkTypeTitleStyle = {
+    ...workTypeTitleStyle,
+    color: '#FFFFFF',
+};
+
+const workTypeDescriptionStyle = {
+    color: '#637083',
+    fontSize: 12,
+    lineHeight: 17,
+};
+
+const selectedWorkTypeDescriptionStyle = {
+    ...workTypeDescriptionStyle,
+    color: '#DCE8F5',
 };
 
 const categoryTabRowStyle = {

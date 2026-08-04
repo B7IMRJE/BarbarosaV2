@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
+import TechnicianDispatchChat from '../components/dispatch/TechnicianDispatchChat';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
 import {
@@ -83,6 +84,7 @@ import {
     normalizeTechOSAssignmentCompanyUserIds,
     resolveTechOSAssignmentCompanyUserIds,
 } from '../lib/techosAssignments';
+import { getTechnicianAssignmentDisplayName } from '../lib/technicianDisplay';
 import { useTheme } from '../theme/useTheme';
 
 declare const __DEV__: boolean;
@@ -1000,7 +1002,7 @@ export default function TechOSScreen() {
         setAssigningJobId(job.id);
         setAssignmentMessageByJob((current) => ({
             ...current,
-            [job.id]: `Assigning ${getMemberDisplayName(selectedTechnician)}...`,
+            [job.id]: `Assigning ${getTechnicianAssignmentDisplayName(selectedTechnician)}...`,
         }));
 
         let assignErrorMessage = '';
@@ -1028,7 +1030,7 @@ export default function TechOSScreen() {
 
         setAssignmentMessageByJob((current) => ({
             ...current,
-            [job.id]: `${getMemberDisplayName(selectedTechnician)} assigned as primary technician.`,
+            [job.id]: `${getTechnicianAssignmentDisplayName(selectedTechnician)} assigned as primary technician.`,
         }));
         setExpandedAssignmentJobs((current) => ({ ...current, [job.id]: false }));
         setSelectedTechnicianByJob((current) => ({ ...current, [job.id]: '' }));
@@ -3000,6 +3002,7 @@ function TechOSAssignedJobDetail({
     const primaryWorkflowActions = workflowActionPresentation.filter((action) => action.primary);
     const moreWorkflowActions = workflowActionPresentation.filter(isSecondaryTechWorkflowAction);
     const nextJobAvailability = getNextJobAvailabilitySectionState();
+    const chatServiceRequestId = String(job.request?.id || job.slot.service_request_id || '').trim();
 
     return (
         <View style={[techJobDetailStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
@@ -3066,6 +3069,21 @@ function TechOSAssignedJobDetail({
                     </Text>
                 )}
             </TechOSDetailSection>
+
+            {!!chatServiceRequestId && (
+                <TechOSDetailSection
+                    title="Message Dispatch"
+                    description="Send a quick job message or ask Dispatch for assistance."
+                    techOSTheme={techOSTheme}
+                    variantKey="note"
+                >
+                    <TechnicianDispatchChat
+                        companyId={job.slot.company_id}
+                        serviceRequestId={chatServiceRequestId}
+                        techOSTheme={techOSTheme}
+                    />
+                </TechOSDetailSection>
+            )}
 
             <TechOSDetailSection
                 title="Homeowner Photos and Videos"
@@ -3571,7 +3589,7 @@ function TechOSJobCard({
                         <View style={{ flex: 1, minWidth: 0 }}>
                             <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Assign Technician</Text>
                             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                                {selectedTechnician ? getMemberDisplayName(selectedTechnician) : 'Choose an active technician'}
+                                {selectedTechnician ? getTechnicianAssignmentDisplayName(selectedTechnician) : 'Choose an active technician'}
                             </Text>
                         </View>
                         <ThemedButton
@@ -3606,10 +3624,7 @@ function TechOSJobCard({
                                         >
                                             <View style={{ flex: 1, minWidth: 0 }}>
                                                 <Text style={[technicianPickerNameStyle, { color: theme.colors.text }]}>
-                                                    {getMemberDisplayName(technician)}
-                                                </Text>
-                                                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                                                    {technician.email || shortId(technician.auth_user_id || technician.id)}
+                                                    {getTechnicianAssignmentDisplayName(technician)}
                                                 </Text>
                                             </View>
                                             <Text style={[technicianPickerActionStyle, { color: theme.colors.primary }]}>
@@ -3954,12 +3969,6 @@ function readNumberField(record: Record<string, unknown>, key: string) {
     const value = record[key];
 
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function getMemberDisplayName(member?: CompanyUser | null) {
-    if (!member) return 'Technician';
-
-    return member.full_name || member.email || `Technician ${shortId(member.auth_user_id || member.id)}`;
 }
 
 function getFriendlyAssignmentMessage(message?: string | null) {

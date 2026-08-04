@@ -1,9 +1,30 @@
+import { plumbingPriceBookCatalogItems } from './plumbingPriceBookCatalog';
+
+export type EstimateWorkType = 'repair_service' | 'replacement';
+
 export type EstimateOptionCategory =
     | 'toilet_replacement'
     | 'water_heater'
     | 'garbage_disposal'
     | 'faucet_replacement'
-    | 'whole_home_repipe';
+    | 'whole_home_repipe'
+    | 'valve_replacement'
+    | 'water_main_replacement'
+    | 'sewer_line_replacement'
+    | 'gas_line_replacement'
+    | 'water_filtration_replacement'
+    | 'irrigation_installation'
+    | 'toilet_repair'
+    | 'water_heater_service'
+    | 'garbage_disposal_repair'
+    | 'faucet_repair'
+    | 'water_main_repair'
+    | 'sewer_service_repair'
+    | 'gas_service_repair'
+    | 'water_filtration_service'
+    | 'plumbing_reroute'
+    | 'leak_search_isolation'
+    | 'irrigation_service_repair';
 
 const FAUCET_REINSTALL_EXISTING_PRICE_KEY = 'faucet-reinstall-existing';
 const FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY = 'faucet-install-company-approved';
@@ -151,12 +172,15 @@ export type EstimateQuestionDefinition = {
 export type EstimateCategoryTemplate = {
     id: EstimateOptionCategory;
     label: string;
+    workType: EstimateWorkType;
     serviceCategory: string;
     requiredPhotoLabels: string[];
     requiredMeasurementLabels: string[];
     questions: EstimateQuestionDefinition[];
     productCategoryFilters: string[];
     pricingCategoryFilters: string[];
+    scopePriceKeys: string[];
+    scopeQuestionId?: string;
     requiredScopeCodes: string[];
     recommendedOptionStructures: string[];
     warnings: string[];
@@ -523,11 +547,20 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
     {
         id: 'toilet_replacement',
         label: 'Toilet Replacement',
+        workType: 'replacement',
         serviceCategory: 'Toilets',
         requiredPhotoLabels: ['Existing toilet', 'Toilet base and floor', 'Shutoff valve'],
         requiredMeasurementLabels: ['Rough-in measurement'],
         productCategoryFilters: ['toilet', 'bidet'],
         pricingCategoryFilters: ['Toilets'],
+        scopePriceKeys: [
+            'water_service_bathroom_toilet_replacement',
+            'water_service_bathroom_round_front_toilet_replacement',
+            'water_service_bathroom_elongated_toilet_replacement',
+            'water_service_bathroom_one_piece_toilet_replacement',
+            'water_service_bathroom_pressure_assist_toilet_replacement',
+            'water_service_bathroom_toilet_installation_customer_supplied',
+        ],
         requiredScopeCodes: [],
         recommendedOptionStructures: ['Repair / Minimum Solution', 'Essential Replacement', 'Professional Upgrade', 'Premium Solution'],
         warnings: ['Round versus elongated should normally affect product selection, not automatic labor.'],
@@ -553,12 +586,21 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
     },
     {
         id: 'water_heater',
-        label: 'Water Heater / Tankless',
+        label: 'Water Heater / Tankless Replacement',
+        workType: 'replacement',
         serviceCategory: 'Water Heaters',
         requiredPhotoLabels: ['Existing unit photo', 'Model / serial label', 'Full installation area', 'Venting or flue', 'Water and fuel connections'],
         requiredMeasurementLabels: ['Tank size or tankless demand'],
         productCategoryFilters: ['tank water heater', 'tankless water heater', 'expansion tank', 'recirculation'],
         pricingCategoryFilters: ['Water Heaters', 'Gas', 'Valves / Shutoffs'],
+        scopePriceKeys: [
+            'water_service_garage_mechanical_standard_tank_water_heater_replacement',
+            'water_service_garage_mechanical_tankless_water_heater_replacement',
+            'water_service_garage_mechanical_water_heater_expansion_tank_installation',
+            'water_service_garage_mechanical_water_heater_pan_installation',
+            'water_service_garage_mechanical_water_heater_stand_installation',
+            'water_service_garage_mechanical_water_heater_seismic_strap_installation',
+        ],
         requiredScopeCodes: [],
         recommendedOptionStructures: ['Minimum Code-Safe Repair', 'Essential Replacement', 'Professional Replacement', 'Premium Hot Water Protection'],
         warnings: ['Preserve the guided water-heater checklist and block presentation until required safety questions are answered.'],
@@ -587,12 +629,14 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
     },
     {
         id: 'garbage_disposal',
-        label: 'Garbage Disposal',
+        label: 'Garbage Disposal Replacement',
+        workType: 'replacement',
         serviceCategory: 'Drains / Sewer',
         requiredPhotoLabels: ['Existing disposal', 'Under-sink drain piping', 'Electrical connection area'],
         requiredMeasurementLabels: [],
         productCategoryFilters: ['garbage disposal'],
         pricingCategoryFilters: ['Drains / Sewer'],
+        scopePriceKeys: ['drain_sewer_kitchen_garbage_disposal_replacement'],
         requiredScopeCodes: [],
         recommendedOptionStructures: ['Minimum Disposal Replacement', 'Essential Disposal', 'Quiet Professional Disposal', 'Premium Disposal Protection'],
         warnings: ['Electrical work must be scoped only when approved and configured.'],
@@ -615,11 +659,22 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
     {
         id: 'faucet_replacement',
         label: 'Faucet Replacement',
+        workType: 'replacement',
         serviceCategory: 'Faucets / Sinks',
         requiredPhotoLabels: ['Existing faucet', 'Under-sink connections', 'Sink hole layout'],
         requiredMeasurementLabels: ['Hole spread'],
         productCategoryFilters: ['faucet', 'sink'],
         pricingCategoryFilters: ['Faucets / Sinks', 'Valves / Shutoffs'],
+        scopePriceKeys: [
+            FAUCET_REINSTALL_EXISTING_PRICE_KEY,
+            FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY,
+            'water_service_kitchen_kitchen_faucet_replacement',
+            'water_service_kitchen_pull_down_kitchen_faucet_replacement',
+            'water_service_bathroom_bathroom_faucet_replacement',
+            'water_service_bathroom_widespread_faucet_replacement',
+            'water_service_bathroom_single_handle_faucet_replacement',
+            'water_service_laundry_utility_sink_faucet_replacement',
+        ],
         requiredScopeCodes: [],
         recommendedOptionStructures: ['Minimum Faucet Replacement', 'Essential Faucet Replacement', 'Professional Faucet Upgrade', 'Premium Fixture Package'],
         warnings: ['Accessories and shutoff replacements must be priced through approved entries.'],
@@ -638,11 +693,16 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
     {
         id: 'whole_home_repipe',
         label: 'Whole-Home Repipe',
+        workType: 'replacement',
         serviceCategory: 'Water Service',
         requiredPhotoLabels: ['Main water entry', 'Water heater area', 'Typical fixture access', 'Attic / crawl / slab access'],
         requiredMeasurementLabels: ['Approximate home size'],
         productCategoryFilters: ['repipe materials', 'valves', 'shutoff valves', 'supply lines'],
         pricingCategoryFilters: ['Water Service', 'Valves / Shutoffs', 'Other Plumbing'],
+        scopePriceKeys: [
+            'water_service_whole_home_repipe_estimate',
+            'water_service_whole_home_partial_repipe_by_fixture',
+        ],
         requiredScopeCodes: [],
         recommendedOptionStructures: ['Partial Repipe Scope', 'Essential Repipe', 'Professional Whole-Home Repipe', 'Protection Package'],
         warnings: ['Generated totals remain editable and auditable; overrides require a reason.'],
@@ -660,10 +720,498 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('routing_access_difficulty', 'Routing / access difficulty', true, ['standard', 'moderate', 'difficult']),
         ],
     },
+    scopedEstimateTemplate({
+        id: 'valve_replacement',
+        label: 'Valve / Shutoff Replacement',
+        workType: 'replacement',
+        serviceCategory: 'Valves / Shutoffs',
+        scopeQuestionId: 'valve_replacement_scope',
+        scopeQuestionLabel: 'What valve or shutoff are we replacing?',
+        scopePriceKeys: [
+            'water_service_garage_mechanical_main_water_shutoff_replacement',
+            'water_service_garage_mechanical_prv_pressure_regulator_replacement',
+            'water_service_kitchen_kitchen_sink_shutoff_replacement',
+            'water_service_bathroom_bathroom_angle_stop_replacement',
+            'water_service_bathroom_toilet_shutoff_replacement',
+            'water_service_laundry_washing_machine_valve_replacement',
+            'water_service_exterior_exterior_shutoff_replacement',
+            'water_service_exterior_irrigation_tie_in_shutoff_replacement',
+        ],
+        requiredPhotoLabels: ['Existing valve and connected piping'],
+        questions: [
+            selectQuestion('valve_material', 'Connected pipe material', true, ['copper', 'PEX', 'CPVC', 'galvanized', 'other / unknown']),
+            selectQuestion('valve_access', 'Valve access', true, ['open and accessible', 'cabinet access', 'wall access needed', 'buried / exterior']),
+            yesNoQuestion('valve_system_isolation', 'Can the system be safely isolated?', true),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'water_main_replacement',
+        label: 'Water Main Replacement',
+        workType: 'replacement',
+        serviceCategory: 'Water Service',
+        scopeQuestionId: 'water_main_replacement_scope',
+        scopeQuestionLabel: 'What water-main replacement scope are we pricing?',
+        scopePriceKeys: [
+            'water_service_whole_home_main_water_service_replacement_estimate',
+            'water_service_whole_home_main_water_service_replacement_linear_foot',
+        ],
+        requiredPhotoLabels: ['Water service route', 'Meter and building entry'],
+        requiredMeasurementLabels: ['Approximate replacement length'],
+        questions: [
+            selectQuestion('water_main_material', 'Proposed pipe material', true, ['copper', 'PEX', 'HDPE / approved plastic', 'management selected']),
+            selectQuestion('water_main_access', 'Route and access', true, ['open trench', 'landscape', 'hardscape crossing', 'bore / trenchless review']),
+            yesNoQuestion('water_main_permit', 'Permit or inspection required?', true),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'sewer_line_replacement',
+        label: 'Sewer Line Replacement',
+        workType: 'replacement',
+        serviceCategory: 'Drains / Sewer',
+        scopeQuestionId: 'sewer_replacement_scope',
+        scopeQuestionLabel: 'What sewer replacement scope are we pricing?',
+        scopePriceKeys: ['drain_sewer_whole_home_sewer_line_replacement_linear_foot'],
+        requiredPhotoLabels: ['Sewer route and access', 'Camera finding or failure area'],
+        requiredMeasurementLabels: ['Approximate replacement length'],
+        questions: [
+            selectQuestion('sewer_replacement_method', 'Replacement method', true, ['open trench', 'trenchless review', 'under-structure access', 'management selected']),
+            selectQuestion('sewer_pipe_material', 'Existing pipe material', true, ['cast iron', 'clay', 'ABS', 'PVC', 'Orangeburg', 'unknown']),
+            yesNoQuestion('sewer_permit', 'Permit or inspection required?', true),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'gas_line_replacement',
+        label: 'Gas Line Replacement / Reroute',
+        workType: 'replacement',
+        serviceCategory: 'Gas',
+        scopeQuestionId: 'gas_replacement_scope',
+        scopeQuestionLabel: 'What gas-line replacement scope are we pricing?',
+        scopePriceKeys: [
+            'gas_service_garage_mechanical_gas_line_replacement_linear_foot',
+            'gas_service_exterior_gas_line_extension',
+            'gas_service_kitchen_gas_line_extension_to_range',
+        ],
+        requiredPhotoLabels: ['Gas line route and connections'],
+        requiredMeasurementLabels: ['Approximate gas line length'],
+        questions: [
+            selectQuestion('gas_appliance_load', 'Appliance or load served', true, ['water heater', 'range', 'dryer', 'BBQ / exterior', 'multiple appliances', 'other']),
+            selectQuestion('gas_pipe_size', 'Existing or proposed pipe size', true, ['1/2 in', '3/4 in', '1 in', 'larger / sizing required', 'unknown']),
+            yesNoQuestion('gas_test_permit', 'Pressure test or permit required?', true),
+        ],
+        warnings: ['Gas work must follow company licensing, testing, permit, and safety requirements.'],
+    }),
+    scopedEstimateTemplate({
+        id: 'water_filtration_replacement',
+        label: 'Water Filtration Installation / Replacement',
+        workType: 'replacement',
+        serviceCategory: 'Water Quality',
+        scopeQuestionId: 'filtration_replacement_scope',
+        scopeQuestionLabel: 'What treatment equipment are we installing or replacing?',
+        scopePriceKeys: [
+            'water_quality_garage_mechanical_whole_home_filter_installation',
+            'water_quality_garage_mechanical_water_softener_installation',
+            'water_quality_garage_mechanical_water_conditioner_installation',
+            'water_quality_garage_mechanical_uv_light_installation',
+            'water_quality_kitchen_reverse_osmosis_installation',
+            'water_quality_kitchen_under_sink_filter_installation',
+        ],
+        requiredPhotoLabels: ['Installation area', 'Water and drain connections'],
+        questions: [
+            selectQuestion('filtration_location', 'Equipment location', true, ['garage / mechanical', 'exterior', 'under sink', 'utility area', 'other']),
+            selectQuestion('filtration_water_goal', 'Primary water-quality goal', true, ['sediment', 'chlorine / taste', 'hardness', 'drinking water', 'UV treatment', 'multiple concerns']),
+            yesNoQuestion('filtration_drain_power', 'Required drain and power are available?', true),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'irrigation_installation',
+        label: 'Irrigation / Pool Fill Installation',
+        workType: 'replacement',
+        serviceCategory: 'Valves / Shutoffs',
+        scopeQuestionId: 'irrigation_install_scope',
+        scopeQuestionLabel: 'What exterior valve or fill component are we installing?',
+        scopePriceKeys: [
+            'water_service_exterior_irrigation_valve_installation',
+            'water_service_exterior_pool_autofill_valve_installation',
+            'water_service_exterior_pressure_vacuum_breaker_replacement',
+            'water_service_exterior_backflow_device_replacement',
+        ],
+        requiredPhotoLabels: ['Exterior installation area', 'Water supply tie-in'],
+        questions: [
+            selectQuestion('irrigation_access', 'Installation access', true, ['exposed', 'valve box', 'shallow buried', 'hardscape / excavation review']),
+            selectQuestion('irrigation_pipe_material', 'Connected pipe material', true, ['PVC', 'copper', 'PEX', 'poly', 'unknown']),
+            yesNoQuestion('irrigation_backflow', 'Backflow protection reviewed?', true),
+        ],
+        warnings: ['Scope covers approved plumbing valves and water connections, not landscaping or full irrigation-system design unless separately configured.'],
+    }),
+    scopedEstimateTemplate({
+        id: 'toilet_repair',
+        label: 'Toilet Repair / Service',
+        workType: 'repair_service',
+        serviceCategory: 'Toilets',
+        scopeQuestionId: 'toilet_repair_scope',
+        scopeQuestionLabel: 'What are we repairing on the toilet?',
+        scopePriceKeys: [
+            'water_service_bathroom_toilet_leak_diagnostic',
+            'water_service_bathroom_toilet_running_repair',
+            'water_service_bathroom_fill_valve_replacement',
+            'water_service_bathroom_flush_valve_replacement',
+            'water_service_bathroom_flapper_replacement',
+            'water_service_bathroom_toilet_trip_lever_replacement',
+            'water_service_bathroom_toilet_tank_rebuild',
+            'water_service_bathroom_toilet_supply_line_replacement',
+            'water_service_bathroom_toilet_closet_bolts_caps_replacement',
+            'water_service_bathroom_toilet_reset',
+            'drain_sewer_bathroom_wax_ring_replacement',
+            'drain_sewer_bathroom_toilet_flange_repair',
+            'drain_sewer_bathroom_toilet_flange_replacement',
+            'water_service_bathroom_round_soft_close_toilet_seat_installation',
+            'water_service_bathroom_elongated_soft_close_toilet_seat_installation',
+        ],
+        requiredPhotoLabels: ['Toilet and visible problem area'],
+        questions: [
+            selectQuestion('toilet_repair_type', 'Toilet type', true, ['two-piece gravity', 'one-piece', 'pressure assist', 'dual flush', 'wall hung', 'unknown']),
+            selectQuestion('toilet_repair_bowl_shape', 'Bowl / seat shape', true, ['round', 'elongated', 'not applicable / unknown']),
+            multiQuestion('toilet_symptoms', 'Observed symptoms', true, ['running', 'leaking at base', 'leaking at tank', 'weak / incomplete flush', 'loose toilet', 'handle does not work', 'seat issue', 'stoppage']),
+            selectQuestion('toilet_flange_observation', 'Flange condition', false, ['not exposed', 'appears sound', 'repair needed', 'replacement needed']),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'water_heater_service',
+        label: 'Water Heater / Tankless Service & Repair',
+        workType: 'repair_service',
+        serviceCategory: 'Water Heaters',
+        scopeQuestionId: 'water_heater_service_scope',
+        scopeQuestionLabel: 'What water-heater service or repair are we performing?',
+        scopePriceKeys: [
+            'water_service_garage_mechanical_water_heater_diagnostic',
+            'water_service_garage_mechanical_water_heater_service',
+            'water_service_garage_mechanical_water_heater_flush',
+            'water_service_garage_mechanical_water_heater_sediment_flush',
+            'water_service_garage_mechanical_tankless_water_heater_descaling',
+            'water_service_garage_mechanical_water_heater_warranty_diagnostic',
+            'water_service_garage_mechanical_water_heater_drain_valve_replacement',
+            'water_service_garage_mechanical_water_heater_tp_valve_replacement',
+            'water_service_garage_mechanical_pressure_regulator_adjustment',
+            'water_service_garage_mechanical_recirculation_timer_setup',
+        ],
+        requiredPhotoLabels: ['Unit and model / serial label', 'Visible problem or service connections'],
+        questions: [
+            selectQuestion('service_unit_type', 'Unit type', true, ['tank', 'tankless', 'heat pump', 'recirculation system', 'unknown']),
+            selectQuestion('service_fuel_type', 'Fuel / power type', true, ['gas', 'electric', 'propane', 'heat pump', 'unknown']),
+            multiQuestion('water_heater_symptoms', 'Symptoms or reason for service', true, ['no hot water', 'not hot enough', 'leak', 'noise / sediment', 'error code', 'maintenance due', 'warranty call', 'recirculation issue']),
+            selectQuestion('warranty_status', 'Warranty status', false, ['not a warranty call', 'manufacturer warranty', 'company workmanship warranty', 'unknown']),
+        ],
+        warnings: ['Do not promise warranty coverage until the manufacturer or company approves the claim.'],
+    }),
+    scopedEstimateTemplate({
+        id: 'garbage_disposal_repair',
+        label: 'Garbage Disposal Repair / Reinstall',
+        workType: 'repair_service',
+        serviceCategory: 'Drains / Sewer',
+        scopeQuestionId: 'disposal_repair_scope',
+        scopeQuestionLabel: 'What are we repairing or reconnecting?',
+        scopePriceKeys: [
+            'drain_sewer_kitchen_garbage_disposal_diagnostic_jam_service',
+            'drain_sewer_kitchen_garbage_disposal_reinstall_resecure',
+            'drain_sewer_kitchen_garbage_disposal_flange_reseal',
+            'drain_sewer_kitchen_garbage_disposal_drain_connection',
+            'drain_sewer_kitchen_garbage_disposal_cord_connection_service',
+            'drain_sewer_kitchen_kitchen_tubular_waste_rebuild',
+            'drain_sewer_kitchen_dishwasher_drain_line_replacement',
+        ],
+        requiredPhotoLabels: ['Disposal and under-sink connections'],
+        questions: [
+            selectQuestion('disposal_power_type', 'Existing power connection', true, ['corded outlet', 'hardwired', 'air switch', 'wall switch', 'unknown']),
+            multiQuestion('disposal_symptoms', 'Observed symptoms', true, ['jammed / humming', 'not running', 'loose / vibrating', 'leak at flange', 'leak at drain', 'dishwasher drain issue', 'cord / connection concern']),
+            yesNoQuestion('disposal_unit_serviceable', 'Existing disposal is serviceable and safe to reuse?', true),
+        ],
+        warnings: ['Electrical modifications must be separated and performed only within company licensing and approved scope.'],
+    }),
+    scopedEstimateTemplate({
+        id: 'faucet_repair',
+        label: 'Faucet Repair / Service',
+        workType: 'repair_service',
+        serviceCategory: 'Faucets / Sinks',
+        scopeQuestionId: 'faucet_repair_scope',
+        scopeQuestionLabel: 'What are we repairing on the faucet?',
+        scopePriceKeys: [
+            'water_service_kitchen_kitchen_faucet_repair',
+            'water_service_bathroom_bathroom_faucet_repair',
+            'water_service_kitchen_kitchen_faucet_resecure',
+            'water_service_kitchen_kitchen_faucet_cartridge_replacement',
+            'water_service_kitchen_kitchen_faucet_aerator_service',
+            'water_service_kitchen_kitchen_faucet_sprayer_hose_replacement',
+            'water_service_bathroom_shower_cartridge_replacement',
+            'water_service_bathroom_shower_valve_repair',
+            'water_service_bathroom_roman_tub_valve_service',
+            'water_service_bathroom_dual_sink_faucet_service',
+        ],
+        requiredPhotoLabels: ['Faucet and visible problem', 'Accessible connections below or behind fixture'],
+        questions: [
+            selectQuestion('faucet_repair_area', 'Fixture area', true, ['kitchen', 'bathroom sink', 'shower / tub', 'roman tub', 'laundry / utility', 'exterior']),
+            selectQuestion('faucet_repair_configuration', 'Faucet configuration', true, ['single handle', 'two handle centerset', 'widespread', 'pull-down / sprayer', 'wall mount', 'unknown']),
+            multiQuestion('faucet_symptoms', 'Observed symptoms', true, ['loose', 'dripping', 'low / clogged flow', 'sprayer hose leak', 'handle problem', 'cartridge issue', 'leak below fixture']),
+            selectQuestion('faucet_parts_available', 'Compatible repair parts', false, ['confirmed available', 'special order', 'unknown', 'obsolete / replacement recommended']),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'water_main_repair',
+        label: 'Water Main Repair / Spot Repair',
+        workType: 'repair_service',
+        serviceCategory: 'Water Service',
+        scopeQuestionId: 'water_main_repair_scope',
+        scopeQuestionLabel: 'What water-service repair are we performing?',
+        scopePriceKeys: [
+            'water_service_whole_home_water_leak_diagnostic',
+            'water_service_whole_home_water_service_line_repair',
+            'water_service_whole_home_water_main_spot_repair',
+            'water_service_exterior_main_water_service_repair_linear_foot',
+            'water_service_exterior_yard_leak_repair',
+            'water_service_exterior_exterior_copper_repair',
+            'water_service_exterior_exterior_pex_repair',
+        ],
+        requiredPhotoLabels: ['Leak / failure area and service route'],
+        requiredMeasurementLabels: ['Repair length'],
+        questions: [
+            selectQuestion('water_main_repair_material', 'Existing pipe material', true, ['copper', 'PEX', 'PVC / approved plastic', 'galvanized', 'unknown']),
+            selectQuestion('water_main_repair_access', 'Repair access', true, ['exposed', 'soil / landscape excavation', 'hardscape', 'under structure']),
+            yesNoQuestion('water_main_located', 'Leak location is confirmed?', true),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'sewer_service_repair',
+        label: 'Sewer / Drain Service & Repair',
+        workType: 'repair_service',
+        serviceCategory: 'Drains / Sewer',
+        scopeQuestionId: 'sewer_service_scope',
+        scopeQuestionLabel: 'What drain or sewer service are we performing?',
+        scopePriceKeys: [
+            'drain_sewer_whole_home_drain_cleaning',
+            'drain_sewer_whole_home_main_line_cleanout',
+            'drain_sewer_whole_home_sewer_camera_inspection',
+            'drain_sewer_whole_home_hydro_jetting_placeholder',
+            'drain_sewer_whole_home_sewer_line_repair_estimate',
+            'drain_sewer_whole_home_sewer_spot_repair',
+            'drain_sewer_whole_home_sewer_line_repair_linear_foot',
+            'drain_sewer_exterior_yard_sewer_repair',
+        ],
+        requiredPhotoLabels: ['Drain / sewer access point', 'Observed failure area or camera finding'],
+        questions: [
+            selectQuestion('sewer_problem_type', 'Problem type', true, ['stoppage', 'roots', 'offset / break', 'belly / standing water', 'leak', 'preventive service', 'unknown']),
+            selectQuestion('sewer_access_point', 'Available access', true, ['exterior cleanout', 'interior cleanout', 'roof vent', 'fixture access', 'excavation needed']),
+            yesNoQuestion('sewer_camera_completed', 'Camera inspection completed or included?', true),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'gas_service_repair',
+        label: 'Gas Leak Search / Repair',
+        workType: 'repair_service',
+        serviceCategory: 'Gas',
+        scopeQuestionId: 'gas_service_scope',
+        scopeQuestionLabel: 'What gas diagnostic or repair are we performing?',
+        scopePriceKeys: [
+            'gas_service_garage_mechanical_gas_leak_diagnostic',
+            'gas_service_garage_mechanical_electronic_gas_leak_detection',
+            'gas_service_garage_mechanical_gas_pressure_test',
+            'gas_service_garage_mechanical_gas_line_spot_repair',
+            'gas_service_garage_mechanical_gas_line_repair_linear_foot',
+            'gas_service_garage_mechanical_gas_shutoff_replacement',
+            'gas_service_garage_mechanical_gas_flex_connector_replacement',
+            'gas_service_garage_mechanical_gas_line_cap_disconnect',
+        ],
+        requiredPhotoLabels: ['Gas piping / appliance connection and suspected area'],
+        questions: [
+            selectQuestion('gas_concern_location', 'Concern location', true, ['water heater', 'range', 'dryer', 'fireplace', 'exterior / BBQ', 'main / branch piping', 'unknown']),
+            multiQuestion('gas_test_method', 'Required diagnostic method', true, ['electronic detector / sniffer', 'bubble test', 'pressure test', 'isolation test', 'utility finding review']),
+            yesNoQuestion('gas_system_safe', 'System has been made safe for testing?', true),
+        ],
+        warnings: ['Gas work must stop and follow emergency or utility procedures whenever an unsafe condition is present.'],
+    }),
+    scopedEstimateTemplate({
+        id: 'water_filtration_service',
+        label: 'Water Filtration Maintenance / Repair',
+        workType: 'repair_service',
+        serviceCategory: 'Water Quality',
+        scopeQuestionId: 'filtration_service_scope',
+        scopeQuestionLabel: 'What filtration maintenance or repair are we performing?',
+        scopePriceKeys: [
+            'water_quality_garage_mechanical_whole_home_filter_service',
+            'water_quality_garage_mechanical_whole_home_filter_cartridge_replacement',
+            'water_quality_garage_mechanical_water_softener_service',
+            'water_quality_garage_mechanical_water_softener_bypass_valve_replacement',
+            'water_quality_garage_mechanical_water_softener_resin_tank_service',
+            'water_quality_garage_mechanical_uv_light_service',
+            'water_quality_garage_mechanical_uv_bulb_replacement',
+            'water_quality_garage_mechanical_whole_home_ro_prefilter_replacement',
+            'water_quality_kitchen_reverse_osmosis_service',
+            'water_quality_kitchen_reverse_osmosis_filter_change',
+            'water_quality_kitchen_ro_leak_repair',
+            'water_quality_kitchen_under_sink_filter_service',
+        ],
+        requiredPhotoLabels: ['Treatment equipment and model label'],
+        questions: [
+            selectQuestion('filtration_service_system', 'System type', true, ['whole-home filter', 'softener', 'reverse osmosis', 'under-sink filter', 'UV treatment', 'conditioner', 'unknown']),
+            multiQuestion('filtration_symptoms', 'Service need or symptoms', true, ['scheduled maintenance', 'filter / cartridge due', 'leak', 'low flow', 'hard water', 'taste / odor', 'error / control issue']),
+            selectQuestion('filtration_parts', 'Replacement media or parts', false, ['onsite / confirmed', 'special order', 'customer supplied', 'unknown']),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'plumbing_reroute',
+        label: 'Pipe Reroute / Slab Leak Bypass',
+        workType: 'repair_service',
+        serviceCategory: 'Water Service',
+        scopeQuestionId: 'reroute_scope',
+        scopeQuestionLabel: 'What pipe reroute are we performing?',
+        scopePriceKeys: [
+            'water_service_whole_home_hot_line_reroute',
+            'water_service_whole_home_cold_line_reroute',
+            'water_service_whole_home_slab_leak_reroute',
+            'water_service_whole_home_partial_repipe_by_fixture',
+        ],
+        requiredPhotoLabels: ['Failed line area', 'Proposed reroute path and access'],
+        requiredMeasurementLabels: ['Approximate reroute length'],
+        questions: [
+            selectQuestion('reroute_line_type', 'Line being rerouted', true, ['hot branch', 'cold branch', 'slab leak bypass', 'single fixture branch', 'multiple fixtures']),
+            selectQuestion('reroute_access', 'Proposed access', true, ['attic', 'crawlspace', 'wall / ceiling', 'exterior', 'combination']),
+            selectQuestion('reroute_patching', 'Access and patching', true, ['included', 'excluded', 'separate allowance', 'not yet determined']),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'leak_search_isolation',
+        label: 'Leak Search & Isolation',
+        workType: 'repair_service',
+        serviceCategory: 'Diagnostics / Inspections',
+        scopeQuestionId: 'leak_search_scope',
+        scopeQuestionLabel: 'What leak-search or isolation work are we performing?',
+        scopePriceKeys: [
+            'diagnostics_inspections_whole_home_leak_detection',
+            'diagnostics_inspections_whole_home_slab_leak_detection',
+            'diagnostics_inspections_whole_home_acoustic_leak_detection',
+            'diagnostics_inspections_whole_home_leak_isolation_testing',
+            'diagnostics_inspections_whole_home_moisture_thermal_leak_search',
+            'water_service_whole_home_pressure_test_water_system',
+        ],
+        requiredPhotoLabels: ['Reported leak area and accessible piping'],
+        questions: [
+            selectQuestion('leak_system', 'System being tested', true, ['domestic hot water', 'domestic cold water', 'drain / sewer', 'gas', 'irrigation / exterior', 'unknown']),
+            multiQuestion('leak_indicators', 'Observed indicators', true, ['meter movement', 'sound', 'moisture / staining', 'pressure loss', 'odor', 'utility alert', 'intermittent symptom']),
+            multiQuestion('leak_methods', 'Diagnostic methods planned', true, ['acoustic / sonic listening', 'fixture / branch isolation', 'pressure test', 'moisture meter', 'thermal imaging', 'electronic gas detector / sniffer', 'camera inspection']),
+        ],
+    }),
+    scopedEstimateTemplate({
+        id: 'irrigation_service_repair',
+        label: 'Irrigation / Pool Fill Repair',
+        workType: 'repair_service',
+        serviceCategory: 'Valves / Shutoffs',
+        scopeQuestionId: 'irrigation_repair_scope',
+        scopeQuestionLabel: 'What exterior valve or water connection are we repairing?',
+        scopePriceKeys: [
+            'water_service_exterior_irrigation_valve_repair',
+            'water_service_exterior_pool_autofill_valve_repair',
+            'water_service_exterior_irrigation_tie_in_shutoff_replacement',
+            'water_service_exterior_pressure_vacuum_breaker_replacement',
+            'water_service_exterior_backflow_device_test_coordination',
+            'water_service_exterior_exterior_water_line_repair',
+        ],
+        requiredPhotoLabels: ['Exterior valve / fill assembly and leak area'],
+        questions: [
+            selectQuestion('irrigation_repair_component', 'Component type', true, ['isolation valve', 'zone valve', 'pool auto-fill / float valve', 'backflow / vacuum breaker', 'supply piping', 'unknown']),
+            multiQuestion('irrigation_symptoms', 'Observed symptoms', true, ['will not shut off', 'will not open', 'leaking', 'low flow', 'pool overfilling', 'pool not filling', 'damaged valve box']),
+            yesNoQuestion('irrigation_scope_confirmed', 'Plumbing scope is separate from landscaping and controls?', true),
+        ],
+        warnings: ['Landscaping, controller programming, and full irrigation design must be separately configured when outside plumbing scope.'],
+    }),
 ];
+
+function scopedEstimateTemplate(input: {
+    id: EstimateOptionCategory;
+    label: string;
+    workType: EstimateWorkType;
+    serviceCategory: string;
+    scopeQuestionId: string;
+    scopeQuestionLabel: string;
+    scopePriceKeys: string[];
+    requiredPhotoLabels?: string[];
+    requiredMeasurementLabels?: string[];
+    productCategoryFilters?: string[];
+    questions?: EstimateQuestionDefinition[];
+    warnings?: string[];
+}): EstimateCategoryTemplate {
+    const scopeNames = catalogNamesForPriceKeys(input.scopePriceKeys);
+    const actionLabel = input.workType === 'replacement' ? 'Replacement' : 'Repair / Service';
+
+    return {
+        id: input.id,
+        label: input.label,
+        workType: input.workType,
+        serviceCategory: input.serviceCategory,
+        requiredPhotoLabels: input.requiredPhotoLabels || [],
+        requiredMeasurementLabels: input.requiredMeasurementLabels || [],
+        productCategoryFilters: input.productCategoryFilters || [],
+        pricingCategoryFilters: [input.serviceCategory],
+        scopePriceKeys: input.scopePriceKeys,
+        scopeQuestionId: input.scopeQuestionId,
+        requiredScopeCodes: [],
+        recommendedOptionStructures: [
+            `Focused ${actionLabel}`,
+            `Complete ${actionLabel}`,
+            `${actionLabel} with Related Protection`,
+            `Premium ${actionLabel} Package`,
+        ],
+        warnings: input.warnings || [],
+        blockingConditions: ['The exact service scope and required site conditions must be selected before homeowner presentation.'],
+        questions: [
+            multiQuestion(input.scopeQuestionId, input.scopeQuestionLabel, true, scopeNames),
+            ...(input.questions || []),
+        ],
+    };
+}
+
+function catalogNamesForPriceKeys(priceKeys: string[]) {
+    const catalogByKey = new Map(plumbingPriceBookCatalogItems.map((item) => [item.price_key, item.name]));
+
+    return priceKeys.map((priceKey) => catalogByKey.get(priceKey) || formatPriceKeyLabel(priceKey));
+}
+
+function formatPriceKeyLabel(priceKey: string) {
+    return priceKey
+        .split('_')
+        .slice(3)
+        .join(' ')
+        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
 export function getEstimateCategoryTemplate(category: EstimateOptionCategory) {
     return estimateCategoryTemplates.find((template) => template.id === category) || estimateCategoryTemplates[0];
+}
+
+export const estimateWorkTypeOptions: Array<{
+    id: EstimateWorkType;
+    label: string;
+    description: string;
+}> = [
+    {
+        id: 'repair_service',
+        label: 'Repair / Service',
+        description: 'Diagnose, maintain, repair, reset, reroute, or replace a failed component without treating the whole job as equipment replacement.',
+    },
+    {
+        id: 'replacement',
+        label: 'Replacement / Installation',
+        description: 'Replace complete equipment, fixtures, piping, treatment systems, or install a new approved component.',
+    },
+];
+
+export function getEstimateCategoriesForWorkType(workType: EstimateWorkType) {
+    return estimateCategoryTemplates.filter((template) => template.workType === workType);
+}
+
+export function getEstimateWorkTypeForCategory(category: EstimateOptionCategory) {
+    return getEstimateCategoryTemplate(category).workType;
+}
+
+export function isEstimateCategoryForWorkType(category: EstimateOptionCategory, workType: EstimateWorkType) {
+    return getEstimateWorkTypeForCategory(category) === workType;
 }
 
 export function inferEstimateCategoryFromDraft(
@@ -1042,7 +1590,7 @@ export function buildEstimateOptionWorkspace(input: {
     const answerValidation = validateEstimateAnswers(template, input.answers);
     const approvedProducts = filterApprovedActiveProducts(input.approvedProducts || [], input.companyId, template);
     const priceBookEntries = input.priceBookItems.map(mapCompanyPriceBookItemToEstimateEntry);
-    const eligiblePriceBookEntries = selectEligiblePriceBookEntries(priceBookEntries, input.companyId, template);
+    const eligiblePriceBookEntries = selectEligiblePriceBookEntries(priceBookEntries, input.companyId, template, input.answers);
     const priceBookEntriesUnavailable = eligiblePriceBookEntries.length === 0;
     const pricingResults = priceBookEntriesUnavailable
         ? []
@@ -1232,10 +1780,16 @@ function selectCompatibleFaucetEntries(entries: EstimatePriceBookEntry[], answer
     if (sourceAllowsExistingOrSupplied) compatibleKeys.add(normalizeText(FAUCET_REINSTALL_EXISTING_PRICE_KEY));
     if (approvedProductFitKnown) compatibleKeys.add(normalizeText(FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY));
 
-    return entries.filter((entry) =>
-        compatibleKeys.has(normalizeText(entry.code)) &&
-        faucetEntrySupportsSelectedHoleSpread(entry, holeSpreadAnswer)
-    );
+    return entries.filter((entry) => {
+        const normalizedCode = normalizeText(entry.code);
+        const isLegacyScopedEntry = normalizedCode === normalizeText(FAUCET_REINSTALL_EXISTING_PRICE_KEY) ||
+            normalizedCode === normalizeText(FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY);
+        const sourceCompatible = isLegacyScopedEntry
+            ? compatibleKeys.has(normalizedCode)
+            : sourceNeedsCompanyApproved;
+
+        return sourceCompatible && faucetEntrySupportsSelectedHoleSpread(entry, holeSpreadAnswer);
+    });
 }
 
 function faucetEntrySupportsSelectedHoleSpread(entry: EstimatePriceBookEntry, holeSpreadAnswer: string) {
@@ -1257,14 +1811,17 @@ function buildDeterministicChoices(input: {
     draftContext: EstimateDraftContextLike | null;
 }) {
     const validPricingResults = input.pricingResults.filter((result) => result.missingPricingInputs.length === 0);
-
-    if (input.category === 'faucet_replacement') {
-        return buildFaucetDeterministicChoices(validPricingResults, input.products);
-    }
-
-    const individualResults = validPricingResults.slice(0, 4);
+    const prebuiltChoices = input.category === 'faucet_replacement'
+        ? buildFaucetDeterministicChoices(validPricingResults, input.products)
+        : [];
+    const prebuiltPricingIds = new Set(prebuiltChoices.map((choice) => choice.pricingResult.id));
+    const individualResults = validPricingResults
+        .filter((result) => !prebuiltPricingIds.has(result.id))
+        .slice(0, Math.max(0, 4 - prebuiltChoices.length));
     const homeownerName = preferredHomeownerFirstName(input.draftContext);
-    const choices: EstimateChoice[] = individualResults.map((pricingResult, index) => {
+    const choices: EstimateChoice[] = [
+        ...prebuiltChoices,
+        ...individualResults.map<EstimateChoice>((pricingResult, index) => {
         const structureName = input.template.recommendedOptionStructures[index] || `Option ${index + 1}`;
         const title = homeownerName
             ? `${homeownerName}'s ${structureName}`
@@ -1272,7 +1829,7 @@ function buildDeterministicChoices(input: {
         const lineNames = pricingResult.lineItems.map((line) => line.name);
 
         return {
-            id: `individual-${index + 1}`,
+            id: `individual-${prebuiltChoices.length + index + 1}`,
             kind: 'individual',
             title,
             shortSummary: lineNames.slice(0, 2).join(' + ') || input.template.label,
@@ -1293,9 +1850,10 @@ function buildDeterministicChoices(input: {
             exclusionIds: [],
             pricingResult,
             recommended: index === Math.min(1, individualResults.length - 1),
-            displayOrder: index + 1,
+            displayOrder: prebuiltChoices.length + index + 1,
         };
-    });
+        }),
+    ];
 
     if (validPricingResults.length >= 3) {
         const packagePricingResult = validPricingResults[validPricingResults.length - 1];
@@ -1490,26 +2048,40 @@ function buildPresentationGate(input: {
 function selectEligiblePriceBookEntries(
     entries: EstimatePriceBookEntry[],
     companyId: string,
-    template: EstimateCategoryTemplate
+    template: EstimateCategoryTemplate,
+    answers: EstimateAnswerSet
 ) {
-    const exactMatches = entries.filter((entry) =>
-        entry.companyId === companyId &&
-        entry.active &&
-        entry.recommendedSellingPrice !== null &&
-        template.pricingCategoryFilters.some((filter) =>
-            normalizeText(entry.serviceCategory).includes(normalizeText(filter)) ||
-            normalizeText(entry.name).includes(normalizeText(filter)) ||
-            entry.applicableCategories.some((category) => normalizeText(category).includes(normalizeText(filter)))
-        )
-    );
-
-    if (exactMatches.length > 0) return sortPriceEntries(exactMatches);
+    const allowedScopeKeys = getSelectedScopePriceKeys(template, answers);
+    const allowedScopeNames = catalogNamesForPriceKeys(allowedScopeKeys).map(normalizeText);
 
     return sortPriceEntries(entries.filter((entry) =>
         entry.companyId === companyId &&
         entry.active &&
-        entry.recommendedSellingPrice !== null
+        entry.recommendedSellingPrice !== null &&
+        (
+            allowedScopeKeys.some((priceKey) => normalizeText(priceKey) === normalizeText(entry.code)) ||
+            allowedScopeNames.some((scopeName) => scopeName === normalizeText(entry.name))
+        )
     ));
+}
+
+function getSelectedScopePriceKeys(template: EstimateCategoryTemplate, answers: EstimateAnswerSet) {
+    if (!template.scopeQuestionId) return template.scopePriceKeys;
+
+    const selectedScopes = answers[template.scopeQuestionId];
+    const selectedNames = Array.isArray(selectedScopes)
+        ? selectedScopes.map(normalizeText)
+        : typeof selectedScopes === 'string'
+            ? [normalizeText(selectedScopes)]
+            : [];
+
+    if (selectedNames.length === 0) return [];
+
+    const catalogByKey = new Map(plumbingPriceBookCatalogItems.map((item) => [item.price_key, normalizeText(item.name)]));
+
+    return template.scopePriceKeys.filter((priceKey) =>
+        selectedNames.includes(catalogByKey.get(priceKey) || normalizeText(formatPriceKeyLabel(priceKey)))
+    );
 }
 
 function sortPriceEntries(entries: EstimatePriceBookEntry[]) {
@@ -1655,15 +2227,20 @@ function buildHomeownerExplanation(label: string, lineNames: string[]) {
 }
 
 function buildKeyBenefits(category: EstimateOptionCategory, index: number) {
-    const baseBenefits: Record<EstimateOptionCategory, string[]> = {
+    const baseBenefits: Partial<Record<EstimateOptionCategory, string[]>> = {
         toilet_replacement: ['Correct fit confirmed', 'Approved scope only', 'Leak and flush check included'],
         water_heater: ['Safety checklist reviewed', 'Approved hot water scope', 'Warranty path visible'],
         garbage_disposal: ['Power and drain fit checked', 'Approved model path', 'Leak and operation check included'],
         faucet_replacement: ['Sink fit confirmed', 'Shutoffs reviewed', 'Approved fixture path'],
         whole_home_repipe: ['Fixture point count audited', 'Access factors visible', 'Scope totals remain editable'],
     };
+    const benefits = baseBenefits[category] || [
+        'Selected field scope documented',
+        'Company price-book work only',
+        'Required testing and site conditions visible',
+    ];
 
-    return baseBenefits[category].slice(0, Math.min(3, 1 + index));
+    return benefits.slice(0, Math.min(3, 1 + index));
 }
 
 function preferredHomeownerFirstName(context: EstimateDraftContextLike | null) {
