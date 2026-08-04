@@ -140,6 +140,7 @@ declare
     v_user_id uuid := auth.uid();
     v_request public.service_requests%rowtype;
     v_company_user public.company_users%rowtype;
+    v_technician_company_user_id uuid;
     v_schedule_slot_id uuid;
     v_sender_role text;
     v_message text := nullif(btrim(coalesce(p_message, '')), '');
@@ -185,8 +186,8 @@ begin
     else
         v_sender_role := 'technician';
 
-        select company_user, slot.id
-        into v_company_user, v_schedule_slot_id
+        select slot.technician_company_user_id, slot.id
+        into v_technician_company_user_id, v_schedule_slot_id
         from public.job_schedule_slots as slot
         join public.company_users as company_user
           on company_user.id = slot.technician_company_user_id
@@ -197,6 +198,11 @@ begin
           and lower(btrim(coalesce(company_user.status, ''))) = 'active'
         order by slot.updated_at desc nulls last, slot.created_at desc nulls last, slot.id desc
         limit 1;
+
+        select company_user.*
+        into v_company_user
+        from public.company_users as company_user
+        where company_user.id = v_technician_company_user_id;
     end if;
 
     insert into public.service_request_dispatch_messages (
