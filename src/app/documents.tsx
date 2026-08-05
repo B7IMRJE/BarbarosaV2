@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -33,7 +33,15 @@ export default function DocumentsScreen() {
         scheduleSlotId?: string | string[];
         jobId?: string | string[];
     }>();
-    const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
+    const providerModeContext = useMemo(() => readProviderModeParams({
+        providerMode: routeParams.providerMode,
+        companyId: routeParams.companyId,
+        propertyId: routeParams.propertyId,
+        returnTo: routeParams.returnTo,
+        serviceRequestId: routeParams.serviceRequestId,
+        scheduleSlotId: routeParams.scheduleSlotId,
+        jobId: routeParams.jobId,
+    }), [
         routeParams.providerMode,
         routeParams.companyId,
         routeParams.propertyId,
@@ -79,6 +87,7 @@ export default function DocumentsScreen() {
     const [documents, setDocuments] = useState<HomeDocument[]>([]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const loadDocumentsEvent = useEffectEvent(loadDocuments);
 
     useEffect(() => {
         if (providerModeContext) {
@@ -88,14 +97,8 @@ export default function DocumentsScreen() {
             return;
         }
 
-        loadDocuments();
-    }, [
-        providerModeContext?.companyId,
-        providerModeContext?.propertyId,
-        providerModeContext?.serviceRequestId,
-        providerModeContext?.scheduleSlotId,
-        providerModeContext?.jobId,
-    ]);
+        void loadDocumentsEvent();
+    }, [providerModeContext]);
 
     async function loadDocuments() {
         setLoading(true);

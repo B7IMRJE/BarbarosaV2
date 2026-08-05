@@ -787,7 +787,7 @@ function StepCard({
     onEdit: () => void;
     children?: ReactNode;
 }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
+    const { theme } = useTheme();
     const hasSummary = !!summary;
 
     return (
@@ -819,7 +819,7 @@ function StepCard({
 }
 
 function CustomItemChoice({ onPress }: { onPress: () => void }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
+    const { theme } = useTheme();
 
     return (
         <TouchableOpacity
@@ -1013,12 +1013,6 @@ const customItemSubtitleStyle = {
     marginTop: 6,
 };
 
-const choiceGridStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 12,
-};
-
 const choiceCardStyle = {
     flexGrow: 1,
     flexBasis: '31%' as const,
@@ -1027,11 +1021,6 @@ const choiceCardStyle = {
     justifyContent: 'center' as const,
     paddingVertical: 16,
     paddingHorizontal: 16,
-};
-
-const inputGroupStyle = {
-    marginTop: 10,
-    marginBottom: 16,
 };
 
 const fieldLabelStyle = {

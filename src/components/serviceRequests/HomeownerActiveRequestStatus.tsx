@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import {
     HOMEOWNER_ACTIVE_REQUEST_REFRESH_MS,
@@ -42,12 +42,13 @@ export default function HomeownerActiveRequestStatus({ bottomOffset }: Homeowner
         trackers.find((tracker) => tracker.request.id === selectedRequestId) || featuredTracker
     ), [featuredTracker, selectedRequestId, trackers]);
     const cardWidth = Math.min(Math.max(viewportWidth - scaleIcon(28), scaleIcon(280)), scaleIcon(430));
+    const refreshTrackersEvent = useEffectEvent(refreshTrackers);
 
     useEffect(() => {
         let disposed = false;
 
         async function loadInitialTrackers() {
-            const nextTrackers = await refreshTrackers();
+            const nextTrackers = await refreshTrackersEvent();
 
             if (!disposed && nextTrackers.length > 0) {
                 setSelectedRequestId(selectFeaturedHomeownerActiveRequest(nextTrackers)?.request.id || '');
@@ -66,7 +67,7 @@ export default function HomeownerActiveRequestStatus({ bottomOffset }: Homeowner
         if (!propertyId) return;
 
         const refresh = () => {
-            void refreshTrackers(propertyId);
+            void refreshTrackersEvent(propertyId);
         };
         const channel = supabase
             .channel(`homeowner-active-requests:${propertyId}`)

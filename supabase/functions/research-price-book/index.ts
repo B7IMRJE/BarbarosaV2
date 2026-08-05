@@ -52,13 +52,6 @@ type OpenAiPriceResearchResult = {
     suggestions: ResearchSuggestion[];
 };
 
-type RpcErrorBody = {
-    code?: string;
-    message?: string;
-    details?: string;
-    hint?: string;
-};
-
 type PriceResearchRequest = {
     company_id: string;
     company_name: string;

@@ -392,7 +392,7 @@ function DetailSection({ title, open, onToggle, children }: { title: string; ope
     );
 }
 
-function DetailGrid({ rows }: { rows: Array<[string, string]> }) {
+function DetailGrid({ rows }: { rows: [string, string][] }) {
     return (
         <View style={detailGridStyle}>
             {rows.map(([label, value]) => (

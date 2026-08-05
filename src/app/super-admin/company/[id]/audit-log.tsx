@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import ThemedButton from '../../../../components/theme/ThemedButton';
@@ -28,9 +28,10 @@ export default function CompanyAuditLogScreen() {
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
     const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+    const loadAuditLogEvent = useEffectEvent(loadAuditLog);
 
     useEffect(() => {
-        void loadAuditLog();
+        void loadAuditLogEvent();
     }, [companyId]);
 
     async function loadAuditLog() {

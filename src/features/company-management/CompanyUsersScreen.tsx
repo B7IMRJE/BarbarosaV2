@@ -1,6 +1,6 @@
-import { router, useLocalSearchParams, type Href } from 'expo-router';
+import { useLocalSearchParams, type Href } from 'expo-router';
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import {
     Pressable,
     ScrollView,
@@ -67,11 +67,6 @@ type CompanyInvitation = {
     email_delivery_error: string | null;
 };
 
-type DeliveryFeedback = {
-    status: 'sent' | 'failed';
-    message: string;
-};
-
 type ManualInviteDetails = {
     status: 'creating' | 'ready' | 'failed' | 'copied';
     inviteCode: string | null;
@@ -86,13 +81,6 @@ type ManualInviteResult = {
     inviteUrl: string | null;
     expiresAt: string | null;
     warning: string | null;
-};
-
-type InvitationEmailResult = {
-    ok: boolean;
-    message: string;
-    inviteCode?: string | null;
-    inviteLink?: string | null;
 };
 
 type SubmitStage = 'idle' | 'creating' | 'sending';
@@ -117,8 +105,6 @@ const CUSTOMIZABLE_ROLE_OPTIONS = ROLE_OPTIONS.filter(
     (option): option is { label: string; value: CustomizableCompanyRole } => option.value !== 'owner'
 );
 
-const EMAIL_SEND_COOLDOWN_MS = 60_000;
-const EMAIL_DELIVERY_FALLBACK_MESSAGE = 'Email could not be sent. Use the manual invite link/code below.';
 const COMPANY_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_view_techos',
     'can_create_estimates',
@@ -173,7 +159,6 @@ export default function CompanyUsersScreen() {
     const [canManageUsers, setCanManageUsers] = useState(false);
     const [submitStage, setSubmitStage] = useState<SubmitStage>('idle');
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
-    const [deliveryFeedbackById, setDeliveryFeedbackById] = useState<Record<string, DeliveryFeedback>>({});
     const [manualInvitesById, setManualInvitesById] = useState<Record<string, ManualInviteDetails>>({});
     const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
         owners: false,
@@ -195,9 +180,10 @@ export default function CompanyUsersScreen() {
     const [permissionSaving, setPermissionSaving] = useState(false);
     const [canManageRolePermissions, setCanManageRolePermissions] = useState(false);
     const [nowMs, setNowMs] = useState(() => Date.now());
+    const loadCompanyUsersEvent = useEffectEvent(loadCompanyUsers);
 
     useEffect(() => {
-        loadCompanyUsers();
+        void loadCompanyUsersEvent();
     }, [id]);
 
     useEffect(() => {
@@ -446,152 +432,6 @@ export default function CompanyUsersScreen() {
         setEmail('');
         setRole('technician');
         setMessage(`Invitation code ready for ${normalizedEmail}: ${manualInvite.inviteCode}`);
-    }
-
-    async function sendInvitationEmail(invitationId: string) {
-        if (!canManageUsers) {
-            setMessage('Company user management requires owner, admin, or manager access.');
-            return;
-        }
-
-        const invitation = invitations.find((candidate) => candidate.id === invitationId);
-
-        if (!invitation) {
-            setMessage('Invitation could not be found. Refresh the list and try again.');
-            return;
-        }
-
-        const emailResult = await sendInvitationEmailForInvitation(invitation);
-
-        if (!emailResult.ok) {
-            setMessage(emailResult.message);
-        }
-    }
-
-    async function sendInvitationEmailForInvitation(
-        invitation: CompanyInvitation,
-        options: { messagePrefixOnFailure?: string } = {}
-    ): Promise<InvitationEmailResult> {
-        if (!canManageUsers) {
-            const message = 'Company user management requires owner, admin, or manager access.';
-            setMessage(message);
-            return { ok: false, message };
-        }
-
-        const invitationId = invitation.id;
-        const actionKey = `${invitationId}:email`;
-        setActionLoadingKey(actionKey);
-        setDeliveryFeedbackById((current) => ({
-            ...current,
-            [invitationId]: {
-                status: 'sent',
-                message: 'Sending invitation email...',
-            },
-        }));
-        setMessage('Sending email...');
-
-        const manualInvite = await requestManualInvite(invitationId);
-
-        if (!manualInvite.inviteCode) {
-            const message = manualInvite.warning || 'Email could not be sent because the invite link/code could not be created.';
-            setActionLoadingKey(null);
-            setDeliveryFeedbackById((current) => ({
-                ...current,
-                [invitationId]: {
-                    status: 'failed',
-                    message,
-                },
-            }));
-            const responseMessage = options.messagePrefixOnFailure ? `${options.messagePrefixOnFailure} ${message}` : message;
-            setMessage(responseMessage);
-            return { ok: false, message: responseMessage };
-        }
-
-        setMessage('Sending invitation email...');
-        const publicInvite = buildPublicCompanyInvite(manualInvite.inviteCode);
-        const emailResult = await sendCompanyInvitationEmail({
-            invitation,
-            invitationId,
-            companyName,
-            inviteCode: manualInvite.inviteCode,
-            inviteLink: publicInvite.inviteLink,
-            appBaseUrl: publicInvite.appBaseUrl,
-        });
-
-        setActionLoadingKey(null);
-        setNowMs(Date.now());
-
-        if (!emailResult.ok) {
-            const deliveryMessage = emailResult.message || EMAIL_DELIVERY_FALLBACK_MESSAGE;
-            const message = options.messagePrefixOnFailure
-                ? `${options.messagePrefixOnFailure} ${deliveryMessage}`
-                : `${deliveryMessage} Manual invite link/code is ready below.`;
-
-            setManualInvitesById((current) => ({
-                ...current,
-                [invitationId]: {
-                    status: 'ready',
-                    inviteCode: manualInvite.inviteCode,
-                    inviteUrl: manualInvite.inviteUrl,
-                    expiresAt: manualInvite.expiresAt,
-                    warning: manualInvite.warning,
-                    message: manualInvite.warning
-                        ? `Email send failed. Manual invite ready. ${manualInvite.warning}`
-                        : 'Email send failed. Manual invite link/code is ready below.',
-                },
-            }));
-            setDeliveryFeedbackById((current) => ({
-                ...current,
-                [invitationId]: {
-                    status: 'failed',
-                    message,
-                },
-            }));
-            await loadCompanyUsers(false);
-            setMessage(message);
-            return { ok: false, message };
-        }
-
-        const responseMessage = emailResult.message || 'Invitation email sent.';
-
-        if (emailResult.inviteCode) {
-            setManualInvitesById((current) => ({
-                ...current,
-                [invitationId]: {
-                    status: 'ready',
-                    inviteCode: emailResult.inviteCode || null,
-                    inviteUrl: emailResult.inviteLink || null,
-                    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-                    warning: null,
-                    message: 'Six-digit invitation login code is ready.',
-                },
-            }));
-        }
-
-        await recordCompanyAuditEvent({
-            companyId: invitation.company_id,
-            action: 'company_user_invitation_email_sent',
-            targetType: 'company_user_invitation',
-            targetId: invitation.id,
-            targetLabel: `${invitation.email} (${invitation.role})`,
-            metadata: safeAuditRecord({
-                email: invitation.email,
-                role: invitation.role,
-                invite_link_built: Boolean(publicInvite.inviteLink),
-                app_base_url: publicInvite.appBaseUrl,
-            }),
-        });
-
-        setDeliveryFeedbackById((current) => ({
-            ...current,
-            [invitationId]: {
-                status: 'sent',
-                message: responseMessage,
-            },
-        }));
-        await loadCompanyUsers(false);
-        setMessage(responseMessage);
-        return { ok: true, message: responseMessage };
     }
 
     async function updateMemberStatus(memberId: string, nextStatus: MemberActionStatus) {
@@ -1386,7 +1226,6 @@ export default function CompanyUsersScreen() {
                                         invitation={invitation}
                                         expanded={!!expandedRows[`invitation:${invitation.id}`]}
                                         actionLoadingKey={actionLoadingKey}
-                                        feedback={deliveryFeedbackById[invitation.id]}
                                         manualInvite={manualInvitesById[invitation.id]}
                                         nowMs={nowMs}
                                         onToggle={() => toggleRow(`invitation:${invitation.id}`)}
@@ -1898,7 +1737,6 @@ function InvitationRow({
     invitation,
     expanded,
     actionLoadingKey,
-    feedback,
     manualInvite,
     nowMs,
     onToggle,
@@ -1910,7 +1748,6 @@ function InvitationRow({
     invitation: CompanyInvitation;
     expanded: boolean;
     actionLoadingKey: string | null;
-    feedback?: DeliveryFeedback;
     manualInvite?: ManualInviteDetails;
     nowMs: number;
     onToggle: () => void;
@@ -1998,7 +1835,7 @@ function InvitationRow({
                         Created: {formatDate(invitation.created_at)}
                     </Text>
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Email: {formatDeliverySummary(invitation, feedback)}
+                        Email: {formatDeliverySummary(invitation)}
                     </Text>
 
                     {status === 'pending' && (
@@ -2249,162 +2086,6 @@ async function requestMemberRecoveryCode(companyUserId: string): Promise<ManualI
             warning: error instanceof Error ? error.message : 'Network error creating the recovery login code.',
         };
     }
-}
-
-async function sendCompanyInvitationEmail({
-    invitation,
-    invitationId,
-    companyName,
-    inviteCode,
-    inviteLink,
-    appBaseUrl,
-}: {
-    invitation: CompanyInvitation;
-    invitationId: string;
-    companyName: string;
-    inviteCode: string;
-    inviteLink: string | null;
-    appBaseUrl: string | null;
-}): Promise<InvitationEmailResult> {
-    const {
-        data: { session },
-        error: sessionError,
-    } = await supabase.auth.getSession();
-
-    if (sessionError || !session?.access_token) {
-        return {
-            ok: false,
-            message: sessionError?.message || 'Sign in again before sending company invitations.',
-        };
-    }
-
-    const payload: Record<string, string> = {
-        invitation_id: invitationId,
-        invitationId,
-        email: invitation.email,
-        invite_name: invitation.full_name || '',
-        inviteName: invitation.full_name || '',
-        company_name: companyName,
-        companyName,
-        invite_code: inviteCode,
-        inviteCode,
-        role: invitation.role,
-    };
-
-    if (inviteLink) {
-        payload.invite_link = inviteLink;
-        payload.inviteLink = inviteLink;
-    }
-
-    if (appBaseUrl) {
-        payload.app_base_url = appBaseUrl;
-        payload.appBaseUrl = appBaseUrl;
-    }
-
-    try {
-        const response = await fetch(`${supabaseUrl}/functions/v1/send-company-user-invitation`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${session.access_token}`,
-                apikey: supabaseAnonKey,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload),
-        });
-        const body = await readInvitationEmailResponse(response);
-
-        if (!response.ok || body.ok === false) {
-            return {
-                ok: false,
-                message: body.message || `Invitation email failed with status ${response.status}.`,
-            };
-        }
-
-        return {
-            ok: true,
-            message: body.message || 'Invitation email sent.',
-            inviteCode: body.inviteCode,
-            inviteLink: body.inviteLink,
-        };
-    } catch (error) {
-        return {
-            ok: false,
-            message: error instanceof Error ? error.message : 'Network error sending invitation email.',
-        };
-    }
-}
-
-async function readInvitationEmailResponse(response: Response): Promise<{
-    ok: boolean | null;
-    message: string | null;
-    inviteCode: string | null;
-    inviteLink: string | null;
-}> {
-    const text = await response.text();
-
-    if (!text.trim()) {
-        return {
-            ok: response.ok,
-            message: null,
-            inviteCode: null,
-            inviteLink: null,
-        };
-    }
-
-    try {
-        const body = JSON.parse(text) as unknown;
-        const record = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
-
-        return {
-            ok: typeof record.ok === 'boolean' ? record.ok : response.ok,
-            message: readStringField(record, 'message'),
-            inviteCode: readStringField(record, 'invite_code'),
-            inviteLink: readStringField(record, 'invite_link'),
-        };
-    } catch {
-        return {
-            ok: response.ok,
-            message: text.trim(),
-            inviteCode: null,
-            inviteLink: null,
-        };
-    }
-}
-
-function buildPublicCompanyInvite(inviteCode: string | null) {
-    const appBaseUrl = getEmailAppBaseUrl();
-
-    if (!inviteCode || !appBaseUrl) {
-        return {
-            inviteLink: null,
-            appBaseUrl,
-        };
-    }
-
-    try {
-        const inviteUrl = new URL('/company-invite', appBaseUrl);
-        inviteUrl.searchParams.set('code', inviteCode);
-
-        return {
-            inviteLink: inviteUrl.toString(),
-            appBaseUrl,
-        };
-    } catch {
-        return {
-            inviteLink: null,
-            appBaseUrl,
-        };
-    }
-}
-
-function getEmailAppBaseUrl() {
-    const configuredBaseUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_APP_URL);
-
-    if (configuredBaseUrl) return configuredBaseUrl;
-
-    const fallbackBaseUrl = getBrowserOrigin();
-
-    return fallbackBaseUrl && !isLocalInviteOrigin(fallbackBaseUrl) ? fallbackBaseUrl : null;
 }
 
 function getBrowserOrigin() {
@@ -2729,19 +2410,6 @@ function isLikelyNonPublicInviteOrigin(originOrUrl: string | null) {
     }
 }
 
-function isLocalInviteOrigin(originOrUrl: string | null) {
-    if (!originOrUrl) return true;
-
-    try {
-        const url = new URL(originOrUrl);
-        const hostname = url.hostname.toLowerCase();
-
-        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.endsWith('.local');
-    } catch {
-        return true;
-    }
-}
-
 async function writeClipboardText(value: string) {
     const globalWithNavigator = globalThis as unknown as {
         navigator?: {
@@ -2895,23 +2563,7 @@ function isInvitationExpired(invitation: CompanyInvitation, nowMs: number) {
     return Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs;
 }
 
-function getCooldownRemainingMs(invitation: CompanyInvitation, nowMs: number) {
-    if (!invitation.last_email_attempted_at) return 0;
-
-    const attemptedAtMs = new Date(invitation.last_email_attempted_at).getTime();
-
-    if (!Number.isFinite(attemptedAtMs)) return 0;
-
-    return Math.max(0, attemptedAtMs + EMAIL_SEND_COOLDOWN_MS - nowMs);
-}
-
-function formatDuration(ms: number) {
-    return `${Math.ceil(ms / 1000)}s`;
-}
-
-function formatDeliverySummary(invitation: CompanyInvitation, feedback?: DeliveryFeedback) {
-    if (feedback?.message) return feedback.message;
-
+function formatDeliverySummary(invitation: CompanyInvitation) {
     const status = normalizeStatus(invitation.email_delivery_status);
 
     if (status === 'sent') {
@@ -2932,23 +2584,6 @@ function formatDeliverySummary(invitation: CompanyInvitation, feedback?: Deliver
     return 'Not sent';
 }
 
-function getEmailButtonTitle({
-    sending,
-    sendable,
-    cooldownRemainingMs,
-    emailSendCount,
-}: {
-    sending: boolean;
-    sendable: boolean;
-    cooldownRemainingMs: number;
-    emailSendCount: number;
-}) {
-    if (sending) return 'Sending...';
-    if (!sendable) return 'Email Unavailable';
-    if (cooldownRemainingMs > 0) return `Wait ${formatDuration(cooldownRemainingMs)}`;
-    return emailSendCount > 0 ? 'Resend Email Invitation' : 'Send Email Invitation';
-}
-
 function statusVerb(status: MemberActionStatus) {
     if (status === 'active') return 'Reactivating';
     if (status === 'suspended') return 'Suspending';
@@ -2960,13 +2595,6 @@ function statusResult(status: MemberActionStatus) {
     if (status === 'suspended') return 'suspended';
     return 'deactivated';
 }
-
-const backTextStyle = {
-    marginTop: 20,
-    marginBottom: 20,
-    fontSize: 18,
-    fontWeight: '900' as const,
-};
 
 const titleStyle = {
     fontSize: 34,
@@ -3009,13 +2637,6 @@ const messageCardStyle = {
     maxWidth: '100%' as const,
     minWidth: 0,
     marginBottom: 16,
-};
-
-const sectionStyle = {
-    width: '100%' as const,
-    maxWidth: '100%' as const,
-    minWidth: 0,
-    marginTop: 24,
 };
 
 const compactSectionStyle = {
@@ -3068,13 +2689,6 @@ const sectionHeadingStyle = {
     fontSize: 22,
     fontWeight: '900' as const,
     marginBottom: 14,
-};
-
-const sectionNoteStyle = {
-    fontSize: 14,
-    fontWeight: '800' as const,
-    lineHeight: 20,
-    marginBottom: 12,
 };
 
 const sectionTitleStyle = {
@@ -3134,13 +2748,6 @@ const roleChipTextStyle = {
     textAlign: 'center' as const,
 };
 
-const listStyle = {
-    width: '100%' as const,
-    maxWidth: '100%' as const,
-    minWidth: 0,
-    gap: 12,
-};
-
 const compactListStyle = {
     width: '100%' as const,
     maxWidth: '100%' as const,
@@ -3181,14 +2788,6 @@ const metricLabelStyle = {
     fontWeight: '900' as const,
     lineHeight: 17,
     marginTop: 4,
-};
-
-const technicianCardHeaderStyle = {
-    alignItems: 'center' as const,
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 12,
-    minWidth: 0,
 };
 
 const emptyListCardStyle = {
@@ -3409,36 +3008,6 @@ const badgeStyle = {
 
 const badgeTextStyle = {
     fontSize: 11,
-    fontWeight: '900' as const,
-    flexShrink: 1,
-};
-
-const technicianAvatarStyle = {
-    alignItems: 'center' as const,
-    backgroundColor: '#EEF4FF',
-    borderRadius: 16,
-    height: 48,
-    justifyContent: 'center' as const,
-    width: 48,
-};
-
-const technicianAvatarTextStyle = {
-    color: '#0B5FFF',
-    fontSize: 14,
-    fontWeight: '900' as const,
-};
-
-const badgeRowStyle = {
-    maxWidth: '100%' as const,
-    minWidth: 0,
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 8,
-    marginTop: 14,
-};
-
-const cardTitleStyle = {
-    fontSize: 19,
     fontWeight: '900' as const,
     flexShrink: 1,
 };

@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import CompanyLeadSoundAlert from '../../components/CompanyLeadSoundAlert';
 import DispatchChatOverlay from '../../components/dispatch/DispatchChatOverlay';
@@ -363,8 +363,10 @@ export default function DispatchWallScreen() {
         };
     }, []);
 
+    const loadWallboardEvent = useEffectEvent(loadWallboard);
+
     useEffect(() => {
-        loadWallboard();
+        void loadWallboardEvent();
     }, [requestedCompanyId, demoMode]);
 
     useEffect(() => {
@@ -2543,18 +2545,10 @@ const clockTextStyle = {
     fontWeight: '900' as const,
 };
 
-const clockTextNarrowStyle = {
-    fontSize: 22,
-};
-
 const dateTextStyle = {
     color: '#CBD5E1',
     fontSize: 18,
     fontWeight: '700' as const,
-};
-
-const dateTextNarrowStyle = {
-    fontSize: 13,
 };
 
 const fullscreenButtonStyle: ViewStyle = {

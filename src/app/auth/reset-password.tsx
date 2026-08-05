@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ScrollView,
     Text,
@@ -17,9 +17,10 @@ export default function ResetPasswordScreen() {
     const [message, setMessage] = useState('Preparing password reset...');
     const [loading, setLoading] = useState(false);
     const [ready, setReady] = useState(false);
+    const prepareRecoverySessionEvent = useEffectEvent(prepareRecoverySession);
 
     useEffect(() => {
-        prepareRecoverySession();
+        void prepareRecoverySessionEvent();
     }, []);
 
     async function prepareRecoverySession() {

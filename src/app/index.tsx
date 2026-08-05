@@ -56,6 +56,7 @@ import {
 } from '../lib/providerHomeItems';
 import { getProviderReturnActionLabel } from '../lib/techosClientAccess';
 import { supabase } from '../lib/supabase';
+import { useStableCallback } from '../hooks/useStableCallback';
 import { useTheme } from '../theme/useTheme';
 
 type PreferredProvider = {
@@ -122,7 +123,15 @@ export default function HomeScreen() {
     scheduleSlotId?: string | string[];
     jobId?: string | string[];
   }>();
-  const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
+  const providerModeContext = useMemo(() => readProviderModeParams({
+    providerMode: routeParams.providerMode,
+    companyId: routeParams.companyId,
+    propertyId: routeParams.propertyId,
+    returnTo: routeParams.returnTo,
+    serviceRequestId: routeParams.serviceRequestId,
+    scheduleSlotId: routeParams.scheduleSlotId,
+    jobId: routeParams.jobId,
+  }), [
     routeParams.providerMode,
     routeParams.companyId,
     routeParams.propertyId,
@@ -197,6 +206,8 @@ export default function HomeScreen() {
     [serviceRequestTimelineById]
   );
   const unreadServiceNotificationCount = homeownerServiceNotifications.filter((event) => !event.read_at).length;
+  const loadPreferredProviderStable = useStableCallback(loadPreferredProvider);
+  const loadHomeServiceRequestsStable = useStableCallback(loadHomeServiceRequests);
 
   const loadHomeHealthData = useCallback(async () => {
     let activeProperty;
@@ -261,8 +272,8 @@ export default function HomeScreen() {
       setLastCreatedServiceRequest(null);
     } else {
       setProviderCompanyName('');
-      await loadPreferredProvider(activeProperty.propertyId);
-      await loadHomeServiceRequests(activeProperty.propertyId);
+      await loadPreferredProviderStable(activeProperty.propertyId);
+      await loadHomeServiceRequestsStable(activeProperty.propertyId);
     }
 
     let items: HomeDashboardItem[] = [];
@@ -321,7 +332,7 @@ export default function HomeScreen() {
     setHomeItems(items);
     setActiveEmergencies((emergencies || []) as HomeHealthEmergency[]);
     if (itemLoadMessage) setServiceRequestMessage(itemLoadMessage);
-  }, [providerModeContext]);
+  }, [loadHomeServiceRequestsStable, loadPreferredProviderStable, providerModeContext]);
 
   useEffect(() => {
     saveRecoverySession();
@@ -358,7 +369,7 @@ export default function HomeScreen() {
     if (!activePropertyId || providerModeContext) return;
 
     const refreshHomeServiceRequests = () => {
-      void loadHomeServiceRequests(activePropertyId);
+      void loadHomeServiceRequestsStable(activePropertyId);
     };
     const channel = supabase
       .channel(`homeos-service-request-events:${activePropertyId}`)
@@ -394,7 +405,7 @@ export default function HomeScreen() {
       void supabase.removeChannel(channel);
       void supabase.removeChannel(propertyRefreshChannel);
     };
-  }, [activePropertyId, providerModeContext]);
+  }, [activePropertyId, loadHomeServiceRequestsStable, providerModeContext]);
 
   function openSystemTile(system: DashboardSystemTile) {
     if (providerModeContext) {
@@ -478,7 +489,7 @@ export default function HomeScreen() {
     }
 
     const preferredCompanyId = firstText(
-      ...((preferredRows || []) as Array<{ company_id?: string | null }>).map((row) => row.company_id)
+      ...((preferredRows || []) as { company_id?: string | null }[]).map((row) => row.company_id)
     );
 
     if (!preferredCompanyId) {
@@ -508,7 +519,7 @@ export default function HomeScreen() {
     }
 
     const companyIds = uniqueCompanyIds(
-      ((data || []) as Array<{ company_id?: string | null; status?: string | null }>)
+      ((data || []) as { company_id?: string | null; status?: string | null }[])
         .filter((row) => !row.status || ['active', 'connected', 'approved'].includes(normalizeText(row.status)))
         .map((row) => row.company_id)
     );
@@ -531,12 +542,12 @@ export default function HomeScreen() {
       .select('id, name, public_name, dba_name')
       .in('id', companyIds);
 
-    const companiesById = ((companyData || []) as Array<{
+    const companiesById = ((companyData || []) as {
       id: string;
       name?: string | null;
       public_name?: string | null;
       dba_name?: string | null;
-    }>).reduce<Record<string, { name?: string | null; public_name?: string | null; dba_name?: string | null }>>((accumulator, company) => {
+    }[]).reduce<Record<string, { name?: string | null; public_name?: string | null; dba_name?: string | null }>>((accumulator, company) => {
       accumulator[company.id] = company;
       return accumulator;
     }, {});
@@ -1479,7 +1490,7 @@ const actionCardStyle = {
   flexShrink: 0,
 };
 
-function firstText(...values: Array<string | null | undefined>) {
+function firstText(...values: (string | null | undefined)[]) {
   for (const value of values) {
     const text = String(value || '').trim();
 
@@ -1493,7 +1504,7 @@ function normalizeText(value?: string | null) {
   return String(value || '').trim().toLowerCase();
 }
 
-function uniqueCompanyIds(values: Array<string | null | undefined>) {
+function uniqueCompanyIds(values: (string | null | undefined)[]) {
   const seen = new Set<string>();
 
   return values.reduce<string[]>((ids, value) => {

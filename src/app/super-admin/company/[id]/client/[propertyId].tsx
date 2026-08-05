@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { ScrollView, Text, TextInput, View } from 'react-native';
 import AdminNavBar from '../../../../../components/AdminNavBar';
 import ThemedButton from '../../../../../components/theme/ThemedButton';
@@ -132,9 +132,10 @@ export default function CompanyClientDetailScreen() {
         }),
         [company, companyId]
     );
+    const loadClientDetailEvent = useEffectEvent(loadClientDetail);
 
     useEffect(() => {
-        void loadClientDetail();
+        void loadClientDetailEvent();
     }, [companyId, clientPropertyId]);
 
     const companyName = getCompanyDisplayName(company);

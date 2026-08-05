@@ -1,7 +1,7 @@
 import HomeHeader from '../../components/HomeHeader';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
@@ -267,9 +267,10 @@ export default function EstimateScreen() {
     const expandedChecklistRef = useRef<View | null>(null);
     const readinessDetailsRef = useRef<View | null>(null);
     const workspaceDetailsRef = useRef<View | null>(null);
+    const checkAccessEvent = useEffectEvent(checkAccess);
 
     useEffect(() => {
-        void checkAccess();
+        void checkAccessEvent();
     }, [
         requestedCompanyId,
         requestedPropertyId,
@@ -2117,32 +2118,6 @@ export default function EstimateScreen() {
         } finally {
             setAiDrafting(false);
         }
-    }
-
-    function toggleCategoryPanel(category: EstimateOptionCategory) {
-        setExpandedWorkspaceSection(null);
-
-        if (expandedCategory === category) {
-            setExpandedCategory(null);
-            setReadinessExpanded(false);
-            return;
-        }
-
-        if (selectedCategory !== category) {
-            setSelectedCategory(category);
-            setAnswers({});
-            setPhotoPreviewByKey({});
-            setRequirementUploadByKey({});
-            setMeasurementDraftByKey({});
-            setMeasurementErrorByKey({});
-            setRemovedChoiceIds([]);
-            setPendingRemoveChoiceId('');
-            setTechnicianApproved(false);
-            setPresentationMode(false);
-        }
-
-        setExpandedCategory(category);
-        setReadinessExpanded(false);
     }
 
     if (checkingAccess) {
@@ -6193,75 +6168,6 @@ function estimateQuestionTone(questionId: string) {
     return cardTone('#FFFFFF', '#E3E8EF', '#637083');
 }
 
-function estimateCategoryTone(category: EstimateOptionCategory) {
-    const tones: Partial<Record<EstimateOptionCategory, ReturnType<typeof cardTone>>> = {
-        toilet_replacement: cardTone('#F3EFFF', '#D9CCFF', '#7357C8'),
-        water_heater: cardTone('#FFF8DF', '#F2DC92', '#D99214'),
-        garbage_disposal: cardTone('#EAF9FF', '#BCEBFA', '#2C91C9'),
-        faucet_replacement: cardTone('#ECFBF5', '#BFEEDC', '#0F8A68'),
-        valve_replacement: cardTone('#FFF4E8', '#F3CFA7', '#B96819'),
-        riser_replacement: cardTone('#EDF3FF', '#C8D9FA', '#486DB0'),
-        water_main_replacement: cardTone('#E8F7FF', '#B9E1F2', '#24799B'),
-        sewer_line_replacement: cardTone('#F3F1E8', '#DDD5B7', '#796B35'),
-        water_filtration_replacement: cardTone('#E7F8F4', '#B9E8DC', '#087C6A'),
-        whole_home_repipe: cardTone('#FFF0F3', '#F5C8D0', '#C94A68'),
-    };
-
-    return tones[category] || cardTone('#F4F7FB', '#D8E0EA', '#526175');
-}
-
-function estimateCategoryDescription(category: EstimateOptionCategory) {
-    const descriptions: Partial<Record<EstimateOptionCategory, string>> = {
-        toilet_replacement: 'Fit, rough-in, access, shutoff, and product choices',
-        water_heater: 'Tank or tankless sizing, safety, venting, and recirculation',
-        garbage_disposal: 'Power, drain, dishwasher, model, and removal scope',
-        faucet_replacement: 'Fixture fit, sink layout, shutoffs, and accessories',
-        valve_replacement: 'Valve type, size, access, isolation, and restoration',
-        riser_replacement: 'Service, floors, routing, outage, access, and restoration',
-        water_main_replacement: 'Route, length, trenching, utility work, and restoration',
-        sewer_line_replacement: 'Failure, camera findings, route, access, and cleanouts',
-        water_filtration_replacement: 'Pre-filter, carbon, softener, post-filter, well, and UV',
-        whole_home_repipe: 'Rooms, fixture groups, routing, access, and patching',
-    };
-
-    return descriptions[category] || getEstimateCategoryTemplate(category).serviceCategory;
-}
-
-function renderReadinessCard(label: string, remaining: number, backgroundColor: string, accentColor: string) {
-    return (
-        <View
-            key={label}
-            style={[
-                readinessMetricCardStyle,
-                { backgroundColor, borderColor: accentColor },
-            ]}
-        >
-            <Text style={readinessMetricLabelStyle}>{label}</Text>
-            <Text style={remaining === 0 ? readinessCompleteTextStyle : readinessRemainingTextStyle}>
-                {remaining === 0 ? 'Complete' : `${remaining} left`}
-            </Text>
-        </View>
-    );
-}
-
-function renderReadinessDetails(
-    title: string,
-    entries: string[],
-    emptyMessage: string,
-    tone: ReturnType<typeof cardTone>
-) {
-    return (
-        <View key={title} style={[readinessDetailCardStyle, tone]}>
-            <Text style={readinessDetailTitleStyle}>{title}</Text>
-            {entries.length === 0 ? (
-                <Text style={readinessDetailEmptyStyle}>{emptyMessage}</Text>
-            ) : entries.slice(0, 10).map((entry) => (
-                <Text key={entry} style={readinessDetailTextStyle}>- {entry}</Text>
-            ))}
-        </View>
-    );
-}
-
 function estimateFoundationTone(title: string) {
     const normalized = title.toLowerCase();
 
@@ -6526,67 +6432,6 @@ const selectedCategoryButtonTextStyle = {
     flex: 1,
 };
 
-const categoryCardHeaderStyle = {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    gap: 8,
-};
-
-const categoryButtonDescriptionStyle = {
-    color: '#526175',
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: '700' as const,
-    marginTop: 8,
-};
-
-const categoryClosedPillStyle = {
-    color: '#526175',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 999,
-    paddingVertical: 3,
-    paddingHorizontal: 7,
-    fontSize: 10,
-    fontWeight: '900' as const,
-    overflow: 'hidden' as const,
-};
-
-const categoryOpenPillStyle = {
-    ...categoryClosedPillStyle,
-    color: '#FFFFFF',
-    backgroundColor: '#071B33',
-};
-
-const expandedChecklistStyle = {
-    borderTopWidth: 1,
-    borderTopColor: '#D8E0EA',
-    paddingTop: 16,
-    marginTop: 4,
-    gap: 12,
-};
-
-const expandedChecklistHeaderStyle = {
-    flexDirection: 'row' as const,
-    alignItems: 'flex-start' as const,
-    justifyContent: 'space-between' as const,
-    flexWrap: 'wrap' as const,
-    gap: 10,
-};
-
-const expandedChecklistTitleStyle = {
-    color: '#071B33',
-    fontSize: 18,
-    fontWeight: '900' as const,
-};
-
-const expandedChecklistDescriptionStyle = {
-    color: '#637083',
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 3,
-};
-
 const questionGridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
@@ -6830,130 +6675,6 @@ const measurementUnitStyle = {
     fontWeight: '900' as const,
 };
 
-const requirementPillStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderWidth: 1,
-    borderColor: '#D8E0EA',
-};
-
-const completeRequirementPillStyle = {
-    backgroundColor: '#E8F7F0',
-    borderColor: '#1F7A55',
-};
-
-const requirementPillTextStyle = {
-    color: '#637083',
-    fontSize: 12,
-    fontWeight: '800' as const,
-};
-
-const completeRequirementPillTextStyle = {
-    color: '#14533A',
-    fontSize: 12,
-    fontWeight: '900' as const,
-};
-
-const readinessPanelStyle = {
-    borderTopWidth: 1,
-    borderTopColor: '#D8E0EA',
-    paddingTop: 14,
-    gap: 10,
-};
-
-const readinessHeaderStyle = {
-    flexDirection: 'row' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-    flexWrap: 'wrap' as const,
-    gap: 10,
-};
-
-const readinessTitleStyle = {
-    color: '#071B33',
-    fontSize: 16,
-    fontWeight: '900' as const,
-};
-
-const readinessHeadlineStyle = {
-    color: '#637083',
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
-};
-
-const readinessGridStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 8,
-};
-
-const readinessMetricCardStyle = {
-    width: 144,
-    minHeight: 68,
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 10,
-};
-
-const readinessMetricLabelStyle = {
-    color: '#526175',
-    fontSize: 11,
-    fontWeight: '900' as const,
-    textTransform: 'uppercase' as const,
-};
-
-const readinessCompleteTextStyle = {
-    color: '#14533A',
-    fontSize: 14,
-    fontWeight: '900' as const,
-    marginTop: 7,
-};
-
-const readinessRemainingTextStyle = {
-    color: '#8A4B00',
-    fontSize: 14,
-    fontWeight: '900' as const,
-    marginTop: 7,
-};
-
-const readinessDetailGridStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 10,
-};
-
-const readinessDetailCardStyle = {
-    width: 270,
-    minHeight: 110,
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 11,
-    overflow: 'hidden' as const,
-};
-
-const readinessDetailTitleStyle = {
-    color: '#071B33',
-    fontSize: 13,
-    fontWeight: '900' as const,
-    marginBottom: 5,
-};
-
-const readinessDetailTextStyle = {
-    color: '#526175',
-    fontSize: 11,
-    lineHeight: 16,
-    fontWeight: '700' as const,
-};
-
-const readinessDetailEmptyStyle = {
-    color: '#637083',
-    fontSize: 12,
-    lineHeight: 17,
-};
-
 const editorStatusBannerStyle = {
     backgroundColor: '#FFF8DF',
     borderRadius: 10,
@@ -7100,36 +6821,6 @@ const recommendedPillStyle = {
     paddingHorizontal: 8,
     fontSize: 11,
     fontWeight: '900' as const,
-};
-
-const contextSummaryStyle = {
-    color: '#071B33',
-    fontSize: 14,
-    fontWeight: '800' as const,
-    lineHeight: 20,
-};
-
-const customerContextBlockStyle = {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#D8E0EA',
-    gap: 12,
-    padding: 14,
-};
-
-const customerIssueBlockStyle = {
-    backgroundColor: '#F3F6FA',
-    borderRadius: 12,
-    gap: 4,
-    padding: 12,
-};
-
-const customerIssueLabelStyle = {
-    color: '#637083',
-    fontSize: 11,
-    fontWeight: '900' as const,
-    textTransform: 'uppercase' as const,
 };
 
 const messageBoxStyle = {
@@ -7727,18 +7418,6 @@ const systemsTextStyle = {
     fontSize: 12,
     lineHeight: 17,
     marginTop: 10,
-};
-
-const pricePlaceholderStyle = {
-    color: '#A05A00',
-    backgroundColor: '#FFF5E6',
-    borderRadius: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    fontSize: 12,
-    fontWeight: '900' as const,
-    marginTop: 10,
-    alignSelf: 'flex-start' as const,
 };
 
 const compactActionRowStyle = {

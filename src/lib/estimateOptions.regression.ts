@@ -976,7 +976,7 @@ function waterFiltrationIsInferredFromWaterQualityWork() {
 }
 
 function plumbingReplacementScopesUseRelevantChecklists() {
-    const cases: Array<[string, EstimateOptionCategory]> = [
+    const cases: [string, EstimateOptionCategory][] = [
         ['Shower Valve', 'valve_replacement'],
         ['Domestic Water Riser', 'riser_replacement'],
         ['Water Main', 'exterior_pipe_replacement'],
@@ -1768,7 +1768,7 @@ function scopedPriceBookItem(
 }
 
 function getRegressionPriceBookScope(category: string, index: number) {
-    const scopesByCategory: Record<string, Array<{ priceKey: string; name: string }>> = {
+    const scopesByCategory: Record<string, { priceKey: string; name: string }[]> = {
         Toilets: [
             { priceKey: 'water_service_bathroom_toilet_replacement', name: 'Toilet replacement' },
             { priceKey: 'water_service_bathroom_round_front_toilet_replacement', name: 'Round-front toilet replacement' },

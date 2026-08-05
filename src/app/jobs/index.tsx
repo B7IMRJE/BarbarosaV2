@@ -1,7 +1,7 @@
 import HomeHeader from '../../components/HomeHeader';
 
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Job, createJob, loadJobs } from '../../lib/jobs';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
@@ -56,9 +56,10 @@ export default function JobsIndexScreen() {
     const [creating, setCreating] = useState(false);
     const [checkingAccess, setCheckingAccess] = useState(true);
     const [canUseStaffTools, setCanUseStaffTools] = useState(false);
+    const checkAccessEvent = useEffectEvent(checkAccess);
 
     useEffect(() => {
-        checkAccess();
+        void checkAccessEvent();
     }, []);
 
     async function checkAccess() {

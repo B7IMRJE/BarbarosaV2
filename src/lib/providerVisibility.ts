@@ -8,7 +8,7 @@ export type ProviderCompanyClassification = {
     service_categories: string[] | null;
 };
 
-const providerCategoryDefinitions: Array<ProviderCategoryOption & { explicitLabels: string[] }> = [
+const providerCategoryDefinitions: (ProviderCategoryOption & { explicitLabels: string[] })[] = [
     {
         key: 'plumbing',
         label: 'Plumbing',

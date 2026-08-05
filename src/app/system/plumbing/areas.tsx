@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { getStatusCardStyle } from '../../../components/cards/SystemStatusCard';
 import {
     activePropertyErrorMessage,
@@ -82,7 +82,6 @@ export default function PlumbingAreasScreen() {
     const { theme } = useTheme();
     const [areas, setAreas] = useState<AreaItem[]>(fallbackAreas);
     const [homeItems, setHomeItems] = useState<HomeHealthItem[]>([]);
-    const [archivingAreaId, setArchivingAreaId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
 
     useEffect(() => {
@@ -162,114 +161,6 @@ export default function PlumbingAreasScreen() {
                 ...(duplicate ? {} : { fillExisting: 'true' }),
             },
         } as any);
-    }
-
-    function confirmArchiveArea(area: AreaItem) {
-        const title = getAreaLabel(area);
-
-        Alert.alert(
-            `Archive ${title}?`,
-            'This hides the area from HomeOS without deleting your home or account.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Archive',
-                    style: 'destructive',
-                    onPress: () => {
-                        void archiveArea(area);
-                    },
-                },
-            ]
-        );
-    }
-
-    async function archiveArea(area: AreaItem) {
-        const areaLabel = getAreaLabel(area);
-        const archiveKey = area.id || area.item_slug || areaLabel;
-
-        setArchivingAreaId(archiveKey);
-        setMessage('Checking area before archiving...');
-
-        let activeProperty;
-
-        try {
-            activeProperty = await requireActivePropertyMembership();
-        } catch (error) {
-            setMessage(activePropertyErrorMessage(error));
-            setArchivingAreaId(null);
-
-            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
-                router.replace('/auth/login' as any);
-            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
-                router.replace('/onboarding/create-home' as any);
-            }
-
-            return;
-        }
-
-        const { data, error } = await supabase
-            .from('home_items')
-            .select('id, name, item_slug, system, status, category, location, parent_area, archived')
-            .eq('property_id', activeProperty.propertyId)
-            .eq('system', 'Plumbing')
-            .or('archived.eq.false,archived.is.null');
-
-        if (error) {
-            setMessage(`Could not check area: ${error.message}`);
-            setArchivingAreaId(null);
-            return;
-        }
-
-        const rows = (data || []) as AreaItem[];
-        const childCount = rows.filter((row) =>
-            row.id !== area.id && isChildOfArea(row, areaLabel)
-        ).length;
-
-        if (childCount > 0) {
-            setMessage('Move or archive the items inside this area before archiving it.');
-            setArchivingAreaId(null);
-            return;
-        }
-
-        if (area.id) {
-            const { error: archiveError } = await supabase
-                .from('home_items')
-                .update({ archived: true })
-                .eq('id', area.id)
-                .eq('property_id', activeProperty.propertyId);
-
-            if (archiveError) {
-                setMessage(`Archive failed: ${archiveError.message}`);
-                setArchivingAreaId(null);
-                return;
-            }
-        } else {
-            const { error: markerError } = await supabase
-                .from('home_items')
-                .insert({
-                    user_id: activeProperty.userId,
-                    property_id: activeProperty.propertyId,
-                    item_slug: makeArchiveMarkerSlug(activeProperty.propertyId, areaLabel),
-                    name: areaLabel,
-                    system: 'Plumbing',
-                    category: 'Area',
-                    location: areaLabel,
-                    parent_area: '',
-                    status: 'Missing Information',
-                    install_state: 'Unknown',
-                    archived: true,
-                });
-
-            if (markerError) {
-                setMessage(`Archive failed: ${markerError.message}`);
-                setArchivingAreaId(null);
-                return;
-            }
-        }
-
-        setMessage(`${areaLabel} archived.`);
-        setArchivingAreaId(null);
-        await loadAreas();
     }
 
     return (
@@ -372,31 +263,6 @@ function mergeAreaRecords(fallbackItems: AreaItem[], savedItems: AreaItem[]) {
     });
 
     return [...recordsByKey.values()];
-}
-
-function isChildOfArea(item: AreaItem, areaName: string) {
-    if (item.category === 'Area') {
-        return sameText(item.parent_area, areaName);
-    }
-
-    return sameText(item.parent_area, areaName) ||
-        (sameText(item.location, areaName) && !String(item.parent_area || '').trim());
-}
-
-function sameText(a?: string | null, b?: string | null) {
-    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
-}
-
-function makeArchiveMarkerSlug(propertyId: string, areaName: string) {
-    return `archived-area-${propertyId}-plumbing-${makeSlug(areaName)}`;
-}
-
-function makeSlug(value: string) {
-    return value
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)/g, '');
 }
 
 function PlumbingAreaCard({

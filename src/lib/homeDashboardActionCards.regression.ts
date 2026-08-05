@@ -60,7 +60,7 @@ function changingTheHomeownerThemeChangesActionCardColors() {
     });
 }
 
-const actionCardKeys: Array<keyof HomeDashboardActionCardPalettes> = [
+const actionCardKeys: (keyof HomeDashboardActionCardPalettes)[] = [
     'emergency',
     'maintenance',
     'connections',

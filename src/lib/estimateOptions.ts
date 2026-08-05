@@ -1375,11 +1375,11 @@ export function getEstimateCategoryTemplate(category: EstimateOptionCategory) {
     return estimateCategoryTemplates.find((template) => template.id === category) || estimateCategoryTemplates[0];
 }
 
-export const estimateWorkTypeOptions: Array<{
+export const estimateWorkTypeOptions: {
     id: EstimateWorkType;
     label: string;
     description: string;
-}> = [
+}[] = [
     {
         id: 'repair_service',
         label: 'Repair / Service',
@@ -3016,14 +3016,6 @@ function buildPresentationGate(input: {
         warnings,
     };
 }
-
-const replacementOnlyEstimateCategories = new Set<EstimateOptionCategory>([
-    'valve_replacement',
-    'riser_replacement',
-    'exterior_pipe_replacement',
-    'water_main_replacement',
-    'sewer_line_replacement',
-]);
 
 function selectEligiblePriceBookEntries(
     entries: EstimatePriceBookEntry[],

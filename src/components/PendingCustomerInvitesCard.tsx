@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import {
     loadPendingCustomerInvitesForCurrentUser,
@@ -50,9 +50,10 @@ export default function PendingCustomerInvitesCard({
     const [message, setMessage] = useState('');
     const [backendMissing, setBackendMissing] = useState(false);
     const [acceptingInviteId, setAcceptingInviteId] = useState('');
+    const loadInvitesEvent = useEffectEvent(loadInvites);
 
     useEffect(() => {
-        void loadInvites();
+        void loadInvitesEvent();
     }, []);
 
     async function loadInvites() {
@@ -99,7 +100,7 @@ export default function PendingCustomerInvitesCard({
 
         const propertyIds = Array.from(
             new Set(
-                ((memberships || []) as Array<{ property_id?: string | null }>)
+                ((memberships || []) as { property_id?: string | null }[])
                     .map((membership) => membership.property_id)
                     .filter((propertyId): propertyId is string => Boolean(propertyId))
             )

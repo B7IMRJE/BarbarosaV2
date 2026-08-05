@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
@@ -150,9 +150,10 @@ export default function TechOSJobDetailScreen() {
         secondaryColor: company?.secondary_color,
         accentColor: company?.accent_color,
     }), [company?.accent_color, company?.primary_color, company?.secondary_color]);
+    const loadJobDetailEvent = useEffectEvent(loadJobDetail);
 
     useEffect(() => {
-        loadJobDetail();
+        void loadJobDetailEvent();
     }, [requestedJobId, requestedCompanyId]);
 
     async function loadJobDetail() {

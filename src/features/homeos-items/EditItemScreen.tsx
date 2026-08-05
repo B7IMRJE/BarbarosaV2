@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ActivityIndicator,
     ScrollView,
@@ -142,9 +142,10 @@ export default function EditItemScreen() {
     const [serial, setSerial] = useState('');
     const [installState, setInstallState] = useState('Unknown');
     const [status, setStatus] = useState('Missing Information');
+    const loadItemEvent = useEffectEvent(loadItem);
 
     useEffect(() => {
-        loadItem();
+        void loadItemEvent();
     }, [activationMode, slug]);
 
     function finalLocation() {
@@ -653,13 +654,6 @@ const sectionTitleStyle = {
 
 const formCardStyle = {
     marginBottom: 14,
-};
-
-const optionRowStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 8,
-    marginBottom: 12,
 };
 
 const rowStyle = {

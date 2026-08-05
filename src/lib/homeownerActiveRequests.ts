@@ -589,7 +589,7 @@ function getTimeValue(value?: string | null) {
     return Number.isNaN(time) ? 0 : time;
 }
 
-function firstText(...values: Array<string | null | undefined>) {
+function firstText(...values: (string | null | undefined)[]) {
     for (const value of values) {
         const text = String(value || '').trim();
 

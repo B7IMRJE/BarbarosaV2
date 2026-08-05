@@ -1,5 +1,5 @@
 import { Slot, router, useGlobalSearchParams, usePathname } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
 import {
   clearSessionActivity,
@@ -69,6 +69,7 @@ export default function Layout() {
   const [routeGuardError, setRouteGuardError] = useState('');
   const currentRouteKey = routeRenderKey(pathname, routeParams);
   const routeIsSettled = approvedRouteKey === currentRouteKey && !initializing;
+  const checkLoginEvent = useEffectEvent(checkLogin);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
@@ -117,11 +118,11 @@ export default function Layout() {
       pendingRedirectRef.current = null;
     }
 
-    checkLogin(pathname, {
+    void checkLoginEvent(pathname, {
       showLoading: !initialCheckCompleteRef.current,
       routeParams,
     });
-  }, [pathname, routeParams.providerMode, routeParams.companyId, routeParams.propertyId]);
+  }, [pathname, routeParams]);
 
   useEffect(() => () => {
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
@@ -142,7 +143,7 @@ export default function Layout() {
       setInitializing(true);
       pendingCheck = setTimeout(() => {
         pendingCheck = null;
-        checkLogin(pathnameRef.current, {
+        void checkLoginEvent(pathnameRef.current, {
           showLoading: !initialCheckCompleteRef.current,
           routeParams: routeParamsRef.current,
         });

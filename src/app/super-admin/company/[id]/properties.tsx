@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ScrollView,
     Text,
@@ -30,9 +30,10 @@ export default function PropertiesScreen() {
     const [zip, setZip] = useState('');
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    const loadPropertiesEvent = useEffectEvent(loadProperties);
 
     useEffect(() => {
-        loadProperties();
+        void loadPropertiesEvent();
     }, [id]);
 
     async function loadProperties() {

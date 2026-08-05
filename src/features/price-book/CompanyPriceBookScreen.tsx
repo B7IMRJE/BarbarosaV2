@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import SystemStatusCard from '../../components/cards/SystemStatusCard';
@@ -339,7 +339,7 @@ const researchServiceTypeOptions: ResearchServiceType[] = [
     'other',
 ];
 
-const yesNoOptions: Array<{ label: string; value: ResearchYesNo }> = [
+const yesNoOptions: { label: string; value: ResearchYesNo }[] = [
     { label: 'Not Set', value: 'unspecified' },
     { label: 'Yes', value: 'yes' },
     { label: 'No', value: 'no' },
@@ -419,9 +419,10 @@ export default function CompanyPriceBookScreen() {
     const [researchStatus, setResearchStatus] = useState<AiResearchStatus>(emptyAiResearchStatus());
     const [priceImportText, setPriceImportText] = useState('');
     const [priceImportRows, setPriceImportRows] = useState<PriceResearchImportRow[]>([]);
+    const loadPriceBookEvent = useEffectEvent(loadPriceBook);
 
     useEffect(() => {
-        void loadPriceBook();
+        void loadPriceBookEvent();
     }, [companyId]);
 
     const companyName = getCompanyDisplayName(company);
@@ -626,28 +627,6 @@ export default function CompanyPriceBookScreen() {
             ? `Reviewing Riverside planning recommendation: ${item.name}`
             : `Editing company price: ${item.name}`
         ));
-    }
-
-    function addCustomItem() {
-        setEditorForm(emptyEditorForm({
-            system: PLUMBING_SYSTEM,
-            category: categoryFilter || 'Other Plumbing',
-            area: '',
-        }));
-        setView('custom');
-        setEditorOpen(true);
-        setMessage('');
-    }
-
-    function addCustomSystemItem() {
-        setEditorForm(emptyEditorForm({
-            system: PLUMBING_SYSTEM,
-            category: categoryFilter || 'Other Plumbing',
-            area: '',
-        }));
-        setView('custom');
-        setEditorOpen(true);
-        setMessage('');
     }
 
     async function saveEditor() {
@@ -1019,20 +998,6 @@ export default function CompanyPriceBookScreen() {
         setPriceImportText('');
         setPriceImportRows([]);
         setMessage('Price sheet import cleared.');
-    }
-
-    function openAiResearchForItem(item: CompanyPriceBookItem) {
-        editItem(item);
-        setActiveTool('ai');
-        setResearchForm((current) => ({
-            ...current,
-            scope: 'one_item',
-            itemKey: item.price_key,
-            itemSearch: item.name,
-            trade: inferTradeCategory(item),
-            customServiceType: inferServiceType(item.name),
-        }));
-        setMessage(`Selected for AI Research: ${item.name}`);
     }
 
     async function requestAiResearch() {
@@ -3174,41 +3139,6 @@ function SuggestionReviewSection({
     );
 }
 
-function EditorPercentTool({
-    currentPrice,
-    onApply,
-}: {
-    currentPrice: string;
-    onApply: (nextPrice: string) => void;
-}) {
-    const [percent, setPercent] = useState('8');
-    const parsedPrice = parseOptionalNumber(currentPrice);
-    const parsedPercent = parseOptionalNumber(percent);
-    const canApply = parsedPrice !== null && parsedPercent !== null;
-    const nextPrice = canApply ? Math.max(0, parsedPrice * (1 + parsedPercent / 100)) : null;
-
-    return (
-        <View style={editorPercentWrapStyle}>
-            <EditorField
-                label="Apply % Increase"
-                value={percent}
-                onChangeText={setPercent}
-                keyboardType="decimal-pad"
-            />
-            <ThemedButton
-                title={nextPrice === null ? 'Apply %' : `Apply ${formatPrice(nextPrice)}`}
-                variant="secondary"
-                disabled={!canApply}
-                onPress={() => {
-                    if (nextPrice !== null) onApply(nextPrice.toFixed(2));
-                }}
-                style={compactButtonStyle}
-                textStyle={compactButtonTextStyle}
-            />
-        </View>
-    );
-}
-
 function MiniMetric({ label, value }: { label: string; value: string }) {
     const { theme } = useTheme();
 
@@ -4560,10 +4490,6 @@ function invalidCalculatorResult(error: string): CalculatorResult {
     };
 }
 
-function systemHasPricedItems(items: CompanyPriceBookItem[], system: string) {
-    return items.some((item) => itemMatchesSystem(item, system) && item.base_price !== null && item.active);
-}
-
 function emptyCalculatorForm(): CalculatorForm {
     return {
         materialCost: '',
@@ -4729,14 +4655,6 @@ function formatHours(value: number | null) {
 
 function formatPercent(value: number) {
     return `${value.toFixed(2).replace(/\.00$/, '')}%`;
-}
-
-function formatDateTime(value: string | null) {
-    if (!value) return 'Not available';
-
-    const date = new Date(value);
-
-    return Number.isNaN(date.getTime()) ? 'Not available' : date.toLocaleString();
 }
 
 function roundCurrency(value: number) {
@@ -4983,14 +4901,6 @@ const filterRowStyle = {
     gap: 8,
     marginTop: 12,
     marginBottom: 14,
-};
-
-const topControlRowStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    alignItems: 'center' as const,
-    gap: 8,
-    marginBottom: 8,
 };
 
 const filterButtonStyle = {
@@ -5279,21 +5189,6 @@ const jobCostFormulaPanelStyle = {
     borderWidth: 1,
     marginTop: 16,
     padding: 14,
-};
-
-const editorToolRowStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    alignItems: 'flex-end' as const,
-    gap: 10,
-    marginTop: 8,
-};
-
-const editorPercentWrapStyle = {
-    flexDirection: 'row' as const,
-    alignItems: 'flex-end' as const,
-    gap: 8,
-    flexWrap: 'wrap' as const,
 };
 
 const fieldWrapStyle = {

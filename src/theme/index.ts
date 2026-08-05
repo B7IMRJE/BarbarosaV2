@@ -2,7 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
     createContext,
     createElement,
+    useCallback,
     useEffect,
+    useEffectEvent,
     useMemo,
     useRef,
     useState,
@@ -204,11 +206,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const [isThemeLoaded, setIsThemeLoaded] = useState(false);
     const activeUserIdRef = useRef<string | null>(null);
     const loadRunRef = useRef(0);
+    const loadCurrentUserAppearanceEvent = useEffectEvent(loadCurrentUserAppearance);
 
     useEffect(() => {
         let mounted = true;
 
-        loadCurrentUserAppearance();
+        void loadCurrentUserAppearanceEvent();
 
         const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
             if (!mounted) return;
@@ -280,7 +283,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         }
     }
 
-    async function setThemeName(nextThemeName: HomeOSThemeName) {
+    const setThemeName = useCallback(async (nextThemeName: HomeOSThemeName) => {
         const userId = activeUserIdRef.current;
 
         if (!userId) {
@@ -321,9 +324,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             ).catch(() => undefined);
             throw error;
         }
-    }
+    }, [themeName]);
 
-    async function setAppearance(nextAppearance: AppearancePreferences) {
+    const setAppearance = useCallback(async (nextAppearance: AppearancePreferences) => {
         const sanitizedAppearance = sanitizeAppearancePreferences(nextAppearance);
         setAppearanceState(sanitizedAppearance);
 
@@ -335,24 +338,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
                 JSON.stringify(sanitizedAppearance)
             );
         }
-    }
+    }, []);
 
-    async function setFontSize(fontSize: AppearanceSizeName) {
+    const setFontSize = useCallback(async (fontSize: AppearanceSizeName) => {
         await setAppearance({ ...appearance, fontSize });
-    }
+    }, [appearance, setAppearance]);
 
-    async function setIconSize(iconSize: AppearanceSizeName) {
+    const setIconSize = useCallback(async (iconSize: AppearanceSizeName) => {
         await setAppearance({ ...appearance, iconSize });
-    }
+    }, [appearance, setAppearance]);
 
-    async function setGlassDepth(glassDepth: number) {
+    const setGlassDepth = useCallback(async (glassDepth: number) => {
         await setAppearance({
             ...appearance,
             glassDepth: Math.max(1, Math.min(100, Math.round(glassDepth))),
         });
-    }
+    }, [appearance, setAppearance]);
 
-    async function resetAppearance() {
+    const resetAppearance = useCallback(async () => {
         setAppearanceState(DEFAULT_APPEARANCE_PREFERENCES);
 
         const userId = activeUserIdRef.current;
@@ -360,7 +363,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         if (userId) {
             await AsyncStorage.removeItem(getAppearanceStorageKey(userId));
         }
-    }
+    }, []);
 
     const fontScale = scaleForSize(appearance.fontSize);
     const iconScale = scaleForSize(appearance.iconSize);
@@ -393,7 +396,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             scaleIcon: (size: number) => Math.round(size * iconScale),
             isThemeLoaded,
         }),
-        [themeName, appearance, fontScale, iconScale, isThemeLoaded]
+        [
+            themeName,
+            appearance,
+            setThemeName,
+            setAppearance,
+            setFontSize,
+            setIconSize,
+            setGlassDepth,
+            resetAppearance,
+            fontScale,
+            iconScale,
+            isThemeLoaded,
+        ]
     );
 
     return createElement(ThemeContext.Provider, { value }, children);

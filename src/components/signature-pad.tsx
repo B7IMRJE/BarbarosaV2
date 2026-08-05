@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
     PanResponder,
     Text,
@@ -27,14 +27,7 @@ export default function SignaturePad({ label, value, disabled, onChange }: Signa
     const pointsRef = useRef(points);
     pointsRef.current = points;
 
-    const responder = useMemo(() => PanResponder.create({
-        onStartShouldSetPanResponder: () => !disabled,
-        onMoveShouldSetPanResponder: () => !disabled,
-        onPanResponderGrant: (event) => appendPoint(event.nativeEvent.locationX, event.nativeEvent.locationY, true),
-        onPanResponderMove: (event) => appendPoint(event.nativeEvent.locationX, event.nativeEvent.locationY, false),
-    }), [disabled, size.width, size.height]);
-
-    function appendPoint(x: number, y: number, startsStroke: boolean) {
+    const appendPoint = useCallback((x: number, y: number, startsStroke: boolean) => {
         if (disabled || size.width <= 1 || size.height <= 1) return;
 
         const nextPoint: SignaturePoint = {
@@ -46,7 +39,14 @@ export default function SignaturePad({ label, value, disabled, onChange }: Signa
 
         pointsRef.current = nextPoints;
         onChange(JSON.stringify({ version: 1, points: nextPoints }));
-    }
+    }, [disabled, onChange, size.height, size.width]);
+
+    const responder = useMemo(() => PanResponder.create({
+        onStartShouldSetPanResponder: () => !disabled,
+        onMoveShouldSetPanResponder: () => !disabled,
+        onPanResponderGrant: (event) => appendPoint(event.nativeEvent.locationX, event.nativeEvent.locationY, true),
+        onPanResponderMove: (event) => appendPoint(event.nativeEvent.locationX, event.nativeEvent.locationY, false),
+    }), [appendPoint, disabled]);
 
     function handleLayout(event: LayoutChangeEvent) {
         const { width, height } = event.nativeEvent.layout;

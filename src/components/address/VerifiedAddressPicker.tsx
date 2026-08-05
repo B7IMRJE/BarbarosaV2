@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Text,
@@ -48,6 +48,7 @@ export default function VerifiedAddressPicker({
     const searchRunRef = useRef(0);
     const validationRunRef = useRef(0);
     const sessionClosedRef = useRef(!!initialAddress);
+    const notifyAddressConfirmed = useEffectEvent(onAddressConfirmed);
 
     useEffect(() => {
         if (!initialAddress) return;
@@ -56,7 +57,7 @@ export default function VerifiedAddressPicker({
         setUnit(initialAddress.addressLine2 || '');
         setValidatedAddress(initialAddress);
         setConfirmedAddress(initialAddress);
-        onAddressConfirmed(initialAddress);
+        notifyAddressConfirmed(initialAddress);
     }, [initialAddress]);
 
     useEffect(() => {

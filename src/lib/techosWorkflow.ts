@@ -444,7 +444,7 @@ function isTerminalWorkflowStatus(status?: string | null) {
     return ['completed', 'closed', 'cancelled', 'canceled', 'archived'].includes(normalizeStatus(status));
 }
 
-function chooseMostAdvancedWorkflowStatus(statuses: Array<string | null | undefined>) {
+function chooseMostAdvancedWorkflowStatus(statuses: (string | null | undefined)[]) {
     return statuses
         .map((status, index) => ({
             index,

@@ -16,14 +16,14 @@ export const DISPATCH_OFFICE_SECTION_ORDER: DispatchOfficeSectionKey[] = [
     'closed_archived_search',
 ];
 
-export const DISPATCH_OFFICE_PRIMARY_ACTIONS: Array<{ key: DispatchOfficeActionKey; label: string }> = [
+export const DISPATCH_OFFICE_PRIMARY_ACTIONS: { key: DispatchOfficeActionKey; label: string }[] = [
     { key: 'open_activity_board', label: 'Open Live Activity Board' },
     { key: 'open_schedule', label: 'Schedule' },
     { key: 'refresh', label: 'Refresh' },
     { key: 'work_queue', label: 'Work Queue' },
 ];
 
-export const DISPATCH_OFFICE_ACTIVE_FILTERS: Array<{ key: DispatchOfficeActiveFilterKey; label: string }> = [
+export const DISPATCH_OFFICE_ACTIVE_FILTERS: { key: DispatchOfficeActiveFilterKey; label: string }[] = [
     { key: 'all', label: 'All' },
     { key: 'scheduled', label: 'Scheduled' },
     { key: 'on_my_way', label: 'On My Way' },

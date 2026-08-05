@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import AdminNavBar from '../components/AdminNavBar';
 import HomeHeader from '../components/HomeHeader';
@@ -66,9 +66,10 @@ export default function ScheduleBoardScreen() {
     const scheduleBackFallback = scheduleCompanyId
         ? (`/super-admin/company/${scheduleCompanyId}` as Href)
         : ('/super-admin' as Href);
+    const loadScheduleBoardEvent = useEffectEvent(loadScheduleBoard);
 
     useEffect(() => {
-        loadScheduleBoard();
+        void loadScheduleBoardEvent();
     }, [requestedCompanyId]);
 
     async function loadScheduleBoard() {
@@ -430,7 +431,7 @@ function TechnicianScheduleDetail({
     groupedSlots,
 }: {
     technician: ScheduleTechnician;
-    groupedSlots: Array<{ dateKey: string; label: string; slots: ScheduleSlot[] }>;
+    groupedSlots: { dateKey: string; label: string; slots: ScheduleSlot[] }[];
 }) {
     const { theme } = useTheme();
 

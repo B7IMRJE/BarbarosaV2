@@ -26,18 +26,14 @@ export default function HomeIdentityCard({ identity, loading, onEdit }: HomeIden
     const { theme } = useTheme();
     const [mapDataUrl, setMapDataUrl] = useState('');
     const [mapLoading, setMapLoading] = useState(false);
-    const coordinates = identity?.address
-        ? {
-            latitude: identity.address.latitude,
-            longitude: identity.address.longitude,
-        }
-        : null;
+    const latitude = identity?.address?.latitude ?? null;
+    const longitude = identity?.address?.longitude ?? null;
 
     useEffect(() => {
         let cancelled = false;
 
         async function loadMap() {
-            if (!coordinates) {
+            if (latitude === null || longitude === null) {
                 setMapDataUrl('');
                 return;
             }
@@ -46,7 +42,7 @@ export default function HomeIdentityCard({ identity, loading, onEdit }: HomeIden
             setMapLoading(true);
 
             const { data, error } = await supabase.functions.invoke<MapResponse>('home-static-map', {
-                body: coordinates,
+                body: { latitude, longitude },
             });
 
             if (cancelled) return;
@@ -66,7 +62,7 @@ export default function HomeIdentityCard({ identity, loading, onEdit }: HomeIden
         return () => {
             cancelled = true;
         };
-    }, [coordinates?.latitude, coordinates?.longitude]);
+    }, [latitude, longitude]);
 
     if (loading) {
         return (

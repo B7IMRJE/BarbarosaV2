@@ -60,7 +60,7 @@ export function getJobAssignmentRoleLabel(role?: string | null) {
 }
 
 export function normalizeTechOSAssignmentCompanyUserIds(
-    companyUserIds: ReadonlyArray<string | null | undefined>
+    companyUserIds: readonly (string | null | undefined)[]
 ) {
     const seen = new Set<string>();
     const normalizedIds: string[] = [];
@@ -79,7 +79,7 @@ export function normalizeTechOSAssignmentCompanyUserIds(
 
 export function resolveTechOSAssignmentCompanyUserIds(input: {
     companyId: string;
-    eligibleCompanyUsers: ReadonlyArray<TechOSAssignmentCompanyUser>;
+    eligibleCompanyUsers: readonly TechOSAssignmentCompanyUser[];
     primaryCompanyUserId?: string | null;
 }) {
     const companyId = normalizeAssignmentId(input.companyId);
@@ -94,9 +94,9 @@ export function resolveTechOSAssignmentCompanyUserIds(input: {
 }
 
 export function filterTechOSAssignmentSlots<TSlot extends TechOSAssignmentSlotIdentity>(
-    slots: ReadonlyArray<TSlot>,
+    slots: readonly TSlot[],
     companyId: string,
-    companyUserIds: ReadonlyArray<string>
+    companyUserIds: readonly string[]
 ) {
     const normalizedCompanyId = normalizeAssignmentId(companyId);
     const allowedCompanyUserIds = new Set(normalizeTechOSAssignmentCompanyUserIds(companyUserIds));
@@ -108,7 +108,7 @@ export function filterTechOSAssignmentSlots<TSlot extends TechOSAssignmentSlotId
 }
 
 export function collapseTechOSAssignmentSlots<TSlot extends TechOSAssignmentScheduleSlot>(
-    slots: ReadonlyArray<TSlot>
+    slots: readonly TSlot[]
 ) {
     const selectedByWorkKey = new Map<string, TSlot>();
 

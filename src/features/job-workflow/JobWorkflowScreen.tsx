@@ -1,7 +1,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import SignaturePad, { isDrawnSignature } from '../../components/signature-pad';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
@@ -73,6 +73,7 @@ export default function JobWorkflowScreen() {
     const [returnScheduledFor, setReturnScheduledFor] = useState('');
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
     const workflowScrollRef = useRef<ScrollView | null>(null);
+    const refreshEvent = useEffectEvent(refresh);
 
     const approvedWorkSummary = useMemo(() => {
         if (!bundle) return '';
@@ -95,7 +96,7 @@ export default function JobWorkflowScreen() {
             setMessage('This quote does not have a saved estimate session.');
             return;
         }
-        void refresh(sessionId);
+        void refreshEvent(sessionId);
     }, [sessionId]);
 
     useEffect(() => {
@@ -109,7 +110,7 @@ export default function JobWorkflowScreen() {
                 table: 'company_job_workflows',
                 filter: `id=eq.${workflowId}`,
             }, () => {
-                void refresh(sessionId);
+                void refreshEvent(sessionId);
             })
             .subscribe();
         return () => {

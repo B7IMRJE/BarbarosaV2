@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { Image, Linking, ScrollView, Text, View } from 'react-native';
 import AdminNavBar from '../../../../../../components/AdminNavBar';
 import ThemedButton from '../../../../../../components/theme/ThemedButton';
@@ -66,9 +66,10 @@ export default function CustomerPhotosScreen() {
     const [stagingStatusMessage, setStagingStatusMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const loadPhotosEvent = useEffectEvent(loadPhotos);
 
     useEffect(() => {
-        void loadPhotos();
+        void loadPhotosEvent();
     }, [companyId, clientPropertyId]);
 
     const companyName = getCompanyDisplayName(company);

@@ -1,5 +1,5 @@
-import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useLocalSearchParams, type Href } from 'expo-router';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ScrollView,
     Text,
@@ -52,9 +52,10 @@ export default function HomeownersScreen() {
     const [message, setMessage] = useState('');
     const [inviteMessage, setInviteMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    const loadHomeownersEvent = useEffectEvent(loadHomeowners);
 
     useEffect(() => {
-        loadHomeowners();
+        void loadHomeownersEvent();
     }, [id]);
 
     async function loadHomeowners() {
@@ -309,13 +310,6 @@ function ThemedInput({
         </View>
     );
 }
-
-const backTextStyle = {
-    marginTop: 20,
-    marginBottom: 20,
-    fontSize: 18,
-    fontWeight: '900' as const,
-};
 
 const titleStyle = {
     fontSize: 34,

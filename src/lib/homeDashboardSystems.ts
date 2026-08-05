@@ -72,7 +72,7 @@ function getCustomSystemIcon(systemName: string) {
   return '🏠';
 }
 
-function firstText(...values: Array<string | null | undefined>) {
+function firstText(...values: (string | null | undefined)[]) {
   for (const value of values) {
     const text = String(value || '').trim();
 

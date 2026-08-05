@@ -1,6 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
-import React from 'react';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Image, Platform, Text, TextInput, View } from 'react-native';
 import ThemedButton from '../theme/ThemedButton';
 import ThemedCard from '../theme/ThemedCard';

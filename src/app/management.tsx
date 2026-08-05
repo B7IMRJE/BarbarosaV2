@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import { loadEstimateDraft } from '../lib/estimateDraft';
@@ -76,9 +76,10 @@ export default function ManagementScreen() {
     const [holidayName, setHolidayName] = useState('');
     const [holidayDate, setHolidayDate] = useState('');
     const [timekeepingOpen, setTimekeepingOpen] = useState(false);
+    const checkAccessEvent = useEffectEvent(checkAccess);
 
     useEffect(() => {
-        checkAccess();
+        void checkAccessEvent();
     }, []);
 
     async function checkAccess() {

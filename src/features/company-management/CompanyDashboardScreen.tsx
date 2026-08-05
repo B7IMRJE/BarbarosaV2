@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { AppState, Image, Pressable, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../lib/companyAuditLogs';
@@ -207,12 +207,13 @@ export default function CompanyDashboardScreen() {
     const visibleCards = cards.filter((card) =>
         isPlatformAdmin || canViewCompanyModule(card, companyPermissions)
     );
+    const loadCompanyEvent = useEffectEvent(loadCompany);
 
     useEffect(() => {
         setIsConfigEditorOpen(false);
         setExpandedConfigSection(null);
         setCompanyPermissions(null);
-        loadCompany();
+        void loadCompanyEvent();
         void loadCurrentUserPlatformAdmin().then(setIsPlatformAdmin);
         if (routeCompanyId) {
             void loadCompanyDashboardPermissions(routeCompanyId).then(setCompanyPermissions);
@@ -2612,7 +2613,7 @@ function extractLogoThemeColors(logoUrl: string): Promise<{
                     accentColor: rgbToHex(accent.r, accent.g, accent.b),
                     palette: colors.slice(0, 6).map((color) => rgbToHex(color.r, color.g, color.b)),
                 });
-            } catch (error) {
+            } catch {
                 reject(new Error('Logo URL blocked color reading. Try an uploaded image URL or direct image link.'));
             }
         };

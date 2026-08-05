@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useEffectEvent, useState } from 'react';
 import { Image, Linking, Modal, Platform, Pressable, Text, View } from 'react-native';
 import ThemedButton from '../theme/ThemedButton';
 import ThemedCard from '../theme/ThemedCard';
@@ -24,9 +24,10 @@ export default function ServiceRequestMediaGallery({
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(false);
     const [viewerAttachment, setViewerAttachment] = useState<ServiceRequestAttachment | null>(null);
+    const loadAttachmentsEvent = useEffectEvent(loadAttachments);
 
     useEffect(() => {
-        void loadAttachments();
+        void loadAttachmentsEvent();
     }, [serviceRequestId]);
 
     async function loadAttachments() {

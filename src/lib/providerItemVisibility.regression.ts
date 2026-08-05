@@ -201,7 +201,7 @@ function nestedContainerShowsDirectItems() {
     );
 }
 
-function itemIds(items: Array<{ id?: string | null }>) {
+function itemIds(items: { id?: string | null }[]) {
     return items.map((item) => item.id || '').filter(Boolean).sort().join('|');
 }
 

@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import DispatchChatOverlay from '../../components/dispatch/DispatchChatOverlay';
@@ -242,7 +242,7 @@ type WorkQueueRecord = {
 type DurationMode = '30' | '60' | '90' | '120' | 'custom';
 type ArrivalWindowMode = '0' | '1' | '2' | '3' | 'custom';
 
-const DISPATCH_LANE_DEFINITIONS: Array<{ key: DispatchLaneKey; title: string; group: DispatchLaneGroup }> = [
+const DISPATCH_LANE_DEFINITIONS: { key: DispatchLaneKey; title: string; group: DispatchLaneGroup }[] = [
     { key: 'unassigned', title: 'Unassigned', group: 'active' },
     { key: 'assigned', title: 'Assigned / Scheduled', group: 'active' },
     { key: 'on_my_way', title: 'On My Way', group: 'active' },
@@ -260,14 +260,14 @@ const DISPATCH_LANE_DEFINITIONS: Array<{ key: DispatchLaneKey; title: string; gr
     { key: 'archived', title: 'Archived', group: 'archived' },
 ];
 
-const WORK_QUEUE_CATEGORIES: Array<{ key: WorkQueueCategory; label: string }> = [
+const WORK_QUEUE_CATEGORIES: { key: WorkQueueCategory; label: string }[] = [
     { key: 'needs_action', label: 'Needs Action' },
     { key: 'closed', label: 'Closed' },
     { key: 'archived', label: 'Archived' },
 ];
 const ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE = 'Assigned technician details could not be loaded.';
 
-const WORK_QUEUE_SORT_OPTIONS: Array<{ key: WorkQueueSort; label: string }> = [
+const WORK_QUEUE_SORT_OPTIONS: { key: WorkQueueSort; label: string }[] = [
     { key: 'next_action', label: 'Next Action Due' },
     { key: 'newest', label: 'Newest' },
     { key: 'oldest', label: 'Oldest' },
@@ -276,14 +276,14 @@ const WORK_QUEUE_SORT_OPTIONS: Array<{ key: WorkQueueSort; label: string }> = [
     { key: 'status', label: 'Status' },
 ];
 
-const QUICK_DURATION_OPTIONS: Array<{ label: string; value: Exclude<DurationMode, 'custom'> }> = [
+const QUICK_DURATION_OPTIONS: { label: string; value: Exclude<DurationMode, 'custom'> }[] = [
     { label: '30 min', value: '30' },
     { label: '60 min', value: '60' },
     { label: '90 min', value: '90' },
     { label: '120 min', value: '120' },
 ];
 
-const ARRIVAL_WINDOW_OPTIONS: Array<{ label: string; value: Exclude<ArrivalWindowMode, 'custom'> }> = [
+const ARRIVAL_WINDOW_OPTIONS: { label: string; value: Exclude<ArrivalWindowMode, 'custom'> }[] = [
     { label: 'Exact', value: '0' },
     { label: '1 hr', value: '1' },
     { label: '2 hr', value: '2' },
@@ -437,9 +437,14 @@ export default function DispatchBoardScreen() {
         [expandedRequestId, requests]
     );
     const laneBasis: ViewStyle['flexBasis'] = viewportWidth <= 700 ? '100%' : viewportWidth <= 1100 ? '48%' : '31.8%';
+    const loadDispatchBoardEvent = useEffectEvent(loadDispatchBoard);
+    const collapseExpandedRequestEvent = useEffectEvent(collapseExpandedRequest);
+    const loadDispatchRequestsEvent = useEffectEvent(loadDispatchRequests);
+    const loadActiveTechniciansEvent = useEffectEvent(loadActiveTechnicians);
+    const loadScheduleSlotsEvent = useEffectEvent(loadScheduleSlots);
 
     useEffect(() => {
-        loadDispatchBoard();
+        void loadDispatchBoardEvent();
     }, [requestedCompanyId]);
 
     useEffect(() => {
@@ -452,11 +457,11 @@ export default function DispatchBoardScreen() {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape') {
                 event.preventDefault();
-                collapseExpandedRequest();
+                collapseExpandedRequestEvent();
             }
         };
         const handlePopState = () => {
-            collapseExpandedRequest();
+            collapseExpandedRequestEvent();
         };
 
         window.history.pushState(
@@ -488,10 +493,10 @@ export default function DispatchBoardScreen() {
 
             try {
                 const [loadedRequests] = await Promise.all([
-                    loadDispatchRequests(companyIdToRefresh),
-                    loadActiveTechnicians(companyIdToRefresh),
+                    loadDispatchRequestsEvent(companyIdToRefresh),
+                    loadActiveTechniciansEvent(companyIdToRefresh),
                 ]);
-                await loadScheduleSlots(companyIdToRefresh, loadedRequests);
+                await loadScheduleSlotsEvent(companyIdToRefresh, loadedRequests);
             } finally {
                 dispatchRefreshInFlight.current = false;
             }
@@ -607,7 +612,7 @@ export default function DispatchBoardScreen() {
             appStateSubscription.remove();
             focusTarget.removeEventListener?.('focus', handleFocus);
         };
-    }, [companyAccess?.company_id]);
+    }, [companyAccess?.company_id, soldCelebrationScale]);
 
     async function loadDispatchBoard() {
         setLoading(true);
@@ -1754,189 +1759,6 @@ function formatSoldJobMoney(value: number) {
     }).format(value);
 }
 
-function DispatchNeedsAttentionPanel({
-    items,
-    companyUsers,
-    onNotifyHomeownerDelay,
-}: {
-    items: DispatchAttentionItem[];
-    companyUsers: CompanyUser[];
-    onNotifyHomeownerDelay: (request: DispatchRequest) => void;
-}) {
-    const { theme } = useTheme();
-
-    if (items.length === 0) return null;
-
-    return (
-        <ThemedCard style={[needsAttentionPanelStyle, { borderColor: '#F2A94A', backgroundColor: 'rgba(251, 191, 36, 0.18)' }]}>
-            <View style={sectionHeaderStyle}>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Needs Attention</Text>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                        Internal timing warnings. Homeowners are notified only after Dispatch confirms a delay.
-                    </Text>
-                </View>
-                <Text style={[countBadgeStyle, { color: '#8A3F08', backgroundColor: 'rgba(251, 191, 36, 0.26)' }]}>
-                    {items.length}
-                </Text>
-            </View>
-            <View style={attentionItemListStyle}>
-                {items.map((item) => {
-                    const technician = findCompanyUserById(companyUsers, item.slot.technician_company_user_id);
-
-                    return (
-                        <View key={`${item.request.id}:${item.slot.id}`} style={[attentionItemStyle, { borderColor: getRiskBorderColor(item.risk.state, theme.colors.border) }]}>
-                            <View style={{ flex: 1, minWidth: 0 }}>
-                                <Text style={[requestTypeStyle, { color: getRiskTextColor(item.risk.state, theme.colors.text) }]}>
-                                    {item.risk.label} / {item.request.customer_display_name || item.request.property_display_name || 'Customer'}
-                                </Text>
-                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
-                                    {item.risk.reason}
-                                </Text>
-                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
-                                    Tech: {technician ? getMemberDisplayName(technician) : 'Not available'} / Window: {formatSlotArrivalWindow(item.slot)}
-                                </Text>
-                            </View>
-                            <ThemedButton
-                                title={item.risk.state === 'RUNNING_LATE' ? 'Notify Homeowner' : 'Watch'}
-                                variant={item.risk.state === 'RUNNING_LATE' ? 'primary' : 'secondary'}
-                                disabled={item.risk.state !== 'RUNNING_LATE'}
-                                onPress={() => onNotifyHomeownerDelay(item.request)}
-                                style={{ paddingHorizontal: 12, paddingVertical: 10 }}
-                                textStyle={{ fontSize: 12 }}
-                            />
-                        </View>
-                    );
-                })}
-            </View>
-        </ThemedCard>
-    );
-}
-
-function ActiveOperationsEmptySummary({ lanes }: { lanes: DispatchLane[] }) {
-    const { theme } = useTheme();
-
-    return (
-        <View style={[activeOperationsEmptySummaryStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-            <Text style={[bodyTextStyle, { color: theme.colors.text, fontWeight: '900' }]}>No active jobs right now.</Text>
-            <View style={activeOperationsCountPillRowStyle}>
-                {lanes.map((lane) => (
-                    <Text
-                        key={lane.key}
-                        style={[
-                            activeOperationsCountPillStyle,
-                            { color: theme.colors.mutedText, backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
-                        ]}
-                    >
-                        {lane.title} {lane.requests.length}
-                    </Text>
-                ))}
-            </View>
-        </View>
-    );
-}
-
-function DispatchSection({
-    title,
-    requests,
-    eventsByRequestId,
-    scheduleSlots,
-    actionRequestId,
-    laneBasis,
-    onToggleRequest,
-    onCollapseRequest,
-    onAcknowledge,
-    companyUsers,
-    activeTechnicians,
-    scheduleFormByRequestId,
-    requestActionMessageById,
-    onUpdateScheduleForm,
-    onScheduleRequest,
-    onCloseVisit,
-    onCancelRequest,
-    onArchiveRequest,
-    onRestoreRequest,
-    onNotifyHomeownerDelay,
-}: {
-    title: string;
-    requests: DispatchRequest[];
-    eventsByRequestId: Record<string, ServiceRequestEvent[]>;
-    scheduleSlots: ScheduleSlot[];
-    actionRequestId: string | null;
-    laneBasis: ViewStyle['flexBasis'];
-    onToggleRequest: (requestId: string) => void;
-    onCollapseRequest: () => void;
-    onAcknowledge: (request: DispatchRequest) => void;
-    companyUsers: CompanyUser[];
-    activeTechnicians: CompanyUser[];
-    scheduleFormByRequestId: Record<string, ScheduleRequestForm>;
-    requestActionMessageById: Record<string, string>;
-    onUpdateScheduleForm: (requestId: string, updates: Partial<ScheduleRequestForm>) => void;
-    onScheduleRequest: (request: DispatchRequest) => void;
-    onCloseVisit: (request: DispatchRequest) => void;
-    onCancelRequest: (request: DispatchRequest) => void;
-    onArchiveRequest: (request: DispatchRequest) => void;
-    onRestoreRequest: (request: DispatchRequest) => void;
-    onNotifyHomeownerDelay: (request: DispatchRequest) => void;
-}) {
-    const { theme } = useTheme();
-
-    return (
-        <View style={[dispatchLaneStyle, { flexBasis: laneBasis }]}>
-            <View style={sectionHeaderStyle}>
-                <Text style={[activeLaneTitleStyle, { color: theme.colors.text }]}>{title}</Text>
-                <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {requests.length}
-                </Text>
-            </View>
-
-            {requests.length === 0 ? (
-                <View style={[compactEmptyLaneStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{title} 0</Text>
-                </View>
-            ) : (
-                <View style={requestGridStyle}>
-                    {requests.map((request) => {
-                        const requestScheduleSlots = scheduleSlots.filter((slot) => (
-                            slot.company_id === request.company_id &&
-                            slot.service_request_id === request.id
-                        ));
-                        const currentScheduleSlot = getCurrentRequestScheduleSlot(requestScheduleSlots, request);
-
-                        return (
-                            <DispatchRequestCard
-                                key={request.id}
-                                request={request}
-                                events={eventsByRequestId[request.id] || []}
-                                scheduleSlots={requestScheduleSlots}
-                                allScheduleSlots={scheduleSlots}
-                                acknowledging={actionRequestId === request.id}
-                                expanded={false}
-                                cardBasis="100%"
-                                expandedCardBasis="100%"
-                                onToggle={() => onToggleRequest(request.id)}
-                                onCollapse={onCollapseRequest}
-                                onAcknowledge={onAcknowledge}
-                                companyUsers={companyUsers}
-                                activeTechnicians={activeTechnicians}
-                                scheduleForm={scheduleFormByRequestId[request.id] || createScheduleFormFromSlot(currentScheduleSlot)}
-                                actionMessage={requestActionMessageById[request.id] || ''}
-                                onUpdateScheduleForm={(updates) => onUpdateScheduleForm(request.id, updates)}
-                                onScheduleRequest={() => onScheduleRequest(request)}
-                                onCloseVisit={() => onCloseVisit(request)}
-                                onCancelRequest={() => onCancelRequest(request)}
-                                onArchiveRequest={() => onArchiveRequest(request)}
-                                onRestoreRequest={() => onRestoreRequest(request)}
-                                onNotifyHomeownerDelay={() => onNotifyHomeownerDelay(request)}
-                            />
-                        );
-                    })}
-                </View>
-            )}
-        </View>
-    );
-}
-
 function DispatchOfficeMetaChip({ label, value }: { label: string; value: string }) {
     const { theme } = useTheme();
 
@@ -2368,8 +2190,10 @@ function DispatchClockCorrectionReview({
         }
     }
 
+    const refreshEvent = useEffectEvent(refresh);
+
     useEffect(() => {
-        void refresh();
+        void refreshEvent();
     }, [companyId]);
 
     async function review(request: ClockInCorrectionRequest, decision: 'approved' | 'denied') {
@@ -5025,16 +4849,6 @@ function formatSelectedScheduleTime(timeText: string) {
     return date ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : 'Pick a start time';
 }
 
-function formatScheduleWindowDate(date: Date) {
-    return date.toLocaleString([], {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-    });
-}
-
 function formatCallType(request: DispatchRequest) {
     const type = normalizeStatus(request.request_type);
     const priority = normalizeStatus(request.priority);
@@ -6117,16 +5931,6 @@ const sectionTitleStyle = {
     fontWeight: '900' as const,
 };
 
-const activeOperationsTitleStyle = {
-    fontSize: 18,
-    fontWeight: '900' as const,
-};
-
-const activeLaneTitleStyle = {
-    fontSize: 15,
-    fontWeight: '900' as const,
-};
-
 const countBadgeStyle = {
     borderRadius: 999,
     overflow: 'hidden' as const,
@@ -6145,87 +5949,12 @@ const riskBadgeStyle = {
     fontWeight: '900' as const,
 };
 
-const dispatchWallStyle = {
-    alignItems: 'flex-start' as const,
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 12,
-};
-
-const dispatchQueueGroupStyle = {
-    marginBottom: 12,
-};
-
-const dispatchLaneStyle = {
-    flexGrow: 1,
-    flexShrink: 1,
-    marginBottom: 10,
-    maxWidth: '100%' as const,
-    minWidth: 0,
-};
-
 const activeOperationsHeaderBadgesStyle = {
     alignItems: 'flex-end' as const,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
     gap: 6,
     justifyContent: 'flex-end' as const,
-};
-
-const activeOperationsEmptySummaryStyle = {
-    borderRadius: 14,
-    borderWidth: 1,
-    gap: 8,
-    marginBottom: 10,
-    padding: 12,
-};
-
-const activeOperationsCountPillRowStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 6,
-};
-
-const activeOperationsCountPillStyle = {
-    borderRadius: 999,
-    borderWidth: 1,
-    overflow: 'hidden' as const,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    fontSize: 11,
-    fontWeight: '900' as const,
-};
-
-const compactEmptyLaneStyle = {
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-};
-
-const needsAttentionPanelStyle = {
-    borderWidth: 1,
-    marginBottom: 16,
-};
-
-const attentionItemListStyle = {
-    gap: 10,
-};
-
-const attentionItemStyle = {
-    alignItems: 'center' as const,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 10,
-    padding: 10,
-};
-
-const requestGridStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 8,
 };
 
 const workQueueCardStyle = {
@@ -6756,11 +6485,6 @@ const compactAttentionRowStyle = {
     marginTop: 6,
 };
 
-const compactCardHeaderActionsStyle = {
-    alignItems: 'flex-end' as const,
-    gap: 6,
-};
-
 const compactExpandButtonStyle = {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -6783,13 +6507,6 @@ const compactActivePressableButtonStyle = {
 const compactActiveButtonTextStyle = {
     fontSize: 11,
     fontWeight: '900' as const,
-};
-
-const compactMetaGridStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    gap: 6,
-    marginTop: 6,
 };
 
 const techStatusPanelStyle = {

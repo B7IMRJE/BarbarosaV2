@@ -18,7 +18,15 @@ export default function EquipmentScreen() {
         scheduleSlotId?: string | string[];
         jobId?: string | string[];
     }>();
-    const providerModeContext = useMemo(() => readProviderModeParams(routeParams), [
+    const providerModeContext = useMemo(() => readProviderModeParams({
+        providerMode: routeParams.providerMode,
+        companyId: routeParams.companyId,
+        propertyId: routeParams.propertyId,
+        returnTo: routeParams.returnTo,
+        serviceRequestId: routeParams.serviceRequestId,
+        scheduleSlotId: routeParams.scheduleSlotId,
+        jobId: routeParams.jobId,
+    }), [
         routeParams.providerMode,
         routeParams.companyId,
         routeParams.propertyId,

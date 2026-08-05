@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import ThemedButton from '../../../../components/theme/ThemedButton';
@@ -36,9 +36,10 @@ export default function CompanyConnectionsScreen() {
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const loadConnectionsEvent = useEffectEvent(loadConnections);
 
     useEffect(() => {
-        loadConnections();
+        void loadConnectionsEvent();
     }, [id]);
 
     const connectedProperties = useMemo(
@@ -256,13 +257,6 @@ function formatAddress(property?: PropertyRecord) {
 function normalizeStatus(status: string | null) {
     return String(status || 'pending').trim().toLowerCase();
 }
-
-const backTextStyle = {
-    marginTop: 20,
-    marginBottom: 20,
-    fontSize: 18,
-    fontWeight: '900' as const,
-};
 
 const titleStyle = {
     fontSize: 34,

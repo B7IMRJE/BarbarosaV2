@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import TechnicianDispatchChat from '../../components/dispatch/TechnicianDispatchChat';
 import HomeHeader from '../../components/HomeHeader';
@@ -482,9 +482,11 @@ export default function TechOSScreen() {
         accentColor: company?.accent_color,
         glassDepth: company?.glass_depth,
     }), [company?.accent_color, company?.glass_depth, company?.primary_color, company?.secondary_color]);
+    const loadTechOSAccessEvent = useEffectEvent(loadTechOSAccess);
+    const loadAssignedScheduleJobsEvent = useEffectEvent(loadAssignedScheduleJobs);
 
     useEffect(() => {
-        loadTechOSAccess();
+        void loadTechOSAccessEvent();
     }, [requestedCompanyId]);
 
     useEffect(() => {
@@ -595,7 +597,7 @@ export default function TechOSScreen() {
         if (!companyIdForRefresh || nextTechnicianCompanyUserIds.length === 0) return;
 
         const refreshAssignedJobs = () => {
-            void loadAssignedScheduleJobs(companyIdForRefresh, nextTechnicianCompanyUserIds, {
+            void loadAssignedScheduleJobsEvent(companyIdForRefresh, nextTechnicianCompanyUserIds, {
                 announceNewAssignments: true,
                 subtle: true,
             });
@@ -5173,12 +5175,6 @@ function readNumberField(record: Record<string, unknown>, key: string) {
     const value = record[key];
 
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function getMemberDisplayName(member?: CompanyUser | null) {
-    if (!member) return 'Technician';
-
-    return member.full_name || member.email || `Technician ${shortId(member.auth_user_id || member.id)}`;
 }
 
 function getFriendlyAssignmentMessage(message?: string | null) {

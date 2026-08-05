@@ -215,13 +215,6 @@ async function loadPlatformAdminStatus(userId: string) {
     };
 }
 
-const backTextStyle = {
-    marginTop: 20,
-    marginBottom: 20,
-    fontSize: 18,
-    fontWeight: '900' as const,
-};
-
 const titleStyle = {
     fontSize: 34,
     fontWeight: '900' as const,

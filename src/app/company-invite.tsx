@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -63,11 +63,13 @@ export default function CompanyInviteScreen() {
     const [manualInviteCode, setManualInviteCode] = useState('');
     const [showAlternateInviteCode, setShowAlternateInviteCode] = useState(false);
     const autoAcceptKeyRef = useRef('');
+    const loadInvitationEvent = useEffectEvent(loadInvitation);
+    const acceptInvitationEvent = useEffectEvent(acceptInvitation);
 
     useEffect(() => {
         autoAcceptKeyRef.current = '';
         setShowAlternateInviteCode(false);
-        loadInvitation();
+        void loadInvitationEvent();
     }, [parsedCode?.rawCode]);
 
     useEffect(() => {
@@ -83,15 +85,14 @@ export default function CompanyInviteScreen() {
         if (autoAcceptKeyRef.current === autoAcceptKey) return;
 
         autoAcceptKeyRef.current = autoAcceptKey;
-        void acceptInvitation();
+        void acceptInvitationEvent();
     }, [
         accepting,
-        invitation?.invitation_id,
-        invitation?.status,
+        invitation,
         loading,
-        parsedCode?.inviteCode,
+        parsedCode,
         success,
-        user?.id,
+        user,
     ]);
 
     const nextPath = parsedCode ? `${COMPANY_INVITE_ROUTE}?code=${encodeURIComponent(parsedCode.rawCode)}` : COMPANY_INVITE_ROUTE;

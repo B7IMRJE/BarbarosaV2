@@ -336,7 +336,7 @@ async function createManualLoginCode(
                 Authorization: `Bearer ${env.serviceRoleKey}`,
             },
         });
-        const existingCodes = await lookupResponse.json().catch(() => []) as Array<{ id?: string }>;
+        const existingCodes = await lookupResponse.json().catch(() => []) as { id?: string }[];
 
         if (!lookupResponse.ok) {
             throw new RequestError(
@@ -385,109 +385,6 @@ function generateSecureLoginCode() {
     const bytes = new Uint32Array(1);
     crypto.getRandomValues(bytes);
     return String(100000 + (bytes[0] % 900000));
-}
-
-async function createAuthInvitation(
-    env: FunctionEnv,
-    invitation: DeliveryInvitation,
-    appBaseUrl: string
-) {
-    if (!appBaseUrl) {
-        throw new RequestError(
-            500,
-            'invite_link_missing',
-            'Company invitation app URL is not configured.'
-        );
-    }
-
-    const redirectTo = new URL('/auth/confirm', appBaseUrl).toString();
-    const payload = {
-        type: 'invite',
-        email: invitation.email,
-        data: {
-            full_name: invitation.full_name,
-            role: 'WORK',
-            company_invitation_id: invitation.invitation_id,
-        },
-        redirect_to: redirectTo,
-    };
-    let response = await fetch(`${env.supabaseUrl}/auth/v1/admin/generate_link`, {
-        method: 'POST',
-        headers: {
-            apikey: env.serviceRoleKey,
-            Authorization: `Bearer ${env.serviceRoleKey}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-    });
-
-    if (!response.ok && response.status === 422) {
-        response = await fetch(`${env.supabaseUrl}/auth/v1/admin/generate_link`, {
-            method: 'POST',
-            headers: {
-                apikey: env.serviceRoleKey,
-                Authorization: `Bearer ${env.serviceRoleKey}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                ...payload,
-                type: 'magiclink',
-            }),
-        });
-    }
-
-    const result = await response.json().catch(() => null) as {
-        properties?: {
-            email_otp?: string;
-            verification_type?: string;
-        };
-    } | null;
-    const inviteCode = String(result?.properties?.email_otp || '').trim();
-
-    if (!response.ok || !/^\d{6}$/.test(inviteCode)) {
-        throw new RequestError(
-            500,
-            'auth_invitation_failed',
-            'The work account login code could not be created.'
-        );
-    }
-
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const updateResponse = await fetch(
-        `${env.supabaseUrl}/rest/v1/company_user_invitations?id=eq.${encodeURIComponent(invitation.invitation_id)}`,
-        {
-            method: 'PATCH',
-            headers: {
-                apikey: env.serviceRoleKey,
-                Authorization: `Bearer ${env.serviceRoleKey}`,
-                'Content-Type': 'application/json',
-                Prefer: 'return=minimal',
-            },
-            body: JSON.stringify({
-                manual_invite_code: inviteCode,
-                manual_invite_expires_at: expiresAt,
-                manual_invite_created_at: new Date().toISOString(),
-                manual_invite_token_last4: inviteCode.slice(-4),
-                manual_invite_token_expires_at: expiresAt,
-                manual_invite_token_created_at: new Date().toISOString(),
-                login_code_used_at: null,
-            }),
-        }
-    );
-
-    if (!updateResponse.ok) {
-        throw new RequestError(
-            500,
-            'auth_invitation_tracking_failed',
-            'The work account login code could not be saved.'
-        );
-    }
-
-    return {
-        inviteCode,
-        expiresAt,
-        verificationType: result?.properties?.verification_type || 'invite',
-    };
 }
 
 function requireEnv(name: string, secretName: string) {
@@ -728,14 +625,14 @@ async function loadInvitationForCodeCreation(
             Authorization: `Bearer ${authToken}`,
         },
     });
-    const rows = await response.json().catch(() => []) as Array<{
+    const rows = await response.json().catch(() => []) as {
         id?: string;
         company_id?: string;
         email?: string;
         role?: string;
         full_name?: string | null;
         expires_at?: string | null;
-    }>;
+    }[];
     const invitation = rows[0];
 
     if (!response.ok || !invitation?.id || !invitation.company_id || !invitation.email) {

@@ -13,10 +13,10 @@ export type SessionSecuritySettings = {
     autoLogoutMinutes: AutoLogoutMinutes | null;
 };
 
-export const AUTO_LOGOUT_OPTIONS: Array<{
+export const AUTO_LOGOUT_OPTIONS: {
     label: string;
     minutes: AutoLogoutMinutes | null;
-}> = [
+}[] = [
     { label: 'Off', minutes: null },
     { label: '15 minutes', minutes: 15 },
     { label: '30 minutes', minutes: 30 },

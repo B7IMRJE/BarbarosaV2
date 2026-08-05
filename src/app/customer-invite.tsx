@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -70,6 +70,7 @@ export default function CustomerInviteScreen() {
     const [redirectingForInvitedEmail, setRedirectingForInvitedEmail] = useState(false);
     const [message, setMessage] = useState('');
     const [success, setSuccess] = useState(false);
+    const loadInviteEvent = useEffectEvent(loadInvite);
 
     const nextPath = `${CUSTOMER_INVITE_ROUTE}?code=${encodeURIComponent(inviteCode)}`;
     const emailMismatch =
@@ -81,7 +82,7 @@ export default function CustomerInviteScreen() {
         : '';
 
     useEffect(() => {
-        loadInvite();
+        void loadInviteEvent();
     }, [inviteCode]);
 
     useEffect(() => {
@@ -192,7 +193,7 @@ export default function CustomerInviteScreen() {
         }
 
         const propertyIds = Array.from(
-            new Set(((memberships || []) as Array<{ property_id?: string | null }>).map((row) => row.property_id).filter(Boolean))
+            new Set(((memberships || []) as { property_id?: string | null }[]).map((row) => row.property_id).filter(Boolean))
         ) as string[];
 
         if (propertyIds.length === 0) {

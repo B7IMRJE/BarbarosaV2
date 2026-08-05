@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ActivityIndicator,
     Image,
@@ -125,9 +125,10 @@ export default function EmergencyDetailScreen() {
     const [companyReviewForm, setCompanyReviewForm] = useState<ReviewFormState>(emptyReviewForm);
     const [reviewMessage, setReviewMessage] = useState('');
     const [savingReviewTarget, setSavingReviewTarget] = useState<HomeServiceReviewTarget | null>(null);
+    const loadEmergencyEvent = useEffectEvent(loadEmergency);
 
     useEffect(() => {
-        loadEmergency();
+        void loadEmergencyEvent();
     }, [id]);
 
     async function loadEmergency(options?: { preserveMessages?: boolean }) {
@@ -944,7 +945,7 @@ function ServiceReviewCard({
     );
 }
 
-function firstText(...values: Array<string | null | undefined>) {
+function firstText(...values: (string | null | undefined)[]) {
     for (const value of values) {
         const text = String(value || '').trim();
 
@@ -952,18 +953,6 @@ function firstText(...values: Array<string | null | undefined>) {
     }
 
     return '';
-}
-
-function formatLabel(value?: string | null) {
-    const normalized = String(value || '').trim();
-
-    if (!normalized) return 'Unknown';
-
-    return normalized
-        .split(/[\s_-]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-        .join(' ');
 }
 
 function buildServiceRequestSummary(emergency: EmergencyRecord) {

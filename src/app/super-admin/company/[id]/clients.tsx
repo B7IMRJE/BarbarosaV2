@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TextInput, useWindowDimensions, View, type TextInputProps } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import HomeHeader from '../../../../components/HomeHeader';
@@ -164,9 +164,10 @@ export default function CompanyClientsScreen() {
     const [directoryPage, setDirectoryPage] = useState(0);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const loadClientsEvent = useEffectEvent(loadClients);
 
     useEffect(() => {
-        loadClients();
+        void loadClientsEvent();
     }, [id]);
 
     const visibleClients = useMemo(
@@ -1444,13 +1445,6 @@ function isResponseLike(value: unknown): value is Response {
         value instanceof Response
     );
 }
-
-const backTextStyle = {
-    marginTop: 20,
-    marginBottom: 20,
-    fontSize: 18,
-    fontWeight: '900' as const,
-};
 
 const titleStyle = {
     fontSize: 34,

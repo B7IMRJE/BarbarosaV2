@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { Image, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -103,9 +103,10 @@ export default function ConnectionsScreen() {
     const [message, setMessage] = useState('');
     const [actionConnectionId, setActionConnectionId] = useState('');
     const [actionType, setActionType] = useState<ConnectionAction | ''>('');
+    const loadConnectionsEvent = useEffectEvent(loadConnections);
 
     useEffect(() => {
-        loadConnections();
+        void loadConnectionsEvent();
     }, []);
 
     const allCompaniesById = useMemo(() => {

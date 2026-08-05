@@ -157,7 +157,7 @@ export function normalizeDispatchChatMessages(data: unknown): DispatchChatMessag
         .filter((message) => message.id && message.company_id && message.service_request_id && message.message);
 }
 
-function asRows(data: unknown): Array<Record<string, unknown>> {
+function asRows(data: unknown): Record<string, unknown>[] {
     const rows = Array.isArray(data) ? data : data ? [data] : [];
 
     return rows.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === 'object'));

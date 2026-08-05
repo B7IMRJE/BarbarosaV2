@@ -93,7 +93,7 @@ export type JobWorkflowBundle = {
     contract_rule: ContractRule;
     options: PersistableEstimateChoice[];
     attachments: JobWorkflowAttachment[];
-    events: Array<{ id: string; title: string; detail: string | null; created_at: string }>;
+    events: { id: string; title: string; detail: string | null; created_at: string }[];
 };
 
 export async function loadOrCreateJobWorkflow(estimateSessionId: string): Promise<JobWorkflowBundle> {

@@ -313,12 +313,12 @@ async function findCompanyUserInvitation(supabaseUrl: string, serviceRoleKey: st
             Authorization: `Bearer ${serviceRoleKey}`,
         },
     });
-    const rows = await lookupResponse.json().catch(() => []) as Array<{
+    const rows = await lookupResponse.json().catch(() => []) as {
         id?: string;
         email?: string;
         manual_invite_expires_at?: string | null;
         expires_at?: string | null;
-    }>;
+    }[];
     const invitation = rows[0];
 
     if (!lookupResponse.ok || !invitation?.id || !invitation.email) return null;
@@ -432,13 +432,13 @@ async function findCustomerInvitation(supabaseUrl: string, serviceRoleKey: strin
             Authorization: `Bearer ${serviceRoleKey}`,
         },
     });
-    const rows = await lookupResponse.json().catch(() => []) as Array<{
+    const rows = await lookupResponse.json().catch(() => []) as {
         id?: string;
         invited_email?: string;
         invite_code?: string;
         login_code_expires_at?: string | null;
         expires_at?: string | null;
-    }>;
+    }[];
     if (!lookupResponse.ok) {
         throw new Error('The customer invitation resolver is unavailable.');
     }

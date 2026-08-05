@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { Linking, ScrollView, Text, View } from 'react-native';
 import AdminNavBar from '../../../../../../components/AdminNavBar';
 import ThemedButton from '../../../../../../components/theme/ThemedButton';
@@ -67,9 +67,10 @@ export default function CustomerDocumentsScreen() {
     const [stagingStatusMessage, setStagingStatusMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const loadDocumentsEvent = useEffectEvent(loadDocuments);
 
     useEffect(() => {
-        void loadDocuments();
+        void loadDocumentsEvent();
     }, [companyId, clientPropertyId]);
 
     const companyName = getCompanyDisplayName(company);

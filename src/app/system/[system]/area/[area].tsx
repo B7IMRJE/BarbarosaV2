@@ -48,6 +48,7 @@ import {
     runStarterRecoverySubmission,
 } from '../../../../lib/starterRecoveryConfirmation';
 import { supabase } from '../../../../lib/supabase';
+import { useStableCallback } from '../../../../hooks/useStableCallback';
 import { useTheme } from '../../../../theme/useTheme';
 
 type AreaHomeItem = {
@@ -78,7 +79,23 @@ export default function AreaScreen() {
         jobId?: string | string[];
     }>();
     const { system, area, parentArea, refresh } = routeParams;
-    const providerModeContext = readProviderModeParams(routeParams);
+    const providerModeContext = useMemo(() => readProviderModeParams({
+        providerMode: routeParams.providerMode,
+        companyId: routeParams.companyId,
+        propertyId: routeParams.propertyId,
+        returnTo: routeParams.returnTo,
+        serviceRequestId: routeParams.serviceRequestId,
+        scheduleSlotId: routeParams.scheduleSlotId,
+        jobId: routeParams.jobId,
+    }), [
+        routeParams.companyId,
+        routeParams.jobId,
+        routeParams.propertyId,
+        routeParams.providerMode,
+        routeParams.returnTo,
+        routeParams.scheduleSlotId,
+        routeParams.serviceRequestId,
+    ]);
 
     const systemName = decodeRouteParam(system) || 'System';
     const systemLabel = getSystemLabel(systemName);
@@ -100,6 +117,7 @@ export default function AreaScreen() {
     const [message, setMessage] = useState('');
     const starterRecoverySubmittingRef = useRef(false);
     const starterAutofillAttemptedRef = useRef(false);
+    const loadAreaItemsStable = useStableCallback(loadAreaItems);
     const itemSections = groupItemsBySystem(items);
     const suggestedStarterItems = useMemo(() => {
         return getStarterItemsForAreaSystem(areaName, systemName)
@@ -119,33 +137,24 @@ export default function AreaScreen() {
     }, [areaName, items, parentAreaName, systemName]);
 
     useEffect(() => {
-        loadAreaItems();
+        void loadAreaItemsStable();
     }, [
         systemName,
         areaName,
         parentAreaName,
         refreshKey,
-        providerModeContext?.companyId,
-        providerModeContext?.propertyId,
-        providerModeContext?.serviceRequestId,
-        providerModeContext?.scheduleSlotId,
-        providerModeContext?.jobId,
+        providerModeContext,
+        loadAreaItemsStable,
     ]);
 
     useFocusEffect(
         useCallback(() => {
             if (!providerModeContext) return;
 
-            void loadAreaItems({ preserveMessage: true });
+            void loadAreaItemsStable({ preserveMessage: true });
         }, [
-            systemName,
-            areaName,
-            parentAreaName,
-            providerModeContext?.companyId,
-            providerModeContext?.propertyId,
-            providerModeContext?.serviceRequestId,
-            providerModeContext?.scheduleSlotId,
-            providerModeContext?.jobId,
+            providerModeContext,
+            loadAreaItemsStable,
         ])
     );
 
@@ -153,7 +162,7 @@ export default function AreaScreen() {
         if (!providerModeContext || typeof window === 'undefined') return;
 
         const refreshFromLifecycle = () => {
-            void loadAreaItems({ preserveMessage: true });
+            void loadAreaItemsStable({ preserveMessage: true });
         };
         const refreshWhenVisible = () => {
             if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -172,11 +181,8 @@ export default function AreaScreen() {
         systemName,
         areaName,
         parentAreaName,
-        providerModeContext?.companyId,
-        providerModeContext?.propertyId,
-        providerModeContext?.serviceRequestId,
-        providerModeContext?.scheduleSlotId,
-        providerModeContext?.jobId,
+        providerModeContext,
+        loadAreaItemsStable,
     ]);
 
     useEffect(() => {
@@ -205,7 +211,7 @@ export default function AreaScreen() {
                     },
                     starterRecoveryPlan
                 );
-                await loadAreaItems({ preserveMessage: true });
+                await loadAreaItemsStable({ preserveMessage: true });
             } catch (error) {
                 setMessage(error instanceof Error
                     ? error.message
@@ -213,7 +219,7 @@ export default function AreaScreen() {
                 );
             }
         })();
-    }, [providerModeContext, starterRecoveryPlan, starterRecoveryPreview]);
+    }, [loadAreaItemsStable, providerModeContext, starterRecoveryPlan, starterRecoveryPreview]);
 
     async function loadAreaItems(options: { preserveMessage?: boolean } = {}) {
         let activeProperty;
@@ -632,28 +638,6 @@ export default function AreaScreen() {
         setMessage(`${item.name || 'Item'} archived.`);
         setArchivingRecordId(null);
         await loadAreaItems();
-    }
-
-    function activateStarterCard(item: AreaHomeItem) {
-        const itemSlug = item.item_slug || '';
-
-        if (!itemSlug) {
-            setMessage('This starter card cannot be activated yet.');
-            return;
-        }
-
-        if (providerModeContext) {
-            router.push(providerModeItemPath(itemSlug, providerModeContext));
-            return;
-        }
-
-        router.push({
-            pathname: '/item/edit',
-            params: {
-                slug: itemSlug,
-                activate: '1',
-            },
-        } as any);
     }
 
     return (

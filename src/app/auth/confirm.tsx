@@ -1,6 +1,6 @@
 import type { Session, User } from '@supabase/supabase-js';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -61,9 +61,10 @@ export default function AuthConfirmScreen() {
     const [resending, setResending] = useState(false);
     const [showInviteCodeEntry, setShowInviteCodeEntry] = useState(!nextRoute);
     const shouldShowInviteCodeEntry = !nextRoute || showInviteCodeEntry;
+    const confirmEmailLinkEvent = useEffectEvent(confirmEmailLink);
 
     useEffect(() => {
-        confirmEmailLink();
+        void confirmEmailLinkEvent();
     }, []);
 
     async function confirmEmailLink() {

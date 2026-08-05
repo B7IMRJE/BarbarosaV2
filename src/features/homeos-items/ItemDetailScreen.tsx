@@ -3,7 +3,7 @@ import HomeHeader from '../../components/HomeHeader';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useState, type ReactNode } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -603,9 +603,13 @@ export default function ItemScreen() {
         media: false,
         item: false,
     });
+    const loadItemEvent = useEffectEvent(loadItem);
+    const refreshProviderStagedEntriesEvent = useEffectEvent(refreshProviderStagedEntries);
+    const isProviderMode = Boolean(providerModeContext);
+    const hasItem = Boolean(item);
 
     useEffect(() => {
-        void loadItem();
+        void loadItemEvent();
     }, [
         slug,
         isManagementMode,
@@ -620,7 +624,7 @@ export default function ItemScreen() {
     ]);
 
     useEffect(() => {
-        if (!providerModeContext || !item) {
+        if (!isProviderMode || !hasItem) {
             setProviderStagedEntries([]);
             setProviderStagingBackendStatus(null);
             setProviderReviewExpanded(false);
@@ -633,8 +637,8 @@ export default function ItemScreen() {
             return;
         }
 
-        void refreshProviderStagedEntries();
-    }, [providerModeContext?.companyId, providerModeContext?.propertyId, item?.id, item?.item_slug]);
+        void refreshProviderStagedEntriesEvent();
+    }, [hasItem, isProviderMode, item?.id, item?.item_slug]);
 
     useEffect(() => {
         if (!showCustomMaintenanceForm) return;
@@ -6608,14 +6612,8 @@ const optionButtonStyle = {
     borderWidth: 1,
 };
 
-const optionButtonSelectedStyle = {
-};
-
 const optionButtonTextStyle = {
     fontWeight: '900' as const,
-};
-
-const optionButtonSelectedTextStyle = {
 };
 
 const sectionTileGridStyle = {
@@ -7494,11 +7492,6 @@ const documentPreviewImageStyle = {
 
 const documentPreviewIconStyle = {
     fontSize: 34,
-};
-
-const documentOpenTextStyle = {
-    marginTop: 8,
-    fontWeight: '900' as const,
 };
 
 const fileActionButtonStyle = {
