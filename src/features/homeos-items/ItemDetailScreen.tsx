@@ -74,6 +74,13 @@ import {
     normalizeItemPhotoGalleryCategory,
     type ItemPhotoGalleryCategory,
 } from '../../lib/itemPhotoGallery';
+import {
+    WATER_MAIN_SHUTOFF_DEFAULT_INSTRUCTIONS,
+    homeItemSafetyGuideKind,
+    isCompleteHomeItemSafetyGuide,
+    readHomeItemSafetyGuide,
+    type HomeItemSafetyGuideRecord,
+} from '../../lib/homeItemSafetyGuide';
 import { getProviderReturnActionLabel } from '../../lib/techosClientAccess';
 import {
     addProviderStagedWork,
@@ -208,6 +215,7 @@ const providerNoteDestinations: ProviderNoteDestination[] = ['company_only', 'cl
 const providerFindingSeverities: ProviderFindingSeverity[] = ['low', 'medium', 'high', 'urgent'];
 
 const PROVIDER_STAGED_PHOTO_BUCKET = 'item-files';
+const SAFETY_GUIDE_BUCKET = 'item-files';
 
 type ProviderStagedDisplayType = ProviderStagedWorkType | 'reminder';
 
@@ -304,6 +312,30 @@ function extensionFromMimeType(mimeType?: string | null) {
     if (normalized === 'image/heif') return 'heif';
 
     return 'jpg';
+}
+
+function safetyGuideMediaExtension(asset: ImagePicker.ImagePickerAsset, mediaType: 'photo' | 'video') {
+    const fileName = String(asset.fileName || asset.uri.split('/').pop() || '').split('?')[0];
+    const extension = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() : '';
+
+    if (extension && /^[a-z0-9]{2,5}$/.test(extension)) return extension;
+
+    if (mediaType === 'video') {
+        if (asset.mimeType === 'video/quicktime') return 'mov';
+        if (asset.mimeType === 'video/webm') return 'webm';
+        return 'mp4';
+    }
+
+    return extensionFromMimeType(asset.mimeType);
+}
+
+function isMissingSafetyGuideBackend(error: unknown) {
+    const text = String((error as { message?: unknown })?.message || error || '').toLowerCase();
+
+    return (
+        text.includes('get_home_item_safety_guide') &&
+        (text.includes('does not exist') || text.includes('could not find'))
+    );
 }
 
 function fileNameFromImageAsset(asset: ImagePicker.ImagePickerAsset, fallbackName: string) {
@@ -494,6 +526,15 @@ export default function ItemScreen() {
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
     const [maintenanceCompletions, setMaintenanceCompletions] = useState<MaintenanceCompletion[]>([]);
+    const [safetyGuide, setSafetyGuide] = useState<HomeItemSafetyGuideRecord | null>(null);
+    const [showSafetyGuide, setShowSafetyGuide] = useState(false);
+    const [showSafetyGuideEditor, setShowSafetyGuideEditor] = useState(false);
+    const [savingSafetyGuide, setSavingSafetyGuide] = useState(false);
+    const [safetyGuideLocation, setSafetyGuideLocation] = useState('');
+    const [safetyGuideInstructions, setSafetyGuideInstructions] = useState(WATER_MAIN_SHUTOFF_DEFAULT_INSTRUCTIONS);
+    const [safetyGuideWarning, setSafetyGuideWarning] = useState('');
+    const [safetyGuidePhotoPath, setSafetyGuidePhotoPath] = useState('');
+    const [safetyGuideVideoPath, setSafetyGuideVideoPath] = useState('');
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [capturingPhoto, setCapturingPhoto] = useState(false);
@@ -907,20 +948,6 @@ export default function ItemScreen() {
                 permanent_archive_ready: false,
             },
             'Archive request staged locally. The client item was not archived.'
-        );
-    }
-
-    async function handleStageProviderPhotoIntent(sourceAction: string, photoType: string) {
-        await saveProviderStagedEntry(
-            'photo',
-            {
-                source_action: sourceAction,
-                action_source: sourceAction,
-                photo_type: photoType,
-                provider_file_status: 'intent_only',
-                permanent_upload_ready: false,
-            },
-            'Photo is staged for provider workflow. Permanent publishing comes later.'
         );
     }
 
@@ -1358,6 +1385,9 @@ export default function ItemScreen() {
         setFiles([]);
         setMaintenanceTasks([]);
         setMaintenanceCompletions([]);
+        setSafetyGuide(null);
+        setShowSafetyGuide(false);
+        setShowSafetyGuideEditor(false);
 
         if (providerContextIncomplete) {
             setMessage('Provider context is incomplete. Use Back to Current Job and reopen Client HomeOS.');
@@ -1457,6 +1487,10 @@ export default function ItemScreen() {
                 parentItem: itemRow,
             });
             setRelatedItems(nextRelatedItems);
+            await loadSafetyGuide({
+                propertyId: activeProperty.propertyId,
+                homeItemId: String(itemRow.id || ''),
+            });
             if (providerModeContext) {
                 setFiles([]);
                 setMaintenanceTasks([]);
@@ -1475,6 +1509,41 @@ export default function ItemScreen() {
         }
 
         setLoading(false);
+    }
+
+    async function loadSafetyGuide({
+        propertyId,
+        homeItemId,
+    }: {
+        propertyId: string;
+        homeItemId: string;
+    }) {
+        if (!propertyId || !homeItemId) {
+            setSafetyGuide(null);
+            return;
+        }
+
+        const { data, error } = await supabase.rpc('get_home_item_safety_guide', {
+            p_property_id: propertyId,
+            p_home_item_id: homeItemId,
+            p_company_id: providerModeContext?.companyId || null,
+            p_service_request_id: providerModeContext?.serviceRequestId || null,
+            p_schedule_slot_id: providerModeContext?.scheduleSlotId || null,
+            p_job_id: providerModeContext?.jobId || null,
+        });
+
+        if (error) {
+            setSafetyGuide(null);
+
+            if (!isMissingSafetyGuideBackend(error)) {
+                logMediaDebug('load-safety-guide', error);
+            }
+
+            return;
+        }
+
+        const row = Array.isArray(data) ? data[0] : data;
+        setSafetyGuide(readHomeItemSafetyGuide(row));
     }
 
     async function loadRelatedItemsForCurrentItem({
@@ -2045,13 +2114,204 @@ export default function ItemScreen() {
         await capturePhoto('additional', normalizePhotoCategory(photoCategory));
     }
 
-    function handleLocationVideoPlaceholder() {
-        if (providerModeContext) {
-            void handleStageProviderPhotoIntent('Location Video Coming Soon', 'location_video');
+    function openSafetyGuideEditor() {
+        if (!homeItemSafetyGuideKind(item)) {
+            setMessage('Find & Shut Off is available only on eligible water-main shutoff cards.');
             return;
         }
 
-        setMessage('Location video uploads are coming soon. Photos and documents are available now.');
+        setSafetyGuideLocation(safetyGuide?.location_description || item?.location || '');
+        setSafetyGuideInstructions(
+            safetyGuide?.operation_instructions || WATER_MAIN_SHUTOFF_DEFAULT_INSTRUCTIONS
+        );
+        setSafetyGuideWarning(safetyGuide?.safety_warning || '');
+        setSafetyGuidePhotoPath(safetyGuide?.photo_storage_path || '');
+        setSafetyGuideVideoPath(safetyGuide?.video_storage_path || '');
+        setShowSafetyGuideEditor(true);
+    }
+
+    async function uploadSafetyGuideMedia(
+        asset: ImagePicker.ImagePickerAsset,
+        mediaType: 'photo' | 'video'
+    ) {
+        if (!item?.id) {
+            setMessage('This safety guide needs a saved HomeOS item first.');
+            return;
+        }
+
+        try {
+            setUploading(true);
+            setMessage(`Uploading location ${mediaType}...`);
+
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError || !user) {
+                setMessage(`Location ${mediaType} upload failed: sign in and try again.`);
+                return;
+            }
+
+            const activeProperty = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext?.propertyId,
+                companyId: providerModeContext?.companyId,
+            });
+            const extension = safetyGuideMediaExtension(asset, mediaType);
+            const storagePath = [
+                'users',
+                sanitizeStorageSegment(user.id),
+                'homeos-safety-guides',
+                sanitizeStorageSegment(activeProperty.propertyId),
+                sanitizeStorageSegment(String(item.id)),
+                `${Date.now()}-location-${mediaType}.${extension}`,
+            ].join('/');
+            const response = await fetch(asset.uri);
+            const arrayBuffer = await response.arrayBuffer();
+            const { error: uploadError } = await supabase.storage
+                .from(SAFETY_GUIDE_BUCKET)
+                .upload(storagePath, arrayBuffer, {
+                    contentType: asset.mimeType || (mediaType === 'video' ? 'video/mp4' : 'image/jpeg'),
+                    upsert: false,
+                });
+
+            if (uploadError) {
+                logMediaDebug(`safety-guide-${mediaType}-upload`, uploadError);
+                setMessage(`Location ${mediaType} upload failed: ${uploadError.message}`);
+                return;
+            }
+
+            if (mediaType === 'photo') {
+                setSafetyGuidePhotoPath(storagePath);
+            } else {
+                setSafetyGuideVideoPath(storagePath);
+            }
+
+            setMessage(`Location ${mediaType} ready. Save the guide to publish it.`);
+        } catch (error) {
+            logMediaDebug(`safety-guide-${mediaType}-upload`, error);
+            setMessage(`Location ${mediaType} upload failed. Please try again.`);
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    async function chooseSafetyGuideMedia(mediaType: 'photo' | 'video') {
+        if (uploading || capturingPhoto) return;
+
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+            setMessage('Photo library permission is required.');
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: mediaType === 'video'
+                ? ImagePicker.MediaTypeOptions.Videos
+                : ImagePicker.MediaTypeOptions.Images,
+            quality: mediaType === 'video' ? 0.7 : 0.8,
+            videoMaxDuration: mediaType === 'video' ? 90 : undefined,
+        });
+
+        if (!result.canceled && result.assets[0]) {
+            await uploadSafetyGuideMedia(result.assets[0], mediaType);
+        }
+    }
+
+    async function captureSafetyGuideMedia(mediaType: 'photo' | 'video') {
+        if (uploading || capturingPhoto) return;
+
+        try {
+            setCapturingPhoto(true);
+            const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+            if (!permission.granted) {
+                setMessage(`Camera is unavailable. Choose a ${mediaType} instead.`);
+                return;
+            }
+
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: mediaType === 'video'
+                    ? ImagePicker.MediaTypeOptions.Videos
+                    : ImagePicker.MediaTypeOptions.Images,
+                cameraType: ImagePicker.CameraType.back,
+                presentationStyle: ImagePicker.UIImagePickerPresentationStyle.FULL_SCREEN,
+                quality: mediaType === 'video' ? 0.7 : 0.8,
+                videoMaxDuration: mediaType === 'video' ? 90 : undefined,
+            });
+
+            if (!result.canceled && result.assets[0]) {
+                await uploadSafetyGuideMedia(result.assets[0], mediaType);
+            }
+        } catch (error) {
+            logMediaDebug(`safety-guide-${mediaType}-capture`, error);
+            setMessage(`Camera is unavailable. Choose a ${mediaType} instead.`);
+        } finally {
+            setCapturingPhoto(false);
+        }
+    }
+
+    async function saveSafetyGuide() {
+        const guideKind = homeItemSafetyGuideKind(item);
+        const propertyId = providerModeContext?.propertyId || item?.property_id;
+
+        if (!guideKind || !propertyId || !item?.id) {
+            setMessage('This HomeOS card is not ready for a safety guide.');
+            return;
+        }
+
+        if (
+            !safetyGuideLocation.trim() ||
+            !safetyGuideInstructions.trim() ||
+            !safetyGuidePhotoPath ||
+            !safetyGuideVideoPath
+        ) {
+            setMessage('Add the exact location, instructions, one photo, and one video before publishing.');
+            return;
+        }
+
+        try {
+            setSavingSafetyGuide(true);
+            setMessage('Publishing Find & Shut Off guide...');
+            const { data, error } = await supabase.rpc('upsert_home_item_safety_guide', {
+                p_property_id: propertyId,
+                p_home_item_id: String(item.id),
+                p_guide_kind: guideKind,
+                p_location_description: safetyGuideLocation.trim(),
+                p_operation_instructions: safetyGuideInstructions.trim(),
+                p_safety_warning: safetyGuideWarning.trim() || null,
+                p_photo_storage_path: safetyGuidePhotoPath,
+                p_video_storage_path: safetyGuideVideoPath,
+                p_company_id: providerModeContext?.companyId || null,
+                p_service_request_id: providerModeContext?.serviceRequestId || null,
+                p_schedule_slot_id: providerModeContext?.scheduleSlotId || null,
+                p_job_id: providerModeContext?.jobId || null,
+            });
+
+            if (error) {
+                setMessage(`Find & Shut Off guide could not be saved: ${error.message}`);
+                return;
+            }
+
+            const row = Array.isArray(data) ? data[0] : data;
+            const savedGuide = readHomeItemSafetyGuide(row);
+
+            if (!savedGuide || !isCompleteHomeItemSafetyGuide(savedGuide)) {
+                setMessage('The guide was not returned as a complete safety guide. Please try again.');
+                return;
+            }
+
+            setSafetyGuide(savedGuide);
+            setShowSafetyGuideEditor(false);
+            setShowSafetyGuide(true);
+            setMessage('Find & Shut Off guide published.');
+        } catch (error) {
+            logMediaDebug('save-safety-guide', error);
+            setMessage('Find & Shut Off guide could not be saved. Please try again.');
+        } finally {
+            setSavingSafetyGuide(false);
+        }
     }
 
     async function handleUploadDocument() {
@@ -3114,6 +3374,17 @@ export default function ItemScreen() {
     const pendingFileRemove = pendingFileRemoveId
         ? files.find((file) => file.id === pendingFileRemoveId) || null
         : null;
+    const safetyGuideKind = homeItemSafetyGuideKind(item);
+    const safetyGuideReady = isCompleteHomeItemSafetyGuide(safetyGuide);
+    const safetyGuidePhotoUrl = safetyGuide?.photo_storage_path
+        ? supabase.storage.from(safetyGuide.storage_bucket || SAFETY_GUIDE_BUCKET).getPublicUrl(safetyGuide.photo_storage_path).data.publicUrl
+        : '';
+    const safetyGuideVideoUrl = safetyGuide?.video_storage_path
+        ? supabase.storage.from(safetyGuide.storage_bucket || SAFETY_GUIDE_BUCKET).getPublicUrl(safetyGuide.video_storage_path).data.publicUrl
+        : '';
+    const draftSafetyGuidePhotoUrl = safetyGuidePhotoPath
+        ? supabase.storage.from(SAFETY_GUIDE_BUCKET).getPublicUrl(safetyGuidePhotoPath).data.publicUrl
+        : '';
 
     const groupedDocuments = documentCategories.map((category) => ({
         category,
@@ -4240,6 +4511,40 @@ export default function ItemScreen() {
                         </ThemedCard>
                     ) : null}
 
+                    {safetyGuideKind ? (
+                        <ThemedCard style={scaleStyle(safetyGuideCardStyle)}>
+                            <View style={scaleStyle(safetyGuideHeaderStyle)}>
+                                <View style={scaleStyle(safetyGuideHeaderTextStyle)}>
+                                    <Text style={[scaleStyle(safetyGuideEyebrowStyle), { color: theme.colors.danger }]}>EMERGENCY GUIDE</Text>
+                                    <Text style={[scaleStyle(safetyGuideTitleStyle), { color: theme.colors.text }]}>Main water shutoff</Text>
+                                    <Text style={[scaleStyle(safetyGuideDescriptionStyle), { color: theme.colors.mutedText }]}>
+                                        {safetyGuideReady
+                                            ? 'See exactly where the valve is and how to shut off the home water safely.'
+                                            : 'Add the exact location, a photo, and a walk-through video before this guide is ready.'}
+                                    </Text>
+                                </View>
+                                <View style={scaleStyle(safetyGuideActionsStyle)}>
+                                    {safetyGuideReady ? (
+                                        <ThemedButton
+                                            title="Find & Shut Off"
+                                            variant="danger"
+                                            onPress={() => setShowSafetyGuide(true)}
+                                            style={scaleStyle(safetyGuideActionButtonStyle)}
+                                            textStyle={scaleStyle(buttonTextStyle)}
+                                        />
+                                    ) : null}
+                                    <ThemedButton
+                                        title={safetyGuideReady ? 'Edit Guide' : 'Set Up Guide'}
+                                        variant="secondary"
+                                        onPress={openSafetyGuideEditor}
+                                        style={scaleStyle(safetyGuideActionButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
+                                </View>
+                            </View>
+                        </ThemedCard>
+                    ) : null}
+
                     <ThemedCard style={scaleStyle(photoCardStyle)}>
                         <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Main Item Photo</Text>
 
@@ -4903,14 +5208,16 @@ export default function ItemScreen() {
                                         textStyle={scaleStyle(buttonTextStyle)}
                                     />
 
-                                    <ThemedButton
-                                        title="Location Video Coming Soon"
-                                        variant="secondary"
-                                        onPress={handleLocationVideoPlaceholder}
-                                        disabled={mediaActionBusy}
-                                        style={scaleStyle(mediaGroupButtonStyle)}
-                                        textStyle={scaleStyle(buttonTextStyle)}
-                                    />
+                                    {homeItemSafetyGuideKind(item) ? (
+                                        <ThemedButton
+                                            title={safetyGuide ? 'Edit Find & Shut Off Guide' : 'Set Up Find & Shut Off Guide'}
+                                            variant="secondary"
+                                            onPress={openSafetyGuideEditor}
+                                            disabled={mediaActionBusy}
+                                            style={scaleStyle(mediaGroupButtonStyle)}
+                                            textStyle={scaleStyle(buttonTextStyle)}
+                                        />
+                                    ) : null}
                                 </View>
                             </View>
 
@@ -4991,6 +5298,161 @@ export default function ItemScreen() {
                     )}
                 </View>
             </ScrollView>
+
+            <Modal visible={showSafetyGuide} transparent={false} animationType="slide">
+                <ScrollView
+                    style={[scaleStyle(galleryModalStyle), { backgroundColor: theme.colors.background }]}
+                    contentContainerStyle={scaleStyle(safetyGuideModalContentStyle)}
+                >
+                    <TouchableOpacity onPress={() => setShowSafetyGuide(false)}>
+                        <Text style={[scaleStyle(modalBackTextStyle), { color: theme.colors.text }]}>← Close Emergency Guide</Text>
+                    </TouchableOpacity>
+
+                    <Text style={[scaleStyle(safetyGuideModalEyebrowStyle), { color: theme.colors.danger }]}>FIND & SHUT OFF</Text>
+                    <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>Main water shutoff</Text>
+
+                    {safetyGuideReady && safetyGuide ? (
+                        <>
+                            <ThemedCard style={scaleStyle(safetyGuideDetailCardStyle)}>
+                                <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>WHERE TO FIND IT</Text>
+                                <Text style={[scaleStyle(safetyGuideDetailTextStyle), { color: theme.colors.text }]}>
+                                    {safetyGuide.location_description}
+                                </Text>
+                            </ThemedCard>
+
+                            {safetyGuidePhotoUrl ? (
+                                <Image
+                                    source={{ uri: safetyGuidePhotoUrl }}
+                                    style={scaleStyle(safetyGuideImageStyle)}
+                                    resizeMode="contain"
+                                />
+                            ) : null}
+
+                            <ThemedCard style={scaleStyle(safetyGuideDetailCardStyle)}>
+                                <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>HOW TO SHUT IT OFF</Text>
+                                <Text style={[scaleStyle(safetyGuideDetailTextStyle), { color: theme.colors.text }]}>
+                                    {safetyGuide.operation_instructions}
+                                </Text>
+                            </ThemedCard>
+
+                            {safetyGuide.safety_warning ? (
+                                <ThemedCard style={scaleStyle(safetyGuideWarningCardStyle)}>
+                                    <Text style={[scaleStyle(labelStyle), { color: theme.colors.danger }]}>STOP IF UNSAFE</Text>
+                                    <Text style={[scaleStyle(safetyGuideDetailTextStyle), { color: theme.colors.text }]}>
+                                        {safetyGuide.safety_warning}
+                                    </Text>
+                                </ThemedCard>
+                            ) : null}
+
+                            <ThemedButton
+                                title="Play Walk-Through Video"
+                                onPress={() => safetyGuideVideoUrl && Linking.openURL(safetyGuideVideoUrl)}
+                                disabled={!safetyGuideVideoUrl}
+                                style={scaleStyle(safetyGuidePrimaryButtonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                            <ThemedButton
+                                title="Edit Guide"
+                                variant="secondary"
+                                onPress={() => {
+                                    setShowSafetyGuide(false);
+                                    openSafetyGuideEditor();
+                                }}
+                                style={scaleStyle(safetyGuidePrimaryButtonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                        </>
+                    ) : (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>This emergency guide is not complete yet.</Text>
+                        </ThemedCard>
+                    )}
+                </ScrollView>
+            </Modal>
+
+            <Modal visible={showSafetyGuideEditor} transparent={false} animationType="slide">
+                <ScrollView
+                    style={[scaleStyle(galleryModalStyle), { backgroundColor: theme.colors.background }]}
+                    contentContainerStyle={scaleStyle(safetyGuideModalContentStyle)}
+                >
+                    <TouchableOpacity onPress={() => setShowSafetyGuideEditor(false)} disabled={savingSafetyGuide}>
+                        <Text style={[scaleStyle(modalBackTextStyle), { color: theme.colors.text }]}>← Cancel Guide Setup</Text>
+                    </TouchableOpacity>
+
+                    <Text style={[scaleStyle(safetyGuideModalEyebrowStyle), { color: theme.colors.danger }]}>EMERGENCY GUIDE SETUP</Text>
+                    <Text style={[scaleStyle(modalTitleStyle), { color: theme.colors.text }]}>Find & Shut Off</Text>
+                    <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>Record the route from a recognizable starting point, show the exact valve, and demonstrate the safe shutoff direction. Nothing appears as a homeowner emergency guide until every required part is saved.</Text>
+
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Exact location and walking directions *</Text>
+                    <TextInput
+                        value={safetyGuideLocation}
+                        onChangeText={setSafetyGuideLocation}
+                        placeholder="Example: From the front door, walk through the left side gate. The blue valve is beside the garage wall."
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        textAlignVertical="top"
+                        style={[maintenanceTextAreaStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>How to shut it off *</Text>
+                    <TextInput
+                        value={safetyGuideInstructions}
+                        onChangeText={setSafetyGuideInstructions}
+                        placeholder="Explain which handle to use and which direction to turn it."
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        textAlignVertical="top"
+                        style={[maintenanceTextAreaStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+
+                    <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Safety warning</Text>
+                    <TextInput
+                        value={safetyGuideWarning}
+                        onChangeText={setSafetyGuideWarning}
+                        placeholder="Example: Do not enter if water is near electrical equipment. Do not force a corroded valve."
+                        placeholderTextColor={theme.colors.mutedText}
+                        multiline
+                        textAlignVertical="top"
+                        style={[maintenanceTextAreaStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+
+                    <ThemedCard style={scaleStyle(safetyGuideMediaCardStyle)}>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>Location photo *</Text>
+                        <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>Show the full valve and enough surroundings to recognize it.</Text>
+                        {draftSafetyGuidePhotoUrl ? (
+                            <Image source={{ uri: draftSafetyGuidePhotoUrl }} style={scaleStyle(safetyGuideEditorPreviewStyle)} resizeMode="contain" />
+                        ) : null}
+                        <Text style={[scaleStyle(safetyGuideMediaStatusStyle), { color: safetyGuidePhotoPath ? theme.colors.primary : theme.colors.danger }]}>
+                            {safetyGuidePhotoPath ? 'Photo ready' : 'Photo required'}
+                        </Text>
+                        <View style={scaleStyle(mediaGroupButtonsStyle)}>
+                            <ThemedButton title="Take Photo" onPress={() => captureSafetyGuideMedia('photo')} disabled={mediaActionBusy} style={scaleStyle(mediaGroupButtonStyle)} textStyle={scaleStyle(buttonTextStyle)} />
+                            <ThemedButton title="Choose Photo" variant="secondary" onPress={() => chooseSafetyGuideMedia('photo')} disabled={mediaActionBusy} style={scaleStyle(mediaGroupButtonStyle)} textStyle={scaleStyle(buttonTextStyle)} />
+                        </View>
+                    </ThemedCard>
+
+                    <ThemedCard style={scaleStyle(safetyGuideMediaCardStyle)}>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>Walk-through video *</Text>
+                        <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>Start at the front of the home or another obvious landmark, walk to the valve, and show how to turn it off. Maximum 90 seconds.</Text>
+                        <Text style={[scaleStyle(safetyGuideMediaStatusStyle), { color: safetyGuideVideoPath ? theme.colors.primary : theme.colors.danger }]}>
+                            {safetyGuideVideoPath ? 'Video ready' : 'Video required'}
+                        </Text>
+                        <View style={scaleStyle(mediaGroupButtonsStyle)}>
+                            <ThemedButton title="Record Video" onPress={() => captureSafetyGuideMedia('video')} disabled={mediaActionBusy} style={scaleStyle(mediaGroupButtonStyle)} textStyle={scaleStyle(buttonTextStyle)} />
+                            <ThemedButton title="Choose Video" variant="secondary" onPress={() => chooseSafetyGuideMedia('video')} disabled={mediaActionBusy} style={scaleStyle(mediaGroupButtonStyle)} textStyle={scaleStyle(buttonTextStyle)} />
+                        </View>
+                    </ThemedCard>
+
+                    <ThemedButton
+                        title={savingSafetyGuide ? 'Publishing Guide...' : 'Publish Find & Shut Off Guide'}
+                        variant="danger"
+                        onPress={saveSafetyGuide}
+                        disabled={savingSafetyGuide || mediaActionBusy || !safetyGuideLocation.trim() || !safetyGuideInstructions.trim() || !safetyGuidePhotoPath || !safetyGuideVideoPath}
+                        style={scaleStyle(safetyGuidePrimaryButtonStyle)}
+                        textStyle={scaleStyle(buttonTextStyle)}
+                    />
+                </ScrollView>
+            </Modal>
 
             <Modal visible={showPhoto} transparent={false} animationType="fade">
                 <View style={[scaleStyle(modalStyle), { backgroundColor: theme.colors.overlay }]}>
@@ -6360,6 +6822,135 @@ const mediaGroupButtonStyle = {
     borderRadius: 16,
     padding: 15,
     alignItems: 'center' as const,
+};
+
+const safetyGuideCardStyle = {
+    borderWidth: 2,
+    borderColor: '#E66D67',
+    backgroundColor: '#FFF4F2',
+    borderRadius: 20,
+    padding: 18,
+    marginTop: 14,
+    marginBottom: 14,
+};
+
+const safetyGuideHeaderStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 16,
+};
+
+const safetyGuideHeaderTextStyle = {
+    flex: 1,
+    minWidth: 240,
+};
+
+const safetyGuideEyebrowStyle = {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '900' as const,
+    letterSpacing: 1.2,
+};
+
+const safetyGuideTitleStyle = {
+    fontSize: 23,
+    lineHeight: 29,
+    fontWeight: '900' as const,
+    marginTop: 4,
+};
+
+const safetyGuideDescriptionStyle = {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700' as const,
+    marginTop: 5,
+};
+
+const safetyGuideActionsStyle = {
+    minWidth: 190,
+    gap: 8,
+};
+
+const safetyGuideActionButtonStyle = {
+    minWidth: 190,
+    borderRadius: 16,
+};
+
+const safetyGuideModalContentStyle = {
+    width: '100%' as const,
+    maxWidth: 760,
+    alignSelf: 'center' as const,
+    padding: 20,
+    paddingBottom: 60,
+};
+
+const safetyGuideModalEyebrowStyle = {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900' as const,
+    letterSpacing: 1.4,
+    marginTop: 24,
+};
+
+const safetyGuideDetailCardStyle = {
+    marginTop: 16,
+    padding: 18,
+    borderRadius: 18,
+};
+
+const safetyGuideDetailTextStyle = {
+    fontSize: 18,
+    lineHeight: 27,
+    fontWeight: '800' as const,
+    marginTop: 8,
+};
+
+const safetyGuideWarningCardStyle = {
+    marginTop: 16,
+    padding: 18,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: '#E66D67',
+    backgroundColor: '#FFF4F2',
+};
+
+const safetyGuideImageStyle = {
+    width: '100%' as const,
+    height: 340,
+    borderRadius: 18,
+    backgroundColor: '#E9EEF2',
+    marginTop: 16,
+};
+
+const safetyGuidePrimaryButtonStyle = {
+    width: '100%' as const,
+    minHeight: 54,
+    borderRadius: 18,
+    marginTop: 16,
+};
+
+const safetyGuideMediaCardStyle = {
+    marginTop: 18,
+    padding: 16,
+    borderRadius: 18,
+};
+
+const safetyGuideEditorPreviewStyle = {
+    width: '100%' as const,
+    height: 250,
+    borderRadius: 16,
+    backgroundColor: '#E9EEF2',
+    marginTop: 12,
+};
+
+const safetyGuideMediaStatusStyle = {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900' as const,
+    marginTop: 10,
+    marginBottom: 10,
 };
 
 const actionGridStyle = {

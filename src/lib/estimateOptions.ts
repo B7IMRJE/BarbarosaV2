@@ -2408,9 +2408,10 @@ function isCompatiblePricedTankWaterHeaterProduct(
         ...Object.entries(product.specifications).map(([key, value]) => `${key} ${value}`),
     ].join(' '));
     const selectedSize = selectedEquipment.match(/\b(?:30|40|50|75)\s*gallon\b/)?.[0] || '';
-    const declaredSizes = descriptors.match(/\b(?:30|40|50|75)\s*gallon\b/g) || [];
+    const declaredSizes: string[] = descriptors.match(/\b(?:30|40|50|75)\s*gallon\b/g) || [];
     const selectedFuel = normalizeText(readAnswerText(answers.fuel_type));
-    const declaredFuels = ['gas', 'electric', 'propane', 'heat pump'].filter((fuel) => descriptors.includes(fuel));
+    const declaredFuels: string[] = ['gas', 'electric', 'propane', 'heat pump']
+        .filter((fuel) => descriptors.includes(fuel));
 
     if (selectedSize && declaredSizes.length > 0 && !declaredSizes.includes(selectedSize)) return false;
     if (selectedFuel && declaredFuels.length > 0 && !declaredFuels.includes(selectedFuel)) return false;
