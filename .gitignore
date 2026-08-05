@@ -44,3 +44,7 @@ example
 
 # Supabase local CLI temp files
 supabase/.temp/
+.vercel/
+.env*
+!.env.example
+!.env.*.example
