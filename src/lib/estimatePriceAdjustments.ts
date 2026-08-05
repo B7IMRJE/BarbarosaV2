@@ -1,4 +1,8 @@
-import { formatMoney, type EstimateChoice } from './estimateOptions';
+import {
+    formatMoney,
+    type EstimateChoice,
+    type EstimateLinePriceAdjustment,
+} from './estimateOptions';
 
 export function applyEstimateChoicePriceAdjustment(
     choice: EstimateChoice,
@@ -8,8 +12,39 @@ export function applyEstimateChoicePriceAdjustment(
 
     if (normalizedPercentage === 0) return choice;
 
-    const multiplier = 1 + normalizedPercentage / 100;
+    return applyLinePriceAdjustments(choice, () => normalizedPercentage);
+}
+
+export function applyEstimateChoiceLinePriceAdjustments(
+    choice: EstimateChoice,
+    adjustments: Record<string, EstimateLinePriceAdjustment>
+): EstimateChoice {
+    const normalizedAdjustments = Object.entries(adjustments).reduce<Record<string, number>>((result, [lineId, adjustment]) => {
+        const percentage = normalizeEstimatePriceAdjustmentPercentage(adjustment.percentage);
+
+        if (percentage !== 0) result[lineId] = percentage;
+
+        return result;
+    }, {});
+
+    if (Object.keys(normalizedAdjustments).length === 0) return choice;
+
+    return applyLinePriceAdjustments(choice, (lineId) => normalizedAdjustments[lineId] || 0);
+}
+
+function applyLinePriceAdjustments(
+    choice: EstimateChoice,
+    percentageForLine: (lineId: string) => number,
+): EstimateChoice {
+    let hasAdjustment = false;
+
     const lineItems = choice.pricingResult.lineItems.map((line) => {
+        const percentage = percentageForLine(line.id);
+
+        if (percentage === 0) return line;
+
+        hasAdjustment = true;
+        const multiplier = 1 + percentage / 100;
         const unitAmount = roundCurrency(line.unitAmount * multiplier);
         const totalAmount = roundCurrency(line.totalAmount * multiplier);
 
@@ -22,6 +57,9 @@ export function applyEstimateChoicePriceAdjustment(
                 : null,
         };
     });
+
+    if (!hasAdjustment) return choice;
+
     const totalAmount = roundCurrency(lineItems.reduce((total, line) => total + line.totalAmount, 0));
     const minimumAllowedTotal = choice.pricingResult.minimumAllowedTotal;
     const maximumAllowedTotal = choice.pricingResult.maximumAllowedTotal;

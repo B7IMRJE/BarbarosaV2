@@ -316,6 +316,14 @@ export type EstimatePricingResult = {
 
 export type EstimateChoiceKind = 'individual' | 'package';
 
+export type EstimateLinePriceAdjustmentMode = 'discount' | 'markup' | 'override';
+
+export type EstimateLinePriceAdjustment = {
+    percentage: number;
+    mode: EstimateLinePriceAdjustmentMode;
+    label?: string | null;
+};
+
 export type EstimateChoice = {
     id: string;
     kind: EstimateChoiceKind;
@@ -335,6 +343,7 @@ export type EstimateChoice = {
     displayOrder: number;
     priceAdjustmentPercentage?: number;
     priceAdjustmentLabel?: string | null;
+    linePriceAdjustments?: Record<string, EstimateLinePriceAdjustment>;
 };
 
 export type EstimatePresentationGate = {

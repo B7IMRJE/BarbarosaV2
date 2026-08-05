@@ -1,4 +1,5 @@
 import {
+    applyEstimateChoiceLinePriceAdjustments,
     applyEstimateChoicePriceAdjustment,
     formatEstimatePriceAdjustmentPercentage,
     normalizeEstimatePriceAdjustmentPercentage,
@@ -12,6 +13,10 @@ function runEstimatePriceAdjustmentRegression() {
     const adjustedChoice = applyEstimateChoicePriceAdjustment(baseChoice, 10);
     const discountedChoice = applyEstimateChoicePriceAdjustment(baseChoice, -10);
     const belowMinimumChoice = applyEstimateChoicePriceAdjustment(baseChoice, -30);
+    const individuallyAdjustedChoice = applyEstimateChoiceLinePriceAdjustments(multiLineChoice(), {
+        'line-1': { percentage: -10, mode: 'discount', label: 'Service discount' },
+        'line-2': { percentage: 20, mode: 'markup' },
+    });
 
     assert(adjustedChoice.pricingResult.totalAmount === 110, 'A 10% increase should change a $100 option to $110.');
     assert(adjustedChoice.pricingResult.lineItems[0]?.unitAmount === 110, 'Line item selling prices should increase with the option.');
@@ -28,6 +33,38 @@ function runEstimatePriceAdjustmentRegression() {
     assert(normalizeEstimatePriceAdjustmentPercentage(-150) === -100, 'Discount normalization should prevent totals below zero.');
     assert(formatEstimatePriceAdjustmentPercentage(20) === '+20%', 'Price increases should display with a plus sign.');
     assert(formatEstimatePriceAdjustmentPercentage(-5) === '-5%', 'Discounts should display with a minus sign.');
+    assert(individuallyAdjustedChoice.pricingResult.lineItems[0]?.totalAmount === 90, 'A line discount should change only the selected line.');
+    assert(individuallyAdjustedChoice.pricingResult.lineItems[1]?.totalAmount === 60, 'A separate line markup should use that line\'s own price.');
+    assert(individuallyAdjustedChoice.pricingResult.totalAmount === 150, 'The option total should equal the independently adjusted line totals.');
+    assert(multiLineChoice().pricingResult.totalAmount === 150, 'Individual adjustments must not mutate the deterministic base option.');
+}
+
+function multiLineChoice(): EstimateChoice {
+    const baseChoice = choice();
+    const secondLine = {
+        ...baseChoice.pricingResult.lineItems[0],
+        id: 'line-2',
+        priceBookEntryId: 'price-2',
+        code: 'TEST_2',
+        name: 'Second test line',
+        unitAmount: 50,
+        totalAmount: 50,
+        cost: 20,
+        grossMargin: 0.6,
+    };
+
+    return {
+        ...baseChoice,
+        pricingResult: {
+            ...baseChoice.pricingResult,
+            lineItems: [...baseChoice.pricingResult.lineItems, secondLine],
+            totalAmount: 150,
+            totalCost: 80,
+            grossMargin: 0.4667,
+            minimumAllowedTotal: null,
+            maximumAllowedTotal: null,
+        },
+    };
 }
 
 function choice(): EstimateChoice {

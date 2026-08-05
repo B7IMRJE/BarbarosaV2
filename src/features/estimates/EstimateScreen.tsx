@@ -32,8 +32,10 @@ import {
     type AiEstimateDraftChoice,
     type EstimateAnswerSet,
     type EstimateAnswerValue,
+    type EstimateCalculatedLine,
     type EstimateChoice as Phase1EstimateChoice,
     type EstimateDraftGate,
+    type EstimateLinePriceAdjustment,
     type EstimateOptionCategory,
     type EstimateQuestionDefinition,
     type EstimateRequirementMeasurementAnswer,
@@ -55,6 +57,7 @@ import {
 import { findEstimatePriceBookCatalogItem } from '../../lib/estimatePriceBookTarget';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
+    applyEstimateChoiceLinePriceAdjustments,
     applyEstimateChoicePriceAdjustment,
     formatEstimatePriceAdjustmentPercentage,
     normalizeEstimatePriceAdjustmentPercentage,
@@ -218,6 +221,7 @@ export default function EstimateScreen() {
     const [customPriceAdjustmentByChoiceId, setCustomPriceAdjustmentByChoiceId] = useState<Record<string, string>>({});
     const [priceAdjustmentDirectionByChoiceId, setPriceAdjustmentDirectionByChoiceId] = useState<Record<string, PriceAdjustmentDirection>>({});
     const [priceAdjustmentLabelByChoiceId, setPriceAdjustmentLabelByChoiceId] = useState<Record<string, string>>({});
+    const [linePriceAdjustmentsByChoiceId, setLinePriceAdjustmentsByChoiceId] = useState<Record<string, Record<string, EstimateLinePriceAdjustment>>>({});
     const [guidedStep, setGuidedStep] = useState<GuidedEstimateStep>('build');
     const [guidedBuildStep, setGuidedBuildStep] = useState<GuidedBuildStep>('work');
     const [documentationExpanded, setDocumentationExpanded] = useState(false);
@@ -226,6 +230,7 @@ export default function EstimateScreen() {
     const [guidedAdjustmentMode, setGuidedAdjustmentMode] = useState<GuidedPriceAdjustmentMode>('none');
     const [guidedAdjustmentValue, setGuidedAdjustmentValue] = useState('');
     const [guidedDiscountLabel, setGuidedDiscountLabel] = useState('');
+    const [guidedAdjustmentLineId, setGuidedAdjustmentLineId] = useState('');
     const [savingGuidedOption, setSavingGuidedOption] = useState(false);
     const estimateScrollRef = useRef<ScrollView | null>(null);
     const estimateContentRef = useRef<View | null>(null);
@@ -376,6 +381,7 @@ export default function EstimateScreen() {
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
         setPersistedOptionChoices([]);
+        setLinePriceAdjustmentsByChoiceId({});
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
         setMeasurementDraftByKey({});
@@ -388,6 +394,7 @@ export default function EstimateScreen() {
         setGuidedAdjustmentMode('none');
         setGuidedAdjustmentValue('');
         setGuidedDiscountLabel('');
+        setGuidedAdjustmentLineId('');
         setSavingGuidedOption(false);
         setMessage('Loading estimate draft...');
 
@@ -479,6 +486,7 @@ export default function EstimateScreen() {
         setAiDraftsByChoiceId({});
         setEditableCopyByChoiceId({});
         setPersistedOptionChoices([]);
+        setLinePriceAdjustmentsByChoiceId({});
         setGuidedStep('build');
         setGuidedBuildStep('work');
         setDocumentationExpanded(false);
@@ -487,6 +495,7 @@ export default function EstimateScreen() {
         setGuidedAdjustmentMode('none');
         setGuidedAdjustmentValue('');
         setGuidedDiscountLabel('');
+        setGuidedAdjustmentLineId('');
         setMessage(providerModeContext && draftItems.length === 0 && !nextDraftContext
             ? 'No provider estimate draft found.'
             : ''
@@ -573,6 +582,13 @@ export default function EstimateScreen() {
 
                 return labels;
             }, {}));
+            setLinePriceAdjustmentsByChoiceId(savedSet.options.reduce<Record<string, Record<string, EstimateLinePriceAdjustment>>>((adjustments, choice) => {
+                if (choice.linePriceAdjustments && Object.keys(choice.linePriceAdjustments).length > 0) {
+                    adjustments[choice.id] = choice.linePriceAdjustments;
+                }
+
+                return adjustments;
+            }, {}));
         } catch (error) {
             setMessage(`Saved option set could not be restored: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -613,6 +629,7 @@ export default function EstimateScreen() {
         setCustomPriceAdjustmentByChoiceId({});
         setPriceAdjustmentDirectionByChoiceId({});
         setPriceAdjustmentLabelByChoiceId({});
+        setLinePriceAdjustmentsByChoiceId({});
         setGuidedStep('build');
         setGuidedBuildStep('work');
         setDocumentationExpanded(false);
@@ -621,6 +638,7 @@ export default function EstimateScreen() {
         setGuidedAdjustmentMode('none');
         setGuidedAdjustmentValue('');
         setGuidedDiscountLabel('');
+        setGuidedAdjustmentLineId('');
         setMessage('Estimate draft cleared. Start a fresh estimate from the assigned job or Client HomeOS item.');
     }
 
@@ -716,6 +734,7 @@ export default function EstimateScreen() {
         setCustomPriceAdjustmentByChoiceId({});
         setPriceAdjustmentDirectionByChoiceId({});
         setPriceAdjustmentLabelByChoiceId({});
+        setLinePriceAdjustmentsByChoiceId({});
         setGuidedStep('build');
         setGuidedBuildStep('work');
         setDocumentationExpanded(false);
@@ -723,6 +742,7 @@ export default function EstimateScreen() {
         setGuidedAdjustmentMode('none');
         setGuidedAdjustmentValue('');
         setGuidedDiscountLabel('');
+        setGuidedAdjustmentLineId('');
     }
 
     function configureDraftItem(item: EstimateDraftItem) {
@@ -1298,9 +1318,80 @@ export default function EstimateScreen() {
         setChoicePriceAdjustment(choiceId, magnitude, null);
     }
 
+    function setChoiceLinePriceAdjustment(
+        choiceId: string,
+        line: EstimateCalculatedLine,
+        adjustment: EstimateLinePriceAdjustment | null,
+    ) {
+        const normalizedPercentage = adjustment
+            ? normalizeEstimatePriceAdjustmentPercentage(adjustment.percentage)
+            : 0;
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setLinePriceAdjustmentsByChoiceId((current) => {
+            const choiceAdjustments = { ...(current[choiceId] || {}) };
+
+            if (adjustment && normalizedPercentage !== 0) {
+                choiceAdjustments[line.id] = {
+                    ...adjustment,
+                    percentage: normalizedPercentage,
+                    label: String(adjustment.label || '').trim() || null,
+                };
+            } else {
+                delete choiceAdjustments[line.id];
+            }
+
+            const next = { ...current };
+
+            if (Object.keys(choiceAdjustments).length > 0) next[choiceId] = choiceAdjustments;
+            else delete next[choiceId];
+
+            return next;
+        });
+
+        if (!adjustment || normalizedPercentage === 0) {
+            setMessage(`${line.name} restored to its company price-book amount.`);
+            return;
+        }
+
+        const adjustmentDescription = adjustment.mode === 'discount'
+            ? `${formatEstimatePriceAdjustmentPercentage(normalizedPercentage)} ${adjustment.label || 'discount'}`
+            : adjustment.mode === 'markup'
+                ? `${formatEstimatePriceAdjustmentPercentage(normalizedPercentage)} markup`
+                : 'authorized price override';
+
+        setMessage(`${line.name}: ${adjustmentDescription} applied.`);
+    }
+
+    function selectGuidedAdjustmentLine(choice: Phase1EstimateChoice, line: EstimateCalculatedLine) {
+        const adjustment = linePriceAdjustmentsByChoiceId[choice.id]?.[line.id]
+            || choice.linePriceAdjustments?.[line.id];
+        const finalLine = currentCandidateChoice?.id === choice.id
+            ? currentCandidateChoice.pricingResult.lineItems.find((candidate) => candidate.id === line.id)
+            : null;
+
+        setGuidedAdjustmentLineId(line.id);
+        setGuidedAdjustmentMode(adjustment?.mode || 'none');
+        setGuidedAdjustmentValue(adjustment
+            ? adjustment.mode === 'override'
+                ? String(finalLine?.totalAmount ?? line.totalAmount)
+                : String(Math.abs(adjustment.percentage))
+            : '');
+        setGuidedDiscountLabel(String(adjustment?.label || ''));
+    }
+
     function applyGuidedPriceAdjustment(choice: Phase1EstimateChoice) {
+        const baseLine = choice.pricingResult.lineItems.find((line) => line.id === guidedAdjustmentLineId)
+            || choice.pricingResult.lineItems[0];
+
+        if (!baseLine) {
+            setMessage('Select a service before adjusting its price.');
+            return;
+        }
+
         if (guidedAdjustmentMode === 'none') {
-            resetChoicePrice(choice);
+            setChoiceLinePriceAdjustment(choice.id, baseLine, null);
             setGuidedAdjustmentValue('');
             setGuidedDiscountLabel('');
             return;
@@ -1328,7 +1419,11 @@ export default function EstimateScreen() {
                 return;
             }
 
-            setChoicePriceAdjustment(choice.id, -enteredValue, label);
+            setChoiceLinePriceAdjustment(choice.id, baseLine, {
+                percentage: -enteredValue,
+                mode: 'discount',
+                label,
+            });
             return;
         }
 
@@ -1338,21 +1433,27 @@ export default function EstimateScreen() {
                 return;
             }
 
-            setChoicePriceAdjustment(choice.id, enteredValue, null);
+            setChoiceLinePriceAdjustment(choice.id, baseLine, {
+                percentage: enteredValue,
+                mode: 'markup',
+            });
             return;
         }
 
-        const baseTotal = choice.pricingResult.totalAmount;
-        const percentage = baseTotal > 0
-            ? ((enteredValue - baseTotal) / baseTotal) * 100
+        const percentage = baseLine.totalAmount > 0
+            ? ((enteredValue - baseLine.totalAmount) / baseLine.totalAmount) * 100
             : 0;
 
-        setChoicePriceAdjustment(
+        setChoiceLinePriceAdjustment(
             choice.id,
-            percentage,
-            percentage < 0 ? 'Authorized Price Override' : null,
+            baseLine,
+            {
+                percentage,
+                mode: 'override',
+                label: percentage < 0 ? 'Authorized Price Override' : null,
+            },
         );
-        setMessage(`Authorized final price set to ${formatMoney(enteredValue)}. Management approval applies when company limits are exceeded.`);
+        setMessage(`${baseLine.name} authorized price set to ${formatMoney(enteredValue)}. Management approval applies when company limits are exceeded.`);
     }
 
     async function addCurrentChoiceToOptions(choice: Phase1EstimateChoice) {
@@ -1365,6 +1466,7 @@ export default function EstimateScreen() {
             basePricingResult: baseChoice?.pricingResult || choice.pricingResult,
             priceAdjustmentPercentage: priceAdjustmentByChoiceId[choice.id] || 0,
             priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
+            linePriceAdjustments: linePriceAdjustmentsByChoiceId[choice.id] || choice.linePriceAdjustments || {},
         };
 
         await persistGuidedOptions(
@@ -1486,6 +1588,8 @@ export default function EstimateScreen() {
         setCustomPriceAdjustmentByChoiceId({});
         setPriceAdjustmentDirectionByChoiceId({});
         setPriceAdjustmentLabelByChoiceId({});
+        setLinePriceAdjustmentsByChoiceId({});
+        setGuidedAdjustmentLineId('');
         setOptionsWorkspaceNotice('All options were rebuilt from the current checklist and original company price-book amounts.');
         setMessage('Options reset to the current checklist and company price-book values.');
     }
@@ -1496,10 +1600,15 @@ export default function EstimateScreen() {
             return;
         }
 
-        const unnamedDiscount = workspaceChoices.find((choice) =>
-            Number(choice.priceAdjustmentPercentage || 0) < 0 &&
-            !String(choice.priceAdjustmentLabel || '').trim()
-        );
+        const unnamedDiscount = workspaceChoices.find((choice) => {
+            const choiceDiscountNeedsName = Number(choice.priceAdjustmentPercentage || 0) < 0 &&
+                !String(choice.priceAdjustmentLabel || '').trim();
+            const lineDiscountNeedsName = Object.values(choice.linePriceAdjustments || {}).some((adjustment) =>
+                Number(adjustment.percentage || 0) < 0 && !String(adjustment.label || '').trim()
+            );
+
+            return choiceDiscountNeedsName || lineDiscountNeedsName;
+        });
 
         if (unnamedDiscount) {
             setOptionsWorkspaceNotice(`Name the discount on ${unnamedDiscount.title} before approving the option set.`);
@@ -1871,11 +1980,17 @@ export default function EstimateScreen() {
             editableCopyByChoiceId[choice.id]
         );
         const priceAdjustmentPercentage = priceAdjustmentByChoiceId[choice.id] || 0;
+        const linePriceAdjustments = linePriceAdjustmentsByChoiceId[choice.id]
+            || choice.linePriceAdjustments
+            || {};
+        const optionAdjustedChoice = applyEstimateChoicePriceAdjustment(editedChoice, priceAdjustmentPercentage);
+        const lineAdjustedChoice = applyEstimateChoiceLinePriceAdjustments(optionAdjustedChoice, linePriceAdjustments);
 
         return {
-            ...applyEstimateChoicePriceAdjustment(editedChoice, priceAdjustmentPercentage),
+            ...lineAdjustedChoice,
             priceAdjustmentPercentage,
             priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
+            linePriceAdjustments,
         };
     };
     const candidateEstimateChoices = phase1Workspace.choices.map(decorateEstimateChoice);
@@ -1959,6 +2074,7 @@ export default function EstimateScreen() {
         goBackToItem,
         goToCompanyDashboard,
         guidedAdjustmentMode,
+        guidedAdjustmentLineId,
         guidedAdjustmentValue,
         guidedBuildStep,
         guidedDiscountLabel,
@@ -1988,6 +2104,7 @@ export default function EstimateScreen() {
         savingGuidedOption,
         scrollRef: estimateScrollRef,
         selectEstimateCategory,
+        selectGuidedAdjustmentLine,
         selectedCategory,
         selectedWorkType,
         selectWorkType,
@@ -2964,6 +3081,7 @@ type GuidedEstimateBuilderProps = {
     goBackToItem: () => void;
     goToCompanyDashboard: () => void;
     guidedAdjustmentMode: GuidedPriceAdjustmentMode;
+    guidedAdjustmentLineId: string;
     guidedAdjustmentValue: string;
     guidedBuildStep: GuidedBuildStep;
     guidedDiscountLabel: string;
@@ -2999,6 +3117,7 @@ type GuidedEstimateBuilderProps = {
     savingGuidedOption: boolean;
     scrollRef: RefObject<ScrollView | null>;
     selectEstimateCategory: (category: EstimateOptionCategory) => void;
+    selectGuidedAdjustmentLine: (choice: Phase1EstimateChoice, line: EstimateCalculatedLine) => void;
     selectedCategory: EstimateOptionCategory;
     selectedWorkType: EstimateWorkType | null;
     selectWorkType: (workType: EstimateWorkType) => void;
@@ -3051,6 +3170,7 @@ function renderGuidedEstimateBuilder({
     goBackToItem,
     goToCompanyDashboard,
     guidedAdjustmentMode,
+    guidedAdjustmentLineId,
     guidedAdjustmentValue,
     guidedBuildStep,
     guidedDiscountLabel,
@@ -3079,6 +3199,7 @@ function renderGuidedEstimateBuilder({
     savingGuidedOption,
     scrollRef,
     selectEstimateCategory,
+    selectGuidedAdjustmentLine,
     selectedCategory,
     selectedWorkType,
     selectWorkType,
@@ -3107,6 +3228,12 @@ function renderGuidedEstimateBuilder({
     const baseTotal = baseCandidate?.pricingResult.totalAmount || 0;
     const finalTotal = currentCandidateChoice?.pricingResult.totalAmount || 0;
     const adjustmentAmount = finalTotal - baseTotal;
+    const selectedAdjustmentLineId = baseCandidate?.pricingResult.lineItems.some((line) => line.id === guidedAdjustmentLineId)
+        ? guidedAdjustmentLineId
+        : baseCandidate?.pricingResult.lineItems[0]?.id || '';
+    const selectedBaseLine = baseCandidate?.pricingResult.lineItems.find((line) => line.id === selectedAdjustmentLineId) || null;
+    const selectedFinalLine = currentCandidateChoice?.pricingResult.lineItems.find((line) => line.id === selectedAdjustmentLineId) || null;
+    const selectedLineAdjustmentAmount = (selectedFinalLine?.totalAmount || 0) - (selectedBaseLine?.totalAmount || 0);
     const missingQuestionCount = phase1Workspace.answerValidation.missingRequiredQuestionLabels.length;
     const missingPhotoCount = phase1Workspace.answerValidation.missingRequiredPhotoLabels.length;
     const missingMeasurementCount = phase1Workspace.answerValidation.missingRequiredMeasurementLabels.length;
@@ -3381,17 +3508,48 @@ function renderGuidedEstimateBuilder({
                                                     </View>
                                                     <Text style={guidedPriceTotalStyle}>{formatMoney(finalTotal)}</Text>
                                                 </View>
-                                                {currentCandidateChoice.pricingResult.lineItems.map((line) => (
-                                                    <View key={line.id} style={guidedLineItemStyle}>
-                                                        <Text style={guidedLineItemNameStyle}>{line.name}</Text>
-                                                        <Text style={guidedLineItemPriceStyle}>{formatMoney(line.totalAmount)}</Text>
-                                                    </View>
-                                                ))}
+                                                <Text style={guidedLinePickerHelpStyle}>Select one service to adjust its price.</Text>
+                                                {(baseCandidate || currentCandidateChoice).pricingResult.lineItems.map((baseLine) => {
+                                                    const finalLine = currentCandidateChoice.pricingResult.lineItems.find((line) => line.id === baseLine.id) || baseLine;
+                                                    const adjustment = currentCandidateChoice.linePriceAdjustments?.[baseLine.id];
+                                                    const selected = baseLine.id === selectedAdjustmentLineId;
+                                                    const priceChanged = finalLine.totalAmount !== baseLine.totalAmount;
+
+                                                    return (
+                                                        <TouchableOpacity
+                                                            accessibilityLabel={`Adjust ${baseLine.name}`}
+                                                            accessibilityRole="button"
+                                                            accessibilityState={{ selected }}
+                                                            key={baseLine.id}
+                                                            onPress={() => selectGuidedAdjustmentLine(baseCandidate || currentCandidateChoice, baseLine)}
+                                                            style={[guidedLineItemStyle, selected ? guidedLineItemSelectedStyle : null]}
+                                                        >
+                                                            <View style={selected ? guidedLineSelectionDotSelectedStyle : guidedLineSelectionDotStyle} />
+                                                            <View style={guidedLineItemContentStyle}>
+                                                                <Text style={guidedLineItemNameStyle}>{baseLine.name}</Text>
+                                                                <Text style={guidedLineItemStatusStyle}>
+                                                                    {adjustment
+                                                                        ? adjustment.mode === 'discount'
+                                                                            ? `${formatEstimatePriceAdjustmentPercentage(adjustment.percentage)} ${adjustment.label || 'discount'}`
+                                                                            : adjustment.mode === 'markup'
+                                                                                ? `${formatEstimatePriceAdjustmentPercentage(adjustment.percentage)} markup`
+                                                                                : 'Authorized price override'
+                                                                        : selected ? 'Selected for adjustment' : 'Tap to adjust'}
+                                                                </Text>
+                                                            </View>
+                                                            <View style={guidedLineItemPriceColumnStyle}>
+                                                                {priceChanged && <Text style={guidedLineItemBasePriceStyle}>{formatMoney(baseLine.totalAmount)}</Text>}
+                                                                <Text style={guidedLineItemPriceStyle}>{formatMoney(finalLine.totalAmount)}</Text>
+                                                            </View>
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
                                             </View>
 
                                             <View style={guidedAdjustmentStyle}>
-                                                <Text style={guidedFieldLabelStyle}>Price adjustment</Text>
-                                                <Text style={guidedFieldHelpStyle}>Choose what you mean first. The final amount is shown before you apply it.</Text>
+                                                <Text style={guidedFieldLabelStyle}>Adjust selected service</Text>
+                                                <Text style={guidedSelectedLineNameStyle}>{selectedBaseLine?.name || 'Select a service above'}</Text>
+                                                <Text style={guidedFieldHelpStyle}>The discount, markup, or override applies only to this service line.</Text>
                                                 <View style={guidedModeRowStyle}>
                                                     {([
                                                         ['none', 'No adjustment'],
@@ -3430,15 +3588,22 @@ function renderGuidedEstimateBuilder({
                                                     />
                                                 )}
                                                 <View style={guidedAdjustmentSummaryStyle}>
-                                                    <Text style={guidedAdjustmentSummaryTextStyle}>Company price {formatMoney(baseTotal)}</Text>
+                                                    <Text style={guidedAdjustmentSummaryTextStyle}>Company price {formatMoney(selectedBaseLine?.totalAmount || 0)}</Text>
                                                     <Text style={guidedAdjustmentSummaryTextStyle}>
-                                                        {adjustmentAmount === 0 ? 'No change' : `${adjustmentAmount > 0 ? '+' : '−'}${formatMoney(Math.abs(adjustmentAmount))}`}
+                                                        {selectedLineAdjustmentAmount === 0 ? 'No change' : `${selectedLineAdjustmentAmount > 0 ? '+' : '−'}${formatMoney(Math.abs(selectedLineAdjustmentAmount))}`}
                                                     </Text>
-                                                    <Text style={guidedAdjustmentFinalStyle}>Final {formatMoney(finalTotal)}</Text>
+                                                    <Text style={guidedAdjustmentFinalStyle}>Adjusted line {formatMoney(selectedFinalLine?.totalAmount || selectedBaseLine?.totalAmount || 0)}</Text>
                                                 </View>
                                                 <TouchableOpacity onPress={() => applyGuidedPriceAdjustment(baseCandidate || currentCandidateChoice)} style={guidedSecondaryButtonStyle}>
-                                                    <Text style={guidedSecondaryButtonTextStyle}>Apply adjustment</Text>
+                                                    <Text style={guidedSecondaryButtonTextStyle}>Apply to selected service</Text>
                                                 </TouchableOpacity>
+                                                <View style={guidedOptionTotalSummaryStyle}>
+                                                    <Text style={guidedOptionTotalLabelStyle}>Option total</Text>
+                                                    <Text style={guidedOptionTotalChangeStyle}>
+                                                        {adjustmentAmount === 0 ? 'No total change' : `${adjustmentAmount > 0 ? '+' : '−'}${formatMoney(Math.abs(adjustmentAmount))}`}
+                                                    </Text>
+                                                    <Text style={guidedOptionTotalPriceStyle}>{formatMoney(finalTotal)}</Text>
+                                                </View>
                                             </View>
 
                                             <Text style={guidedFieldLabelStyle}>Technician notes / dictation</Text>
@@ -4588,21 +4753,76 @@ const guidedPriceTotalStyle = {
 
 const guidedLineItemStyle = {
     flexDirection: 'row' as const,
-    alignItems: 'flex-start' as const,
+    alignItems: 'center' as const,
     justifyContent: 'space-between' as const,
     gap: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: '#E3E9EE',
+    backgroundColor: '#FFFFFF',
+};
+
+const guidedLineItemSelectedStyle = {
+    backgroundColor: '#E7F7F9',
+    borderTopColor: '#8DD4DE',
+};
+
+const guidedLinePickerHelpStyle = {
+    color: '#617684',
+    fontSize: 12,
+    fontWeight: '700' as const,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#D8E6EA',
+    backgroundColor: '#F7FAFB',
+};
+
+const guidedLineSelectionDotStyle = {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#A7B8C3',
+    backgroundColor: '#FFFFFF',
+};
+
+const guidedLineSelectionDotSelectedStyle = {
+    ...guidedLineSelectionDotStyle,
+    borderWidth: 6,
+    borderColor: '#0B8DA5',
+};
+
+const guidedLineItemContentStyle = {
+    flex: 1,
+    minWidth: 0,
 };
 
 const guidedLineItemNameStyle = {
-    flex: 1,
     color: '#20394D',
     fontSize: 14,
     lineHeight: 19,
     fontWeight: '700' as const,
+};
+
+const guidedLineItemStatusStyle = {
+    color: '#587080',
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '700' as const,
+    marginTop: 3,
+};
+
+const guidedLineItemPriceColumnStyle = {
+    alignItems: 'flex-end' as const,
+    minWidth: 76,
+};
+
+const guidedLineItemBasePriceStyle = {
+    color: '#7A8993',
+    fontSize: 11,
+    textDecorationLine: 'line-through' as const,
 };
 
 const guidedLineItemPriceStyle = {
@@ -4618,6 +4838,13 @@ const guidedAdjustmentStyle = {
     borderWidth: 1,
     borderColor: '#D8E1E7',
     backgroundColor: '#F8FAFB',
+};
+
+const guidedSelectedLineNameStyle = {
+    color: '#08758A',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '900' as const,
 };
 
 const guidedFieldLabelStyle = {
@@ -4710,6 +4937,35 @@ const guidedAdjustmentSummaryTextStyle = {
 const guidedAdjustmentFinalStyle = {
     color: '#0A664F',
     fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const guidedOptionTotalSummaryStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#D8E1E7',
+};
+
+const guidedOptionTotalLabelStyle = {
+    color: '#17344B',
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const guidedOptionTotalChangeStyle = {
+    color: '#617684',
+    fontSize: 12,
+    fontWeight: '700' as const,
+};
+
+const guidedOptionTotalPriceStyle = {
+    color: '#08735B',
+    fontSize: 17,
     fontWeight: '900' as const,
 };
 

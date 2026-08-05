@@ -1,10 +1,15 @@
 import { supabase } from './supabase';
-import type { EstimateChoice, EstimatePricingResult } from './estimateOptions';
+import type {
+    EstimateChoice,
+    EstimateLinePriceAdjustment,
+    EstimatePricingResult,
+} from './estimateOptions';
 
 export type PersistableEstimateChoice = EstimateChoice & {
     basePricingResult?: EstimatePricingResult;
     priceAdjustmentPercentage?: number;
     priceAdjustmentLabel?: string | null;
+    linePriceAdjustments?: Record<string, EstimateLinePriceAdjustment>;
 };
 
 export type PersistedEstimateOptionSet = {
