@@ -2181,6 +2181,7 @@ function buildDeterministicChoices(input: {
     if (input.category === 'water_heater') {
         return buildWaterHeaterDeterministicChoices({
             pricingResults: validPricingResults,
+            products: input.products,
             answers: input.answers,
             template: input.template,
             draftContext: input.draftContext,
@@ -2238,6 +2239,7 @@ function buildDeterministicChoices(input: {
 
 function buildWaterHeaterDeterministicChoices(input: {
     pricingResults: EstimatePricingResult[];
+    products: EstimateApprovedProduct[];
     answers: EstimateAnswerSet;
     template: EstimateCategoryTemplate;
     draftContext: EstimateDraftContextLike | null;
@@ -2246,6 +2248,59 @@ function buildWaterHeaterDeterministicChoices(input: {
     const customerSelections = buildEstimateCustomerSelections(input.template, input.answers);
     const equipmentDescription = buildWaterHeaterEquipmentDescription(input.answers);
     const warrantyLabel = readAnswerText(input.answers.desired_warranty);
+    const compatibleProducts = input.products
+        .filter((product) => isCompatiblePricedTankWaterHeaterProduct(product, input.answers, input.pricingResults[0]))
+        .sort(compareApprovedWaterHeaterProducts)
+        .slice(0, 4);
+
+    if (compatibleProducts.length > 0) {
+        const basePricingResult = input.pricingResults[0];
+
+        return compatibleProducts.map((product, index): EstimateChoice => {
+            const productLabel = `${product.brand} ${product.model}`.trim();
+            const pricingResult = applyApprovedWaterHeaterProductPrice(
+                basePricingResult,
+                product,
+                equipmentDescription
+            );
+            const lineNames = pricingResult.lineItems.map((line) => line.name);
+            const includedWarranty = product.warranty || warrantyLabel || 'Review warranty before approval';
+            const title = homeownerName
+                ? `${homeownerName}'s ${productLabel} ${equipmentDescription}`
+                : `${productLabel} ${equipmentDescription}`;
+
+            return {
+                id: `water-heater-product-${product.id}`,
+                kind: 'individual',
+                title,
+                shortSummary: `${product.tier} · ${productLabel} · ${includedWarranty}`,
+                homeownerExplanation: buildWaterHeaterHomeownerExplanation({
+                    answers: input.answers,
+                    lineNames,
+                    equipmentLabel: `${productLabel} ${equipmentDescription}`,
+                    warrantyLabel: includedWarranty,
+                }),
+                keyBenefits: [`${product.tier} equipment`, includedWarranty, 'Exact checklist scope'],
+                whyItDiffers: `Uses the approved ${productLabel} equipment at its saved company selling price. The confirmed installation scope remains itemized below.`,
+                recommendedReason: null,
+                productIds: [product.id],
+                scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+                warrantyIds: product.warranty ? [product.id] : [],
+                inclusionIds: pricingResult.lineItems.map((line) => line.code),
+                exclusionIds: [],
+                pricingResult,
+                recommended: false,
+                displayOrder: index + 1,
+                customerSelections: uniqueText([
+                    `Brand and model: ${productLabel}`,
+                    `Product tier: ${product.tier}`,
+                    `Included warranty: ${includedWarranty}`,
+                    ...product.installationRequirements.map((requirement) => `Product requirement: ${requirement}`),
+                    ...customerSelections,
+                ]),
+            };
+        });
+    }
 
     return input.pricingResults.slice(0, 4).map((pricingResult, index): EstimateChoice => {
         const title = homeownerName
@@ -2278,6 +2333,109 @@ function buildWaterHeaterDeterministicChoices(input: {
             customerSelections,
         };
     });
+}
+
+function isCompatiblePricedTankWaterHeaterProduct(
+    product: EstimateApprovedProduct,
+    answers: EstimateAnswerSet,
+    pricingResult: EstimatePricingResult | undefined
+) {
+    const price = product.approvedSellingPrice;
+
+    if (!pricingResult || price === null || !Number.isFinite(price) || price <= 0) return false;
+    if (product.minimumSellingPrice !== null && price < product.minimumSellingPrice) return false;
+    if (product.maximumSellingPrice !== null && price > product.maximumSellingPrice) return false;
+    if (product.priceBookEntryId && !pricingResult.lineItems.some((line) => line.priceBookEntryId === product.priceBookEntryId)) {
+        return false;
+    }
+
+    const category = normalizeText(product.category);
+    const selectedEquipment = normalizeText(readAnswerText(answers.tank_or_tankless));
+
+    if (!category.includes('water heater') || category.includes('tankless') || selectedEquipment.includes('tankless')) {
+        return false;
+    }
+
+    const descriptors = normalizeText([
+        product.category,
+        ...product.compatibleApplications,
+        ...Object.entries(product.specifications).map(([key, value]) => `${key} ${value}`),
+    ].join(' '));
+    const selectedSize = selectedEquipment.match(/\b(?:30|40|50|75)\s*gallon\b/)?.[0] || '';
+    const declaredSizes = descriptors.match(/\b(?:30|40|50|75)\s*gallon\b/g) || [];
+    const selectedFuel = normalizeText(readAnswerText(answers.fuel_type));
+    const declaredFuels = ['gas', 'electric', 'propane', 'heat pump'].filter((fuel) => descriptors.includes(fuel));
+
+    if (selectedSize && declaredSizes.length > 0 && !declaredSizes.includes(selectedSize)) return false;
+    if (selectedFuel && declaredFuels.length > 0 && !declaredFuels.includes(selectedFuel)) return false;
+
+    return true;
+}
+
+function compareApprovedWaterHeaterProducts(first: EstimateApprovedProduct, second: EstimateApprovedProduct) {
+    const tierOrder: Record<EstimateProductTier, number> = {
+        Essential: 0,
+        Professional: 1,
+        Premium: 2,
+    };
+
+    return tierOrder[first.tier] - tierOrder[second.tier] ||
+        (first.approvedSellingPrice || 0) - (second.approvedSellingPrice || 0) ||
+        `${first.brand} ${first.model}`.localeCompare(`${second.brand} ${second.model}`);
+}
+
+function applyApprovedWaterHeaterProductPrice(
+    pricingResult: EstimatePricingResult,
+    product: EstimateApprovedProduct,
+    equipmentDescription: string
+): EstimatePricingResult {
+    const productPrice = roundMoney(product.approvedSellingPrice || 0);
+    const productLabel = `${product.brand} ${product.model}`.trim();
+    const baseLine = product.priceBookEntryId
+        ? pricingResult.lineItems.find((line) => line.priceBookEntryId === product.priceBookEntryId)
+        : pricingResult.lineItems.find((line) => line.source === 'base_installation');
+    const lineItems = pricingResult.lineItems.map((line) => {
+        if (line.id !== baseLine?.id) return line;
+
+        const totalAmount = roundMoney(productPrice * line.quantity);
+
+        return {
+            ...line,
+            name: `${productLabel} ${equipmentDescription} installation`,
+            unitAmount: productPrice,
+            totalAmount,
+            grossMargin: totalAmount > 0 ? roundPercent((totalAmount - line.cost) / totalAmount) : null,
+        };
+    });
+    const totalAmount = roundMoney(lineItems.reduce((sum, line) => sum + line.totalAmount, 0));
+    const totalCost = roundMoney(lineItems.reduce((sum, line) => sum + line.cost, 0));
+    const grossMargin = totalAmount > 0 ? roundPercent((totalAmount - totalCost) / totalAmount) : null;
+    const accessoryTotal = roundMoney(totalAmount - productPrice * (baseLine?.quantity || 1));
+
+    return {
+        ...pricingResult,
+        id: `${pricingResult.id}-product-${product.id}`,
+        lineItems,
+        totalAmount,
+        totalCost,
+        grossMargin,
+        minimumAllowedTotal: product.minimumSellingPrice === null
+            ? pricingResult.minimumAllowedTotal
+            : roundMoney(product.minimumSellingPrice + accessoryTotal),
+        recommendedTotal: totalAmount,
+        maximumAllowedTotal: product.maximumSellingPrice === null
+            ? pricingResult.maximumAllowedTotal
+            : roundMoney(product.maximumSellingPrice + accessoryTotal),
+        priceBookVersion: `${pricingResult.priceBookVersion}:product:${product.id}`,
+        priceBookSnapshot: pricingResult.priceBookSnapshot.map((snapshot) => snapshot.priceBookEntryId === baseLine?.priceBookEntryId
+            ? {
+                ...snapshot,
+                name: `${productLabel} ${equipmentDescription} installation`,
+                recommendedSellingPrice: productPrice,
+            }
+            : snapshot
+        ),
+    };
 }
 
 export function buildEstimateCustomerSelections(

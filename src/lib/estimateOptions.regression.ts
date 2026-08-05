@@ -41,6 +41,7 @@ import {
 } from './estimateOptions';
 import { plumbingPriceBookCatalogItems } from './plumbingPriceBookCatalog';
 import { findEstimatePriceBookCatalogItem } from './estimatePriceBookTarget';
+import { mapApprovedProductRecord } from './companyApprovedProducts';
 
 runEstimateOptionsRegressions();
 
@@ -53,6 +54,8 @@ export function runEstimateOptionsRegressions() {
     waterHeaterPricingIncludesOnlyConfirmedAddOns();
     waterHeaterQuoteCarriesPickerSelections();
     waterHeaterBackBlockRequiresPricedLine();
+    approvedTankWaterHeaterProductsCreateExplicitPriceChoices();
+    approvedProductRecordsMapWithoutTrustingInvalidRows();
     waterHeaterMissingSelectedAddOnBlocksPartialQuote();
     skippedWaterHeaterPhotosDoNotChangePricing();
     waterHeaterRepairChecklistCoversFieldComponents();
@@ -360,6 +363,94 @@ function waterHeaterBackBlockRequiresPricedLine() {
 
     assert(workspace.pricingResults.length === 0, 'Selected back-block work must not disappear from a partially priced quote.');
     assert(workspace.pricingSetupRequired, 'Selected back-block work should require an explicit approved price before quoting.');
+}
+
+function approvedTankWaterHeaterProductsCreateExplicitPriceChoices() {
+    const approvedProducts: EstimateApprovedProduct[] = [
+        product('company-a', 'rheem-50-gas', true, true, {
+            category: 'tank water heater',
+            brand: 'Rheem',
+            model: 'Professional Classic 50',
+            tier: 'Essential',
+            approvedSellingPrice: 2800,
+            compatibleApplications: ['50 gallon', 'gas'],
+            warranty: '6-year manufacturer warranty',
+        }),
+        product('company-a', 'ao-smith-50-gas', true, true, {
+            category: 'tank water heater',
+            brand: 'A.O. Smith',
+            model: 'Signature 50',
+            tier: 'Professional',
+            approvedSellingPrice: 3200,
+            compatibleApplications: ['50 gallon', 'gas'],
+            warranty: '9-year manufacturer warranty',
+        }),
+        product('company-a', 'bradford-white-50-gas', true, true, {
+            category: 'tank water heater',
+            brand: 'Bradford White',
+            model: 'Defender 50',
+            tier: 'Premium',
+            approvedSellingPrice: 3600,
+            compatibleApplications: ['50 gallon', 'gas'],
+            warranty: '12-year manufacturer warranty',
+        }),
+        product('company-a', 'wrong-size', true, true, {
+            category: 'tank water heater',
+            brand: 'Wrong Size',
+            model: '40 Gallon',
+            tier: 'Essential',
+            approvedSellingPrice: 2400,
+            compatibleApplications: ['40 gallon', 'gas'],
+        }),
+        product('company-a', 'unpriced', true, true, {
+            category: 'tank water heater',
+            brand: 'Unpriced',
+            model: '50 Gallon',
+            approvedSellingPrice: null,
+            compatibleApplications: ['50 gallon', 'gas'],
+        }),
+    ];
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers: waterHeaterAnswers(),
+        approvedProducts,
+        priceBookItems: [scopedPriceBookItem(
+            'water_service_garage_mechanical_standard_tank_water_heater_replacement',
+            'Standard tank water heater replacement',
+            'Water Heaters',
+            2500
+        )],
+    });
+
+    assert(workspace.choices.length === 3, 'Only priced, compatible, approved tank-water-heater products should create choices.');
+    assert(workspace.choices.map((choice) => choice.productIds[0]).join(',') === 'rheem-50-gas,ao-smith-50-gas,bradford-white-50-gas', 'Tank products should be ordered by their explicit Essential, Professional, and Premium tiers.');
+    assert(workspace.choices.map((choice) => choice.pricingResult.totalAmount).join(',') === '2800,3200,3600', 'Each product choice should use its own approved selling price.');
+    assert(workspace.choices[0]?.customerSelections?.includes('Brand and model: Rheem Professional Classic 50') === true, 'The selected approved brand and model should be visible in option details.');
+    assert(workspace.choices[2]?.customerSelections?.includes('Included warranty: 12-year manufacturer warranty') === true, 'The product warranty should remain attached to its matching choice.');
+}
+
+function approvedProductRecordsMapWithoutTrustingInvalidRows() {
+    const mapped = mapApprovedProductRecord({
+        id: 'product-a',
+        company_id: 'company-a',
+        category: 'tank water heater',
+        brand: 'Approved Brand',
+        model: 'Model 50',
+        tier: 'Premium',
+        approved_selling_price: '3450.00',
+        product_specifications: { capacity: '50 gallon' },
+        compatible_applications: ['gas'],
+        required_accessory_ids: [],
+        installation_requirements: ['Install per manufacturer instructions'],
+        warranty: '12-year manufacturer warranty',
+        extended_warranty_eligible: true,
+        approved: true,
+        active: true,
+    });
+
+    assert(mapped?.approvedSellingPrice === 3450, 'Approved product prices returned by Supabase should map to numeric selling prices.');
+    assert(mapped?.tier === 'Premium', 'The saved approved product tier should be preserved.');
+    assert(mapApprovedProductRecord({ id: 'missing-company' }) === null, 'Incomplete product rows must not become estimate choices.');
 }
 
 function waterHeaterMissingSelectedAddOnBlocksPartialQuote() {
@@ -1411,6 +1502,7 @@ function buildWorkspace(options: {
     technicianApproved?: boolean;
     draftContext?: EstimateDraftContextLike | null;
     draftItems?: EstimateDraftItemLike[];
+    approvedProducts?: EstimateApprovedProduct[];
 }) {
     const category = options.category || 'toilet_replacement';
 
@@ -1421,7 +1513,7 @@ function buildWorkspace(options: {
         category,
         answers: options.answers || {},
         priceBookItems: options.priceBookItems || [],
-        approvedProducts: [product(options.companyId || 'company-a', 'product-1', true, true)],
+        approvedProducts: options.approvedProducts || [product(options.companyId || 'company-a', 'product-1', true, true)],
         technicianApproved: options.technicianApproved ?? false,
     });
 }
@@ -1689,7 +1781,13 @@ function estimateEntry(
     };
 }
 
-function product(companyId: string, id: string, approved: boolean, active: boolean): EstimateApprovedProduct {
+function product(
+    companyId: string,
+    id: string,
+    approved: boolean,
+    active: boolean,
+    overrides: Partial<EstimateApprovedProduct> = {}
+): EstimateApprovedProduct {
     return {
         id,
         companyId,
@@ -1723,6 +1821,7 @@ function product(companyId: string, id: string, approved: boolean, active: boole
         companyNotes: null,
         approved,
         active,
+        ...overrides,
     };
 }
 

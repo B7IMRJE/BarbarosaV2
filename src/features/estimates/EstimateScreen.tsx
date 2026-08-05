@@ -37,6 +37,7 @@ import {
     type EstimateDraftGate,
     type EstimateLinePriceAdjustment,
     type EstimateOptionCategory,
+    type EstimateApprovedProduct,
     type EstimateQuestionDefinition,
     type EstimateRequirementMeasurementAnswer,
     type EstimateRequirementSkipReason,
@@ -54,6 +55,7 @@ import {
     loadCompanyPriceBook,
     type CompanyPriceBookItem,
 } from '../../lib/companyPriceBook';
+import { loadCompanyApprovedProducts } from '../../lib/companyApprovedProducts';
 import { findEstimatePriceBookCatalogItem } from '../../lib/estimatePriceBookTarget';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
@@ -199,6 +201,8 @@ export default function EstimateScreen() {
     const [persistedOptionChoices, setPersistedOptionChoices] = useState<PersistableEstimateChoice[]>([]);
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
+    const [approvedProducts, setApprovedProducts] = useState<EstimateApprovedProduct[]>([]);
+    const [approvedProductMessage, setApprovedProductMessage] = useState('Approved products loading...');
     const [selectedWorkType, setSelectedWorkType] = useState<EstimateWorkType | null>(null);
     const [estimateCategoryChosen, setEstimateCategoryChosen] = useState(false);
     const [selectedCategory, setSelectedCategory] = useState<EstimateOptionCategory>('faucet_replacement');
@@ -283,6 +287,23 @@ export default function EstimateScreen() {
                         `Price book unavailable: ${
                             error instanceof Error ? error.message : 'Unknown error'
                         }`
+                    );
+                });
+
+            void loadCompanyApprovedProducts(estimateAccess.companyId)
+                .then((products) => {
+                    if (!active) return;
+                    setApprovedProducts(products);
+                    setApprovedProductMessage(products.length > 0
+                        ? `${products.length} approved product${products.length === 1 ? '' : 's'} available.`
+                        : 'No approved products are configured for this company yet.'
+                    );
+                })
+                .catch((error) => {
+                    if (!active) return;
+                    setApprovedProducts([]);
+                    setApprovedProductMessage(
+                        `Approved products unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`
                     );
                 });
 
@@ -691,6 +712,7 @@ export default function EstimateScreen() {
             category: selectedCategory,
             answers,
             priceBookItems,
+            approvedProducts,
             technicianApproved,
             aiValidationFailed: false,
         }).choices.some((choice) => choice.id === selectedChoiceId)) {
@@ -2049,6 +2071,7 @@ export default function EstimateScreen() {
         category: selectedCategory,
         answers,
         priceBookItems,
+        approvedProducts,
         technicianApproved,
         aiValidationFailed: false,
     });
@@ -2166,6 +2189,7 @@ export default function EstimateScreen() {
         clearSkippedRequirement,
         clearRequirementMeasurement,
         companyPriceBookRoute,
+        candidateEstimateChoices,
         currentCandidateChoice,
         documentationExpanded,
         draftContext,
@@ -2199,6 +2223,7 @@ export default function EstimateScreen() {
         cancelGuidedOptionEdit,
         saveGuidedOptionEdits,
         phase1Workspace,
+        approvedProductMessage,
         photoPreviewByKey,
         priceBookItems,
         priceBookMessage,
@@ -2214,6 +2239,13 @@ export default function EstimateScreen() {
         savingGuidedOption,
         scrollRef: estimateScrollRef,
         selectEstimateCategory,
+        selectCandidateChoice: (choiceId) => {
+            setSelectedChoiceId(choiceId);
+            setGuidedAdjustmentMode('none');
+            setGuidedAdjustmentValue('');
+            setGuidedDiscountLabel('');
+            setGuidedAdjustmentLineId('');
+        },
         selectGuidedAdjustmentLine,
         selectedCategory,
         selectedWorkType,
@@ -3177,6 +3209,7 @@ export default function EstimateScreen() {
 
 type GuidedEstimateBuilderProps = {
     activeDraftItem: EstimateDraftItem | null;
+    approvedProductMessage: string;
     aiDrafting: boolean;
     answers: EstimateAnswerSet;
     approveForPresentation: (choices: Phase1EstimateChoice[]) => Promise<void>;
@@ -3190,6 +3223,7 @@ type GuidedEstimateBuilderProps = {
     clearSkippedRequirement: (kind: RequirementKind, label: string) => Promise<void>;
     clearRequirementMeasurement: (label: string) => Promise<void>;
     companyPriceBookRoute: string;
+    candidateEstimateChoices: Phase1EstimateChoice[];
     currentCandidateChoice: Phase1EstimateChoice | null;
     documentationExpanded: boolean;
     draftContext: EstimateDraftContext | null;
@@ -3241,6 +3275,7 @@ type GuidedEstimateBuilderProps = {
     savingGuidedOption: boolean;
     scrollRef: RefObject<ScrollView | null>;
     selectEstimateCategory: (category: EstimateOptionCategory) => void;
+    selectCandidateChoice: (choiceId: string) => void;
     selectGuidedAdjustmentLine: (
         choice: Phase1EstimateChoice,
         line: EstimateCalculatedLine,
@@ -3276,6 +3311,7 @@ type GuidedEstimateBuilderProps = {
 
 function renderGuidedEstimateBuilder({
     activeDraftItem,
+    approvedProductMessage,
     aiDrafting,
     answers,
     approveForPresentation,
@@ -3289,6 +3325,7 @@ function renderGuidedEstimateBuilder({
     clearSkippedRequirement,
     clearRequirementMeasurement,
     companyPriceBookRoute,
+    candidateEstimateChoices,
     currentCandidateChoice,
     documentationExpanded,
     draftContext,
@@ -3332,6 +3369,7 @@ function renderGuidedEstimateBuilder({
     savingGuidedOption,
     scrollRef,
     selectEstimateCategory,
+    selectCandidateChoice,
     selectGuidedAdjustmentLine,
     selectedCategory,
     selectedWorkType,
@@ -3629,6 +3667,41 @@ function renderGuidedEstimateBuilder({
                                             <Text style={guidedTextButtonTextStyle}>Back to Findings</Text>
                                         </TouchableOpacity>
                                     </View>
+
+                                    {selectedCategory === 'water_heater' && (
+                                        <View style={guidedProductPickerStyle}>
+                                            <Text style={guidedFieldLabelStyle}>Approved equipment</Text>
+                                            <Text style={guidedFieldHelpStyle}>
+                                                {candidateEstimateChoices.length > 1
+                                                    ? `${candidateEstimateChoices.length} matching approved product choices are available.`
+                                                    : approvedProductMessage}
+                                            </Text>
+                                            {candidateEstimateChoices.length > 1 && (
+                                                <View style={guidedProductChoiceGridStyle}>
+                                                    {candidateEstimateChoices.map((choice) => {
+                                                        const selected = choice.id === currentCandidateChoice?.id;
+
+                                                        return (
+                                                            <TouchableOpacity
+                                                                accessibilityLabel={`Use ${choice.title}`}
+                                                                accessibilityRole="radio"
+                                                                accessibilityState={{ selected }}
+                                                                key={choice.id}
+                                                                onPress={() => selectCandidateChoice(choice.id)}
+                                                                style={selected ? guidedProductChoiceSelectedStyle : guidedProductChoiceStyle}
+                                                            >
+                                                                <Text style={selected ? guidedProductChoiceTitleSelectedStyle : guidedProductChoiceTitleStyle}>
+                                                                    {choice.title}
+                                                                </Text>
+                                                                <Text style={guidedProductChoiceMetaStyle}>{choice.shortSummary}</Text>
+                                                                <Text style={guidedProductChoicePriceStyle}>{formatMoney(choice.pricingResult.totalAmount)}</Text>
+                                                            </TouchableOpacity>
+                                                        );
+                                                    })}
+                                                </View>
+                                            )}
+                                        </View>
+                                    )}
 
                                     {phase1Workspace.pricingSetupRequired || !currentCandidateChoice ? (
                                         <View style={guidedPricingMissingStyle}>
@@ -5159,6 +5232,62 @@ const guidedFieldHelpStyle = {
     color: '#6A7B88',
     fontSize: 12,
     lineHeight: 18,
+};
+
+const guidedProductPickerStyle = {
+    backgroundColor: '#F4FAFB',
+    borderColor: '#C8DDE3',
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 10,
+    padding: 14,
+};
+
+const guidedProductChoiceGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const guidedProductChoiceStyle = {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#CBD7DF',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexGrow: 1,
+    gap: 5,
+    minWidth: 210,
+    padding: 12,
+};
+
+const guidedProductChoiceSelectedStyle = {
+    ...guidedProductChoiceStyle,
+    backgroundColor: '#DDF4F7',
+    borderColor: '#0B8DA5',
+    borderWidth: 2,
+};
+
+const guidedProductChoiceTitleStyle = {
+    color: '#17344B',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const guidedProductChoiceTitleSelectedStyle = {
+    ...guidedProductChoiceTitleStyle,
+    color: '#08758A',
+};
+
+const guidedProductChoiceMetaStyle = {
+    color: '#6A7B88',
+    fontSize: 12,
+    lineHeight: 17,
+};
+
+const guidedProductChoicePriceStyle = {
+    color: '#0A664F',
+    fontSize: 18,
+    fontWeight: '900' as const,
 };
 
 const guidedModeRowStyle = {
