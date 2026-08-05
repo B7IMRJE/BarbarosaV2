@@ -2483,7 +2483,7 @@ function buildWaterHeaterDeterministicChoices(input: {
     const equipmentDescription = buildWaterHeaterEquipmentDescription(input.answers);
     const warrantyLabel = readAnswerText(input.answers.desired_warranty);
     const compatibleProducts = input.products
-        .filter((product) => isCompatiblePricedTankWaterHeaterProduct(product, input.answers, input.pricingResults[0]))
+        .filter((product) => isCompatiblePricedWaterHeaterProduct(product, input.answers, input.pricingResults[0]))
         .sort(compareApprovedWaterHeaterProducts)
         .slice(0, 4);
 
@@ -2492,6 +2492,7 @@ function buildWaterHeaterDeterministicChoices(input: {
 
         return compatibleProducts.map((product, index): EstimateChoice => {
             const productLabel = `${product.brand} ${product.model}`.trim();
+            const homeownerTier = productTierDisplayLabel(product.tier);
             const pricingResult = applyApprovedWaterHeaterProductPrice(
                 basePricingResult,
                 product,
@@ -2507,14 +2508,14 @@ function buildWaterHeaterDeterministicChoices(input: {
                 id: `water-heater-product-${product.id}`,
                 kind: 'individual',
                 title,
-                shortSummary: `${product.tier} · ${productLabel} · ${includedWarranty}`,
+                shortSummary: `${homeownerTier} · ${productLabel} · ${includedWarranty}`,
                 homeownerExplanation: buildWaterHeaterHomeownerExplanation({
                     answers: input.answers,
                     lineNames,
                     equipmentLabel: `${productLabel} ${equipmentDescription}`,
                     warrantyLabel: includedWarranty,
                 }),
-                keyBenefits: [`${product.tier} equipment`, includedWarranty, 'Exact checklist scope'],
+                keyBenefits: [`${homeownerTier} equipment choice`, includedWarranty, 'Exact checklist scope'],
                 whyItDiffers: `Uses the approved ${productLabel} equipment at its saved company selling price. The confirmed installation scope remains itemized below.`,
                 recommendedReason: null,
                 productIds: [product.id],
@@ -2528,7 +2529,7 @@ function buildWaterHeaterDeterministicChoices(input: {
                 selectionGroup: 'water-heater-equipment',
                 customerSelections: uniqueText([
                     `Brand and model: ${productLabel}`,
-                    `Product tier: ${product.tier}`,
+                    `Product tier: ${homeownerTier}`,
                     `Included warranty: ${includedWarranty}`,
                     ...product.installationRequirements.map((requirement) => `Product requirement: ${requirement}`),
                     ...customerSelections,
@@ -2570,7 +2571,7 @@ function buildWaterHeaterDeterministicChoices(input: {
     });
 }
 
-function isCompatiblePricedTankWaterHeaterProduct(
+function isCompatiblePricedWaterHeaterProduct(
     product: EstimateApprovedProduct,
     answers: EstimateAnswerSet,
     pricingResult: EstimatePricingResult | undefined
@@ -2586,16 +2587,28 @@ function isCompatiblePricedTankWaterHeaterProduct(
 
     const category = normalizeText(product.category);
     const selectedEquipment = normalizeText(readAnswerText(answers.tank_or_tankless));
-
-    if (!category.includes('water heater') || category.includes('tankless') || selectedEquipment.includes('tankless')) {
-        return false;
-    }
-
     const descriptors = normalizeText([
         product.category,
         ...product.compatibleApplications,
         ...Object.entries(product.specifications).map(([key, value]) => `${key} ${value}`),
     ].join(' '));
+    const selectedIsTankless = selectedEquipment.includes('tankless');
+    const productIsTankless = category.includes('tankless') || descriptors.includes('tankless');
+
+    if (!category.includes('water heater') || selectedIsTankless !== productIsTankless) return false;
+
+    if (selectedIsTankless) {
+        const selectedApplication = selectedEquipment.includes('conversion')
+            ? 'tankless conversion'
+            : 'tankless like kind';
+        const declaredTanklessApplications = ['tankless like kind', 'tankless conversion']
+            .filter((application) => descriptors.includes(application));
+
+        if (declaredTanklessApplications.length > 0 && !declaredTanklessApplications.includes(selectedApplication)) {
+            return false;
+        }
+    }
+
     const selectedSize = selectedEquipment.match(/\b(?:30|40|50|75)\s*gallon\b/)?.[0] || '';
     const declaredSizes: string[] = descriptors.match(/\b(?:30|40|50|75)\s*gallon\b/g) || [];
     const selectedFuel = normalizeText(readAnswerText(answers.fuel_type));
@@ -2606,6 +2619,13 @@ function isCompatiblePricedTankWaterHeaterProduct(
     if (selectedFuel && declaredFuels.length > 0 && !declaredFuels.includes(selectedFuel)) return false;
 
     return true;
+}
+
+function productTierDisplayLabel(tier: EstimateProductTier) {
+    if (tier === 'Essential') return 'Good';
+    if (tier === 'Professional') return 'Better';
+
+    return 'Premium';
 }
 
 function compareApprovedWaterHeaterProducts(first: EstimateApprovedProduct, second: EstimateApprovedProduct) {
@@ -2690,10 +2710,12 @@ export function buildEstimateCustomerSelections(
 
 function buildWaterHeaterEquipmentDescription(answers: EstimateAnswerSet) {
     const size = readAnswerText(answers.tank_or_tankless) || 'Water Heater';
-    const isTankless = normalizeText(size).includes('tankless');
-    const equipmentType = isTankless ? 'Tankless Water Heater' : 'Tank Water Heater';
+    const normalizedSize = normalizeText(size);
 
-    return `${formatAnswerLabel(size)} ${equipmentType}`;
+    if (normalizedSize === 'tankless like kind') return 'Tankless Water Heater Replacement';
+    if (normalizedSize === 'tankless conversion') return 'Tank-to-Tankless Water Heater Conversion';
+
+    return `${formatAnswerLabel(size)} Tank Water Heater`;
 }
 
 function buildWaterHeaterHomeownerExplanation(input: {
