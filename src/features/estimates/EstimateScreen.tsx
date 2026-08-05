@@ -133,6 +133,7 @@ type RequirementKind = 'photo' | 'measurement';
 type EstimateWorkspaceSection = 'pricing' | 'editor' | 'presentation' | 'findings';
 type PriceAdjustmentDirection = 'discount' | 'increase';
 type GuidedEstimateStep = 'build' | 'option_added' | 'recommendations' | 'review';
+type GuidedBuildStep = 'work' | 'findings' | 'price';
 type GuidedPriceAdjustmentMode = 'none' | 'discount' | 'markup' | 'override';
 
 const discountReasonSuggestions = [
@@ -218,6 +219,7 @@ export default function EstimateScreen() {
     const [priceAdjustmentDirectionByChoiceId, setPriceAdjustmentDirectionByChoiceId] = useState<Record<string, PriceAdjustmentDirection>>({});
     const [priceAdjustmentLabelByChoiceId, setPriceAdjustmentLabelByChoiceId] = useState<Record<string, string>>({});
     const [guidedStep, setGuidedStep] = useState<GuidedEstimateStep>('build');
+    const [guidedBuildStep, setGuidedBuildStep] = useState<GuidedBuildStep>('work');
     const [documentationExpanded, setDocumentationExpanded] = useState(false);
     const [scopePickerExpanded, setScopePickerExpanded] = useState(false);
     const [relatedSearch, setRelatedSearch] = useState('');
@@ -314,7 +316,7 @@ export default function EstimateScreen() {
 
         const timeout = setTimeout(scrollToStepStart, 0);
         return () => clearTimeout(timeout);
-    }, [guidedStep]);
+    }, [guidedBuildStep, guidedStep]);
 
     function focusExpandedSection(targetRef: { readonly current: View | null }) {
         let secondFrame: number | null = null;
@@ -379,6 +381,7 @@ export default function EstimateScreen() {
         setMeasurementDraftByKey({});
         setMeasurementErrorByKey({});
         setGuidedStep('build');
+        setGuidedBuildStep('work');
         setDocumentationExpanded(false);
         setScopePickerExpanded(false);
         setRelatedSearch('');
@@ -477,6 +480,7 @@ export default function EstimateScreen() {
         setEditableCopyByChoiceId({});
         setPersistedOptionChoices([]);
         setGuidedStep('build');
+        setGuidedBuildStep('work');
         setDocumentationExpanded(false);
         setScopePickerExpanded(false);
         setRelatedSearch('');
@@ -610,6 +614,7 @@ export default function EstimateScreen() {
         setPriceAdjustmentDirectionByChoiceId({});
         setPriceAdjustmentLabelByChoiceId({});
         setGuidedStep('build');
+        setGuidedBuildStep('work');
         setDocumentationExpanded(false);
         setScopePickerExpanded(false);
         setRelatedSearch('');
@@ -712,6 +717,7 @@ export default function EstimateScreen() {
         setPriceAdjustmentDirectionByChoiceId({});
         setPriceAdjustmentLabelByChoiceId({});
         setGuidedStep('build');
+        setGuidedBuildStep('work');
         setDocumentationExpanded(false);
         setRelatedSearch('');
         setGuidedAdjustmentMode('none');
@@ -1419,6 +1425,8 @@ export default function EstimateScreen() {
             .filter((choice) => choice.id !== choiceId)
             .map((choice, index) => ({ ...choice, displayOrder: index + 1 }));
 
+        if (nextChoices.length === 0) setGuidedBuildStep('price');
+
         await persistGuidedOptions(
             nextChoices,
             'Option removed from this estimate.',
@@ -1441,10 +1449,14 @@ export default function EstimateScreen() {
 
             if (!session) return;
 
+            const selectedSavedChoiceId = nextChoices.some((choice) => choice.id === selectedChoiceId)
+                ? selectedChoiceId
+                : null;
+
             await saveEstimateOptionSet({
                 sessionId: session.id,
                 options: nextChoices,
-                selectedSourceChoiceId: selectedChoiceId || null,
+                selectedSourceChoiceId: selectedSavedChoiceId,
                 technicianApproved: false,
             });
             setPersistedOptionChoices(nextChoices);
@@ -1453,7 +1465,7 @@ export default function EstimateScreen() {
             setRelatedSearch('');
             setMessage(successMessage);
         } catch (error) {
-            setMessage(`Option was not added: ${error instanceof Error ? error.message : 'The estimate could not be saved.'}`);
+            setMessage(`Option was not added: ${readEstimateErrorMessage(error, 'The estimate could not be saved.')}`);
         } finally {
             setSavingGuidedOption(false);
         }
@@ -1948,6 +1960,7 @@ export default function EstimateScreen() {
         goToCompanyDashboard,
         guidedAdjustmentMode,
         guidedAdjustmentValue,
+        guidedBuildStep,
         guidedDiscountLabel,
         guidedStep,
         items,
@@ -1982,6 +1995,7 @@ export default function EstimateScreen() {
         setDocumentationExpanded,
         setGuidedAdjustmentMode,
         setGuidedAdjustmentValue,
+        setGuidedBuildStep,
         setGuidedDiscountLabel,
         setGuidedStep,
         setRelatedSearch,
@@ -2951,6 +2965,7 @@ type GuidedEstimateBuilderProps = {
     goToCompanyDashboard: () => void;
     guidedAdjustmentMode: GuidedPriceAdjustmentMode;
     guidedAdjustmentValue: string;
+    guidedBuildStep: GuidedBuildStep;
     guidedDiscountLabel: string;
     guidedStep: GuidedEstimateStep;
     items: EstimateDraftItem[];
@@ -2991,6 +3006,7 @@ type GuidedEstimateBuilderProps = {
     setDocumentationExpanded: (expanded: boolean) => void;
     setGuidedAdjustmentMode: (mode: GuidedPriceAdjustmentMode) => void;
     setGuidedAdjustmentValue: (value: string) => void;
+    setGuidedBuildStep: (step: GuidedBuildStep) => void;
     setGuidedDiscountLabel: (value: string) => void;
     setGuidedStep: (step: GuidedEstimateStep) => void;
     setRelatedSearch: (value: string) => void;
@@ -3036,6 +3052,7 @@ function renderGuidedEstimateBuilder({
     goToCompanyDashboard,
     guidedAdjustmentMode,
     guidedAdjustmentValue,
+    guidedBuildStep,
     guidedDiscountLabel,
     guidedStep,
     items,
@@ -3069,6 +3086,7 @@ function renderGuidedEstimateBuilder({
     setDocumentationExpanded,
     setGuidedAdjustmentMode,
     setGuidedAdjustmentValue,
+    setGuidedBuildStep,
     setGuidedDiscountLabel,
     setGuidedStep,
     setRelatedSearch,
@@ -3151,7 +3169,7 @@ function renderGuidedEstimateBuilder({
                 <View style={guidedProgressStyle}>
                     {['1 Work', '2 Findings', '3 Price & summary', '4 Options'].map((label, index) => (
                         <View key={label} style={guidedProgressItemStyle}>
-                            <View style={index <= guidedProgressIndex(guidedStep, estimateScopeSelected) ? guidedProgressDotActiveStyle : guidedProgressDotStyle} />
+                            <View style={index <= guidedProgressIndex(guidedStep, guidedBuildStep, estimateScopeSelected) ? guidedProgressDotActiveStyle : guidedProgressDotStyle} />
                             <Text style={guidedProgressTextStyle}>{label}</Text>
                         </View>
                     ))}
@@ -3165,7 +3183,8 @@ function renderGuidedEstimateBuilder({
 
                 {guidedStep === 'build' && (
                     <>
-                        <View style={guidedSectionStyle}>
+                        {guidedBuildStep === 'work' && (
+                            <View style={guidedSectionStyle}>
                             <View style={guidedSectionHeadingRowStyle}>
                                 <View style={{ flex: 1 }}>
                                     <Text style={guidedStepStyle}>STEP 1</Text>
@@ -3241,13 +3260,28 @@ function renderGuidedEstimateBuilder({
                                     <Text style={guidedServiceSummaryTitleStyle}>{phase1Workspace.template.label}</Text>
                                 </View>
                             )}
-                        </View>
 
-                        {estimateScopeSelected && !categoryPickerExpanded && (
-                            <>
+                                <TouchableOpacity
+                                    disabled={!estimateScopeSelected || categoryPickerExpanded}
+                                    onPress={() => setGuidedBuildStep('findings')}
+                                    style={!estimateScopeSelected || categoryPickerExpanded ? guidedMutedPrimaryButtonStyle : guidedPrimaryButtonStyle}
+                                >
+                                    <Text style={guidedPrimaryButtonTextStyle}>Continue to Findings</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {guidedBuildStep === 'findings' && estimateScopeSelected && !categoryPickerExpanded && (
                                 <View style={guidedSectionStyle}>
-                                    <Text style={guidedStepStyle}>STEP 2</Text>
-                                    <Text style={guidedSectionTitleStyle}>Findings for this work</Text>
+                                    <View style={guidedSectionHeadingRowStyle}>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={guidedStepStyle}>STEP 2</Text>
+                                            <Text style={guidedSectionTitleStyle}>Findings for this work</Text>
+                                        </View>
+                                        <TouchableOpacity onPress={() => setGuidedBuildStep('work')} style={guidedTextButtonStyle}>
+                                            <Text style={guidedTextButtonTextStyle}>Back to Work</Text>
+                                        </TouchableOpacity>
+                                    </View>
                                     <Text style={guidedSectionDescriptionStyle}>
                                         Tap the findings that apply. Only this service is shown—unrelated price-book work stays out of the page.
                                     </Text>
@@ -3306,11 +3340,24 @@ function renderGuidedEstimateBuilder({
                                             </View>
                                         </View>
                                     )}
-                                </View>
 
+                                    <TouchableOpacity onPress={() => setGuidedBuildStep('price')} style={guidedPrimaryButtonStyle}>
+                                        <Text style={guidedPrimaryButtonTextStyle}>Continue to Price & Summary</Text>
+                                    </TouchableOpacity>
+                                </View>
+                        )}
+
+                        {guidedBuildStep === 'price' && estimateScopeSelected && !categoryPickerExpanded && (
                                 <View style={guidedSectionStyle}>
-                                    <Text style={guidedStepStyle}>STEP 3</Text>
-                                    <Text style={guidedSectionTitleStyle}>Price & customer summary</Text>
+                                    <View style={guidedSectionHeadingRowStyle}>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={guidedStepStyle}>STEP 3</Text>
+                                            <Text style={guidedSectionTitleStyle}>Price & customer summary</Text>
+                                        </View>
+                                        <TouchableOpacity onPress={() => setGuidedBuildStep('findings')} style={guidedTextButtonStyle}>
+                                            <Text style={guidedTextButtonTextStyle}>Back to Findings</Text>
+                                        </TouchableOpacity>
+                                    </View>
 
                                     {phase1Workspace.pricingSetupRequired || !currentCandidateChoice ? (
                                         <View style={guidedPricingMissingStyle}>
@@ -3436,7 +3483,6 @@ function renderGuidedEstimateBuilder({
                                         </>
                                     )}
                                 </View>
-                            </>
                         )}
                     </>
                 )}
@@ -3558,7 +3604,13 @@ function renderGuidedEstimateBuilder({
                                     <Text style={guidedAttentionTitleStyle}>Before homeowner presentation</Text>
                                     <Text style={guidedAttentionTextStyle}>{attentionParts.join(' · ')} still needed.</Text>
                                 </View>
-                                <TouchableOpacity onPress={() => setGuidedStep('build')} style={guidedAttentionButtonStyle}>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setGuidedBuildStep('findings');
+                                        setGuidedStep('build');
+                                    }}
+                                    style={guidedAttentionButtonStyle}
+                                >
                                     <Text style={guidedAttentionButtonTextStyle}>Finish</Text>
                                 </TouchableOpacity>
                             </View>
@@ -3592,9 +3644,10 @@ function renderGuidedEstimateBuilder({
     );
 }
 
-function guidedProgressIndex(step: GuidedEstimateStep, scopeSelected: boolean) {
+function guidedProgressIndex(step: GuidedEstimateStep, buildStep: GuidedBuildStep, scopeSelected: boolean) {
     if (step === 'option_added' || step === 'recommendations' || step === 'review') return 3;
-    return scopeSelected ? 2 : 0;
+    if (!scopeSelected || buildStep === 'work') return 0;
+    return buildStep === 'findings' ? 1 : 2;
 }
 
 function isGuidedEstimateBuilderEnabled() {
@@ -4069,6 +4122,18 @@ function resolveEstimateSessionSource(value?: string | null): EstimateSessionSou
     return ['techos', 'provider_mode', 'management', 'homeos'].includes(normalized)
         ? normalized as EstimateSessionSource
         : 'techos';
+}
+
+function readEstimateErrorMessage(error: unknown, fallback: string) {
+    if (error instanceof Error && error.message.trim()) return error.message.trim();
+
+    if (error && typeof error === 'object' && 'message' in error) {
+        const message = String(error.message || '').trim();
+
+        if (message) return message;
+    }
+
+    return fallback;
 }
 
 const guidedScreenStyle = {

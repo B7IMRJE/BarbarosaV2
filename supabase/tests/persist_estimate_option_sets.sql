@@ -30,6 +30,13 @@ begin
     ) then
         raise exception 'company_estimate_options.selected_for_presentation is missing';
     end if;
+
+    if position(
+        'coalesce(v_source_choice_id = v_selected_source_choice_id, false)'
+        in pg_get_functiondef('public.save_company_estimate_option_set(uuid,jsonb,text,boolean)'::regprocedure)
+    ) = 0 then
+        raise exception 'save_company_estimate_option_set must save an unselected draft option as selected_for_presentation = false';
+    end if;
 end;
 $$;
 
