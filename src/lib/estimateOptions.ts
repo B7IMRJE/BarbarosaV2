@@ -346,6 +346,7 @@ export type EstimateChoice = {
     linePriceAdjustments?: Record<string, EstimateLinePriceAdjustment>;
     customerSelections?: string[];
     selectionGroup?: string;
+    pricingSource?: 'price_book' | 'technician_custom';
 };
 
 export type EstimatePresentationGate = {

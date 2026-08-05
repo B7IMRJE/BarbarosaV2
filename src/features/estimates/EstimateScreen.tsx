@@ -71,6 +71,12 @@ import {
     type PersistableEstimateChoice,
 } from '../../lib/estimateOptionPersistence';
 import {
+    buildCustomEstimateChoice,
+    isCustomEstimateChoice,
+    synchronizeCustomEstimateChoiceCopy,
+    type CustomEstimateOptionDraft,
+} from '../../lib/customEstimateOption';
+import {
     buildRecommendedEstimateChoice,
     getEligibleEstimateRecommendations,
     type EligibleEstimateRecommendation,
@@ -141,6 +147,13 @@ type PriceAdjustmentDirection = 'discount' | 'increase';
 type GuidedEstimateStep = 'build' | 'option_added' | 'recommendations' | 'review';
 type GuidedBuildStep = 'work' | 'findings' | 'price';
 type GuidedPriceAdjustmentMode = 'none' | 'discount' | 'markup' | 'override';
+
+const emptyCustomEstimateOptionDraft: CustomEstimateOptionDraft = {
+    name: '',
+    workScope: '',
+    customerSummary: '',
+    price: '',
+};
 
 const discountReasonSuggestions = [
     'Military Discount',
@@ -238,6 +251,8 @@ export default function EstimateScreen() {
     const [guidedAdjustmentLineId, setGuidedAdjustmentLineId] = useState('');
     const [editingGuidedOptionId, setEditingGuidedOptionId] = useState('');
     const [savingGuidedOption, setSavingGuidedOption] = useState(false);
+    const [customQuoteMode, setCustomQuoteMode] = useState(false);
+    const [customQuoteDraft, setCustomQuoteDraft] = useState<CustomEstimateOptionDraft>(emptyCustomEstimateOptionDraft);
     const editingGuidedOptionSnapshotRef = useRef<{
         choiceId: string;
         editableCopy: EditableChoiceCopy | null;
@@ -427,6 +442,8 @@ export default function EstimateScreen() {
         setGuidedAdjustmentLineId('');
         setEditingGuidedOptionId('');
         setSavingGuidedOption(false);
+        setCustomQuoteMode(false);
+        setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
         setMessage('Loading estimate draft...');
 
         if (providerContextIncomplete) {
@@ -528,6 +545,8 @@ export default function EstimateScreen() {
         setGuidedDiscountLabel('');
         setGuidedAdjustmentLineId('');
         setEditingGuidedOptionId('');
+        setCustomQuoteMode(false);
+        setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
         setMessage(providerModeContext && draftItems.length === 0 && !nextDraftContext
             ? 'No provider estimate draft found.'
             : ''
@@ -672,6 +691,8 @@ export default function EstimateScreen() {
         setGuidedDiscountLabel('');
         setGuidedAdjustmentLineId('');
         setEditingGuidedOptionId('');
+        setCustomQuoteMode(false);
+        setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
         setMessage('Estimate draft cleared. Start a fresh estimate from the assigned job or Client HomeOS item.');
     }
 
@@ -731,6 +752,7 @@ export default function EstimateScreen() {
             : null;
 
         setSelectedWorkType(workType);
+        setCustomQuoteMode(false);
         setSelectedCategory(matchingCategory?.id || categories[0]?.id || 'faucet_replacement');
         resetEstimateChecklist();
         setEstimateCategoryChosen(Boolean(matchingCategory));
@@ -743,6 +765,7 @@ export default function EstimateScreen() {
         if (!selectedWorkType || !isEstimateCategoryForWorkType(category, selectedWorkType)) return;
 
         setSelectedCategory(category);
+        setCustomQuoteMode(false);
         setEstimateCategoryChosen(true);
         resetEstimateChecklist();
         setMessage(`${getEstimateCategoryTemplate(category).label} checklist ready.`);
@@ -778,6 +801,8 @@ export default function EstimateScreen() {
         setGuidedDiscountLabel('');
         setGuidedAdjustmentLineId('');
         setEditingGuidedOptionId('');
+        setCustomQuoteMode(false);
+        setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
     }
 
     function configureDraftItem(item: EstimateDraftItem) {
@@ -1515,6 +1540,58 @@ export default function EstimateScreen() {
         );
     }
 
+    function startCustomQuote() {
+        setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        setCustomQuoteMode(true);
+        setScopePickerExpanded(false);
+        setGuidedStep('build');
+        setGuidedBuildStep('price');
+        setMessage('Custom Quote opened. Enter only the work and exact price you intend to present.');
+    }
+
+    function cancelCustomQuote() {
+        setCustomQuoteMode(false);
+        setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        setGuidedAdjustmentLineId('');
+
+        if (persistedOptionChoices.length > 0) {
+            setGuidedStep('review');
+            return;
+        }
+
+        setGuidedBuildStep('work');
+    }
+
+    function updateCustomQuoteDraft(field: keyof CustomEstimateOptionDraft, value: string) {
+        setCustomQuoteDraft((current) => ({ ...current, [field]: value }));
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+    }
+
+    async function addCustomQuoteToOptions() {
+        const result = buildCustomEstimateChoice({
+            id: nextGuidedOptionId(persistedOptionChoices),
+            displayOrder: persistedOptionChoices.length + 1,
+            draft: customQuoteDraft,
+        });
+
+        if (!result.choice) {
+            setMessage(result.error || 'The custom quote is incomplete.');
+            return;
+        }
+
+        const saved = await persistGuidedOptions(
+            [...persistedOptionChoices, result.choice],
+            `${result.choice.title} added as Option ${persistedOptionChoices.length + 1}.`,
+            'option_added',
+        );
+
+        if (saved) {
+            setCustomQuoteMode(false);
+            setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        }
+    }
+
     async function addRecommendedOption(
         recommendation: EligibleEstimateRecommendation,
         baseChoice: PersistableEstimateChoice,
@@ -2101,11 +2178,11 @@ export default function EstimateScreen() {
     );
     const decorateEstimateChoice = (choice: PersistableEstimateChoice) => {
         const baseChoice = restoreCompatibleEstimateChoiceBasePricing(choice);
-        const editedChoice = applyEditableChoiceCopy(
+        const editedChoice = synchronizeCustomEstimateChoiceCopy(applyEditableChoiceCopy(
             baseChoice,
             aiDraftsByChoiceId[choice.id],
             editableCopyByChoiceId[choice.id]
-        );
+        ));
         const priceAdjustmentPercentage = priceAdjustmentByChoiceId[choice.id] || 0;
         const linePriceAdjustments = linePriceAdjustmentsByChoiceId[choice.id]
             || choice.linePriceAdjustments
@@ -2113,12 +2190,12 @@ export default function EstimateScreen() {
         const optionAdjustedChoice = applyEstimateChoicePriceAdjustment(editedChoice, priceAdjustmentPercentage);
         const lineAdjustedChoice = applyEstimateChoiceLinePriceAdjustments(optionAdjustedChoice, linePriceAdjustments);
 
-        return {
+        return synchronizeCustomEstimateChoiceCopy({
             ...lineAdjustedChoice,
             priceAdjustmentPercentage,
             priceAdjustmentLabel: priceAdjustmentLabelByChoiceId[choice.id] || null,
             linePriceAdjustments,
-        };
+        });
     };
     const candidateEstimateChoices = phase1Workspace.choices.map(decorateEstimateChoice);
     const currentCandidateChoice = candidateEstimateChoices.find((choice) => choice.id === selectedChoiceId)
@@ -2130,7 +2207,8 @@ export default function EstimateScreen() {
         : phase1Workspace.choices;
     const estimateChoiceBases = choiceSource.map((choice) => restoreCompatibleEstimateChoiceBasePricing(choice));
     const allEstimateChoices = choiceSource.map(decorateEstimateChoice);
-    const estimateChoices = estimateScopeSelected
+    const hasPersistedCustomChoice = persistedOptionChoices.some(isCustomEstimateChoice);
+    const estimateChoices = estimateScopeSelected || hasPersistedCustomChoice
         ? allEstimateChoices.filter((choice) => !removedChoiceIds.includes(choice.id))
         : [];
     const optionChoices = estimateChoices.filter((choice) => choice.kind === 'individual');
@@ -2209,6 +2287,8 @@ export default function EstimateScreen() {
         guidedBuildStep,
         guidedDiscountLabel,
         guidedStep,
+        customQuoteDraft,
+        customQuoteMode,
         editingGuidedOptionId,
         items,
         measurementDraftByKey,
@@ -2216,6 +2296,7 @@ export default function EstimateScreen() {
         message,
         openHomeownerApproval,
         persistAddCurrent: addCurrentChoiceToOptions,
+        persistAddCustom: addCustomQuoteToOptions,
         persistAddRecommendation: addRecommendedOption,
         persistAddSearchResult: addSearchedPriceBookOption,
         persistRemoveOption: removeGuidedOption,
@@ -2257,11 +2338,14 @@ export default function EstimateScreen() {
         setGuidedBuildStep,
         setGuidedDiscountLabel,
         setGuidedStep,
+        startCustomQuote,
+        cancelCustomQuote,
         setRelatedSearch,
         skipRequirement,
         technicianApproved,
         updateAnswer,
         updateChoiceCopy,
+        updateCustomQuoteDraft,
         updateGuidedTechnicianNotes,
         updateMeasurementDraft,
         toggleMultiAnswer,
@@ -3225,6 +3309,8 @@ type GuidedEstimateBuilderProps = {
     companyPriceBookRoute: string;
     candidateEstimateChoices: Phase1EstimateChoice[];
     currentCandidateChoice: Phase1EstimateChoice | null;
+    customQuoteDraft: CustomEstimateOptionDraft;
+    customQuoteMode: boolean;
     documentationExpanded: boolean;
     draftContext: EstimateDraftContext | null;
     editingGuidedOptionId: string;
@@ -3250,6 +3336,7 @@ type GuidedEstimateBuilderProps = {
     message: string;
     openHomeownerApproval: () => Promise<void>;
     persistAddCurrent: (choice: Phase1EstimateChoice) => Promise<void>;
+    persistAddCustom: () => Promise<void>;
     persistAddRecommendation: (
         recommendation: EligibleEstimateRecommendation,
         baseChoice: PersistableEstimateChoice,
@@ -3291,6 +3378,8 @@ type GuidedEstimateBuilderProps = {
     setGuidedBuildStep: (step: GuidedBuildStep) => void;
     setGuidedDiscountLabel: (value: string) => void;
     setGuidedStep: (step: GuidedEstimateStep) => void;
+    startCustomQuote: () => void;
+    cancelCustomQuote: () => void;
     setRelatedSearch: (value: string) => void;
     skipRequirement: (
         kind: RequirementKind,
@@ -3300,6 +3389,7 @@ type GuidedEstimateBuilderProps = {
     technicianApproved: boolean;
     updateAnswer: (question: EstimateQuestionDefinition, value: string | number | boolean) => void;
     updateChoiceCopy: (choiceId: string, field: keyof EditableChoiceCopy, value: string) => void;
+    updateCustomQuoteDraft: (field: keyof CustomEstimateOptionDraft, value: string) => void;
     updateGuidedTechnicianNotes: (value: string) => void;
     updateMeasurementDraft: (label: string, value: string) => void;
     toggleMultiAnswer: (question: EstimateQuestionDefinition, value: string) => void;
@@ -3327,6 +3417,8 @@ function renderGuidedEstimateBuilder({
     companyPriceBookRoute,
     candidateEstimateChoices,
     currentCandidateChoice,
+    customQuoteDraft,
+    customQuoteMode,
     documentationExpanded,
     draftContext,
     editingGuidedOptionId,
@@ -3351,6 +3443,7 @@ function renderGuidedEstimateBuilder({
     message,
     openHomeownerApproval,
     persistAddCurrent,
+    persistAddCustom,
     persistAddRecommendation,
     persistAddSearchResult,
     persistRemoveOption,
@@ -3381,11 +3474,14 @@ function renderGuidedEstimateBuilder({
     setGuidedBuildStep,
     setGuidedDiscountLabel,
     setGuidedStep,
+    startCustomQuote,
+    cancelCustomQuote,
     setRelatedSearch,
     skipRequirement,
     technicianApproved,
     updateAnswer,
     updateChoiceCopy,
+    updateCustomQuoteDraft,
     updateGuidedTechnicianNotes,
     updateMeasurementDraft,
     toggleMultiAnswer,
@@ -3431,10 +3527,14 @@ function renderGuidedEstimateBuilder({
         currentCandidateChoice.pricingResult.totalAmount > 0 &&
         currentCandidateChoice.pricingResult.missingPricingInputs.length === 0
     );
-    const canApprove = phase1Workspace.answerValidation.complete &&
-        !phase1Workspace.pricingSetupRequired &&
-        estimateChoices.length > 0 &&
-        !requirementUploadInProgress;
+    const hasStandardEstimateChoice = estimateChoices.some((choice) => !isCustomEstimateChoice(choice));
+    const canApprove = estimateChoices.length > 0 &&
+        !requirementUploadInProgress &&
+        (!hasStandardEstimateChoice || (
+            phase1Workspace.answerValidation.complete &&
+            !phase1Workspace.pricingSetupRequired
+        ));
+    const reviewAttentionParts = hasStandardEstimateChoice ? attentionParts : [];
 
     return (
         <ScrollView
@@ -3478,7 +3578,7 @@ function renderGuidedEstimateBuilder({
                 <View style={guidedProgressStyle}>
                     {['1 Work', '2 Findings', '3 Price & summary', '4 Options'].map((label, index) => (
                         <View key={label} style={guidedProgressItemStyle}>
-                            <View style={index <= guidedProgressIndex(guidedStep, guidedBuildStep, estimateScopeSelected) ? guidedProgressDotActiveStyle : guidedProgressDotStyle} />
+                            <View style={index <= guidedProgressIndex(guidedStep, guidedBuildStep, estimateScopeSelected || customQuoteMode) ? guidedProgressDotActiveStyle : guidedProgressDotStyle} />
                             <Text style={guidedProgressTextStyle}>{label}</Text>
                         </View>
                     ))}
@@ -3562,6 +3662,18 @@ function renderGuidedEstimateBuilder({
                                     )}
                                 </View>
                             )}
+
+                            <TouchableOpacity
+                                accessibilityLabel="Create a custom quote"
+                                accessibilityRole="button"
+                                onPress={startCustomQuote}
+                                style={[guidedChoiceCardStyle, { marginTop: 16, width: '100%' }]}
+                            >
+                                <Text style={guidedChoiceTitleStyle}>Custom Quote</Text>
+                                <Text style={guidedChoiceDescriptionStyle}>
+                                    Name the work, describe the exact scope, write the customer summary, and enter the exact price yourself.
+                                </Text>
+                            </TouchableOpacity>
 
                             {estimateScopeSelected && !categoryPickerExpanded && (
                                 <View style={guidedServiceSummaryStyle}>
@@ -3656,7 +3768,75 @@ function renderGuidedEstimateBuilder({
                                 </View>
                         )}
 
-                        {guidedBuildStep === 'price' && estimateScopeSelected && !categoryPickerExpanded && (
+                        {guidedBuildStep === 'price' && customQuoteMode && (
+                            <View style={guidedSectionStyle}>
+                                <View style={guidedSectionHeadingRowStyle}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={guidedStepStyle}>CUSTOM QUOTE</Text>
+                                        <Text style={guidedSectionTitleStyle}>Create work from scratch</Text>
+                                    </View>
+                                    <TouchableOpacity onPress={cancelCustomQuote} style={guidedTextButtonStyle}>
+                                        <Text style={guidedTextButtonTextStyle}>Cancel</Text>
+                                    </TouchableOpacity>
+                                </View>
+                                <Text style={guidedSectionDescriptionStyle}>
+                                    This creates one technician-defined option. HomeOS will not replace it with another service or guess a price-book item.
+                                </Text>
+
+                                <Text style={guidedFieldLabelStyle}>Option name</Text>
+                                <TextInput
+                                    onChangeText={(value) => updateCustomQuoteDraft('name', value)}
+                                    placeholder="Example: Custom shower valve repair"
+                                    style={guidedAdjustmentInputStyle}
+                                    value={customQuoteDraft.name}
+                                />
+
+                                <Text style={guidedFieldLabelStyle}>Work to be performed</Text>
+                                <Text style={guidedFieldHelpStyle}>List the exact work included in this price. Type or use phone dictation.</Text>
+                                <TextInput
+                                    multiline
+                                    onChangeText={(value) => updateCustomQuoteDraft('workScope', value)}
+                                    placeholder="Describe the exact work, materials, testing, cleanup, and anything else included."
+                                    style={guidedSummaryInputStyle}
+                                    value={customQuoteDraft.workScope}
+                                />
+
+                                <Text style={guidedFieldLabelStyle}>Customer summary</Text>
+                                <TextInput
+                                    multiline
+                                    onChangeText={(value) => updateCustomQuoteDraft('customerSummary', value)}
+                                    placeholder="Explain what will be done and why it is recommended."
+                                    style={guidedSummaryInputStyle}
+                                    value={customQuoteDraft.customerSummary}
+                                />
+
+                                <Text style={guidedFieldLabelStyle}>Exact customer price</Text>
+                                <View style={guidedAdjustmentInputRowStyle}>
+                                    <TextInput
+                                        inputMode="decimal"
+                                        keyboardType="decimal-pad"
+                                        onChangeText={(value) => updateCustomQuoteDraft('price', value)}
+                                        placeholder="0.00"
+                                        style={guidedAdjustmentInputStyle}
+                                        value={customQuoteDraft.price}
+                                    />
+                                    <Text style={guidedAdjustmentUnitStyle}>$ total</Text>
+                                </View>
+                                <Text style={guidedFieldHelpStyle}>
+                                    This exact amount becomes the original price. You can still edit, discount, mark up, or override it from Quote Review.
+                                </Text>
+
+                                <TouchableOpacity
+                                    disabled={savingGuidedOption}
+                                    onPress={() => void persistAddCustom()}
+                                    style={savingGuidedOption ? guidedMutedPrimaryButtonStyle : guidedPrimaryButtonStyle}
+                                >
+                                    <Text style={guidedPrimaryButtonTextStyle}>{savingGuidedOption ? 'Saving option…' : 'Add Custom Quote to Options'}</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {guidedBuildStep === 'price' && estimateScopeSelected && !categoryPickerExpanded && !customQuoteMode && (
                                 <View style={guidedSectionStyle}>
                                     <View style={guidedSectionHeadingRowStyle}>
                                         <View style={{ flex: 1 }}>
@@ -3944,6 +4124,10 @@ function renderGuidedEstimateBuilder({
                             ))}
                         </View>
 
+                        <TouchableOpacity onPress={startCustomQuote} style={guidedSecondaryButtonStyle}>
+                            <Text style={guidedSecondaryButtonTextStyle}>Create a custom option</Text>
+                        </TouchableOpacity>
+
                         <TouchableOpacity onPress={() => setGuidedStep('review')} style={guidedSecondaryButtonStyle}>
                             <Text style={guidedSecondaryButtonTextStyle}>Review current options</Text>
                         </TouchableOpacity>
@@ -3971,7 +4155,13 @@ function renderGuidedEstimateBuilder({
                                             <Text style={guidedReviewPriceStyle}>{formatMoney(choice.pricingResult.totalAmount)}</Text>
                                         </View>
                                         <Text style={guidedReviewSummaryStyle}>{choice.homeownerExplanation}</Text>
-                                        {!!choice.customerSelections?.length && (
+                                        {isCustomEstimateChoice(choice) && (
+                                            <View style={guidedCustomerSelectionListStyle}>
+                                                <Text style={customerSelectionTitleStyle}>Custom work to be performed</Text>
+                                                <Text style={customerSelectionTextStyle}>{choice.shortSummary}</Text>
+                                            </View>
+                                        )}
+                                        {!!choice.customerSelections?.length && !isCustomEstimateChoice(choice) && (
                                             <View style={guidedCustomerSelectionListStyle}>
                                                 <Text style={customerSelectionTitleStyle}>Selected equipment and site details</Text>
                                                 {choice.customerSelections.map((selection) => (
@@ -3991,6 +4181,25 @@ function renderGuidedEstimateBuilder({
                                         {editing && editingBaseChoice && editingFinalChoice && (
                                             <View style={guidedReviewEditorStyle}>
                                                 <Text style={guidedStepStyle}>EDIT OPTION {index + 1}</Text>
+                                                {isCustomEstimateChoice(choice) && (
+                                                    <>
+                                                        <Text style={guidedFieldLabelStyle}>Option name</Text>
+                                                        <TextInput
+                                                            onChangeText={(value) => updateChoiceCopy(choice.id, 'title', value)}
+                                                            placeholder="Custom option name"
+                                                            style={guidedAdjustmentInputStyle}
+                                                            value={choice.title}
+                                                        />
+                                                        <Text style={guidedFieldLabelStyle}>Work to be performed</Text>
+                                                        <TextInput
+                                                            multiline
+                                                            onChangeText={(value) => updateChoiceCopy(choice.id, 'shortSummary', value)}
+                                                            placeholder="Exact work included"
+                                                            style={guidedSummaryInputStyle}
+                                                            value={choice.shortSummary}
+                                                        />
+                                                    </>
+                                                )}
                                                 <Text style={guidedFieldLabelStyle}>Choose the included service to change</Text>
                                                 {editingBaseChoice.pricingResult.lineItems.map((baseLine) => {
                                                     const finalLine = editingFinalChoice.pricingResult.lineItems.find((line) => line.id === baseLine.id) || baseLine;
@@ -4069,7 +4278,9 @@ function renderGuidedEstimateBuilder({
                                                         />
                                                     )}
                                                     <View style={guidedAdjustmentSummaryStyle}>
-                                                        <Text style={guidedAdjustmentSummaryTextStyle}>Company price {formatMoney(editingBaseLine?.totalAmount || 0)}</Text>
+                                                        <Text style={guidedAdjustmentSummaryTextStyle}>
+                                                            {isCustomEstimateChoice(choice) ? 'Original custom price' : 'Company price'} {formatMoney(editingBaseLine?.totalAmount || 0)}
+                                                        </Text>
                                                         <Text style={guidedAdjustmentSummaryTextStyle}>
                                                             {editingLineAdjustmentAmount === 0 ? 'No change' : `${editingLineAdjustmentAmount > 0 ? '+' : '−'}${formatMoney(Math.abs(editingLineAdjustmentAmount))}`}
                                                         </Text>
@@ -4126,11 +4337,11 @@ function renderGuidedEstimateBuilder({
                             })}
                         </View>
 
-                        {attentionParts.length > 0 && (
+                        {reviewAttentionParts.length > 0 && (
                             <View style={guidedAttentionStyle}>
                                 <View style={{ flex: 1 }}>
                                     <Text style={guidedAttentionTitleStyle}>Before homeowner presentation</Text>
-                                    <Text style={guidedAttentionTextStyle}>{attentionParts.join(' · ')} still needed.</Text>
+                                    <Text style={guidedAttentionTextStyle}>{reviewAttentionParts.join(' · ')} still needed.</Text>
                                 </View>
                                 <TouchableOpacity
                                     onPress={() => {
