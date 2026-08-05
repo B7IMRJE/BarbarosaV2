@@ -404,6 +404,10 @@ export default function JobWorkflowScreen() {
         .filter((option) => selectedChoiceIds.includes(option.id))
         .reduce((total, option) => total + option.pricingResult.totalAmount, 0);
     const selectedOptions = options.filter((option) => selectedChoiceIds.includes(option.id));
+    const groupedOptionKeys = options.map((option) => String(option.selectionGroup || '').trim());
+    const allOptionsAreOneChoice = options.length > 1 &&
+        groupedOptionKeys.every(Boolean) &&
+        new Set(groupedOptionKeys).size === 1;
     const cancellationNoticeSigned = !!cancellationName.trim() && isDrawnSignature(cancellationSignature);
     const workApprovalReady = selectedChoiceIds.length > 0
         && cancellationNoticeSigned
@@ -490,7 +494,12 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'presenting' && approvalPage === 1 && (
-                <Section title="1. Homeowner selects the work" subtitle="Select one or more technician-approved options.">
+                <Section
+                    title="1. Homeowner selects the work"
+                    subtitle={allOptionsAreOneChoice
+                        ? 'Choose one complete technician-approved quote option.'
+                        : 'Select one or more technician-approved options.'}
+                >
                     <View style={optionGridStyle}>
                         {options.map((option) => (
                             <TouchableOpacity
@@ -503,7 +512,9 @@ export default function JobWorkflowScreen() {
                                 <Text style={optionTitleStyle}>{option.title}</Text>
                                 <Text style={optionPriceStyle}>{formatMoney(option.pricingResult.totalAmount)}</Text>
                                 {!!option.selectionGroup && (
-                                    <Text style={selectionGroupPillStyle}>Choose one equipment + warranty package</Text>
+                                    <Text style={selectionGroupPillStyle}>
+                                        {option.selectionGroupLabel || 'Choose one complete quote option'}
+                                    </Text>
                                 )}
                                 <Text style={bodyStyle}>{option.homeownerExplanation}</Text>
                                 <CustomerSelectionList selections={option.customerSelections} />

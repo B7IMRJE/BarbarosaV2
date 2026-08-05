@@ -25,6 +25,7 @@ import {
     isPhotoRequirementComplete,
     isRequirementSkipAnswer,
     measurementRequirementAnswerKey,
+    normalizeCompleteEstimateOptionSet,
     estimateWorkTypeOptions,
     photoRequirementAnswerKey,
     toggleEstimateMultiSelectAnswer,
@@ -1688,17 +1689,19 @@ export default function EstimateScreen() {
 
             if (!session) return false;
 
-            const selectedSavedChoiceId = nextChoices.some((choice) => choice.id === selectedChoiceId)
+            const normalizedChoices = normalizeCompleteEstimateOptionSet(nextChoices, selectedCategory);
+
+            const selectedSavedChoiceId = normalizedChoices.some((choice) => choice.id === selectedChoiceId)
                 ? selectedChoiceId
                 : null;
 
             await saveEstimateOptionSet({
                 sessionId: session.id,
-                options: nextChoices,
+                options: normalizedChoices,
                 selectedSourceChoiceId: selectedSavedChoiceId,
                 technicianApproved: false,
             });
-            setPersistedOptionChoices(nextChoices);
+            setPersistedOptionChoices(normalizedChoices);
             setTechnicianApproved(false);
             setGuidedStep(nextStep);
             setRelatedSearch('');
@@ -1848,7 +1851,7 @@ export default function EstimateScreen() {
 
             if (!session) return;
 
-            const savedOptions = workspaceChoices.map((choice) => ({
+            const savedOptions = normalizeCompleteEstimateOptionSet(workspaceChoices, selectedCategory).map((choice) => ({
                 ...choice,
                 basePricingResult: (
                     choiceSource.find((candidate) => candidate.id === choice.id) as PersistableEstimateChoice | undefined

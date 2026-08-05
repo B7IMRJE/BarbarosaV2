@@ -365,6 +365,7 @@ export type EstimateChoice = {
     linePriceAdjustments?: Record<string, EstimateLinePriceAdjustment>;
     customerSelections?: string[];
     selectionGroup?: string;
+    selectionGroupLabel?: string;
     pricingSource?: 'price_book' | 'technician_custom';
 };
 
@@ -425,6 +426,8 @@ export type HomeownerPresentationChoice = {
     priceAdjustmentPercentage: number;
     priceAdjustmentLabel: string | null;
     customerSelections: string[];
+    selectionGroup: string | null;
+    selectionGroupLabel: string | null;
 };
 
 export type RepipeFixtureKey =
@@ -1697,7 +1700,25 @@ export function toHomeownerPresentationChoice(choice: EstimateChoice): Homeowner
         priceAdjustmentPercentage: choice.priceAdjustmentPercentage || 0,
         priceAdjustmentLabel: choice.priceAdjustmentLabel || null,
         customerSelections: [...(choice.customerSelections || [])],
+        selectionGroup: choice.selectionGroup || null,
+        selectionGroupLabel: choice.selectionGroupLabel || null,
     };
+}
+
+export function normalizeCompleteEstimateOptionSet(
+    choices: EstimateChoice[],
+    category: EstimateOptionCategory
+) {
+    if (choices.length < 2) return choices;
+
+    const selectionGroup = `estimate-${category}-complete-option`;
+    const selectionGroupLabel = 'Choose one complete quote option';
+
+    return choices.map((choice) => ({
+        ...choice,
+        selectionGroup,
+        selectionGroupLabel,
+    }));
 }
 
 export function toggleEstimateChoiceSelection(
@@ -2527,6 +2548,7 @@ function buildWaterHeaterDeterministicChoices(input: {
                 recommended: false,
                 displayOrder: index + 1,
                 selectionGroup: 'water-heater-equipment',
+                selectionGroupLabel: 'Choose one equipment and warranty package',
                 customerSelections: uniqueText([
                     `Brand and model: ${productLabel}`,
                     `Product tier: ${homeownerTier}`,
