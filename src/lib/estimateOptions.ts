@@ -10,6 +10,7 @@ export type EstimateOptionCategory =
     | 'whole_home_repipe'
     | 'valve_replacement'
     | 'riser_replacement'
+    | 'exterior_pipe_replacement'
     | 'water_main_replacement'
     | 'sewer_line_replacement'
     | 'gas_line_replacement'
@@ -31,6 +32,23 @@ const FAUCET_REINSTALL_EXISTING_PRICE_KEY = 'faucet-reinstall-existing';
 const FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY = 'faucet-install-company-approved';
 const WATER_HEATER_CUSTOM_SCOPE_LABEL = 'Custom repair / service';
 const WATER_HEATER_CUSTOM_SCOPE_ANSWER_ID = 'water_heater_service_custom_scope';
+const exteriorPipePriceKeys = {
+    'Water service': 'water_service_whole_home_main_water_service_replacement_linear_foot',
+    'Sewer / building drain': 'drain_sewer_whole_home_sewer_line_replacement_linear_foot',
+    Gas: 'gas_service_garage_mechanical_gas_line_replacement_linear_foot',
+} as const;
+
+const exteriorPipeMaterials = {
+    'Water service': ['Copper', 'PEX for potable water', 'PVC / CPVC where approved', 'HDPE / polyethylene water service', 'Galvanized steel (existing / limited)', 'Other company-approved water material'],
+    'Sewer / building drain': ['ABS', 'PVC', 'Cast iron', 'Clay / existing tie-in', 'Other approved drainage material'],
+    Gas: ['Black iron / steel', 'Galvanized steel where approved', 'Copper where approved', 'Underground polyethylene gas pipe', 'Other company-approved gas material'],
+} as const;
+
+const exteriorPipeSizes = {
+    'Water service': ['1/2 in', '3/4 in', '1 in', '1-1/4 in', '1-1/2 in', '2 in', 'Larger / engineering required'],
+    'Sewer / building drain': ['1-1/2 in', '2 in', '3 in', '4 in', '6 in', 'Larger / engineering required'],
+    Gas: ['1/2 in', '3/4 in', '1 in', '1-1/4 in', '1-1/2 in', '2 in', 'Sizing calculation required'],
+} as const;
 
 export type EstimateRequirementPhotoAnswer = {
     kind: 'requirement_photo';
@@ -194,6 +212,7 @@ export type EstimateCategoryTemplate = {
     recommendedOptionStructures: string[];
     warnings: string[];
     blockingConditions: string[];
+    hiddenFromPicker?: boolean;
 };
 
 export type EstimateProductTier = 'Essential' | 'Professional' | 'Premium';
@@ -814,6 +833,44 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         ],
         warnings: ['Risers are replacement work in this workflow; do not present a riser repair option.'],
     }),
+    {
+        id: 'exterior_pipe_replacement',
+        label: 'Exterior Pipe Replacement',
+        workType: 'replacement',
+        serviceCategory: 'Exterior Piping',
+        requiredPhotoLabels: ['Exterior pipe route', 'Connection points and affected surface'],
+        requiredMeasurementLabels: [],
+        productCategoryFilters: [],
+        pricingCategoryFilters: ['Water Service', 'Drains / Sewer', 'Gas'],
+        scopePriceKeys: [
+            'water_service_whole_home_main_water_service_replacement_linear_foot',
+            'drain_sewer_whole_home_sewer_line_replacement_linear_foot',
+            'gas_service_garage_mechanical_gas_line_replacement_linear_foot',
+        ],
+        scopeQuestionId: 'exterior_pipe_utility',
+        requiredScopeCodes: [],
+        recommendedOptionStructures: [
+            'Measured Exterior Pipe Replacement',
+            'Exterior Pipe Replacement with Surface Restoration',
+            'Exterior Pipe Replacement with Protection Upgrade',
+        ],
+        warnings: [
+            'Use only company-approved materials that are permitted for the selected utility and local installation method.',
+            'Gas piping requires licensed sizing, testing, permit, and safety review before homeowner presentation.',
+        ],
+        blockingConditions: ['Utility, compatible material, pipe size, measured length, route, and restoration responsibility are required.'],
+        questions: [
+            selectQuestion('exterior_pipe_utility', 'What exterior piping are we replacing?', true, ['Water service', 'Sewer / building drain', 'Gas']),
+            selectQuestion('exterior_pipe_material', 'Approved replacement material', true, []),
+            selectQuestion('exterior_pipe_size', 'Pipe size', true, []),
+            measurementQuestion('exterior_pipe_linear_feet', 'Measured replacement length (linear feet)', true, 1),
+            measurementQuestion('exterior_pipe_crew_hours', 'Estimated crew time (hours)', true, 0.5),
+            selectQuestion('exterior_pipe_access', 'Route and access', true, ['Open / exposed', 'Soft soil / landscape trench', 'Rooted or rocky soil', 'Hardscape crossing', 'Bore / trenchless review', 'Under-structure access']),
+            selectQuestion('exterior_pipe_surface', 'Affected surface', true, ['No finished surface', 'Landscape', 'Concrete', 'Asphalt', 'Pavers / masonry', 'Multiple surfaces']),
+            selectQuestion('exterior_pipe_restoration', 'Who restores the affected surface?', true, ['Company includes restoration', 'Company allowance only', 'Homeowner / third party', 'Not required']),
+            yesNoQuestion('exterior_pipe_permit', 'Permit, inspection, or utility coordination required?', true),
+        ],
+    },
     scopedEstimateTemplate({
         id: 'water_main_replacement',
         label: 'Water Main Replacement',
@@ -832,6 +889,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('water_main_access', 'Route and access', true, ['open trench', 'landscape', 'hardscape crossing', 'bore / trenchless review']),
             yesNoQuestion('water_main_permit', 'Permit or inspection required?', true),
         ],
+        hiddenFromPicker: true,
     }),
     scopedEstimateTemplate({
         id: 'sewer_line_replacement',
@@ -848,6 +906,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('sewer_pipe_material', 'Existing pipe material', true, ['cast iron', 'clay', 'ABS', 'PVC', 'Orangeburg', 'unknown']),
             yesNoQuestion('sewer_permit', 'Permit or inspection required?', true),
         ],
+        hiddenFromPicker: true,
     }),
     scopedEstimateTemplate({
         id: 'gas_line_replacement',
@@ -869,6 +928,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             yesNoQuestion('gas_test_permit', 'Pressure test or permit required?', true),
         ],
         warnings: ['Gas work must follow company licensing, testing, permit, and safety requirements.'],
+        hiddenFromPicker: true,
     }),
     scopedEstimateTemplate({
         id: 'water_filtration_replacement',
@@ -1249,6 +1309,7 @@ function scopedEstimateTemplate(input: {
     warnings?: string[];
     customScope?: NonNullable<EstimateQuestionDefinition['customAnswer']>;
     scopeQuestionAfter?: number;
+    hiddenFromPicker?: boolean;
 }): EstimateCategoryTemplate {
     const scopeNames = catalogNamesForPriceKeys(input.scopePriceKeys);
     const actionLabel = input.workType === 'replacement' ? 'Replacement' : 'Repair / Service';
@@ -1287,6 +1348,7 @@ function scopedEstimateTemplate(input: {
         warnings: input.warnings || [],
         blockingConditions: ['The exact service scope and required site conditions must be selected before homeowner presentation.'],
         questions,
+        hiddenFromPicker: input.hiddenFromPicker,
     };
 }
 
@@ -1326,7 +1388,7 @@ export const estimateWorkTypeOptions: Array<{
 ];
 
 export function getEstimateCategoriesForWorkType(workType: EstimateWorkType) {
-    return estimateCategoryTemplates.filter((template) => template.workType === workType);
+    return estimateCategoryTemplates.filter((template) => template.workType === workType && !template.hiddenFromPicker);
 }
 
 export function getEstimateWorkTypeForCategory(category: EstimateOptionCategory) {
@@ -1335,6 +1397,41 @@ export function getEstimateWorkTypeForCategory(category: EstimateOptionCategory)
 
 export function isEstimateCategoryForWorkType(category: EstimateOptionCategory, workType: EstimateWorkType) {
     return getEstimateWorkTypeForCategory(category) === workType;
+}
+
+export type ExteriorPipeUtility = keyof typeof exteriorPipePriceKeys;
+
+export function getExteriorPipePriceKey(utility: string) {
+    const selectedUtility = readExteriorPipeUtility(utility);
+
+    return selectedUtility ? exteriorPipePriceKeys[selectedUtility] : null;
+}
+
+export function getExteriorPipeAllowedMaterials(utility: string): string[] {
+    const selectedUtility = readExteriorPipeUtility(utility);
+
+    return selectedUtility ? [...exteriorPipeMaterials[selectedUtility]] : [];
+}
+
+export function getExteriorPipeAllowedSizes(utility: string): string[] {
+    const selectedUtility = readExteriorPipeUtility(utility);
+
+    return selectedUtility ? [...exteriorPipeSizes[selectedUtility]] : [];
+}
+
+export function getEstimateQuestionAllowedAnswers(
+    question: EstimateQuestionDefinition,
+    answers: EstimateAnswerSet
+) {
+    if (question.id === 'exterior_pipe_material') {
+        return getExteriorPipeAllowedMaterials(readAnswerText(answers.exterior_pipe_utility));
+    }
+
+    if (question.id === 'exterior_pipe_size') {
+        return getExteriorPipeAllowedSizes(readAnswerText(answers.exterior_pipe_utility));
+    }
+
+    return question.allowedAnswers || [];
 }
 
 export function inferEstimateCategoryFromDraft(
@@ -1360,9 +1457,10 @@ export function inferEstimateCategoryFromDraft(
         searchable.includes('whole-home filter') ||
         searchable.includes('whole home filter')
     ) return 'water_filtration_replacement';
-    if (searchable.includes('water main') || searchable.includes('water service line') || searchable.includes('service main')) return 'water_main_replacement';
+    if (searchable.includes('water main') || searchable.includes('water service line') || searchable.includes('service main')) return 'exterior_pipe_replacement';
     if (searchable.includes('riser')) return 'riser_replacement';
-    if (searchable.includes('sewer') || searchable.includes('drain line') || searchable.includes('waste line')) return 'sewer_line_replacement';
+    if (searchable.includes('sewer') || searchable.includes('drain line') || searchable.includes('waste line')) return 'exterior_pipe_replacement';
+    if (searchable.includes('gas line') || searchable.includes('gas main')) return 'exterior_pipe_replacement';
     if (searchable.includes('valve') || searchable.includes('angle stop') || searchable.includes('shutoff') || searchable.includes('backflow') || searchable.includes('pressure regulator')) return 'valve_replacement';
     if (searchable.includes('repipe') || searchable.includes('whole home') || searchable.includes('whole-home')) return 'whole_home_repipe';
     if (searchable.includes('water heater') || searchable.includes('tankless')) return 'water_heater';
@@ -1395,9 +1493,10 @@ export function inferEstimateCategoryForDraftItem(
         itemIdentity.includes('water softener') ||
         itemIdentity.includes('reverse osmosis')
     ) return 'water_filtration_replacement';
-    if (itemIdentity.includes('water main') || itemIdentity.includes('water service line') || itemIdentity.includes('service main')) return 'water_main_replacement';
+    if (itemIdentity.includes('water main') || itemIdentity.includes('water service line') || itemIdentity.includes('service main')) return 'exterior_pipe_replacement';
     if (itemIdentity.includes('riser')) return 'riser_replacement';
-    if (itemIdentity.includes('sewer') || itemIdentity.includes('drain line') || itemIdentity.includes('waste line')) return 'sewer_line_replacement';
+    if (itemIdentity.includes('sewer') || itemIdentity.includes('drain line') || itemIdentity.includes('waste line')) return 'exterior_pipe_replacement';
+    if (itemIdentity.includes('gas line') || itemIdentity.includes('gas main')) return 'exterior_pipe_replacement';
     if (itemIdentity.includes('valve') || itemIdentity.includes('angle stop') || itemIdentity.includes('shutoff') || itemIdentity.includes('backflow') || itemIdentity.includes('pressure regulator')) return 'valve_replacement';
     if (itemIdentity.includes('repipe') || itemIdentity.includes('whole home') || itemIdentity.includes('whole-home')) {
         return 'whole_home_repipe';
@@ -1412,7 +1511,7 @@ export function inferEstimateCategoryForDraftItem(
 
 export function validateEstimateAnswers(template: EstimateCategoryTemplate, answers: EstimateAnswerSet): EstimateAnswerValidation {
     const missingRequiredQuestions = template.questions
-        .filter((question) => question.required && !isAnswerComplete(answers[question.id]));
+        .filter((question) => question.required && !isEstimateQuestionAnswerComplete(question, answers));
     const missingCustomAnswers = template.questions
         .filter((question) =>
             question.customAnswer &&
@@ -2022,6 +2121,19 @@ function buildConfirmedScopePricingResults(
     answers: EstimateAnswerSet
 ) {
     const selectedScopeKeys = getSelectedScopePriceKeys(template, answers);
+    const exteriorPipeQuantity = template.id === 'exterior_pipe_replacement'
+        ? readPositiveEstimateQuantity(answers.exterior_pipe_linear_feet)
+        : 1;
+    const exteriorPipeUtility = readAnswerText(answers.exterior_pipe_utility);
+    const exteriorPipeMaterial = readAnswerText(answers.exterior_pipe_material);
+    const exteriorPipeSize = readAnswerText(answers.exterior_pipe_size);
+
+    if (template.id === 'exterior_pipe_replacement') {
+        if (exteriorPipeQuantity < 1) return [];
+        if (!getExteriorPipeAllowedMaterials(exteriorPipeUtility).includes(exteriorPipeMaterial)) return [];
+        if (!getExteriorPipeAllowedSizes(exteriorPipeUtility).includes(exteriorPipeSize)) return [];
+    }
+
     const catalogByKey = new Map(plumbingPriceBookCatalogItems.map((item) => [item.price_key, normalizeText(item.name)]));
     const selectedEntries = selectedScopeKeys
         .map((priceKey) => entries.find((entry) =>
@@ -2038,7 +2150,7 @@ function buildConfirmedScopePricingResults(
         priceBookEntries: entries,
         lineInputs: selectedEntries.map((entry, index) => ({
             priceBookEntryId: entry.id,
-            quantity: 1,
+            quantity: template.id === 'exterior_pipe_replacement' ? exteriorPipeQuantity : 1,
             source: index === 0 ? 'base_installation' : 'modifier',
             required: true,
             removable: false,
@@ -2234,6 +2346,15 @@ function buildDeterministicChoices(input: {
         });
     }
 
+    if (input.category === 'exterior_pipe_replacement') {
+        return buildExteriorPipeDeterministicChoices(
+            validPricingResults,
+            input.answers,
+            input.template,
+            input.draftContext
+        );
+    }
+
     const prebuiltChoices = input.category === 'faucet_replacement'
         ? buildFaucetDeterministicChoices(validPricingResults, input.products)
         : [];
@@ -2281,6 +2402,66 @@ function buildDeterministicChoices(input: {
     ];
 
     return choices.slice(0, 4);
+}
+
+function buildExteriorPipeDeterministicChoices(
+    pricingResults: EstimatePricingResult[],
+    answers: EstimateAnswerSet,
+    template: EstimateCategoryTemplate,
+    draftContext: EstimateDraftContextLike | null
+) {
+    const pricingResult = pricingResults[0];
+
+    if (!pricingResult) return [];
+
+    const utility = readAnswerText(answers.exterior_pipe_utility);
+    const material = readAnswerText(answers.exterior_pipe_material);
+    const size = readAnswerText(answers.exterior_pipe_size);
+    const linearFeet = readPositiveEstimateQuantity(answers.exterior_pipe_linear_feet);
+    const crewHours = readPositiveDecimal(answers.exterior_pipe_crew_hours);
+    const route = readAnswerText(answers.exterior_pipe_access);
+    const surface = readAnswerText(answers.exterior_pipe_surface);
+    const restoration = readAnswerText(answers.exterior_pipe_restoration);
+    const permitRequired = readAnswerText(answers.exterior_pipe_permit);
+    const homeownerName = preferredHomeownerFirstName(draftContext);
+    const utilityLabel = utility === 'Sewer / building drain' ? 'Sewer' : utility;
+    const scopeTitle = `${utilityLabel} Exterior Pipe Replacement — ${linearFeet} Linear Feet`;
+    const title = homeownerName ? `${homeownerName}'s ${scopeTitle}` : scopeTitle;
+    const primaryLine = pricingResult.lineItems[0];
+    const detailedLineName = `${size} ${material} ${utilityLabel.toLowerCase()} exterior pipe replacement`;
+    const detailedPricingResult: EstimatePricingResult = {
+        ...pricingResult,
+        lineItems: pricingResult.lineItems.map((line, index) => index === 0
+            ? { ...line, name: detailedLineName }
+            : line
+        ),
+    };
+    const customerSelections = uniqueText([
+        ...buildEstimateCustomerSelections(template, answers),
+        `Measured replacement length: ${linearFeet} linear feet`,
+        crewHours > 0 ? `Technician estimated crew time: ${crewHours} hours` : '',
+        primaryLine ? `Price basis: ${formatMoney(primaryLine.unitAmount)} per linear foot × ${linearFeet}` : '',
+    ]);
+
+    return [{
+        id: 'individual-exterior-pipe-replacement',
+        kind: 'individual' as const,
+        title,
+        shortSummary: `${linearFeet} linear feet · ${size} · ${material}`,
+        homeownerExplanation: `Replace approximately ${linearFeet} linear feet of ${size} ${material} for the documented ${utilityLabel.toLowerCase()} route. The price uses the active company per-foot rate and the measured length. Access: ${formatAnswerLabel(route)}. Affected surface: ${formatAnswerLabel(surface)}. Restoration responsibility: ${formatAnswerLabel(restoration)}. Permit, inspection, or utility coordination: ${formatAnswerLabel(permitRequired)}. Final installation remains subject to field verification, approved materials, testing, and local requirements.`,
+        keyBenefits: ['Measured per-foot price', 'Utility-compatible material', 'Access and restoration responsibility documented'],
+        whyItDiffers: 'This option prices only the selected exterior water, sewer, or gas replacement by measured linear foot; it does not combine unrelated piping work.',
+        recommendedReason: 'Matches the selected utility, material, size, measured route, and site conditions.',
+        productIds: [],
+        scopeIds: detailedPricingResult.lineItems.map((line) => line.priceBookEntryId),
+        warrantyIds: [],
+        inclusionIds: detailedPricingResult.lineItems.map((line) => line.code),
+        exclusionIds: restoration === 'Homeowner / third party' ? ['surface-restoration'] : [],
+        pricingResult: detailedPricingResult,
+        recommended: true,
+        displayOrder: 1,
+        customerSelections,
+    }];
 }
 
 function buildWaterHeaterDeterministicChoices(input: {
@@ -2770,6 +2951,7 @@ function buildPresentationGate(input: {
 const replacementOnlyEstimateCategories = new Set<EstimateOptionCategory>([
     'valve_replacement',
     'riser_replacement',
+    'exterior_pipe_replacement',
     'water_main_replacement',
     'sewer_line_replacement',
 ]);
@@ -2795,6 +2977,12 @@ function selectEligiblePriceBookEntries(
 }
 
 function getSelectedScopePriceKeys(template: EstimateCategoryTemplate, answers: EstimateAnswerSet) {
+    if (template.id === 'exterior_pipe_replacement') {
+        const priceKey = getExteriorPipePriceKey(readAnswerText(answers.exterior_pipe_utility));
+
+        return priceKey ? [priceKey] : [];
+    }
+
     if (template.id === 'valve_replacement' && readAnswerText(answers.valve_type)) {
         return getSelectedValveScopePriceKeys(template.scopePriceKeys, answers);
     }
@@ -2997,6 +3185,7 @@ function buildKeyBenefits(category: EstimateOptionCategory, index: number) {
         faucet_replacement: ['Sink fit confirmed', 'Shutoffs reviewed', 'Approved fixture path'],
         valve_replacement: ['Correct valve and service confirmed', 'Isolation and access reviewed', 'Restoration scope visible'],
         riser_replacement: ['Served areas documented', 'Routing and outage reviewed', 'Restoration scope visible'],
+        exterior_pipe_replacement: ['Measured per-foot scope', 'Utility-compatible material selected', 'Access and restoration responsibility documented'],
         water_main_replacement: ['Route and installation method reviewed', 'Utility coordination visible', 'Restoration responsibility documented'],
         sewer_line_replacement: ['Failure and routing documented', 'Access method reviewed', 'Cleanout and restoration scope visible'],
         water_filtration_replacement: ['Water goals documented', 'Equipment stages sized', 'Maintenance path visible'],
@@ -3045,6 +3234,33 @@ export function isAnswerComplete(value: EstimateAnswerValue | undefined) {
     if (isMeasurementRequirementAnswer(value)) return isMeasurementRequirementComplete(value);
 
     return false;
+}
+
+export function isEstimateQuestionAnswerComplete(
+    question: EstimateQuestionDefinition,
+    answers: EstimateAnswerSet
+) {
+    const value = answers[question.id];
+
+    if (!isAnswerComplete(value)) return false;
+
+    if (question.type === 'measurement' || question.type === 'counter') {
+        const amount = typeof value === 'number' ? value : Number(value);
+
+        if (!Number.isFinite(amount)) return false;
+        if (question.min !== undefined && amount < question.min) return false;
+        if (question.max !== undefined && amount > question.max) return false;
+    }
+
+    if (question.type === 'single_select' || question.type === 'yes_no') {
+        const allowedAnswers = getEstimateQuestionAllowedAnswers(question, answers);
+
+        if (allowedAnswers.length > 0 && typeof value === 'string') {
+            return allowedAnswers.some((answer) => normalizeText(answer) === normalizeText(value));
+        }
+    }
+
+    return true;
 }
 
 export function toggleEstimateMultiSelectAnswer(
@@ -3247,8 +3463,14 @@ function yesNoQuestion(id: string, label: string, required: boolean): EstimateQu
     return { id, label, type: 'yes_no', required, allowedAnswers: ['yes', 'no'] };
 }
 
-function measurementQuestion(id: string, label: string, required: boolean): EstimateQuestionDefinition {
-    return { id, label, type: 'measurement', required, min: 0 };
+function measurementQuestion(
+    id: string,
+    label: string,
+    required: boolean,
+    min = 0,
+    max?: number
+): EstimateQuestionDefinition {
+    return { id, label, type: 'measurement', required, min, max };
 }
 
 function noteQuestion(id: string, label: string, required: boolean): EstimateQuestionDefinition {
@@ -3260,6 +3482,18 @@ function normalizeQuantity(value: unknown) {
     if (typeof value === 'boolean') return value ? 1 : 0;
 
     return 0;
+}
+
+function readPositiveEstimateQuantity(value: EstimateAnswerValue | undefined) {
+    const amount = typeof value === 'number' ? value : Number(value);
+
+    return Number.isFinite(amount) ? Math.max(0, Math.round(amount)) : 0;
+}
+
+function readPositiveDecimal(value: EstimateAnswerValue | undefined) {
+    const amount = typeof value === 'number' ? value : Number(value);
+
+    return Number.isFinite(amount) ? Math.max(0, Math.round(amount * 100) / 100) : 0;
 }
 
 function roundMoney(value: number) {
@@ -3276,6 +3510,13 @@ function uniqueText(values: string[]) {
 
 function normalizeText(value: string) {
     return value.trim().toLowerCase().replace(/[_/-]+/g, ' ').replace(/\s+/g, ' ');
+}
+
+function readExteriorPipeUtility(value: string): ExteriorPipeUtility | '' {
+    const normalized = normalizeText(value);
+
+    return (Object.keys(exteriorPipePriceKeys) as ExteriorPipeUtility[])
+        .find((utility) => normalizeText(utility) === normalized) || '';
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {

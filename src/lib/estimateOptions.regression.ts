@@ -979,8 +979,9 @@ function plumbingReplacementScopesUseRelevantChecklists() {
     const cases: Array<[string, EstimateOptionCategory]> = [
         ['Shower Valve', 'valve_replacement'],
         ['Domestic Water Riser', 'riser_replacement'],
-        ['Water Main', 'water_main_replacement'],
-        ['Building Sewer Line', 'sewer_line_replacement'],
+        ['Water Main', 'exterior_pipe_replacement'],
+        ['Building Sewer Line', 'exterior_pipe_replacement'],
+        ['Exterior Gas Line', 'exterior_pipe_replacement'],
     ];
 
     cases.forEach(([name, expected]) => {

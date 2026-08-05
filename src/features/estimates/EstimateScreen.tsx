@@ -14,10 +14,11 @@ import {
     getEstimateCategoriesForWorkType,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
+    getEstimateQuestionAllowedAnswers,
     getMeasurementRequirementPrompt,
     inferEstimateCategoryForDraftItem,
     isEstimateCategoryForWorkType,
-    isAnswerComplete,
+    isEstimateQuestionAnswerComplete,
     isMeasurementRequirementAnswer,
     isMeasurementRequirementComplete,
     isPhotoRequirementAnswer,
@@ -926,11 +927,30 @@ export default function EstimateScreen() {
     function updateAnswer(question: EstimateQuestionDefinition, value: string | number | boolean) {
         setTechnicianApproved(false);
         setPresentationMode(false);
-        setAnswers((current) => ({
-            ...current,
-            [question.id]: value,
-        }));
+        setAnswers((current) => {
+            const next = { ...current, [question.id]: value };
+
+            if (question.id === 'exterior_pipe_utility') {
+                delete next.exterior_pipe_material;
+                delete next.exterior_pipe_size;
+            }
+
+            return next;
+        });
         void persistAnswerIfSessionReady(question.id, value);
+
+        if (question.id === 'exterior_pipe_utility') {
+            const sessionId = estimateSession?.category === selectedCategory ? estimateSession.id : null;
+
+            if (sessionId) {
+                void Promise.all([
+                    deleteEstimateSessionAnswer(sessionId, 'exterior_pipe_material'),
+                    deleteEstimateSessionAnswer(sessionId, 'exterior_pipe_size'),
+                ]).catch((error) => setMessage(
+                    `Previous pipe material and size could not be cleared: ${error instanceof Error ? error.message : 'Unknown error'}`
+                ));
+            }
+        }
     }
 
     function toggleMultiAnswer(question: EstimateQuestionDefinition, value: string) {
@@ -4488,7 +4508,8 @@ function renderQuestion(
     toggleMultiAnswer: (question: EstimateQuestionDefinition, value: string) => void
 ) {
     const currentAnswer = answers[question.id];
-    const complete = isAnswerComplete(currentAnswer);
+    const complete = isEstimateQuestionAnswerComplete(question, answers);
+    const allowedAnswers = getEstimateQuestionAllowedAnswers(question, answers);
     const isScopeQuestion = question.id.endsWith('_scope');
     const customAnswer = question.customAnswer;
     const customSelected = Boolean(
@@ -4514,7 +4535,7 @@ function renderQuestion(
 
             {question.type === 'single_select' || question.type === 'yes_no' ? (
                 <View style={chipRowStyle}>
-                    {(question.allowedAnswers || ['yes', 'no']).map((answer) => (
+                    {(question.type === 'yes_no' && allowedAnswers.length === 0 ? ['yes', 'no'] : allowedAnswers).map((answer) => (
                         <TouchableOpacity
                             key={`${question.id}-${answer}`}
                             onPress={() => updateAnswer(question, answer)}
@@ -4533,7 +4554,7 @@ function renderQuestion(
                 </View>
             ) : question.type === 'multi_select' ? (
                 <View style={chipRowStyle}>
-                    {(question.allowedAnswers || []).map((answer) => {
+                    {allowedAnswers.map((answer) => {
                         const selected = Array.isArray(currentAnswer) && currentAnswer.includes(answer);
 
                         return (
@@ -4554,7 +4575,30 @@ function renderQuestion(
                         );
                     })}
                 </View>
-            ) : question.type === 'measurement' || question.type === 'counter' ? (
+            ) : question.type === 'measurement' ? (
+                <View style={{ gap: 7 }}>
+                    <View style={guidedAdjustmentInputRowStyle}>
+                        <TextInput
+                            inputMode="decimal"
+                            keyboardType="decimal-pad"
+                            onChangeText={(value) => updateAnswer(question, value)}
+                            placeholder={question.min ? `Minimum ${question.min}` : 'Enter amount'}
+                            style={guidedAdjustmentInputStyle}
+                            value={typeof currentAnswer === 'number' || typeof currentAnswer === 'string'
+                                ? String(currentAnswer)
+                                : ''}
+                        />
+                        <Text style={guidedAdjustmentUnitStyle}>
+                            {question.id === 'exterior_pipe_linear_feet' ? 'linear ft' : 'hours'}
+                        </Text>
+                    </View>
+                    {!complete && typeof currentAnswer === 'string' && currentAnswer.trim().length > 0 && (
+                        <Text style={requirementErrorTextStyle}>
+                            Enter a number{question.min !== undefined ? ` of at least ${question.min}` : ''}.
+                        </Text>
+                    )}
+                </View>
+            ) : question.type === 'counter' ? (
                 <View style={counterRowStyle}>
                     <TouchableOpacity
                         onPress={() => updateAnswer(question, Math.max(0, Number(currentAnswer || 0) - 1))}
@@ -4578,6 +4622,10 @@ function renderQuestion(
                     multiline
                     placeholder="Notes"
                 />
+            )}
+
+            {(question.id === 'exterior_pipe_material' || question.id === 'exterior_pipe_size') && allowedAnswers.length === 0 && (
+                <Text style={guidedFieldHelpStyle}>Choose water, sewer, or gas first.</Text>
             )}
 
             {customAnswer && customSelected && (
