@@ -30,6 +30,16 @@ import {
     getTemporaryRiversidePlumbingPrice,
     temporaryRiversidePlumbingPrices,
 } from '../../lib/temporaryRiversidePlumbingPriceList';
+import {
+    calculateJobCostFormula,
+    isStandardTankWaterHeaterFormulaCard,
+    readJobCostFormulaFromNotes,
+    removeJobCostFormulaFromNotes,
+    serializeJobCostFormula,
+    standardTankWaterHeaterCustomerExplanation,
+    standardTankWaterHeaterJobCostDefaults,
+    type JobCostFormulaInput,
+} from '../../lib/jobCostFormula';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -87,6 +97,19 @@ type EditorForm = {
     packageDiscountNote: string;
     customerDescription: string;
     internalNotes: string;
+    formulaCrewSize: string;
+    formulaTechnicianHourlyWage: string;
+    formulaLaborBurdenPercent: string;
+    formulaTripCount: string;
+    formulaVehicleCostPerTrip: string;
+    formulaPermitCost: string;
+    formulaDisposalCost: string;
+    formulaConsumablesCost: string;
+    formulaOverheadAllocation: string;
+    formulaWarrantyReservePercent: string;
+    formulaContingencyPercent: string;
+    formulaTargetGrossMarginPercent: string;
+    formulaMinimumSellingPrice: string;
     active: boolean;
     originalUnsupportedUnit: string;
     unitCorrectionRequired: boolean;
@@ -641,6 +664,24 @@ export default function CompanyPriceBookScreen() {
         if (editorForm.unitCorrectionRequired) {
             setMessage(`This item was loaded with unsupported unit "${editorForm.originalUnsupportedUnit}". Select one of the supported units before saving.`);
             return;
+        }
+
+        if (isStandardTankWaterHeaterFormulaCard(editorForm.priceKey)) {
+            const formulaInput = jobCostFormulaFromEditorForm(editorForm);
+            const formulaResult = calculateJobCostFormula(formulaInput);
+            const basePrice = parseOptionalNumber(editorForm.basePrice);
+
+            if (!formulaResult.valid) {
+                setMessage(`Water heater formula needs attention: ${formulaResult.error}`);
+                return;
+            }
+
+            if (basePrice === null || basePrice < formulaInput.minimumSellingPrice) {
+                setMessage(
+                    `Water heater price cannot be saved below the ${formatPrice(formulaInput.minimumSellingPrice)} company minimum. Use Formula Price or enter an approved price at or above the minimum.`
+                );
+                return;
+            }
         }
 
         setSaving(true);
@@ -1260,7 +1301,7 @@ export default function CompanyPriceBookScreen() {
         if (draft) {
             const draftPricingDetails = getPriceBookPricingDetailsFromNotes(draft.internal_notes);
 
-            setEditorForm({
+            setEditorForm(emptyEditorForm({
                 priceKey: draft.price_key,
                 name: draft.name,
                 system: draft.system,
@@ -1278,7 +1319,7 @@ export default function CompanyPriceBookScreen() {
                 active: draft.active,
                 originalUnsupportedUnit: '',
                 unitCorrectionRequired: false,
-            });
+            }));
             setView('custom');
             setEditorOpen(true);
             setMessage(`Editing before save: ${draft.name}`);
@@ -1973,6 +2014,7 @@ function PriceBookItemDetail({
     const linearFootPrice = parseOptionalNumber(pricingDetails.linearFootPrice);
     const packageDiscountPercent = parseOptionalNumber(pricingDetails.packageDiscountPercent);
     const planningPrice = item.base_price === null ? getTemporaryRiversidePlumbingPrice(item.price_key) : null;
+    const waterHeaterFormulaCard = isStandardTankWaterHeaterFormulaCard(item.price_key);
 
     function renderEditorActions() {
         return (
@@ -2046,11 +2088,18 @@ function PriceBookItemDetail({
 
                     <View style={editorGridStyle}>
                         <EditorField label="Base Price" value={form.basePrice} onChangeText={(value) => onChangeField('basePrice', value)} keyboardType="decimal-pad" />
-                        <EditorField label="Labor Hours" value={form.laborHours} onChangeText={(value) => onChangeField('laborHours', value)} keyboardType="decimal-pad" />
-                        <EditorField label="Material Cost" value={form.materialCost} onChangeText={(value) => onChangeField('materialCost', value)} keyboardType="decimal-pad" />
+                        <EditorField label={waterHeaterFormulaCard ? 'Estimated Job Duration (Hours)' : 'Labor Hours'} value={form.laborHours} onChangeText={(value) => onChangeField('laborHours', value)} keyboardType="decimal-pad" />
+                        <EditorField label={waterHeaterFormulaCard ? 'Water Heater + Standard Materials Cost' : 'Material Cost'} value={form.materialCost} onChangeText={(value) => onChangeField('materialCost', value)} keyboardType="decimal-pad" />
                         <EditorField label="Linear Foot Price" value={form.linearFootPrice} onChangeText={(value) => onChangeField('linearFootPrice', value)} keyboardType="decimal-pad" />
                         <EditorField label="Package Discount Percent" value={form.packageDiscountPercent} onChangeText={(value) => onChangeField('packageDiscountPercent', value)} keyboardType="decimal-pad" />
                     </View>
+
+                    {waterHeaterFormulaCard ? (
+                        <JobCostFormulaEditor
+                            form={form}
+                            onChangeField={onChangeField}
+                        />
+                    ) : null}
 
                     <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Unit</Text>
                     <View style={unitRowStyle}>
@@ -2109,6 +2158,8 @@ function PriceBookItemDetail({
                         <PriceBookDetailRow label="Status" value={item.active ? 'Active' : 'Inactive'} />
                     </View>
 
+                    {waterHeaterFormulaCard ? <JobCostFormulaSummary item={item} /> : null}
+
                     <View style={editorActionRowStyle}>
                         <ThemedButton
                             title={canManage ? item.base_price === null ? 'Review Planning Price' : 'Edit Price' : 'View Only'}
@@ -2121,6 +2172,123 @@ function PriceBookItemDetail({
                 </>
             )}
         </ThemedCard>
+    );
+}
+
+function JobCostFormulaEditor({
+    form,
+    onChangeField,
+}: {
+    form: EditorForm;
+    onChangeField: (key: keyof EditorForm, value: string) => void;
+}) {
+    const { theme } = useTheme();
+    const result = calculateJobCostFormula(jobCostFormulaFromEditorForm(form));
+    const currentBasePrice = parseOptionalNumber(form.basePrice);
+
+    return (
+        <View style={[jobCostFormulaPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+            <Text style={[toolPanelTitleStyle, { color: theme.colors.text }]}>Water Heater Job Cost Formula</Text>
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                Internal only. The technician wage is a direct payroll cost—not the company selling rate. Material cost and estimated job duration come from the fields above.
+            </Text>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Labor and travel</Text>
+            <View style={editorGridStyle}>
+                <EditorField label="Crew Size" value={form.formulaCrewSize} onChangeText={(value) => onChangeField('formulaCrewSize', value)} keyboardType="decimal-pad" />
+                <EditorField label="Technician Wage per Hour" value={form.formulaTechnicianHourlyWage} onChangeText={(value) => onChangeField('formulaTechnicianHourlyWage', value)} keyboardType="decimal-pad" />
+                <EditorField label="Payroll / Insurance Burden %" value={form.formulaLaborBurdenPercent} onChangeText={(value) => onChangeField('formulaLaborBurdenPercent', value)} keyboardType="decimal-pad" />
+                <EditorField label="Vehicle / Store Trips" value={form.formulaTripCount} onChangeText={(value) => onChangeField('formulaTripCount', value)} keyboardType="decimal-pad" />
+                <EditorField label="Vehicle Cost per Trip" value={form.formulaVehicleCostPerTrip} onChangeText={(value) => onChangeField('formulaVehicleCostPerTrip', value)} keyboardType="decimal-pad" />
+            </View>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Completion and company costs</Text>
+            <View style={editorGridStyle}>
+                <EditorField label="Permit / Inspection Cost" value={form.formulaPermitCost} onChangeText={(value) => onChangeField('formulaPermitCost', value)} keyboardType="decimal-pad" />
+                <EditorField label="Disposal / Haul-Away Cost" value={form.formulaDisposalCost} onChangeText={(value) => onChangeField('formulaDisposalCost', value)} keyboardType="decimal-pad" />
+                <EditorField label="PPE / Dust Control / Consumables" value={form.formulaConsumablesCost} onChangeText={(value) => onChangeField('formulaConsumablesCost', value)} keyboardType="decimal-pad" />
+                <EditorField label="Company Overhead Allocation" value={form.formulaOverheadAllocation} onChangeText={(value) => onChangeField('formulaOverheadAllocation', value)} keyboardType="decimal-pad" />
+                <EditorField label="Warranty Reserve %" value={form.formulaWarrantyReservePercent} onChangeText={(value) => onChangeField('formulaWarrantyReservePercent', value)} keyboardType="decimal-pad" />
+                <EditorField label="Job Contingency %" value={form.formulaContingencyPercent} onChangeText={(value) => onChangeField('formulaContingencyPercent', value)} keyboardType="decimal-pad" />
+            </View>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>Selling price decision</Text>
+            <View style={editorGridStyle}>
+                <EditorField label="Target Gross Margin %" value={form.formulaTargetGrossMarginPercent} onChangeText={(value) => onChangeField('formulaTargetGrossMarginPercent', value)} keyboardType="decimal-pad" />
+                <EditorField label="Minimum Selling Price" value={form.formulaMinimumSellingPrice} onChangeText={(value) => onChangeField('formulaMinimumSellingPrice', value)} keyboardType="decimal-pad" />
+            </View>
+
+            {result.valid ? (
+                <>
+                    <View style={calculatorGridStyle}>
+                        <MiniMetric label="Paid Labor Hours" value={formatHours(result.paidLaborHours)} />
+                        <MiniMetric label="Direct Tech Wages" value={formatPrice(result.directLaborCost)} />
+                        <MiniMetric label="Loaded Labor" value={formatPrice(result.loadedLaborCost)} />
+                        <MiniMetric label="Vehicle / Trips" value={formatPrice(result.vehicleCost)} />
+                        <MiniMetric label="Warranty + Contingency" value={formatPrice(result.warrantyReserve + result.contingencyReserve)} />
+                        <MiniMetric label="True Job Cost" value={formatPrice(result.trueJobCost)} />
+                        <MiniMetric label="Suggested Selling Price" value={formatPrice(result.suggestedSellingPrice)} />
+                        <MiniMetric label="Projected Gross Profit" value={formatPrice(result.projectedGrossProfit)} />
+                        <MiniMetric label="Projected Gross Margin" value={`${result.projectedGrossMarginPercent.toFixed(1)}%`} />
+                    </View>
+                    <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                        {result.minimumPriceApplied
+                            ? `The ${formatPrice(result.suggestedSellingPrice)} recommendation uses the company minimum because the margin formula was lower.`
+                            : `The recommendation covers true job cost at the selected target margin and rounds up to the next $5.`}
+                        {currentBasePrice !== null && currentBasePrice !== result.suggestedSellingPrice
+                            ? ` Current card price: ${formatPrice(currentBasePrice)}.`
+                            : ''}
+                    </Text>
+                </>
+            ) : (
+                <Text style={[metaTextStyle, { color: '#B42318' }]}>{result.error}</Text>
+            )}
+
+            <View style={editorActionRowStyle}>
+                <ThemedButton
+                    title="Use Formula Price"
+                    disabled={!result.valid}
+                    onPress={() => onChangeField('basePrice', String(result.suggestedSellingPrice))}
+                    style={compactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+                <ThemedButton
+                    title="Use Detailed Customer Explanation"
+                    variant="secondary"
+                    onPress={() => onChangeField('customerDescription', standardTankWaterHeaterCustomerExplanation)}
+                    style={wideCompactButtonStyle}
+                    textStyle={compactButtonTextStyle}
+                />
+            </View>
+        </View>
+    );
+}
+
+function JobCostFormulaSummary({ item }: { item: CompanyPriceBookItem }) {
+    const { theme } = useTheme();
+    const formula = readJobCostFormulaFromNotes(item.internal_notes);
+
+    if (!formula) return null;
+
+    const result = calculateJobCostFormula(formula);
+
+    if (!result.valid) return null;
+
+    return (
+        <View style={[jobCostFormulaPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+            <Text style={[toolPanelTitleStyle, { color: theme.colors.text }]}>Internal Job Cost Formula</Text>
+            <View style={calculatorGridStyle}>
+                <MiniMetric label="Job Duration" value={formatHours(formula.jobDurationHours)} />
+                <MiniMetric label="Crew Size" value={String(formula.crewSize)} />
+                <MiniMetric label="Paid Labor Hours" value={formatHours(result.paidLaborHours)} />
+                <MiniMetric label="True Job Cost" value={formatPrice(result.trueJobCost)} />
+                <MiniMetric label="Formula Recommendation" value={formatPrice(result.suggestedSellingPrice)} />
+                <MiniMetric label="Saved Card Price" value={formatPrice(item.base_price)} />
+            </View>
+            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                Internal wage, company cost, margin, and reserve information is never included in the homeowner explanation.
+            </Text>
+        </View>
     );
 }
 
@@ -3544,7 +3712,7 @@ function buildPriceResearchImportMatchSummary(
 function buildEditorFormFromImportRow(row: PriceResearchImportRow): EditorForm {
     const pricingDetails = getPriceBookPricingDetailsFromNotes(row.draft.internal_notes);
 
-    return {
+    return emptyEditorForm({
         id: row.draft.id,
         priceKey: row.draft.price_key,
         name: row.draft.name,
@@ -3563,7 +3731,7 @@ function buildEditorFormFromImportRow(row: PriceResearchImportRow): EditorForm {
         active: row.draft.active,
         originalUnsupportedUnit: '',
         unitCorrectionRequired: false,
-    };
+    });
 }
 
 function numberToEditorText(value: number | null) {
@@ -3789,6 +3957,21 @@ function editorFormForPriceBookItem(item: CompanyPriceBookItem, includePlanningR
     const planningNote = planningPrice
         ? `Riverside 2026 planning recommendation (${planningPrice.pricingBasis}); management reviewed before customer use.`
         : '';
+    const isWaterHeaterFormulaCard = isStandardTankWaterHeaterFormulaCard(item.price_key);
+    const savedFormula = readJobCostFormulaFromNotes(item.internal_notes);
+    const formula = savedFormula || {
+        ...standardTankWaterHeaterJobCostDefaults,
+        materialCost: item.source === 'template'
+            ? standardTankWaterHeaterJobCostDefaults.materialCost
+            : item.material_cost ?? standardTankWaterHeaterJobCostDefaults.materialCost,
+        jobDurationHours: item.source === 'template'
+            ? standardTankWaterHeaterJobCostDefaults.jobDurationHours
+            : item.labor_hours ?? standardTankWaterHeaterJobCostDefaults.jobDurationHours,
+    };
+    const existingCustomerDescription = item.customer_description || '';
+    const customerDescription = isWaterHeaterFormulaCard && !savedFormula && existingCustomerDescription.length < 300
+        ? standardTankWaterHeaterCustomerExplanation
+        : existingCustomerDescription;
 
     return {
         id: item.source === 'backend' || item.source === 'local' ? item.id : undefined,
@@ -3799,13 +3982,18 @@ function editorFormForPriceBookItem(item: CompanyPriceBookItem, includePlanningR
         category: item.category,
         unit: item.unit,
         basePrice: item.base_price === null ? planningPrice ? String(planningPrice.recommendedPrice) : '' : String(item.base_price),
-        laborHours: item.labor_hours === null ? planningPrice ? String(planningPrice.laborHours) : '' : String(item.labor_hours),
-        materialCost: item.material_cost === null ? planningPrice ? String(planningPrice.materialCost) : '' : String(item.material_cost),
+        laborHours: isWaterHeaterFormulaCard
+            ? String(formula.jobDurationHours)
+            : item.labor_hours === null ? planningPrice ? String(planningPrice.laborHours) : '' : String(item.labor_hours),
+        materialCost: isWaterHeaterFormulaCard
+            ? String(formula.materialCost)
+            : item.material_cost === null ? planningPrice ? String(planningPrice.materialCost) : '' : String(item.material_cost),
         linearFootPrice: pricingDetails.linearFootPrice,
         packageDiscountPercent: pricingDetails.packageDiscountPercent,
         packageDiscountNote: pricingDetails.packageDiscountNote,
-        customerDescription: item.customer_description || '',
+        customerDescription,
         internalNotes: [existingNotes, planningNote].filter(Boolean).join(' '),
+        ...jobCostFormulaEditorFields(formula),
         active: item.active,
         originalUnsupportedUnit: item.unsupported_unit || '',
         unitCorrectionRequired: Boolean(item.unsupported_unit),
@@ -3828,8 +4016,66 @@ function readNoteMetadata(notes: string, pattern: RegExp) {
     return match?.[1]?.trim() || '';
 }
 
+function jobCostFormulaFromEditorForm(form: EditorForm): JobCostFormulaInput {
+    const defaults = standardTankWaterHeaterJobCostDefaults;
+
+    return {
+        materialCost: parseOptionalNumber(form.materialCost) ?? defaults.materialCost,
+        jobDurationHours: parseOptionalNumber(form.laborHours) ?? defaults.jobDurationHours,
+        crewSize: parseOptionalNumber(form.formulaCrewSize) ?? defaults.crewSize,
+        technicianHourlyWage: parseOptionalNumber(form.formulaTechnicianHourlyWage) ?? defaults.technicianHourlyWage,
+        laborBurdenPercent: parseOptionalNumber(form.formulaLaborBurdenPercent) ?? defaults.laborBurdenPercent,
+        tripCount: parseOptionalNumber(form.formulaTripCount) ?? defaults.tripCount,
+        vehicleCostPerTrip: parseOptionalNumber(form.formulaVehicleCostPerTrip) ?? defaults.vehicleCostPerTrip,
+        permitCost: parseOptionalNumber(form.formulaPermitCost) ?? defaults.permitCost,
+        disposalCost: parseOptionalNumber(form.formulaDisposalCost) ?? defaults.disposalCost,
+        consumablesCost: parseOptionalNumber(form.formulaConsumablesCost) ?? defaults.consumablesCost,
+        overheadAllocation: parseOptionalNumber(form.formulaOverheadAllocation) ?? defaults.overheadAllocation,
+        warrantyReservePercent: parseOptionalNumber(form.formulaWarrantyReservePercent) ?? defaults.warrantyReservePercent,
+        contingencyPercent: parseOptionalNumber(form.formulaContingencyPercent) ?? defaults.contingencyPercent,
+        targetGrossMarginPercent: parseOptionalNumber(form.formulaTargetGrossMarginPercent) ?? defaults.targetGrossMarginPercent,
+        minimumSellingPrice: parseOptionalNumber(form.formulaMinimumSellingPrice) ?? defaults.minimumSellingPrice,
+    };
+}
+
+function jobCostFormulaEditorFields(
+    formula: JobCostFormulaInput,
+    seed: Partial<EditorForm> = {}
+): Pick<
+    EditorForm,
+    | 'formulaCrewSize'
+    | 'formulaTechnicianHourlyWage'
+    | 'formulaLaborBurdenPercent'
+    | 'formulaTripCount'
+    | 'formulaVehicleCostPerTrip'
+    | 'formulaPermitCost'
+    | 'formulaDisposalCost'
+    | 'formulaConsumablesCost'
+    | 'formulaOverheadAllocation'
+    | 'formulaWarrantyReservePercent'
+    | 'formulaContingencyPercent'
+    | 'formulaTargetGrossMarginPercent'
+    | 'formulaMinimumSellingPrice'
+> {
+    return {
+        formulaCrewSize: seed.formulaCrewSize ?? String(formula.crewSize),
+        formulaTechnicianHourlyWage: seed.formulaTechnicianHourlyWage ?? String(formula.technicianHourlyWage),
+        formulaLaborBurdenPercent: seed.formulaLaborBurdenPercent ?? String(formula.laborBurdenPercent),
+        formulaTripCount: seed.formulaTripCount ?? String(formula.tripCount),
+        formulaVehicleCostPerTrip: seed.formulaVehicleCostPerTrip ?? String(formula.vehicleCostPerTrip),
+        formulaPermitCost: seed.formulaPermitCost ?? String(formula.permitCost),
+        formulaDisposalCost: seed.formulaDisposalCost ?? String(formula.disposalCost),
+        formulaConsumablesCost: seed.formulaConsumablesCost ?? String(formula.consumablesCost),
+        formulaOverheadAllocation: seed.formulaOverheadAllocation ?? String(formula.overheadAllocation),
+        formulaWarrantyReservePercent: seed.formulaWarrantyReservePercent ?? String(formula.warrantyReservePercent),
+        formulaContingencyPercent: seed.formulaContingencyPercent ?? String(formula.contingencyPercent),
+        formulaTargetGrossMarginPercent: seed.formulaTargetGrossMarginPercent ?? String(formula.targetGrossMarginPercent),
+        formulaMinimumSellingPrice: seed.formulaMinimumSellingPrice ?? String(formula.minimumSellingPrice),
+    };
+}
+
 function removePriceBookMetadataFromNotes(notes: string) {
-    return notes
+    return removeJobCostFormulaFromNotes(notes)
         .replace(areaNotePattern, '')
         .replace(linearFootPriceNotePattern, '')
         .replace(packageDiscountPercentNotePattern, '')
@@ -3848,6 +4094,9 @@ function mergePriceBookMetadataIntoNotes(notes: string, form: EditorForm) {
         linearFootPrice ? `[Linear Foot Price: ${sanitizeNoteMetadataValue(linearFootPrice)}]` : '',
         packageDiscountPercent ? `[Package Discount Percent: ${sanitizeNoteMetadataValue(packageDiscountPercent)}]` : '',
         packageDiscountNote ? `[Package Discount Note: ${sanitizeNoteMetadataValue(packageDiscountNote)}]` : '',
+        isStandardTankWaterHeaterFormulaCard(form.priceKey)
+            ? serializeJobCostFormula(jobCostFormulaFromEditorForm(form))
+            : '',
     ].filter(Boolean);
 
     return [...metadata, cleanNotes].filter(Boolean).join(' ');
@@ -4389,6 +4638,7 @@ function emptyEditorForm(seed: Partial<EditorForm> = {}): EditorForm {
         packageDiscountNote: seed.packageDiscountNote || '',
         customerDescription: seed.customerDescription || '',
         internalNotes: seed.internalNotes || '',
+        ...jobCostFormulaEditorFields(standardTankWaterHeaterJobCostDefaults, seed),
         active: seed.active ?? true,
         originalUnsupportedUnit: seed.originalUnsupportedUnit || '',
         unitCorrectionRequired: seed.unitCorrectionRequired ?? false,
@@ -5005,6 +5255,14 @@ const compactButtonStyle = {
     paddingVertical: 10,
 };
 
+const wideCompactButtonStyle = {
+    flexBasis: 280,
+    flexGrow: 1,
+    minWidth: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
 const compactButtonTextStyle = {
     fontSize: 12,
 };
@@ -5014,6 +5272,13 @@ const editorGridStyle = {
     flexWrap: 'wrap' as const,
     gap: 12,
     marginTop: 14,
+};
+
+const jobCostFormulaPanelStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 16,
+    padding: 14,
 };
 
 const editorToolRowStyle = {
