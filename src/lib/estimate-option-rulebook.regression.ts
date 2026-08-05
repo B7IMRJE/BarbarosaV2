@@ -6,6 +6,7 @@ import type {
     CompanyPriceBookItemLike,
     EstimateChoice,
 } from './estimateOptions';
+import { applyEstimateChoiceLinePriceAdjustments } from './estimatePriceAdjustments';
 
 runEstimateOptionRulebookRegressions();
 
@@ -14,6 +15,7 @@ export function runEstimateOptionRulebookRegressions() {
     unavailablePriceBookWorkNeverAppears();
     recommendationsNeverExceedFour();
     showerValveReplacementSupersedesCartridgeCharge();
+    relatedAddOnKeepsItsOwnPricedWork();
     recommendationsStayInsideTheirConfiguredCategory();
 }
 
@@ -95,6 +97,75 @@ function showerValveReplacementSupersedesCartridgeCharge() {
         'The composed option must include the replacement valve, not the superseded cartridge.',
     );
     assert(choice?.pricingResult.totalAmount === 900, 'The replacement option must use the approved valve price only.');
+}
+
+function relatedAddOnKeepsItsOwnPricedWork() {
+    const gasControlValve = priceBookItem(
+        'water_service_garage_mechanical_water_heater_gas_control_valve_replacement',
+        'Water heater gas control valve replacement',
+        true,
+        425,
+    );
+    const wholeHomeFilter = priceBookItem(
+        'water_quality_garage_mechanical_whole_home_filter_installation',
+        'Whole-home filter installation',
+        true,
+        2150,
+    );
+    const originalChoice = baseChoice(gasControlValve);
+    const persistedBaseChoice = {
+        ...originalChoice,
+        pricingResult: {
+            ...originalChoice.pricingResult,
+            totalAmount: 850,
+            lineItems: originalChoice.pricingResult.lineItems.map((line) => ({
+                ...line,
+                unitAmount: 850,
+                totalAmount: 850,
+            })),
+        },
+        basePricingResult: originalChoice.pricingResult,
+        linePriceAdjustments: {
+            'line-1': {
+                percentage: 100,
+                mode: 'markup' as const,
+            },
+        },
+    };
+    const recommendation = getEligibleEstimateRecommendations({
+        category: 'water_heater_service',
+        answers: { water_quality_observation: 'scale / sediment' },
+        currentPriceKeys: persistedBaseChoice.pricingResult.lineItems.map((line) => line.code),
+        priceBookItems: [gasControlValve, wholeHomeFilter],
+    })[0];
+    const choice = buildRecommendedEstimateChoice({
+        id: 'option-2',
+        companyId: 'company-1',
+        baseChoice: persistedBaseChoice,
+        recommendation,
+        priceBookItems: [gasControlValve, wholeHomeFilter],
+        displayOrder: 2,
+    });
+
+    assert(!!choice, 'Documented scale should create a whole-home filtration option.');
+    assert(choice.pricingResult.lineItems.length === 2, 'The add-on option must include both priced lines.');
+    assert(
+        choice.pricingResult.lineItems.some((line) => line.code === wholeHomeFilter.price_key),
+        'The promised whole-home filtration work must appear in the option.',
+    );
+    assert(choice.pricingResult.totalAmount === 2575, 'The add-on option must total both company price-book lines.');
+    const adjustedChoice = applyEstimateChoiceLinePriceAdjustments(
+        choice,
+        choice.linePriceAdjustments || {},
+    );
+    assert(
+        adjustedChoice.pricingResult.totalAmount === 3000,
+        'The source service adjustment must carry to the matching service while the filtration line keeps its own price.',
+    );
+    assert(
+        !('basePricingResult' in choice),
+        'A related option must not inherit the source option pricing snapshot.',
+    );
 }
 
 function recommendationsStayInsideTheirConfiguredCategory() {

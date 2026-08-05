@@ -3,6 +3,7 @@ import {
     applyEstimateChoicePriceAdjustment,
     formatEstimatePriceAdjustmentPercentage,
     normalizeEstimatePriceAdjustmentPercentage,
+    restoreCompatibleEstimateChoiceBasePricing,
 } from './estimatePriceAdjustments';
 import type { EstimateChoice } from './estimateOptions';
 
@@ -16,6 +17,15 @@ function runEstimatePriceAdjustmentRegression() {
     const individuallyAdjustedChoice = applyEstimateChoiceLinePriceAdjustments(multiLineChoice(), {
         'line-1': { percentage: -10, mode: 'discount', label: 'Service discount' },
         'line-2': { percentage: 20, mode: 'markup' },
+    });
+    const safelyRestoredBaseChoice = restoreCompatibleEstimateChoiceBasePricing({
+        ...adjustedChoice,
+        basePricingResult: baseChoice.pricingResult,
+    });
+    const mismatchedSavedChoice = multiLineChoice();
+    const safelyKeptComposedChoice = restoreCompatibleEstimateChoiceBasePricing({
+        ...mismatchedSavedChoice,
+        basePricingResult: baseChoice.pricingResult,
     });
 
     assert(adjustedChoice.pricingResult.totalAmount === 110, 'A 10% increase should change a $100 option to $110.');
@@ -37,6 +47,9 @@ function runEstimatePriceAdjustmentRegression() {
     assert(individuallyAdjustedChoice.pricingResult.lineItems[1]?.totalAmount === 60, 'A separate line markup should use that line\'s own price.');
     assert(individuallyAdjustedChoice.pricingResult.totalAmount === 150, 'The option total should equal the independently adjusted line totals.');
     assert(multiLineChoice().pricingResult.totalAmount === 150, 'Individual adjustments must not mutate the deterministic base option.');
+    assert(safelyRestoredBaseChoice.pricingResult.totalAmount === 100, 'A matching saved base snapshot should restore deterministic pricing before adjustments.');
+    assert(safelyKeptComposedChoice.pricingResult.totalAmount === 150, 'A mismatched saved base snapshot must not erase composed option lines.');
+    assert(safelyKeptComposedChoice.pricingResult.lineItems.length === 2, 'Existing composed options must keep every promised priced line.');
 }
 
 function multiLineChoice(): EstimateChoice {

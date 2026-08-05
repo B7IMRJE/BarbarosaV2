@@ -326,11 +326,18 @@ export function buildRecommendedEstimateChoice(input: {
     priceBookItems: CompanyPriceBookItemLike[];
     displayOrder: number;
 }): EstimateChoice | null {
+    const inheritedLineAdjustments = input.baseChoice.linePriceAdjustments || {};
+    const inheritedAdjustmentsByCode = new Map(
+        input.baseChoice.pricingResult.lineItems
+            .map((line) => [normalize(line.code), inheritedLineAdjustments[line.id]] as const)
+            .filter((entry): entry is readonly [string, NonNullable<typeof entry[1]>] => Boolean(entry[1]))
+    );
+    const baseChoice = withoutInheritedChoicePricingState(input.baseChoice);
     const entries = input.priceBookItems.map(mapCompanyPriceBookItemToEstimateEntry);
     const entriesById = new Map(entries.map((entry) => [entry.id, entry]));
     const entriesByKey = new Map(entries.map((entry) => [normalize(entry.code), entry]));
     const superseded = new Set((input.recommendation.supersedesPriceKeys || []).map(normalize));
-    const retainedEntryIds = input.baseChoice.pricingResult.lineItems
+    const retainedEntryIds = baseChoice.pricingResult.lineItems
         .filter((line) => !superseded.has(normalize(line.code)))
         .map((line) => line.priceBookEntryId)
         .filter((id) => entriesById.has(id));
@@ -354,18 +361,34 @@ export function buildRecommendedEstimateChoice(input: {
             required: true,
             removable: false,
         })),
-        priceBookVersion: input.baseChoice.pricingResult.priceBookVersion,
+        priceBookVersion: baseChoice.pricingResult.priceBookVersion,
     });
 
     if (pricingResult.missingPricingInputs.length > 0 || pricingResult.totalAmount <= 0) return null;
 
+    const pricedCodes = new Set(pricingResult.lineItems.map((line) => normalize(line.code)));
+    if (input.recommendation.priceKeys.some((key) => !pricedCodes.has(normalize(key)))) return null;
+
     const isAlternative = input.recommendation.relationship === 'alternative';
+    const baseCodes = new Set(baseChoice.pricingResult.lineItems.map((line) => normalize(line.code)));
+    if (!isAlternative && !input.recommendation.priceKeys.some((key) => !baseCodes.has(normalize(key)))) return null;
+
     const title = isAlternative
         ? input.recommendation.title
-        : `${input.baseChoice.title} + ${input.recommendation.title}`;
+        : `${baseChoice.title} + ${input.recommendation.title}`;
+    const linePriceAdjustments = pricingResult.lineItems.reduce<NonNullable<EstimateChoice['linePriceAdjustments']>>(
+        (adjustments, line) => {
+            const inheritedAdjustment = inheritedAdjustmentsByCode.get(normalize(line.code));
+
+            if (inheritedAdjustment) adjustments[line.id] = inheritedAdjustment;
+
+            return adjustments;
+        },
+        {},
+    );
 
     return {
-        ...input.baseChoice,
+        ...baseChoice,
         id: input.id,
         kind: 'individual',
         title,
@@ -377,7 +400,7 @@ export function buildRecommendedEstimateChoice(input: {
         scopeIds: pricingResult.lineItems.map((line) => line.code),
         inclusionIds: pricingResult.lineItems.map((line) => line.code),
         exclusionIds: [...new Set([
-            ...input.baseChoice.exclusionIds,
+            ...baseChoice.exclusionIds,
             ...(input.recommendation.supersedesPriceKeys || []),
         ])],
         pricingResult,
@@ -385,7 +408,19 @@ export function buildRecommendedEstimateChoice(input: {
         displayOrder: input.displayOrder,
         priceAdjustmentPercentage: 0,
         priceAdjustmentLabel: null,
+        linePriceAdjustments: Object.keys(linePriceAdjustments).length > 0 ? linePriceAdjustments : undefined,
     };
+}
+
+function withoutInheritedChoicePricingState(choice: EstimateChoice): EstimateChoice {
+    const cleanChoice = { ...choice } as EstimateChoice & { basePricingResult?: unknown };
+
+    delete cleanChoice.basePricingResult;
+    delete cleanChoice.linePriceAdjustments;
+    delete cleanChoice.priceAdjustmentPercentage;
+    delete cleanChoice.priceAdjustmentLabel;
+
+    return cleanChoice;
 }
 
 function matchesConditions(rule: EstimateRecommendationRule, answers: EstimateAnswerSet) {

@@ -2,7 +2,23 @@ import {
     formatMoney,
     type EstimateChoice,
     type EstimateLinePriceAdjustment,
+    type EstimatePricingResult,
 } from './estimateOptions';
+
+export function restoreCompatibleEstimateChoiceBasePricing(
+    choice: EstimateChoice & { basePricingResult?: EstimatePricingResult },
+): EstimateChoice {
+    const basePricingResult = choice.basePricingResult;
+
+    if (!basePricingResult || !haveMatchingPriceBookScope(choice.pricingResult, basePricingResult)) {
+        return choice;
+    }
+
+    return {
+        ...choice,
+        pricingResult: basePricingResult,
+    };
+}
 
 export function applyEstimateChoicePriceAdjustment(
     choice: EstimateChoice,
@@ -110,4 +126,12 @@ function roundCurrency(value: number) {
 
 function roundRatio(value: number) {
     return Math.round((value + Number.EPSILON) * 10_000) / 10_000;
+}
+
+function haveMatchingPriceBookScope(first: EstimatePricingResult, second: EstimatePricingResult) {
+    const firstEntryIds = first.lineItems.map((line) => line.priceBookEntryId).sort();
+    const secondEntryIds = second.lineItems.map((line) => line.priceBookEntryId).sort();
+
+    return firstEntryIds.length === secondEntryIds.length &&
+        firstEntryIds.every((entryId, index) => entryId === secondEntryIds[index]);
 }
