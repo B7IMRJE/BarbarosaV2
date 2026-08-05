@@ -797,11 +797,13 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             'water_service_exterior_irrigation_tie_in_shutoff_replacement',
             'water_service_exterior_backflow_device_replacement',
             'water_service_exterior_hose_bib_replacement',
+            'water_service_garage_mechanical_smart_water_leak_shutoff_installation',
+            'gas_service_exterior_seismic_gas_shutoff_valve_installation',
         ],
         requiredPhotoLabels: ['Existing valve', 'Valve access area', 'Connected piping'],
         requiredMeasurementLabels: ['Valve or pipe size'],
         questions: [
-            selectQuestion('valve_type', 'Valve type', true, ['shower valve', 'main water shutoff', 'angle stop', 'pressure regulator', 'backflow assembly', 'hose bibb valve', 'other']),
+            selectQuestion('valve_type', 'Valve type', true, ['shower valve', 'main water shutoff', 'smart water automatic shutoff', 'seismic gas shutoff', 'angle stop', 'pressure regulator', 'backflow assembly', 'hose bibb valve', 'other']),
             selectQuestion('shower_configuration', 'Shower or tub setup', true, ['shower only', 'tub and shower combination', 'tub only', 'not applicable - different valve type']),
             selectQuestion('tub_spout_scope', 'Tub spout', true, ['not applicable', 'existing tub spout remains', 'replace tub spout']),
             selectQuestion('valve_service', 'Service', true, ['domestic water', 'hot water', 'irrigation', 'fire protection', 'gas', 'other']),
@@ -2333,7 +2335,12 @@ function buildDeterministicChoices(input: {
     const validPricingResults = input.pricingResults.filter((result) => result.missingPricingInputs.length === 0);
 
     if (input.category === 'valve_replacement') {
-        return buildValveDeterministicChoices(validPricingResults, input.draftContext);
+        return buildValveDeterministicChoices(
+            validPricingResults,
+            input.answers,
+            input.template,
+            input.draftContext
+        );
     }
 
     if (input.category === 'water_heater') {
@@ -2732,6 +2739,8 @@ function formatAnswerLabel(value: string) {
 
 function buildValveDeterministicChoices(
     pricingResults: EstimatePricingResult[],
+    answers: EstimateAnswerSet,
+    template: EstimateCategoryTemplate,
     draftContext: EstimateDraftContextLike | null
 ) {
     const homeownerName = preferredHomeownerFirstName(draftContext);
@@ -2741,14 +2750,21 @@ function buildValveDeterministicChoices(
         const lineNames = pricingResult.lineItems.map((line) => line.name);
         const scopeName = valveScopeChoiceName(primaryLine?.name || 'Valve Replacement');
         const title = homeownerName ? `${homeownerName}'s ${scopeName}` : scopeName;
+        const isInstallation = isAutomaticSafetyShutoff(primaryLine?.name || scopeName);
+        const action = isInstallation ? 'Install' : 'Replace';
+        const completion = isInstallation
+            ? 'configure available controls, complete required testing or coordination, and document operation'
+            : 'reconnect the existing compatible piping, complete only the selected related items, and test operation';
 
         return {
             id: `individual-valve-${index + 1}`,
             kind: 'individual',
             title,
             shortSummary: lineNames.join(' + ') || scopeName,
-            homeownerExplanation: `Replace the documented ${valveScopeDescription(primaryLine?.name || scopeName)}, reconnect the existing compatible piping, complete only the selected related items, and test operation.`,
-            keyBenefits: ['Matches the documented valve', 'Only selected related work included', 'Operation tested after replacement'],
+            homeownerExplanation: `${action} the documented ${valveScopeDescription(primaryLine?.name || scopeName)}, ${completion}.`,
+            keyBenefits: isInstallation
+                ? ['Matches the documented service and approved equipment', 'Only selected related work included', 'Operation and homeowner controls reviewed']
+                : ['Matches the documented valve', 'Only selected related work included', 'Operation tested after replacement'],
             whyItDiffers: 'This choice follows the selected valve type and shower or tub configuration without stacking unrelated fixtures.',
             recommendedReason: index === 0 ? 'Matches the documented service scope.' : null,
             productIds: [],
@@ -2759,6 +2775,7 @@ function buildValveDeterministicChoices(
             pricingResult,
             recommended: index === 0,
             displayOrder: index + 1,
+            customerSelections: buildEstimateCustomerSelections(template, answers),
         };
     });
 }
@@ -2766,6 +2783,8 @@ function buildValveDeterministicChoices(
 function valveScopeChoiceName(value: string) {
     const normalized = normalizeText(value);
 
+    if (normalized.includes('smart water leak') && normalized.includes('shutoff')) return 'Smart Water Leak Detection & Automatic Shutoff Installation';
+    if (normalized.includes('seismic gas shutoff')) return 'Seismic Gas Shutoff Valve Installation';
     if (normalized.includes('tub shower valve')) return 'Tub and Shower Valve Replacement';
     if (normalized.includes('shower valve')) return 'Like-for-Like Shower Valve Replacement';
     if (normalized.includes('main water shutoff')) return 'Main Water Shutoff Replacement';
@@ -2778,7 +2797,13 @@ function valveScopeChoiceName(value: string) {
 }
 
 function valveScopeDescription(value: string) {
-    return valveScopeChoiceName(value).replace(/\breplacement\b/i, '').trim().toLowerCase();
+    return valveScopeChoiceName(value).replace(/\b(replacement|installation)\b/i, '').trim().toLowerCase();
+}
+
+function isAutomaticSafetyShutoff(value: string) {
+    const normalized = normalizeText(value);
+
+    return normalized.includes('smart water leak') || normalized.includes('seismic gas shutoff');
 }
 
 function buildFaucetDeterministicChoices(
@@ -3025,6 +3050,8 @@ function getSelectedValveScopePriceKeys(scopePriceKeys: string[], answers: Estim
 
     const matchingFragments: Record<string, string[]> = {
         'main water shutoff': ['main_water_shutoff'],
+        'smart water automatic shutoff': ['smart_water_leak_shutoff'],
+        'seismic gas shutoff': ['seismic_gas_shutoff'],
         'angle stop': ['angle_stop', 'sink_shutoff', 'toilet_shutoff'],
         'pressure regulator': ['pressure_regulator', 'prv_'],
         'backflow assembly': ['backflow_device'],

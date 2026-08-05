@@ -233,6 +233,8 @@ const planningPriceOverrides: Record<string, { price: number; material: number; 
     water_service_bathroom_shower_valve_replacement: { price: 1195, material: 325, hours: 5.5 },
     water_service_bathroom_tub_shower_valve_replacement: { price: 1195, material: 325, hours: 5.5 },
     water_service_bathroom_tub_spout_replacement: { price: 200, material: 55, hours: 0.75 },
+    water_service_garage_mechanical_smart_water_leak_shutoff_installation: { price: 1695, material: 850, hours: 5 },
+    gas_service_exterior_seismic_gas_shutoff_valve_installation: { price: 895, material: 300, hours: 4 },
     drain_sewer_whole_home_sewer_line_replacement_linear_foot: { price: 395, material: 125, hours: 1.5 },
     drain_sewer_exterior_main_line_hydro_jetting: { price: 795, material: 35, hours: 4 },
     drain_sewer_exterior_trenchless_sewer_lining_linear_foot: { price: 275, material: 115, hours: 1 },
