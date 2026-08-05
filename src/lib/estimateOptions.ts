@@ -345,6 +345,7 @@ export type EstimateChoice = {
     priceAdjustmentLabel?: string | null;
     linePriceAdjustments?: Record<string, EstimateLinePriceAdjustment>;
     customerSelections?: string[];
+    selectionGroup?: string;
 };
 
 export type EstimatePresentationGate = {
@@ -1597,6 +1598,50 @@ export function toHomeownerPresentationChoice(choice: EstimateChoice): Homeowner
     };
 }
 
+export function toggleEstimateChoiceSelection(
+    choices: EstimateChoice[],
+    selectedChoiceIds: string[],
+    choiceId: string
+) {
+    const choice = choices.find((candidate) => candidate.id === choiceId);
+
+    if (!choice) return selectedChoiceIds;
+    if (selectedChoiceIds.includes(choiceId)) {
+        return selectedChoiceIds.filter((selectedId) => selectedId !== choiceId);
+    }
+
+    const selectionGroup = String(choice.selectionGroup || '').trim();
+    const compatibleSelections = selectionGroup
+        ? selectedChoiceIds.filter((selectedId) => {
+            const selectedChoice = choices.find((candidate) => candidate.id === selectedId);
+
+            return String(selectedChoice?.selectionGroup || '').trim() !== selectionGroup;
+        })
+        : selectedChoiceIds;
+
+    return [...compatibleSelections, choiceId];
+}
+
+export function hasConflictingEstimateSelectionGroups(
+    choices: EstimateChoice[],
+    selectedChoiceIds: string[]
+) {
+    const groups = new Set<string>();
+
+    for (const choice of choices) {
+        if (!selectedChoiceIds.includes(choice.id)) continue;
+
+        const selectionGroup = String(choice.selectionGroup || '').trim();
+
+        if (!selectionGroup) continue;
+        if (groups.has(selectionGroup)) return true;
+
+        groups.add(selectionGroup);
+    }
+
+    return false;
+}
+
 export function calculateRepipeTotals(
     structure: RepipeStructureInput,
     blocks: RepipeRoomBlock[],
@@ -2291,6 +2336,7 @@ function buildWaterHeaterDeterministicChoices(input: {
                 pricingResult,
                 recommended: false,
                 displayOrder: index + 1,
+                selectionGroup: 'water-heater-equipment',
                 customerSelections: uniqueText([
                     `Brand and model: ${productLabel}`,
                     `Product tier: ${product.tier}`,

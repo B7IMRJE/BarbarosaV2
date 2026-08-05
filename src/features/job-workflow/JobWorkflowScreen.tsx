@@ -5,7 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import SignaturePad, { isDrawnSignature } from '../../components/signature-pad';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
-import { formatMoney } from '../../lib/estimateOptions';
+import {
+    formatMoney,
+    hasConflictingEstimateSelectionGroups,
+    toggleEstimateChoiceSelection,
+} from '../../lib/estimateOptions';
 import {
     acceptJobWorkflowQuote,
     advanceJobWorkflow,
@@ -156,6 +160,10 @@ export default function JobWorkflowScreen() {
 
     async function acceptSelectedWork() {
         if (!bundle || busy) return;
+        if (hasConflictingEstimateSelectionGroups(bundle.options, selectedChoiceIds)) {
+            setMessage('Choose only one equipment and warranty package from each option group.');
+            return;
+        }
         setBusy(true);
         setMessage('Saving signed approval...');
         try {
@@ -329,10 +337,7 @@ export default function JobWorkflowScreen() {
     const sameDayReady = sameDayBaseReady;
 
     function toggleChoice(choiceId: string) {
-        setSelectedChoiceIds((current) => current.includes(choiceId)
-            ? current.filter((id) => id !== choiceId)
-            : [...current, choiceId]
-        );
+        setSelectedChoiceIds((current) => toggleEstimateChoiceSelection(options, current, choiceId));
     }
 
     function openApprovalPage(page: 1 | 2 | 3) {
@@ -378,12 +383,17 @@ export default function JobWorkflowScreen() {
                     <View style={optionGridStyle}>
                         {options.map((option) => (
                             <TouchableOpacity
+                                accessibilityRole={option.selectionGroup ? 'radio' : 'checkbox'}
+                                accessibilityState={{ checked: selectedChoiceIds.includes(option.id) }}
                                 key={option.id}
                                 onPress={() => toggleChoice(option.id)}
                                 style={selectedChoiceIds.includes(option.id) ? [optionStyle, optionSelectedStyle] : optionStyle}
                             >
                                 <Text style={optionTitleStyle}>{option.title}</Text>
                                 <Text style={optionPriceStyle}>{formatMoney(option.pricingResult.totalAmount)}</Text>
+                                {!!option.selectionGroup && (
+                                    <Text style={selectionGroupPillStyle}>Choose one equipment + warranty package</Text>
+                                )}
                                 <Text style={bodyStyle}>{option.homeownerExplanation}</Text>
                                 <CustomerSelectionList selections={option.customerSelections} />
                                 <Text style={selectLabelStyle}>
@@ -833,6 +843,7 @@ const optionSelectedStyle = { borderColor: '#45d893', backgroundColor: '#123b35'
 const optionTitleStyle = { color: '#f2fbff', fontSize: 16, fontWeight: '800' } as const;
 const optionPriceStyle = { color: '#52e0a4', fontSize: 22, fontWeight: '900' } as const;
 const selectLabelStyle = { color: '#5ce5df', fontSize: 13, fontWeight: '800' } as const;
+const selectionGroupPillStyle = { alignSelf: 'flex-start', backgroundColor: '#173f55', borderRadius: 999, color: '#d8f8ff', fontSize: 11, fontWeight: '900', paddingHorizontal: 9, paddingVertical: 5 } as const;
 const customerSelectionListStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 10, padding: 11, gap: 5 } as const;
 const customerSelectionTitleStyle = { color: '#d8f8ff', fontSize: 13, fontWeight: '900' } as const;
 const customerSelectionTextStyle = { color: '#bdd2dc', fontSize: 12, lineHeight: 18 } as const;

@@ -25,6 +25,8 @@ import {
     resolveProductImageState,
     toHomeownerPresentationChoice,
     toggleEstimateMultiSelectAnswer,
+    toggleEstimateChoiceSelection,
+    hasConflictingEstimateSelectionGroups,
     validateAiEstimateDraftResponse,
     validateEstimateAnswers,
     type EstimateApprovedProduct,
@@ -56,6 +58,7 @@ export function runEstimateOptionsRegressions() {
     waterHeaterBackBlockRequiresPricedLine();
     approvedTankWaterHeaterProductsCreateExplicitPriceChoices();
     approvedProductRecordsMapWithoutTrustingInvalidRows();
+    homeownerEquipmentChoicesAreMutuallyExclusive();
     waterHeaterMissingSelectedAddOnBlocksPartialQuote();
     skippedWaterHeaterPhotosDoNotChangePricing();
     waterHeaterRepairChecklistCoversFieldComponents();
@@ -451,6 +454,28 @@ function approvedProductRecordsMapWithoutTrustingInvalidRows() {
     assert(mapped?.approvedSellingPrice === 3450, 'Approved product prices returned by Supabase should map to numeric selling prices.');
     assert(mapped?.tier === 'Premium', 'The saved approved product tier should be preserved.');
     assert(mapApprovedProductRecord({ id: 'missing-company' }) === null, 'Incomplete product rows must not become estimate choices.');
+}
+
+function homeownerEquipmentChoicesAreMutuallyExclusive() {
+    const baseChoice = completeWorkspace().choices[0];
+
+    assert(Boolean(baseChoice), 'A base estimate choice is required for selection-group regression coverage.');
+    if (!baseChoice) return;
+
+    const choices = [
+        { ...baseChoice, id: 'water-heater-essential', selectionGroup: 'water-heater-equipment' },
+        { ...baseChoice, id: 'water-heater-premium', selectionGroup: 'water-heater-equipment' },
+        { ...baseChoice, id: 'water-filtration', selectionGroup: undefined },
+    ];
+    const withEssential = toggleEstimateChoiceSelection(choices, [], 'water-heater-essential');
+    const withRelatedUpgrade = toggleEstimateChoiceSelection(choices, withEssential, 'water-filtration');
+    const withPremium = toggleEstimateChoiceSelection(choices, withRelatedUpgrade, 'water-heater-premium');
+
+    assert(withPremium.includes('water-heater-premium'), 'The newly selected equipment and warranty package should be selected.');
+    assert(!withPremium.includes('water-heater-essential'), 'Selecting a second product should replace the prior choice from the same group.');
+    assert(withPremium.includes('water-filtration'), 'A separate compatible upgrade should remain selected.');
+    assert(!hasConflictingEstimateSelectionGroups(choices, withPremium), 'The normal homeowner selection flow should not contain conflicting equipment packages.');
+    assert(hasConflictingEstimateSelectionGroups(choices, ['water-heater-essential', 'water-heater-premium']), 'Conflicting grouped selections must be detectable before approval.');
 }
 
 function waterHeaterMissingSelectedAddOnBlocksPartialQuote() {
