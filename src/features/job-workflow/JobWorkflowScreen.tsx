@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import SignaturePad, { isDrawnSignature } from '../../components/signature-pad';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
@@ -14,6 +14,8 @@ import {
     acceptJobWorkflowQuote,
     advanceJobWorkflow,
     closeJobWorkflow,
+    createJobReturnHandoff,
+    createJobWorkflowAttachmentUrl,
     loadOrCreateJobWorkflow,
     recordCloseoutPayment,
     startSameDayWork,
@@ -21,6 +23,10 @@ import {
     type JobWorkflowAttachment,
     type JobWorkflowBundle,
 } from '../../lib/jobWorkflow';
+import {
+    isJobReturnHandoffReady,
+    parseJobReturnHandoffMaterials,
+} from '../../lib/jobReturnHandoff';
 import { supabase } from '../../lib/supabase';
 
 export default function JobWorkflowScreen() {
@@ -58,6 +64,13 @@ export default function JobWorkflowScreen() {
     const [sameDayHomeownerSignature, setSameDayHomeownerSignature] = useState('');
     const [sameDayAgreementConfirmed, setSameDayAgreementConfirmed] = useState(false);
     const [sameDayTechnicianConfirmed, setSameDayTechnicianConfirmed] = useState(false);
+    const [returnHandoffOpen, setReturnHandoffOpen] = useState(false);
+    const [returnWorkSummary, setReturnWorkSummary] = useState('');
+    const [returnRemainingWork, setReturnRemainingWork] = useState('');
+    const [returnMaterialsText, setReturnMaterialsText] = useState('');
+    const [returnNoMaterialsNeeded, setReturnNoMaterialsNeeded] = useState(false);
+    const [returnPickupNotes, setReturnPickupNotes] = useState('');
+    const [returnScheduledFor, setReturnScheduledFor] = useState('');
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
     const workflowScrollRef = useRef<ScrollView | null>(null);
 
@@ -133,6 +146,14 @@ export default function JobWorkflowScreen() {
             );
             setHomeownerName(next.workflow.homeowner_name || '');
             setCompletionName(next.workflow.completion_homeowner_name || '');
+            setReturnWorkSummary((current) => current.trim() || next.workflow.return_visit_work_summary || '');
+            setReturnRemainingWork((current) => current.trim() || next.workflow.return_visit_remaining_work || '');
+            setReturnMaterialsText((current) => current.trim() || (next.workflow.return_visit_materials || [])
+                .map((material) => material.name)
+                .join('\n'));
+            setReturnNoMaterialsNeeded((current) => current || next.workflow.return_visit_no_materials_needed || false);
+            setReturnPickupNotes((current) => current.trim() || next.workflow.return_visit_pickup_notes || '');
+            setReturnScheduledFor((current) => current.trim() || next.workflow.scheduled_for || '');
             setMessage('');
         } catch (error) {
             setMessage(errorMessage(error));
@@ -290,7 +311,7 @@ export default function JobWorkflowScreen() {
             const result = await ImagePicker.launchCameraAsync({
                 mediaTypes: [mediaType],
                 quality: 0.8,
-                videoMaxDuration: 0,
+                videoMaxDuration: mediaType === 'videos' ? 90 : undefined,
             });
             if (!result.canceled) await saveMedia(stage, result.assets);
         } catch (error) {
@@ -313,12 +334,72 @@ export default function JobWorkflowScreen() {
         });
     }
 
+    async function saveReturnVisitHandoff() {
+        if (!bundle || busy) return;
+
+        const materials = parseJobReturnHandoffMaterials(returnMaterialsText);
+        const mediaCount = attachmentCounts.handoff || 0;
+
+        if (!isJobReturnHandoffReady({
+            workSummary: returnWorkSummary,
+            remainingWork: returnRemainingWork,
+            scheduledFor: returnScheduledFor,
+            materials,
+            noMaterialsNeeded: returnNoMaterialsNeeded,
+            mediaCount,
+        })) {
+            setMessage('Complete the work summary, remaining work, return time, materials decision, and at least one handoff photo or video.');
+            return;
+        }
+
+        setBusy(true);
+        setMessage('Saving return-visit handoff...');
+
+        try {
+            await createJobReturnHandoff({
+                workflowId: bundle.workflow.id,
+                scheduledFor: returnScheduledFor,
+                workSummary: returnWorkSummary.trim(),
+                remainingWork: returnRemainingWork.trim(),
+                materials,
+                noMaterialsNeeded: returnNoMaterialsNeeded,
+                pickupNotes: returnPickupNotes.trim(),
+            });
+            setReturnHandoffOpen(false);
+            await refresh();
+            setMessage('Return visit scheduled. The next technician handoff is attached to this job.');
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function openJobMedia(attachment: JobWorkflowAttachment) {
+        try {
+            const url = await createJobWorkflowAttachmentUrl(attachment);
+            await Linking.openURL(url);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        }
+    }
+
     if (!bundle) {
         return <View style={screenStyle}><Text style={messageStyle}>{message}</Text></View>;
     }
 
     const { workflow, contract_rule: rule, options } = bundle;
     const status = workflow.status;
+    const handoffAttachments = bundle.attachments.filter((attachment) => attachment.stage === 'handoff');
+    const returnMaterials = parseJobReturnHandoffMaterials(returnMaterialsText);
+    const returnHandoffReady = isJobReturnHandoffReady({
+        workSummary: returnWorkSummary,
+        remainingWork: returnRemainingWork,
+        scheduledFor: returnScheduledFor,
+        materials: returnMaterials,
+        noMaterialsNeeded: returnNoMaterialsNeeded,
+        mediaCount: handoffAttachments.length,
+    });
     const selectedTotal = options
         .filter((option) => selectedChoiceIds.includes(option.id))
         .reduce((total, option) => total + option.pricingResult.totalAmount, 0);
@@ -377,6 +458,36 @@ export default function JobWorkflowScreen() {
                 <Text style={statusLabelStyle}>Current step</Text>
                 <Text style={statusValueStyle}>{status.replace(/_/g, ' ')}</Text>
             </View>
+
+            {!presentationMode && !completionMode && workflow.return_visit_handoff_at && (
+                <Section
+                    title="Return Visit Handoff"
+                    subtitle={`Saved ${formatDate(workflow.return_visit_handoff_at)} · Return ${formatDate(workflow.scheduled_for)}`}
+                >
+                    <View style={handoffSummaryStyle}>
+                        <Text style={optionTitleStyle}>Work completed and current condition</Text>
+                        <Text style={bodyStyle}>{workflow.return_visit_work_summary || 'Not documented'}</Text>
+                    </View>
+                    <View style={handoffSummaryStyle}>
+                        <Text style={optionTitleStyle}>What the next technician or crew must do</Text>
+                        <Text style={bodyStyle}>{workflow.return_visit_remaining_work || 'Not documented'}</Text>
+                    </View>
+                    <View style={handoffSummaryStyle}>
+                        <Text style={optionTitleStyle}>Materials to pick up</Text>
+                        {workflow.return_visit_no_materials_needed ? (
+                            <Text style={bodyStyle}>No additional materials needed.</Text>
+                        ) : (
+                            (workflow.return_visit_materials || []).map((material, index) => (
+                                <Text key={`${material.name}-${index}`} style={bodyStyle}>• {material.name}</Text>
+                            ))
+                        )}
+                        {!!workflow.return_visit_pickup_notes && (
+                            <Text style={mutedStyle}>Pickup notes: {workflow.return_visit_pickup_notes}</Text>
+                        )}
+                    </View>
+                    <JobMediaList attachments={handoffAttachments} onOpen={openJobMedia} />
+                </Section>
+            )}
 
             {status === 'presenting' && approvalPage === 1 && (
                 <Section title="1. Homeowner selects the work" subtitle="Select one or more technician-approved options.">
@@ -595,6 +706,7 @@ export default function JobWorkflowScreen() {
                         onPress={() => run('confirm_prework', { condition_unchanged: conditionUnchanged })}
                     />
                     <SecondaryButton title="Go to Store" disabled={busy} onPress={startStoreRun} />
+                    <SecondaryButton title="Continue Job on Another Visit" disabled={busy} onPress={() => setReturnHandoffOpen(true)} />
                 </Section>
             )}
 
@@ -640,6 +752,7 @@ export default function JobWorkflowScreen() {
                     />
                     <PrimaryButton title="Technician Finished — Open Close Out" disabled={busy} onPress={() => run('complete_work')} />
                     <SecondaryButton title="Go to Store" disabled={busy} onPress={startStoreRun} />
+                    <SecondaryButton title="Continue Job on Another Visit" disabled={busy} onPress={() => setReturnHandoffOpen(true)} />
                 </Section>
             )}
 
@@ -655,6 +768,68 @@ export default function JobWorkflowScreen() {
                     />
                     <Field label="Resolution / approved change" value={resolutionSummary} onChangeText={setResolutionSummary} multiline />
                     <PrimaryButton title="Resume Work" disabled={busy} onPress={() => run('resume_work', { resolution_summary: resolutionSummary })} />
+                    <SecondaryButton title="Continue Job on Another Visit" disabled={busy} onPress={() => setReturnHandoffOpen(true)} />
+                </Section>
+            )}
+
+            {returnHandoffOpen && ['prework', 'work_in_progress', 'issue_found'].includes(status) && (
+                <Section
+                    title="Job Continuance / Return Visit Handoff"
+                    subtitle="Leave the next technician a complete field handoff before anyone travels to the job or store."
+                >
+                    <Field
+                        label="Work completed and current site condition *"
+                        value={returnWorkSummary}
+                        onChangeText={setReturnWorkSummary}
+                        multiline
+                    />
+                    <Field
+                        label="Exactly what the next technician or crew must do *"
+                        value={returnRemainingWork}
+                        onChangeText={setReturnRemainingWork}
+                        multiline
+                    />
+                    <Field
+                        label="Materials and quantities — one item per line *"
+                        value={returnMaterialsText}
+                        onChangeText={setReturnMaterialsText}
+                        multiline
+                        disabled={returnNoMaterialsNeeded}
+                    />
+                    <WorkflowCheck
+                        checked={returnNoMaterialsNeeded}
+                        onPress={() => setReturnNoMaterialsNeeded((value) => !value)}
+                        label="No additional materials are needed for the return visit."
+                    />
+                    <Field
+                        label="Store, pickup, access, or staging notes"
+                        value={returnPickupNotes}
+                        onChangeText={setReturnPickupNotes}
+                        multiline
+                    />
+                    <Field
+                        label="Return date and time (example: 2026-08-06T09:00:00-07:00) *"
+                        value={returnScheduledFor}
+                        onChangeText={setReturnScheduledFor}
+                    />
+                    <MediaActions
+                        label="Handoff photos and videos *"
+                        count={handoffAttachments.length}
+                        disabled={busy}
+                        onTakePhoto={() => captureMedia('handoff', 'images')}
+                        onRecordVideo={() => captureMedia('handoff', 'videos')}
+                        onAddFromLibrary={() => addMediaFromLibrary('handoff')}
+                    />
+                    <JobMediaList attachments={handoffAttachments} onOpen={openJobMedia} />
+                    <Text style={mutedStyle}>
+                        Required: current condition, remaining work, a materials decision, a return time, and at least one clear photo or video.
+                    </Text>
+                    <PrimaryButton
+                        title={busy ? 'Saving Handoff...' : 'Save Handoff & Schedule Return Visit'}
+                        disabled={busy || !returnHandoffReady}
+                        onPress={saveReturnVisitHandoff}
+                    />
+                    <SecondaryButton title="Cancel" disabled={busy} onPress={() => setReturnHandoffOpen(false)} />
                 </Section>
             )}
 
@@ -794,6 +969,33 @@ function MediaActions({
 function MediaActionButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
     return <TouchableOpacity onPress={onPress} disabled={disabled} style={[mediaActionButtonStyle, disabled && disabledStyle]}><Text style={mediaActionButtonTextStyle}>{title}</Text></TouchableOpacity>;
 }
+function JobMediaList({
+    attachments,
+    onOpen,
+}: {
+    attachments: JobWorkflowAttachment[];
+    onOpen: (attachment: JobWorkflowAttachment) => void;
+}) {
+    if (attachments.length === 0) return null;
+
+    return (
+        <View style={jobMediaListStyle}>
+            <Text style={fieldLabelStyle}>Saved handoff media</Text>
+            {attachments.map((attachment, index) => (
+                <TouchableOpacity
+                    key={attachment.id}
+                    style={jobMediaRowStyle}
+                    onPress={() => onOpen(attachment)}
+                >
+                    <Text style={jobMediaNameStyle} numberOfLines={2}>
+                        {index + 1}. {attachment.file_name}
+                    </Text>
+                    <Text style={jobMediaOpenStyle}>Open</Text>
+                </TouchableOpacity>
+            ))}
+        </View>
+    );
+}
 function actionMessage(action: string) {
     return ({
         accept_quote: 'Quote accepted and job sold.',
@@ -863,6 +1065,11 @@ const mediaCountStyle = { color: '#5ce5df', fontSize: 12, fontWeight: '800' } as
 const mediaActionRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 8 } as const;
 const mediaActionButtonStyle = { flexGrow: 1, minWidth: 110, borderColor: '#3b7188', borderWidth: 1, borderRadius: 9, paddingVertical: 10, paddingHorizontal: 10, alignItems: 'center' } as const;
 const mediaActionButtonTextStyle = { color: '#d8f8ff', fontSize: 12, fontWeight: '800' } as const;
+const handoffSummaryStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 14, gap: 7 } as const;
+const jobMediaListStyle = { gap: 8 } as const;
+const jobMediaRowStyle = { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, backgroundColor: '#071d29', borderColor: '#315c70', borderWidth: 1, borderRadius: 10, padding: 12 } as const;
+const jobMediaNameStyle = { color: '#d8eaf2', fontSize: 13, fontWeight: '700', flex: 1 } as const;
+const jobMediaOpenStyle = { color: '#5ce5df', fontSize: 13, fontWeight: '900' } as const;
 const disabledStyle = { opacity: 0.5 } as const;
 const timelineStyle = { borderLeftColor: '#35aaa5', borderLeftWidth: 3, paddingLeft: 12, gap: 3 } as const;
 const totalStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } as const;

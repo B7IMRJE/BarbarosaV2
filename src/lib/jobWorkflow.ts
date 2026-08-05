@@ -1,6 +1,7 @@
 import type * as ImagePicker from 'expo-image-picker';
 import { supabase } from './supabase';
 import type { PersistableEstimateChoice } from './estimateOptionPersistence';
+import type { JobReturnHandoffMaterial } from './jobReturnHandoff';
 
 export type JobWorkflowStatus =
     | 'presenting' | 'accepted' | 'sold' | 'scheduled_later' | 'prework'
@@ -44,6 +45,13 @@ export type JobWorkflow = {
     store_address: string | null;
     issue_summary: string | null;
     resolution_summary: string | null;
+    return_visit_work_summary: string | null;
+    return_visit_remaining_work: string | null;
+    return_visit_materials: JobReturnHandoffMaterial[];
+    return_visit_no_materials_needed: boolean;
+    return_visit_pickup_notes: string | null;
+    return_visit_handoff_at: string | null;
+    return_visit_handoff_by_user_id: string | null;
     technician_completed_at: string | null;
     completion_homeowner_name: string | null;
     completion_accepted_at: string | null;
@@ -63,11 +71,21 @@ export type ContractRule = {
 export type JobWorkflowAttachment = {
     id: string;
     workflow_id: string;
-    stage: 'before' | 'receipt' | 'purchased_item' | 'issue' | 'after';
+    stage: 'before' | 'receipt' | 'purchased_item' | 'issue' | 'handoff' | 'after';
     visibility: 'company' | 'homeowner';
     storage_path: string;
     file_name: string;
     created_at: string;
+};
+
+export type CreateJobReturnHandoffInput = {
+    workflowId: string;
+    scheduledFor: string;
+    workSummary: string;
+    remainingWork: string;
+    materials: JobReturnHandoffMaterial[];
+    noMaterialsNeeded: boolean;
+    pickupNotes: string;
 };
 
 export type JobWorkflowBundle = {
@@ -145,6 +163,32 @@ export async function recordCloseoutPayment(workflowId: string): Promise<JobWork
     });
     if (error) throw error;
     return data as JobWorkflow;
+}
+
+export async function createJobReturnHandoff(
+    input: CreateJobReturnHandoffInput
+): Promise<JobWorkflow> {
+    const { data, error } = await supabase.rpc('create_company_job_return_handoff', {
+        p_workflow_id: input.workflowId,
+        p_scheduled_for: input.scheduledFor,
+        p_work_summary: input.workSummary,
+        p_remaining_work: input.remainingWork,
+        p_materials: input.materials,
+        p_no_materials_needed: input.noMaterialsNeeded,
+        p_pickup_notes: input.pickupNotes || null,
+    });
+    if (error) throw error;
+    return data as JobWorkflow;
+}
+
+export async function createJobWorkflowAttachmentUrl(attachment: JobWorkflowAttachment) {
+    const { data, error } = await supabase.storage
+        .from('company-job-files')
+        .createSignedUrl(attachment.storage_path, 60 * 15);
+
+    if (error || !data?.signedUrl) throw error || new Error('Job media could not be opened.');
+
+    return data.signedUrl;
 }
 
 export async function completeJobWorkflowFromTechOS(
