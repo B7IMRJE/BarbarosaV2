@@ -4,7 +4,10 @@ import {
     isLiveTechOSAssignmentStatus,
     isOpenTechOSAssignmentStatus,
     isTechOSVisitCloseable,
+    getJobAssignmentRoleLabel,
+    hasActiveJobLead,
     normalizeTechOSAssignmentCompanyUserIds,
+    resolveDefaultJobAssignmentRole,
     resolveTechOSAssignmentCompanyUserIds,
 } from './techosAssignments';
 
@@ -21,6 +24,52 @@ export function runTechOSAssignmentRegressions() {
     duplicateScheduleSlotsForOneRequestCollapseToCurrentVisit();
     differentRequestsRemainSeparateAfterSlotCollapse();
     olderClosedVisitCannotDuplicateNewerActiveVisit();
+    firstAssignedTechnicianDefaultsToLead();
+    additionalTechniciansDefaultAfterLeadExists();
+    removedLeadDoesNotSatisfyLeadRequirement();
+    assignmentRolesUseClearLabels();
+}
+
+function firstAssignedTechnicianDefaultsToLead() {
+    assert(
+        resolveDefaultJobAssignmentRole({ assignments: [] }) === 'primary',
+        'The first technician assigned to a job must default to the lead role.'
+    );
+}
+
+function additionalTechniciansDefaultAfterLeadExists() {
+    const assignments = [
+        { role_on_job: 'primary', status: 'assigned' },
+        { role_on_job: 'helper', status: 'accepted' },
+    ];
+
+    assert(hasActiveJobLead(assignments), 'An active primary assignment should be recognized as the job lead.');
+    assert(
+        resolveDefaultJobAssignmentRole({ assignments }) === 'helper',
+        'Once a job has a lead, the next technician should default to an additional technician.'
+    );
+    assert(
+        resolveDefaultJobAssignmentRole({ activeAssignmentCount: 2 }) === 'helper',
+        'The management overview should default later assignments to additional technicians.'
+    );
+}
+
+function removedLeadDoesNotSatisfyLeadRequirement() {
+    const assignments = [
+        { role_on_job: 'primary', status: 'removed' },
+        { role_on_job: 'helper', status: 'assigned' },
+    ];
+
+    assert(!hasActiveJobLead(assignments), 'A removed primary assignment must not count as the active job lead.');
+    assert(
+        resolveDefaultJobAssignmentRole({ assignments }) === 'primary',
+        'A job with no active lead must require the next assignment to become lead.'
+    );
+}
+
+function assignmentRolesUseClearLabels() {
+    assert(getJobAssignmentRoleLabel('primary') === 'Lead technician', 'Primary must be presented as Lead technician.');
+    assert(getJobAssignmentRoleLabel('helper') === 'Additional technician', 'Helper must be presented as Additional technician.');
 }
 
 function completedWorkRemainsCloseableUntilVisitCloseoutIsSaved() {

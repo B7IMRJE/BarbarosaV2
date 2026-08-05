@@ -9,6 +9,13 @@ import { getCompanyDisplayName } from '../../lib/companyDisplayName';
 import { supabase } from '../../lib/supabase';
 import { getTechnicianAssignmentDisplayName } from '../../lib/technicianDisplay';
 import { resolveCompanyTechOSTheme } from '../../lib/techosAppearance';
+import {
+    getJobAssignmentRoleLabel,
+    hasActiveJobLead,
+    isActiveJobAssignmentStatus,
+    resolveDefaultJobAssignmentRole,
+    type JobAssignmentRole,
+} from '../../lib/techosAssignments';
 import { useTheme } from '../../theme/useTheme';
 
 type CompanyUserAccess = {
@@ -135,6 +142,7 @@ export default function TechOSJobDetailScreen() {
     const [assignmentPickerOpen, setAssignmentPickerOpen] = useState(false);
     const [assignmentLoading, setAssignmentLoading] = useState(false);
     const [assigningUserId, setAssigningUserId] = useState<string | null>(null);
+    const [selectedAssignmentRole, setSelectedAssignmentRole] = useState<JobAssignmentRole>('primary');
     const [assignmentMessage, setAssignmentMessage] = useState('');
     const [message, setMessage] = useState('Loading job...');
     const techOSTheme = useMemo(() => resolveCompanyTechOSTheme({
@@ -160,6 +168,7 @@ export default function TechOSJobDetailScreen() {
         setAssignableUsers([]);
         setAssignments([]);
         setAssignmentPickerOpen(false);
+        setSelectedAssignmentRole('primary');
         setAssignmentMessage('');
 
         if (!requestedJobId) {
@@ -291,7 +300,9 @@ export default function TechOSJobDetailScreen() {
             return;
         }
 
-        setAssignments(normalizeAssignments(data));
+        const normalizedAssignments = normalizeAssignments(data);
+        setAssignments(normalizedAssignments);
+        setSelectedAssignmentRole(resolveDefaultJobAssignmentRole({ assignments: normalizedAssignments }));
     }
 
     async function loadLinkedServiceRequestId(loadedJob: TechOSJobDetail) {
@@ -317,17 +328,17 @@ export default function TechOSJobDetailScreen() {
         setJobServiceRequestId(String((data as { id?: string | null }).id || ''));
     }
 
-    async function handleAssignTechnician(member: CompanyUser) {
+    async function handleAssignTechnician(member: CompanyUser, role: JobAssignmentRole = selectedAssignmentRole) {
         if (!job?.company_id || !job.id) return;
 
         setAssigningUserId(member.id);
-        setAssignmentMessage(`Assigning ${getTechnicianAssignmentDisplayName(member)}...`);
+        setAssignmentMessage(`Assigning ${getTechnicianAssignmentDisplayName(member)} as ${getJobAssignmentRoleLabel(role).toLowerCase()}...`);
 
         const assignResult = await supabase.rpc('assign_technician_to_job', {
             p_company_id: job.company_id,
             p_job_id: job.id,
             p_technician_company_user_id: member.id,
-            p_role_on_job: 'primary',
+            p_role_on_job: role,
         });
 
         if (assignResult.error) {
@@ -342,10 +353,25 @@ export default function TechOSJobDetailScreen() {
             return;
         }
 
-        setAssignmentPickerOpen(false);
-        setAssignmentMessage(`${getTechnicianAssignmentDisplayName(member)} was assigned. Refreshing job...`);
         setAssigningUserId(null);
-        await loadJobDetail();
+        await loadJobAssignments(job.company_id, job.id);
+        setAssignmentPickerOpen(true);
+        setAssignmentMessage(
+            role === 'primary'
+                ? `${getTechnicianAssignmentDisplayName(member)} is now the lead technician.`
+                : `${getTechnicianAssignmentDisplayName(member)} was added to this job.`
+        );
+    }
+
+    function handleMakeLead(assignment: JobAssignment) {
+        const member = assignableUsers.find((candidate) => candidate.id === assignment.technician_company_user_id);
+
+        if (!member) {
+            setAssignmentMessage('That technician is no longer active and cannot be made lead.');
+            return;
+        }
+
+        handleAssignTechnician(member, 'primary');
     }
 
     function handleBackToTechOS() {
@@ -427,8 +453,11 @@ export default function TechOSJobDetailScreen() {
                             loading={assignmentLoading}
                             pickerOpen={assignmentPickerOpen}
                             assigningUserId={assigningUserId}
+                            selectedRole={selectedAssignmentRole}
                             message={assignmentMessage}
                             onTogglePicker={() => setAssignmentPickerOpen((current) => !current)}
+                            onSelectRole={setSelectedAssignmentRole}
+                            onMakeLead={handleMakeLead}
                             onAssign={handleAssignTechnician}
                         />
 
@@ -505,8 +534,11 @@ function AssignmentCard({
     loading,
     pickerOpen,
     assigningUserId,
+    selectedRole,
     message,
     onTogglePicker,
+    onSelectRole,
+    onMakeLead,
     onAssign,
 }: {
     assignments: JobAssignment[];
@@ -515,12 +547,22 @@ function AssignmentCard({
     loading: boolean;
     pickerOpen: boolean;
     assigningUserId: string | null;
+    selectedRole: JobAssignmentRole;
     message: string;
     onTogglePicker: () => void;
-    onAssign: (member: CompanyUser) => void;
+    onSelectRole: (role: JobAssignmentRole) => void;
+    onMakeLead: (assignment: JobAssignment) => void;
+    onAssign: (member: CompanyUser, role?: JobAssignmentRole) => void;
 }) {
     const { theme } = useTheme();
-    const activeAssignments = assignments.filter((assignment) => isActiveAssignmentStatus(assignment.status));
+    const activeAssignments = assignments
+        .filter((assignment) => isActiveJobAssignmentStatus(assignment.status))
+        .sort((first, second) => (
+            first.role_on_job === 'primary' ? -1 : second.role_on_job === 'primary' ? 1 : 0
+        ));
+    const assignedUserIds = new Set(activeAssignments.map((assignment) => assignment.technician_company_user_id));
+    const availableUsers = assignableUsers.filter((member) => !assignedUserIds.has(member.id));
+    const hasLead = hasActiveJobLead(activeAssignments);
 
     return (
         <ThemedCard style={assignmentCardStyle}>
@@ -553,15 +595,25 @@ function AssignmentCard({
                                     {getAssignmentDisplayName(assignment, assignableUsers)}
                                 </Text>
                                 <Text style={[assignmentMetaStyle, { color: theme.colors.mutedText }]}>
-                                    {formatLabel(assignment.role_on_job)} / {formatStatus(assignment.status)}
+                                    {getJobAssignmentRoleLabel(assignment.role_on_job)} / {formatStatus(assignment.status)}
                                     {' / '}Assigned {formatDate(assignment.assigned_at)}
                                 </Text>
                             </View>
-                            <View style={[statusBadgeStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.secondaryButton }]}>
-                                <Text style={[statusBadgeTextStyle, { color: theme.colors.secondaryButtonText }]}>
-                                    {formatStatus(assignment.status)}
-                                </Text>
-                            </View>
+                            {canAssign && assignment.role_on_job !== 'primary' ? (
+                                <TouchableOpacity
+                                    onPress={() => onMakeLead(assignment)}
+                                    disabled={assigningUserId !== null}
+                                    style={[statusBadgeStyle, { borderColor: theme.colors.primary, backgroundColor: theme.colors.secondaryButton }]}
+                                >
+                                    <Text style={[statusBadgeTextStyle, { color: theme.colors.primary }]}>Make lead</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <View style={[statusBadgeStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.secondaryButton }]}>
+                                    <Text style={[statusBadgeTextStyle, { color: theme.colors.secondaryButtonText }]}>
+                                        {assignment.role_on_job === 'primary' ? 'Lead' : formatStatus(assignment.status)}
+                                    </Text>
+                                </View>
+                            )}
                         </View>
                     ))}
                 </View>
@@ -573,20 +625,54 @@ function AssignmentCard({
 
             {canAssign && pickerOpen && (
                 <View style={pickerPanelStyle}>
+                    <Text style={[assignmentNameStyle, { color: theme.colors.text }]}>Role on this job</Text>
+                    <View style={roleChoiceRowStyle}>
+                        {(['primary', 'helper'] as const).map((role) => {
+                            const selected = selectedRole === role;
+                            const disabled = role === 'helper' && !hasLead;
+
+                            return (
+                                <TouchableOpacity
+                                    key={role}
+                                    onPress={() => onSelectRole(role)}
+                                    disabled={disabled || assigningUserId !== null}
+                                    style={[
+                                        roleChoiceStyle,
+                                        {
+                                            borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                            backgroundColor: selected ? theme.colors.secondaryButton : 'transparent',
+                                            opacity: disabled ? 0.45 : 1,
+                                        },
+                                    ]}
+                                >
+                                    <Text style={[assignmentNameStyle, { color: theme.colors.text }]}>
+                                        {role === 'primary' ? 'Lead' : 'Additional'}
+                                    </Text>
+                                    <Text style={[assignmentMetaStyle, { color: theme.colors.mutedText }]}>
+                                        {role === 'primary'
+                                            ? hasLead ? 'Makes this technician lead and moves the current lead to additional.' : 'The first technician must be the lead.'
+                                            : 'Adds another technician without changing the lead.'}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
                     {loading ? (
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading technicians...</Text>
-                    ) : assignableUsers.length === 0 ? (
+                    ) : availableUsers.length === 0 ? (
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                            No active TechOS users found for this company.
+                            {assignableUsers.length === 0
+                                ? 'No active TechOS users found for this company.'
+                                : 'Every active technician is already assigned to this job.'}
                         </Text>
                     ) : (
-                        assignableUsers.map((member) => {
+                        availableUsers.map((member) => {
                             const assigning = assigningUserId === member.id;
 
                             return (
                                 <TouchableOpacity
                                     key={member.id}
-                                    onPress={() => onAssign(member)}
+                                    onPress={() => onAssign(member, selectedRole)}
                                     disabled={assigningUserId !== null}
                                     style={[pickerRowStyle, { borderColor: theme.colors.border }]}
                                 >
@@ -596,7 +682,7 @@ function AssignmentCard({
                                         </Text>
                                     </View>
                                     <Text style={[pickerActionTextStyle, { color: theme.colors.primary }]}>
-                                        {assigning ? 'Assigning...' : 'Assign'}
+                                        {assigning ? 'Assigning...' : selectedRole === 'primary' ? 'Make lead' : 'Add'}
                                     </Text>
                                 </TouchableOpacity>
                             );
@@ -814,10 +900,6 @@ function isTechOSAssignableRole(role?: string | null) {
 
 function isActiveStatus(status?: string | null) {
     return normalizeStatus(status) === 'active';
-}
-
-function isActiveAssignmentStatus(status?: string | null) {
-    return !['removed', 'revoked', 'cancelled'].includes(normalizeStatus(status));
 }
 
 function getAssignmentDisplayName(assignment: JobAssignment, members: CompanyUser[]) {
@@ -1046,6 +1128,22 @@ const statusBadgeTextStyle = {
 const pickerPanelStyle = {
     gap: 8,
     marginTop: 14,
+};
+
+const roleChoiceRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const roleChoiceStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    flexBasis: 240,
+    flexGrow: 1,
+    minWidth: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
 };
 
 const pickerRowStyle = {

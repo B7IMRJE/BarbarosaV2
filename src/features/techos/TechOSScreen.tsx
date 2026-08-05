@@ -105,10 +105,13 @@ import {
 import {
     collapseTechOSAssignmentSlots,
     filterTechOSAssignmentSlots,
+    getJobAssignmentRoleLabel,
     isOpenTechOSAssignmentStatus,
     isTechOSVisitCloseable,
     normalizeTechOSAssignmentCompanyUserIds,
+    resolveDefaultJobAssignmentRole,
     resolveTechOSAssignmentCompanyUserIds,
+    type JobAssignmentRole,
 } from '../../lib/techosAssignments';
 import { getTechnicianAssignmentDisplayName } from '../../lib/technicianDisplay';
 import { useTheme } from '../../theme/useTheme';
@@ -319,6 +322,7 @@ export default function TechOSScreen() {
     const [activeTechnicians, setActiveTechnicians] = useState<CompanyUser[]>([]);
     const [expandedAssignmentJobs, setExpandedAssignmentJobs] = useState<Record<string, boolean>>({});
     const [selectedTechnicianByJob, setSelectedTechnicianByJob] = useState<Record<string, string>>({});
+    const [selectedAssignmentRoleByJob, setSelectedAssignmentRoleByJob] = useState<Record<string, JobAssignmentRole>>({});
     const [assignmentMessageByJob, setAssignmentMessageByJob] = useState<Record<string, string>>({});
     const [assigningJobId, setAssigningJobId] = useState<string | null>(null);
     const [authUserId, setAuthUserId] = useState('');
@@ -1129,6 +1133,9 @@ export default function TechOSScreen() {
     async function handleAssignTechnician(job: TechOSJob) {
         const selectedCompanyId = activeCompanyId || job.company_id || '';
         const selectedTechnicianId = selectedTechnicianByJob[job.id] || '';
+        const selectedRole = selectedAssignmentRoleByJob[job.id] || resolveDefaultJobAssignmentRole({
+            activeAssignmentCount: job.assignment_count,
+        });
 
         if (!selectedCompanyId || !job.id) {
             setAssignmentMessageByJob((current) => ({
@@ -1150,7 +1157,7 @@ export default function TechOSScreen() {
         setAssigningJobId(job.id);
         setAssignmentMessageByJob((current) => ({
             ...current,
-            [job.id]: `Assigning ${getTechnicianAssignmentDisplayName(selectedTechnician)}...`,
+            [job.id]: `Assigning ${getTechnicianAssignmentDisplayName(selectedTechnician)} as ${getJobAssignmentRoleLabel(selectedRole).toLowerCase()}...`,
         }));
 
         let assignErrorMessage = '';
@@ -1160,7 +1167,7 @@ export default function TechOSScreen() {
                 p_company_id: selectedCompanyId,
                 p_job_id: job.id,
                 p_technician_company_user_id: selectedTechnicianId,
-                p_role_on_job: 'primary',
+                p_role_on_job: selectedRole,
             });
             assignErrorMessage = error?.message || '';
         } catch (error) {
@@ -1178,10 +1185,12 @@ export default function TechOSScreen() {
 
         setAssignmentMessageByJob((current) => ({
             ...current,
-            [job.id]: `${getTechnicianAssignmentDisplayName(selectedTechnician)} assigned as primary technician.`,
+            [job.id]: selectedRole === 'primary'
+                ? `${getTechnicianAssignmentDisplayName(selectedTechnician)} is now the lead technician.`
+                : `${getTechnicianAssignmentDisplayName(selectedTechnician)} was added to this job.`,
         }));
-        setExpandedAssignmentJobs((current) => ({ ...current, [job.id]: false }));
         setSelectedTechnicianByJob((current) => ({ ...current, [job.id]: '' }));
+        setSelectedAssignmentRoleByJob((current) => ({ ...current, [job.id]: 'helper' }));
         await loadCompanyJobs(selectedCompanyId, techOSMode);
         setAssigningJobId(null);
     }
@@ -2075,10 +2084,14 @@ export default function TechOSScreen() {
                             onSelectTechnician={(jobId, technicianId) =>
                                 setSelectedTechnicianByJob((current) => ({ ...current, [jobId]: technicianId }))
                             }
+                            onSelectAssignmentRole={(jobId, role) =>
+                                setSelectedAssignmentRoleByJob((current) => ({ ...current, [jobId]: role }))
+                            }
                             onToggleAssignment={(jobId) =>
                                 setExpandedAssignmentJobs((current) => ({ ...current, [jobId]: !current[jobId] }))
                             }
                             propertiesById={propertiesById}
+                            selectedAssignmentRoleByJob={selectedAssignmentRoleByJob}
                             selectedTechnicianByJob={selectedTechnicianByJob}
                             title={jobBoardTitle}
                             description={jobBoardDescription}
@@ -4573,9 +4586,11 @@ function TechOSJobsBoard({
     message,
     onAssignTechnician,
     onOpenJob,
+    onSelectAssignmentRole,
     onSelectTechnician,
     onToggleAssignment,
     propertiesById,
+    selectedAssignmentRoleByJob,
     selectedTechnicianByJob,
     title,
 }: {
@@ -4593,9 +4608,11 @@ function TechOSJobsBoard({
     message: string;
     onAssignTechnician: (job: TechOSJob) => void;
     onOpenJob: (job: TechOSJob) => void;
+    onSelectAssignmentRole: (jobId: string, role: JobAssignmentRole) => void;
     onSelectTechnician: (jobId: string, technicianId: string) => void;
     onToggleAssignment: (jobId: string) => void;
     propertiesById: Record<string, PropertyRecord>;
+    selectedAssignmentRoleByJob: Record<string, JobAssignmentRole>;
     selectedTechnicianByJob: Record<string, string>;
     title: string;
 }) {
@@ -4656,9 +4673,13 @@ function TechOSJobsBoard({
                                         job={job}
                                         onAssignTechnician={onAssignTechnician}
                                         onOpenJob={onOpenJob}
+                                        onSelectAssignmentRole={onSelectAssignmentRole}
                                         onSelectTechnician={onSelectTechnician}
                                         onToggleAssignment={onToggleAssignment}
                                         property={property}
+                                        selectedAssignmentRole={selectedAssignmentRoleByJob[job.id] || resolveDefaultJobAssignmentRole({
+                                            activeAssignmentCount: job.assignment_count,
+                                        })}
                                         selectedTechnicianId={selectedTechnicianByJob[job.id] || ''}
                                     />
                                 );
@@ -4681,9 +4702,11 @@ function TechOSJobCard({
     job,
     onAssignTechnician,
     onOpenJob,
+    onSelectAssignmentRole,
     onSelectTechnician,
     onToggleAssignment,
     property,
+    selectedAssignmentRole,
     selectedTechnicianId,
 }: {
     activeTechnicians: CompanyUser[];
@@ -4695,9 +4718,11 @@ function TechOSJobCard({
     job: TechOSJob;
     onAssignTechnician: (job: TechOSJob) => void;
     onOpenJob: (job: TechOSJob) => void;
+    onSelectAssignmentRole: (jobId: string, role: JobAssignmentRole) => void;
     onSelectTechnician: (jobId: string, technicianId: string) => void;
     onToggleAssignment: (jobId: string) => void;
     property?: PropertyRecord;
+    selectedAssignmentRole: JobAssignmentRole;
     selectedTechnicianId: string;
 }) {
     const { theme } = useTheme();
@@ -4743,6 +4768,40 @@ function TechOSJobCard({
 
                     {assignmentExpanded && (
                         <View style={technicianPickerStyle}>
+                            <Text style={[jobAssignmentTitleStyle, { color: theme.colors.text }]}>Role on this job</Text>
+                            <View style={jobAssignmentRoleRowStyle}>
+                                {(['primary', 'helper'] as const).map((role) => {
+                                    const selected = selectedAssignmentRole === role;
+                                    const helperUnavailable = role === 'helper' && Number(job.assignment_count || 0) === 0;
+
+                                    return (
+                                        <TouchableOpacity
+                                            key={role}
+                                            onPress={() => onSelectAssignmentRole(job.id, role)}
+                                            disabled={helperUnavailable || assigning}
+                                            style={[
+                                                jobAssignmentRoleChoiceStyle,
+                                                {
+                                                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                                    backgroundColor: selected ? theme.colors.secondaryButton : 'transparent',
+                                                    opacity: helperUnavailable ? 0.45 : 1,
+                                                },
+                                            ]}
+                                        >
+                                            <Text style={[technicianPickerNameStyle, { color: theme.colors.text }]}>
+                                                {role === 'primary' ? 'Lead' : 'Additional'}
+                                            </Text>
+                                            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                                {role === 'primary'
+                                                    ? Number(job.assignment_count || 0) > 0
+                                                        ? 'Makes this technician lead and moves the current lead to additional.'
+                                                        : 'The first assigned technician must be lead.'
+                                                    : 'Adds another technician and keeps the current lead.'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
                             {activeTechnicians.length === 0 ? (
                                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                                     No active technicians are available for this company.
@@ -4779,7 +4838,11 @@ function TechOSJobCard({
                     )}
 
                     <ThemedButton
-                        title={assigning ? 'Assigning...' : 'Assign Technician'}
+                        title={assigning
+                            ? 'Assigning...'
+                            : selectedAssignmentRole === 'primary'
+                                ? 'Assign as Lead'
+                                : 'Add Technician'}
                         disabled={assigning || activeTechnicians.length === 0 || !selectedTechnicianId}
                         onPress={() => onAssignTechnician(job)}
                         style={clientActionButtonStyle}
@@ -6416,6 +6479,22 @@ const jobAssignmentToggleStyle = {
 const technicianPickerStyle = {
     gap: 8,
     marginTop: 10,
+};
+
+const jobAssignmentRoleRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const jobAssignmentRoleChoiceStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    flexBasis: 180,
+    flexGrow: 1,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
 };
 
 const technicianPickerRowStyle = {

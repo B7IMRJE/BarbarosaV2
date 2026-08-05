@@ -20,6 +20,45 @@ export type TechOSAssignmentScheduleSlot = TechOSAssignmentSlotIdentity & {
     visit_closed_at?: string | null;
 };
 
+export type JobAssignmentRole = 'primary' | 'helper';
+
+export type JobAssignmentRoleRecord = {
+    role_on_job?: string | null;
+    status?: string | null;
+};
+
+export function isActiveJobAssignmentStatus(status?: string | null) {
+    return !['removed', 'revoked', 'cancelled', 'canceled'].includes(normalizeAssignmentStatus(status));
+}
+
+export function hasActiveJobLead(assignments: readonly JobAssignmentRoleRecord[]) {
+    return assignments.some((assignment) => (
+        isActiveJobAssignmentStatus(assignment.status) &&
+        normalizeAssignmentStatus(assignment.role_on_job) === 'primary'
+    ));
+}
+
+export function resolveDefaultJobAssignmentRole(input: {
+    assignments?: readonly JobAssignmentRoleRecord[];
+    activeAssignmentCount?: number | null;
+}): JobAssignmentRole {
+    if (input.assignments) {
+        return hasActiveJobLead(input.assignments) ? 'helper' : 'primary';
+    }
+
+    return Number(input.activeAssignmentCount || 0) > 0 ? 'helper' : 'primary';
+}
+
+export function getJobAssignmentRoleLabel(role?: string | null) {
+    const normalizedRole = normalizeAssignmentStatus(role);
+
+    if (normalizedRole === 'primary' || normalizedRole === 'lead') return 'Lead technician';
+    if (normalizedRole === 'helper' || normalizedRole === 'additional') return 'Additional technician';
+    if (normalizedRole === 'observer') return 'Observer';
+
+    return 'Technician';
+}
+
 export function normalizeTechOSAssignmentCompanyUserIds(
     companyUserIds: ReadonlyArray<string | null | undefined>
 ) {
