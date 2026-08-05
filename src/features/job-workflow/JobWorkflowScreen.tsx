@@ -385,6 +385,7 @@ export default function JobWorkflowScreen() {
                                 <Text style={optionTitleStyle}>{option.title}</Text>
                                 <Text style={optionPriceStyle}>{formatMoney(option.pricingResult.totalAmount)}</Text>
                                 <Text style={bodyStyle}>{option.homeownerExplanation}</Text>
+                                <CustomerSelectionList selections={option.customerSelections} />
                                 <Text style={selectLabelStyle}>
                                     {selectedChoiceIds.includes(option.id) ? 'Selected ✓' : 'Select this option'}
                                 </Text>
@@ -450,6 +451,7 @@ export default function JobWorkflowScreen() {
                                 <Text style={optionTitleStyle}>{option.title}</Text>
                                 <Text style={optionPriceStyle}>{formatMoney(option.pricingResult.totalAmount)}</Text>
                                 <Text style={bodyStyle}>{option.homeownerExplanation}</Text>
+                                <CustomerSelectionList selections={option.customerSelections} />
                                 {option.pricingResult.lineItems.map((line) => (
                                     <Text key={`${option.id}-${line.id}`} style={mutedStyle}>
                                         • {line.name} × {line.quantity} — {formatMoney(line.totalAmount)}
@@ -720,6 +722,18 @@ export default function JobWorkflowScreen() {
 function Section({ title, subtitle, children }: { title: string; subtitle: string; children?: React.ReactNode }) {
     return <View style={sectionStyle}><Text style={sectionTitleStyle}>{title}</Text><Text style={mutedStyle}>{subtitle}</Text>{children}</View>;
 }
+function CustomerSelectionList({ selections }: { selections?: string[] }) {
+    if (!selections?.length) return null;
+
+    return (
+        <View style={customerSelectionListStyle}>
+            <Text style={customerSelectionTitleStyle}>Selected equipment and site details</Text>
+            {selections.map((selection) => (
+                <Text key={selection} style={customerSelectionTextStyle}>• {selection}</Text>
+            ))}
+        </View>
+    );
+}
 function Field(props: { label: string; value: string; onChangeText: (value: string) => void; multiline?: boolean; disabled?: boolean }) {
     return <View><Text style={fieldLabelStyle}>{props.label}</Text><TextInput {...props} editable={!props.disabled} style={[inputStyle, props.multiline && textAreaStyle, props.disabled && disabledStyle]} placeholderTextColor="#7391a5" /></View>;
 }
@@ -819,6 +833,9 @@ const optionSelectedStyle = { borderColor: '#45d893', backgroundColor: '#123b35'
 const optionTitleStyle = { color: '#f2fbff', fontSize: 16, fontWeight: '800' } as const;
 const optionPriceStyle = { color: '#52e0a4', fontSize: 22, fontWeight: '900' } as const;
 const selectLabelStyle = { color: '#5ce5df', fontSize: 13, fontWeight: '800' } as const;
+const customerSelectionListStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 10, padding: 11, gap: 5 } as const;
+const customerSelectionTitleStyle = { color: '#d8f8ff', fontSize: 13, fontWeight: '900' } as const;
+const customerSelectionTextStyle = { color: '#bdd2dc', fontSize: 12, lineHeight: 18 } as const;
 const legalTitleStyle = { color: '#f2fbff', fontSize: 17, fontWeight: '900', marginTop: 8 } as const;
 const checkRowStyle = { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingVertical: 6 } as const;
 const checkStyle = { color: '#52e0a4', fontSize: 24 } as const;

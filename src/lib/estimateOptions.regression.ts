@@ -51,6 +51,8 @@ export function runEstimateOptionsRegressions() {
     replacementEstimateRejectsRepairPriceLines();
     waterHeaterPricingRejectsUnrelatedGasRows();
     waterHeaterPricingIncludesOnlyConfirmedAddOns();
+    waterHeaterQuoteCarriesPickerSelections();
+    waterHeaterBackBlockRequiresPricedLine();
     waterHeaterMissingSelectedAddOnBlocksPartialQuote();
     skippedWaterHeaterPhotosDoNotChangePricing();
     waterHeaterRepairChecklistCoversFieldComponents();
@@ -268,6 +270,96 @@ function waterHeaterPricingIncludesOnlyConfirmedAddOns() {
     assert(workspace.pricingResults[0]?.totalAmount === 3450, 'The quote should total the base and explicitly selected add-ons once.');
     assert(workspace.pricingResults[0]?.lineItems.length === 4, 'The quote should contain one base line and the three confirmed add-ons.');
     assert(new Set(workspace.pricingResults[0]?.lineItems.map((line) => line.code)).size === 4, 'Repeated checklist signals must not duplicate an add-on charge.');
+}
+
+function waterHeaterQuoteCarriesPickerSelections() {
+    const answers: EstimateAnswerSet = {
+        ...waterHeaterAnswers(),
+        fuel_type: 'gas',
+        location: 'garage',
+        drain_pan_route: 'add pan',
+        straps: 'install straps anchored to wall studs',
+        back_block: 'install new blocking anchored to wall',
+        sediment_trap: 'install sediment trap',
+        installation_difficulty: 'difficult — extended labor or access',
+        burner_condition: 'missing',
+        documented_deficiencies: ['burner missing', 'no manufacturer warranty'],
+        code_corrections: ['pan', 'straps', 'back block', 'sediment trap'],
+        desired_warranty: 'extended',
+    };
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers,
+        priceBookItems: [
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_standard_tank_water_heater_replacement',
+                'Standard tank water heater replacement',
+                'Water Heaters',
+                2500
+            ),
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_water_heater_pan_installation',
+                'Water heater pan installation',
+                'Water Heaters',
+                300
+            ),
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_water_heater_seismic_strap_installation',
+                'Water heater seismic strap installation',
+                'Water Heaters',
+                200
+            ),
+            scopedPriceBookItem(
+                'water_service_garage_mechanical_water_heater_back_block_installation',
+                'Water heater back-block installation',
+                'Water Heaters',
+                175
+            ),
+            scopedPriceBookItem(
+                'gas_service_garage_mechanical_gas_sediment_trap_installation',
+                'Gas sediment trap installation',
+                'Water Heaters',
+                225
+            ),
+        ],
+    });
+    const choice = workspace.choices[0];
+    const selections = choice?.customerSelections || [];
+    const includedLines = choice?.pricingResult.lineItems.map((line) => line.name) || [];
+
+    assert(Boolean(choice), 'A fully priced water-heater checklist should create a customer option.');
+    assert(choice?.title.includes('50 Gallon Tank Water Heater') === true, 'The option title should identify the selected tank size and equipment type.');
+    assert(selections.includes('Tank size or tankless demand: 50 Gallon'), 'The selected tank size should appear in the customer option details.');
+    assert(selections.includes('Seismic strapping: Install straps anchored to wall studs'), 'The selected seismic-strapping work should appear in the customer option details.');
+    assert(selections.includes('Water-heater back block: Install new blocking anchored to wall'), 'The selected back-block work should appear in the customer option details.');
+    assert(selections.includes('Gas sediment trap: Install sediment trap'), 'The selected sediment-trap work should appear in the customer option details.');
+    assert(selections.includes('Installation difficulty: Difficult — extended labor or access'), 'The documented installation difficulty should appear in the customer option details.');
+    assert(selections.includes('Documented deficiencies: Burner missing, No manufacturer warranty'), 'All selected deficiencies should appear in the customer option details.');
+    assert(selections.includes('Desired warranty: Extended'), 'The selected warranty preference should appear in the customer option details.');
+    assert(includedLines.includes('Water heater pan installation'), 'The quote should itemize the selected drain pan.');
+    assert(includedLines.includes('Water heater seismic strap installation'), 'The quote should itemize the selected seismic straps.');
+    assert(includedLines.includes('Water heater back-block installation'), 'The quote should itemize the selected back block.');
+    assert(includedLines.includes('Gas sediment trap installation'), 'The quote should itemize the selected sediment trap.');
+}
+
+function waterHeaterBackBlockRequiresPricedLine() {
+    const workspace = buildWorkspace({
+        category: 'water_heater',
+        answers: {
+            ...waterHeaterAnswers(),
+            back_block: 'install new blocking anchored to wall',
+            code_corrections: ['back block'],
+        },
+        priceBookItems: [scopedPriceBookItem(
+            'water_service_garage_mechanical_standard_tank_water_heater_replacement',
+            'Standard tank water heater replacement',
+            'Water Heaters',
+            2500
+        )],
+    });
+
+    assert(workspace.pricingResults.length === 0, 'Selected back-block work must not disappear from a partially priced quote.');
+    assert(workspace.pricingSetupRequired, 'Selected back-block work should require an explicit approved price before quoting.');
 }
 
 function waterHeaterMissingSelectedAddOnBlocksPartialQuote() {

@@ -3072,6 +3072,16 @@ export default function EstimateScreen() {
                                 <View style={optionDetailSectionStyle}>
                                     <Text style={optionDetailSectionTitleStyle}>Customer explanation</Text>
                                     <Text style={optionDetailBodyStyle}>{detailChoice.homeownerExplanation}</Text>
+                                    {!!detailChoice.customerSelections?.length && (
+                                        <View style={customerSelectionListStyle}>
+                                            <Text style={customerSelectionTitleStyle}>Selected equipment and site details</Text>
+                                            {detailChoice.customerSelections.map((selection) => (
+                                                <Text key={`${detailChoice.id}-${selection}`} style={customerSelectionTextStyle}>
+                                                    • {selection}
+                                                </Text>
+                                            ))}
+                                        </View>
+                                    )}
                                 </View>
 
                                 <View style={optionDetailSectionStyle}>
@@ -3888,6 +3898,16 @@ function renderGuidedEstimateBuilder({
                                             <Text style={guidedReviewPriceStyle}>{formatMoney(choice.pricingResult.totalAmount)}</Text>
                                         </View>
                                         <Text style={guidedReviewSummaryStyle}>{choice.homeownerExplanation}</Text>
+                                        {!!choice.customerSelections?.length && (
+                                            <View style={guidedCustomerSelectionListStyle}>
+                                                <Text style={customerSelectionTitleStyle}>Selected equipment and site details</Text>
+                                                {choice.customerSelections.map((selection) => (
+                                                    <Text key={`${choice.id}-${selection}`} style={customerSelectionTextStyle}>
+                                                        • {selection}
+                                                    </Text>
+                                                ))}
+                                            </View>
+                                        )}
                                         {choice.pricingResult.lineItems.map((line) => (
                                             <View key={line.id} style={guidedLineItemStyle}>
                                                 <Text style={guidedLineItemNameStyle}>{line.name}</Text>
@@ -4522,6 +4542,16 @@ function renderPresentationChoice(choice: Phase1EstimateChoice) {
                 </Text>
             )}
             <Text style={choiceDescriptionStyle}>{presentationChoice.homeownerExplanation}</Text>
+            {presentationChoice.customerSelections.length > 0 && (
+                <View style={customerSelectionListStyle}>
+                    <Text style={customerSelectionTitleStyle}>Selected equipment and site details</Text>
+                    {presentationChoice.customerSelections.map((selection) => (
+                        <Text key={`${presentationChoice.id}-${selection}`} style={customerSelectionTextStyle}>
+                            • {selection}
+                        </Text>
+                    ))}
+                </View>
+            )}
             <View style={chipRowStyle}>
                 {presentationChoice.keyBenefits.map((benefit) => (
                     <Text key={`${presentationChoice.id}-${benefit}`} style={itemChipStyle}>{benefit}</Text>
@@ -7033,6 +7063,34 @@ const optionDetailBodyStyle = {
     color: '#526175',
     fontSize: 14,
     lineHeight: 21,
+};
+
+const customerSelectionListStyle = {
+    backgroundColor: '#F4F8FA',
+    borderColor: '#D8E1E7',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 5,
+    marginTop: 12,
+    padding: 12,
+};
+
+const guidedCustomerSelectionListStyle = {
+    ...customerSelectionListStyle,
+    marginHorizontal: 16,
+    marginTop: 0,
+};
+
+const customerSelectionTitleStyle = {
+    color: '#17344B',
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const customerSelectionTextStyle = {
+    color: '#526175',
+    fontSize: 12,
+    lineHeight: 18,
 };
 
 const optionDetailLineStyle = {

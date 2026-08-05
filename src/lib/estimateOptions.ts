@@ -344,6 +344,7 @@ export type EstimateChoice = {
     priceAdjustmentPercentage?: number;
     priceAdjustmentLabel?: string | null;
     linePriceAdjustments?: Record<string, EstimateLinePriceAdjustment>;
+    customerSelections?: string[];
 };
 
 export type EstimatePresentationGate = {
@@ -402,6 +403,7 @@ export type HomeownerPresentationChoice = {
     displayOrder: number;
     priceAdjustmentPercentage: number;
     priceAdjustmentLabel: string | null;
+    customerSelections: string[];
 };
 
 export type RepipeFixtureKey =
@@ -622,6 +624,7 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             'water_service_garage_mechanical_water_heater_pan_installation',
             'water_service_garage_mechanical_water_heater_stand_installation',
             'water_service_garage_mechanical_water_heater_seismic_strap_installation',
+            'water_service_garage_mechanical_water_heater_back_block_installation',
             'water_service_garage_mechanical_water_heater_tp_valve_replacement',
             'water_service_garage_mechanical_water_heater_permit_code_correction',
             'drain_sewer_garage_mechanical_water_heater_drain_pan_line_installation',
@@ -644,14 +647,18 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             selectQuestion('prv_pressure', 'PRV and pressure', true, ['acceptable', 'high pressure', 'PRV replacement recommended', 'unknown']),
             selectQuestion('drain_pan_route', 'Drain pan / drain route', true, ['existing good', 'add pan', 'add drain route', 'not possible / explain']),
             selectQuestion('tp_discharge', 'T&P discharge', true, ['acceptable', 'correct route', 'unknown']),
-            yesNoQuestion('straps', 'Straps required or present', true),
-            yesNoQuestion('sediment_trap', 'Sediment trap required or present', true),
+            selectQuestion('straps', 'Seismic strapping', true, ['existing code-compliant', 'install straps anchored to wall studs', 'not required', 'needs review']),
+            selectQuestion('back_block', 'Water-heater back block', true, ['existing secure and acceptable', 'install new blocking anchored to wall', 'not required', 'needs review']),
+            selectQuestion('sediment_trap', 'Gas sediment trap', true, ['existing acceptable', 'install sediment trap', 'not required', 'needs review']),
             selectQuestion('combustion_air', 'Combustion air', true, ['acceptable', 'needs review', 'not applicable']),
             selectQuestion('clearances', 'Clearances', true, ['acceptable', 'limited', 'blocked']),
             selectQuestion('platform', 'Platform', true, ['acceptable', 'replace / build', 'not applicable']),
+            selectQuestion('installation_difficulty', 'Installation difficulty', true, ['standard access', 'moderate — extra access or correction work', 'difficult — extended labor or access']),
+            selectQuestion('burner_condition', 'Burner assembly condition', false, ['acceptable', 'missing', 'damaged / replacement needed', 'not applicable', 'not inspected']),
+            multiQuestion('documented_deficiencies', 'Documented deficiencies', false, ['burner missing', 'burner damaged', 'no manufacturer warranty', 'corrosion', 'leaking tank', 'failed control', 'venting deficiency', 'code clearance issue']),
             selectQuestion('recirculation', 'Recirculation', false, ['none', 'existing', 'add option', 'repair / replace']),
             selectQuestion('water_quality_observation', 'Water quality observed', false, ['no concern observed', 'scale / sediment', 'hard water confirmed', 'unknown']),
-            multiQuestion('code_corrections', 'Code corrections', true, ['None required', 'permit', 'pan', 'straps', 'T&P', 'venting', 'gas connector', 'sediment trap', 'expansion tank']),
+            multiQuestion('code_corrections', 'Code corrections', true, ['None required', 'permit', 'pan', 'straps', 'back block', 'T&P', 'venting', 'gas connector', 'sediment trap', 'expansion tank']),
             selectQuestion('desired_warranty', 'Desired warranty', false, ['Not discussed yet', 'Let homeowner choose', 'standard', 'extended', 'premium']),
             multiQuestion('homeowner_priorities', 'Homeowner priorities', false, ['lowest cost', 'reliability', 'efficiency', 'faster hot water', 'warranty', 'space saving']),
         ],
@@ -1586,6 +1593,7 @@ export function toHomeownerPresentationChoice(choice: EstimateChoice): Homeowner
         displayOrder: choice.displayOrder,
         priceAdjustmentPercentage: choice.priceAdjustmentPercentage || 0,
         priceAdjustmentLabel: choice.priceAdjustmentLabel || null,
+        customerSelections: [...(choice.customerSelections || [])],
     };
 }
 
@@ -1784,6 +1792,7 @@ export function buildEstimateOptionWorkspace(input: {
         pricingResults,
         products: approvedProducts,
         draftContext: input.draftContext,
+        answers: input.answers,
     });
     const individualOptions = choices.filter((choice) => choice.kind === 'individual');
     const packages = choices.filter((choice) => choice.kind === 'package');
@@ -2012,6 +2021,9 @@ function buildWaterHeaterPricingResults(
     const expansionTankAnswer = normalizeText(readAnswerText(answers.expansion_tank));
     const drainPanAnswer = normalizeText(readAnswerText(answers.drain_pan_route));
     const platformAnswer = normalizeText(readAnswerText(answers.platform));
+    const strapsAnswer = normalizeText(readAnswerText(answers.straps));
+    const backBlockAnswer = normalizeText(readAnswerText(answers.back_block));
+    const sedimentTrapAnswer = normalizeText(readAnswerText(answers.sediment_trap));
     const gasValveAnswer = normalizeText(readAnswerText(answers.gas_valve_line));
     const fuelType = normalizeText(readAnswerText(answers.fuel_type));
     const usesGas = fuelType === 'gas' || fuelType === 'propane';
@@ -2036,8 +2048,12 @@ function buildWaterHeaterPricingResults(
         selectedPriceKeys.add('water_service_garage_mechanical_water_heater_stand_installation');
     }
 
-    if (codeCorrections.includes('straps')) {
+    if (strapsAnswer === 'install straps anchored to wall studs' || codeCorrections.includes('straps')) {
         selectedPriceKeys.add('water_service_garage_mechanical_water_heater_seismic_strap_installation');
+    }
+
+    if (backBlockAnswer === 'install new blocking anchored to wall' || codeCorrections.includes('back block')) {
+        selectedPriceKeys.add('water_service_garage_mechanical_water_heater_back_block_installation');
     }
 
     if (codeCorrections.includes('t&p')) {
@@ -2056,7 +2072,7 @@ function buildWaterHeaterPricingResults(
         selectedPriceKeys.add('gas_service_garage_mechanical_gas_flex_connector_replacement');
     }
 
-    if (usesGas && codeCorrections.includes('sediment trap')) {
+    if (usesGas && (sedimentTrapAnswer === 'install sediment trap' || codeCorrections.includes('sediment trap'))) {
         selectedPriceKeys.add('gas_service_garage_mechanical_gas_sediment_trap_installation');
     }
 
@@ -2154,11 +2170,21 @@ function buildDeterministicChoices(input: {
     pricingResults: EstimatePricingResult[];
     products: EstimateApprovedProduct[];
     draftContext: EstimateDraftContextLike | null;
+    answers: EstimateAnswerSet;
 }) {
     const validPricingResults = input.pricingResults.filter((result) => result.missingPricingInputs.length === 0);
 
     if (input.category === 'valve_replacement') {
         return buildValveDeterministicChoices(validPricingResults, input.draftContext);
+    }
+
+    if (input.category === 'water_heater') {
+        return buildWaterHeaterDeterministicChoices({
+            pricingResults: validPricingResults,
+            answers: input.answers,
+            template: input.template,
+            draftContext: input.draftContext,
+        });
     }
 
     const prebuiltChoices = input.category === 'faucet_replacement'
@@ -2208,6 +2234,113 @@ function buildDeterministicChoices(input: {
     ];
 
     return choices.slice(0, 4);
+}
+
+function buildWaterHeaterDeterministicChoices(input: {
+    pricingResults: EstimatePricingResult[];
+    answers: EstimateAnswerSet;
+    template: EstimateCategoryTemplate;
+    draftContext: EstimateDraftContextLike | null;
+}) {
+    const homeownerName = preferredHomeownerFirstName(input.draftContext);
+    const customerSelections = buildEstimateCustomerSelections(input.template, input.answers);
+    const equipmentDescription = buildWaterHeaterEquipmentDescription(input.answers);
+    const warrantyLabel = readAnswerText(input.answers.desired_warranty);
+
+    return input.pricingResults.slice(0, 4).map((pricingResult, index): EstimateChoice => {
+        const title = homeownerName
+            ? `${homeownerName}'s ${equipmentDescription}`
+            : equipmentDescription;
+        const lineNames = pricingResult.lineItems.map((line) => line.name);
+
+        return {
+            id: `individual-water-heater-${index + 1}`,
+            kind: 'individual',
+            title,
+            shortSummary: lineNames.join(' + ') || equipmentDescription,
+            homeownerExplanation: buildWaterHeaterHomeownerExplanation({
+                answers: input.answers,
+                lineNames,
+                equipmentLabel: equipmentDescription,
+                warrantyLabel,
+            }),
+            keyBenefits: ['Exact checklist scope', 'Itemized required components', 'Site findings documented'],
+            whyItDiffers: 'This option includes only the installation work, required components, and corrections selected in the water-heater checklist.',
+            recommendedReason: 'Matches the equipment size, fuel, location, and confirmed installation scope.',
+            productIds: [],
+            scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+            warrantyIds: [],
+            inclusionIds: pricingResult.lineItems.map((line) => line.code),
+            exclusionIds: [],
+            pricingResult,
+            recommended: input.pricingResults.length === 1,
+            displayOrder: index + 1,
+            customerSelections,
+        };
+    });
+}
+
+export function buildEstimateCustomerSelections(
+    template: EstimateCategoryTemplate,
+    answers: EstimateAnswerSet
+) {
+    return template.questions.flatMap((question) => {
+        if (question.type === 'photo' || question.type === 'measurement') return [];
+
+        const answer = answers[question.id];
+        const displayValue = formatCustomerSelectionValue(answer);
+
+        return displayValue ? [`${question.label}: ${displayValue}`] : [];
+    });
+}
+
+function buildWaterHeaterEquipmentDescription(answers: EstimateAnswerSet) {
+    const size = readAnswerText(answers.tank_or_tankless) || 'Water Heater';
+    const isTankless = normalizeText(size).includes('tankless');
+    const equipmentType = isTankless ? 'Tankless Water Heater' : 'Tank Water Heater';
+
+    return `${formatAnswerLabel(size)} ${equipmentType}`;
+}
+
+function buildWaterHeaterHomeownerExplanation(input: {
+    answers: EstimateAnswerSet;
+    lineNames: string[];
+    equipmentLabel: string;
+    warrantyLabel: string;
+}) {
+    const fuel = formatAnswerLabel(readAnswerText(input.answers.fuel_type));
+    const location = formatAnswerLabel(readAnswerText(input.answers.location));
+    const installation = [fuel, location ? `${location} location` : ''].filter(Boolean).join(' · ');
+    const scope = input.lineNames.join(', ');
+    const deficiencies = Array.isArray(input.answers.documented_deficiencies)
+        ? input.answers.documented_deficiencies.map(formatAnswerLabel).filter(Boolean)
+        : [];
+    const conditionCopy = deficiencies.length > 0
+        ? ` Documented reasons for the proposed work: ${deficiencies.join(', ')}.`
+        : '';
+
+    return `Install ${input.equipmentLabel}${installation ? ` for the documented ${installation}` : ''}. Included work: ${scope}. Warranty selection: ${input.warrantyLabel || 'review with homeowner before approval'}.${conditionCopy} The option details list every captured equipment specification, site condition, required component, and code correction used to build this price.`;
+}
+
+function formatCustomerSelectionValue(answer: EstimateAnswerValue | undefined) {
+    if (typeof answer === 'boolean') return answer ? 'Yes' : 'No';
+    if (typeof answer === 'number') return String(answer);
+    if (typeof answer === 'string') return formatAnswerLabel(answer);
+    if (Array.isArray(answer)) return answer.map(formatAnswerLabel).filter(Boolean).join(', ');
+
+    return '';
+}
+
+function formatAnswerLabel(value: string) {
+    const trimmed = String(value || '').trim();
+
+    if (!trimmed) return '';
+
+    return trimmed
+        .replace(/\bT&p\b/gi, 'T&P')
+        .replace(/\bPrv\b/gi, 'PRV')
+        .replace(/\bHp\b/g, 'HP')
+        .replace(/^./, (character) => character.toUpperCase());
 }
 
 function buildValveDeterministicChoices(

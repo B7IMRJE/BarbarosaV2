@@ -94,6 +94,7 @@ export const plumbingPriceBookCatalog: PlumbingPriceBookCatalogSystem[] = [
             item('water_service_garage_mechanical_water_heater_pan_installation', 'Water heater pan installation', 'Water Service', 'Garage / Mechanical', 'Water Heaters', 'each', 'Install a water heater drain pan.'),
             item('water_service_garage_mechanical_water_heater_stand_installation', 'Water heater stand installation', 'Water Service', 'Garage / Mechanical', 'Water Heaters', 'each', 'Install or replace a water heater stand.'),
             item('water_service_garage_mechanical_water_heater_seismic_strap_installation', 'Water heater seismic strap installation', 'Water Service', 'Garage / Mechanical', 'Water Heaters', 'each', 'Install approved water heater seismic straps.'),
+            item('water_service_garage_mechanical_water_heater_back_block_installation', 'Water heater back-block installation', 'Water Service', 'Garage / Mechanical', 'Water Heaters', 'each', 'Install structural wood blocking behind the water heater, anchor the blocking to the wall, and secure seismic straps to wall studs as required.'),
             item('water_service_garage_mechanical_water_heater_permit_code_correction', 'Water heater permit / code correction', 'Water Service', 'Garage / Mechanical', 'Water Heaters', 'each', 'Correct common water heater permit or code items.'),
         ]),
         area('Kitchen', [
