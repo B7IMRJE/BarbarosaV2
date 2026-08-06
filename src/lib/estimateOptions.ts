@@ -1375,6 +1375,14 @@ export function getEstimateCategoryTemplate(category: EstimateOptionCategory) {
     return estimateCategoryTemplates.find((template) => template.id === category) || estimateCategoryTemplates[0];
 }
 
+export function readEstimateOptionCategory(value: unknown): EstimateOptionCategory | null {
+    const category = String(value || '').trim();
+
+    return estimateCategoryTemplates.some((template) => template.id === category)
+        ? category as EstimateOptionCategory
+        : null;
+}
+
 export const estimateWorkTypeOptions: {
     id: EstimateWorkType;
     label: string;

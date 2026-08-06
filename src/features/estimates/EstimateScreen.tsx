@@ -14,6 +14,7 @@ import {
     getEstimateCategoriesForWorkType,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
+    getEstimateWorkTypeForCategory,
     getEstimateQuestionAllowedAnswers,
     getMeasurementRequirementPrompt,
     inferEstimateCategoryForDraftItem,
@@ -28,6 +29,7 @@ import {
     normalizeCompleteEstimateOptionSet,
     estimateWorkTypeOptions,
     photoRequirementAnswerKey,
+    readEstimateOptionCategory,
     toggleEstimateMultiSelectAnswer,
     toHomeownerPresentationChoice,
     validateAiEstimateDraftResponse,
@@ -519,13 +521,15 @@ export default function EstimateScreen() {
             requestedItemSlug,
             nextDraftContext
         );
+        const restoredCategory = readEstimateOptionCategory(nextDraftContext?.estimate_category);
+        const activeCategory = restoredCategory || inferredCategory;
 
         setItems(draftItems);
         setDraftContext(nextDraftContext);
         setEstimateSession(null);
-        setSelectedCategory(inferredCategory);
-        setSelectedWorkType(null);
-        setEstimateCategoryChosen(false);
+        setSelectedCategory(activeCategory);
+        setSelectedWorkType(restoredCategory ? getEstimateWorkTypeForCategory(restoredCategory) : null);
+        setEstimateCategoryChosen(Boolean(restoredCategory));
         setAnswers({});
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
@@ -555,7 +559,7 @@ export default function EstimateScreen() {
             : ''
         );
 
-        if (nextDraftContext?.estimate_session_id) {
+        if (nextDraftContext?.estimate_session_id && restoredCategory) {
             await Promise.all([
                 loadPersistedAnswers(nextDraftContext.estimate_session_id),
                 loadPersistedOptionSet(nextDraftContext.estimate_session_id),
@@ -570,7 +574,7 @@ export default function EstimateScreen() {
                 companyId: access.companyId,
                 draftItems,
                 draftContext: nextDraftContext,
-                category: inferredCategory,
+                category: activeCategory,
                 answers: {},
                 priceBookItems: priceBook.items,
                 technicianApproved: false,
@@ -1930,6 +1934,7 @@ export default function EstimateScreen() {
 
         const nextDraftContext: EstimateDraftContext = {
             estimate_session_id: result.session.id,
+            estimate_category: category,
             company_id: result.session.companyId,
             property_id: result.session.propertyId,
             customer_home_name: draftContext?.customer_home_name || primaryItem?.customer_home_name || null,

@@ -23,6 +23,7 @@ import {
     mapCompanyPriceBookItemToEstimateEntry,
     resolveEstimatePresentationLayout,
     resolveProductImageState,
+    readEstimateOptionCategory,
     toHomeownerPresentationChoice,
     toggleEstimateMultiSelectAnswer,
     toggleEstimateChoiceSelection,
@@ -48,6 +49,7 @@ import { mapApprovedProductRecord } from './companyApprovedProducts';
 runEstimateOptionsRegressions();
 
 export function runEstimateOptionsRegressions() {
+    persistedEstimateCategoryMustBeExplicitAndValid();
     workTypeBranchesStayExplicitAndSeparate();
     toiletRepairChecklistCoversServiceableComponents();
     selectedRepairScopeFiltersDeterministicPricing();
@@ -139,6 +141,21 @@ export function runEstimateOptionsRegressions() {
     presentationLayoutCoversPhoneTabletDesktop();
     productImagesHaveLoadingStates();
     homeownerPresentationHidesInternalPricing();
+}
+
+function persistedEstimateCategoryMustBeExplicitAndValid() {
+    assert(
+        readEstimateOptionCategory('water_heater_service') === 'water_heater_service',
+        'A saved explicit estimate category should be restored.'
+    );
+    assert(
+        readEstimateOptionCategory('') === null,
+        'A blank saved estimate category must start at the work picker.'
+    );
+    assert(
+        readEstimateOptionCategory('unknown') === null,
+        'An invalid saved estimate category must start at the work picker.'
+    );
 }
 
 function repipeHomeSizeIsAskedOnceWithExplicitUnits() {
