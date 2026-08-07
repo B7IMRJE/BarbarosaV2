@@ -99,6 +99,11 @@ import {
     type TechOSJobDetailVisualKey,
 } from '../../lib/techosClientAccess';
 import {
+    TECHOS_JOB_WORKSPACE_SECTIONS,
+    toggleTechOSJobWorkspaceSection,
+    type TechOSJobWorkspaceSectionKey,
+} from '../../lib/techosJobWorkspace';
+import {
     resolveCompanyTechOSTheme,
     type TechOSThemePalette,
 } from '../../lib/techosAppearance';
@@ -331,6 +336,9 @@ export default function TechOSScreen() {
     const [accessMode, setAccessMode] = useState<TechOSAccessMode>('choosing');
     const [accessModeLoading, setAccessModeLoading] = useState(false);
     const [accessModeMessage, setAccessModeMessage] = useState('');
+    const [technicianTimeEntries, setTechnicianTimeEntries] = useState<TechnicianTimeEntry[]>([]);
+    const [technicianTimeEntriesLoaded, setTechnicianTimeEntriesLoaded] = useState(false);
+    const [technicianTimeNow, setTechnicianTimeNow] = useState(() => Date.now());
     const [selectedAssignedJobId, setSelectedAssignedJobId] = useState('');
     const [dismissedAssignedJobId, setDismissedAssignedJobId] = useState('');
     const [routeOpenedAssignedJobId, setRouteOpenedAssignedJobId] = useState('');
@@ -383,6 +391,17 @@ export default function TechOSScreen() {
         [membership?.id, technicianCompanyUserIds, techOSMode]
     );
     const primaryTechnicianCompanyUserId = assignedTechnicianCompanyUserIds[0] || '';
+    const handleTechnicianTimeEntriesChange = useCallback((entries: TechnicianTimeEntry[]) => {
+        setTechnicianTimeEntries(entries);
+        setTechnicianTimeEntriesLoaded(true);
+        setTechnicianTimeNow(Date.now());
+    }, []);
+    const openTechnicianTimeEntry = technicianTimeEntries.find((entry) => !entry.clockedOutAt) || null;
+    const summaryTechnicianTimeEntry = openTechnicianTimeEntry || technicianTimeEntries[0] || null;
+    const technicianHourSummary = summaryTechnicianTimeEntry
+        ? getTechnicianShiftHourSummary(summaryTechnicianTimeEntry, technicianTimeNow)
+        : { regularSeconds: 0, overtimeSeconds: 0, workedSeconds: 0 };
+    const openTechnicianTimeEntryId = openTechnicianTimeEntry?.id || '';
     const visibleClients = useMemo(
         () => clients.filter((client) => normalizeStatus(client.status) !== 'archived'),
         [clients]
@@ -518,17 +537,26 @@ export default function TechOSScreen() {
     }, [loadAssignedEstimateDraftCounts]);
 
     useEffect(() => {
-        if (!primaryTechnicianCompanyUserId || !isTechnicianCompanyRole(membership?.role)) return;
+        if (!primaryTechnicianCompanyUserId || !isTechnicianCompanyRole(membership?.role)) {
+            setTechnicianTimeEntries([]);
+            setTechnicianTimeEntriesLoaded(false);
+            return;
+        }
         let active = true;
         setAccessModeLoading(true);
+        setTechnicianTimeEntriesLoaded(false);
         void loadTechnicianTimeEntries(primaryTechnicianCompanyUserId)
             .then((entries) => {
                 if (!active) return;
+                handleTechnicianTimeEntriesChange(entries);
                 setAccessMode(entries.some((entry) => !entry.clockedOutAt) ? 'working' : 'choosing');
                 setAccessModeMessage('');
             })
             .catch((error) => {
-                if (active) setAccessModeMessage(`Time status could not load: ${getErrorMessage(error)}`);
+                if (!active) return;
+                setTechnicianTimeEntries([]);
+                setTechnicianTimeEntriesLoaded(true);
+                setAccessModeMessage(`Time status could not load: ${getErrorMessage(error)}`);
             })
             .finally(() => {
                 if (active) setAccessModeLoading(false);
@@ -536,7 +564,13 @@ export default function TechOSScreen() {
         return () => {
             active = false;
         };
-    }, [membership?.role, primaryTechnicianCompanyUserId]);
+    }, [handleTechnicianTimeEntriesChange, membership?.role, primaryTechnicianCompanyUserId]);
+
+    useEffect(() => {
+        if (!openTechnicianTimeEntryId) return;
+        const timer = setInterval(() => setTechnicianTimeNow(Date.now()), 1000);
+        return () => clearInterval(timer);
+    }, [openTechnicianTimeEntryId]);
 
     async function startWorkFromAccessGate() {
         const technicianId = assignedTechnicianCompanyUserIds[0] || '';
@@ -556,6 +590,17 @@ export default function TechOSScreen() {
             setAccessMode('working');
             setDashboardView('jobs');
             setAccessModeMessage('');
+            setTechnicianTimeEntries([]);
+            setTechnicianTimeEntriesLoaded(false);
+            void loadTechnicianTimeEntries(technicianId)
+                .then(handleTechnicianTimeEntriesChange)
+                .catch((error) => {
+                    setTechnicianTimeEntriesLoaded(true);
+                    logTechOSDebug('Clock-in succeeded while the time summary refresh was unavailable.', {
+                        error: getErrorMessage(error),
+                        technician_company_user_id: technicianId,
+                    });
+                });
             if (result.deviceRegistrationError) {
                 logTechOSDebug('Clock-in succeeded while primary device registration was unavailable.', {
                     error: getErrorMessage(result.deviceRegistrationError),
@@ -665,6 +710,8 @@ export default function TechOSScreen() {
         setAssigningJobId(null);
         setAuthUserId('');
         setAuthEmail('');
+        setTechnicianTimeEntries([]);
+        setTechnicianTimeEntriesLoaded(false);
         setSelectedAssignedJobId('');
         setDismissedAssignedJobId('');
         setRouteOpenedAssignedJobId('');
@@ -1255,11 +1302,13 @@ export default function TechOSScreen() {
     function handleOpenAssignedJobDetails(job: TechAssignedScheduleJob) {
         setDismissedAssignedJobId('');
         setSelectedAssignedJobId(job.slot.id);
+        setDashboardContentScrollRequest((current) => current + 1);
     }
 
     function handleCloseAssignedJobDetails() {
         setDismissedAssignedJobId(selectedAssignedJobId);
         setSelectedAssignedJobId('');
+        setDashboardContentScrollRequest((current) => current + 1);
     }
 
     function updateTechCloseoutForm(slotId: string, updates: Partial<TechCloseoutForm>) {
@@ -1893,7 +1942,7 @@ export default function TechOSScreen() {
         >
             <View style={{ width: '100%', maxWidth: 980, minWidth: 0 }}>
                 <HomeHeader />
-                <TechOSProfileHeader
+                {!selectedAssignedJob && <TechOSProfileHeader
                     canPreviewLogo={canPreviewLogo}
                     companyName={companyName}
                     email={authEmail || membership?.email || null}
@@ -1905,13 +1954,17 @@ export default function TechOSScreen() {
                     status={isPlatformAdminAccess ? 'active' : membership?.status}
                     techOSTheme={techOSTheme}
                     technicianName={technicianName}
+                    technicianHourSummary={technicianHourSummary}
+                    technicianTimeEntriesLoaded={technicianTimeEntriesLoaded}
+                    technicianTimeEntryState={openTechnicianTimeEntry ? 'current' : summaryTechnicianTimeEntry ? 'latest' : 'none'}
                     todayCount={dashboardTodayCount}
                     upcomingJobCount={dashboardFutureCount}
+                    showTechnicianHours={isTechnicianWorkspace}
                     onSignOut={signOutFromTechOS}
                     signingOut={signingOut}
-                />
+                />}
 
-                {!!dispatchCompanyId && (
+                {!!dispatchCompanyId && !selectedAssignedJob && (
                     <View style={techQuickActionRowStyle}>
                         <ThemedButton
                             title="Open Dispatch"
@@ -1923,7 +1976,7 @@ export default function TechOSScreen() {
                     </View>
                 )}
 
-                {!isTechnicianWorkspace && (
+                {!isTechnicianWorkspace && !selectedAssignedJob && (
                     <ThemedCard style={messageCardStyle}>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                             This is not a technician login. Select or assign a technician from ManagementOS to preview their workload.
@@ -1931,13 +1984,13 @@ export default function TechOSScreen() {
                     </ThemedCard>
                 )}
 
-                {!!message && (
+                {!!message && !selectedAssignedJob && (
                     <ThemedCard style={messageCardStyle}>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
                     </ThemedCard>
                 )}
 
-                {!!assignmentBanner && (
+                {!!assignmentBanner && !selectedAssignedJob && (
                     <ThemedCard style={assignmentBannerStyle}>
                         <Text style={[assignmentBannerTextStyle, { color: theme.colors.primary }]}>
                             {assignmentBanner}
@@ -1945,7 +1998,7 @@ export default function TechOSScreen() {
                     </ThemedCard>
                 )}
 
-                {isTechnicianWorkspace && timingPromptJob && (
+                {isTechnicianWorkspace && !selectedAssignedJob && timingPromptJob && (
                     <TechTimingPromptCard
                         estimatedRemainingMinutes={timingEstimateBySlotId[timingPromptJob.slot.id] || ''}
                         job={timingPromptJob}
@@ -1960,16 +2013,18 @@ export default function TechOSScreen() {
                     />
                 )}
 
-                <TechOSDashboardCards
-                    activeView={dashboardView}
-                    historyCount={dashboardHistoryCount}
-                    jobsCount={dashboardJobsCount}
-                    onSelectView={openDashboardView}
-                    scheduleCount={calendarScheduleGroups.length}
-                    techOSTheme={techOSTheme}
-                    todayCount={dashboardTodayCount}
-                    upcomingCount={dashboardFutureCount}
-                />
+                {!selectedAssignedJob && (
+                    <TechOSDashboardCards
+                        activeView={dashboardView}
+                        historyCount={dashboardHistoryCount}
+                        jobsCount={dashboardJobsCount}
+                        onSelectView={openDashboardView}
+                        scheduleCount={calendarScheduleGroups.length}
+                        techOSTheme={techOSTheme}
+                        todayCount={dashboardTodayCount}
+                        upcomingCount={dashboardFutureCount}
+                    />
+                )}
 
                 <View
                     onLayout={(event) => {
@@ -2025,6 +2080,7 @@ export default function TechOSScreen() {
                         onOpenFullJob={handleOpenFullAssignedJob}
                         onRunTechnicianNextJobStatusAction={handleTechnicianNextJobStatusAction}
                         onRunWorkflowAction={handleTechWorkflowAction}
+                        onTimeEntriesChange={handleTechnicianTimeEntriesChange}
                         updatingWorkflowSlotId={updatingWorkflowSlotId}
                         workflowMessageBySlotId={workflowMessageBySlotId}
                         workflowStatusBySlotId={workflowStatusBySlotId}
@@ -2116,7 +2172,7 @@ export default function TechOSScreen() {
                     />
                 )}
 
-                {isTechnicianWorkspace && (
+                {isTechnicianWorkspace && !selectedAssignedJob && (
                     <GlassCard
                         tone="steel"
                         style={{
@@ -2183,9 +2239,11 @@ export default function TechOSScreen() {
                     </GlassCard>
                 )}
 
-                <View style={buttonRowStyle}>
-                    <ThemedButton title="Refresh TechOS" onPress={loadTechOSAccess} style={buttonStyle} />
-                </View>
+                {!selectedAssignedJob && (
+                    <View style={buttonRowStyle}>
+                        <ThemedButton title="Refresh TechOS" onPress={loadTechOSAccess} style={buttonStyle} />
+                    </View>
+                )}
             </View>
         </ScrollView>
         </CompanyGlassDepthProvider>
@@ -2270,8 +2328,12 @@ function TechOSProfileHeader({
     status,
     techOSTheme,
     technicianName,
+    technicianHourSummary,
+    technicianTimeEntriesLoaded,
+    technicianTimeEntryState,
     todayCount,
     upcomingJobCount,
+    showTechnicianHours,
     onSignOut,
     signingOut,
 }: {
@@ -2286,8 +2348,12 @@ function TechOSProfileHeader({
     status?: string | null;
     techOSTheme: TechOSThemePalette;
     technicianName: string;
+    technicianHourSummary: { regularSeconds: number; overtimeSeconds: number; workedSeconds: number };
+    technicianTimeEntriesLoaded: boolean;
+    technicianTimeEntryState: 'current' | 'latest' | 'none';
     todayCount: number;
     upcomingJobCount: number;
+    showTechnicianHours: boolean;
     onSignOut: () => void;
     signingOut: boolean;
 }) {
@@ -2342,6 +2408,53 @@ function TechOSProfileHeader({
                     style={techProfileSignOutButtonStyle}
                 />
             </View>
+            {showTechnicianHours && (
+                <View style={techProfileHoursSectionStyle}>
+                    <Text selectable style={[techProfileHoursHeadingStyle, { color: techOSTheme.mutedTextColor }]}>
+                        {technicianTimeEntryState === 'current'
+                            ? 'CURRENT SHIFT HOURS'
+                            : technicianTimeEntryState === 'latest'
+                                ? 'LATEST SHIFT HOURS'
+                                : 'SHIFT HOURS'}
+                    </Text>
+                    <View style={techProfileHoursRowStyle}>
+                        {[
+                            { label: 'Regular', seconds: technicianHourSummary.regularSeconds },
+                            { label: 'Overtime', seconds: technicianHourSummary.overtimeSeconds },
+                            { label: 'Total', seconds: technicianHourSummary.workedSeconds },
+                        ].map((item) => (
+                            <View
+                                key={item.label}
+                                style={[
+                                    techProfileHourStyle,
+                                    {
+                                        borderColor: item.label === 'Overtime' && item.seconds > 0
+                                            ? techOSTheme.activeBorderColor
+                                            : techOSTheme.panelBorderColor,
+                                    },
+                                ]}
+                            >
+                                <Text
+                                    selectable
+                                    style={[
+                                        techProfileHourValueStyle,
+                                        {
+                                            color: item.label === 'Overtime' && item.seconds > 0
+                                                ? techOSTheme.activeBorderColor
+                                                : techOSTheme.textColor,
+                                        },
+                                    ]}
+                                >
+                                    {technicianTimeEntriesLoaded ? formatTechnicianHours(item.seconds) : '—'}
+                                </Text>
+                                <Text selectable style={[techProfileHourLabelStyle, { color: techOSTheme.mutedTextColor }]}>
+                                    {item.label}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+            )}
             <View style={techProfileStatsRowStyle}>
                 <View style={[techProfileStatStyle, { borderColor: techOSTheme.panelBorderColor }]}>
                     <Text style={[techProfileStatValueStyle, { color: techOSTheme.textColor }]}>{todayCount}</Text>
@@ -2833,6 +2946,7 @@ function TechOSDashboardContent({
     onOpenFullJob,
     onRunTechnicianNextJobStatusAction,
     onRunWorkflowAction,
+    onTimeEntriesChange,
     updatingWorkflowSlotId,
     workflowMessageBySlotId,
     workflowStatusBySlotId,
@@ -2868,6 +2982,7 @@ function TechOSDashboardContent({
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
     onRunTechnicianNextJobStatusAction: (job: TechAssignedScheduleJob, action: TechnicianNextJobStatusAction, currentVisitStatus: string) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
+    onTimeEntriesChange: (entries: TechnicianTimeEntry[]) => void;
     updatingWorkflowSlotId: string;
     workflowMessageBySlotId: Record<string, string>;
     workflowStatusBySlotId: Record<string, string>;
@@ -2876,6 +2991,7 @@ function TechOSDashboardContent({
     if (selectedJob) {
         return (
             <TechOSAssignedJobDetail
+                key={selectedJob.slot.id}
                 backLabel={getAssignedJobDetailBackLabel(activeView)}
                 closeoutForm={closeoutFormBySlotId[selectedJob.slot.id] || createDefaultTechCloseoutForm()}
                 customStatusNote={customStatusNoteBySlotId[selectedJob.slot.id] ?? selectedJob.slot.tech_status_note ?? ''}
@@ -2984,6 +3100,7 @@ function TechOSDashboardContent({
     if (activeView === 'time-clock') {
         return (
             <TechOSTimeClockPanel
+                onEntriesChange={onTimeEntriesChange}
                 technicianCompanyUserId={technicianCompanyUserId}
             />
         );
@@ -3181,7 +3298,13 @@ function TechOSSoldJobRecord({
     );
 }
 
-function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUserId: string }) {
+function TechOSTimeClockPanel({
+    onEntriesChange,
+    technicianCompanyUserId,
+}: {
+    onEntriesChange: (entries: TechnicianTimeEntry[]) => void;
+    technicianCompanyUserId: string;
+}) {
     const { theme } = useTheme();
     const [entries, setEntries] = useState<TechnicianTimeEntry[]>([]);
     const [clockMessage, setClockMessage] = useState('Loading time clock...');
@@ -3200,17 +3323,19 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
     const refreshClock = useCallback(async () => {
         if (!technicianCompanyUserId) {
             setEntries([]);
+            onEntriesChange([]);
             setClockMessage('A technician profile is required.');
             return;
         }
         try {
             const nextEntries = await loadTechnicianTimeEntries(technicianCompanyUserId);
             setEntries(nextEntries);
+            onEntriesChange(nextEntries);
             setClockMessage('');
         } catch (error) {
             setClockMessage(`Time clock could not load: ${getErrorMessage(error)}`);
         }
-    }, [technicianCompanyUserId]);
+    }, [onEntriesChange, technicianCompanyUserId]);
 
     useEffect(() => {
         void refreshClock();
@@ -3375,6 +3500,19 @@ function TechOSTimeClockPanel({ technicianCompanyUserId }: { technicianCompanyUs
                         ]}
                     >
                         {formatTechnicianHours(hourSummary.overtimeSeconds)}
+                    </Text>
+                </View>
+                <View
+                    style={[
+                        techHourSummaryCardStyle,
+                        { backgroundColor: theme.colors.background, borderColor: theme.colors.border },
+                    ]}
+                >
+                    <Text selectable style={[techHourSummaryLabelStyle, { color: theme.colors.mutedText }]}>
+                        TOTAL HOURS
+                    </Text>
+                    <Text selectable style={[techHourSummaryValueStyle, { color: theme.colors.text }]}>
+                        {formatTechnicianHours(hourSummary.workedSeconds)}
                     </Text>
                 </View>
             </View>
@@ -4035,7 +4173,7 @@ function AssignedScheduleJobCard({
             )}
             {!!onOpenDetails && (
                 <ThemedButton
-                    title="Open Details"
+                    title="Open Job"
                     variant="secondary"
                     onPress={() => onOpenDetails(job)}
                     style={assignedJobActionButtonStyle}
@@ -4094,6 +4232,7 @@ function TechOSAssignedJobDetail({
     const clientContext = getTechOSClientJobContext(job);
     const canOpenClientHomeOS = hasTechOSClientHomeContext(clientContext);
     const estimateActionLabel = getTechOSEstimateActionLabel(estimateDraftCount);
+    const [openSectionKey, setOpenSectionKey] = useState<TechOSJobWorkspaceSectionKey | null>(null);
     const [showMoreWorkflowActions, setShowMoreWorkflowActions] = useState(false);
     const [nextActionPickerOpen, setNextActionPickerOpen] = useState(false);
     const [statusNotePickerOpen, setStatusNotePickerOpen] = useState(false);
@@ -4125,11 +4264,53 @@ function TechOSAssignedJobDetail({
                 />
             </View>
 
-            <TechOSDetailSection
+            <View style={[techJobWorkspaceIntroStyle, { borderColor: techOSTheme.panelBorderColor }]}>
+                <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>Job Workspace</Text>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>Choose one area to work in. Open another area to switch, or tap the active button again to close it.</Text>
+                <Text style={[techJobWorkspaceCurrentStatusStyle, { color: techOSTheme.textColor }]}>Current: {formatTechWorkflowStatusText(workflowStatus)}</Text>
+            </View>
+
+            <View style={techJobWorkspaceGridStyle}>
+                {TECHOS_JOB_WORKSPACE_SECTIONS.map((section) => {
+                    const active = openSectionKey === section.key;
+                    const disabled = section.key === 'messages' && !chatServiceRequestId;
+
+                    return (
+                        <TechOSJobWorkspaceCard
+                            key={section.key}
+                            active={active}
+                            description={section.description}
+                            disabled={disabled}
+                            icon={section.icon}
+                            onPress={() => {
+                                setOpenSectionKey((current) => toggleTechOSJobWorkspaceSection(current, section.key));
+                            }}
+                            status={getTechOSJobWorkspaceSectionStatus({
+                                chatAvailable: Boolean(chatServiceRequestId),
+                                estimateDraftCount,
+                                job,
+                                sectionKey: section.key,
+                                visitCloseable,
+                                workflowStatus,
+                            })}
+                            techOSTheme={techOSTheme}
+                            title={section.title}
+                            variantKey={section.variantKey}
+                        />
+                    );
+                })}
+            </View>
+
+            {!openSectionKey && (
+                <Text style={[techJobWorkspaceHintStyle, { color: techOSTheme.mutedTextColor }]}>Select a job tool above. Only the section you choose will open.</Text>
+            )}
+
+            {openSectionKey === 'summary' && <TechOSDetailSection
                 title="Customer and Appointment Summary"
                 description="Customer, timing, and request context for this appointment."
                 techOSTheme={techOSTheme}
                 variantKey="customer"
+                onClose={() => setOpenSectionKey(null)}
             >
                 <View style={techJobDetailInfoGridStyle}>
                     <TechJobDetailInfo label="Home / Request" value={location} techOSTheme={techOSTheme} />
@@ -4171,14 +4352,15 @@ function TechOSAssignedJobDetail({
                         Client HomeOS needs an assigned request with a property id.
                     </Text>
                 )}
-            </TechOSDetailSection>
+            </TechOSDetailSection>}
 
-            {!!chatServiceRequestId && (
+            {openSectionKey === 'messages' && !!chatServiceRequestId && (
                 <TechOSDetailSection
                     title="Message Dispatch"
                     description="Send a quick job message or ask Dispatch for assistance."
                     techOSTheme={techOSTheme}
                     variantKey="note"
+                    onClose={() => setOpenSectionKey(null)}
                 >
                     <TechnicianDispatchChat
                         companyId={job.slot.company_id}
@@ -4188,23 +4370,25 @@ function TechOSAssignedJobDetail({
                 </TechOSDetailSection>
             )}
 
-            <TechOSDetailSection
+            {openSectionKey === 'media' && <TechOSDetailSection
                 title="Homeowner Photos and Videos"
                 description="Media uploaded with this customer request."
                 techOSTheme={techOSTheme}
                 variantKey="request"
+                onClose={() => setOpenSectionKey(null)}
             >
                 <ServiceRequestMediaGallery
                     serviceRequestId={job.request?.id || job.slot.service_request_id}
                     title="Homeowner photos and videos"
                 />
-            </TechOSDetailSection>
+            </TechOSDetailSection>}
 
-            <TechOSDetailSection
+            {openSectionKey === 'workflow' && <TechOSDetailSection
                 title="Current Job Status"
                 description="Update what is happening at this customer's job. These updates are visible to Dispatch and the homeowner."
                 techOSTheme={techOSTheme}
                 variantKey="workflow"
+                onClose={() => setOpenSectionKey(null)}
             >
                 <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     Current status: {formatTechWorkflowStatusText(workflowStatus)}
@@ -4266,18 +4450,14 @@ function TechOSAssignedJobDetail({
                         )}
                     </>
                 )}
-            </TechOSDetailSection>
+            </TechOSDetailSection>}
 
-            <TechOSSoldJobRecord
-                scheduleSlotId={job.slot.id}
-                techOSTheme={techOSTheme}
-            />
-
-            <TechOSDetailSection
+            {openSectionKey === 'note' && <TechOSDetailSection
                 title="Job Status Note"
                 description="Optional field note for dispatch and job coordination."
                 techOSTheme={techOSTheme}
                 variantKey="note"
+                onClose={() => setOpenSectionKey(null)}
             >
                 <TouchableOpacity
                     activeOpacity={0.82}
@@ -4324,13 +4504,15 @@ function TechOSAssignedJobDetail({
                     style={assignedJobActionButtonStyle}
                     textStyle={techWorkflowActionButtonTextStyle}
                 />
-            </TechOSDetailSection>
+            </TechOSDetailSection>}
 
+            {openSectionKey === 'estimate' && <>
             <TechOSDetailSection
                 title="Estimate / Quote Actions"
                 description="Open the existing estimate draft for this company, property, and job context."
                 techOSTheme={techOSTheme}
                 variantKey="estimate"
+                onClose={() => setOpenSectionKey(null)}
             >
                 <View style={techWorkflowActionGridStyle}>
                     <ThemedButton
@@ -4357,11 +4539,18 @@ function TechOSAssignedJobDetail({
                 </Text>
             </TechOSDetailSection>
 
-            <TechOSDetailSection
+            <TechOSSoldJobRecord
+                scheduleSlotId={job.slot.id}
+                techOSTheme={techOSTheme}
+            />
+            </>}
+
+            {openSectionKey === 'finish' && <TechOSDetailSection
                 title="Finish Visit"
                 description="Choose the real visit outcome. This closes the current appointment and moves the request to the right queue."
                 techOSTheme={techOSTheme}
                 variantKey="finish"
+                onClose={() => setOpenSectionKey(null)}
             >
                 <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     Choose the real visit outcome. This closes the current appointment and moves the request to the right queue.
@@ -4464,13 +4653,14 @@ function TechOSAssignedJobDetail({
                         This visit is already closed.
                     </Text>
                 )}
-            </TechOSDetailSection>
+            </TechOSDetailSection>}
 
-            <TechOSDetailSection
+            {openSectionKey === 'availability' && <TechOSDetailSection
                 title={nextJobAvailability.title}
                 description={nextJobAvailability.description}
                 techOSTheme={techOSTheme}
                 variantKey="status"
+                onClose={() => setOpenSectionKey(null)}
             >
                 <View style={techWorkflowActionGridStyle}>
                     {TECHNICIAN_NEXT_JOB_STATUS_ACTIONS.map((action) => (
@@ -4487,9 +4677,100 @@ function TechOSAssignedJobDetail({
                 {!!technicianStatusMessage && (
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{technicianStatusMessage}</Text>
                 )}
-            </TechOSDetailSection>
+            </TechOSDetailSection>}
         </View>
     );
+}
+
+function TechOSJobWorkspaceCard({
+    active,
+    description,
+    disabled,
+    icon,
+    onPress,
+    status,
+    techOSTheme,
+    title,
+    variantKey,
+}: {
+    active: boolean;
+    description: string;
+    disabled: boolean;
+    icon: (typeof TECHOS_JOB_WORKSPACE_SECTIONS)[number]['icon'];
+    onPress: () => void;
+    status: string;
+    techOSTheme: TechOSThemePalette;
+    title: string;
+    variantKey: TechOSJobDetailVisualKey;
+}) {
+    const variant = techOSTheme.jobDetail[variantKey];
+
+    return (
+        <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`${active ? 'Close' : 'Open'} ${title}`}
+            accessibilityState={{ disabled, expanded: active }}
+            activeOpacity={0.82}
+            disabled={disabled}
+            onPress={onPress}
+            style={[
+                techJobWorkspaceCardStyle,
+                {
+                    backgroundColor: variant.backgroundColor,
+                    borderColor: active ? techOSTheme.activeBorderColor : variant.borderColor,
+                    opacity: disabled ? 0.48 : 1,
+                },
+                active && techJobWorkspaceCardActiveStyle,
+            ]}
+        >
+            <View style={techJobWorkspaceCardTopRowStyle}>
+                <View style={[techJobWorkspaceIconStyle, { backgroundColor: variant.accentColor }]}>
+                    <MaterialCommunityIcons name={icon} color={techOSTheme.screenBackgroundColor} size={22} />
+                </View>
+                <MaterialCommunityIcons
+                    name={active ? 'chevron-up' : 'chevron-down'}
+                    color={active ? techOSTheme.activeBorderColor : techOSTheme.mutedTextColor}
+                    size={23}
+                />
+            </View>
+            <Text style={[techJobWorkspaceCardTitleStyle, { color: techOSTheme.textColor }]}>{title}</Text>
+            <Text numberOfLines={2} style={[techJobWorkspaceCardDescriptionStyle, { color: techOSTheme.mutedTextColor }]}>
+                {description}
+            </Text>
+            <Text numberOfLines={2} style={[techJobWorkspaceCardStatusStyle, { color: active ? techOSTheme.activeBorderColor : techOSTheme.textColor }]}>
+                {status}
+            </Text>
+        </TouchableOpacity>
+    );
+}
+
+function getTechOSJobWorkspaceSectionStatus({
+    chatAvailable,
+    estimateDraftCount,
+    job,
+    sectionKey,
+    visitCloseable,
+    workflowStatus,
+}: {
+    chatAvailable: boolean;
+    estimateDraftCount: number;
+    job: TechAssignedScheduleJob;
+    sectionKey: TechOSJobWorkspaceSectionKey;
+    visitCloseable: boolean;
+    workflowStatus: string;
+}) {
+    if (sectionKey === 'summary') return formatArrivalWindow(job.slot);
+    if (sectionKey === 'messages') return chatAvailable ? 'Open job chat' : 'Chat unavailable';
+    if (sectionKey === 'media') return 'View request uploads';
+    if (sectionKey === 'workflow') return formatTechWorkflowStatusText(workflowStatus);
+    if (sectionKey === 'note') return job.slot.tech_status_note ? 'Status note saved' : 'Add a field note';
+    if (sectionKey === 'estimate') {
+        return estimateDraftCount > 0
+            ? `${estimateDraftCount} draft item${estimateDraftCount === 1 ? '' : 's'}`
+            : 'Start customer quote';
+    }
+    if (sectionKey === 'finish') return visitCloseable ? 'Close when work is done' : 'Visit closed';
+    return 'Update Dispatch';
 }
 
 function TechJobDetailInfo({
@@ -4543,12 +4824,14 @@ function TechWorkflowProgressStep({
 function TechOSDetailSection({
     children,
     description,
+    onClose,
     techOSTheme,
     title,
     variantKey,
 }: {
     children: ReactNode;
     description: string;
+    onClose?: () => void;
     techOSTheme: TechOSThemePalette;
     title: string;
     variantKey: TechOSJobDetailVisualKey;
@@ -4569,6 +4852,14 @@ function TechOSDetailSection({
             <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>{title}</Text>
             <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{description}</Text>
             {children}
+            {!!onClose && (
+                <ThemedButton
+                    title="Close Section"
+                    variant="secondary"
+                    onPress={onClose}
+                    style={techJobWorkspaceCloseButtonStyle}
+                />
+            )}
         </View>
     );
 }
@@ -5834,6 +6125,46 @@ const techProfileSignOutButtonStyle = {
     paddingVertical: 10,
 };
 
+const techProfileHoursSectionStyle = {
+    marginTop: 12,
+};
+
+const techProfileHoursHeadingStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+    letterSpacing: 0.5,
+};
+
+const techProfileHoursRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+    marginTop: 6,
+};
+
+const techProfileHourStyle = {
+    borderRadius: 12,
+    borderWidth: 1,
+    flexBasis: 88,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+};
+
+const techProfileHourValueStyle = {
+    fontSize: 16,
+    fontVariant: ['tabular-nums'] as ('tabular-nums')[],
+    fontWeight: '900' as const,
+};
+
+const techProfileHourLabelStyle = {
+    fontSize: 10,
+    fontWeight: '800' as const,
+    marginTop: 2,
+};
+
 const techProfileStatsRowStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
@@ -6194,6 +6525,90 @@ const techJobDetailBackButtonStyle = {
     flexGrow: 0,
     flexShrink: 1,
     maxWidth: '100%' as const,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+};
+
+const techJobWorkspaceIntroStyle = {
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 14,
+    padding: 12,
+};
+
+const techJobWorkspaceCurrentStatusStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+    marginTop: 8,
+};
+
+const techJobWorkspaceGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    marginTop: 12,
+};
+
+const techJobWorkspaceCardStyle = {
+    borderRadius: 15,
+    borderWidth: 1,
+    flexBasis: 150,
+    flexGrow: 1,
+    flexShrink: 1,
+    minHeight: 158,
+    minWidth: 0,
+    padding: 12,
+};
+
+const techJobWorkspaceCardActiveStyle = {
+    borderWidth: 2,
+};
+
+const techJobWorkspaceCardTopRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+};
+
+const techJobWorkspaceIconStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 11,
+    height: 38,
+    justifyContent: 'center' as const,
+    width: 38,
+};
+
+const techJobWorkspaceCardTitleStyle = {
+    fontSize: 15,
+    fontWeight: '900' as const,
+    lineHeight: 19,
+    marginTop: 10,
+};
+
+const techJobWorkspaceCardDescriptionStyle = {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    lineHeight: 15,
+    marginTop: 3,
+};
+
+const techJobWorkspaceCardStatusStyle = {
+    fontSize: 11,
+    fontWeight: '900' as const,
+    lineHeight: 15,
+    marginTop: 8,
+};
+
+const techJobWorkspaceHintStyle = {
+    fontSize: 12,
+    fontWeight: '700' as const,
+    lineHeight: 17,
+    marginTop: 12,
+    textAlign: 'center' as const,
+};
+
+const techJobWorkspaceCloseButtonStyle = {
+    marginTop: 14,
     paddingHorizontal: 12,
     paddingVertical: 10,
 };
