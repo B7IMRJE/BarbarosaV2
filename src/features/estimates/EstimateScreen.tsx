@@ -981,9 +981,10 @@ export default function EstimateScreen() {
         setMessage('Quote draft deleted.');
         router.replace({
             pathname: '/estimate',
-            params: requestedCompanyId || estimateAccess.companyId
-                ? { companyId: requestedCompanyId || estimateAccess.companyId }
-                : undefined,
+            params: {
+                companyId: requestedCompanyId || estimateAccess.companyId,
+                propertyId: draftContext?.property_id || requestedPropertyId || '',
+            },
         } as any);
     }
 
@@ -1200,7 +1201,16 @@ export default function EstimateScreen() {
         await persistLatestBuilderDraft();
         router.push({
             pathname: '/estimate',
-            params: { companyId: estimateAccess?.companyId || requestedCompanyId || '' },
+            params: {
+                companyId: estimateAccess?.companyId || requestedCompanyId || '',
+                propertyId: draftContext?.property_id || requestedPropertyId || providerModeContext?.propertyId || '',
+                providerMode: providerModeContext ? '1' : firstParam(providerMode),
+                returnTo: requestedReturnTo,
+                serviceRequestId: draftContext?.service_request_id || firstParam(serviceRequestId),
+                scheduleSlotId: draftContext?.schedule_slot_id || firstParam(scheduleSlotId),
+                jobId: draftContext?.job_id || firstParam(jobId),
+                mode: requestedMode,
+            },
         } as any);
     }
 
