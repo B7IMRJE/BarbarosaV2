@@ -9,6 +9,7 @@ import { getCompanyDisplayName } from '../../../../lib/companyDisplayName';
 import {
     buildCompanyClientDirectory,
     buildCompanyClientShelves,
+    filterActiveCompanyClients,
     filterCompanyClientDirectory,
     filterPendingCustomerInvites,
     paginateCompanyClientDirectory,
@@ -50,12 +51,6 @@ type PropertyRecord = {
     state: string | null;
     zip: string | null;
     postal_code?: string | null;
-};
-
-type PreferredProvider = {
-    property_id: string;
-    company_id: string;
-    status: string | null;
 };
 
 type PlatformProfile = {
@@ -122,7 +117,6 @@ export default function CompanyClientsScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
     const [clients, setClients] = useState<CompanyClient[]>([]);
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
-    const [preferredByPropertyId, setPreferredByPropertyId] = useState<Record<string, string>>({});
     const [companyName, setCompanyName] = useState('Company');
     const [companyBrand, setCompanyBrand] = useState<{
         primary_color: string | null;
@@ -163,6 +157,7 @@ export default function CompanyClientsScreen() {
     const [activeShelfKey, setActiveShelfKey] = useState('');
     const [directoryPage, setDirectoryPage] = useState(0);
     const [loading, setLoading] = useState(true);
+    const [clientLoadError, setClientLoadError] = useState('');
     const [message, setMessage] = useState('');
     const loadClientsEvent = useEffectEvent(loadClients);
 
@@ -170,25 +165,15 @@ export default function CompanyClientsScreen() {
         void loadClientsEvent();
     }, [id]);
 
-    const visibleClients = useMemo(
-        () =>
-            clients.filter(
-                (client) =>
-                    normalizeStatus(client.status) === 'active' &&
-                    normalizeStatus(preferredByPropertyId[client.property_id]) === 'active'
-            ),
-        [clients, preferredByPropertyId]
-    );
+    const visibleClients = useMemo(() => filterActiveCompanyClients(clients), [clients]);
     const pendingCustomerInvites = useMemo(
         () => filterPendingCustomerInvites(customerInvites),
         [customerInvites]
     );
     const directoryEntries = useMemo(
         () => {
-            const visibleClientIds = new Set(visibleClients.map((client) => client.id));
-
             return buildCompanyClientDirectory(
-                clients.map((client) => {
+                visibleClients.map((client) => {
                     const property = propertiesById[client.property_id];
 
                     return {
@@ -199,9 +184,9 @@ export default function CompanyClientsScreen() {
                         linkedAt: client.connected_at || client.first_requested_at || client.created_at,
                     };
                 })
-            ).filter((entry) => visibleClientIds.has(entry.id));
+            );
         },
-        [clients, propertiesById, visibleClients]
+        [propertiesById, visibleClients]
     );
     const directoryShelves = useMemo(
         () => buildCompanyClientShelves(directoryEntries),
@@ -243,12 +228,13 @@ export default function CompanyClientsScreen() {
         const companyId = id ? String(id) : '';
 
         if (!companyId) {
-            setMessage('Missing company id.');
+            setClientLoadError('The company could not be identified. Return to the company dashboard and try again.');
             setLoading(false);
             return;
         }
 
         setLoading(true);
+        setClientLoadError('');
         setMessage('');
 
         const hasCompanyAccess = await verifyCompanyAccess(companyId);
@@ -269,14 +255,14 @@ export default function CompanyClientsScreen() {
 
         if (error) {
             setLoading(false);
-            setMessage(`Could not load company clients: ${error.message}`);
+            setClientLoadError(`Could not load company clients: ${error.message}`);
             return;
         }
 
         const loadedClients = (data || []) as CompanyClient[];
         setClients(loadedClients);
         await Promise.all([
-            loadClientContext(companyId, loadedClients),
+            loadClientContext(loadedClients),
             loadCustomerInvites(companyId),
         ]);
         setLoading(false);
@@ -561,39 +547,30 @@ export default function CompanyClientsScreen() {
             .limit(1);
 
         if (error) {
-            setMessage(`Could not verify company access: ${error.message}`);
+            setClientLoadError(`Could not verify company access: ${error.message}`);
             return false;
         }
 
         if (!data || data.length === 0) {
-            setMessage('No active membership found for this company.');
+            setClientLoadError('No active membership found for this company.');
             return false;
         }
 
         return true;
     }
 
-    async function loadClientContext(companyId: string, loadedClients: CompanyClient[]) {
+    async function loadClientContext(loadedClients: CompanyClient[]) {
         const propertyIds = Array.from(new Set(loadedClients.map((client) => client.property_id).filter(Boolean)));
 
         if (propertyIds.length === 0) {
             setPropertiesById({});
-            setPreferredByPropertyId({});
             return;
         }
 
-        const [propertiesResult, preferredResult] = await Promise.all([
-            supabase
-                .from('properties')
-                .select('id, name, address, address_line_1, city, state, zip, postal_code')
-                .in('id', propertyIds),
-            supabase
-                .from('property_preferred_providers')
-                .select('property_id, company_id, status')
-                .eq('company_id', companyId)
-                .eq('status', 'active')
-                .in('property_id', propertyIds),
-        ]);
+        const propertiesResult = await supabase
+            .from('properties')
+            .select('id, name, address, address_line_1, city, state, zip, postal_code')
+            .in('id', propertyIds);
 
         if (propertiesResult.error) {
             setMessage(`Clients loaded, but home profiles could not be loaded: ${propertiesResult.error.message}`);
@@ -608,21 +585,6 @@ export default function CompanyClientsScreen() {
             setPropertiesById(nextPropertiesById);
         }
 
-        if (preferredResult.error) {
-            setPreferredByPropertyId({});
-            return;
-        }
-
-        const nextPreferredByPropertyId = ((preferredResult.data || []) as PreferredProvider[]).reduce<
-            Record<string, string>
-        >((accumulator, preferredProvider) => {
-            if (normalizeStatus(preferredProvider.status) === 'active') {
-                accumulator[preferredProvider.property_id] = preferredProvider.status || 'active';
-            }
-            return accumulator;
-        }, {});
-
-        setPreferredByPropertyId(nextPreferredByPropertyId);
     }
 
     function runCustomerSearch() {
@@ -688,6 +650,12 @@ export default function CompanyClientsScreen() {
                 {loading ? (
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading clients...</Text>
+                    </ThemedCard>
+                ) : clientLoadError ? (
+                    <ThemedCard>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Clients could not be loaded</Text>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{clientLoadError}</Text>
+                        <ThemedButton title="Try Again" onPress={loadClients} style={smallButtonStyle} />
                     </ThemedCard>
                 ) : visibleClients.length === 0 ? (
                     <ThemedCard>

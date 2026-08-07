@@ -2,6 +2,7 @@ import {
     COMPANY_CLIENT_PAGE_SIZE,
     buildCompanyClientDirectory,
     buildCompanyClientShelves,
+    filterActiveCompanyClients,
     filterCompanyClientDirectory,
     filterPendingCustomerInvites,
     formatCompanyClientTenure,
@@ -15,11 +16,27 @@ export function runCompanyClientDirectoryRegressions() {
     customerNumbersFollowJoinOrder();
     tenureProgressesFromDaysToMonthsToYears();
     searchMatchesNameAddressAndCustomerNumber();
+    activeClientsRemainVisibleWithoutPreferredProviderRows();
     acceptedInvitesDoNotRemainPending();
     smallDirectoriesRenderWithoutShelves();
     largerDirectoriesUseAlphabetShelves();
     veryLargeDirectoriesUseSingleLetterShelves();
     shelfResultsStayLimitedToTwentyPerPage();
+}
+
+function activeClientsRemainVisibleWithoutPreferredProviderRows() {
+    const clients = filterActiveCompanyClients([
+        { id: 'current-client-a', status: 'active' },
+        { id: 'current-client-b', status: 'ACTIVE' },
+        { id: 'former-client', status: 'archived' },
+    ]);
+
+    assert(clients.length === 2, 'Active company clients should remain in the directory.');
+    assert(
+        clients.some((client) => client.id === 'current-client-a') &&
+            clients.some((client) => client.id === 'current-client-b'),
+        'Client visibility must depend on the durable company relationship, not a preferred-provider row.'
+    );
 }
 
 function customerNumbersFollowJoinOrder() {

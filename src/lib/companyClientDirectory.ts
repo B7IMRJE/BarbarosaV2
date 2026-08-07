@@ -24,6 +24,10 @@ type InviteStatusRecord = {
     status?: string | null;
 };
 
+type CompanyClientStatusRecord = {
+    status?: string | null;
+};
+
 const DIRECTORY_RANGES_SMALL = [
     ['A', 'D'],
     ['E', 'H'],
@@ -133,6 +137,10 @@ export function paginateCompanyClientDirectory(
 
 export function filterPendingCustomerInvites<T extends InviteStatusRecord>(invites: T[]) {
     return invites.filter((invite) => normalizeValue(invite.status) === 'pending');
+}
+
+export function filterActiveCompanyClients<T extends CompanyClientStatusRecord>(clients: T[]) {
+    return clients.filter((client) => normalizeValue(client.status) === 'active');
 }
 
 export function formatCompanyClientTenure(value?: string | null, now: Date = new Date()) {
