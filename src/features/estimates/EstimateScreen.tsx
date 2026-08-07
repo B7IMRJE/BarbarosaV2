@@ -115,6 +115,7 @@ import {
 } from '../../lib/providerMode';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../lib/supabase';
 import {
+    buildEstimateJobWorkflowRoute,
     getProviderReturnActionLabel,
     resolveTechOSEstimateReturnRoute,
 } from '../../lib/techosClientAccess';
@@ -1893,10 +1894,12 @@ export default function EstimateScreen() {
 
             if (!session) return;
             setOptionsWorkspaceOpen(false);
-            router.push({
-                pathname: '/job-workflow',
-                params: { estimateSessionId: session.id },
-            } as never);
+            router.push(buildEstimateJobWorkflowRoute({
+                estimateSessionId: session.id,
+                mode: requestedMode,
+                returnTo: requestedReturnTo,
+                companyId: requestedCompanyId || estimateAccess?.companyId,
+            }) as never);
         } catch (error) {
             setOptionsWorkspaceNotice(`Could not open homeowner approval: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }

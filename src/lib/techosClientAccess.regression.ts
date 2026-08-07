@@ -1,6 +1,7 @@
 import {
     TECHOS_DASHBOARD_VISUAL_VARIANTS,
     TECHOS_JOB_DETAIL_VISUAL_VARIANTS,
+    buildEstimateJobWorkflowRoute,
     buildTechOSCurrentJobRoute,
     buildTechOSEstimateRoute,
     buildTechOSProviderHomeRoute,
@@ -19,6 +20,8 @@ export function runTechOSClientAccessRegressions() {
     currentJobReturnRouteTargetsTheSelectedTechOSJob();
     technicianHomeTargetsCompanyTechOSWorkspace();
     estimateRouteCarriesJobAndRequestContext();
+    estimateApprovalPreservesTechOSReturnContext();
+    nonTechOSEstimateApprovalOmitsTechOSReturnContext();
     techOSEstimateBackUsesCurrentJobContext();
     techOSEstimateBackFallsBackToCompanyWorkspace();
     nonTechOSEstimateKeepsItsExistingBackBehavior();
@@ -78,6 +81,32 @@ function estimateRouteCarriesJobAndRequestContext() {
     assert(route.params.serviceRequestId === 'request-1', 'Estimate route should preserve service request context.');
     assert(route.params.jobId === 'job-1', 'Estimate route should preserve job context.');
     assert(route.params.returnTo === '/techos?companyId=company-1&slotId=slot-1', 'Estimate route should preserve its current-job return destination.');
+}
+
+function estimateApprovalPreservesTechOSReturnContext() {
+    const route = buildEstimateJobWorkflowRoute({
+        estimateSessionId: 'estimate-session-1',
+        mode: 'techos',
+        returnTo: '/techos?companyId=company-1&slotId=slot-1',
+        companyId: 'company-1',
+    });
+
+    assert(route.pathname === '/job-workflow', 'Homeowner approval should open Job Workflow.');
+    assert(route.params.estimateSessionId === 'estimate-session-1', 'Homeowner approval should preserve the estimate session.');
+    assert(route.params.source === 'techos', 'TechOS homeowner approval should identify TechOS as its source.');
+    assert(route.params.returnTo === '/techos?companyId=company-1&slotId=slot-1', 'TechOS homeowner approval should preserve its dashboard return route.');
+}
+
+function nonTechOSEstimateApprovalOmitsTechOSReturnContext() {
+    const route = buildEstimateJobWorkflowRoute({
+        estimateSessionId: 'estimate-session-1',
+        mode: 'management',
+        returnTo: '/super-admin/company/company-1',
+        companyId: 'company-1',
+    });
+
+    assert(!('source' in route.params), 'Management homeowner approval should not be labeled as TechOS.');
+    assert(!('returnTo' in route.params), 'Management homeowner approval should keep its existing navigation behavior.');
 }
 
 function techOSEstimateBackUsesCurrentJobContext() {

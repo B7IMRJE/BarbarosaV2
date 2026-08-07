@@ -27,6 +27,7 @@ import {
     isJobReturnHandoffReady,
     parseJobReturnHandoffMaterials,
 } from '../../lib/jobReturnHandoff';
+import { buildTechOSCurrentJobRoute } from '../../lib/techosClientAccess';
 import { supabase } from '../../lib/supabase';
 
 export default function JobWorkflowScreen() {
@@ -42,10 +43,10 @@ export default function JobWorkflowScreen() {
     const completionMode = (Array.isArray(completion) ? completion[0] : completion) === '1';
     const sourceName = Array.isArray(source) ? source[0] : source;
     const requestedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo;
-    const techOSReturnTo = sourceName === 'techos' && requestedReturnTo?.startsWith('/techos')
-        ? requestedReturnTo
-        : '/techos';
     const [bundle, setBundle] = useState<JobWorkflowBundle | null>(null);
+    const techOSReturnTo = requestedReturnTo?.startsWith('/techos')
+        ? requestedReturnTo
+        : buildTechOSCurrentJobRoute({ companyId: bundle?.workflow.company_id || '' });
     const [message, setMessage] = useState('Opening customer approval...');
     const [busy, setBusy] = useState(false);
     const [selectedChoiceIds, setSelectedChoiceIds] = useState<string[]>([]);
@@ -403,6 +404,7 @@ export default function JobWorkflowScreen() {
 
     const { workflow, contract_rule: rule, options } = bundle;
     const status = workflow.status;
+    const returnsToTechOS = sourceName === 'techos' || requestedReturnTo?.startsWith('/techos');
     const handoffAttachments = bundle.attachments.filter((attachment) => attachment.stage === 'handoff');
     const returnMaterials = parseJobReturnHandoffMaterials(returnMaterialsText);
     const returnHandoffReady = isJobReturnHandoffReady({
@@ -445,6 +447,19 @@ export default function JobWorkflowScreen() {
         });
     }
 
+    function leaveWorkflow() {
+        if (returnsToTechOS) {
+            returnToTechOS();
+            return;
+        }
+
+        router.back();
+    }
+
+    function returnToTechOS() {
+        router.replace(techOSReturnTo as never);
+    }
+
     return (
         <ScrollView
             ref={workflowScrollRef}
@@ -464,9 +479,9 @@ export default function JobWorkflowScreen() {
                 </View>
                 <TouchableOpacity
                     style={secondaryButtonStyle}
-                    onPress={() => sourceName === 'techos' ? router.replace(techOSReturnTo as never) : router.back()}
+                    onPress={leaveWorkflow}
                 >
-                    <Text style={secondaryButtonTextStyle}>Back</Text>
+                    <Text style={secondaryButtonTextStyle}>{returnsToTechOS ? 'Back to TechOS' : 'Back'}</Text>
                 </TouchableOpacity>
             </View>
 
@@ -908,6 +923,7 @@ export default function JobWorkflowScreen() {
                         ? 'The field job is closed. The balance is awaiting office collection.'
                         : 'Quote, signatures, photos, invoice, and payment record are complete.'}
                 >
+                    <SecondaryButton title="Back to TechOS Dashboard" onPress={returnToTechOS} />
                     {workflow.payment_status === 'collection_pending' && (
                         <SecondaryButton title="Record Closeout Balance Collected" disabled={busy} onPress={recordPaymentAfterCloseout} />
                     )}
