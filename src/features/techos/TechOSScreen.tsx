@@ -118,6 +118,16 @@ import {
     resolveTechOSAssignmentCompanyUserIds,
     type JobAssignmentRole,
 } from '../../lib/techosAssignments';
+import {
+    canScheduleCrewRoleControlWorkflow,
+    getCompanyScheduleCrewRoleLabel,
+    getScheduleAssignedSlotIds,
+    getScheduleCrewForSlot,
+    getScheduleRoleForCompanyUsers,
+    normalizeCompanyScheduleOverview,
+    type CompanyScheduleMeeting,
+    type CompanyScheduleSlotAssignment,
+} from '../../lib/companySchedule';
 import { getTechnicianAssignmentDisplayName } from '../../lib/technicianDisplay';
 import { useTheme } from '../../theme/useTheme';
 import TechOSMessageThreadsPanel from './TechOSMessageThreadsPanel';
@@ -219,6 +229,8 @@ type TechScheduleSlot = {
     homeowner_closeout_note: string | null;
     created_at: string | null;
     updated_at: string | null;
+    crew_role?: string | null;
+    crew?: CompanyScheduleSlotAssignment[];
 };
 
 type TechServiceRequest = {
@@ -310,6 +322,7 @@ export default function TechOSScreen() {
     const [propertiesById, setPropertiesById] = useState<Record<string, PropertyRecord>>({});
     const [jobs, setJobs] = useState<TechOSJob[]>([]);
     const [assignedScheduleSlots, setAssignedScheduleSlots] = useState<TechScheduleSlot[]>([]);
+    const [assignedScheduleMeetings, setAssignedScheduleMeetings] = useState<CompanyScheduleMeeting[]>([]);
     const [serviceRequestsById, setServiceRequestsById] = useState<Record<string, TechServiceRequest>>({});
     const [activeCompanyId, setActiveCompanyId] = useState('');
     const [clientMessage, setClientMessage] = useState('');
@@ -694,6 +707,7 @@ export default function TechOSScreen() {
         setPropertiesById({});
         setJobs([]);
         setAssignedScheduleSlots([]);
+        setAssignedScheduleMeetings([]);
         setServiceRequestsById({});
         setActiveCompanyId('');
         setClientMessage('');
@@ -900,6 +914,7 @@ export default function TechOSScreen() {
 
         if (!companyIdToLoad || technicianCompanyUserIds.length === 0) {
             setAssignedScheduleSlots([]);
+            setAssignedScheduleMeetings([]);
             setServiceRequestsById({});
             setScheduleDiagnostics({
                 ...diagnosticsContext,
@@ -922,6 +937,19 @@ export default function TechOSScreen() {
         windowStart.setDate(windowStart.getDate() - 30);
         windowEnd.setDate(windowEnd.getDate() + 60);
 
+        const overviewResult = await supabase.rpc('get_company_schedule_overview', {
+            p_company_id: companyIdToLoad,
+            p_start_at: windowStart.toISOString(),
+            p_end_at: windowEnd.toISOString(),
+        });
+        const scheduleOverview = overviewResult.error
+            ? { slotAssignments: [] as CompanyScheduleSlotAssignment[], meetings: [] as CompanyScheduleMeeting[] }
+            : normalizeCompanyScheduleOverview(overviewResult.data);
+        const crewAssignedSlotIds = getScheduleAssignedSlotIds(
+            scheduleOverview.slotAssignments,
+            technicianCompanyUserIds
+        );
+
         const slotQuery = supabase
             .from('job_schedule_slots')
             .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
@@ -935,11 +963,26 @@ export default function TechOSScreen() {
 
         const { data, error } = await filteredSlotQuery
             .order('start_at', { ascending: true });
+        const additionalSlotIds = crewAssignedSlotIds.filter((slotId) => !(
+            Array.isArray(data) && data.some((row) => (
+                row && typeof row === 'object' && String((row as { id?: unknown }).id || '') === slotId
+            ))
+        ));
+        const additionalResult = additionalSlotIds.length > 0
+            ? await supabase
+                .from('job_schedule_slots')
+                .select('id, company_id, job_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
+                .eq('company_id', companyIdToLoad)
+                .in('id', additionalSlotIds)
+                .order('start_at', { ascending: true })
+            : { data: [], error: null };
 
         logTechOSDebug('job_schedule_slots query result', {
             ...diagnosticsContext,
             error,
-            row_count: Array.isArray(data) ? data.length : 0,
+            row_count: (Array.isArray(data) ? data.length : 0) + (Array.isArray(additionalResult.data) ? additionalResult.data.length : 0),
+            crew_overview_error: overviewResult.error?.message || '',
+            additional_slot_error: additionalResult.error?.message || '',
             window_start: windowStart.toISOString(),
             window_end: windowEnd.toISOString(),
         });
@@ -947,6 +990,7 @@ export default function TechOSScreen() {
         if (error) {
             logTechOSDebug('job_schedule_slots query error', error);
             setAssignedScheduleSlots([]);
+            setAssignedScheduleMeetings(scheduleOverview.meetings);
             setServiceRequestsById({});
             setScheduleDiagnostics({
                 ...diagnosticsContext,
@@ -962,17 +1006,30 @@ export default function TechOSScreen() {
             return;
         }
 
-        const nextSlots = collapseTechOSAssignmentSlots(
-            filterTechOSAssignmentSlots(
-                normalizeScheduleSlots(data),
-                companyIdToLoad,
-                technicianCompanyUserIds
-            )
+        const primarySlots = filterTechOSAssignmentSlots(
+            normalizeScheduleSlots(data),
+            companyIdToLoad,
+            technicianCompanyUserIds
         );
+        const additionalSlots = normalizeScheduleSlots(additionalResult.data)
+            .filter((slot) => crewAssignedSlotIds.includes(slot.id));
+        const slotById = [...primarySlots, ...additionalSlots].reduce<Record<string, TechScheduleSlot>>((current, slot) => {
+            current[slot.id] = slot;
+            return current;
+        }, {});
+        const nextSlots = collapseTechOSAssignmentSlots(Object.values(slotById)).map((slot) => ({
+            ...slot,
+            crew: getScheduleCrewForSlot(scheduleOverview.slotAssignments, slot.id),
+            crew_role: getScheduleRoleForCompanyUsers(
+                scheduleOverview.slotAssignments,
+                slot.id,
+                technicianCompanyUserIds
+            ) || (technicianCompanyUserIds.includes(slot.technician_company_user_id) ? 'lead' : null),
+        }));
         setScheduleDiagnostics({
             ...diagnosticsContext,
             queryError: '',
-            rawSlotCount: Array.isArray(data) ? data.length : 0,
+            rawSlotCount: (Array.isArray(data) ? data.length : 0) + (Array.isArray(additionalResult.data) ? additionalResult.data.length : 0),
             normalizedSlotCount: nextSlots.length,
             windowStart: windowStart.toISOString(),
             windowEnd: windowEnd.toISOString(),
@@ -1006,8 +1063,16 @@ export default function TechOSScreen() {
             ...nextWorkflowStatusBySlotId,
         }));
         setAssignedScheduleSlots(mergedSlots);
+        setAssignedScheduleMeetings(scheduleOverview.meetings);
         setServiceRequestsById(serviceRequestsResult.requestsById);
-        setScheduleMessage(serviceRequestsResult.message);
+        setScheduleMessage(
+            serviceRequestsResult.message ||
+            overviewResult.error
+                ? serviceRequestsResult.message || 'Jobs loaded. Team meetings and crew roles will appear after the schedule upgrade is installed.'
+                : additionalResult.error
+                    ? `Some crew assignments could not load: ${additionalResult.error.message}`
+                    : ''
+        );
 
         if (hasNewSlot) {
             setAssignmentBanner('New job assigned');
@@ -1401,10 +1466,36 @@ export default function TechOSScreen() {
         } as any);
     }
 
+    async function handleCompleteAssignedMeeting(meeting: CompanyScheduleMeeting) {
+        setScheduleMessage(`Completing ${meeting.title}...`);
+        const { error } = await supabase.rpc('complete_company_schedule_meeting', {
+            p_company_id: meeting.company_id,
+            p_meeting_id: meeting.id,
+        });
+
+        if (error) {
+            setScheduleMessage(`Could not complete meeting: ${normalizeServiceErrorMessage(error.message)}`);
+            return;
+        }
+
+        if (activeCompanyId && assignedTechnicianCompanyUserIds.length > 0) {
+            await loadAssignedScheduleJobs(activeCompanyId, assignedTechnicianCompanyUserIds, { subtle: true });
+        }
+        setScheduleMessage('Meeting completed.');
+    }
+
     async function handleCloseServiceVisit(job: TechAssignedScheduleJob, outcomeOverride?: ServiceVisitOutcome) {
         const slotId = job.slot.id;
         const form = closeoutFormBySlotId[slotId] || createDefaultTechCloseoutForm();
         const outcome = outcomeOverride || form.outcome;
+
+        if (!canScheduleCrewRoleControlWorkflow(job.slot.crew_role)) {
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: 'Only the lead technician can close this shared job. Your crew assignment remains on your schedule.',
+            }));
+            return;
+        }
 
         if (!job.request?.id) {
             setWorkflowMessageBySlotId((current) => ({
@@ -1523,6 +1614,14 @@ export default function TechOSScreen() {
         const normalizedStatus = normalizeStatus(action.status);
         const trimmedStatusNote = String(statusNote || '').trim();
         const currentWorkflowStatus = workflowStatusBySlotId[slotId] || job.slot.status || job.request?.status || '';
+
+        if (!canScheduleCrewRoleControlWorkflow(job.slot.crew_role)) {
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: 'Only the lead technician changes the shared customer workflow. You can still open the job, view the crew, and complete your assigned work.',
+            }));
+            return;
+        }
         const transition = resolveTechWorkflowTransition(action, {
             slotId,
             companyId: job.slot.company_id,
@@ -2036,6 +2135,7 @@ export default function TechOSScreen() {
                         activeJobs={currentFutureAssignedScheduleJobs}
                         activeView={dashboardView}
                         calendarGroups={calendarScheduleGroups}
+                        meetings={assignedScheduleMeetings}
                         futureJobs={futureAssignedScheduleJobs}
                         historyJobs={historyScheduleJobs}
                         jobStats={{
@@ -2078,6 +2178,9 @@ export default function TechOSScreen() {
                         onCloseServiceVisit={handleCloseServiceVisit}
                         onOpenDetails={handleOpenAssignedJobDetails}
                         onOpenFullJob={handleOpenFullAssignedJob}
+                        onCompleteMeeting={(meeting) => {
+                            void handleCompleteAssignedMeeting(meeting);
+                        }}
                         onRunTechnicianNextJobStatusAction={handleTechnicianNextJobStatusAction}
                         onRunWorkflowAction={handleTechWorkflowAction}
                         onTimeEntriesChange={handleTechnicianTimeEntriesChange}
@@ -2925,6 +3028,7 @@ function TechOSDashboardContent({
     historyJobs,
     jobStats,
     loading,
+    meetings,
     message,
     scheduleDiagnostics,
     selectedJob,
@@ -2944,6 +3048,7 @@ function TechOSDashboardContent({
     onOpenEstimateForAssignedJob,
     onOpenEstimateWorkspace,
     onOpenFullJob,
+    onCompleteMeeting,
     onRunTechnicianNextJobStatusAction,
     onRunWorkflowAction,
     onTimeEntriesChange,
@@ -2961,6 +3066,7 @@ function TechOSDashboardContent({
     historyJobs: TechAssignedScheduleJob[];
     jobStats: { closed: number; open: number; paused: number };
     loading: boolean;
+    meetings: CompanyScheduleMeeting[];
     message: string;
     scheduleDiagnostics: TechOSScheduleDiagnostics | null;
     selectedJob: TechAssignedScheduleJob | null;
@@ -2980,6 +3086,7 @@ function TechOSDashboardContent({
     onOpenEstimateForAssignedJob: (job: TechAssignedScheduleJob) => void;
     onOpenEstimateWorkspace: () => void;
     onOpenFullJob: (job: TechAssignedScheduleJob) => void;
+    onCompleteMeeting: (meeting: CompanyScheduleMeeting) => void;
     onRunTechnicianNextJobStatusAction: (job: TechAssignedScheduleJob, action: TechnicianNextJobStatusAction, currentVisitStatus: string) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
     onTimeEntriesChange: (entries: TechnicianTimeEntry[]) => void;
@@ -3028,7 +3135,9 @@ function TechOSDashboardContent({
             <TechOSCalendarView
                 groups={calendarGroups}
                 loading={loading}
+                meetings={meetings}
                 message={message}
+                onCompleteMeeting={onCompleteMeeting}
                 onRefresh={onRefresh}
                 onOpenDetails={onOpenDetails}
             />
@@ -4050,13 +4159,17 @@ function TechOSScheduleDebugNote({
 function TechOSCalendarView({
     groups,
     loading,
+    meetings,
     message,
+    onCompleteMeeting,
     onRefresh,
     onOpenDetails,
 }: {
     groups: { key: string; label: string; jobs: TechAssignedScheduleJob[] }[];
     loading: boolean;
+    meetings: CompanyScheduleMeeting[];
     message: string;
+    onCompleteMeeting: (meeting: CompanyScheduleMeeting) => void;
     onRefresh: () => void;
     onOpenDetails: (job: TechAssignedScheduleJob) => void;
 }) {
@@ -4068,7 +4181,7 @@ function TechOSCalendarView({
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 4 }]}>Schedule</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Today and upcoming work assigned to your technician profile.
+                        Customer jobs and team meetings assigned to your technician profile.
                     </Text>
                 </View>
                 <ThemedButton
@@ -4086,11 +4199,31 @@ function TechOSCalendarView({
                 </View>
             )}
 
-            {groups.length === 0 ? (
+            {meetings.length > 0 && (
+                <View style={[calendarDayBlockStyle, { borderColor: theme.colors.border, marginBottom: 12 }]}>
+                    <View style={calendarDayHeaderStyle}>
+                        <Text style={[calendarDayTitleStyle, { color: theme.colors.text }]}>Team Meetings</Text>
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                            {meetings.length} meeting{meetings.length === 1 ? '' : 's'}
+                        </Text>
+                    </View>
+                    <View style={assignedJobGridStyle}>
+                        {meetings.map((meeting) => (
+                            <TechOSMeetingCard
+                                key={meeting.id}
+                                meeting={meeting}
+                                onComplete={() => onCompleteMeeting(meeting)}
+                            />
+                        ))}
+                    </View>
+                </View>
+            )}
+
+            {groups.length === 0 && meetings.length === 0 ? (
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
-                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>No scheduled work yet</Text>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>No scheduled items yet</Text>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        Scheduled jobs appear here when Dispatch assigns work to your technician profile.
+                        Jobs and meetings appear here when the office adds you to the schedule.
                     </Text>
                 </View>
             ) : (
@@ -4113,6 +4246,46 @@ function TechOSCalendarView({
                 </View>
             )}
         </ThemedCard>
+    );
+}
+
+function TechOSMeetingCard({
+    meeting,
+    onComplete,
+}: {
+    meeting: CompanyScheduleMeeting;
+    onComplete: () => void;
+}) {
+    const { theme } = useTheme();
+    const completed = normalizeStatus(meeting.status) === 'completed';
+
+    return (
+        <View style={[assignedJobCardStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View style={assignedJobTopRowStyle}>
+                <Text style={[jobNumberStyle, { color: theme.colors.primary }]}>TEAM MEETING</Text>
+                <Text style={[jobStatusBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
+                    {completed ? 'Completed' : 'Scheduled'}
+                </Text>
+            </View>
+            <Text style={[jobTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>{meeting.title}</Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                {formatDateTime(meeting.start_at)} - {formatTime(meeting.end_at)}
+            </Text>
+            <Text style={[clientMetaTextStyle, { color: theme.colors.text }]} numberOfLines={2}>
+                With {meeting.attendees.map((attendee) => attendee.display_name).join(', ')}
+            </Text>
+            {!!meeting.notes && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={3}>{meeting.notes}</Text>
+            )}
+            {!completed && (
+                <ThemedButton
+                    title="Mark Meeting Complete"
+                    variant="secondary"
+                    onPress={onComplete}
+                    style={assignedJobActionButtonStyle}
+                />
+            )}
+        </View>
     );
 }
 
@@ -4166,6 +4339,12 @@ function AssignedScheduleJobCard({
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Priority: {formatLabel(job.slot.priority || job.request?.priority || 'normal')}
             </Text>
+            {!!job.slot.crew_role && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.primary }]}>
+                    Your role: {getCompanyScheduleCrewRoleLabel(job.slot.crew_role)}
+                    {job.slot.crew && job.slot.crew.length > 1 ? ` · Crew of ${job.slot.crew.length}` : ''}
+                </Text>
+            )}
             {!!job.slot.tech_status_note && (
                 <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={2}>
                     Tech note: {job.slot.tech_status_note}
@@ -4243,7 +4422,8 @@ function TechOSAssignedJobDetail({
     const noPrimaryWorkflowActionMessage = getTechWorkflowNextStepMessage(workflowStatus) ||
         'There is no next workflow action for the current status.';
     const nextJobAvailability = getNextJobAvailabilitySectionState();
-    const visitCloseable = isTechOSVisitCloseable(job.slot);
+    const canControlWorkflow = canScheduleCrewRoleControlWorkflow(job.slot.crew_role);
+    const visitCloseable = canControlWorkflow && isTechOSVisitCloseable(job.slot);
     const chatServiceRequestId = String(job.request?.id || job.slot.service_request_id || '').trim();
 
     return (
@@ -4268,6 +4448,12 @@ function TechOSAssignedJobDetail({
                 <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>Job Workspace</Text>
                 <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>Choose one area to work in. Open another area to switch, or tap the active button again to close it.</Text>
                 <Text style={[techJobWorkspaceCurrentStatusStyle, { color: techOSTheme.textColor }]}>Current: {formatTechWorkflowStatusText(workflowStatus)}</Text>
+                {!!job.slot.crew_role && (
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 4 }]}>
+                        Your role: {getCompanyScheduleCrewRoleLabel(job.slot.crew_role)}
+                        {!canControlWorkflow ? ' · The lead controls customer-facing status and closeout.' : ''}
+                    </Text>
+                )}
             </View>
 
             <View style={techJobWorkspaceGridStyle}>
@@ -4318,6 +4504,9 @@ function TechOSAssignedJobDetail({
                     <TechJobDetailInfo label="Request" value={requestReference} techOSTheme={techOSTheme} />
                     <TechJobDetailInfo label="Status" value={formatTechWorkflowStatusText(workflowStatus)} techOSTheme={techOSTheme} />
                     <TechJobDetailInfo label="Priority" value={formatLabel(job.slot.priority || job.request?.priority || 'normal')} techOSTheme={techOSTheme} />
+                    {!!job.slot.crew_role && (
+                        <TechJobDetailInfo label="Your Crew Role" value={getCompanyScheduleCrewRoleLabel(job.slot.crew_role)} techOSTheme={techOSTheme} />
+                    )}
                     {!!job.slot.tech_status_note && (
                         <TechJobDetailInfo label="Tech Status Note" value={job.slot.tech_status_note} techOSTheme={techOSTheme} />
                     )}
@@ -4328,6 +4517,11 @@ function TechOSAssignedJobDetail({
                 <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 10 }]}>
                     {job.request?.issue_summary || job.slot.notes || 'No request summary provided.'}
                 </Text>
+                {!!job.slot.crew?.length && (
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 8 }]}>
+                        Crew: {job.slot.crew.map((assignment) => `${assignment.display_name} (${getCompanyScheduleCrewRoleLabel(assignment.role_on_schedule)})`).join(', ')}
+                    </Text>
+                )}
                 <View style={techWorkflowActionGridStyle}>
                     <ThemedButton
                         title="Open Client HomeOS"
@@ -4393,6 +4587,11 @@ function TechOSAssignedJobDetail({
                 <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
                     Current status: {formatTechWorkflowStatusText(workflowStatus)}
                 </Text>
+                {!canControlWorkflow && (
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 8 }]}>
+                        This is a shared job. Only the lead technician can change the customer-facing workflow.
+                    </Text>
+                )}
                 {!!message && (
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 8 }]}>{message}</Text>
                 )}
@@ -4411,7 +4610,7 @@ function TechOSAssignedJobDetail({
                             key={action.key}
                             title={updating ? 'Updating...' : action.label}
                             variant="primary"
-                            disabled={updating}
+                            disabled={updating || !canControlWorkflow}
                             onPress={() => onRunWorkflowAction(job, action)}
                             style={techWorkflowActionButtonStyle}
                             textStyle={techWorkflowActionButtonTextStyle}
@@ -4440,7 +4639,7 @@ function TechOSAssignedJobDetail({
                                         key={action.key}
                                         title={action.label}
                                         variant="secondary"
-                                        disabled={updating}
+                                        disabled={updating || !canControlWorkflow}
                                         onPress={() => onRunWorkflowAction(job, action)}
                                         style={techWorkflowActionButtonStyle}
                                         textStyle={techWorkflowActionButtonTextStyle}
@@ -4499,7 +4698,7 @@ function TechOSAssignedJobDetail({
                 <ThemedButton
                     title="Save Job Status Note"
                     variant="secondary"
-                    disabled={updating || !trimmedCustomStatusNote}
+                    disabled={updating || !canControlWorkflow || !trimmedCustomStatusNote}
                     onPress={() => onRunWorkflowAction(job, TECH_CUSTOM_STATUS_ACTION, trimmedCustomStatusNote)}
                     style={assignedJobActionButtonStyle}
                     textStyle={techWorkflowActionButtonTextStyle}
@@ -4650,7 +4849,7 @@ function TechOSAssignedJobDetail({
                 </View>
                 {!visitCloseable && (
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
-                        This visit is already closed.
+                        {canControlWorkflow ? 'This visit is already closed.' : 'Only the lead technician can close this shared job.'}
                     </Text>
                 )}
             </TechOSDetailSection>}

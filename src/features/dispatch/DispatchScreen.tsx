@@ -1625,12 +1625,19 @@ export default function DispatchBoardScreen() {
                                         Schedule planning view. Active live movement remains on the Activity Board.
                                     </Text>
                                 </View>
-                                <ThemedButton
-                                    title="Back to Active Jobs"
-                                    variant="secondary"
-                                    onPress={() => setActiveBoardView('activity')}
-                                    style={buttonStyle}
-                                />
+                                <View style={buttonRowStyle}>
+                                    <ThemedButton
+                                        title="Crew & Meetings"
+                                        onPress={() => router.push(`/schedule?companyId=${encodeURIComponent(dispatchCompanyId)}` as any)}
+                                        style={buttonStyle}
+                                    />
+                                    <ThemedButton
+                                        title="Back to Active Jobs"
+                                        variant="secondary"
+                                        onPress={() => setActiveBoardView('activity')}
+                                        style={buttonStyle}
+                                    />
+                                </View>
                             </View>
                         </ThemedCard>
                         <ActivityScheduleFoundation
