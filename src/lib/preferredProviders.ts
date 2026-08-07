@@ -109,18 +109,33 @@ export async function activateConnectedProviderForProperty(input: {
 }
 
 async function loadConnectedProviderForProperty(propertyId: string): Promise<PreferredProvider | null> {
-    const { data: connectedRows, error: connectedError } = await supabase
-        .from('company_property_clients')
-        .select('company_id, status, connected_at, created_at')
-        .eq('property_id', propertyId)
-        .order('connected_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false });
+    const [companyClientResult, propertyConnectionResult] = await Promise.all([
+        supabase
+            .from('company_property_clients')
+            .select('company_id, status, connected_at, created_at')
+            .eq('property_id', propertyId)
+            .order('connected_at', { ascending: false, nullsFirst: false })
+            .order('created_at', { ascending: false }),
+        supabase
+            .from('property_connections')
+            .select('company_id, status, created_at')
+            .eq('property_id', propertyId)
+            .order('created_at', { ascending: false }),
+    ]);
+    const companyClientRows = companyClientResult.error
+        ? []
+        : (companyClientResult.data || []) as ConnectedProviderRow[];
+    const propertyConnectionRows = propertyConnectionResult.error
+        ? []
+        : (propertyConnectionResult.data || []) as ConnectedProviderRow[];
+    const rows = [...companyClientRows, ...propertyConnectionRows];
 
-    if (connectedError) {
-        throw new Error(connectedError.message);
+    if (rows.length === 0 && companyClientResult.error && propertyConnectionResult.error) {
+        throw new Error(
+            `Could not load provider relationships: ${companyClientResult.error.message}; ${propertyConnectionResult.error.message}`
+        );
     }
 
-    const rows = (connectedRows || []) as ConnectedProviderRow[];
     const companyIds = Array.from(new Set(rows.map((row) => String(row.company_id || '').trim()).filter(Boolean)));
 
     if (companyIds.length === 0) return null;

@@ -7,6 +7,7 @@ runPreferredProviderRegressions();
 
 export function runPreferredProviderRegressions() {
     classifiedActiveConnectionCanRestoreRequestFlow();
+    propertyConnectionCanRestorePreferredCompany();
     unclassifiedOrInactiveConnectionsStayUnavailable();
     emergencyReturnRouteIsRestricted();
 }
@@ -24,6 +25,18 @@ function classifiedActiveConnectionCanRestoreRequestFlow() {
     );
 
     assert(selectedId === 'active-plumber', 'An active, classified connected provider should restore emergency sending.');
+}
+
+function propertyConnectionCanRestorePreferredCompany() {
+    const selectedId = selectConnectedProviderCompanyId(
+        [{ company_id: 'preferred-company', status: 'connected' }],
+        [company('preferred-company', ['Plumbing'], 'active')]
+    );
+
+    assert(
+        selectedId === 'preferred-company',
+        'A connected property relationship should restore the customer preferred company.'
+    );
 }
 
 function unclassifiedOrInactiveConnectionsStayUnavailable() {
