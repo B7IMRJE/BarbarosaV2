@@ -74,6 +74,8 @@ export default function JobWorkflowScreen() {
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
     const workflowScrollRef = useRef<ScrollView | null>(null);
     const refreshEvent = useEffectEvent(refresh);
+    const completionNameDirtyRef = useRef(false);
+    const hydratedWorkflowIdRef = useRef<string | null>(null);
 
     const approvedWorkSummary = useMemo(() => {
         if (!bundle) return '';
@@ -146,7 +148,12 @@ export default function JobWorkflowScreen() {
                         : []
             );
             setHomeownerName(next.workflow.homeowner_name || '');
-            setCompletionName(next.workflow.completion_homeowner_name || '');
+            const isNewWorkflow = hydratedWorkflowIdRef.current !== next.workflow.id;
+            if (isNewWorkflow || !completionNameDirtyRef.current) {
+                setCompletionName(next.workflow.completion_homeowner_name || '');
+                completionNameDirtyRef.current = false;
+            }
+            hydratedWorkflowIdRef.current = next.workflow.id;
             setReturnWorkSummary((current) => current.trim() || next.workflow.return_visit_work_summary || '');
             setReturnRemainingWork((current) => current.trim() || next.workflow.return_visit_remaining_work || '');
             setReturnMaterialsText((current) => current.trim() || (next.workflow.return_visit_materials || [])
@@ -326,6 +333,11 @@ export default function JobWorkflowScreen() {
         const summary = issueSummary.trim() || 'Technician paused work to assess an issue.';
         setIssueSummary(summary);
         await run('report_issue', { issue_summary: summary });
+    }
+
+    function changeCompletionName(value: string) {
+        completionNameDirtyRef.current = true;
+        setCompletionName(value);
     }
 
     async function startStoreRun() {
@@ -857,7 +869,7 @@ export default function JobWorkflowScreen() {
                             I have had an opportunity to inspect the completed work, ask questions, and identify any visible concerns. I acknowledge that the approved work has been performed and is satisfactory at the time of signing. This acknowledgement does not waive warranties or rights that cannot legally be waived.
                         </Text>
                     </View>
-                    <Field label="Homeowner full name" value={completionName} onChangeText={setCompletionName} />
+                    <Field label="Homeowner full name" value={completionName} onChangeText={changeCompletionName} />
                     <SignaturePad
                         label="Customer closeout signature"
                         value={completionSignature}
