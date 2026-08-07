@@ -1,4 +1,5 @@
 import type * as ImagePicker from 'expo-image-picker';
+import { parseCompanyLegalDocuments, type CompanyLegalDocument } from './companyLegalDocuments';
 import { supabase } from './supabase';
 import type { PersistableEstimateChoice } from './estimateOptionPersistence';
 import type { JobReturnHandoffMaterial } from './jobReturnHandoff';
@@ -91,6 +92,7 @@ export type CreateJobReturnHandoffInput = {
 export type JobWorkflowBundle = {
     workflow: JobWorkflow;
     contract_rule: ContractRule;
+    legal_documents: CompanyLegalDocument[];
     options: PersistableEstimateChoice[];
     attachments: JobWorkflowAttachment[];
     events: { id: string; title: string; detail: string | null; created_at: string }[];
@@ -101,7 +103,11 @@ export async function loadOrCreateJobWorkflow(estimateSessionId: string): Promis
         p_estimate_session_id: estimateSessionId,
     });
     if (error) throw error;
-    return data as JobWorkflowBundle;
+    const bundle = data as JobWorkflowBundle;
+    return {
+        ...bundle,
+        legal_documents: parseCompanyLegalDocuments(bundle?.legal_documents),
+    };
 }
 
 export async function advanceJobWorkflow(
@@ -126,7 +132,7 @@ export async function startSameDayWork(input: {
     signedContractConfirmed: boolean;
     technicianConfirmed: boolean;
 }): Promise<JobWorkflow> {
-    const { data, error } = await supabase.rpc('start_company_job_workflow_same_day', {
+    const payload = {
         p_workflow_id: input.workflowId,
         p_start_type: 'standard_same_day',
         p_reason: input.reason,
@@ -140,7 +146,13 @@ export async function startSameDayWork(input: {
         p_no_payment_before_completion: false,
         p_immediate_protection_confirmed: false,
         p_emergency_waiver_signature: null,
-    });
+    };
+    const { data, error } = await supabase.rpc('start_company_job_workflow_same_day_v2', payload);
+    if (error && isMissingRpcFunction(error.message, 'start_company_job_workflow_same_day_v2')) {
+        const fallback = await supabase.rpc('start_company_job_workflow_same_day', payload);
+        if (fallback.error) throw fallback.error;
+        return fallback.data as JobWorkflow;
+    }
     if (error) throw error;
     return data as JobWorkflow;
 }
@@ -211,14 +223,40 @@ export async function acceptJobWorkflowQuote(input: {
     homeownerName: string;
     homeownerSignature: string;
 }) {
-    const { data, error } = await supabase.rpc('accept_company_job_workflow_quote_v2', {
+    const payload = {
         p_workflow_id: input.workflowId,
         p_selected_choice_ids: input.selectedChoiceIds,
         p_cancellation_name: input.cancellationName,
         p_cancellation_signature: input.cancellationSignature,
         p_homeowner_name: input.homeownerName,
         p_homeowner_signature: input.homeownerSignature,
+    };
+    const { data, error } = await supabase.rpc('accept_company_job_workflow_quote_v3', payload);
+    if (error && isMissingRpcFunction(error.message, 'accept_company_job_workflow_quote_v3')) {
+        const fallback = await supabase.rpc('accept_company_job_workflow_quote_v2', payload);
+        if (fallback.error) throw fallback.error;
+        return fallback.data as JobWorkflow;
+    }
+    if (error) throw error;
+    return data as JobWorkflow;
+}
+
+export async function acceptJobWorkflowCompletion(input: {
+    workflowId: string;
+    homeownerName: string;
+    signature: string;
+}) {
+    const { data, error } = await supabase.rpc('accept_company_job_workflow_completion_v2', {
+        p_workflow_id: input.workflowId,
+        p_homeowner_name: input.homeownerName,
+        p_signature: input.signature,
     });
+    if (error && isMissingRpcFunction(error.message, 'accept_company_job_workflow_completion_v2')) {
+        return advanceJobWorkflow(input.workflowId, 'accept_completion', {
+            homeowner_name: input.homeownerName,
+            signature: input.signature,
+        });
+    }
     if (error) throw error;
     return data as JobWorkflow;
 }
@@ -274,4 +312,10 @@ function fileExtension(name: string, mimeType: string) {
     if (mimeType.includes('png')) return 'png';
     if (mimeType.includes('webp')) return 'webp';
     return 'jpg';
+}
+
+function isMissingRpcFunction(message: string, functionName: string) {
+    const normalized = String(message || '').toLowerCase();
+    return normalized.includes(functionName.toLowerCase())
+        && (normalized.includes('schema cache') || normalized.includes('could not find'));
 }

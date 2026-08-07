@@ -12,6 +12,7 @@ import {
 } from '../../lib/estimateOptions';
 import {
     acceptJobWorkflowQuote,
+    acceptJobWorkflowCompletion,
     advanceJobWorkflow,
     closeJobWorkflow,
     createJobReturnHandoff,
@@ -23,6 +24,13 @@ import {
     type JobWorkflowAttachment,
     type JobWorkflowBundle,
 } from '../../lib/jobWorkflow';
+import {
+    getCompanyLegalDocument,
+    getWorkflowStageForStatus,
+    isIntegratedLegalDocument,
+    recordJobLegalDocument,
+    type CompanyLegalDocument,
+} from '../../lib/companyLegalDocuments';
 import {
     isJobReturnHandoffReady,
     parseJobReturnHandoffMaterials,
@@ -73,6 +81,10 @@ export default function JobWorkflowScreen() {
     const [returnPickupNotes, setReturnPickupNotes] = useState('');
     const [returnScheduledFor, setReturnScheduledFor] = useState('');
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
+    const [legalDocumentInputs, setLegalDocumentInputs] = useState<Record<string, {
+        customerName: string;
+        signature: string;
+    }>>({});
     const workflowScrollRef = useRef<ScrollView | null>(null);
     const refreshEvent = useEffectEvent(refresh);
     const completionNameDirtyRef = useRef(false);
@@ -186,6 +198,64 @@ export default function JobWorkflowScreen() {
         } finally {
             setBusy(false);
         }
+    }
+
+    async function acceptCompletion() {
+        if (!bundle || busy) return;
+        setBusy(true);
+        setMessage('Saving the immutable completion document...');
+        try {
+            await acceptJobWorkflowCompletion({
+                workflowId: bundle.workflow.id,
+                homeownerName: completionName,
+                signature: completionSignature,
+            });
+            await refresh();
+            if (completionMode && sourceName === 'techos') {
+                router.replace(techOSReturnTo as never);
+                return;
+            }
+            setMessage('Customer completion acknowledgment saved.');
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function saveLegalDocument(document: CompanyLegalDocument) {
+        if (!bundle || busy) return;
+        const input = legalDocumentInputs[document.template_id] || { customerName: '', signature: '' };
+        setBusy(true);
+        setMessage(`Saving ${document.title}...`);
+        try {
+            await recordJobLegalDocument({
+                workflowId: bundle.workflow.id,
+                templateId: document.template_id,
+                customerName: input.customerName || bundle.workflow.homeowner_name || '',
+                signature: input.signature,
+            });
+            await refresh();
+            setMessage(`${document.title} saved as an immutable job copy.`);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function updateLegalDocumentInput(
+        templateId: string,
+        patch: Partial<{ customerName: string; signature: string }>
+    ) {
+        setLegalDocumentInputs((current) => ({
+            ...current,
+            [templateId]: {
+                customerName: current[templateId]?.customerName || '',
+                signature: current[templateId]?.signature || '',
+                ...patch,
+            },
+        }));
     }
 
     async function acceptSelectedWork() {
@@ -402,7 +472,7 @@ export default function JobWorkflowScreen() {
         return <View style={screenStyle}><Text style={messageStyle}>{message}</Text></View>;
     }
 
-    const { workflow, contract_rule: rule, options } = bundle;
+    const { workflow, contract_rule: rule, options, legal_documents: legalDocuments } = bundle;
     const status = workflow.status;
     const returnsToTechOS = sourceName === 'techos' || requestedReturnTo?.startsWith('/techos');
     const handoffAttachments = bundle.attachments.filter((attachment) => attachment.stage === 'handoff');
@@ -424,17 +494,32 @@ export default function JobWorkflowScreen() {
         groupedOptionKeys.every(Boolean) &&
         new Set(groupedOptionKeys).size === 1;
     const cancellationNoticeSigned = !!cancellationName.trim() && isDrawnSignature(cancellationSignature);
+    const cancellationDocument = getCompanyLegalDocument(legalDocuments, 'notice_of_cancellation');
+    const customerAuthorizationDocument = getCompanyLegalDocument(legalDocuments, 'customer_authorization');
+    const sameDayAuthorizationDocument = getCompanyLegalDocument(legalDocuments, 'same_day_work_authorization');
+    const completionDocument = getCompanyLegalDocument(legalDocuments, 'completion_acknowledgment');
+    const currentLegalStage = getWorkflowStageForStatus(status);
+    const genericLegalDocuments = legalDocuments.filter((document) => (
+        document.is_active
+        && !document.completed_snapshot_id
+        && document.workflow_stage === currentLegalStage
+        && !isIntegratedLegalDocument(document.document_type)
+    ));
+    const showGenericLegalDocuments = genericLegalDocuments.length > 0
+        && (status !== 'presenting' || approvalPage === 3);
+    const requiredLegalDocumentsReady = !genericLegalDocuments.some((document) => document.blocks_progression);
     const workApprovalReady = selectedChoiceIds.length > 0
         && cancellationNoticeSigned
         && !!homeownerName.trim()
-        && isDrawnSignature(signature);
+        && isDrawnSignature(signature)
+        && requiredLegalDocumentsReady;
     const authorizedTotal = workflow.selected_total ?? selectedTotal;
     const sameDayBaseReady = !!sameDayReason.trim()
         && !!sameDayHomeownerName.trim()
         && isDrawnSignature(sameDayHomeownerSignature)
         && sameDayAgreementConfirmed
         && sameDayTechnicianConfirmed;
-    const sameDayReady = sameDayBaseReady;
+    const sameDayReady = sameDayBaseReady && requiredLegalDocumentsReady;
 
     function toggleChoice(choiceId: string) {
         setSelectedChoiceIds((current) => toggleEstimateChoiceSelection(options, current, choiceId));
@@ -486,6 +571,17 @@ export default function JobWorkflowScreen() {
             </View>
 
             {!!message && <View style={noticeStyle}><Text style={noticeTextStyle}>{message}</Text></View>}
+
+            {showGenericLegalDocuments && (
+                <JobLegalDocumentsPanel
+                    documents={genericLegalDocuments}
+                    inputs={legalDocumentInputs}
+                    defaultCustomerName={workflow.homeowner_name || homeownerName}
+                    busy={busy}
+                    onChange={updateLegalDocumentInput}
+                    onSave={saveLegalDocument}
+                />
+            )}
             <View style={statusStyle}>
                 <Text style={statusLabelStyle}>Current step</Text>
                 <Text style={statusValueStyle}>{status.replace(/_/g, ' ')}</Text>
@@ -566,26 +662,21 @@ export default function JobWorkflowScreen() {
 
             {status === 'presenting' && approvalPage === 2 && (
                 <Section title="2. Review and sign the cancellation notice" subtitle="This is a separate acknowledgment. It does not approve the work or waive the cancellation period.">
-                    <Text style={legalTitleStyle}>{rule.cancellation_notice_title}</Text>
-                    <Text style={bodyStyle}>{rule.cancellation_notice_text}</Text>
+                    <Text style={legalTitleStyle}>
+                        {cancellationDocument?.title || rule.cancellation_notice_title}
+                    </Text>
+                    <Text style={bodyStyle}>
+                        {cancellationDocument?.body || rule.cancellation_notice_text}
+                    </Text>
                     <Text style={mutedStyle}>
                         Cancellation period: {rule.cancellation_days} business days · {rule.jurisdiction_label}
                     </Text>
-                    <View style={policyExplanationStyle}>
-                        <Text style={optionTitleStyle}>What this means</Text>
-                        <Text style={bodyStyle}>
-                            You may cancel this transaction without penalty or obligation by sending the contractor written notice before
-                            midnight of the third business day after receiving the completed, signed agreement and cancellation notice.
-                        </Text>
-                        <Text style={bodyStyle}>
-                            Signing this page only confirms receipt. It does not give up the cancellation right, and ordinary work cannot
-                            begin merely because this acknowledgment was signed. A different period or immediate-start rule applies only
-                            when the contract legally qualifies for a specific California exception.
-                        </Text>
-                    </View>
                     <Text style={bodyStyle}>
                         By signing below, I confirm that I received and reviewed this cancellation notice before approving any work.
                     </Text>
+                    {cancellationDocument?.auto_record_datetime && (
+                        <Text style={mutedStyle}>The signed date and time will be recorded automatically.</Text>
+                    )}
                     <Field label="Name receiving cancellation notice" value={cancellationName} onChangeText={setCancellationName} />
                     <SignaturePad
                         label="Cancellation-notice signature"
@@ -625,15 +716,17 @@ export default function JobWorkflowScreen() {
                         <Text style={totalAmountStyle}>{formatMoney(selectedTotal)}</Text>
                     </View>
                     <View style={policyExplanationStyle}>
-                        <Text style={optionTitleStyle}>Work authorization</Text>
-                        <Text style={bodyStyle}>
-                            I reviewed the selected work, included line items, and combined price shown above. I authorize the company to
-                            perform only this selected scope. Additional work or a material price change requires a separate explanation and approval.
+                        <Text style={optionTitleStyle}>
+                            {customerAuthorizationDocument?.title || 'Work authorization'}
                         </Text>
                         <Text style={bodyStyle}>
-                            I understand that an invoice will be provided after completion and that payment collection may be handled by the
-                            office or an approved external payment device.
+                            {customerAuthorizationDocument?.body || (
+                                'I reviewed the selected work, included line items, and combined price shown above. I authorize the company to perform only this selected scope. Additional work or a material price change requires a separate explanation and approval.'
+                            )}
                         </Text>
+                        {customerAuthorizationDocument?.auto_record_datetime && (
+                            <Text style={mutedStyle}>The signed date and time will be recorded automatically.</Text>
+                        )}
                     </View>
                     <Field label="Homeowner approving the work" value={homeownerName} onChangeText={setHomeownerName} />
                     <SignaturePad
@@ -678,10 +771,17 @@ export default function JobWorkflowScreen() {
                         />
 
                         <View style={completionAcknowledgementStyle}>
-                            <Text style={optionTitleStyle}>Customer same-day authorization</Text>
-                            <Text style={bodyStyle}>
-                                I requested that the approved work described above begin today. I received the signed agreement and authorize the company to start today. Any applicable cancellation notice remains part of my agreement.
+                            <Text style={optionTitleStyle}>
+                                {sameDayAuthorizationDocument?.title || 'Customer same-day authorization'}
                             </Text>
+                            <Text style={bodyStyle}>
+                                {sameDayAuthorizationDocument?.body || (
+                                    'I requested that the approved work described above begin today. I received the signed agreement and authorize the company to start today. Any applicable cancellation notice remains part of my agreement.'
+                                )}
+                            </Text>
+                            {sameDayAuthorizationDocument?.auto_record_datetime && (
+                                <Text style={mutedStyle}>The signed date and time will be recorded automatically.</Text>
+                            )}
                         </View>
                         <Field
                             label="Customer full name"
@@ -721,7 +821,7 @@ export default function JobWorkflowScreen() {
 
             {status === 'scheduled_later' && (
                 <Section title="Scheduled return visit" subtitle={`Scheduled: ${formatDate(workflow.scheduled_for)}`}>
-                    <PrimaryButton title="Begin Return Visit" disabled={busy} onPress={() => run('begin_return_visit')} />
+                    <PrimaryButton title="Begin Return Visit" disabled={busy || !requiredLegalDocumentsReady} onPress={() => run('begin_return_visit')} />
                 </Section>
             )}
 
@@ -730,7 +830,7 @@ export default function JobWorkflowScreen() {
                     <MediaActions
                         label="Before-work media"
                         count={attachmentCounts.before}
-                        disabled={busy}
+                        disabled={busy || !requiredLegalDocumentsReady}
                         onTakePhoto={() => captureMedia('before', 'images')}
                         onRecordVideo={() => captureMedia('before', 'videos')}
                         onAddFromLibrary={() => addMediaFromLibrary('before')}
@@ -741,7 +841,7 @@ export default function JobWorkflowScreen() {
                     </TouchableOpacity>
                     <PrimaryButton
                         title="Start Work"
-                        disabled={busy}
+                        disabled={busy || !requiredLegalDocumentsReady}
                         onPress={() => run('confirm_prework', { condition_unchanged: conditionUnchanged })}
                     />
                     <SecondaryButton title="Go to Store" disabled={busy} onPress={startStoreRun} />
@@ -789,7 +889,7 @@ export default function JobWorkflowScreen() {
                         onRecordVideo={() => captureMedia('after', 'videos')}
                         onAddFromLibrary={() => addMediaFromLibrary('after')}
                     />
-                    <PrimaryButton title="Technician Finished — Open Close Out" disabled={busy} onPress={() => run('complete_work')} />
+                    <PrimaryButton title="Technician Finished — Open Close Out" disabled={busy || !requiredLegalDocumentsReady} onPress={() => run('complete_work')} />
                     <SecondaryButton title="Go to Store" disabled={busy} onPress={startStoreRun} />
                     <SecondaryButton title="Continue Job on Another Visit" disabled={busy} onPress={() => setReturnHandoffOpen(true)} />
                 </Section>
@@ -875,14 +975,21 @@ export default function JobWorkflowScreen() {
             {status === 'work_complete' && (
                 <Section
                     title="6. Close Out — Customer Acknowledgement"
-                    subtitle="Please inspect the completed work before signing. Your signature confirms that the work described in the approved scope has been completed and that, based on your inspection at this time, you are satisfied with the completed work."
+                    subtitle="Please inspect the completed work before signing the company-configured completion document."
                 >
                     <View style={completionAcknowledgementStyle}>
-                        <Text style={optionTitleStyle}>Homeowner acknowledgement</Text>
+                        <Text style={optionTitleStyle}>
+                            {completionDocument?.title || 'Homeowner acknowledgement'}
+                        </Text>
                         <Text style={mutedStyle}>Final invoice total: {formatMoney(authorizedTotal)}</Text>
                         <Text style={bodyStyle}>
-                            I have had an opportunity to inspect the completed work, ask questions, and identify any visible concerns. I acknowledge that the approved work has been performed and is satisfactory at the time of signing. This acknowledgement does not waive warranties or rights that cannot legally be waived.
+                            {completionDocument?.body || (
+                                'I have had an opportunity to inspect the completed work, ask questions, and identify any visible concerns. I acknowledge that the approved work has been performed and is satisfactory at the time of signing. This acknowledgement does not waive warranties or rights that cannot legally be waived.'
+                            )}
                         </Text>
+                        {completionDocument?.auto_record_datetime && (
+                            <Text style={mutedStyle}>The signed date and time will be recorded automatically.</Text>
+                        )}
                     </View>
                     <Field label="Homeowner full name" value={completionName} onChangeText={changeCompletionName} />
                     <SignaturePad
@@ -890,9 +997,11 @@ export default function JobWorkflowScreen() {
                         value={completionSignature}
                         onChange={setCompletionSignature}
                     />
-                    <PrimaryButton title="Save Customer Acknowledgement" disabled={busy || !completionName.trim() || !isDrawnSignature(completionSignature)} onPress={() => run('accept_completion', {
-                        homeowner_name: completionName, signature: completionSignature,
-                    })} />
+                    <PrimaryButton
+                        title="Save Customer Acknowledgement"
+                        disabled={busy || !requiredLegalDocumentsReady || !completionName.trim() || !isDrawnSignature(completionSignature)}
+                        onPress={acceptCompletion}
+                    />
                 </Section>
             )}
 
@@ -905,8 +1014,8 @@ export default function JobWorkflowScreen() {
                             should go to the office. Closing the field job does not erase an unpaid balance.
                         </Text>
                     </View>
-                    <PrimaryButton title="Close Job — Payment Collected" disabled={busy} onPress={() => closeOutJob('paid_externally')} />
-                    <SecondaryButton title="Close Job — Balance Due to Office" disabled={busy} onPress={() => closeOutJob('balance_due_to_office')} />
+                    <PrimaryButton title="Close Job — Payment Collected" disabled={busy || !requiredLegalDocumentsReady} onPress={() => closeOutJob('paid_externally')} />
+                    <SecondaryButton title="Close Job — Balance Due to Office" disabled={busy || !requiredLegalDocumentsReady} onPress={() => closeOutJob('balance_due_to_office')} />
                 </Section>
             )}
 
@@ -941,6 +1050,67 @@ export default function JobWorkflowScreen() {
                 {bundle.events.length === 0 && <Text style={mutedStyle}>No workflow events yet.</Text>}
             </Section>}
         </ScrollView>
+    );
+}
+
+function JobLegalDocumentsPanel(props: {
+    documents: CompanyLegalDocument[];
+    inputs: Record<string, { customerName: string; signature: string }>;
+    defaultCustomerName: string;
+    busy: boolean;
+    onChange: (templateId: string, patch: Partial<{ customerName: string; signature: string }>) => void;
+    onSave: (document: CompanyLegalDocument) => Promise<void>;
+}) {
+    return (
+        <Section
+            title="Required company documents"
+            subtitle="Complete the company-configured documents for this job stage. Each saved copy is permanently attached to this job revision."
+        >
+            {props.documents.map((document) => {
+                const input = props.inputs[document.template_id] || { customerName: '', signature: '' };
+                const customerName = input.customerName || props.defaultCustomerName;
+                const needsName = document.requires_customer_printed_name || document.requires_customer_signature;
+                const ready = (!needsName || Boolean(customerName.trim()))
+                    && (!document.requires_customer_signature || isDrawnSignature(input.signature));
+
+                return (
+                    <View key={document.template_id} style={legalDocumentCardStyle}>
+                        <View style={legalDocumentHeaderStyle}>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                                <Text style={legalTitleStyle}>{document.title}</Text>
+                                <Text style={mutedStyle}>Company revision {document.revision_number}</Text>
+                            </View>
+                            {document.blocks_progression && (
+                                <Text style={requiredPillStyle}>Required</Text>
+                            )}
+                        </View>
+                        <Text style={bodyStyle}>{document.body}</Text>
+                        {document.auto_record_datetime && (
+                            <Text style={mutedStyle}>The date and time will be recorded automatically.</Text>
+                        )}
+                        {needsName && (
+                            <Field
+                                label="Customer full name"
+                                value={customerName}
+                                onChangeText={(value) => props.onChange(document.template_id, { customerName: value })}
+                            />
+                        )}
+                        {document.requires_customer_signature && (
+                            <SignaturePad
+                                label="Customer signature"
+                                value={input.signature}
+                                onChange={(signature) => props.onChange(document.template_id, { signature })}
+                            />
+                        )}
+                        <PrimaryButton
+                            title={document.requires_customer_signature ? 'Sign & Save Document' : 'Record Document'}
+                            disabled={props.busy || !ready}
+                            onPress={() => void props.onSave(document)}
+                        />
+                    </View>
+                );
+            })}
+        </Section>
     );
 }
 
@@ -1090,6 +1260,9 @@ const customerSelectionListStyle = { backgroundColor: '#102432', borderColor: '#
 const customerSelectionTitleStyle = { color: '#d8f8ff', fontSize: 13, fontWeight: '900' } as const;
 const customerSelectionTextStyle = { color: '#bdd2dc', fontSize: 12, lineHeight: 18 } as const;
 const legalTitleStyle = { color: '#f2fbff', fontSize: 17, fontWeight: '900', marginTop: 8 } as const;
+const legalDocumentCardStyle = { backgroundColor: '#102432', borderColor: '#3D7183', borderWidth: 1, borderRadius: 14, padding: 14, gap: 10 } as const;
+const legalDocumentHeaderStyle = { flexDirection: 'row', alignItems: 'flex-start', gap: 10 } as const;
+const requiredPillStyle = { color: '#092C2C', backgroundColor: '#72E2C7', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5, fontSize: 11, fontWeight: '900', overflow: 'hidden' } as const;
 const checkRowStyle = { flexDirection: 'row', gap: 10, alignItems: 'flex-start', paddingVertical: 6 } as const;
 const checkStyle = { color: '#52e0a4', fontSize: 24 } as const;
 const fieldLabelStyle = { color: '#bdd2dc', fontSize: 13, fontWeight: '700', marginBottom: 5 } as const;

@@ -169,6 +169,7 @@ const cards = [
     'Activity / Audit Log',
     'Price Book',
     'Knowledge Engine',
+    'Contracts & Legal Documents',
     'Settings / Permissions',
 ];
 const COMPANY_DASHBOARD_PERMISSION_KEYS: CompanyPermissionKey[] = [
@@ -675,6 +676,11 @@ export default function CompanyDashboardScreen() {
 
         if (card === 'Knowledge Engine') {
             router.push(`/super-admin/company/${activeCompanyId}/knowledge-engine` as never);
+            return;
+        }
+
+        if (card === 'Contracts & Legal Documents') {
+            router.push(`/super-admin/company/${activeCompanyId}/contracts-legal` as never);
             return;
         }
 
@@ -2114,6 +2120,7 @@ function getModuleDescription(title: string) {
     if (title === 'Activity / Audit Log') return 'Review company-scoped ManagementOS actions and changes.';
     if (title === 'Price Book') return 'Company-owned price book for estimate and proposal line items.';
     if (title === 'Knowledge Engine') return 'Review read-only Bravo Knowledge Engine objects before connecting them to operations.';
+    if (title === 'Contracts & Legal Documents') return 'Manage company wording, workflow requirements, revisions, and immutable signed copies.';
     if (title === 'Settings / Permissions') return 'Manage company access, owner/admin permissions, and team safety.';
 
     return `Open ${title.toLowerCase()} tools.`;
@@ -2129,6 +2136,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Activity / Audit Log') return 'Open Audit Log';
     if (title === 'Price Book') return 'Open Price Book';
     if (title === 'Knowledge Engine') return 'Open Viewer';
+    if (title === 'Contracts & Legal Documents') return 'Manage Documents';
     if (title === 'Opportunities') return 'Coming Soon';
     if (title === 'Settings / Permissions') return 'Open Settings';
 
@@ -2178,6 +2186,7 @@ function canViewCompanyModule(card: string, permissions: CompanyPermissionSet | 
         return permissions.can_view_techos || permissions.can_manage_price_book;
     }
     if (card === 'Knowledge Engine') return permissions.can_view_jobs;
+    if (card === 'Contracts & Legal Documents') return permissions.can_manage_company_profile;
     if (card === 'Settings / Permissions') {
         return permissions.can_manage_company_users || permissions.can_manage_company_profile;
     }
