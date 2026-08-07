@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { Image, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
@@ -13,6 +13,7 @@ import {
     hasExplicitProviderClassification,
     normalizeExplicitProviderCategory,
 } from '../lib/providerVisibility';
+import { getEmergencyProviderReturnTo } from '../lib/preferredProviders';
 import { supabase } from '../lib/supabase';
 import type { HomeOSTheme } from '../theme';
 import { useTheme } from '../theme/useTheme';
@@ -90,6 +91,8 @@ type LoadConnectionsOptions = {
 
 export default function ConnectionsScreen() {
     const { theme } = useTheme();
+    const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+    const emergencyReturnTo = getEmergencyProviderReturnTo(returnTo);
     const [connections, setConnections] = useState<PropertyConnection[]>([]);
     const [preferredProviders, setPreferredProviders] = useState<PreferredProviderRow[]>([]);
     const [companiesById, setCompaniesById] = useState<Record<string, CompanyRecord>>({});
@@ -410,11 +413,25 @@ export default function ConnectionsScreen() {
         mergePreferredProviderResult(result, company);
         setProviderActionCompanyId('');
 
-        setMessage(
+        const successMessage =
             status === 'connected'
                 ? `${providerName} is now your preferred provider.`
-                : `${providerName} was chosen as your provider.`
-        );
+                : `${providerName} was chosen as your provider.`;
+
+        setMessage(successMessage);
+
+        if (emergencyReturnTo) {
+            router.replace(emergencyReturnTo as never);
+        }
+    }
+
+    function leaveConnections() {
+        if (emergencyReturnTo) {
+            router.replace(emergencyReturnTo as never);
+            return;
+        }
+
+        router.back();
     }
 
     function mergeProviderRequestResult(
@@ -514,7 +531,7 @@ export default function ConnectionsScreen() {
             <View style={{ width: '100%', maxWidth: 900 }}>
                 <HomeHeader />
 
-                <Text style={[backTextStyle, { color: theme.colors.text }]} onPress={() => router.back()}>
+                <Text style={[backTextStyle, { color: theme.colors.text }]} onPress={leaveConnections}>
                     Back
                 </Text>
 

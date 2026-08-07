@@ -35,7 +35,11 @@ import {
     type HomeServiceReview,
     type HomeServiceReviewTarget,
 } from '../../lib/homeServiceReviews';
-import { loadPreferredProviderForProperty, type PreferredProvider } from '../../lib/preferredProviders';
+import {
+    activateConnectedProviderForProperty,
+    loadPreferredProviderForProperty,
+    type PreferredProvider,
+} from '../../lib/preferredProviders';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -219,11 +223,26 @@ export default function EmergencyDetailScreen() {
 
     async function loadPreferredProvider(propertyId: string) {
         try {
-            setPreferredProvider(await loadPreferredProviderForProperty(propertyId));
+            const provider = await loadPreferredProviderForProperty(propertyId);
+
+            setPreferredProvider(provider);
+
+            if (!provider) {
+                setServiceRequestMessage('Choose a service provider to send this emergency.');
+            }
         } catch (error) {
             setPreferredProvider(null);
             setServiceRequestMessage(`Could not load preferred provider: ${getErrorMessage(error)}`);
         }
+    }
+
+    function chooseServiceProvider() {
+        if (!emergency) return;
+
+        router.push({
+            pathname: '/connections',
+            params: { returnTo: `/emergency/${emergency.id}` },
+        } as never);
     }
 
     async function addNote() {
@@ -292,6 +311,15 @@ export default function EmergencyDetailScreen() {
         let confirmedRequest;
 
         try {
+            if (preferredProvider.requiresActivation) {
+                setServiceRequestMessage(`Confirming ${preferredProvider.companyName} as your provider...`);
+                await activateConnectedProviderForProperty({
+                    propertyId: activePropertyId,
+                    companyId: preferredProvider.companyId,
+                });
+                setPreferredProvider({ ...preferredProvider, requiresActivation: false });
+            }
+
             confirmedRequest = await createHomeownerServiceRequest({
                 propertyId: activePropertyId,
                 companyId: preferredProvider.companyId,
@@ -577,7 +605,9 @@ export default function EmergencyDetailScreen() {
                     <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20, fontWeight: '800' }}>
                         {hasDispatchRequest
                             ? `${formatServiceRequestReference({ id: currentServiceRequestId, displayCode: sentServiceRequestDisplayCode })} was sent to ${preferredProvider?.companyName || 'your provider'}.`
-                            : `Send this emergency to ${preferredProvider?.companyName || 'your preferred provider'}.`}
+                            : preferredProvider
+                                ? `Send this emergency to ${preferredProvider.companyName}.`
+                                : 'Choose a service provider before sending this emergency.'}
                     </Text>
                     {hasDispatchRequest && (
                         <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '900' }}>
@@ -588,11 +618,18 @@ export default function EmergencyDetailScreen() {
                         HomeOS photos, documents, and private timeline history stay private.
                     </Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 }}>
-                        {!hasDispatchRequest && (
+                        {!hasDispatchRequest && preferredProvider && (
                             <ThemedButton
                                 title={saving ? 'Sending...' : 'Send to Dispatch / Request Emergency Service'}
-                                disabled={saving || !preferredProvider}
+                                disabled={saving}
                                 onPress={requestServiceForIssue}
+                                style={{ flexGrow: 1, minWidth: 220 }}
+                            />
+                        )}
+                        {!hasDispatchRequest && !preferredProvider && (
+                            <ThemedButton
+                                title="Choose a Service Provider"
+                                onPress={chooseServiceProvider}
                                 style={{ flexGrow: 1, minWidth: 220 }}
                             />
                         )}

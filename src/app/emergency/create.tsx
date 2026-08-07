@@ -22,7 +22,11 @@ import {
     linkHomeEmergencyToServiceRequest,
     type CreatedServiceRequestReceipt,
 } from '../../lib/homeServiceRequests';
-import { loadPreferredProviderForProperty, type PreferredProvider } from '../../lib/preferredProviders';
+import {
+    activateConnectedProviderForProperty,
+    loadPreferredProviderForProperty,
+    type PreferredProvider,
+} from '../../lib/preferredProviders';
 import { addProviderStagedWork } from '../../lib/providerStagedWork';
 import {
     hasUnresolvedServiceRequestMedia,
@@ -186,6 +190,14 @@ export default function CreateEmergencyScreen() {
             if (!serviceRequest) {
                 setMessage(`Emergency saved. Sending to ${preferredProvider.companyName}...`);
                 try {
+                    if (preferredProvider.requiresActivation) {
+                        await activateConnectedProviderForProperty({
+                            propertyId: activeProperty.propertyId,
+                            companyId: preferredProvider.companyId,
+                        });
+                        preferredProvider = { ...preferredProvider, requiresActivation: false };
+                    }
+
                     serviceRequest = await createHomeownerServiceRequest({
                         propertyId: activeProperty.propertyId,
                         companyId: preferredProvider.companyId,
