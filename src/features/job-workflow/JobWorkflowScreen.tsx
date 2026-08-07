@@ -5,6 +5,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import SignaturePad, { isDrawnSignature } from '../../components/signature-pad';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
+import { loadCompanyEstimateBuilderDraft } from '../../lib/estimateBuilderDraft';
 import {
     formatMoney,
     hasConflictingEstimateSelectionGroups,
@@ -52,6 +53,7 @@ export default function JobWorkflowScreen() {
     const sourceName = Array.isArray(source) ? source[0] : source;
     const requestedReturnTo = Array.isArray(returnTo) ? returnTo[0] : returnTo;
     const [bundle, setBundle] = useState<JobWorkflowBundle | null>(null);
+    const [quoteNumber, setQuoteNumber] = useState('');
     const techOSReturnTo = requestedReturnTo?.startsWith('/techos')
         ? requestedReturnTo
         : buildTechOSCurrentJobRoute({ companyId: bundle?.workflow.company_id || '' });
@@ -153,6 +155,12 @@ export default function JobWorkflowScreen() {
         try {
             const next = await loadOrCreateJobWorkflow(id);
             setBundle(next);
+            try {
+                const estimateDraft = await loadCompanyEstimateBuilderDraft(id);
+                setQuoteNumber(estimateDraft?.quoteNumber || '');
+            } catch {
+                setQuoteNumber('');
+            }
             setSelectedChoiceIds(
                 next.workflow.selected_source_choice_ids?.length
                     ? next.workflow.selected_source_choice_ids
@@ -560,6 +568,7 @@ export default function JobWorkflowScreen() {
                     <Text style={titleStyle}>
                         {completionMode ? 'Completed work sign-off' : 'From quote to completion'}
                     </Text>
+                    {!!quoteNumber && <Text style={quoteNumberStyle}>Quote {quoteNumber}</Text>}
                     <Text style={versionStyle}>{BUILD_DISPLAY}</Text>
                 </View>
                 <TouchableOpacity
@@ -1238,6 +1247,7 @@ const contentStyle = { width: '100%', maxWidth: 980, alignSelf: 'center', paddin
 const headerStyle = { flexDirection: 'row', alignItems: 'flex-start', gap: 12 } as const;
 const eyebrowStyle = { color: '#49d6d0', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1 } as const;
 const titleStyle = { color: '#f2fbff', fontSize: 28, fontWeight: '900', marginTop: 4 } as const;
+const quoteNumberStyle = { color: '#67e8f9', fontSize: 15, fontWeight: '900', letterSpacing: 0.4, marginTop: 8 } as const;
 const versionStyle = { color: '#7391a5', fontSize: 11, marginTop: 4 } as const;
 const sectionStyle = { backgroundColor: '#0d2a3a', borderColor: '#24536b', borderWidth: 1, borderRadius: 18, padding: 16, gap: 12 } as const;
 const sectionTitleStyle = { color: '#f2fbff', fontSize: 20, fontWeight: '900' } as const;

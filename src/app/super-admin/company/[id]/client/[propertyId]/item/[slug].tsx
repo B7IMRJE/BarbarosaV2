@@ -327,7 +327,7 @@ export default function CompanyClientItemScreen() {
         });
 
         router.push({
-            pathname: '/estimate',
+            pathname: '/estimate/workspace',
             params: {
                 companyId: estimateAccess.companyId,
                 propertyId: item.property_id || clientPropertyId,
@@ -341,7 +341,7 @@ export default function CompanyClientItemScreen() {
         if (!estimateAccess || !item) return;
 
         router.push({
-            pathname: '/estimate',
+            pathname: '/estimate/workspace',
             params: {
                 companyId: estimateAccess.companyId,
                 propertyId: item.property_id || clientPropertyId,

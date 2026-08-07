@@ -74,7 +74,7 @@ function technicianHomeTargetsCompanyTechOSWorkspace() {
 function estimateRouteCarriesJobAndRequestContext() {
     const route = buildTechOSEstimateRoute(createContext());
 
-    assert(route.pathname === '/estimate', 'Estimate action should open the existing estimate route.');
+    assert(route.pathname === '/estimate/workspace', 'Estimate action should open the dedicated quote workspace route.');
     assert(route.params.companyId === 'company-1', 'Estimate route should preserve company id.');
     assert(route.params.propertyId === 'property-1', 'Estimate route should preserve property id.');
     assert(route.params.providerMode === '1', 'Estimate route should preserve provider mode for client-scoped drafts.');

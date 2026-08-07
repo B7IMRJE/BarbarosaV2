@@ -528,7 +528,7 @@ function isProviderModeNavigationRoute(route: string) {
         normalizedRoute === '/' ||
         normalizedRoute === '/equipment' ||
         normalizedRoute === '/documents' ||
-        normalizedRoute === '/estimate' ||
+        (normalizedRoute === '/estimate' || normalizedRoute.startsWith('/estimate/')) ||
         normalizedRoute.startsWith('/item/') ||
         normalizedRoute.startsWith('/system/')
     );

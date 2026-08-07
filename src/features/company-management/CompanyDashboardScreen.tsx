@@ -665,7 +665,10 @@ export default function CompanyDashboardScreen() {
         }
 
         if (card === 'Estimates / Proposals') {
-            router.push('/estimate' as any);
+            router.push({
+                pathname: '/estimate',
+                params: { companyId: activeCompanyId },
+            } as any);
             return;
         }
 

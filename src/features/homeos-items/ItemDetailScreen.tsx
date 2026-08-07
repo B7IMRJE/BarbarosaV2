@@ -2443,7 +2443,7 @@ export default function ItemScreen() {
 
     function openCurrentItemEstimate() {
         router.push({
-            pathname: '/estimate',
+            pathname: '/estimate/workspace',
             params: {
                 mode: isManagementMode ? 'management' : '',
                 itemSlug: item.item_slug || String(slug),
@@ -2527,7 +2527,7 @@ export default function ItemScreen() {
             if (alreadyInDraft) {
                 setMessage('Item is already in estimate. Opening its checklist.');
                 router.push({
-                    pathname: '/estimate',
+                    pathname: '/estimate/workspace',
                     params: {
                         itemSlug: item.item_slug || String(slug),
                         ...providerModeQueryParams(providerModeContext),
@@ -2587,7 +2587,7 @@ export default function ItemScreen() {
             }, draftScope);
             setMessage('Item added to estimate.');
             router.push({
-                pathname: '/estimate',
+                pathname: '/estimate/workspace',
                 params: {
                     itemSlug: item.item_slug || String(slug),
                     ...providerModeQueryParams(providerModeContext),
@@ -2602,7 +2602,7 @@ export default function ItemScreen() {
         }, draftScope);
 
         router.push({
-            pathname: '/estimate',
+            pathname: '/estimate/workspace',
             params: {
                 companyId: estimateCompanyId,
                 propertyId: estimatePropertyId,

@@ -384,7 +384,7 @@ export default function CompanyClientItemsScreen() {
         });
 
         router.push({
-            pathname: '/estimate',
+            pathname: '/estimate/workspace',
             params: {
                 companyId: estimateAccess.companyId,
                 propertyId: clientPropertyId,

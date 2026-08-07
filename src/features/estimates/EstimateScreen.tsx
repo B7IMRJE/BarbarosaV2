@@ -2,7 +2,7 @@ import HomeHeader from '../../components/HomeHeader';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
@@ -107,6 +107,16 @@ import {
     type EstimateSessionSource,
 } from '../../lib/estimateSessions';
 import {
+    archiveCompanyEstimateDraft,
+    hasEstimateBuilderSnapshot,
+    loadCompanyEstimateBuilderDraft,
+    normalizeEstimateBuilderStep,
+    saveCompanyEstimateBuilderDraft,
+    type CompanyEstimateBuilderDraft,
+    type EstimateBuilderSnapshot,
+    type EstimateBuilderStep,
+} from '../../lib/estimateBuilderDraft';
+import {
     hasProviderModeRouteSignal,
     providerModeItemPath,
     providerModePath,
@@ -153,6 +163,40 @@ type GuidedEstimateStep = 'build' | 'option_added' | 'recommendations' | 'review
 type GuidedBuildStep = 'work' | 'findings' | 'price';
 type GuidedPriceAdjustmentMode = 'none' | 'discount' | 'markup' | 'override';
 
+type PersistedEstimateBuilderState = {
+    version: 1;
+    items: EstimateDraftItem[];
+    draftContext: EstimateDraftContext | null;
+    selectedChoiceId: string;
+    removedChoiceIds: string[];
+    persistedOptionChoices: PersistableEstimateChoice[];
+    selectedWorkType: EstimateWorkType | null;
+    estimateCategoryChosen: boolean;
+    selectedCategory: EstimateOptionCategory;
+    answers: EstimateAnswerSet;
+    measurementDraftByKey: Record<string, string>;
+    technicianApproved: boolean;
+    aiDraftsByChoiceId: Record<string, AiEstimateDraftChoice>;
+    editableCopyByChoiceId: Record<string, EditableChoiceCopy>;
+    priceAdjustmentByChoiceId: Record<string, number>;
+    customPriceAdjustmentByChoiceId: Record<string, string>;
+    priceAdjustmentDirectionByChoiceId: Record<string, PriceAdjustmentDirection>;
+    priceAdjustmentLabelByChoiceId: Record<string, string>;
+    linePriceAdjustmentsByChoiceId: Record<string, Record<string, EstimateLinePriceAdjustment>>;
+    guidedStep: GuidedEstimateStep;
+    guidedBuildStep: GuidedBuildStep;
+    documentationExpanded: boolean;
+    scopePickerExpanded: boolean;
+    relatedSearch: string;
+    guidedAdjustmentMode: GuidedPriceAdjustmentMode;
+    guidedAdjustmentValue: string;
+    guidedDiscountLabel: string;
+    guidedAdjustmentLineId: string;
+    editingGuidedOptionId: string;
+    customQuoteMode: boolean;
+    customQuoteDraft: CustomEstimateOptionDraft;
+};
+
 const emptyCustomEstimateOptionDraft: CustomEstimateOptionDraft = {
     name: '',
     workScope: '',
@@ -179,7 +223,7 @@ const requirementSkipReasons: { label: string; reason: EstimateRequirementSkipRe
 ];
 
 export default function EstimateScreen() {
-    const { companyId, propertyId, itemSlug, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId } = useLocalSearchParams<{
+    const { companyId, propertyId, itemSlug, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId, estimateSessionId, step } = useLocalSearchParams<{
         companyId?: string | string[];
         propertyId?: string | string[];
         itemSlug?: string | string[];
@@ -189,12 +233,17 @@ export default function EstimateScreen() {
         serviceRequestId?: string | string[];
         scheduleSlotId?: string | string[];
         jobId?: string | string[];
+        estimateSessionId?: string | string[];
+        step?: string | string[];
     }>();
     const requestedCompanyId = firstParam(companyId);
     const requestedPropertyId = firstParam(propertyId);
     const requestedItemSlug = firstParam(itemSlug);
     const requestedMode = firstParam(mode);
     const requestedReturnTo = firstParam(returnTo);
+    const requestedEstimateSessionId = firstParam(estimateSessionId);
+    const requestedBuilderStepParam = firstParam(step);
+    const requestedBuilderStep = normalizeEstimateBuilderStep(requestedBuilderStepParam);
     const providerRouteParams = {
         providerMode,
         companyId,
@@ -212,6 +261,8 @@ export default function EstimateScreen() {
     const [estimateAccess, setEstimateAccess] = useState<CompanyPermissionAccess | null>(null);
     const [draftContext, setDraftContext] = useState<EstimateDraftContext | null>(null);
     const [estimateSession, setEstimateSession] = useState<EstimateOptionSession | null>(null);
+    const [quoteNumber, setQuoteNumber] = useState('');
+    const [draftSaveStatus, setDraftSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const [selectedChoiceId, setSelectedChoiceId] = useState('');
     const [detailChoiceId, setDetailChoiceId] = useState('');
     const [removedChoiceIds, setRemovedChoiceIds] = useState<string[]>([]);
@@ -270,6 +321,48 @@ export default function EstimateScreen() {
     const expandedChecklistRef = useRef<View | null>(null);
     const readinessDetailsRef = useRef<View | null>(null);
     const workspaceDetailsRef = useRef<View | null>(null);
+    const hydratedDraftSessionIdRef = useRef('');
+    const latestDraftSaveRef = useRef<{
+        sessionId: string;
+        step: EstimateBuilderStep;
+        state: EstimateBuilderSnapshot;
+    } | null>(null);
+    const draftSavePromiseRef = useRef<Promise<void> | null>(null);
+    const activeDraftSessionId = estimateSession?.id || draftContext?.estimate_session_id || requestedEstimateSessionId;
+    const currentBuilderStep = resolveCurrentBuilderStep(guidedStep, guidedBuildStep);
+    const builderStateJson = JSON.stringify({
+        version: 1,
+        items,
+        draftContext,
+        selectedChoiceId,
+        removedChoiceIds,
+        persistedOptionChoices,
+        selectedWorkType,
+        estimateCategoryChosen,
+        selectedCategory,
+        answers,
+        measurementDraftByKey,
+        technicianApproved,
+        aiDraftsByChoiceId,
+        editableCopyByChoiceId,
+        priceAdjustmentByChoiceId,
+        customPriceAdjustmentByChoiceId,
+        priceAdjustmentDirectionByChoiceId,
+        priceAdjustmentLabelByChoiceId,
+        linePriceAdjustmentsByChoiceId,
+        guidedStep,
+        guidedBuildStep,
+        documentationExpanded,
+        scopePickerExpanded,
+        relatedSearch,
+        guidedAdjustmentMode,
+        guidedAdjustmentValue,
+        guidedDiscountLabel,
+        guidedAdjustmentLineId,
+        editingGuidedOptionId,
+        customQuoteMode,
+        customQuoteDraft,
+    } satisfies PersistedEstimateBuilderState);
     const checkAccessEvent = useEffectEvent(checkAccess);
 
     useEffect(() => {
@@ -285,7 +378,29 @@ export default function EstimateScreen() {
         providerModeContext?.serviceRequestId,
         providerModeContext?.scheduleSlotId,
         providerModeContext?.jobId,
+        requestedEstimateSessionId,
     ]);
+
+    useEffect(() => {
+        if (!activeDraftSessionId || hydratedDraftSessionIdRef.current !== activeDraftSessionId) return;
+
+        const pendingSave = {
+            sessionId: activeDraftSessionId,
+            step: currentBuilderStep,
+            state: JSON.parse(builderStateJson) as EstimateBuilderSnapshot,
+        };
+        latestDraftSaveRef.current = pendingSave;
+
+        const timeout = setTimeout(() => {
+            void persistLatestBuilderDraft();
+        }, 500);
+
+        return () => clearTimeout(timeout);
+    }, [activeDraftSessionId, builderStateJson, currentBuilderStep]);
+
+    useEffect(() => () => {
+        if (latestDraftSaveRef.current) void persistLatestBuilderDraft({ silent: true });
+    }, []);
 
     useFocusEffect(
         useCallback(() => {
@@ -411,11 +526,50 @@ export default function EstimateScreen() {
         return () => clearTimeout(timeout);
     }
 
+    async function persistLatestBuilderDraft(options: { silent?: boolean } = {}) {
+        if (draftSavePromiseRef.current) {
+            await draftSavePromiseRef.current;
+            return;
+        }
+
+        const pendingSave = latestDraftSaveRef.current;
+        if (!pendingSave || hydratedDraftSessionIdRef.current !== pendingSave.sessionId) return;
+
+        latestDraftSaveRef.current = null;
+        if (!options.silent) setDraftSaveStatus('saving');
+
+        const savePromise = saveCompanyEstimateBuilderDraft({
+            sessionId: pendingSave.sessionId,
+            currentBuilderStep: pendingSave.step,
+            builderState: pendingSave.state,
+        })
+            .then(() => {
+                if (!options.silent) setDraftSaveStatus('saved');
+            })
+            .catch((error) => {
+                latestDraftSaveRef.current = pendingSave;
+                if (!options.silent) {
+                    setDraftSaveStatus('error');
+                    setMessage(`Draft could not be saved: ${readEstimateErrorMessage(error, 'HomeOS services are unavailable.')}`);
+                }
+            })
+            .finally(() => {
+                draftSavePromiseRef.current = null;
+            });
+
+        draftSavePromiseRef.current = savePromise;
+        await savePromise;
+    }
+
     async function checkAccess() {
         setCheckingAccess(true);
         setEstimateAccess(null);
         setDraftContext(null);
         setEstimateSession(null);
+        setQuoteNumber('');
+        setDraftSaveStatus('idle');
+        hydratedDraftSessionIdRef.current = '';
+        latestDraftSaveRef.current = null;
         setItems([]);
         setExpandedCategory(null);
         setExpandedWorkspaceSection(null);
@@ -513,21 +667,50 @@ export default function EstimateScreen() {
             companyId: access.companyId,
             propertyId: requestedPropertyId,
         };
-        const [draftItems, nextDraftContext] = await Promise.all([
+        const [localDraftItems, localDraftContext] = await Promise.all([
             loadEstimateDraft(scope),
             loadEstimateDraftContext(scope),
         ]);
+        const serverSessionId = requestedEstimateSessionId || localDraftContext?.estimate_session_id || '';
+        let serverDraft: CompanyEstimateBuilderDraft | null = null;
+
+        if (serverSessionId) {
+            try {
+                serverDraft = await loadCompanyEstimateBuilderDraft(serverSessionId);
+            } catch (error) {
+                if (requestedEstimateSessionId) {
+                    setMessage(`Saved quote could not be opened: ${readEstimateErrorMessage(error, 'Draft unavailable.')}`);
+                    return;
+                }
+            }
+        }
+
+        if (serverDraft && serverDraft.companyId !== access.companyId) {
+            setMessage('This quote belongs to a different company workspace.');
+            return;
+        }
+
+        const persistedBuilderState = serverDraft && hasEstimateBuilderSnapshot(serverDraft.builderState)
+            ? readPersistedEstimateBuilderState(serverDraft.builderState)
+            : null;
+        const draftItems = persistedBuilderState?.items || localDraftItems;
+        const nextDraftContext = persistedBuilderState?.draftContext
+            || localDraftContext
+            || (serverDraft ? buildDraftContextFromServerDraft(serverDraft, access.companyUserId) : null);
         const inferredCategory = inferEstimateCategoryForDraftItem(
             draftItems,
             requestedItemSlug,
             nextDraftContext
         );
-        const restoredCategory = readEstimateOptionCategory(nextDraftContext?.estimate_category);
+        const restoredCategory = readEstimateOptionCategory(
+            persistedBuilderState?.selectedCategory || nextDraftContext?.estimate_category
+        );
         const activeCategory = restoredCategory || inferredCategory;
 
         setItems(draftItems);
         setDraftContext(nextDraftContext);
-        setEstimateSession(null);
+        setEstimateSession(serverDraft ? mapBuilderDraftToEstimateSession(serverDraft) : null);
+        setQuoteNumber(serverDraft?.quoteNumber || '');
         setSelectedCategory(activeCategory);
         setSelectedWorkType(restoredCategory ? getEstimateWorkTypeForCategory(restoredCategory) : null);
         setEstimateCategoryChosen(Boolean(restoredCategory));
@@ -560,11 +743,24 @@ export default function EstimateScreen() {
             : ''
         );
 
-        if (nextDraftContext?.estimate_session_id && restoredCategory) {
+        if (persistedBuilderState) {
+            applyPersistedBuilderState(persistedBuilderState, serverDraft?.currentBuilderStep || 'work');
+        } else if (serverDraft) {
+            applyRequestedBuilderStep(serverDraft.currentBuilderStep);
+        }
+
+        const persistedSessionId = serverDraft?.id || nextDraftContext?.estimate_session_id || '';
+
+        if (persistedSessionId && restoredCategory) {
             await Promise.all([
-                loadPersistedAnswers(nextDraftContext.estimate_session_id),
-                loadPersistedOptionSet(nextDraftContext.estimate_session_id),
+                loadPersistedAnswers(persistedSessionId, persistedBuilderState?.measurementDraftByKey),
+                loadPersistedOptionSet(persistedSessionId, Boolean(persistedBuilderState)),
             ]);
+        }
+
+        if (persistedSessionId) {
+            hydratedDraftSessionIdRef.current = persistedSessionId;
+            setDraftSaveStatus('saved');
         }
 
         try {
@@ -576,7 +772,7 @@ export default function EstimateScreen() {
                 draftItems,
                 draftContext: nextDraftContext,
                 category: activeCategory,
-                answers: {},
+                answers: persistedBuilderState?.answers || {},
                 priceBookItems: priceBook.items,
                 technicianApproved: false,
             });
@@ -593,26 +789,77 @@ export default function EstimateScreen() {
         }
     }
 
-    async function loadPersistedAnswers(sessionId: string) {
+    function applyPersistedBuilderState(
+        state: PersistedEstimateBuilderState,
+        savedStep: EstimateBuilderStep,
+    ) {
+        setItems(state.items);
+        setDraftContext(state.draftContext);
+        setSelectedChoiceId(state.selectedChoiceId);
+        setRemovedChoiceIds(state.removedChoiceIds);
+        setPersistedOptionChoices(state.persistedOptionChoices);
+        setSelectedWorkType(state.selectedWorkType);
+        setEstimateCategoryChosen(state.estimateCategoryChosen);
+        setSelectedCategory(state.selectedCategory);
+        setAnswers(state.answers);
+        setMeasurementDraftByKey(state.measurementDraftByKey);
+        setTechnicianApproved(state.technicianApproved);
+        setAiDraftsByChoiceId(state.aiDraftsByChoiceId);
+        setEditableCopyByChoiceId(state.editableCopyByChoiceId);
+        setPriceAdjustmentByChoiceId(state.priceAdjustmentByChoiceId);
+        setCustomPriceAdjustmentByChoiceId(state.customPriceAdjustmentByChoiceId);
+        setPriceAdjustmentDirectionByChoiceId(state.priceAdjustmentDirectionByChoiceId);
+        setPriceAdjustmentLabelByChoiceId(state.priceAdjustmentLabelByChoiceId);
+        setLinePriceAdjustmentsByChoiceId(state.linePriceAdjustmentsByChoiceId);
+        setGuidedStep(state.guidedStep);
+        setGuidedBuildStep(state.guidedBuildStep);
+        setDocumentationExpanded(state.documentationExpanded);
+        setScopePickerExpanded(state.scopePickerExpanded);
+        setRelatedSearch(state.relatedSearch);
+        setGuidedAdjustmentMode(state.guidedAdjustmentMode);
+        setGuidedAdjustmentValue(state.guidedAdjustmentValue);
+        setGuidedDiscountLabel(state.guidedDiscountLabel);
+        setGuidedAdjustmentLineId(state.guidedAdjustmentLineId);
+        setEditingGuidedOptionId(state.editingGuidedOptionId);
+        setCustomQuoteMode(state.customQuoteMode);
+        setCustomQuoteDraft(state.customQuoteDraft);
+        applyRequestedBuilderStep(savedStep);
+    }
+
+    function applyRequestedBuilderStep(savedStep: EstimateBuilderStep) {
+        const nextStep = requestedBuilderStepParam ? requestedBuilderStep : savedStep;
+        const guided = builderStepToGuidedState(nextStep);
+
+        setGuidedStep(guided.guidedStep);
+        setGuidedBuildStep(guided.guidedBuildStep);
+    }
+
+    async function loadPersistedAnswers(
+        sessionId: string,
+        unsavedMeasurementDrafts: Record<string, string> = {},
+    ) {
         try {
             const persistedAnswers = await loadEstimateSessionAnswers(sessionId);
 
             setAnswers(persistedAnswers);
-            setMeasurementDraftByKey(createMeasurementDrafts(persistedAnswers));
+            setMeasurementDraftByKey({
+                ...createMeasurementDrafts(persistedAnswers),
+                ...unsavedMeasurementDrafts,
+            });
             await loadPhotoPreviews(persistedAnswers);
         } catch (error) {
             setMessage(`Estimate requirements could not be restored: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 
-    async function loadPersistedOptionSet(sessionId: string) {
+    async function loadPersistedOptionSet(sessionId: string, preserveBuilderStep = false) {
         try {
             const savedSet = await loadEstimateOptionSet(sessionId);
 
             if (!savedSet || savedSet.options.length === 0) return;
 
             setPersistedOptionChoices(savedSet.options);
-            setGuidedStep('review');
+            if (!preserveBuilderStep) setGuidedStep('review');
             setSelectedChoiceId(savedSet.selectedSourceChoiceId || '');
             setTechnicianApproved(!!savedSet.technicianApprovedAt);
             setPriceAdjustmentByChoiceId(savedSet.options.reduce<Record<string, number>>((adjustments, choice) => {
@@ -653,8 +900,36 @@ export default function EstimateScreen() {
         }
     }
 
-    async function clearCurrentDraft() {
+    function clearCurrentDraft() {
+        Alert.alert(
+            quoteNumber ? `Delete ${quoteNumber}?` : 'Delete this quote draft?',
+            'This removes the draft from the active list. Finished and signed quotes are not affected.',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Delete Draft',
+                    style: 'destructive',
+                    onPress: () => void deleteCurrentDraft(),
+                },
+            ]
+        );
+    }
+
+    async function deleteCurrentDraft() {
         if (!estimateAccess) return;
+
+        const sessionIdToArchive = activeDraftSessionId;
+        hydratedDraftSessionIdRef.current = '';
+        latestDraftSaveRef.current = null;
+
+        if (sessionIdToArchive) {
+            try {
+                await archiveCompanyEstimateDraft(sessionIdToArchive);
+            } catch (error) {
+                setMessage(`Draft could not be deleted: ${readEstimateErrorMessage(error, 'HomeOS services are unavailable.')}`);
+                return;
+            }
+        }
 
         await clearEstimateDraft({
             userId: estimateAccess.userId,
@@ -665,6 +940,8 @@ export default function EstimateScreen() {
         setItems([]);
         setDraftContext(null);
         setEstimateSession(null);
+        setQuoteNumber('');
+        setDraftSaveStatus('idle');
         setSelectedChoiceId('');
         setDetailChoiceId('');
         setRemovedChoiceIds([]);
@@ -701,7 +978,13 @@ export default function EstimateScreen() {
         setEditingGuidedOptionId('');
         setCustomQuoteMode(false);
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
-        setMessage('Estimate draft cleared. Start a fresh estimate from the assigned job or Client HomeOS item.');
+        setMessage('Quote draft deleted.');
+        router.replace({
+            pathname: '/estimate',
+            params: requestedCompanyId || estimateAccess.companyId
+                ? { companyId: requestedCompanyId || estimateAccess.companyId }
+                : undefined,
+        } as any);
     }
 
     async function loadPhotoPreviews(nextAnswers: EstimateAnswerSet) {
@@ -870,7 +1153,9 @@ export default function EstimateScreen() {
         return `/super-admin/company/${encodeURIComponent(providerModeContext.companyId)}`;
     }
 
-    function goBackToItem() {
+    async function goBackToItem() {
+        await persistLatestBuilderDraft();
+
         if (requestedReturnTo) {
             router.push(requestedReturnTo as never);
             return;
@@ -884,15 +1169,19 @@ export default function EstimateScreen() {
         router.push(providerClientHomeOsPath() as never);
     }
 
-    function goBackToClientHomeOs() {
+    async function goBackToClientHomeOs() {
+        await persistLatestBuilderDraft();
         router.push(providerClientHomeOsPath() as never);
     }
 
-    function goToCompanyDashboard() {
+    async function goToCompanyDashboard() {
+        await persistLatestBuilderDraft();
         router.push(providerCompanyDashboardPath() as never);
     }
 
-    function goBackFromEstimate() {
+    async function goBackFromEstimate() {
+        await persistLatestBuilderDraft();
+
         const techOSReturnRoute = resolveTechOSEstimateReturnRoute({
             mode: requestedMode,
             returnTo: requestedReturnTo,
@@ -905,6 +1194,14 @@ export default function EstimateScreen() {
         }
 
         router.back();
+    }
+
+    async function openSavedDrafts() {
+        await persistLatestBuilderDraft();
+        router.push({
+            pathname: '/estimate',
+            params: { companyId: estimateAccess?.companyId || requestedCompanyId || '' },
+        } as any);
     }
 
     function openDraftItem(item: EstimateDraftItem) {
@@ -1567,12 +1864,24 @@ export default function EstimateScreen() {
         );
     }
 
+    function navigateGuidedBuildStep(nextStep: GuidedBuildStep) {
+        setGuidedStep('build');
+        setGuidedBuildStep(nextStep);
+        router.setParams({ step: nextStep } as any);
+    }
+
+    function navigateGuidedStep(nextStep: GuidedEstimateStep) {
+        setGuidedStep(nextStep);
+
+        const builderStep = nextStep === 'build' ? guidedBuildStep : nextStep;
+        router.setParams({ step: builderStep } as any);
+    }
+
     function startCustomQuote() {
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
         setCustomQuoteMode(true);
         setScopePickerExpanded(false);
-        setGuidedStep('build');
-        setGuidedBuildStep('price');
+        navigateGuidedBuildStep('price');
         setMessage('Custom Quote opened. Enter only the work and exact price you intend to present.');
     }
 
@@ -1582,11 +1891,11 @@ export default function EstimateScreen() {
         setGuidedAdjustmentLineId('');
 
         if (persistedOptionChoices.length > 0) {
-            setGuidedStep('review');
+            navigateGuidedStep('review');
             return;
         }
 
-        setGuidedBuildStep('work');
+        navigateGuidedBuildStep('work');
     }
 
     function updateCustomQuoteDraft(field: keyof CustomEstimateOptionDraft, value: string) {
@@ -1670,7 +1979,7 @@ export default function EstimateScreen() {
             .filter((choice) => choice.id !== choiceId)
             .map((choice, index) => ({ ...choice, displayOrder: index + 1 }));
 
-        if (nextChoices.length === 0) setGuidedBuildStep('price');
+        if (nextChoices.length === 0) navigateGuidedBuildStep('price');
         if (editingGuidedOptionId === choiceId) setEditingGuidedOptionId('');
 
         await persistGuidedOptions(
@@ -1709,7 +2018,7 @@ export default function EstimateScreen() {
             });
             setPersistedOptionChoices(normalizedChoices);
             setTechnicianApproved(false);
-            setGuidedStep(nextStep);
+            navigateGuidedStep(nextStep);
             setRelatedSearch('');
             setMessage(successMessage);
             return true;
@@ -1935,6 +2244,35 @@ export default function EstimateScreen() {
 
         setEstimateSession(result.session);
 
+        try {
+            const serverDraft = await loadCompanyEstimateBuilderDraft(result.session.id);
+
+            if (serverDraft) {
+                setQuoteNumber(serverDraft.quoteNumber);
+
+                if (
+                    hydratedDraftSessionIdRef.current !== serverDraft.id &&
+                    hasEstimateBuilderSnapshot(serverDraft.builderState)
+                ) {
+                    const restoredState = readPersistedEstimateBuilderState(serverDraft.builderState);
+
+                    if (restoredState) {
+                        applyPersistedBuilderState(restoredState, serverDraft.currentBuilderStep);
+                        setEstimateSession(mapBuilderDraftToEstimateSession(serverDraft));
+                        hydratedDraftSessionIdRef.current = serverDraft.id;
+                        await Promise.all([
+                            loadPersistedAnswers(serverDraft.id, restoredState.measurementDraftByKey),
+                            loadPersistedOptionSet(serverDraft.id, true),
+                        ]);
+                        setDraftSaveStatus('saved');
+                        return result.session;
+                    }
+                }
+            }
+        } catch (error) {
+            setMessage(`Quote number could not be restored: ${readEstimateErrorMessage(error, 'Draft unavailable.')}`);
+        }
+
         const nextDraftContext: EstimateDraftContext = {
             estimate_session_id: result.session.id,
             estimate_category: category,
@@ -1958,6 +2296,8 @@ export default function EstimateScreen() {
             propertyId: result.session.propertyId,
         });
         await persistLocalAnswersToSession(result.session.id);
+        hydratedDraftSessionIdRef.current = result.session.id;
+        setDraftSaveStatus('saved');
 
         return result.session;
     }
@@ -2164,7 +2504,7 @@ export default function EstimateScreen() {
         isEstimateCategoryForWorkType(selectedCategory, selectedWorkType)
     );
     const focusedPriceBookItem = findEstimatePriceBookCatalogItem(items, phase1Workspace.template.label);
-    const estimateReturnRoute = buildInternalRoute('/estimate', [
+    const estimateReturnRoute = buildInternalRoute('/estimate/workspace', [
         ['companyId', requestedCompanyId],
         ['propertyId', requestedPropertyId],
         ['itemSlug', requestedItemSlug],
@@ -2174,6 +2514,8 @@ export default function EstimateScreen() {
         ['serviceRequestId', firstParam(serviceRequestId)],
         ['scheduleSlotId', firstParam(scheduleSlotId)],
         ['jobId', firstParam(jobId)],
+        ['estimateSessionId', activeDraftSessionId],
+        ['step', currentBuilderStep],
     ]);
     const companyPriceBookRoute = buildInternalRoute(
         `/super-admin/company/${encodeURIComponent(estimateAccess.companyId)}/price-book`,
@@ -2300,6 +2642,9 @@ export default function EstimateScreen() {
         measurementDraftByKey,
         measurementErrorByKey,
         message,
+        quoteNumber,
+        draftSaveStatus,
+        openSavedDrafts,
         openHomeownerApproval,
         persistAddCurrent: addCurrentChoiceToOptions,
         persistAddCustom: addCustomQuoteToOptions,
@@ -2341,9 +2686,9 @@ export default function EstimateScreen() {
         setDocumentationExpanded,
         setGuidedAdjustmentMode,
         setGuidedAdjustmentValue,
-        setGuidedBuildStep,
+        setGuidedBuildStep: navigateGuidedBuildStep,
         setGuidedDiscountLabel,
-        setGuidedStep,
+        setGuidedStep: navigateGuidedStep,
         startCustomQuote,
         cancelCustomQuote,
         setRelatedSearch,
@@ -3309,7 +3654,7 @@ type GuidedEstimateBuilderProps = {
     canUsePricing: boolean;
     categoryPickerExpanded: boolean;
     chooseRequirementPhoto: (label: string, capture: boolean) => Promise<void>;
-    clearCurrentDraft: () => Promise<void>;
+    clearCurrentDraft: () => void;
     clearSkippedRequirement: (kind: RequirementKind, label: string) => Promise<void>;
     clearRequirementMeasurement: (label: string) => Promise<void>;
     companyPriceBookRoute: string;
@@ -3340,6 +3685,9 @@ type GuidedEstimateBuilderProps = {
     measurementDraftByKey: Record<string, string>;
     measurementErrorByKey: Record<string, string>;
     message: string;
+    quoteNumber: string;
+    draftSaveStatus: 'idle' | 'saving' | 'saved' | 'error';
+    openSavedDrafts: () => Promise<void>;
     openHomeownerApproval: () => Promise<void>;
     persistAddCurrent: (choice: Phase1EstimateChoice) => Promise<void>;
     persistAddCustom: () => Promise<void>;
@@ -3447,6 +3795,9 @@ function renderGuidedEstimateBuilder({
     measurementDraftByKey,
     measurementErrorByKey,
     message,
+    quoteNumber,
+    draftSaveStatus,
+    openSavedDrafts,
     openHomeownerApproval,
     persistAddCurrent,
     persistAddCustom,
@@ -3557,6 +3908,9 @@ function renderGuidedEstimateBuilder({
                         <Text style={guidedBackButtonTextStyle}>{requestedMode === 'techos' ? 'Back to TechOS' : 'Back'}</Text>
                     </TouchableOpacity>
                     <View style={guidedTopActionsStyle}>
+                        <TouchableOpacity onPress={() => void openSavedDrafts()} style={guidedTextButtonStyle}>
+                            <Text style={guidedTextButtonTextStyle}>Saved Drafts</Text>
+                        </TouchableOpacity>
                         {providerModeContext && (
                             <TouchableOpacity onPress={goBackToClientHomeOs} style={guidedTextButtonStyle}>
                                 <Text style={guidedTextButtonTextStyle}>Client HomeOS</Text>
@@ -3568,13 +3922,25 @@ function renderGuidedEstimateBuilder({
                             </TouchableOpacity>
                         )}
                         <TouchableOpacity onPress={clearCurrentDraft} style={guidedTextButtonStyle}>
-                            <Text style={guidedTextButtonTextStyle}>Clear</Text>
+                            <Text style={guidedTextButtonTextStyle}>Delete Draft</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
 
                 <View style={guidedHeroStyle}>
                     <Text style={guidedEyebrowStyle}>CREATE QUOTE / ESTIMATE</Text>
+                    <View style={guidedQuoteIdentityRowStyle}>
+                        <Text style={guidedQuoteNumberStyle}>{quoteNumber || 'Quote number assigning…'}</Text>
+                        <Text style={draftSaveStatus === 'error' ? guidedSaveErrorStyle : guidedSaveStatusStyle}>
+                            {draftSaveStatus === 'saving'
+                                ? 'Saving…'
+                                : draftSaveStatus === 'error'
+                                    ? 'Save needs attention'
+                                    : draftSaveStatus === 'saved'
+                                        ? 'All changes saved ✓'
+                                        : 'Draft starting…'}
+                        </Text>
+                    </View>
                     <Text style={guidedTitleStyle}>Build one clear option at a time</Text>
                     <Text style={guidedSubtitleStyle}>
                         Document the selected work, confirm its price and summary, then decide whether the customer needs another option.
@@ -4447,6 +4813,144 @@ function StaffOnlyMessage({ message, detail, homeRoute = '/' }: { message: strin
     );
 }
 
+function resolveCurrentBuilderStep(
+    guidedStep: GuidedEstimateStep,
+    guidedBuildStep: GuidedBuildStep,
+): EstimateBuilderStep {
+    return guidedStep === 'build' ? guidedBuildStep : guidedStep;
+}
+
+function builderStepToGuidedState(step: EstimateBuilderStep): {
+    guidedStep: GuidedEstimateStep;
+    guidedBuildStep: GuidedBuildStep;
+} {
+    if (step === 'work' || step === 'findings' || step === 'price') {
+        return { guidedStep: 'build', guidedBuildStep: step };
+    }
+
+    return { guidedStep: step, guidedBuildStep: 'price' };
+}
+
+function readPersistedEstimateBuilderState(
+    value: EstimateBuilderSnapshot,
+): PersistedEstimateBuilderState | null {
+    const record = readObject(value);
+    if (!record) return null;
+
+    const selectedCategory = readEstimateOptionCategory(record.selectedCategory) || 'faucet_replacement';
+    const workType = String(record.selectedWorkType || '').trim() as EstimateWorkType;
+    const selectedWorkType = estimateWorkTypeOptions.some((option) => option.id === workType)
+        ? workType
+        : null;
+    const guidedStepText = String(record.guidedStep || '').trim();
+    const guidedBuildStepText = String(record.guidedBuildStep || '').trim();
+    const adjustmentMode = String(record.guidedAdjustmentMode || '').trim();
+    const draftContextRecord = readObject(record.draftContext);
+    const customDraftRecord = readObject(record.customQuoteDraft);
+
+    return {
+        version: 1,
+        items: Array.isArray(record.items) ? record.items as EstimateDraftItem[] : [],
+        draftContext: draftContextRecord ? draftContextRecord as EstimateDraftContext : null,
+        selectedChoiceId: readSnapshotString(record.selectedChoiceId),
+        removedChoiceIds: readStringArray(record.removedChoiceIds),
+        persistedOptionChoices: Array.isArray(record.persistedOptionChoices)
+            ? record.persistedOptionChoices as PersistableEstimateChoice[]
+            : [],
+        selectedWorkType,
+        estimateCategoryChosen: record.estimateCategoryChosen === true,
+        selectedCategory,
+        answers: (readObject(record.answers) || {}) as EstimateAnswerSet,
+        measurementDraftByKey: (readObject(record.measurementDraftByKey) || {}) as Record<string, string>,
+        technicianApproved: record.technicianApproved === true,
+        aiDraftsByChoiceId: (readObject(record.aiDraftsByChoiceId) || {}) as Record<string, AiEstimateDraftChoice>,
+        editableCopyByChoiceId: (readObject(record.editableCopyByChoiceId) || {}) as Record<string, EditableChoiceCopy>,
+        priceAdjustmentByChoiceId: (readObject(record.priceAdjustmentByChoiceId) || {}) as Record<string, number>,
+        customPriceAdjustmentByChoiceId: (readObject(record.customPriceAdjustmentByChoiceId) || {}) as Record<string, string>,
+        priceAdjustmentDirectionByChoiceId: (readObject(record.priceAdjustmentDirectionByChoiceId) || {}) as Record<string, PriceAdjustmentDirection>,
+        priceAdjustmentLabelByChoiceId: (readObject(record.priceAdjustmentLabelByChoiceId) || {}) as Record<string, string>,
+        linePriceAdjustmentsByChoiceId: (readObject(record.linePriceAdjustmentsByChoiceId) || {}) as Record<string, Record<string, EstimateLinePriceAdjustment>>,
+        guidedStep: ['build', 'option_added', 'recommendations', 'review'].includes(guidedStepText)
+            ? guidedStepText as GuidedEstimateStep
+            : 'build',
+        guidedBuildStep: ['work', 'findings', 'price'].includes(guidedBuildStepText)
+            ? guidedBuildStepText as GuidedBuildStep
+            : 'work',
+        documentationExpanded: record.documentationExpanded === true,
+        scopePickerExpanded: record.scopePickerExpanded === true,
+        relatedSearch: readSnapshotString(record.relatedSearch),
+        guidedAdjustmentMode: ['none', 'discount', 'markup', 'override'].includes(adjustmentMode)
+            ? adjustmentMode as GuidedPriceAdjustmentMode
+            : 'none',
+        guidedAdjustmentValue: readSnapshotString(record.guidedAdjustmentValue),
+        guidedDiscountLabel: readSnapshotString(record.guidedDiscountLabel),
+        guidedAdjustmentLineId: readSnapshotString(record.guidedAdjustmentLineId),
+        editingGuidedOptionId: readSnapshotString(record.editingGuidedOptionId),
+        customQuoteMode: record.customQuoteMode === true,
+        customQuoteDraft: {
+            name: readSnapshotString(customDraftRecord?.name),
+            workScope: readSnapshotString(customDraftRecord?.workScope),
+            customerSummary: readSnapshotString(customDraftRecord?.customerSummary),
+            price: readSnapshotString(customDraftRecord?.price),
+        },
+    };
+}
+
+function buildDraftContextFromServerDraft(
+    draft: CompanyEstimateBuilderDraft,
+    companyUserId: string | null,
+): EstimateDraftContext {
+    return {
+        estimate_session_id: draft.id,
+        estimate_category: draft.category,
+        company_id: draft.companyId,
+        property_id: draft.propertyId,
+        customer_home_name: draft.customerName,
+        service_request_id: draft.serviceRequestId,
+        job_id: draft.jobId,
+        schedule_slot_id: draft.scheduleSlotId,
+        technician_company_user_id: companyUserId,
+        technician_name: null,
+        issue_summary: draft.issueSummary,
+        source: draft.source,
+        updated_at: draft.updatedAt || new Date().toISOString(),
+    };
+}
+
+function mapBuilderDraftToEstimateSession(draft: CompanyEstimateBuilderDraft): EstimateOptionSession {
+    return {
+        id: draft.id,
+        companyId: draft.companyId,
+        propertyId: draft.propertyId,
+        serviceRequestId: draft.serviceRequestId,
+        jobId: draft.jobId,
+        scheduleSlotId: draft.scheduleSlotId,
+        homeItemId: draft.homeItemId,
+        category: draft.category,
+        status: draft.status,
+        source: draft.source,
+        createdByCompanyUserId: null,
+        technicianApprovedAt: null,
+        presentedAt: null,
+    };
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null;
+}
+
+function readStringArray(value: unknown) {
+    return Array.isArray(value)
+        ? value.map(readSnapshotString).filter(Boolean)
+        : [];
+}
+
+function readSnapshotString(value: unknown) {
+    return typeof value === 'string' ? value : '';
+}
+
 function firstParam(value?: string | string[]) {
     return Array.isArray(value) ? value[0] || null : value || null;
 }
@@ -4996,6 +5500,33 @@ const guidedEyebrowStyle = {
     fontSize: 12,
     fontWeight: '900' as const,
     letterSpacing: 1.2,
+};
+
+const guidedQuoteIdentityRowStyle = {
+    alignItems: 'center' as const,
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    justifyContent: 'space-between' as const,
+    marginTop: 12,
+};
+
+const guidedQuoteNumberStyle = {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '900' as const,
+    letterSpacing: 0.5,
+};
+
+const guidedSaveStatusStyle = {
+    color: '#B9F6D5',
+    fontSize: 12,
+    fontWeight: '800' as const,
+};
+
+const guidedSaveErrorStyle = {
+    ...guidedSaveStatusStyle,
+    color: '#FFD0D0',
 };
 
 const guidedTitleStyle = {

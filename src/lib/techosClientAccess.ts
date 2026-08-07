@@ -66,7 +66,7 @@ export function buildTechOSEstimateRoute(context: TechOSClientJobContext) {
     const returnTo = buildTechOSCurrentJobRoute(context);
 
     return {
-        pathname: '/estimate',
+        pathname: '/estimate/workspace',
         params: compactRouteParams({
             providerMode: context.propertyId ? '1' : '',
             companyId: context.companyId,
