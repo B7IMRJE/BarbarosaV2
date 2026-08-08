@@ -2,7 +2,6 @@ import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
-import DispatchChatOverlay from '../../components/dispatch/DispatchChatOverlay';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
 import ServiceRequestThread from '../../components/serviceRequests/ServiceRequestThread';
@@ -1749,7 +1748,6 @@ export default function DispatchBoardScreen() {
                 )}
             </View>
         </ScrollView>
-        <DispatchChatOverlay companyId={dispatchCompanyId} bottomOffset={18} />
         </View>
         </CompanyGlassDepthProvider>
         </GlassPaletteProvider>

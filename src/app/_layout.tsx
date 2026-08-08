@@ -15,6 +15,7 @@ import {
   type LoggedInUserRouteDecision,
 } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
+import GlobalDispatchChatOverlay from '../components/dispatch/GlobalDispatchChatOverlay';
 import GlobalNavigation from '../components/navigation/GlobalNavigation';
 import { ThemeProvider } from '../theme';
 
@@ -270,6 +271,12 @@ export default function Layout() {
           <GlobalNavigation>
             <Slot />
           </GlobalNavigation>
+          {routeIsSettled && (
+            <GlobalDispatchChatOverlay
+              pathname={pathname}
+              preferredCompanyId={firstRouteParam(routeParams.companyId)}
+            />
+          )}
           {!routeIsSettled && (
             <View
               accessibilityLabel="Opening secure workspace"
