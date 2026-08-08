@@ -260,6 +260,21 @@ export function formatTechWorkflowStatusText(status?: string | null) {
     return labels[normalized] || formatWorkflowFallbackLabel(status);
 }
 
+export function isTechOSWorksiteStage(status?: string | null) {
+    const normalized = normalizeStatus(status);
+
+    return [
+        'arrived',
+        'in_progress',
+        'estimate_needed',
+        'approval_needed',
+        'waiting_for_approval',
+        'waiting_for_customer_approval',
+        'completed',
+        'closed',
+    ].includes(normalized);
+}
+
 export function resolveTechOSRouteSelection(input: TechOSRouteSelectionInput): TechOSRouteSelectionResult {
     const availableSlotIds = new Set(input.availableSlotIds.filter(Boolean));
     const requestedSlotId = String(input.requestedSlotId || '').trim();

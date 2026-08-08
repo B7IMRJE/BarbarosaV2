@@ -8,6 +8,7 @@ import {
     getTechWorkflowPersistenceMismatchMessage,
     getTechWorkflowNextStepMessage,
     getTechWorkflowStatusFeedback,
+    isTechOSWorksiteStage,
     isSecondaryTechWorkflowAction,
     resolveTechOSRouteSelection,
     resolveTechWorkflowActionPresentation,
@@ -31,6 +32,7 @@ export function runTechOSWorkflowRegressions() {
     currentJobAndAvailabilityLabelsStayDistinct();
     incompleteNextJobAvailabilityControlsStayHidden();
     onlyValidNextWorkflowActionIsPrimary();
+    worksiteOpensOnlyAfterArrival();
     workflowStatusFeedbackIsVisibleAndSpecific();
     estimateNeededStatusExplainsEstimateNextStep();
     arrivedStatusSurvivesRefresh();
@@ -115,6 +117,13 @@ function onlyValidNextWorkflowActionIsPrimary() {
         assignedPresentation.filter(isSecondaryTechWorkflowAction).map((action) => action.label).join('|') === "I've Arrived|Start Work",
         'More Actions should expose direct arrival and early work start, not every future action.'
     );
+}
+
+function worksiteOpensOnlyAfterArrival() {
+    assert(!isTechOSWorksiteStage('scheduled'), 'Scheduled jobs should begin in the travel controls, not the worksite.');
+    assert(!isTechOSWorksiteStage('on_my_way'), 'On My Way should remain in the travel controls.');
+    assert(isTechOSWorksiteStage('arrived'), 'Arrived should open the job worksite.');
+    assert(isTechOSWorksiteStage('in_progress'), 'Started work should keep the job worksite open.');
 }
 
 function workflowStatusFeedbackIsVisibleAndSpecific() {

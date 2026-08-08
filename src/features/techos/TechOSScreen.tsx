@@ -77,6 +77,7 @@ import {
     getTechWorkflowNextStepMessage,
     getNextJobAvailabilitySectionState,
     getTechWorkflowStatusFeedback,
+    isTechOSWorksiteStage,
     isSecondaryTechWorkflowAction,
     resolveTechOSRouteSelection,
     resolveTechWorkflowVisibleStatus,
@@ -1387,15 +1388,6 @@ export default function TechOSScreen() {
         }));
     }
 
-    function handleOpenFullAssignedJob(job: TechAssignedScheduleJob) {
-        if (!job.slot.id || !job.slot.company_id) return;
-
-        router.push({
-            pathname: '/techos',
-            params: { companyId: job.slot.company_id, slotId: job.slot.id },
-        } as any);
-    }
-
     function handleOpenClientHomeOS(job: TechAssignedScheduleJob) {
         const context = getTechOSClientJobContext(job);
 
@@ -2177,7 +2169,6 @@ export default function TechOSScreen() {
                         onChangeCloseoutForm={updateTechCloseoutForm}
                         onCloseServiceVisit={handleCloseServiceVisit}
                         onOpenDetails={handleOpenAssignedJobDetails}
-                        onOpenFullJob={handleOpenFullAssignedJob}
                         onCompleteMeeting={(meeting) => {
                             void handleCompleteAssignedMeeting(meeting);
                         }}
@@ -3047,7 +3038,6 @@ function TechOSDashboardContent({
     onOpenDetails,
     onOpenEstimateForAssignedJob,
     onOpenEstimateWorkspace,
-    onOpenFullJob,
     onCompleteMeeting,
     onRunTechnicianNextJobStatusAction,
     onRunWorkflowAction,
@@ -3085,7 +3075,6 @@ function TechOSDashboardContent({
     onOpenDetails: (job: TechAssignedScheduleJob) => void;
     onOpenEstimateForAssignedJob: (job: TechAssignedScheduleJob) => void;
     onOpenEstimateWorkspace: () => void;
-    onOpenFullJob: (job: TechAssignedScheduleJob) => void;
     onCompleteMeeting: (meeting: CompanyScheduleMeeting) => void;
     onRunTechnicianNextJobStatusAction: (job: TechAssignedScheduleJob, action: TechnicianNextJobStatusAction, currentVisitStatus: string) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
@@ -3112,7 +3101,6 @@ function TechOSDashboardContent({
                 onCloseServiceVisit={(outcomeOverride) => onCloseServiceVisit(selectedJob, outcomeOverride)}
                 onOpenClientHomeOS={() => onOpenClientHomeOS(selectedJob)}
                 onOpenEstimate={() => onOpenEstimateForAssignedJob(selectedJob)}
-                onOpenFullJob={onOpenFullJob}
                 onRunWorkflowAction={onRunWorkflowAction}
                 onRunTechnicianNextJobStatusAction={(action) => onRunTechnicianNextJobStatusAction(selectedJob, action, resolveTechWorkflowVisibleStatus({
                     optimisticStatus: workflowStatusBySlotId[selectedJob.slot.id],
@@ -4376,7 +4364,6 @@ function TechOSAssignedJobDetail({
     onCloseServiceVisit,
     onOpenClientHomeOS,
     onOpenEstimate,
-    onOpenFullJob,
     onRunWorkflowAction,
     onRunTechnicianNextJobStatusAction,
     technicianStatusMessage,
@@ -4396,7 +4383,6 @@ function TechOSAssignedJobDetail({
     onCloseServiceVisit: (outcomeOverride?: ServiceVisitOutcome) => void;
     onOpenClientHomeOS: () => void;
     onOpenEstimate: () => void;
-    onOpenFullJob: (job: TechAssignedScheduleJob) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
     onRunTechnicianNextJobStatusAction: (action: TechnicianNextJobStatusAction) => void;
     technicianStatusMessage: string;
@@ -4418,6 +4404,8 @@ function TechOSAssignedJobDetail({
     const [selectedStatusNotePreset, setSelectedStatusNotePreset] = useState('custom');
     const workflowActionPresentation = resolveTechWorkflowActionPresentation(workflowStatus);
     const primaryWorkflowActions = workflowActionPresentation.filter((action) => action.primary);
+    const travelWorkflowAction = primaryWorkflowActions.find((action) => ['on_my_way', 'arrived'].includes(action.key));
+    const startWorkAction = primaryWorkflowActions.find((action) => action.key === 'in_progress');
     const moreWorkflowActions = workflowActionPresentation.filter(isSecondaryTechWorkflowAction);
     const noPrimaryWorkflowActionMessage = getTechWorkflowNextStepMessage(workflowStatus) ||
         'There is no next workflow action for the current status.';
@@ -4425,6 +4413,71 @@ function TechOSAssignedJobDetail({
     const canControlWorkflow = canScheduleCrewRoleControlWorkflow(job.slot.crew_role);
     const visitCloseable = canControlWorkflow && isTechOSVisitCloseable(job.slot);
     const chatServiceRequestId = String(job.request?.id || job.slot.service_request_id || '').trim();
+
+    if (!isTechOSWorksiteStage(workflowStatus)) {
+        return (
+            <View style={[techJobDetailStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
+                <View style={techJobDetailHeaderStyle}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[jobNumberStyle, { color: techOSTheme.mutedTextColor }]}>{headerLabel}</Text>
+                        <Text style={[jobTitleStyle, { color: techOSTheme.textColor, marginBottom: 4 }]} numberOfLines={2}>
+                            {title}
+                        </Text>
+                        <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{location}</Text>
+                    </View>
+                    <ThemedButton
+                        title={backLabel}
+                        variant="secondary"
+                        onPress={onBack}
+                        style={techJobDetailBackButtonStyle}
+                    />
+                </View>
+
+                <View style={[techJobWorkspaceIntroStyle, { borderColor: techOSTheme.panelBorderColor }]}>
+                    <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>Travel to Job</Text>
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>Update Dispatch and the homeowner while you travel. The worksite tools open after you arrive.</Text>
+                    <Text style={[techJobWorkspaceCurrentStatusStyle, { color: techOSTheme.textColor }]}>Current: {formatTechWorkflowStatusText(workflowStatus)}</Text>
+                </View>
+
+                <TechOSDetailSection
+                    title="Travel Status"
+                    description="Use the next step below. Arrival opens the job worksite for notes, photos, estimates, and the rest of the visit."
+                    techOSTheme={techOSTheme}
+                    variantKey="workflow"
+                >
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>Arrival window: {formatArrivalWindow(job.slot)}</Text>
+                    {!canControlWorkflow && (
+                        <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 8 }]}>Only the lead technician can change the customer-facing travel status for this shared job.</Text>
+                    )}
+                    {!!message && (
+                        <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 8 }]}>{message}</Text>
+                    )}
+                    <View style={techWorkflowActionGridStyle}>
+                        {travelWorkflowAction ? (
+                            <ThemedButton
+                                title={updating ? 'Updating...' : travelWorkflowAction.label}
+                                variant="primary"
+                                disabled={updating || !canControlWorkflow}
+                                onPress={() => onRunWorkflowAction(job, travelWorkflowAction)}
+                                style={techWorkflowActionButtonStyle}
+                                textStyle={techWorkflowActionButtonTextStyle}
+                            />
+                        ) : (
+                            <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>{noPrimaryWorkflowActionMessage}</Text>
+                        )}
+                        <ThemedButton
+                            title={updating ? 'Updating...' : 'Running Late'}
+                            variant="secondary"
+                            disabled={updating || !canControlWorkflow}
+                            onPress={() => onRunWorkflowAction(job, TECH_CUSTOM_STATUS_ACTION, 'Running late. Dispatch has been notified.')}
+                            style={techWorkflowActionButtonStyle}
+                            textStyle={techWorkflowActionButtonTextStyle}
+                        />
+                    </View>
+                </TechOSDetailSection>
+            </View>
+        );
+    }
 
     return (
         <View style={[techJobDetailStyle, { borderColor: techOSTheme.panelBorderColor, backgroundColor: techOSTheme.panelBackgroundColor }]}>
@@ -4445,9 +4498,19 @@ function TechOSAssignedJobDetail({
             </View>
 
             <View style={[techJobWorkspaceIntroStyle, { borderColor: techOSTheme.panelBorderColor }]}>
-                <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>Job Workspace</Text>
-                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>Choose one area to work in. Open another area to switch, or tap the active button again to close it.</Text>
+                <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>Job Worksite</Text>
+                <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>You have arrived. Use these tools for the worksite code, notes, photos, estimates, and closeout.</Text>
                 <Text style={[techJobWorkspaceCurrentStatusStyle, { color: techOSTheme.textColor }]}>Current: {formatTechWorkflowStatusText(workflowStatus)}</Text>
+                {!!startWorkAction && (
+                    <ThemedButton
+                        title={updating ? 'Starting Job...' : 'Start Job'}
+                        variant="primary"
+                        disabled={updating || !canControlWorkflow}
+                        onPress={() => onRunWorkflowAction(job, startWorkAction)}
+                        style={[assignedJobActionButtonStyle, { marginTop: 10 }]}
+                        textStyle={techWorkflowActionButtonTextStyle}
+                    />
+                )}
                 {!!job.slot.crew_role && (
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 4 }]}>
                         Your role: {getCompanyScheduleCrewRoleLabel(job.slot.crew_role)}
@@ -4531,15 +4594,6 @@ function TechOSAssignedJobDetail({
                         style={techWorkflowActionButtonStyle}
                         textStyle={techWorkflowActionButtonTextStyle}
                     />
-                    {!!job.slot.id && (
-                        <ThemedButton
-                            title="Open Job Workflow"
-                            variant="secondary"
-                            onPress={() => onOpenFullJob(job)}
-                            style={techWorkflowActionButtonStyle}
-                            textStyle={techWorkflowActionButtonTextStyle}
-                        />
-                    )}
                 </View>
                 {!canOpenClientHomeOS && (
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
