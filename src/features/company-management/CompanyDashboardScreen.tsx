@@ -205,9 +205,10 @@ export default function CompanyDashboardScreen() {
     const [companyPermissions, setCompanyPermissions] = useState<CompanyPermissionSet | null>(null);
     const leadRefreshInFlight = useRef(false);
     const activeCompanyId = company?.id || routeCompanyId;
-    const visibleCards = cards.filter((card) =>
+    const visibleCards = cards;
+    const availableCardCount = cards.filter((card) =>
         isPlatformAdmin || canViewCompanyModule(card, companyPermissions)
-    );
+    ).length;
     const loadCompanyEvent = useEffectEvent(loadCompany);
 
     useEffect(() => {
@@ -622,6 +623,11 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
+        if (!isPlatformAdmin && !canViewCompanyModule(card, companyPermissions)) {
+            alert('This tool is reserved for the company owner, admin, or manager. It remains visible here so the full workspace is easy to find.');
+            return;
+        }
+
         if (card === 'Company Profile / Identity') {
             if (!isPlatformAdmin && !companyPermissions?.can_manage_company_profile) return;
             setIsConfigEditorOpen(true);
@@ -995,7 +1001,7 @@ export default function CompanyDashboardScreen() {
                             }}
                         >
                             <Text numberOfLines={1} style={{ color: brandAccent, fontSize: 12, fontWeight: '900' }}>
-                                {visibleCards.length} core modules
+                                {visibleCards.length} tools shown · {availableCardCount} available
                             </Text>
                         </View>
                     </View>
@@ -1035,6 +1041,7 @@ export default function CompanyDashboardScreen() {
                                 title={card}
                                 description={getModuleDescription(card)}
                                 actionLabel={getModuleActionLabel(card)}
+                                isAvailable={isPlatformAdmin || canViewCompanyModule(card, companyPermissions)}
                                 isExpanded={
                                     (card === 'Company Profile / Identity' && expandedConfigSection === 'identity') ||
                                     (card === 'Visual Control Center' && expandedConfigSection === 'theme') ||
@@ -1953,6 +1960,7 @@ function CompanyModuleCard({
     title,
     description,
     actionLabel,
+    isAvailable,
     isExpanded,
     primaryColor,
     accentColor,
@@ -1963,6 +1971,7 @@ function CompanyModuleCard({
     title: string;
     description: string;
     actionLabel: string;
+    isAvailable: boolean;
     isExpanded: boolean;
     primaryColor: string;
     accentColor: string;
@@ -2000,7 +2009,11 @@ function CompanyModuleCard({
                 minWidth: isPhoneLayout ? 0 : 240,
                 flexShrink: 1,
                 minHeight: 118,
-                backgroundColor: isExpanded ? primaryColor : glassColor,
+                backgroundColor: isExpanded
+                    ? primaryColor
+                    : isAvailable
+                        ? glassColor
+                        : mixHexColors(glassColor, '#FFFFFF', 0.52),
                 borderRadius: 18,
                 borderCurve: 'continuous',
                 padding: 16,
@@ -2010,6 +2023,7 @@ function CompanyModuleCard({
                 borderBottomWidth: pressed ? 1 : Math.max(1, Math.round(8 * depth)),
                 borderColor: isExpanded ? accentColor : glassBorder,
                 gap: 12,
+                opacity: isAvailable ? 1 : 0.78,
                 boxShadow: pressed
                     ? '0 1px 2px rgba(7, 27, 51, 0.14)'
                     : `0 ${Math.max(1, Math.round(10 * depth))}px ${Math.max(2, Math.round(20 * depth))}px rgba(7, 27, 51, ${0.05 + 0.2 * depth}), inset 0 1px 0 rgba(255, 255, 255, 0.94)`,
@@ -2021,7 +2035,11 @@ function CompanyModuleCard({
                     width: 44,
                     height: 44,
                     borderRadius: 15,
-                    backgroundColor: isExpanded ? accentColor : iconColor,
+                    backgroundColor: isExpanded
+                        ? accentColor
+                        : isAvailable
+                            ? iconColor
+                            : mixHexColors(iconColor, '#FFFFFF', 0.42),
                     alignItems: 'center',
                     justifyContent: 'center',
                 }}
@@ -2065,14 +2083,18 @@ function CompanyModuleCard({
                 <Text
                     numberOfLines={1}
                     style={{
-                        color: isExpanded ? getReadableColor(primaryColor) : accentColor,
+                        color: isExpanded
+                            ? getReadableColor(primaryColor)
+                            : isAvailable
+                                ? accentColor
+                                : '#64748B',
                         fontSize: 12,
                         fontWeight: '900',
                         marginTop: 8,
                         opacity: isExpanded ? 0.92 : 1,
                     }}
                 >
-                    {actionLabel} →
+                    {isAvailable ? `${actionLabel} →` : 'Owner / admin access'}
                 </Text>
             </View>
         </Pressable>
@@ -2183,7 +2205,9 @@ function canViewCompanyModule(card: string, permissions: CompanyPermissionSet | 
     }
     if (card === 'Estimates / Proposals') return permissions.can_create_estimates;
     if (card === 'Jobs / Dispatch') return permissions.can_view_jobs;
-    if (card === 'Team / Technicians') return permissions.can_manage_company_users;
+    if (card === 'Team / Technicians') {
+        return permissions.can_manage_company_users || permissions.can_view_jobs;
+    }
     if (card === 'Activity / Audit Log') return permissions.can_manage_company_users;
     if (card === 'Price Book') {
         return permissions.can_view_techos || permissions.can_manage_price_book;

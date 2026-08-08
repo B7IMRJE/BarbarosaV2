@@ -90,6 +90,7 @@ type CustomizableCompanyRole = Exclude<CompanyRole, 'owner'>;
 
 type CompanyUserManagementAccessResult = {
     canManage: boolean;
+    canView: boolean;
     message: string | null;
 };
 
@@ -158,6 +159,7 @@ export default function CompanyUsersScreen() {
     const [message, setMessage] = useState('Loading company users...');
     const [loadingLists, setLoadingLists] = useState(true);
     const [canManageUsers, setCanManageUsers] = useState(false);
+    const [canViewTeam, setCanViewTeam] = useState(false);
     const [submitStage, setSubmitStage] = useState<SubmitStage>('idle');
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
     const [manualInvitesById, setManualInvitesById] = useState<Record<string, ManualInviteDetails>>({});
@@ -217,6 +219,7 @@ export default function CompanyUsersScreen() {
     async function loadCompanyUsers(showLoading = true) {
         if (!id) {
             setCanManageUsers(false);
+            setCanViewTeam(false);
             setMessage('Missing company id.');
             setLoadingLists(false);
             return false;
@@ -225,33 +228,28 @@ export default function CompanyUsersScreen() {
         if (showLoading) {
             setLoadingLists(true);
             setCanManageUsers(false);
-            setMessage('Checking company user management access...');
+            setCanViewTeam(false);
+            setMessage('Checking team access...');
         }
 
         const accessResult = await loadCompanyUserManagementAccess(String(id));
 
-        if (!accessResult.canManage) {
+        if (!accessResult.canView) {
             setMembers([]);
             setInvitations([]);
             setCanManageUsers(false);
+            setCanViewTeam(false);
             setLoadingLists(false);
-            setMessage(accessResult.message || 'Company user management requires owner, admin, or manager access.');
+            setMessage(accessResult.message || 'Team access requires active Dispatch or company management access.');
             return false;
         }
 
-        setCanManageUsers(true);
+        setCanManageUsers(accessResult.canManage);
+        setCanViewTeam(true);
 
-        const [membersResult, invitationsResult, companyProfileResult, permissionProfilesResult] = await Promise.all([
+        const [membersResult, companyProfileResult] = await Promise.all([
             loadCompanyMembers(String(id)),
-            supabase
-                .from('company_user_invitations')
-                .select(
-                    'id, company_id, full_name, email, role, status, expires_at, created_at, last_email_attempted_at, last_email_sent_at, email_send_count, email_delivery_status, email_delivery_error'
-                )
-                .eq('company_id', String(id))
-                .order('created_at', { ascending: false }),
             loadCompanyWorkspaceProfile(String(id)),
-            loadCompanyRolePermissionProfiles(String(id)),
         ]);
 
         setLoadingLists(false);
@@ -261,15 +259,36 @@ export default function CompanyUsersScreen() {
             return false;
         }
 
+        setMembers(membersResult.data);
+        setCompanyName(companyProfileResult.name);
+        setCompanyBrand(companyProfileResult.brand);
+
+        if (!accessResult.canManage) {
+            setInvitations([]);
+            setCanManageRolePermissions(false);
+            if (showLoading) {
+                setMessage('Viewing the active company roster. Only owners, admins, and managers can change team access.');
+            }
+            return true;
+        }
+
+        const [invitationsResult, permissionProfilesResult] = await Promise.all([
+            supabase
+                .from('company_user_invitations')
+                .select(
+                    'id, company_id, full_name, email, role, status, expires_at, created_at, last_email_attempted_at, last_email_sent_at, email_send_count, email_delivery_status, email_delivery_error'
+                )
+                .eq('company_id', String(id))
+                .order('created_at', { ascending: false }),
+            loadCompanyRolePermissionProfiles(String(id)),
+        ]);
+
         if (invitationsResult.error) {
             setMessage(`Error loading invitations: ${invitationsResult.error.message}`);
             return false;
         }
 
-        setMembers(membersResult.data);
         setInvitations((invitationsResult.data || []) as CompanyInvitation[]);
-        setCompanyName(companyProfileResult.name);
-        setCompanyBrand(companyProfileResult.brand);
         setRolePermissions(permissionProfilesResult.profiles);
         setSavedRolePermissions(permissionProfilesResult.profiles);
         setCanManageRolePermissions(permissionProfilesResult.canCustomize);
@@ -808,7 +827,9 @@ export default function CompanyUsersScreen() {
                 <Text style={[titleStyle, { color: theme.colors.text }]}>Team / Technicians</Text>
 
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
-                    Manage company credentials, Dispatch access, technician access, and pending team invitations for TechOS.
+                    {canManageUsers
+                        ? 'Manage company credentials, Dispatch access, technician access, and pending team invitations for TechOS.'
+                        : 'View the active company roster for Dispatch assignments. Team access changes remain with the company owner, admin, or manager.'}
                 </Text>
 
                 {canManageUsers && (
@@ -1122,7 +1143,7 @@ export default function CompanyUsersScreen() {
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading company users...</Text>
                     </ThemedCard>
-                ) : canManageUsers ? (
+                ) : canViewTeam ? (
                     <>
                         <CompactSection
                             title="Company Owners"
@@ -1139,6 +1160,7 @@ export default function CompanyUsersScreen() {
                                         member={member}
                                         expanded={!!expandedRows[`member:${member.id}`]}
                                         actionLoadingKey={actionLoadingKey}
+                                        canManage={canManageUsers}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                     />
@@ -1161,6 +1183,7 @@ export default function CompanyUsersScreen() {
                                         member={member}
                                         expanded={!!expandedRows[`member:${member.id}`]}
                                         actionLoadingKey={actionLoadingKey}
+                                        canManage={canManageUsers}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                     />
@@ -1183,6 +1206,7 @@ export default function CompanyUsersScreen() {
                                         member={member}
                                         expanded={!!expandedRows[`member:${member.id}`]}
                                         actionLoadingKey={actionLoadingKey}
+                                        canManage={canManageUsers}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                     />
@@ -1205,6 +1229,7 @@ export default function CompanyUsersScreen() {
                                         member={member}
                                         expanded={!!expandedRows[`member:${member.id}`]}
                                         actionLoadingKey={actionLoadingKey}
+                                        canManage={canManageUsers}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                     />
@@ -1360,12 +1385,14 @@ function TeamMemberRow({
     member,
     expanded,
     actionLoadingKey,
+    canManage,
     onToggle,
     onStatusChange,
 }: {
     member: CompanyUser;
     expanded: boolean;
     actionLoadingKey: string | null;
+    canManage: boolean;
     onToggle: () => void;
     onStatusChange: (memberId: string, nextStatus: MemberActionStatus) => void;
 }) {
@@ -1434,7 +1461,7 @@ function TeamMemberRow({
                             { color: expanded ? theme.colors.primaryText : theme.colors.text },
                         ]}
                     >
-                        {expanded ? 'Close' : 'Manage'}
+                        {expanded ? 'Close' : canManage ? 'Manage' : 'View'}
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -1462,7 +1489,9 @@ function TeamMemberRow({
             {expanded && (
                 <View style={rowDetailsStyle}>
                     <View style={compactManageHeaderStyle}>
-                        <Text style={[compactManageTitleStyle, { color: theme.colors.text }]}>Manage Staff Member</Text>
+                        <Text style={[compactManageTitleStyle, { color: theme.colors.text }]}>
+                            {canManage ? 'Manage Staff Member' : 'Team Member Details'}
+                        </Text>
                         <View style={compactBadgeClusterStyle}>
                             <RoleBadge label={formatRole(member.role)} />
                             <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
@@ -1476,6 +1505,7 @@ function TeamMemberRow({
                         <DetailLine label="Contact" value={contactLine} />
                     </DetailPanelSection>
 
+                    {canManage && <>
                     <DetailPanelSection title="Billing Seat">
                         <DetailLine label="Seat" value={billingSeatLabel(status)} />
                         <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
@@ -1590,6 +1620,7 @@ function TeamMemberRow({
                         {status === 'active' && <PlaceholderButton title="Edit Permissions placeholder" />}
                         {status === 'inactive' && <PlaceholderButton title="Activate Seat placeholder" />}
                     </View>
+                    </>}
                 </View>
             )}
         </GlassGridCard>
@@ -2136,12 +2167,11 @@ async function loadCompanyUserManagementAccess(companyId: string): Promise<Compa
         p_company_id: companyId,
     });
 
-    if (!rpcResult.error) {
+    if (!rpcResult.error && rpcResult.data === true) {
         return {
-            canManage: rpcResult.data === true,
-            message: rpcResult.data === true
-                ? null
-                : 'Company user management requires owner, admin, or manager access.',
+            canManage: true,
+            canView: true,
+            message: null,
         };
     }
 
@@ -2150,14 +2180,27 @@ async function loadCompanyUserManagementAccess(companyId: string): Promise<Compa
     });
 
     if (permissionResult.access) {
-        return { canManage: true, message: null };
+        return { canManage: true, canView: true, message: null };
+    }
+
+    const dispatchAccessResult = await loadCurrentCompanyPermissionAccess('can_view_jobs', {
+        companyId,
+    });
+
+    if (dispatchAccessResult.access) {
+        return {
+            canManage: false,
+            canView: true,
+            message: 'Viewing the active company roster for Dispatch assignments.',
+        };
     }
 
     return {
         canManage: false,
-        message: permissionResult.error
-            ? `Company user management unavailable: ${permissionResult.error}`
-            : 'Company user management requires owner, admin, or manager access.',
+        canView: false,
+        message: dispatchAccessResult.error || permissionResult.error
+            ? `Company team access unavailable: ${dispatchAccessResult.error || permissionResult.error}`
+            : 'Team access requires active Dispatch or company management access.',
     };
 }
 
