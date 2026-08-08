@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { Component, useEffect, useEffectEvent, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
 import { Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import CompanyLeadSoundAlert from '../../components/CompanyLeadSoundAlert';
 import DispatchChatOverlay from '../../components/dispatch/DispatchChatOverlay';
@@ -282,7 +282,32 @@ const SECTION_CONFIGS: Record<DispatchWallSectionKey, WallSectionConfig> = {
 const TOP_SECTION_KEYS: DispatchWallSectionKey[] = ['emergency', 'emergency_leads', 'running_late', 'regular_leads', 'unassigned'];
 const BOTTOM_SECTION_KEYS: DispatchWallSectionKey[] = ['assigned_ready', 'on_my_way', 'in_progress', 'available', 'absent', 'closed_today'];
 
+/**
+ * The wall opens from a separate full-screen route.  Render a small, static
+ * first frame on web and mount the live board only after hydration has
+ * completed.  This keeps browser-only integrations (realtime, audio,
+ * fullscreen, and animated chat) from taking down the route during startup.
+ */
 export default function DispatchWallScreen() {
+    const [hasMounted, setHasMounted] = useState(false);
+    const [recoveryKey, setRecoveryKey] = useState(0);
+
+    useEffect(() => {
+        setHasMounted(true);
+    }, []);
+
+    if (!hasMounted) {
+        return <DispatchWallOpeningState />;
+    }
+
+    return (
+        <DispatchWallErrorBoundary onRetry={() => setRecoveryKey((current) => current + 1)}>
+            <DispatchWallContent key={recoveryKey} />
+        </DispatchWallErrorBoundary>
+    );
+}
+
+function DispatchWallContent() {
     const params = useLocalSearchParams<{ companyId?: string | string[]; demo?: string | string[]; from?: string | string[] }>();
     const requestedCompanyId = firstParam(params.companyId);
     const openedFrom = normalizeDispatchWallOpenSource(firstParam(params.from));
@@ -375,7 +400,10 @@ export default function DispatchWallScreen() {
     const loadWallboardEvent = useEffectEvent(loadWallboard);
 
     useEffect(() => {
-        void loadWallboardEvent();
+        void loadWallboardEvent().catch((error) => {
+            setMessage(`Could not load Dispatch Activity Board: ${getErrorMessage(error)}`);
+            setLoading(false);
+        });
     }, [requestedCompanyId, demoMode]);
 
     useEffect(() => {
@@ -590,6 +618,7 @@ export default function DispatchWallScreen() {
     });
     const activeCompanyId = companyAccess?.company_id || requestedCompanyId;
     const backRoute = getDispatchWallBackRoute({ companyId: activeCompanyId, openedFrom });
+    const canRenderLiveIntegrations = !loading && !!activeCompanyId;
 
     async function loadWallboard() {
         setLoading(true);
@@ -849,12 +878,16 @@ export default function DispatchWallScreen() {
 
     return (
         <View style={wallRootStyle}>
-            <CompanyLeadSoundAlert companyId={demoMode ? null : activeCompanyId} counts={leadCounts} />
-            <DispatchChatOverlay
-                companyId={demoMode ? null : activeCompanyId}
-                bottomOffset={72}
-                wallMode
-            />
+            {canRenderLiveIntegrations && (
+                <CompanyLeadSoundAlert companyId={demoMode ? null : activeCompanyId} counts={leadCounts} />
+            )}
+            {canRenderLiveIntegrations && (
+                <DispatchChatOverlay
+                    companyId={demoMode ? null : activeCompanyId}
+                    bottomOffset={72}
+                    wallMode
+                />
+            )}
             <View style={[
                 wallHeaderStyle,
                 compactWidth ? wallHeaderCompactStyle : null,
@@ -1030,6 +1063,78 @@ export default function DispatchWallScreen() {
 
         router.push(backRoute as never);
     }
+}
+
+type DispatchWallErrorBoundaryProps = {
+    children: ReactNode;
+    onRetry: () => void;
+};
+
+type DispatchWallErrorBoundaryState = {
+    failed: boolean;
+};
+
+class DispatchWallErrorBoundary extends Component<DispatchWallErrorBoundaryProps, DispatchWallErrorBoundaryState> {
+    state: DispatchWallErrorBoundaryState = { failed: false };
+
+    static getDerivedStateFromError(): DispatchWallErrorBoundaryState {
+        return { failed: true };
+    }
+
+    componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+        // Preserve the browser console details for support without showing
+        // internal implementation details to the dispatcher.
+        console.error('[dispatch-wall] render failure', error, errorInfo);
+    }
+
+    render() {
+        if (!this.state.failed) return this.props.children;
+
+        return (
+            <View style={wallRecoveryRootStyle}>
+                <View style={wallRecoveryCardStyle}>
+                    <Text style={wallRecoveryEyebrowStyle}>DISPATCH</Text>
+                    <Text style={wallRecoveryTitleStyle}>The Live Activity Board could not open.</Text>
+                    <Text style={wallRecoveryTextStyle}>
+                        Your dispatch data is still safe. Try opening the board again.
+                    </Text>
+                    <View style={wallRecoveryActionsStyle}>
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Try opening the Live Activity Board again"
+                            onPress={() => {
+                                this.setState({ failed: false });
+                                this.props.onRetry();
+                            }}
+                            style={wallRecoveryPrimaryButtonStyle}
+                        >
+                            <Text style={wallRecoveryPrimaryButtonTextStyle}>Try again</Text>
+                        </Pressable>
+                        <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel="Return to Dispatch Office"
+                            onPress={() => router.replace('/dispatch' as never)}
+                            style={wallRecoverySecondaryButtonStyle}
+                        >
+                            <Text style={wallRecoverySecondaryButtonTextStyle}>Return to Dispatch</Text>
+                        </Pressable>
+                    </View>
+                </View>
+            </View>
+        );
+    }
+}
+
+function DispatchWallOpeningState() {
+    return (
+        <View style={wallRecoveryRootStyle}>
+            <View style={wallRecoveryCardStyle}>
+                <Text style={wallRecoveryEyebrowStyle}>DISPATCH</Text>
+                <Text style={wallRecoveryTitleStyle}>Opening Live Activity Board</Text>
+                <Text style={wallRecoveryTextStyle}>Connecting live dispatch, schedule, and technician status.</Text>
+            </View>
+        </View>
+    );
 }
 
 function DispatchWallSection({
@@ -2370,6 +2475,88 @@ const wallRootStyle: ViewStyle = {
     paddingHorizontal: 12,
     paddingVertical: 10,
     width: Platform.OS === 'web' ? ('100vw' as ViewStyle['width']) : '100%',
+};
+
+const wallRecoveryRootStyle: ViewStyle = {
+    alignItems: 'center',
+    backgroundColor: '#020915',
+    flex: 1,
+    height: Platform.OS === 'web' ? ('100vh' as ViewStyle['height']) : '100%',
+    justifyContent: 'center',
+    padding: 24,
+    width: Platform.OS === 'web' ? ('100vw' as ViewStyle['width']) : '100%',
+};
+
+const wallRecoveryCardStyle: ViewStyle = {
+    alignItems: 'center',
+    backgroundColor: '#081B30',
+    borderColor: '#1E4667',
+    borderRadius: 18,
+    borderWidth: 1,
+    maxWidth: 520,
+    padding: 28,
+    width: '100%',
+};
+
+const wallRecoveryEyebrowStyle = {
+    color: '#56C9B1',
+    fontSize: 13,
+    fontWeight: '900' as const,
+    letterSpacing: 1.2,
+};
+
+const wallRecoveryTitleStyle = {
+    color: '#F8FBFF',
+    fontSize: 26,
+    fontWeight: '900' as const,
+    marginTop: 10,
+    textAlign: 'center' as const,
+};
+
+const wallRecoveryTextStyle = {
+    color: '#C7D9E8',
+    fontSize: 16,
+    fontWeight: '600' as const,
+    lineHeight: 23,
+    marginTop: 12,
+    textAlign: 'center' as const,
+};
+
+const wallRecoveryActionsStyle: ViewStyle = {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    justifyContent: 'center',
+    marginTop: 24,
+};
+
+const wallRecoveryPrimaryButtonStyle: ViewStyle = {
+    backgroundColor: '#0EA5B7',
+    borderRadius: 10,
+    minHeight: 46,
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+};
+
+const wallRecoveryPrimaryButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900' as const,
+};
+
+const wallRecoverySecondaryButtonStyle: ViewStyle = {
+    borderColor: '#4A6986',
+    borderRadius: 10,
+    borderWidth: 1,
+    minHeight: 46,
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+};
+
+const wallRecoverySecondaryButtonTextStyle = {
+    color: '#DCECF7',
+    fontSize: 16,
+    fontWeight: '800' as const,
 };
 
 const wallHeaderStyle: ViewStyle = {
