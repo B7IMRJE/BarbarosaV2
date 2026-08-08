@@ -50,6 +50,7 @@ import { loadRecentSoldJobs, type SoldJobRecord } from '../../lib/soldJobs';
 declare const __DEV__: boolean;
 
 const ASSIGNED_TECHNICIAN_DETAILS_UNAVAILABLE = 'Assigned technician details could not be loaded.';
+const HYDRATION_SAFE_WALL_TIME = new Date(0);
 
 type CompanyBrand = {
     id: string;
@@ -286,17 +287,19 @@ export default function DispatchWallScreen() {
     const requestedCompanyId = firstParam(params.companyId);
     const openedFrom = normalizeDispatchWallOpenSource(firstParam(params.from));
     const demoMode = isDevelopmentMode() && firstParam(params.demo).trim() === '1';
-    const { width, height } = useWindowDimensions();
+    const { width: liveWidth, height: liveHeight } = useWindowDimensions();
     const refreshInFlight = useRef(false);
     const activeWallCompanyIdRef = useRef('');
-    const onlineRef = useRef(isBrowserOnline());
+    // Keep the server and browser's first render identical. Browser-only values
+    // such as the current time and online state are applied after hydration.
+    const onlineRef = useRef(true);
     const lastLifecycleRefreshRequestAtRef = useRef(0);
     const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const realtimeChannelsRef = useRef<RealtimeChannel[]>([]);
     const realtimeGenerationRef = useRef(0);
     const realtimeReconnectAttemptRef = useRef(0);
-    const [clockNow, setClockNow] = useState(() => new Date());
-    const [dataNow, setDataNow] = useState(() => new Date());
+    const [clockNow, setClockNow] = useState<Date | null>(null);
+    const [dataNow, setDataNow] = useState<Date | null>(null);
     const [companyAccess, setCompanyAccess] = useState<WallCompanyAccess | null>(null);
     const [companyChoices, setCompanyChoices] = useState<WallCompanyAccess[]>([]);
     const [company, setCompany] = useState<CompanyBrand | null>(null);
@@ -313,14 +316,17 @@ export default function DispatchWallScreen() {
     const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
     const [realtimeState, setRealtimeState] = useState<DispatchWallRealtimeState>('idle');
     const [reconnectAttempt, setReconnectAttempt] = useState(0);
-    const [isOnline, setIsOnline] = useState(() => isBrowserOnline());
+    const [isOnline, setIsOnline] = useState(true);
     const [isTabHidden, setIsTabHidden] = useState(false);
     const [expandedSectionKey, setExpandedSectionKey] = useState<DispatchWallSectionKey | null>(null);
     const [detailItem, setDetailItem] = useState<DispatchWallItem | null>(null);
     const [fullscreenMessage, setFullscreenMessage] = useState('');
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [hasHydrated, setHasHydrated] = useState(false);
     const seenSoldWorkflowIdsRef = useRef<Set<string>>(new Set());
     const soldFlashTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+    const width = hasHydrated ? liveWidth : 0;
+    const height = hasHydrated ? liveHeight : 0;
     const {
         compactHeight,
         compactWidth,
@@ -328,6 +334,8 @@ export default function DispatchWallScreen() {
     } = resolveDispatchWallLayout(width, height);
 
     useEffect(() => {
+        setHasHydrated(true);
+        setClockNow(new Date());
         const intervalId = setInterval(() => {
             setClockNow(new Date());
         }, 1000);
@@ -336,6 +344,7 @@ export default function DispatchWallScreen() {
     }, []);
 
     useEffect(() => {
+        setDataNow(new Date());
         const intervalId = setInterval(() => {
             setDataNow(new Date());
         }, 30_000);
@@ -561,15 +570,16 @@ export default function DispatchWallScreen() {
         return () => keyTarget.removeEventListener?.('keydown', handleKeyDown);
     }, [expandedSectionKey, detailItem]);
 
+    const effectiveDataNow = dataNow || HYDRATION_SAFE_WALL_TIME;
     const sections = useMemo(() => (
-        buildDispatchWallSections(requests, scheduleSlots, companyUsers, dataNow, timingEvents)
-    ), [requests, scheduleSlots, companyUsers, dataNow, timingEvents]);
+        buildDispatchWallSections(requests, scheduleSlots, companyUsers, effectiveDataNow, timingEvents)
+    ), [requests, scheduleSlots, companyUsers, effectiveDataNow, timingEvents]);
     const leadCounts = useMemo(() => calculateCompanyLeadCounts(requests), [requests]);
     const companyName = getCompanyName(company) || (demoMode ? 'Bravo Dispatch' : 'Dispatch');
     const expandedItems = expandedSectionKey ? sections[expandedSectionKey] : [];
     const connectionStatus = getDispatchWallConnectionStatus({
         lastSuccessfulLoadAtMs: lastUpdatedAt ? Date.parse(lastUpdatedAt) : null,
-        nowMs: dataNow.getTime(),
+        nowMs: effectiveDataNow.getTime(),
         realtimeState: demoMode ? 'subscribed' : realtimeState,
         online: demoMode ? true : isOnline,
         loading,
@@ -915,8 +925,8 @@ export default function DispatchWallScreen() {
                     </View>
                     {!compactWidth && !stackedLayout && <View style={wallHeaderDividerStyle} />}
                     {!compactWidth && !stackedLayout && <View style={clockClusterStyle}>
-                        <Text style={clockTextStyle}>{formatClockTime(clockNow)}</Text>
-                        <Text style={dateTextStyle}>{formatClockDate(clockNow)}</Text>
+                        <Text style={clockTextStyle}>{clockNow ? formatClockTime(clockNow) : '--:--'}</Text>
+                        <Text style={dateTextStyle}>{clockNow ? formatClockDate(clockNow) : ''}</Text>
                     </View>}
                     <Pressable
                         accessibilityRole="button"
