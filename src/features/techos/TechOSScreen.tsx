@@ -1388,11 +1388,11 @@ export default function TechOSScreen() {
     }
 
     function handleOpenFullAssignedJob(job: TechAssignedScheduleJob) {
-        if (!job.slot.job_id) return;
+        if (!job.slot.id || !job.slot.company_id) return;
 
         router.push({
-            pathname: '/techos/job/[jobId]',
-            params: { jobId: job.slot.job_id, companyId: job.slot.company_id },
+            pathname: '/techos',
+            params: { companyId: job.slot.company_id, slotId: job.slot.id },
         } as any);
     }
 
@@ -4531,9 +4531,9 @@ function TechOSAssignedJobDetail({
                         style={techWorkflowActionButtonStyle}
                         textStyle={techWorkflowActionButtonTextStyle}
                     />
-                    {!!job.slot.job_id && (
+                    {!!job.slot.id && (
                         <ThemedButton
-                            title="Open Full Job"
+                            title="Open Job Workflow"
                             variant="secondary"
                             onPress={() => onOpenFullJob(job)}
                             style={techWorkflowActionButtonStyle}
