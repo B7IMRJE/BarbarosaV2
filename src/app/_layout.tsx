@@ -73,6 +73,14 @@ export default function Layout() {
   const checkLoginEvent = useEffectEvent(checkLogin);
 
   useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    // Keep the web startup fallback visible until this root layout has mounted.
+    // If the JavaScript bundle cannot start, the fallback remains instead of a blank page.
+    document.documentElement.removeAttribute('data-homeos-loading');
+  }, []);
+
+  useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
     let checking = false;
