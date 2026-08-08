@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -9,6 +9,11 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
+import {
+    HOMEOWNER_ACTIVE_REQUEST_REFRESH_MS,
+    loadActiveHomeownerRequestTrackers,
+} from '../../lib/homeownerActiveRequests';
+import { getHomeEmergencyDisplayStatus } from '../../lib/homeEmergencyStatus';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -23,6 +28,7 @@ type EmergencyRecord = {
     created_at: string;
     photo_urls?: string[] | null;
     service_request_id?: string | null;
+    service_request_status_key?: string | null;
 };
 
 function formatDate(value?: string | null) {
@@ -34,27 +40,74 @@ function normalizeText(value?: string | null) {
     return String(value || '').trim().toLowerCase();
 }
 
+function getEmergencyCardStatus(emergency: EmergencyRecord) {
+    return getHomeEmergencyDisplayStatus(emergency.status, emergency.service_request_status_key);
+}
+
 export default function EmergencyCenterScreen() {
     const { theme } = useTheme();
     const [emergencies, setEmergencies] = useState<EmergencyRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const [activePropertyId, setActivePropertyId] = useState('');
+    const loadEmergenciesEvent = useEffectEvent(loadEmergencies);
 
     useEffect(() => {
-        loadEmergencies();
+        void loadEmergenciesEvent();
     }, []);
 
-    async function loadEmergencies() {
-        setLoading(true);
+    useEffect(() => {
+        if (!activePropertyId) return;
+
+        const refresh = () => {
+            void loadEmergenciesEvent({ showLoading: false });
+        };
+        const channel = supabase
+            .channel(`home-emergency-center-status:${activePropertyId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'service_request_events',
+                    filter: `property_id=eq.${activePropertyId}`,
+                },
+                refresh
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'service_requests',
+                    filter: `property_id=eq.${activePropertyId}`,
+                },
+                refresh
+            )
+            .subscribe();
+        const intervalId = setInterval(refresh, HOMEOWNER_ACTIVE_REQUEST_REFRESH_MS);
+
+        return () => {
+            clearInterval(intervalId);
+            void supabase.removeChannel(channel);
+        };
+    }, [activePropertyId]);
+
+    async function loadEmergencies(options?: { showLoading?: boolean }) {
+        if (options?.showLoading !== false) {
+            setLoading(true);
+        }
         setMessage('');
 
         let activeProperty;
 
         try {
             activeProperty = await requireActivePropertyMembership();
+            setActivePropertyId(activeProperty.propertyId);
         } catch (error) {
             setMessage(activePropertyErrorMessage(error));
             setEmergencies([]);
+            setActivePropertyId('');
             setLoading(false);
 
             if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
@@ -89,7 +142,25 @@ export default function EmergencyCenterScreen() {
             setMessage(`Could not load emergencies: ${error.message}`);
             setEmergencies([]);
         } else {
-            setEmergencies((data || []) as EmergencyRecord[]);
+            const emergencyRecords = (data || []) as EmergencyRecord[];
+            let statusByServiceRequestId: Record<string, string> = {};
+
+            try {
+                const trackers = await loadActiveHomeownerRequestTrackers(activeProperty.propertyId);
+                statusByServiceRequestId = trackers.reduce<Record<string, string>>((accumulator, tracker) => {
+                    accumulator[tracker.request.id] = tracker.statusKey;
+                    return accumulator;
+                }, {});
+            } catch {
+                // The original HomeOS emergency status remains available if live Dispatch status cannot load.
+            }
+
+            setEmergencies(emergencyRecords.map((emergency) => ({
+                ...emergency,
+                service_request_status_key: emergency.service_request_id
+                    ? statusByServiceRequestId[emergency.service_request_id] || null
+                    : null,
+            })));
         }
 
         setLoading(false);
@@ -207,11 +278,11 @@ export default function EmergencyCenterScreen() {
                                 <View
                                     style={{
                                         backgroundColor:
-                                            emergency.status === 'Resolved'
+                                            getEmergencyCardStatus(emergency) === 'Resolved'
                                                 ? theme.colors.status.good.background
                                                 : theme.colors.status.activeEmergency.background,
                                         borderColor:
-                                            emergency.status === 'Resolved'
+                                            getEmergencyCardStatus(emergency) === 'Resolved'
                                                 ? theme.colors.status.good.border
                                                 : theme.colors.status.activeEmergency.border,
                                         borderWidth: 1,
@@ -222,7 +293,7 @@ export default function EmergencyCenterScreen() {
                                     }}
                                 >
                                     <Text style={{ color: theme.colors.text, fontWeight: '900' }}>
-                                        {emergency.status}
+                                        {getEmergencyCardStatus(emergency)}
                                     </Text>
                                 </View>
                             </View>

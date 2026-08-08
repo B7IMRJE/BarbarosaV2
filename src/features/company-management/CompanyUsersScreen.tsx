@@ -14,6 +14,7 @@ import AdminNavBar from '../../components/AdminNavBar';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../lib/companyAuditLogs';
+import { mergeCompanyTeamRosterMembers } from '../../lib/companyTeamRoster';
 import {
     COMPANY_PERMISSION_LABELS,
     canAccessTechOS as canAccessCompanyTechOS,
@@ -2175,23 +2176,31 @@ async function loadCompanyMembers(companyId: string): Promise<{
         };
     }
 
-    const directResult = await supabase
-        .from('company_users')
-        .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false });
+    const [directResult, dispatchRosterResult] = await Promise.all([
+        supabase
+            .from('company_users')
+            .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
+            .eq('company_id', companyId)
+            .order('created_at', { ascending: false }),
+        supabase.rpc('get_company_users_for_dispatch', {
+            p_company_id: companyId,
+        }),
+    ]);
 
-    if (directResult.error) {
+    if (directResult.error && dispatchRosterResult.error) {
         return {
             data: [],
             error: {
-                message: `${directResult.error.message}. Management RPC fallback also failed: ${rpcResult.error.message}`,
+                message: `${directResult.error.message}. Management RPC failed: ${rpcResult.error.message}. Dispatch roster fallback also failed: ${dispatchRosterResult.error.message}`,
             },
         };
     }
 
+    const directMembers = directResult.error ? [] : normalizeCompanyUsers(directResult.data);
+    const dispatchRosterMembers = dispatchRosterResult.error ? [] : normalizeCompanyUsers(dispatchRosterResult.data);
+
     return {
-        data: normalizeCompanyUsers(directResult.data),
+        data: mergeCompanyTeamRosterMembers(directMembers, dispatchRosterMembers),
         error: null,
     };
 }

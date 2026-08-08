@@ -27,8 +27,11 @@ import {
     requestHomeownerServiceRequestUpdate,
 } from '../../lib/homeServiceRequests';
 import {
+    HOMEOWNER_ACTIVE_REQUEST_REFRESH_MS,
     getHomeownerFacingStatusLabel,
+    getHomeownerFacingStatusKey,
 } from '../../lib/homeownerActiveRequests';
+import { getHomeEmergencyDisplayStatus } from '../../lib/homeEmergencyStatus';
 import {
     loadHomeServiceReviewsForEmergency,
     saveHomeServiceReview,
@@ -40,6 +43,7 @@ import {
     loadPreferredProviderForProperty,
     type PreferredProvider,
 } from '../../lib/preferredProviders';
+import { loadHomeownerServiceRequestTimeline } from '../../lib/serviceRequestActivity';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -91,6 +95,11 @@ function formatDate(value?: string | null) {
     return new Date(value).toLocaleString();
 }
 
+function getTimeValue(value?: string | null) {
+    const parsed = Date.parse(String(value || ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function makeHistoryEntry(kind: EmergencyHistoryEntry['kind'], message: string) {
     return {
         id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -123,6 +132,7 @@ export default function EmergencyDetailScreen() {
     const [sentServiceRequestId, setSentServiceRequestId] = useState('');
     const [sentServiceRequestDisplayCode, setSentServiceRequestDisplayCode] = useState('');
     const [sentServiceRequestStatus, setSentServiceRequestStatus] = useState('');
+    const [sentServiceRequestEventType, setSentServiceRequestEventType] = useState('');
     const [reviews, setReviews] = useState<HomeServiceReview[]>([]);
     const [activeReviewTarget, setActiveReviewTarget] = useState<HomeServiceReviewTarget | null>(null);
     const [technicianReviewForm, setTechnicianReviewForm] = useState<ReviewFormState>(emptyReviewForm);
@@ -130,10 +140,48 @@ export default function EmergencyDetailScreen() {
     const [reviewMessage, setReviewMessage] = useState('');
     const [savingReviewTarget, setSavingReviewTarget] = useState<HomeServiceReviewTarget | null>(null);
     const loadEmergencyEvent = useEffectEvent(loadEmergency);
+    const loadLinkedServiceRequestStatusEvent = useEffectEvent(loadLinkedServiceRequestStatus);
 
     useEffect(() => {
         void loadEmergencyEvent();
     }, [id]);
+
+    useEffect(() => {
+        if (!activePropertyId || !sentServiceRequestId) return;
+
+        const refreshStatus = () => {
+            void loadLinkedServiceRequestStatusEvent(sentServiceRequestId);
+        };
+        const channel = supabase
+            .channel(`home-emergency-request-status:${activePropertyId}:${sentServiceRequestId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'service_request_events',
+                    filter: `property_id=eq.${activePropertyId}`,
+                },
+                refreshStatus
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'service_requests',
+                    filter: `id=eq.${sentServiceRequestId}`,
+                },
+                refreshStatus
+            )
+            .subscribe();
+        const intervalId = setInterval(refreshStatus, HOMEOWNER_ACTIVE_REQUEST_REFRESH_MS);
+
+        return () => {
+            clearInterval(intervalId);
+            void supabase.removeChannel(channel);
+        };
+    }, [activePropertyId, sentServiceRequestId]);
 
     async function loadEmergency(options?: { preserveMessages?: boolean }) {
         setLoading(true);
@@ -142,6 +190,7 @@ export default function EmergencyDetailScreen() {
             setNoteMessage('');
             setServiceRequestMessage('');
             setSentServiceRequestStatus('');
+            setSentServiceRequestEventType('');
             setReviewMessage('');
         }
 
@@ -203,22 +252,31 @@ export default function EmergencyDetailScreen() {
     }
 
     async function loadLinkedServiceRequestStatus(serviceRequestId: string) {
-        const { data, error } = await supabase
-            .from('service_requests')
-            .select('id, display_sequence, display_code, status')
-            .eq('id', serviceRequestId)
-            .maybeSingle();
+        const [{ data, error }, timeline] = await Promise.all([
+            supabase
+                .from('service_requests')
+                .select('id, display_sequence, display_code, status')
+                .eq('id', serviceRequestId)
+                .maybeSingle(),
+            loadHomeownerServiceRequestTimeline(serviceRequestId).catch(() => []),
+        ]);
 
         if (error || !data) {
             setSentServiceRequestStatus('');
             setSentServiceRequestDisplayCode('');
+            setSentServiceRequestEventType('');
             return;
         }
 
         const record = data as { status?: string | null; display_code?: string | null; display_sequence?: number | null };
+        const homeownerEvents = timeline
+            .filter((event) => String(event.audience || '').trim().toLowerCase() === 'homeowner')
+            .sort((first, second) => getTimeValue(first.created_at) - getTimeValue(second.created_at));
+        const latestEvent = homeownerEvents[homeownerEvents.length - 1] || null;
 
         setSentServiceRequestStatus(String(record.status || ''));
         setSentServiceRequestDisplayCode(getServiceRequestDisplayCode(record));
+        setSentServiceRequestEventType(String(latestEvent?.event_type || ''));
     }
 
     async function loadPreferredProvider(propertyId: string) {
@@ -337,6 +395,7 @@ export default function EmergencyDetailScreen() {
         setSentServiceRequestId(confirmedRequest.id);
         setSentServiceRequestDisplayCode(getServiceRequestDisplayCode(confirmedRequest));
         setSentServiceRequestStatus(confirmedRequest.status);
+        setSentServiceRequestEventType('');
         const requestReference = formatServiceRequestReference(confirmedRequest);
 
         setServiceRequestMessage(`${requestReference} sent to ${preferredProvider.companyName}.`);
@@ -562,6 +621,18 @@ export default function EmergencyDetailScreen() {
     const history = normalizeHistory(emergency.history);
     const currentServiceRequestId = firstText(emergency.service_request_id, sentServiceRequestId);
     const hasDispatchRequest = !!currentServiceRequestId;
+    const homeownerRequestStatusKey = getHomeownerFacingStatusKey(
+        sentServiceRequestStatus,
+        sentServiceRequestEventType
+    );
+    const homeownerRequestStatusLabel = getHomeownerFacingStatusLabel(
+        sentServiceRequestStatus,
+        sentServiceRequestEventType
+    );
+    const emergencyDisplayStatus = getHomeEmergencyDisplayStatus(
+        emergency.status,
+        hasDispatchRequest ? homeownerRequestStatusKey : null
+    );
     const savedTechnicianReview = findReview(reviews, 'technician');
     const savedCompanyReview = findReview(reviews, 'company');
 
@@ -611,7 +682,7 @@ export default function EmergencyDetailScreen() {
                     </Text>
                     {hasDispatchRequest && (
                         <Text style={{ color: theme.colors.mutedText, marginTop: 6, fontWeight: '900' }}>
-                            Status: {getHomeownerFacingStatusLabel(sentServiceRequestStatus) || 'Unknown'}
+                            Status: {homeownerRequestStatusLabel || 'Unknown'}
                         </Text>
                     )}
                     <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>
@@ -674,7 +745,7 @@ export default function EmergencyDetailScreen() {
                             marginTop: 6,
                         }}
                     >
-                        {emergency.status}
+                        {emergencyDisplayStatus}
                     </Text>
 
                     <Text
