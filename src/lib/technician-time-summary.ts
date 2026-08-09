@@ -1,4 +1,8 @@
 export const REGULAR_SHIFT_SECONDS = 8 * 60 * 60;
+export const OVERTIME_WARNING_LEAD_SECONDS = 30 * 60;
+export const OVERTIME_WARNING_SECONDS = REGULAR_SHIFT_SECONDS - OVERTIME_WARNING_LEAD_SECONDS;
+
+export type TechnicianOvertimeWarningState = 'none' | 'approaching' | 'overtime';
 
 export type TechnicianShiftTimeEntry = {
     clockedInAt: string;
@@ -43,6 +47,21 @@ export function formatTechnicianHours(seconds: number) {
     const hours = Math.floor(safeSeconds / 3600);
     const minutes = Math.floor((safeSeconds % 3600) / 60);
     return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+}
+
+export function formatTechnicianClock(seconds: number) {
+    const safeSeconds = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(safeSeconds / 3600);
+    const minutes = Math.floor((safeSeconds % 3600) / 60);
+    const remainingSeconds = safeSeconds % 60;
+    return `${hours}h ${String(minutes).padStart(2, '0')}m ${String(remainingSeconds).padStart(2, '0')}s`;
+}
+
+export function getTechnicianOvertimeWarningState(workedSeconds: number): TechnicianOvertimeWarningState {
+    const safeSeconds = Math.max(0, Math.floor(workedSeconds));
+    if (safeSeconds >= REGULAR_SHIFT_SECONDS) return 'overtime';
+    if (safeSeconds >= OVERTIME_WARNING_SECONDS) return 'approaching';
+    return 'none';
 }
 
 function getActiveLunchSeconds(

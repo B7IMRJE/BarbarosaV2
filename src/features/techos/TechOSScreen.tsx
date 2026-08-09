@@ -48,7 +48,10 @@ import {
 import { supabase } from '../../lib/supabase';
 import { runTechnicianClockIn } from '../../lib/technician-clock-in';
 import {
+    formatTechnicianClock,
     formatTechnicianHours,
+    getTechnicianOvertimeWarningState,
+    REGULAR_SHIFT_SECONDS,
     getTechnicianShiftHourSummary,
 } from '../../lib/technician-time-summary';
 import {
@@ -303,6 +306,7 @@ type PlatformProfile = {
 
 type TechOSMode = 'technician' | 'management-preview' | 'platform-preview';
 type TechDashboardView = 'jobs' | 'schedule' | 'history' | 'estimates' | 'sales' | 'messages' | 'time-clock' | 'van-inventory';
+type TechOSTimeClockStep = 'overview' | 'lunch' | 'overtime' | 'clock-out' | 'correction' | 'day-submit' | 'history';
 
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 const TECHOS_ASSIGNMENT_REFRESH_MS = 30_000;
@@ -337,6 +341,7 @@ export default function TechOSScreen() {
     const [showAssignedClients, setShowAssignedClients] = useState(false);
     const [techOSMode, setTechOSMode] = useState<TechOSMode>('technician');
     const [dashboardView, setDashboardView] = useState<TechDashboardView>('jobs');
+    const [timeClockInitialStep, setTimeClockInitialStep] = useState<TechOSTimeClockStep>('overview');
     const [dashboardContentScrollRequest, setDashboardContentScrollRequest] = useState(0);
     const [activeTechnicians, setActiveTechnicians] = useState<CompanyUser[]>([]);
     const [expandedAssignmentJobs, setExpandedAssignmentJobs] = useState<Record<string, boolean>>({});
@@ -389,8 +394,16 @@ export default function TechOSScreen() {
 
     function openDashboardView(view: TechDashboardView) {
         setSelectedAssignedJobId('');
+        if (view === 'time-clock') setTimeClockInitialStep('overview');
         setDashboardView(view);
         setDashboardContentScrollRequest((current) => current + 1);
+    }
+
+    function openTimeClock(step: TechOSTimeClockStep = 'overview') {
+        setSelectedAssignedJobId('');
+        setTimeClockInitialStep(step);
+        setDashboardView('time-clock');
+        technicianScrollRef.current?.scrollTo({ animated: true, y: 0 });
     }
 
     const requestedCompanyId = useMemo(() => firstParam(companyId), [companyId]);
@@ -415,6 +428,11 @@ export default function TechOSScreen() {
     const technicianHourSummary = summaryTechnicianTimeEntry
         ? getTechnicianShiftHourSummary(summaryTechnicianTimeEntry, technicianTimeNow)
         : { regularSeconds: 0, overtimeSeconds: 0, workedSeconds: 0 };
+    const technicianOvertimeWarningState = openTechnicianTimeEntry
+        ? getTechnicianOvertimeWarningState(technicianHourSummary.workedSeconds)
+        : 'none';
+    const technicianMealRecorded = !!openTechnicianTimeEntry
+        && (openTechnicianTimeEntry.breakMinutes >= 30 || !!openTechnicianTimeEntry.breakStartedAt);
     const openTechnicianTimeEntryId = openTechnicianTimeEntry?.id || '';
     const visibleClients = useMemo(
         () => clients.filter((client) => normalizeStatus(client.status) !== 'archived'),
@@ -2002,6 +2020,8 @@ export default function TechOSScreen() {
     const technicianName = isPlatformAdminAccess
         ? 'Platform Admin'
         : membership?.full_name || authEmail || membership?.email || 'Technician';
+    const isTimeClockFocused = isTechnicianWorkspace && dashboardView === 'time-clock' && !selectedAssignedJob;
+    const overtimeRemainingSeconds = Math.max(0, REGULAR_SHIFT_SECONDS - technicianHourSummary.workedSeconds);
 
     if (isTechnicianWorkspace && accessMode !== 'working') {
         return (
@@ -2026,6 +2046,7 @@ export default function TechOSScreen() {
 
     return (
         <CompanyGlassDepthProvider value={company?.glass_depth}>
+        <View style={{ flex: 1, backgroundColor: techOSTheme.screenBackgroundColor || theme.colors.background }}>
         <ScrollView
             ref={technicianScrollRef}
             style={{ flex: 1, backgroundColor: techOSTheme.screenBackgroundColor || theme.colors.background }}
@@ -2033,7 +2054,7 @@ export default function TechOSScreen() {
         >
             <View style={{ width: '100%', maxWidth: 980, minWidth: 0 }}>
                 <HomeHeader />
-                {!selectedAssignedJob && <TechOSProfileHeader
+                {!selectedAssignedJob && !isTimeClockFocused && <TechOSProfileHeader
                     canPreviewLogo={canPreviewLogo}
                     companyName={companyName}
                     email={authEmail || membership?.email || null}
@@ -2052,10 +2073,12 @@ export default function TechOSScreen() {
                     upcomingJobCount={dashboardFutureCount}
                     showTechnicianHours={isTechnicianWorkspace}
                     onSignOut={signOutFromTechOS}
+                    onOpenTimeClock={() => openTimeClock('overview')}
+                    onOpenClockOut={() => openTimeClock('clock-out')}
                     signingOut={signingOut}
                 />}
 
-                {!!dispatchCompanyId && !selectedAssignedJob && (
+                {!!dispatchCompanyId && !selectedAssignedJob && !isTimeClockFocused && (
                     <View style={techQuickActionRowStyle}>
                         <ThemedButton
                             title="Open Dispatch"
@@ -2067,7 +2090,7 @@ export default function TechOSScreen() {
                     </View>
                 )}
 
-                {!isTechnicianWorkspace && !selectedAssignedJob && (
+                {!isTechnicianWorkspace && !selectedAssignedJob && !isTimeClockFocused && (
                     <ThemedCard style={messageCardStyle}>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                             This is not a technician login. Select or assign a technician from ManagementOS to preview their workload.
@@ -2075,13 +2098,13 @@ export default function TechOSScreen() {
                     </ThemedCard>
                 )}
 
-                {!!message && !selectedAssignedJob && (
+                {!!message && !selectedAssignedJob && !isTimeClockFocused && (
                     <ThemedCard style={messageCardStyle}>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
                     </ThemedCard>
                 )}
 
-                {!!assignmentBanner && !selectedAssignedJob && (
+                {!!assignmentBanner && !selectedAssignedJob && !isTimeClockFocused && (
                     <ThemedCard style={assignmentBannerStyle}>
                         <Text style={[assignmentBannerTextStyle, { color: theme.colors.primary }]}>
                             {assignmentBanner}
@@ -2089,7 +2112,7 @@ export default function TechOSScreen() {
                     </ThemedCard>
                 )}
 
-                {isTechnicianWorkspace && !selectedAssignedJob && timingPromptJob && (
+                {isTechnicianWorkspace && !selectedAssignedJob && !isTimeClockFocused && timingPromptJob && (
                     <TechTimingPromptCard
                         estimatedRemainingMinutes={timingEstimateBySlotId[timingPromptJob.slot.id] || ''}
                         job={timingPromptJob}
@@ -2104,7 +2127,7 @@ export default function TechOSScreen() {
                     />
                 )}
 
-                {!selectedAssignedJob && (
+                {!selectedAssignedJob && !isTimeClockFocused && (
                     <TechOSDashboardCards
                         activeView={dashboardView}
                         historyCount={dashboardHistoryCount}
@@ -2175,6 +2198,8 @@ export default function TechOSScreen() {
                         onRunTechnicianNextJobStatusAction={handleTechnicianNextJobStatusAction}
                         onRunWorkflowAction={handleTechWorkflowAction}
                         onTimeEntriesChange={handleTechnicianTimeEntriesChange}
+                        onCloseTimeClock={() => openDashboardView('jobs')}
+                        timeClockInitialStep={timeClockInitialStep}
                         updatingWorkflowSlotId={updatingWorkflowSlotId}
                         workflowMessageBySlotId={workflowMessageBySlotId}
                         workflowStatusBySlotId={workflowStatusBySlotId}
@@ -2266,7 +2291,7 @@ export default function TechOSScreen() {
                     />
                 )}
 
-                {isTechnicianWorkspace && !selectedAssignedJob && (
+                {isTechnicianWorkspace && !selectedAssignedJob && !isTimeClockFocused && (
                     <GlassCard
                         tone="steel"
                         style={{
@@ -2283,7 +2308,6 @@ export default function TechOSScreen() {
                             ['history', 'history', 'History'],
                             ['estimates', 'file-document-edit-outline', 'Estimates'],
                             ['messages', 'message-text-outline', 'Messages'],
-                            ['time-clock', 'clock-outline', 'Time'],
                             ['van-inventory', 'truck-outline', 'Van'],
                         ] as const).map(([view, icon, label]) => {
                             const active = dashboardView === view;
@@ -2333,13 +2357,42 @@ export default function TechOSScreen() {
                     </GlassCard>
                 )}
 
-                {!selectedAssignedJob && (
+                {!selectedAssignedJob && !isTimeClockFocused && (
                     <View style={buttonRowStyle}>
                         <ThemedButton title="Refresh TechOS" onPress={loadTechOSAccess} style={buttonStyle} />
                     </View>
                 )}
             </View>
         </ScrollView>
+        {isTechnicianWorkspace
+            && !isTimeClockFocused
+            && !!openTechnicianTimeEntry
+            && technicianOvertimeWarningState !== 'none' && (
+            <View
+                pointerEvents="box-none"
+                style={techOvertimeFloatingLayerStyle}
+            >
+                <ThemedCard style={techOvertimeFloatingCardStyle}>
+                    <Text style={[techMealWarningTitleStyle, { color: techOSTheme.textColor }]}>Shift check</Text>
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
+                        {technicianMealRecorded
+                            ? technicianOvertimeWarningState === 'overtime'
+                                ? 'Your eight regular hours are complete. Overtime needs Dispatch approval.'
+                                : `Overtime begins in ${formatTechnicianHours(overtimeRemainingSeconds)}. Lunch is recorded.`
+                            : technicianOvertimeWarningState === 'overtime'
+                                ? 'Have you taken your 30-minute lunch? Eight worked hours are complete and overtime needs approval.'
+                                : `Have you taken your 30-minute lunch? Overtime begins in ${formatTechnicianHours(overtimeRemainingSeconds)}.`}
+                    </Text>
+                    <ThemedButton
+                        title="Review Time"
+                        variant="primary"
+                        onPress={() => openTimeClock('lunch')}
+                        style={techOvertimeFloatingButtonStyle}
+                    />
+                </ThemedCard>
+            </View>
+        )}
+        </View>
         </CompanyGlassDepthProvider>
     );
 }
@@ -2428,6 +2481,8 @@ function TechOSProfileHeader({
     todayCount,
     upcomingJobCount,
     showTechnicianHours,
+    onOpenClockOut,
+    onOpenTimeClock,
     onSignOut,
     signingOut,
 }: {
@@ -2448,6 +2503,8 @@ function TechOSProfileHeader({
     todayCount: number;
     upcomingJobCount: number;
     showTechnicianHours: boolean;
+    onOpenClockOut: () => void;
+    onOpenTimeClock: () => void;
     onSignOut: () => void;
     signingOut: boolean;
 }) {
@@ -2517,8 +2574,11 @@ function TechOSProfileHeader({
                             { label: 'Overtime', seconds: technicianHourSummary.overtimeSeconds },
                             { label: 'Total', seconds: technicianHourSummary.workedSeconds },
                         ].map((item) => (
-                            <View
+                            <TouchableOpacity
                                 key={item.label}
+                                accessibilityRole="button"
+                                accessibilityLabel={`Open time clock. ${item.label} ${formatTechnicianClock(item.seconds)}`}
+                                onPress={onOpenTimeClock}
                                 style={[
                                     techProfileHourStyle,
                                     {
@@ -2539,14 +2599,22 @@ function TechOSProfileHeader({
                                         },
                                     ]}
                                 >
-                                    {technicianTimeEntriesLoaded ? formatTechnicianHours(item.seconds) : '—'}
+                                    {technicianTimeEntriesLoaded ? formatTechnicianClock(item.seconds) : '—'}
                                 </Text>
                                 <Text selectable style={[techProfileHourLabelStyle, { color: techOSTheme.mutedTextColor }]}>
                                     {item.label}
                                 </Text>
-                            </View>
+                            </TouchableOpacity>
                         ))}
                     </View>
+                    {technicianTimeEntryState === 'current' && (
+                        <ThemedButton
+                            title="Clock Out"
+                            variant="primary"
+                            onPress={onOpenClockOut}
+                            style={techProfileClockOutButtonStyle}
+                        />
+                    )}
                 </View>
             )}
             <View style={techProfileStatsRowStyle}>
@@ -2960,12 +3028,6 @@ function TechOSDashboardCards({
             note: 'updates soon',
         },
         {
-            key: 'time-clock',
-            title: 'Time Clock',
-            value: 'Open',
-            note: 'clock in / clock out',
-        },
-        {
             key: 'van-inventory',
             title: 'Van Inventory',
             value: 'Soon',
@@ -3042,6 +3104,8 @@ function TechOSDashboardContent({
     onRunTechnicianNextJobStatusAction,
     onRunWorkflowAction,
     onTimeEntriesChange,
+    onCloseTimeClock,
+    timeClockInitialStep,
     updatingWorkflowSlotId,
     workflowMessageBySlotId,
     workflowStatusBySlotId,
@@ -3079,6 +3143,8 @@ function TechOSDashboardContent({
     onRunTechnicianNextJobStatusAction: (job: TechAssignedScheduleJob, action: TechnicianNextJobStatusAction, currentVisitStatus: string) => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
     onTimeEntriesChange: (entries: TechnicianTimeEntry[]) => void;
+    onCloseTimeClock: () => void;
+    timeClockInitialStep: TechOSTimeClockStep;
     updatingWorkflowSlotId: string;
     workflowMessageBySlotId: Record<string, string>;
     workflowStatusBySlotId: Record<string, string>;
@@ -3197,6 +3263,8 @@ function TechOSDashboardContent({
     if (activeView === 'time-clock') {
         return (
             <TechOSTimeClockPanel
+                initialStep={timeClockInitialStep}
+                onBack={onCloseTimeClock}
                 onEntriesChange={onTimeEntriesChange}
                 technicianCompanyUserId={technicianCompanyUserId}
             />
@@ -3396,18 +3464,22 @@ function TechOSSoldJobRecord({
 }
 
 function TechOSTimeClockPanel({
+    initialStep,
+    onBack,
     onEntriesChange,
     technicianCompanyUserId,
 }: {
+    initialStep: TechOSTimeClockStep;
+    onBack: () => void;
     onEntriesChange: (entries: TechnicianTimeEntry[]) => void;
     technicianCompanyUserId: string;
 }) {
     const { theme } = useTheme();
+    const [activeStep, setActiveStep] = useState<TechOSTimeClockStep>(initialStep);
     const [entries, setEntries] = useState<TechnicianTimeEntry[]>([]);
     const [clockMessage, setClockMessage] = useState('Loading time clock...');
     const [updatingClock, setUpdatingClock] = useState(false);
     const [now, setNow] = useState(() => Date.now());
-    const [correctionOpen, setCorrectionOpen] = useState(false);
     const [correctionMode, setCorrectionMode] = useState<'clock_in' | 'clock_out'>('clock_in');
     const [correctionTime, setCorrectionTime] = useState('08:00');
     const [correctionReason, setCorrectionReason] = useState('');
@@ -3415,7 +3487,10 @@ function TechOSTimeClockPanel({
     const [injuryReported, setInjuryReported] = useState(false);
     const [injuryDetails, setInjuryDetails] = useState('');
     const [daySignature, setDaySignature] = useState('');
-    const [historyOpen, setHistoryOpen] = useState(false);
+
+    useEffect(() => {
+        setActiveStep(initialStep);
+    }, [initialStep]);
 
     const refreshClock = useCallback(async () => {
         if (!technicianCompanyUserId) {
@@ -3446,16 +3521,12 @@ function TechOSTimeClockPanel({
     const hourSummary = summaryEntry
         ? getTechnicianShiftHourSummary(summaryEntry, now)
         : { regularSeconds: 0, overtimeSeconds: 0, workedSeconds: 0 };
-    const shiftSeconds = openEntry
-        ? Math.max(0, Math.floor((now - new Date(openEntry.clockedInAt).getTime()) / 1000))
-        : 0;
     const mealRecorded = !!openEntry && (openEntry.breakMinutes >= 30 || !!openEntry.breakStartedAt);
-    const mealWarning = !!openEntry && !mealRecorded && shiftSeconds >= 4.5 * 60 * 60;
-    const mealOverdue = !!openEntry && !mealRecorded && shiftSeconds >= 5 * 60 * 60;
-    const warningVisible = !mealOverdue || Math.floor(now / 500) % 2 === 0;
     const workedSeconds = openEntry ? hourSummary.workedSeconds : 0;
-    const overtimeApproaching = !!openEntry && workedSeconds >= 7.5 * 60 * 60;
-    const overtimeActive = !!openEntry && workedSeconds >= 8 * 60 * 60;
+    const overtimeWarningState = openEntry ? getTechnicianOvertimeWarningState(workedSeconds) : 'none';
+    const overtimeApproaching = overtimeWarningState === 'approaching';
+    const overtimeActive = overtimeWarningState === 'overtime';
+    const overtimeRemainingSeconds = Math.max(0, REGULAR_SHIFT_SECONDS - workedSeconds);
     const openEntryId = openEntry?.id || '';
 
     useEffect(() => {
@@ -3466,12 +3537,14 @@ function TechOSTimeClockPanel({
 
     async function toggleClock() {
         if (!technicianCompanyUserId || updatingClock) return;
+        const wasClockedIn = !!openEntry;
         setUpdatingClock(true);
-        setClockMessage(openEntry ? 'Clocking out...' : 'Clocking in...');
+        setClockMessage(wasClockedIn ? 'Clocking out...' : 'Clocking in...');
         try {
-            await setTechnicianClock(technicianCompanyUserId, openEntry ? 'clock_out' : 'clock_in');
+            await setTechnicianClock(technicianCompanyUserId, wasClockedIn ? 'clock_out' : 'clock_in');
             await refreshClock();
-            setClockMessage(openEntry ? 'Clocked out.' : 'Clocked in.');
+            setClockMessage(wasClockedIn ? 'Clocked out. Review and submit your workday.' : 'Clocked in.');
+            setActiveStep(wasClockedIn ? 'day-submit' : 'overview');
         } catch (error) {
             setClockMessage(`Time clock update failed: ${getErrorMessage(error)}`);
         } finally {
@@ -3479,7 +3552,10 @@ function TechOSTimeClockPanel({
         }
     }
 
-    async function runTimeEntryAction(action: 'start_break' | 'end_break' | 'add_30_minute_break' | 'start_rest_break' | 'end_rest_break') {
+    async function runTimeEntryAction(
+        action: 'start_break' | 'end_break' | 'add_30_minute_break' | 'start_rest_break' | 'end_rest_break',
+        nextStep?: TechOSTimeClockStep
+    ) {
         if (!technicianCompanyUserId || updatingClock) return;
         setUpdatingClock(true);
         setClockMessage('Updating lunch break...');
@@ -3491,8 +3567,9 @@ function TechOSTimeClockPanel({
                     : action === 'end_break' ? 'Lunch ended.'
                         : action === 'start_rest_break' ? 'Rest break started.'
                             : action === 'end_rest_break' ? 'Rest break ended.'
-                                : 'Forgotten 30-minute lunch recorded from 11:30 AM to 12:00 PM.'
+                                : 'Your previously taken 30-minute lunch was recorded.'
             );
+            if (nextStep) setActiveStep(nextStep);
         } catch (error) {
             setClockMessage(`Lunch update failed: ${getErrorMessage(error)}`);
         } finally {
@@ -3527,9 +3604,9 @@ function TechOSTimeClockPanel({
                     accuracyMeters: location?.accuracy,
                 });
             }
-            setCorrectionOpen(false);
             setCorrectionReason('');
             setClockMessage('Correction sent to Dispatch. Your time will not change unless it is approved.');
+            setActiveStep('overview');
         } catch (error) {
             setClockMessage(`Correction request failed: ${getErrorMessage(error)}`);
         } finally {
@@ -3550,6 +3627,7 @@ function TechOSTimeClockPanel({
             });
             await refreshClock();
             setClockMessage('Workday signed and submitted.');
+            setActiveStep('overview');
         } catch (error) {
             setClockMessage(`Workday submission failed: ${getErrorMessage(error)}`);
         } finally {
@@ -3557,294 +3635,470 @@ function TechOSTimeClockPanel({
         }
     }
 
-    return (
-        <ThemedCard style={assignedJobsSectionStyle}>
-            <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Time Clock</Text>
-            <Text style={[summaryValueStyle, { color: openEntry ? '#36D994' : theme.colors.text }]}>
-                {openEntry ? 'Clocked In' : 'Clocked Out'}
-            </Text>
-            <View style={techHourSummaryGridStyle}>
-                <View
-                    style={[
-                        techHourSummaryCardStyle,
-                        { backgroundColor: theme.colors.background, borderColor: theme.colors.border },
-                    ]}
-                >
-                    <Text selectable style={[techHourSummaryLabelStyle, { color: theme.colors.mutedText }]}>
-                        REGULAR HOURS
-                    </Text>
-                    <Text selectable style={[techHourSummaryValueStyle, { color: theme.colors.text }]}>
-                        {formatTechnicianHours(hourSummary.regularSeconds)}
-                    </Text>
-                </View>
-                <View
-                    style={[
-                        techHourSummaryCardStyle,
-                        {
-                            backgroundColor: theme.colors.background,
-                            borderColor: overtimeActive ? '#55A7E8' : theme.colors.border,
-                        },
-                    ]}
-                >
-                    <Text selectable style={[techHourSummaryLabelStyle, { color: theme.colors.mutedText }]}>
-                        OVERTIME HOURS
-                    </Text>
-                    <Text
-                        selectable
-                        style={[
-                            techHourSummaryValueStyle,
-                            { color: hourSummary.overtimeSeconds > 0 ? '#55A7E8' : theme.colors.text },
-                        ]}
-                    >
-                        {formatTechnicianHours(hourSummary.overtimeSeconds)}
-                    </Text>
-                </View>
-                <View
-                    style={[
-                        techHourSummaryCardStyle,
-                        { backgroundColor: theme.colors.background, borderColor: theme.colors.border },
-                    ]}
-                >
-                    <Text selectable style={[techHourSummaryLabelStyle, { color: theme.colors.mutedText }]}>
-                        TOTAL HOURS
-                    </Text>
-                    <Text selectable style={[techHourSummaryValueStyle, { color: theme.colors.text }]}>
-                        {formatTechnicianHours(hourSummary.workedSeconds)}
-                    </Text>
-                </View>
-            </View>
-            <Text selectable style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                {summaryEntry
-                    ? `${openEntry ? 'Current' : 'Latest'} shift · first 8 worked hours are regular · recorded lunch excluded`
-                    : 'No shift recorded yet · regular and overtime hours will appear here'}
-            </Text>
-            {!!openEntry && (
-                <>
-                    <View style={[
-                        techRunningClockStyle,
-                        {
-                            backgroundColor: overtimeActive ? '#123E68' : overtimeApproaching ? '#7A4A00' : '#DFF8EA',
-                            borderColor: overtimeActive ? '#55A7E8' : overtimeApproaching ? '#FFD166' : '#79D5A5',
-                            opacity: overtimeActive && Math.floor(now / 600) % 2 ? 0.5 : 1,
-                        },
-                    ]}>
-                        <Text style={[techClockElapsedStyle, { color: overtimeApproaching ? '#FFFFFF' : '#123E2C' }]}>
-                            {formatTimeEntryDuration(openEntry, now)}
-                        </Text>
-                        {overtimeApproaching && (
-                            <Text style={techClockStateStyle}>
-                                {overtimeActive ? 'OVERTIME — DISPATCH REVIEW REQUIRED' : 'OVERTIME APPROACHING — 30 MINUTES'}
+    async function requestOvertimeApproval() {
+        if (!technicianCompanyUserId || updatingClock) return;
+        setUpdatingClock(true);
+        setClockMessage('Sending overtime request to Dispatch...');
+        try {
+            await requestTimeApproval(technicianCompanyUserId, 'overtime');
+            setClockMessage('Overtime approval request sent to Dispatch.');
+            setActiveStep('overview');
+        } catch (error) {
+            setClockMessage(`Overtime request failed: ${getErrorMessage(error)}`);
+        } finally {
+            setUpdatingClock(false);
+        }
+    }
+
+    const stepTitle: Record<TechOSTimeClockStep, string> = {
+        overview: 'Time Clock',
+        lunch: 'Lunch Check',
+        overtime: 'Overtime Review',
+        'clock-out': 'Clock Out',
+        correction: 'Time Correction',
+        'day-submit': 'Submit Workday',
+        history: 'Time Clock History',
+    };
+
+    function renderHourSummary() {
+        return (
+            <>
+                <View style={techHourSummaryGridStyle}>
+                    {[
+                        { label: 'REGULAR', seconds: hourSummary.regularSeconds },
+                        { label: 'OVERTIME', seconds: hourSummary.overtimeSeconds },
+                        { label: 'TOTAL', seconds: hourSummary.workedSeconds },
+                    ].map((item) => (
+                        <View
+                            key={item.label}
+                            style={[
+                                techHourSummaryCardStyle,
+                                {
+                                    backgroundColor: theme.colors.background,
+                                    borderColor: item.label === 'OVERTIME' && item.seconds > 0
+                                        ? '#55A7E8'
+                                        : theme.colors.border,
+                                },
+                            ]}
+                        >
+                            <Text selectable style={[techHourSummaryLabelStyle, { color: theme.colors.mutedText }]}>
+                                {item.label}
                             </Text>
-                        )}
-                    </View>
-                    {overtimeApproaching && (
-                        <ThemedButton
-                            title="Request Overtime Approval"
-                            variant={overtimeActive ? 'primary' : 'secondary'}
-                            disabled={updatingClock}
-                            onPress={() => {
-                                setUpdatingClock(true);
-                                setClockMessage('Sending overtime request to Dispatch...');
-                                void requestTimeApproval(technicianCompanyUserId, 'overtime')
-                                    .then(() => setClockMessage('Overtime approval request sent to Dispatch.'))
-                                    .catch((error) => setClockMessage(`Overtime request failed: ${getErrorMessage(error)}`))
-                                    .finally(() => setUpdatingClock(false));
-                            }}
-                            style={assignedJobActionButtonStyle}
-                        />
-                    )}
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        Started {formatTechOSDateTime(openEntry.clockedInAt)}
-                    </Text>
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        Lunch: {activeBreak ? 'In progress' : `${openEntry.breakMinutes} minutes recorded`}
-                    </Text>
-                    {mealWarning && (
-                        <View style={[
-                            techMealWarningStyle,
-                            {
-                                backgroundColor: mealOverdue ? '#7F1D1D' : '#7A4A00',
-                                borderColor: mealOverdue ? '#FF6B6B' : '#FFD166',
-                                opacity: warningVisible ? 1 : 0.32,
-                            },
-                        ]}>
-                            <Text style={techMealWarningTitleStyle}>
-                                {mealOverdue ? 'MEAL PERIOD DUE NOW' : 'Meal period approaching'}
-                            </Text>
-                            <Text style={techMealWarningBodyStyle}>
-                                {mealOverdue
-                                    ? 'You have reached five hours without a recorded meal. Start your duty-free meal period now and notify Dispatch if work prevented it.'
-                                    : 'You are within 30 minutes of five hours. Plan to begin a 30-minute duty-free meal before the end of your fifth hour.'}
+                            <Text
+                                selectable
+                                style={[
+                                    techHourSummaryValueStyle,
+                                    { color: item.label === 'OVERTIME' && item.seconds > 0 ? '#55A7E8' : theme.colors.text },
+                                ]}
+                            >
+                                {formatTechnicianClock(item.seconds)}
                             </Text>
                         </View>
-                    )}
-                    <View style={techWorkflowActionGridStyle}>
-                        <ThemedButton
-                            title={activeBreak ? 'End Lunch Break' : 'Start Lunch Break'}
-                            variant="secondary"
-                            disabled={updatingClock || (!activeBreak && openEntry.breakMinutes >= 30)}
-                            onPress={() => runTimeEntryAction(activeBreak ? 'end_break' : 'start_break')}
-                            style={techWorkflowActionButtonStyle}
-                        />
-                    </View>
-                    <TouchableOpacity
-                        accessibilityRole="button"
-                        onPress={() => runTimeEntryAction(activeRestBreak ? 'end_rest_break' : 'start_rest_break')}
-                        disabled={updatingClock || activeBreak}
-                        style={{ alignSelf: 'flex-start', paddingVertical: 8 }}
-                    >
-                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText, textDecorationLine: 'underline' }]}>
-                            {activeRestBreak ? 'End 10-minute rest break' : 'Take a 10-minute rest break'}
-                        </Text>
-                    </TouchableOpacity>
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        If a required meal is not recorded, the shift is flagged for office review; time is never deducted for a meal that was not taken.
-                    </Text>
-                </>
-            )}
-            <ThemedButton
-                title={updatingClock ? 'Saving...' : openEntry ? 'Clock Out' : 'Clock In'}
-                variant={openEntry ? 'secondary' : 'primary'}
-                disabled={!technicianCompanyUserId || updatingClock}
-                onPress={toggleClock}
-                style={assignedJobActionButtonStyle}
-            />
-            {!openEntry && (
-                <View style={techWorkflowActionGridStyle}>
-                    <ThemedButton
-                        title={correctionOpen && correctionMode === 'clock_in' ? 'Cancel Clock-In Request' : 'Forgot to Clock In?'}
-                        variant="secondary"
-                        disabled={updatingClock}
-                        onPress={() => {
-                            setCorrectionMode('clock_in');
-                            setCorrectionOpen((current) => correctionMode === 'clock_in' ? !current : true);
-                        }}
-                        style={techWorkflowActionButtonStyle}
-                    />
-                    <ThemedButton
-                        title={correctionOpen && correctionMode === 'clock_out' ? 'Cancel Clock-Out Request' : 'Forgot to Clock Out?'}
-                        variant="secondary"
-                        disabled={updatingClock || !latestEntry}
-                        onPress={() => {
-                            setCorrectionMode('clock_out');
-                            setCorrectionOpen((current) => correctionMode === 'clock_out' ? !current : true);
-                        }}
-                        style={techWorkflowActionButtonStyle}
-                    />
+                    ))}
                 </View>
-            )}
-            {correctionOpen && (
-                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
-                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>
-                        Request a corrected {correctionMode === 'clock_out' ? 'clock-out' : 'clock-in'}
-                    </Text>
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        This does not change your time. Dispatch must review and approve it.
-                        {correctionMode === 'clock_in' ? ' Clock-in requests cannot be earlier than 8:00 AM today.' : ''}
-                    </Text>
-                    <TextInput
-                        value={correctionTime}
-                        onChangeText={setCorrectionTime}
-                        placeholder="08:00"
-                        placeholderTextColor={theme.colors.mutedText}
-                        style={[techCompactInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
-                    />
-                    <TextInput
-                        value={correctionReason}
-                        onChangeText={setCorrectionReason}
-                        placeholder={`Why was the clock-${correctionMode === 'clock_out' ? 'out' : 'in'} missed?`}
-                        placeholderTextColor={theme.colors.mutedText}
-                        multiline
-                        style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
-                    />
-                    <ThemedButton
-                        title="Send to Dispatch for Approval"
-                        variant="primary"
-                        disabled={updatingClock || !/^(0[89]|1\d|2[0-3]):[0-5]\d$/.test(correctionTime) || correctionReason.trim().length < 4}
-                        onPress={submitForgottenClockIn}
-                        style={assignedJobActionButtonStyle}
-                    />
-                </View>
-            )}
-            {!!clockMessage && <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{clockMessage}</Text>}
-            {!!latestEntry && !latestEntry.clockedOutAt && (
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                    Clock out before signing and submitting today.
+                <Text selectable style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                    {summaryEntry
+                        ? `${openEntry ? 'Current' : 'Latest'} shift · recorded lunch is excluded from worked time`
+                        : 'No shift recorded yet'}
                 </Text>
-            )}
-            {!!latestEntry?.clockedOutAt && !latestEntry.submittedAt && (
-                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
-                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>Sign and submit today</Text>
-                    {latestEntry.breakMinutes < 30 && (
+            </>
+        );
+    }
+
+    function renderOverview() {
+        return (
+            <>
+                <Text style={[summaryValueStyle, { color: openEntry ? '#36D994' : theme.colors.text }]}>
+                    {openEntry ? 'Clocked In' : 'Clocked Out'}
+                </Text>
+                {renderHourSummary()}
+                {!!openEntry && (
+                    <View
+                        style={[
+                            techRunningClockStyle,
+                            {
+                                backgroundColor: overtimeActive ? '#123E68' : overtimeApproaching ? '#7A4A00' : '#DFF8EA',
+                                borderColor: overtimeActive ? '#55A7E8' : overtimeApproaching ? '#FFD166' : '#79D5A5',
+                            },
+                        ]}
+                    >
+                        <Text style={[techClockElapsedStyle, { color: overtimeWarningState === 'none' ? '#123E2C' : '#FFFFFF' }]}>
+                            {formatTechnicianClock(hourSummary.workedSeconds)}
+                        </Text>
+                        <Text style={[clientMetaTextStyle, { color: overtimeWarningState === 'none' ? '#315C4A' : '#FFFFFF' }]}>
+                            Worked time since {formatTechOSDateTime(openEntry.clockedInAt)}
+                        </Text>
+                    </View>
+                )}
+                {overtimeWarningState !== 'none' && (
+                    <View style={[techMealWarningStyle, { backgroundColor: '#7A4A00', borderColor: '#FFD166' }]}>
+                        <Text style={techMealWarningTitleStyle}>
+                            {overtimeActive
+                                ? 'Eight regular hours reached'
+                                : `Overtime begins in ${formatTechnicianHours(overtimeRemainingSeconds)}`}
+                        </Text>
+                        <Text style={techMealWarningBodyStyle}>
+                            {mealRecorded
+                                ? 'Lunch is recorded. Review your time and request Dispatch approval before overtime.'
+                                : 'Have you taken your 30-minute lunch? Review it before requesting overtime approval.'}
+                        </Text>
+                    </View>
+                )}
+                {!!openEntry && (
+                    <View style={{ gap: 10 }}>
                         <ThemedButton
-                            title="I Forgot to Record My 30-Minute Lunch"
+                            title={activeBreak ? 'Lunch in Progress — Open Lunch' : 'Review Lunch & Breaks'}
                             variant="secondary"
-                            disabled={updatingClock}
-                            onPress={() => runTimeEntryAction('add_30_minute_break')}
+                            onPress={() => setActiveStep('lunch')}
                             style={assignedJobActionButtonStyle}
                         />
-                    )}
+                        {overtimeWarningState !== 'none' && (
+                            <ThemedButton
+                                title="Review Overtime Approval"
+                                variant="secondary"
+                                onPress={() => setActiveStep('overtime')}
+                                style={assignedJobActionButtonStyle}
+                            />
+                        )}
+                        <ThemedButton
+                            title="Clock Out"
+                            variant="primary"
+                            onPress={() => setActiveStep('clock-out')}
+                            style={assignedJobActionButtonStyle}
+                        />
+                    </View>
+                )}
+                {!openEntry && (
+                    <View style={{ gap: 10 }}>
+                        {!!latestEntry?.clockedOutAt && !latestEntry.submittedAt && (
+                            <ThemedButton
+                                title="Review and Submit Workday"
+                                variant="primary"
+                                onPress={() => setActiveStep('day-submit')}
+                                style={assignedJobActionButtonStyle}
+                            />
+                        )}
+                        <ThemedButton
+                            title={updatingClock ? 'Clocking In...' : 'Clock In'}
+                            variant="primary"
+                            disabled={!technicianCompanyUserId || updatingClock}
+                            onPress={toggleClock}
+                            style={assignedJobActionButtonStyle}
+                        />
+                        <View style={techWorkflowActionGridStyle}>
+                            <ThemedButton
+                                title="Forgot to Clock In?"
+                                variant="secondary"
+                                onPress={() => {
+                                    setCorrectionMode('clock_in');
+                                    setActiveStep('correction');
+                                }}
+                                style={techWorkflowActionButtonStyle}
+                            />
+                            <ThemedButton
+                                title="Forgot to Clock Out?"
+                                variant="secondary"
+                                disabled={!latestEntry}
+                                onPress={() => {
+                                    setCorrectionMode('clock_out');
+                                    setActiveStep('correction');
+                                }}
+                                style={techWorkflowActionButtonStyle}
+                            />
+                        </View>
+                    </View>
+                )}
+                <ThemedButton
+                    title="View Time History"
+                    variant="secondary"
+                    onPress={() => setActiveStep('history')}
+                    style={assignedJobActionButtonStyle}
+                />
+            </>
+        );
+    }
+
+    function renderLunchStep() {
+        return (
+            <>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Have you taken your 30-minute lunch?</Text>
+                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                    Record only the lunch you actually took. Lunch time is excluded from worked hours.
+                    {' '}If you already took lunch without using the clock, record those 30 minutes after clocking out and before submitting the day.
+                </Text>
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>Current lunch record</Text>
+                    <Text style={[summaryValueStyle, { color: theme.colors.text }]}>
+                        {activeBreak ? 'In progress' : `${openEntry?.breakMinutes || latestEntry?.breakMinutes || 0} min`}
+                    </Text>
+                </View>
+                {!!openEntry && (
+                    <View style={{ gap: 10 }}>
+                        <ThemedButton
+                            title={activeBreak ? 'End Lunch Now' : 'Start Lunch Now'}
+                            variant="primary"
+                            disabled={updatingClock || (!activeBreak && openEntry.breakMinutes >= 30)}
+                            onPress={() => runTimeEntryAction(activeBreak ? 'end_break' : 'start_break', 'overview')}
+                            style={assignedJobActionButtonStyle}
+                        />
+                        <ThemedButton
+                            title={activeRestBreak ? 'End Rest Break' : 'Take a 10-Minute Rest Break'}
+                            variant="secondary"
+                            disabled={updatingClock || activeBreak}
+                            onPress={() => runTimeEntryAction(activeRestBreak ? 'end_rest_break' : 'start_rest_break', 'overview')}
+                            style={assignedJobActionButtonStyle}
+                        />
+                        {overtimeWarningState !== 'none' && (
+                            <ThemedButton
+                                title="Continue to Overtime Review"
+                                variant="secondary"
+                                onPress={() => setActiveStep('overtime')}
+                                style={assignedJobActionButtonStyle}
+                            />
+                        )}
+                    </View>
+                )}
+                {!!latestEntry?.clockedOutAt && latestEntry.breakMinutes < 30 && (
+                    <ThemedButton
+                        title="I Already Took 30 Minutes — Record It"
+                        variant="primary"
+                        disabled={updatingClock}
+                        onPress={() => runTimeEntryAction('add_30_minute_break', 'day-submit')}
+                        style={assignedJobActionButtonStyle}
+                    />
+                )}
+            </>
+        );
+    }
+
+    function renderOvertimeStep() {
+        return (
+            <>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Review time before overtime</Text>
+                {renderHourSummary()}
+                <View style={[techMealWarningStyle, { backgroundColor: '#7A4A00', borderColor: '#FFD166' }]}>
+                    <Text style={techMealWarningTitleStyle}>
+                        {overtimeActive ? 'Overtime has started' : `Overtime begins in ${formatTechnicianHours(overtimeRemainingSeconds)}`}
+                    </Text>
+                    <Text style={techMealWarningBodyStyle}>
+                        {mealRecorded
+                            ? 'Your lunch is recorded. Request approval from Dispatch before continuing into overtime.'
+                            : 'No 30-minute lunch is recorded. Take lunch now if it is still due. If you already took it without using the clock, record it after clock-out and before submitting the day.'}
+                    </Text>
+                </View>
+                {!mealRecorded && (
+                    <ThemedButton
+                        title="Review Lunch First"
+                        variant="secondary"
+                        onPress={() => setActiveStep('lunch')}
+                        style={assignedJobActionButtonStyle}
+                    />
+                )}
+                <ThemedButton
+                    title={updatingClock ? 'Sending Request...' : 'Request Overtime Approval'}
+                    variant="primary"
+                    disabled={updatingClock || !openEntry}
+                    onPress={requestOvertimeApproval}
+                    style={assignedJobActionButtonStyle}
+                />
+                <ThemedButton
+                    title="Clock Out Instead"
+                    variant="secondary"
+                    onPress={() => setActiveStep('clock-out')}
+                    style={assignedJobActionButtonStyle}
+                />
+            </>
+        );
+    }
+
+    function renderClockOutStep() {
+        return (
+            <>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Ready to clock out?</Text>
+                {renderHourSummary()}
+                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>Lunch record</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                        {activeBreak
+                            ? 'Lunch is still in progress. End it before clocking out.'
+                            : `${openEntry?.breakMinutes || 0} minutes recorded`}
+                    </Text>
+                </View>
+                {!mealRecorded && !activeBreak && (
+                    <ThemedButton
+                        title="Take Lunch Before Clocking Out"
+                        variant="secondary"
+                        onPress={() => setActiveStep('lunch')}
+                        style={assignedJobActionButtonStyle}
+                    />
+                )}
+                <ThemedButton
+                    title={updatingClock ? 'Clocking Out...' : 'Clock Out Now'}
+                    variant="primary"
+                    disabled={!openEntry || activeBreak || updatingClock}
+                    onPress={toggleClock}
+                    style={assignedJobActionButtonStyle}
+                />
+                <ThemedButton
+                    title="Keep Working"
+                    variant="secondary"
+                    onPress={() => setActiveStep('overview')}
+                    style={assignedJobActionButtonStyle}
+                />
+            </>
+        );
+    }
+
+    function renderCorrectionStep() {
+        return (
+            <>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Request a corrected {correctionMode === 'clock_out' ? 'clock-out' : 'clock-in'}</Text>
+                <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                    This sends a request to Dispatch. Your time does not change until it is approved.
+                </Text>
+                <TextInput
+                    value={correctionTime}
+                    onChangeText={setCorrectionTime}
+                    placeholder="08:00"
+                    placeholderTextColor={theme.colors.mutedText}
+                    style={[techCompactInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                />
+                <TextInput
+                    value={correctionReason}
+                    onChangeText={setCorrectionReason}
+                    placeholder={`Why was the clock-${correctionMode === 'clock_out' ? 'out' : 'in'} missed?`}
+                    placeholderTextColor={theme.colors.mutedText}
+                    multiline
+                    style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                />
+                <ThemedButton
+                    title="Send to Dispatch for Approval"
+                    variant="primary"
+                    disabled={updatingClock || !/^(0[89]|1\d|2[0-3]):[0-5]\d$/.test(correctionTime) || correctionReason.trim().length < 4}
+                    onPress={submitForgottenClockIn}
+                    style={assignedJobActionButtonStyle}
+                />
+            </>
+        );
+    }
+
+    function renderDaySubmitStep() {
+        if (!latestEntry?.clockedOutAt) {
+            return (
+                <>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Clock out before signing and submitting today.</Text>
+                    <ThemedButton title="Return to Time Clock" variant="primary" onPress={() => setActiveStep('overview')} style={assignedJobActionButtonStyle} />
+                </>
+            );
+        }
+
+        if (latestEntry.submittedAt) {
+            return (
+                <>
+                    <Text style={[summaryValueStyle, { color: '#36D994' }]}>Submitted</Text>
+                    <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Today’s signed workday has been submitted.</Text>
+                    <ThemedButton title="Done" variant="primary" onPress={onBack} style={assignedJobActionButtonStyle} />
+                </>
+            );
+        }
+
+        return (
+            <>
+                <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Sign and submit today</Text>
+                {latestEntry.breakMinutes < 30 && (
+                    <ThemedButton
+                        title="Review Missing Lunch"
+                        variant="secondary"
+                        disabled={updatingClock}
+                        onPress={() => setActiveStep('lunch')}
+                        style={assignedJobActionButtonStyle}
+                    />
+                )}
+                <TextInput
+                    value={dayNotes}
+                    onChangeText={setDayNotes}
+                    placeholder="Corrections, changes, or notes about today"
+                    placeholderTextColor={theme.colors.mutedText}
+                    multiline
+                    style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                />
+                <ThemedButton
+                    title={injuryReported ? 'Injury Reported: Yes' : 'Any injury today? No'}
+                    variant={injuryReported ? 'danger' : 'secondary'}
+                    onPress={() => setInjuryReported((current) => !current)}
+                    style={assignedJobActionButtonStyle}
+                />
+                {injuryReported && (
                     <TextInput
-                        value={dayNotes}
-                        onChangeText={setDayNotes}
-                        placeholder="Corrections, changes, or notes about today"
+                        value={injuryDetails}
+                        onChangeText={setInjuryDetails}
+                        placeholder="Describe the injury and immediate action taken"
                         placeholderTextColor={theme.colors.mutedText}
                         multiline
                         style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
                     />
-                    <ThemedButton
-                        title={injuryReported ? 'Injury Reported: Yes' : 'Any injury today? No'}
-                        variant={injuryReported ? 'danger' : 'secondary'}
-                        onPress={() => setInjuryReported((current) => !current)}
-                        style={assignedJobActionButtonStyle}
-                    />
-                    {injuryReported && (
-                        <TextInput
-                            value={injuryDetails}
-                            onChangeText={setInjuryDetails}
-                            placeholder="Describe the injury and immediate action taken"
-                            placeholderTextColor={theme.colors.mutedText}
-                            multiline
-                            style={[techCustomStatusInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
-                        />
-                    )}
-                    <SignaturePad label="Technician daily signature" value={daySignature} onChange={setDaySignature} />
-                    <ThemedButton
-                        title="Sign and Submit Workday"
-                        variant="primary"
-                        disabled={updatingClock || !isDrawnSignature(daySignature) || (injuryReported && injuryDetails.trim().length < 4)}
-                        onPress={submitDay}
-                        style={assignedJobActionButtonStyle}
-                    />
+                )}
+                <SignaturePad label="Technician daily signature" value={daySignature} onChange={setDaySignature} />
+                <ThemedButton
+                    title="Sign and Submit Workday"
+                    variant="primary"
+                    disabled={updatingClock || !isDrawnSignature(daySignature) || (injuryReported && injuryDetails.trim().length < 4)}
+                    onPress={submitDay}
+                    style={assignedJobActionButtonStyle}
+                />
+            </>
+        );
+    }
+
+    function renderHistoryStep() {
+        return entries.length === 0 ? (
+            <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>No time clock history yet.</Text>
+        ) : (
+            <View style={{ gap: 10 }}>
+                {entries.map((entry) => (
+                    <View key={entry.id} style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.text }]}>
+                            {formatTechOSDateTime(entry.clockedInAt)} → {entry.clockedOutAt ? formatTechOSDateTime(entry.clockedOutAt) : 'In progress'}
+                        </Text>
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                            {formatTimeEntryDuration(entry, now)} · Lunch {entry.breakMinutes}m · Rest breaks {entry.restBreakMinutes}m
+                        </Text>
+                        {entry.mealExceptionReported && (
+                            <Text style={[clientMetaTextStyle, { color: '#FF8A80' }]}>Meal exception requires office review</Text>
+                        )}
+                        {!!entry.submittedAt && (
+                            <Text style={[clientMetaTextStyle, { color: '#36D994' }]}>Signed and submitted</Text>
+                        )}
+                    </View>
+                ))}
+            </View>
+        );
+    }
+
+    const activeContent = activeStep === 'overview' ? renderOverview()
+        : activeStep === 'lunch' ? renderLunchStep()
+            : activeStep === 'overtime' ? renderOvertimeStep()
+                : activeStep === 'clock-out' ? renderClockOutStep()
+                    : activeStep === 'correction' ? renderCorrectionStep()
+                        : activeStep === 'day-submit' ? renderDaySubmitStep()
+                            : renderHistoryStep();
+
+    return (
+        <ThemedCard style={assignedJobsSectionStyle}>
+            <View style={{ alignItems: 'center', flexDirection: 'row', gap: 10 }}>
+                <ThemedButton
+                    title={activeStep === 'overview' ? 'Back to TechOS' : 'Back'}
+                    variant="secondary"
+                    onPress={activeStep === 'overview' ? onBack : () => setActiveStep('overview')}
+                    style={{ flexGrow: 0, minWidth: 110 }}
+                />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>TIMEKEEPING</Text>
+                    <Text style={[sectionTitleStyle, { color: theme.colors.text, marginBottom: 0 }]}>{stepTitle[activeStep]}</Text>
                 </View>
-            )}
-            <TouchableOpacity
-                accessibilityRole="button"
-                onPress={() => setHistoryOpen((current) => !current)}
-                style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}
-            >
-                <Text style={[clientNameStyle, { color: theme.colors.text }]}>
-                    Time Clock History {historyOpen ? '▲' : '▼'}
-                </Text>
-                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                    {historyOpen ? 'Hide daily shifts' : 'Open and scroll through each workday'}
-                </Text>
-            </TouchableOpacity>
-            {historyOpen && entries.map((entry) => (
-                <View key={entry.id} style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.text }]}>
-                        {formatTechOSDateTime(entry.clockedInAt)} → {entry.clockedOutAt ? formatTechOSDateTime(entry.clockedOutAt) : 'In progress'}
-                    </Text>
-                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        {formatTimeEntryDuration(entry, now)} · Lunch {entry.breakMinutes}m · Rest breaks {entry.restBreakMinutes}m
-                        {entry.automaticLunchApplied ? ' (automatic)' : ''}
-                    </Text>
-                    {entry.mealExceptionReported && (
-                        <Text style={[clientMetaTextStyle, { color: '#FF8A80' }]}>Meal exception requires office review</Text>
-                    )}
-                    {!!entry.submittedAt && <Text style={[clientMetaTextStyle, { color: '#36D994' }]}>Signed and submitted</Text>}
-                </View>
-            ))}
+            </View>
+            {!!clockMessage && <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{clockMessage}</Text>}
+            {activeContent}
         </ThemedCard>
     );
 }
@@ -6378,6 +6632,12 @@ const techProfileSignOutButtonStyle = {
     paddingVertical: 10,
 };
 
+const techProfileClockOutButtonStyle = {
+    alignSelf: 'stretch' as const,
+    marginTop: 10,
+    minHeight: 48,
+};
+
 const techProfileHoursSectionStyle = {
     marginTop: 12,
 };
@@ -6407,7 +6667,7 @@ const techProfileHourStyle = {
 };
 
 const techProfileHourValueStyle = {
-    fontSize: 16,
+    fontSize: 14,
     fontVariant: ['tabular-nums'] as ('tabular-nums')[],
     fontWeight: '900' as const,
 };
@@ -6551,16 +6811,9 @@ const techHourSummaryLabelStyle = {
 };
 
 const techHourSummaryValueStyle = {
-    fontSize: 24,
+    fontSize: 20,
     fontVariant: ['tabular-nums'] as ('tabular-nums')[],
     fontWeight: '900' as const,
-};
-
-const techClockStateStyle = {
-    color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '900' as const,
-    letterSpacing: 0.5,
 };
 
 const techMealWarningStyle = {
@@ -6585,6 +6838,29 @@ const techMealWarningBodyStyle = {
     fontSize: 12,
     fontWeight: '800' as const,
     lineHeight: 17,
+};
+
+const techOvertimeFloatingLayerStyle = {
+    bottom: 18,
+    left: 14,
+    position: 'absolute' as const,
+    right: 14,
+    zIndex: 40,
+};
+
+const techOvertimeFloatingCardStyle = {
+    alignSelf: 'flex-end' as const,
+    borderColor: '#FFD166',
+    borderWidth: 2,
+    gap: 8,
+    maxWidth: 520,
+    padding: 14,
+    width: '100%' as const,
+};
+
+const techOvertimeFloatingButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    minWidth: 150,
 };
 
 const summaryTitleStyle = {

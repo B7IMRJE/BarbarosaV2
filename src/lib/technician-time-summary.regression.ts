@@ -1,5 +1,7 @@
 import {
+    formatTechnicianClock,
     formatTechnicianHours,
+    getTechnicianOvertimeWarningState,
     getTechnicianShiftHourSummary,
     type TechnicianShiftTimeEntry,
 } from './technician-time-summary';
@@ -14,6 +16,8 @@ export function runTechnicianTimeSummaryRegressions() {
     completedShiftUsesRecordedClockOut();
     invalidDatesFailSafely();
     hoursUseCompactReadableFormatting();
+    runningClockIncludesSeconds();
+    overtimeWarningStartsThirtyMinutesEarly();
 }
 
 function shiftBelowEightHoursStaysRegular() {
@@ -59,6 +63,16 @@ function invalidDatesFailSafely() {
 
 function hoursUseCompactReadableFormatting() {
     assert(formatTechnicianHours(9 * 60 * 60 + 5 * 60) === '9h 05m', 'Hours should use a compact hours-and-minutes label.');
+}
+
+function runningClockIncludesSeconds() {
+    assert(formatTechnicianClock(9 * 60 * 60 + 5 * 60 + 7) === '9h 05m 07s', 'The live shift clock should include seconds.');
+}
+
+function overtimeWarningStartsThirtyMinutesEarly() {
+    assert(getTechnicianOvertimeWarningState(7.5 * 60 * 60 - 1) === 'none', 'The warning should stay hidden before 7.5 worked hours.');
+    assert(getTechnicianOvertimeWarningState(7.5 * 60 * 60) === 'approaching', 'The warning should begin 30 minutes before overtime.');
+    assert(getTechnicianOvertimeWarningState(8 * 60 * 60) === 'overtime', 'Eight worked hours should be labeled overtime.');
 }
 
 function createEntry(overrides: Partial<TechnicianShiftTimeEntry> = {}): TechnicianShiftTimeEntry {
