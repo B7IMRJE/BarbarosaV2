@@ -1160,6 +1160,22 @@ export default function EstimateScreen() {
         return `/super-admin/company/${encodeURIComponent(providerModeContext.companyId)}`;
     }
 
+    function resolveEstimateAccessFallbackRoute() {
+        const techOSReturnRoute = resolveTechOSEstimateReturnRoute({
+            mode: requestedMode,
+            returnTo: requestedReturnTo,
+            companyId: requestedCompanyId || providerModeContext?.companyId,
+        });
+
+        if (techOSReturnRoute) return techOSReturnRoute;
+        if (providerModeContext) return providerClientHomeOsPath();
+        if (requestedMode === 'management' && requestedCompanyId) {
+            return `/super-admin/company/${encodeURIComponent(requestedCompanyId)}`;
+        }
+
+        return '/';
+    }
+
     async function goBackToItem() {
         await persistLatestBuilderDraft();
 
@@ -2539,7 +2555,7 @@ export default function EstimateScreen() {
         return (
             <StaffOnlyMessage
                 message="Checking access..."
-                homeRoute={providerModeContext ? providerClientHomeOsPath() : undefined}
+                homeRoute={resolveEstimateAccessFallbackRoute()}
             />
         );
     }
@@ -2549,7 +2565,7 @@ export default function EstimateScreen() {
             <StaffOnlyMessage
                 message="Estimate tools are available to active company users with estimate permission."
                 detail={message}
-                homeRoute={providerModeContext ? providerClientHomeOsPath() : undefined}
+                homeRoute={resolveEstimateAccessFallbackRoute()}
             />
         );
     }

@@ -128,6 +128,23 @@ export function hasEstimateBuilderSnapshot(value: EstimateBuilderSnapshot) {
     return Object.keys(value).length > 0;
 }
 
+export function resolveEstimateDraftResumeRouteMode(
+    draft: Pick<CompanyEstimateDraftSummary, 'propertyId' | 'source'>
+) {
+    const opensInClientProviderMode = Boolean(
+        draft.propertyId && ['provider_mode', 'techos'].includes(draft.source)
+    );
+
+    return {
+        providerMode: opensInClientProviderMode ? '1' : null,
+        mode: draft.source === 'techos'
+            ? 'techos'
+            : draft.source === 'management'
+                ? 'management'
+                : null,
+    } as const;
+}
+
 function mapDraftSummary(record: DraftRecord | null): CompanyEstimateDraftSummary | null {
     const id = readString(record?.id);
     const companyId = readString(record?.company_id);

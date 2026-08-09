@@ -7,6 +7,7 @@ import {
     archiveCompanyEstimateDraft,
     formatEstimateBuilderStep,
     listCompanyEstimateDrafts,
+    resolveEstimateDraftResumeRouteMode,
     type CompanyEstimateDraftSummary,
 } from '../../lib/estimateBuilderDraft';
 import {
@@ -110,6 +111,8 @@ export default function QuoteDraftsScreen() {
     }
 
     function openDraft(draft: CompanyEstimateDraftSummary) {
+        const resumeRouteMode = resolveEstimateDraftResumeRouteMode(draft);
+
         router.push({
             pathname: '/estimate/workspace',
             params: compactParams({
@@ -120,8 +123,8 @@ export default function QuoteDraftsScreen() {
                 serviceRequestId: draft.serviceRequestId,
                 scheduleSlotId: draft.scheduleSlotId,
                 jobId: draft.jobId,
-                providerMode: draft.source === 'provider_mode' ? '1' : null,
-                mode: draft.source === 'techos' ? 'techos' : draft.source === 'management' ? 'management' : null,
+                providerMode: resumeRouteMode.providerMode,
+                mode: resumeRouteMode.mode,
                 step: draft.currentBuilderStep,
             }),
         } as any);
