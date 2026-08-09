@@ -28,41 +28,57 @@ export function applyEstimateChoicePriceAdjustment(
 
     if (normalizedPercentage === 0) return choice;
 
-    return applyLinePriceAdjustments(choice, () => normalizedPercentage);
+    return applyLinePriceAdjustments(choice, () => ({
+        percentage: normalizedPercentage,
+        dollarAmount: null,
+        mode: normalizedPercentage < 0 ? 'discount' : 'markup',
+    }));
 }
 
 export function applyEstimateChoiceLinePriceAdjustments(
     choice: EstimateChoice,
     adjustments: Record<string, EstimateLinePriceAdjustment>
 ): EstimateChoice {
-    const normalizedAdjustments = Object.entries(adjustments).reduce<Record<string, number>>((result, [lineId, adjustment]) => {
+    const normalizedAdjustments = Object.entries(adjustments).reduce<Record<string, EstimateLinePriceAdjustment>>((result, [lineId, adjustment]) => {
         const percentage = normalizeEstimatePriceAdjustmentPercentage(adjustment.percentage);
+        const dollarAmount = normalizeEstimatePriceAdjustmentDollarAmount(adjustment.dollarAmount);
 
-        if (percentage !== 0) result[lineId] = percentage;
+        if ((dollarAmount !== null && dollarAmount !== 0) || percentage !== 0) {
+            result[lineId] = {
+                ...adjustment,
+                percentage,
+                dollarAmount,
+            };
+        }
 
         return result;
     }, {});
 
     if (Object.keys(normalizedAdjustments).length === 0) return choice;
 
-    return applyLinePriceAdjustments(choice, (lineId) => normalizedAdjustments[lineId] || 0);
+    return applyLinePriceAdjustments(choice, (lineId) => normalizedAdjustments[lineId] || null);
 }
 
 function applyLinePriceAdjustments(
     choice: EstimateChoice,
-    percentageForLine: (lineId: string) => number,
+    adjustmentForLine: (lineId: string) => EstimateLinePriceAdjustment | null,
 ): EstimateChoice {
     let hasAdjustment = false;
 
     const lineItems = choice.pricingResult.lineItems.map((line) => {
-        const percentage = percentageForLine(line.id);
+        const adjustment = adjustmentForLine(line.id);
 
-        if (percentage === 0) return line;
+        if (!adjustment) return line;
 
         hasAdjustment = true;
-        const multiplier = 1 + percentage / 100;
-        const unitAmount = roundCurrency(line.unitAmount * multiplier);
-        const totalAmount = roundCurrency(line.totalAmount * multiplier);
+        const dollarAmount = normalizeEstimatePriceAdjustmentDollarAmount(adjustment.dollarAmount);
+        const percentage = normalizeEstimatePriceAdjustmentPercentage(adjustment.percentage);
+        const totalAmount = dollarAmount !== null
+            ? Math.max(0, roundCurrency(line.totalAmount + dollarAmount))
+            : roundCurrency(line.totalAmount * (1 + percentage / 100));
+        const unitAmount = line.quantity > 0
+            ? roundCurrency(totalAmount / line.quantity)
+            : totalAmount;
 
         return {
             ...line,
@@ -109,6 +125,12 @@ export function normalizeEstimatePriceAdjustmentPercentage(value: number) {
     if (!Number.isFinite(value)) return 0;
 
     return Math.min(500, Math.max(-100, Math.round(value * 100) / 100));
+}
+
+export function normalizeEstimatePriceAdjustmentDollarAmount(value: unknown) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+
+    return roundCurrency(value);
 }
 
 export function formatEstimatePriceAdjustmentPercentage(value: number) {

@@ -339,6 +339,12 @@ export type EstimateLinePriceAdjustmentMode = 'discount' | 'markup' | 'override'
 
 export type EstimateLinePriceAdjustment = {
     percentage: number;
+    /**
+     * A signed change to the total for this service line. New estimate edits use
+     * this instead of making a technician calculate a percentage. Existing
+     * percentage adjustments remain supported for saved historical estimates.
+     */
+    dollarAmount?: number | null;
     mode: EstimateLinePriceAdjustmentMode;
     label?: string | null;
 };

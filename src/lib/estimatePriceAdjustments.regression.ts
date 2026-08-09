@@ -18,6 +18,13 @@ function runEstimatePriceAdjustmentRegression() {
         'line-1': { percentage: -10, mode: 'discount', label: 'Service discount' },
         'line-2': { percentage: 20, mode: 'markup' },
     });
+    const flapperChoice = choiceAtPrice(695);
+    const regularFlapperChoice = applyEstimateChoiceLinePriceAdjustments(flapperChoice, {
+        'line-1': { percentage: 0, dollarAmount: -550, mode: 'discount', label: 'Regular toilet flapper price' },
+    });
+    const specialtyFlapperChoice = applyEstimateChoiceLinePriceAdjustments(choiceAtPrice(145), {
+        'line-1': { percentage: 0, dollarAmount: 54, mode: 'markup', label: 'Specialty / Toto flapper price' },
+    });
     const safelyRestoredBaseChoice = restoreCompatibleEstimateChoiceBasePricing({
         ...adjustedChoice,
         basePricingResult: baseChoice.pricingResult,
@@ -47,6 +54,10 @@ function runEstimatePriceAdjustmentRegression() {
     assert(individuallyAdjustedChoice.pricingResult.lineItems[1]?.totalAmount === 60, 'A separate line markup should use that line\'s own price.');
     assert(individuallyAdjustedChoice.pricingResult.totalAmount === 150, 'The option total should equal the independently adjusted line totals.');
     assert(multiLineChoice().pricingResult.totalAmount === 150, 'Individual adjustments must not mutate the deterministic base option.');
+    assert(regularFlapperChoice.pricingResult.totalAmount === 145, 'A signed $-550 adjustment should change a $695 flapper line to $145.');
+    assert(regularFlapperChoice.pricingResult.lineItems[0]?.unitAmount === 145, 'A dollar adjustment should recalculate the service-line unit price.');
+    assert(specialtyFlapperChoice.pricingResult.totalAmount === 199, 'A signed $54 adjustment should change a $145 flapper line to the $199 specialty/Toto price.');
+    assert(flapperChoice.pricingResult.totalAmount === 695, 'A dollar adjustment must preserve the original company price for later edits.');
     assert(safelyRestoredBaseChoice.pricingResult.totalAmount === 100, 'A matching saved base snapshot should restore deterministic pricing before adjustments.');
     assert(safelyKeptComposedChoice.pricingResult.totalAmount === 150, 'A mismatched saved base snapshot must not erase composed option lines.');
     assert(safelyKeptComposedChoice.pricingResult.lineItems.length === 2, 'Existing composed options must keep every promised priced line.');
@@ -124,6 +135,28 @@ function choice(): EstimateChoice {
         },
         recommended: false,
         displayOrder: 1,
+    };
+}
+
+function choiceAtPrice(price: number): EstimateChoice {
+    const baseChoice = choice();
+    const line = baseChoice.pricingResult.lineItems[0]!;
+
+    return {
+        ...baseChoice,
+        pricingResult: {
+            ...baseChoice.pricingResult,
+            lineItems: [{
+                ...line,
+                unitAmount: price,
+                totalAmount: price,
+                grossMargin: price > 0 ? Math.round(((price - line.cost) / price) * 10_000) / 10_000 : null,
+            }],
+            totalAmount: price,
+            grossMargin: price > 0 ? Math.round(((price - baseChoice.pricingResult.totalCost) / price) * 10_000) / 10_000 : null,
+            minimumAllowedTotal: null,
+            maximumAllowedTotal: null,
+        },
     };
 }
 

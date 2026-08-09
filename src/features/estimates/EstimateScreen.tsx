@@ -161,7 +161,7 @@ type EstimateWorkspaceSection = 'pricing' | 'editor' | 'presentation' | 'finding
 type PriceAdjustmentDirection = 'discount' | 'increase';
 type GuidedEstimateStep = 'build' | 'option_added' | 'recommendations' | 'review';
 type GuidedBuildStep = 'work' | 'findings' | 'price';
-type GuidedPriceAdjustmentMode = 'none' | 'discount' | 'markup' | 'override';
+type GuidedPriceAdjustmentMode = 'none' | 'dollar' | 'override';
 
 type PersistedEstimateBuilderState = {
     version: 1;
@@ -211,6 +211,11 @@ const discountReasonSuggestions = [
     'Loyalty Discount',
     'Promotional Discount',
 ];
+
+const flapperReplacementPricePresets = [
+    { id: 'regular', label: 'Regular toilet', price: 145 },
+    { id: 'specialty', label: 'Specialty / Toto', price: 199 },
+] as const;
 
 const requirementSkipReasons: { label: string; reason: EstimateRequirementSkipReason | null }[] = [
     { label: 'Skip for now', reason: null },
@@ -1720,16 +1725,22 @@ export default function EstimateScreen() {
         const normalizedPercentage = adjustment
             ? normalizeEstimatePriceAdjustmentPercentage(adjustment.percentage)
             : 0;
+        const normalizedDollarAmount = adjustment && typeof adjustment.dollarAmount === 'number' && Number.isFinite(adjustment.dollarAmount)
+            ? Math.round((adjustment.dollarAmount + Number.EPSILON) * 100) / 100
+            : null;
+        const hasDollarAdjustment = normalizedDollarAmount !== null && normalizedDollarAmount !== 0;
+        const hasPercentageAdjustment = normalizedPercentage !== 0;
 
         setTechnicianApproved(false);
         setPresentationMode(false);
         setLinePriceAdjustmentsByChoiceId((current) => {
             const choiceAdjustments = { ...(current[choiceId] || {}) };
 
-            if (adjustment && normalizedPercentage !== 0) {
+            if (adjustment && (hasDollarAdjustment || hasPercentageAdjustment)) {
                 choiceAdjustments[line.id] = {
                     ...adjustment,
                     percentage: normalizedPercentage,
+                    dollarAmount: normalizedDollarAmount,
                     label: String(adjustment.label || '').trim() || null,
                 };
             } else {
@@ -1743,16 +1754,18 @@ export default function EstimateScreen() {
             return next;
         });
 
-        if (!adjustment || normalizedPercentage === 0) {
+        if (!adjustment || (!hasDollarAdjustment && !hasPercentageAdjustment)) {
             setMessage(`${line.name} restored to its company price-book amount.`);
             return;
         }
 
-        const adjustmentDescription = adjustment.mode === 'discount'
-            ? `${formatEstimatePriceAdjustmentPercentage(normalizedPercentage)} ${adjustment.label || 'discount'}`
-            : adjustment.mode === 'markup'
-                ? `${formatEstimatePriceAdjustmentPercentage(normalizedPercentage)} markup`
-                : 'authorized price override';
+        const adjustmentDescription = hasDollarAdjustment
+            ? `${formatSignedDollarAmount(normalizedDollarAmount!)} ${adjustment.label || 'price change'}`
+            : adjustment.mode === 'discount'
+                ? `${formatEstimatePriceAdjustmentPercentage(normalizedPercentage)} ${adjustment.label || 'discount'}`
+                : adjustment.mode === 'markup'
+                    ? `${formatEstimatePriceAdjustmentPercentage(normalizedPercentage)} markup`
+                    : 'authorized price override';
 
         setMessage(`${line.name}: ${adjustmentDescription} applied.`);
     }
@@ -1770,11 +1783,19 @@ export default function EstimateScreen() {
             : null;
 
         setGuidedAdjustmentLineId(line.id);
-        setGuidedAdjustmentMode(adjustment?.mode || 'none');
+        const fixedDollarAmount = adjustment && typeof adjustment.dollarAmount === 'number' && Number.isFinite(adjustment.dollarAmount)
+            ? adjustment.dollarAmount
+            : null;
+
+        setGuidedAdjustmentMode(adjustment
+            ? adjustment.mode === 'override' ? 'override' : 'dollar'
+            : 'none');
         setGuidedAdjustmentValue(adjustment
             ? adjustment.mode === 'override'
                 ? String(finalLine?.totalAmount ?? line.totalAmount)
-                : String(Math.abs(adjustment.percentage))
+                : fixedDollarAmount !== null
+                    ? String(fixedDollarAmount)
+                    : String(Math.round(((finalLine?.totalAmount ?? line.totalAmount) - line.totalAmount) * 100) / 100)
             : '');
         setGuidedDiscountLabel(String(adjustment?.label || ''));
     }
@@ -1797,58 +1818,33 @@ export default function EstimateScreen() {
 
         const enteredValue = Number(guidedAdjustmentValue);
 
-        if (!Number.isFinite(enteredValue) || enteredValue <= 0) {
+        if (!Number.isFinite(enteredValue) || (guidedAdjustmentMode === 'dollar' && enteredValue === 0) || (guidedAdjustmentMode === 'override' && enteredValue <= 0)) {
             setMessage(guidedAdjustmentMode === 'override'
-                ? 'Enter the authorized final option price.'
-                : 'Enter a percentage greater than 0.');
+                ? 'Enter the authorized final service price.'
+                : 'Enter a signed dollar amount, such as -550 or +100.');
             return;
         }
 
-        if (guidedAdjustmentMode === 'discount') {
-            const label = guidedDiscountLabel.trim();
-
-            if (!label) {
-                setMessage('Name the discount before applying it.');
-                return;
-            }
-
-            if (enteredValue > 100) {
-                setMessage('A discount cannot be greater than 100%.');
-                return;
-            }
-
+        if (guidedAdjustmentMode === 'dollar') {
             setChoiceLinePriceAdjustment(choice.id, baseLine, {
-                percentage: -enteredValue,
-                mode: 'discount',
-                label,
+                percentage: 0,
+                dollarAmount: enteredValue,
+                mode: enteredValue < 0 ? 'discount' : 'markup',
+                label: enteredValue < 0 ? 'Dollar price decrease' : 'Dollar price increase',
             });
             return;
         }
 
-        if (guidedAdjustmentMode === 'markup') {
-            if (enteredValue > 500) {
-                setMessage('A markup cannot be greater than 500%.');
-                return;
-            }
-
-            setChoiceLinePriceAdjustment(choice.id, baseLine, {
-                percentage: enteredValue,
-                mode: 'markup',
-            });
-            return;
-        }
-
-        const percentage = baseLine.totalAmount > 0
-            ? ((enteredValue - baseLine.totalAmount) / baseLine.totalAmount) * 100
-            : 0;
+        const dollarAmount = enteredValue - baseLine.totalAmount;
 
         setChoiceLinePriceAdjustment(
             choice.id,
             baseLine,
             {
-                percentage,
+                percentage: 0,
+                dollarAmount,
                 mode: 'override',
-                label: percentage < 0 ? 'Authorized Price Override' : null,
+                label: guidedDiscountLabel.trim() || 'Authorized price change',
             },
         );
         setMessage(`${baseLine.name} authorized price set to ${formatMoney(enteredValue)}. Management approval applies when company limits are exceeded.`);
@@ -4308,11 +4304,7 @@ function renderGuidedEstimateBuilder({
                                                                 <Text style={guidedLineItemNameStyle}>{baseLine.name}</Text>
                                                                 <Text style={guidedLineItemStatusStyle}>
                                                                     {adjustment
-                                                                        ? adjustment.mode === 'discount'
-                                                                            ? `${formatEstimatePriceAdjustmentPercentage(adjustment.percentage)} ${adjustment.label || 'discount'}`
-                                                                            : adjustment.mode === 'markup'
-                                                                                ? `${formatEstimatePriceAdjustmentPercentage(adjustment.percentage)} markup`
-                                                                                : 'Authorized price override'
+                                                                        ? formatLinePriceAdjustmentStatus(adjustment)
                                                                         : selected ? 'Selected for adjustment' : 'Tap to adjust'}
                                                                 </Text>
                                                             </View>
@@ -4328,13 +4320,12 @@ function renderGuidedEstimateBuilder({
                                             <View style={guidedAdjustmentStyle}>
                                                 <Text style={guidedFieldLabelStyle}>Adjust selected service</Text>
                                                 <Text style={guidedSelectedLineNameStyle}>{selectedBaseLine?.name || 'Select a service above'}</Text>
-                                                <Text style={guidedFieldHelpStyle}>The discount, markup, or override applies only to this service line.</Text>
+                                                <Text style={guidedFieldHelpStyle}>This change applies only to the selected service line, never the rest of the option.</Text>
                                                 <View style={guidedModeRowStyle}>
                                                     {([
                                                         ['none', 'No adjustment'],
-                                                        ['discount', 'Discount'],
-                                                        ['markup', 'Markup'],
-                                                        ['override', 'Authorized override'],
+                                                        ['dollar', 'Dollar change'],
+                                                        ['override', 'Set exact price'],
                                                     ] as [GuidedPriceAdjustmentMode, string][]).map(([mode, label]) => (
                                                         <TouchableOpacity
                                                             key={mode}
@@ -4345,26 +4336,43 @@ function renderGuidedEstimateBuilder({
                                                         </TouchableOpacity>
                                                     ))}
                                                 </View>
+                                                {isFlapperReplacementLine(selectedBaseLine) && (
+                                                    <View style={{ gap: 8 }}>
+                                                        <Text style={guidedFieldHelpStyle}>Choose the flapper price for the toilet before you make any job-specific change.</Text>
+                                                        <View style={guidedModeRowStyle}>
+                                                            {flapperReplacementPricePresets.map((preset) => (
+                                                                <TouchableOpacity
+                                                                    key={preset.id}
+                                                                    onPress={() => {
+                                                                        setGuidedAdjustmentMode('override');
+                                                                        setGuidedAdjustmentValue(String(preset.price));
+                                                                        setGuidedDiscountLabel(`${preset.label} flapper price`);
+                                                                    }}
+                                                                    style={guidedModeChipStyle}
+                                                                >
+                                                                    <Text style={guidedModeChipTextStyle}>{preset.label} · {formatMoney(preset.price)}</Text>
+                                                                </TouchableOpacity>
+                                                            ))}
+                                                        </View>
+                                                    </View>
+                                                )}
                                                 {guidedAdjustmentMode !== 'none' && (
                                                     <View style={guidedAdjustmentInputRowStyle}>
                                                         <TextInput
-                                                            inputMode="decimal"
-                                                            keyboardType="decimal-pad"
+                                                            inputMode="text"
+                                                            keyboardType="default"
                                                             onChangeText={setGuidedAdjustmentValue}
-                                                            placeholder={guidedAdjustmentMode === 'override' ? 'Final price in dollars' : 'Percentage'}
+                                                            placeholder={guidedAdjustmentMode === 'override' ? 'Final price in dollars' : 'Example: -550 or +100'}
                                                             style={guidedAdjustmentInputStyle}
                                                             value={guidedAdjustmentValue}
                                                         />
-                                                        <Text style={guidedAdjustmentUnitStyle}>{guidedAdjustmentMode === 'override' ? '$ final' : '%'}</Text>
+                                                        <Text style={guidedAdjustmentUnitStyle}>{guidedAdjustmentMode === 'override' ? '$ final' : '$ change'}</Text>
                                                     </View>
                                                 )}
-                                                {guidedAdjustmentMode === 'discount' && (
-                                                    <TextInput
-                                                        onChangeText={setGuidedDiscountLabel}
-                                                        placeholder="Discount name (required)"
-                                                        style={guidedAdjustmentInputStyle}
-                                                        value={guidedDiscountLabel}
-                                                    />
+                                                {guidedAdjustmentMode === 'dollar' && (
+                                                    <Text style={guidedFieldHelpStyle}>
+                                                        Use a negative number to lower the price and a positive number to raise it. Example: -550 changes a $695 flapper to $145.
+                                                    </Text>
                                                 )}
                                                 <View style={guidedAdjustmentSummaryStyle}>
                                                     <Text style={guidedAdjustmentSummaryTextStyle}>Company price {formatMoney(selectedBaseLine?.totalAmount || 0)}</Text>
@@ -4603,11 +4611,7 @@ function renderGuidedEstimateBuilder({
                                                                 <Text style={guidedLineItemNameStyle}>{baseLine.name}</Text>
                                                                 <Text style={guidedLineItemStatusStyle}>
                                                                     {adjustment
-                                                                        ? adjustment.mode === 'discount'
-                                                                            ? `${formatEstimatePriceAdjustmentPercentage(adjustment.percentage)} ${adjustment.label || 'discount'}`
-                                                                            : adjustment.mode === 'markup'
-                                                                                ? `${formatEstimatePriceAdjustmentPercentage(adjustment.percentage)} markup`
-                                                                                : 'Authorized price override'
+                                                                        ? formatLinePriceAdjustmentStatus(adjustment)
                                                                         : selected ? 'Selected for editing' : 'Tap to edit'}
                                                                 </Text>
                                                             </View>
@@ -4622,12 +4626,12 @@ function renderGuidedEstimateBuilder({
                                                 <View style={guidedAdjustmentStyle}>
                                                     <Text style={guidedFieldLabelStyle}>Adjust selected service</Text>
                                                     <Text style={guidedSelectedLineNameStyle}>{editingBaseLine?.name || 'Select a service above'}</Text>
+                                                    <Text style={guidedFieldHelpStyle}>This change applies only to the selected service line, never the rest of the option.</Text>
                                                     <View style={guidedModeRowStyle}>
                                                         {([
                                                             ['none', 'No adjustment'],
-                                                            ['discount', 'Discount'],
-                                                            ['markup', 'Markup'],
-                                                            ['override', 'Authorized override'],
+                                                            ['dollar', 'Dollar change'],
+                                                            ['override', 'Set exact price'],
                                                         ] as [GuidedPriceAdjustmentMode, string][]).map(([mode, label]) => (
                                                             <TouchableOpacity
                                                                 key={mode}
@@ -4638,26 +4642,43 @@ function renderGuidedEstimateBuilder({
                                                             </TouchableOpacity>
                                                         ))}
                                                     </View>
+                                                    {isFlapperReplacementLine(editingBaseLine) && (
+                                                        <View style={{ gap: 8 }}>
+                                                            <Text style={guidedFieldHelpStyle}>Choose the flapper price for the toilet before you make any job-specific change.</Text>
+                                                            <View style={guidedModeRowStyle}>
+                                                                {flapperReplacementPricePresets.map((preset) => (
+                                                                    <TouchableOpacity
+                                                                        key={preset.id}
+                                                                        onPress={() => {
+                                                                            setGuidedAdjustmentMode('override');
+                                                                            setGuidedAdjustmentValue(String(preset.price));
+                                                                            setGuidedDiscountLabel(`${preset.label} flapper price`);
+                                                                        }}
+                                                                        style={guidedModeChipStyle}
+                                                                    >
+                                                                        <Text style={guidedModeChipTextStyle}>{preset.label} · {formatMoney(preset.price)}</Text>
+                                                                    </TouchableOpacity>
+                                                                ))}
+                                                            </View>
+                                                        </View>
+                                                    )}
                                                     {guidedAdjustmentMode !== 'none' && (
                                                         <View style={guidedAdjustmentInputRowStyle}>
                                                             <TextInput
-                                                                inputMode="decimal"
-                                                                keyboardType="decimal-pad"
+                                                                inputMode="text"
+                                                                keyboardType="default"
                                                                 onChangeText={setGuidedAdjustmentValue}
-                                                                placeholder={guidedAdjustmentMode === 'override' ? 'Final price in dollars' : 'Percentage'}
+                                                                placeholder={guidedAdjustmentMode === 'override' ? 'Final price in dollars' : 'Example: -550 or +100'}
                                                                 style={guidedAdjustmentInputStyle}
                                                                 value={guidedAdjustmentValue}
                                                             />
-                                                            <Text style={guidedAdjustmentUnitStyle}>{guidedAdjustmentMode === 'override' ? '$ final' : '%'}</Text>
+                                                            <Text style={guidedAdjustmentUnitStyle}>{guidedAdjustmentMode === 'override' ? '$ final' : '$ change'}</Text>
                                                         </View>
                                                     )}
-                                                    {guidedAdjustmentMode === 'discount' && (
-                                                        <TextInput
-                                                            onChangeText={setGuidedDiscountLabel}
-                                                            placeholder="Discount name (required)"
-                                                            style={guidedAdjustmentInputStyle}
-                                                            value={guidedDiscountLabel}
-                                                        />
+                                                    {guidedAdjustmentMode === 'dollar' && (
+                                                        <Text style={guidedFieldHelpStyle}>
+                                                            Use a negative number to lower the price and a positive number to raise it. Example: -550 changes a $695 flapper to $145.
+                                                        </Text>
                                                     )}
                                                     <View style={guidedAdjustmentSummaryStyle}>
                                                         <Text style={guidedAdjustmentSummaryTextStyle}>
@@ -4823,6 +4844,34 @@ function StaffOnlyMessage({ message, detail, homeRoute = '/' }: { message: strin
     );
 }
 
+function isFlapperReplacementLine(line: EstimateCalculatedLine | null) {
+    return String(line?.code || '').toLowerCase().includes('flapper_replacement');
+}
+
+function formatLinePriceAdjustmentStatus(adjustment: EstimateLinePriceAdjustment) {
+    const dollarAmount = typeof adjustment.dollarAmount === 'number' && Number.isFinite(adjustment.dollarAmount)
+        ? adjustment.dollarAmount
+        : null;
+
+    if (dollarAmount !== null) {
+        return `${formatSignedDollarAmount(dollarAmount)} ${adjustment.label || 'price change'}`;
+    }
+
+    if (adjustment.mode === 'discount') {
+        return `${formatEstimatePriceAdjustmentPercentage(adjustment.percentage)} ${adjustment.label || 'discount'}`;
+    }
+
+    if (adjustment.mode === 'markup') {
+        return `${formatEstimatePriceAdjustmentPercentage(adjustment.percentage)} markup`;
+    }
+
+    return 'Authorized price override';
+}
+
+function formatSignedDollarAmount(value: number) {
+    return `${value > 0 ? '+' : '−'}${formatMoney(Math.abs(value))}`;
+}
+
 function resolveCurrentBuilderStep(
     guidedStep: GuidedEstimateStep,
     guidedBuildStep: GuidedBuildStep,
@@ -4889,9 +4938,11 @@ function readPersistedEstimateBuilderState(
         documentationExpanded: record.documentationExpanded === true,
         scopePickerExpanded: record.scopePickerExpanded === true,
         relatedSearch: readSnapshotString(record.relatedSearch),
-        guidedAdjustmentMode: ['none', 'discount', 'markup', 'override'].includes(adjustmentMode)
-            ? adjustmentMode as GuidedPriceAdjustmentMode
-            : 'none',
+        guidedAdjustmentMode: adjustmentMode === 'override'
+            ? 'override'
+            : ['dollar', 'discount', 'markup'].includes(adjustmentMode)
+                ? 'dollar'
+                : 'none',
         guidedAdjustmentValue: readSnapshotString(record.guidedAdjustmentValue),
         guidedDiscountLabel: readSnapshotString(record.guidedDiscountLabel),
         guidedAdjustmentLineId: readSnapshotString(record.guidedAdjustmentLineId),
