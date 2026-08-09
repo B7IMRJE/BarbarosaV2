@@ -1,8 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { Alert, Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
@@ -80,6 +81,11 @@ import {
     synchronizeCustomEstimateChoiceCopy,
     type CustomEstimateOptionDraft,
 } from '../../lib/customEstimateOption';
+import {
+    buildQuoteScopePolishRequest,
+    formatQuoteScopeAiFailure,
+    readPolishedQuoteScope,
+} from '../../lib/quoteScopeAssistant';
 import {
     buildRecommendedEstimateChoice,
     getEligibleEstimateRecommendations,
@@ -315,6 +321,8 @@ export default function EstimateScreen() {
     const [savingGuidedOption, setSavingGuidedOption] = useState(false);
     const [customQuoteMode, setCustomQuoteMode] = useState(false);
     const [customQuoteDraft, setCustomQuoteDraft] = useState<CustomEstimateOptionDraft>(emptyCustomEstimateOptionDraft);
+    const [customScopePolishing, setCustomScopePolishing] = useState(false);
+    const [customScopeAiNotice, setCustomScopeAiNotice] = useState('');
     const editingGuidedOptionSnapshotRef = useRef<{
         choiceId: string;
         editableCopy: EditableChoiceCopy | null;
@@ -1902,6 +1910,7 @@ export default function EstimateScreen() {
 
     function startCustomQuote() {
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        setCustomScopeAiNotice('');
         setCustomQuoteMode(true);
         setScopePickerExpanded(false);
         navigateGuidedBuildStep('price');
@@ -1911,6 +1920,7 @@ export default function EstimateScreen() {
     function cancelCustomQuote() {
         setCustomQuoteMode(false);
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        setCustomScopeAiNotice('');
         setGuidedAdjustmentLineId('');
 
         if (persistedOptionChoices.length > 0) {
@@ -1925,6 +1935,65 @@ export default function EstimateScreen() {
         setCustomQuoteDraft((current) => ({ ...current, [field]: value }));
         setTechnicianApproved(false);
         setPresentationMode(false);
+    }
+
+    async function polishCustomQuoteScope() {
+        const roughScope = customQuoteDraft.workScope.trim();
+
+        if (!roughScope) {
+            setCustomScopeAiNotice('Speak or type rough scope notes before asking AI to polish them.');
+            return;
+        }
+
+        setCustomScopePolishing(true);
+        setCustomScopeAiNotice('AI is polishing only the details you supplied…');
+
+        try {
+            const {
+                data: { session },
+                error: sessionError,
+            } = await supabase.auth.getSession();
+
+            if (sessionError || !session) throw new Error('Please sign in again before using AI assistance.');
+
+            const resolvedSession = await resolveSessionForDraft(selectedCategory);
+            if (!resolvedSession) throw new Error('The quote session could not be opened.');
+
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 20_000);
+            let response: Response;
+
+            try {
+                response = await fetch(`${supabaseUrl}/functions/v1/polish-quote-scope`, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${session.access_token}`,
+                        apikey: supabaseAnonKey,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(buildQuoteScopePolishRequest(resolvedSession.id, roughScope)),
+                    signal: controller.signal,
+                });
+            } finally {
+                clearTimeout(timeout);
+            }
+
+            const data = await readFunctionJson(response);
+
+            if (!response.ok) throw new Error(readFunctionMessage(data, response.status));
+
+            const polishedScope = readPolishedQuoteScope(data);
+            if (!polishedScope) throw new Error('AI returned an unusable scope.');
+
+            setCustomQuoteDraft((current) => ({ ...current, workScope: polishedScope }));
+            setTechnicianApproved(false);
+            setPresentationMode(false);
+            setCustomScopeAiNotice('AI-polished draft inserted. Review and edit it before adding the quote; AI did not set the price.');
+        } catch (error) {
+            setCustomScopeAiNotice(formatQuoteScopeAiFailure(error));
+        } finally {
+            setCustomScopePolishing(false);
+        }
     }
 
     async function addCustomQuoteToOptions() {
@@ -1948,6 +2017,7 @@ export default function EstimateScreen() {
         if (saved) {
             setCustomQuoteMode(false);
             setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+            setCustomScopeAiNotice('');
         }
     }
 
@@ -2720,6 +2790,8 @@ export default function EstimateScreen() {
         guidedStep,
         customQuoteDraft,
         customQuoteMode,
+        customScopeAiNotice,
+        customScopePolishing,
         editingGuidedOptionId,
         items,
         measurementDraftByKey,
@@ -2731,6 +2803,7 @@ export default function EstimateScreen() {
         openHomeownerApproval,
         persistAddCurrent: addCurrentChoiceToOptions,
         persistAddCustom: addCustomQuoteToOptions,
+        polishCustomQuoteScope,
         persistAddRecommendation: addRecommendedOption,
         persistAddSearchResult: addSearchedPriceBookOption,
         persistRemoveOption: removeGuidedOption,
@@ -3433,7 +3506,7 @@ export default function EstimateScreen() {
                                                     −
                                                 </Text>
                                             </TouchableOpacity>
-                                            <TextInput
+                                            <DictationTextInput
                                                 accessibilityLabel={`Price adjustment percentage for ${choice.title}`}
                                                 inputMode="decimal"
                                                 keyboardType="decimal-pad"
@@ -3494,7 +3567,7 @@ export default function EstimateScreen() {
                                                         </TouchableOpacity>
                                                     ))}
                                                 </View>
-                                                <TextInput
+                                                <DictationTextInput
                                                     accessibilityLabel={`Discount name for ${choice.title}`}
                                                     onChangeText={(value) => setPriceAdjustmentLabelByChoiceId((current) => ({
                                                         ...current,
@@ -3522,13 +3595,13 @@ export default function EstimateScreen() {
                                             <Text style={itemChipStyle}>+{choice.pricingResult.lineItems.length - 4} more</Text>
                                         )}
                                     </View>
-                                    <TextInput
+                                    <DictationTextInput
                                         value={choice.title}
                                         onChangeText={(value) => updateChoiceCopy(choice.id, 'title', value)}
                                         style={copyInputStyle}
                                         placeholder="Option title"
                                     />
-                                    <TextInput
+                                    <DictationTextInput
                                         value={choice.homeownerExplanation}
                                         onChangeText={(value) => updateChoiceCopy(choice.id, 'homeownerExplanation', value)}
                                         style={copyTextAreaStyle}
@@ -3745,6 +3818,8 @@ type GuidedEstimateBuilderProps = {
     currentCandidateChoice: Phase1EstimateChoice | null;
     customQuoteDraft: CustomEstimateOptionDraft;
     customQuoteMode: boolean;
+    customScopeAiNotice: string;
+    customScopePolishing: boolean;
     documentationExpanded: boolean;
     draftContext: EstimateDraftContext | null;
     editingGuidedOptionId: string;
@@ -3774,6 +3849,7 @@ type GuidedEstimateBuilderProps = {
     openHomeownerApproval: () => Promise<void>;
     persistAddCurrent: (choice: Phase1EstimateChoice) => Promise<void>;
     persistAddCustom: () => Promise<void>;
+    polishCustomQuoteScope: () => Promise<void>;
     persistAddRecommendation: (
         recommendation: EligibleEstimateRecommendation,
         baseChoice: PersistableEstimateChoice,
@@ -3856,6 +3932,8 @@ function renderGuidedEstimateBuilder({
     currentCandidateChoice,
     customQuoteDraft,
     customQuoteMode,
+    customScopeAiNotice,
+    customScopePolishing,
     documentationExpanded,
     draftContext,
     editingGuidedOptionId,
@@ -3884,6 +3962,7 @@ function renderGuidedEstimateBuilder({
     openHomeownerApproval,
     persistAddCurrent,
     persistAddCustom,
+    polishCustomQuoteScope,
     persistAddRecommendation,
     persistAddSearchResult,
     persistRemoveOption,
@@ -4239,7 +4318,7 @@ function renderGuidedEstimateBuilder({
                                 </Text>
 
                                 <Text style={guidedFieldLabelStyle}>Option name</Text>
-                                <TextInput
+                                <DictationTextInput
                                     onChangeText={(value) => updateCustomQuoteDraft('name', value)}
                                     placeholder="Example: Custom shower valve repair"
                                     style={guidedAdjustmentInputStyle}
@@ -4247,17 +4326,32 @@ function renderGuidedEstimateBuilder({
                                 />
 
                                 <Text style={guidedFieldLabelStyle}>Work to be performed</Text>
-                                <Text style={guidedFieldHelpStyle}>List the exact work included in this price. Type or use phone dictation.</Text>
-                                <TextInput
+                                <Text style={guidedFieldHelpStyle}>Speak or type rough notes with the exact work included in this price.</Text>
+                                <DictationTextInput
+                                    dictationFieldLabel="work to be performed"
                                     multiline
                                     onChangeText={(value) => updateCustomQuoteDraft('workScope', value)}
                                     placeholder="Describe the exact work, materials, testing, cleanup, and anything else included."
                                     style={guidedSummaryInputStyle}
                                     value={customQuoteDraft.workScope}
                                 />
+                                <View style={guidedScopeAiStyle}>
+                                    <Text style={guidedFieldHelpStyle}>
+                                        Optional AI assistance rewrites only your supplied notes into a polished scope. It does not set price or intentionally add work, materials, testing, cleanup, safety claims, or other details you did not provide. The result stays editable—review it before use.
+                                    </Text>
+                                    <TouchableOpacity
+                                        accessibilityLabel="Polish scope of work with AI"
+                                        disabled={customScopePolishing || !customQuoteDraft.workScope.trim()}
+                                        onPress={() => void polishCustomQuoteScope()}
+                                        style={customScopePolishing || !customQuoteDraft.workScope.trim() ? guidedMutedButtonStyle : guidedAiButtonStyle}
+                                    >
+                                        <Text style={guidedAiButtonTextStyle}>{customScopePolishing ? 'Polishing scope…' : 'Polish scope with AI'}</Text>
+                                    </TouchableOpacity>
+                                    {customScopeAiNotice ? <Text style={guidedScopeAiNoticeStyle}>{customScopeAiNotice}</Text> : null}
+                                </View>
 
                                 <Text style={guidedFieldLabelStyle}>Customer summary</Text>
-                                <TextInput
+                                <DictationTextInput
                                     multiline
                                     onChangeText={(value) => updateCustomQuoteDraft('customerSummary', value)}
                                     placeholder="Explain what will be done and why it is recommended."
@@ -4267,7 +4361,7 @@ function renderGuidedEstimateBuilder({
 
                                 <Text style={guidedFieldLabelStyle}>Exact customer price</Text>
                                 <View style={guidedAdjustmentInputRowStyle}>
-                                    <TextInput
+                                    <DictationTextInput
                                         inputMode="decimal"
                                         keyboardType="decimal-pad"
                                         onChangeText={(value) => updateCustomQuoteDraft('price', value)}
@@ -4435,7 +4529,7 @@ function renderGuidedEstimateBuilder({
                                                 )}
                                                 {guidedAdjustmentMode !== 'none' && (
                                                     <View style={guidedAdjustmentInputRowStyle}>
-                                                        <TextInput
+                                                        <DictationTextInput
                                                             inputMode="text"
                                                             keyboardType="default"
                                                             onChangeText={setGuidedAdjustmentValue}
@@ -4472,7 +4566,7 @@ function renderGuidedEstimateBuilder({
 
                                             <Text style={guidedFieldLabelStyle}>Technician notes / dictation</Text>
                                             <Text style={guidedFieldHelpStyle}>Type here or use the microphone on the phone keyboard.</Text>
-                                            <TextInput
+                                            <DictationTextInput
                                                 multiline
                                                 onBlur={() => void saveGuidedTechnicianNotes()}
                                                 onChangeText={updateGuidedTechnicianNotes}
@@ -4494,7 +4588,7 @@ function renderGuidedEstimateBuilder({
                                                     <Text style={guidedAiButtonTextStyle}>{aiDrafting ? 'Writing…' : 'Write with AI'}</Text>
                                                 </TouchableOpacity>
                                             </View>
-                                            <TextInput
+                                            <DictationTextInput
                                                 multiline
                                                 onChangeText={(value) => updateChoiceCopy(currentCandidateChoice.id, 'homeownerExplanation', value)}
                                                 placeholder="Customer-facing explanation"
@@ -4568,7 +4662,7 @@ function renderGuidedEstimateBuilder({
 
                         <View style={guidedSearchStyle}>
                             <Text style={guidedFieldLabelStyle}>Pick my own</Text>
-                            <TextInput
+                            <DictationTextInput
                                 onChangeText={setRelatedSearch}
                                 placeholder="Search active company Price Book"
                                 style={guidedSearchInputStyle}
@@ -4651,14 +4745,14 @@ function renderGuidedEstimateBuilder({
                                                 {isCustomEstimateChoice(choice) && (
                                                     <>
                                                         <Text style={guidedFieldLabelStyle}>Option name</Text>
-                                                        <TextInput
+                                                        <DictationTextInput
                                                             onChangeText={(value) => updateChoiceCopy(choice.id, 'title', value)}
                                                             placeholder="Custom option name"
                                                             style={guidedAdjustmentInputStyle}
                                                             value={choice.title}
                                                         />
                                                         <Text style={guidedFieldLabelStyle}>Work to be performed</Text>
-                                                        <TextInput
+                                                        <DictationTextInput
                                                             multiline
                                                             onChangeText={(value) => updateChoiceCopy(choice.id, 'shortSummary', value)}
                                                             placeholder="Exact work included"
@@ -4741,7 +4835,7 @@ function renderGuidedEstimateBuilder({
                                                     )}
                                                     {guidedAdjustmentMode !== 'none' && (
                                                         <View style={guidedAdjustmentInputRowStyle}>
-                                                            <TextInput
+                                                            <DictationTextInput
                                                                 inputMode="text"
                                                                 keyboardType="default"
                                                                 onChangeText={setGuidedAdjustmentValue}
@@ -4779,7 +4873,7 @@ function renderGuidedEstimateBuilder({
                                                 </View>
 
                                                 <Text style={guidedFieldLabelStyle}>Customer summary</Text>
-                                                <TextInput
+                                                <DictationTextInput
                                                     multiline
                                                     onChangeText={(value) => updateChoiceCopy(choice.id, 'homeownerExplanation', value)}
                                                     placeholder="Customer-facing explanation"
@@ -5206,7 +5300,7 @@ function renderQuestion(
             ) : question.type === 'measurement' ? (
                 <View style={{ gap: 7 }}>
                     <View style={guidedAdjustmentInputRowStyle}>
-                        <TextInput
+                        <DictationTextInput
                             inputMode="decimal"
                             keyboardType="decimal-pad"
                             onChangeText={(value) => updateAnswer(question, value)}
@@ -5243,7 +5337,7 @@ function renderQuestion(
                     </TouchableOpacity>
                 </View>
             ) : (
-                <TextInput
+                <DictationTextInput
                     value={typeof currentAnswer === 'string' ? currentAnswer : ''}
                     onChangeText={(value) => updateAnswer(question, value)}
                     style={copyTextAreaStyle}
@@ -5259,7 +5353,7 @@ function renderQuestion(
             {customAnswer && customSelected && (
                 <View style={customScopeStyle}>
                     <Text style={customScopeLabelStyle}>{customAnswer.label}</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={typeof customAnswerValue === 'string'
                             ? customAnswerValue
                             : ''}
@@ -5422,7 +5516,7 @@ function renderMeasurementRequirementCard(input: {
             </View>
 
             <View style={measurementInputRowStyle}>
-                <TextInput
+                <DictationTextInput
                     value={draftValue}
                     onChangeText={(value) => input.updateMeasurementDraft(input.label, value)}
                     style={measurementInputStyle}
@@ -6364,6 +6458,22 @@ const guidedAiButtonTextStyle = {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '900' as const,
+};
+
+const guidedScopeAiStyle = {
+    gap: 8,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#D9D2F3',
+    backgroundColor: '#F8F6FF',
+};
+
+const guidedScopeAiNoticeStyle = {
+    color: '#443A72',
+    fontSize: 12,
+    fontWeight: '700' as const,
+    lineHeight: 18,
 };
 
 const guidedPrimaryButtonStyle = {

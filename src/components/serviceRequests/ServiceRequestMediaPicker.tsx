@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useState } from 'react';
-import { Image, Platform, Text, TextInput, View } from 'react-native';
+import { Image, Platform, Text, View } from 'react-native';
 import ThemedButton from '../theme/ThemedButton';
 import ThemedCard from '../theme/ThemedCard';
 import {
@@ -260,7 +261,7 @@ export default function ServiceRequestMediaPicker({
                                 </View>
                             </View>
 
-                            <TextInput
+                            <DictationTextInput
                                 value={item.caption}
                                 onChangeText={(text) => updateCaption(item, text)}
                                 placeholder="Optional caption"

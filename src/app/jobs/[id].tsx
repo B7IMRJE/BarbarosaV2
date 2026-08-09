@@ -1,8 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
 
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import {
     Job,
     JobThreadEvent,
@@ -254,7 +255,7 @@ export default function JobThreadScreen() {
 
                         <View style={scaleJobStyle(panelStyle, scaleFont, scaleIcon)}>
                             <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>Add Note</Text>
-                            <TextInput
+                            <DictationTextInput
                                 placeholder="Add a job update..."
                                 value={note}
                                 onChangeText={setNote}

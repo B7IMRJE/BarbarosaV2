@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
 import ThemedCard from '../components/theme/ThemedCard';
@@ -523,7 +524,7 @@ function InviteCodeEntry({
 
     return (
         <View style={inviteCodeEntryStyle}>
-            <TextInput
+            <DictationTextInput
                 placeholder="Invite code"
                 value={value}
                 onChangeText={onChangeText}

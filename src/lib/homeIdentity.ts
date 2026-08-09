@@ -3,6 +3,7 @@ import {
     buildDefaultStarterHomePlan,
     createMissingStarterHomeItems,
 } from './starterHomeSetup';
+import type { ProviderHomeItemsReadContext } from './providerHomeItems';
 
 export type PropertyType =
     | 'HOUSE'
@@ -34,12 +35,32 @@ export type HomeIdentity = {
     canEdit: boolean;
     address: VerifiedAddress | null;
     addressValidatedAt: string | null;
+    yearBuilt: number | null;
+    squareFootage: number | null;
+    apn: string | null;
+    majorUpgradeTypes: MajorHomeUpgradeType[];
+    profileUpdatedAt: string | null;
 };
+
+export const MAJOR_HOME_UPGRADE_OPTIONS = [
+    { value: 'pool', label: 'Pool' },
+    { value: 'solar', label: 'Solar' },
+    { value: 'roof', label: 'Roof' },
+    { value: 'hvac', label: 'HVAC' },
+    { value: 'repipe', label: 'Repipe' },
+    { value: 'electrical', label: 'Electrical' },
+] as const;
+
+export type MajorHomeUpgradeType = typeof MAJOR_HOME_UPGRADE_OPTIONS[number]['value'];
 
 export type HomeIdentityInput = {
     name: string;
     propertyType: PropertyType;
     address: VerifiedAddress;
+    yearBuilt?: number | null;
+    squareFootage?: number | null;
+    apn?: string | null;
+    majorUpgradeTypes?: MajorHomeUpgradeType[];
 };
 
 type HomeIdentityRow = {
@@ -60,6 +81,11 @@ type HomeIdentityRow = {
     address_validated_at?: string | null;
     owner_display_name?: string | null;
     membership_role?: string | null;
+    homeowner_year_built?: number | string | null;
+    homeowner_square_footage?: number | string | null;
+    homeowner_apn?: string | null;
+    homeowner_major_upgrade_types?: unknown;
+    homeowner_profile_updated_at?: string | null;
 };
 
 type PropertyRpcRow = {
@@ -85,7 +111,15 @@ export async function loadActiveHomeIdentity() {
 
     const row = firstRow<HomeIdentityRow>(data);
 
-    return row ? normalizeHomeIdentity(row) : null;
+    if (!row) return null;
+
+    const identity = normalizeHomeIdentity(row);
+
+    try {
+        return mergeHomeProfileDetails(identity, await loadHomeProfileDetails(identity.propertyId));
+    } catch {
+        return identity;
+    }
 }
 
 export async function loadHomeIdentityForProperty(propertyId: string, options: {
@@ -114,6 +148,22 @@ export async function loadHomeIdentityForProperty(propertyId: string, options: {
         owner_display_name: options.ownerDisplayName || 'Customer',
         membership_role: options.canEdit ? 'OWNER' : 'PROVIDER',
     } as HomeIdentityRow);
+}
+
+export async function loadCompanyHomeIdentity(context: ProviderHomeItemsReadContext) {
+    const { data, error } = await supabase.rpc('get_company_home_profile', {
+        p_company_id: context.companyId,
+        p_property_id: context.propertyId,
+        p_service_request_id: context.serviceRequestId || null,
+        p_schedule_slot_id: context.scheduleSlotId || null,
+        p_job_id: context.jobId || null,
+    });
+
+    if (error) throw new Error(`Could not load client home profile: ${error.message}`);
+
+    const row = firstRow<HomeIdentityRow>(data);
+
+    return row ? normalizeHomeIdentity({ ...row, membership_role: 'PROVIDER' }) : null;
 }
 
 export async function createFirstHomeIdentity(input: HomeIdentityInput) {
@@ -167,7 +217,31 @@ export async function updateHomeIdentity(propertyId: string, input: HomeIdentity
         throw new Error('We could not confirm your home was updated. Please try again.');
     }
 
+    const { error: profileError } = await supabase.rpc('update_home_profile_details', {
+        p_property_id: propertyId,
+        p_year_built: input.yearBuilt ?? null,
+        p_square_footage: input.squareFootage ?? null,
+        p_apn: input.apn?.trim() || null,
+        p_major_upgrade_types: normalizeMajorUpgradeTypes(input.majorUpgradeTypes),
+    });
+
+    if (profileError) {
+        throw new Error(`Your home identity was saved, but the optional homeowner-provided details could not be saved: ${profileError.message}`);
+    }
+
     return updatedPropertyId;
+}
+
+export async function loadHomeProfileDetails(propertyId: string) {
+    const { data, error } = await supabase
+        .from('properties')
+        .select('homeowner_year_built, homeowner_square_footage, homeowner_apn, homeowner_major_upgrade_types, homeowner_profile_updated_at')
+        .eq('id', propertyId)
+        .maybeSingle();
+
+    if (error) throw new Error(`Could not load homeowner-provided profile details: ${error.message}`);
+
+    return normalizeHomeProfileDetails(data || {});
 }
 
 export function propertyTypeLabel(value?: string | null) {
@@ -232,6 +306,7 @@ function normalizeHomeIdentity(row: HomeIdentityRow): HomeIdentity {
         ownerDisplayName: String(row.owner_display_name || 'Homeowner'),
         canEdit: String(row.membership_role || '').trim().toUpperCase() === 'OWNER',
         addressValidatedAt: row.address_validated_at || null,
+        ...normalizeHomeProfileDetails(row),
         address: hasAddress
             ? {
                 addressLine1: String(row.address_line_1 || ''),
@@ -248,6 +323,40 @@ function normalizeHomeIdentity(row: HomeIdentityRow): HomeIdentity {
             }
             : null,
     };
+}
+
+function normalizeHomeProfileDetails(row: HomeIdentityRow | Record<string, unknown>) {
+    return {
+        yearBuilt: nullableWholeNumber(row.homeowner_year_built),
+        squareFootage: nullableWholeNumber(row.homeowner_square_footage),
+        apn: nullableText(row.homeowner_apn),
+        majorUpgradeTypes: normalizeMajorUpgradeTypes(row.homeowner_major_upgrade_types),
+        profileUpdatedAt: nullableText(row.homeowner_profile_updated_at),
+    };
+}
+
+function mergeHomeProfileDetails(identity: HomeIdentity, details: ReturnType<typeof normalizeHomeProfileDetails>): HomeIdentity {
+    return { ...identity, ...details };
+}
+
+function normalizeMajorUpgradeTypes(value: unknown): MajorHomeUpgradeType[] {
+    const allowed = new Set<MajorHomeUpgradeType>(MAJOR_HOME_UPGRADE_OPTIONS.map((option) => option.value));
+
+    return (Array.isArray(value) ? value : [])
+        .map((entry) => String(entry || '').trim().toLowerCase())
+        .filter((entry): entry is MajorHomeUpgradeType => allowed.has(entry as MajorHomeUpgradeType));
+}
+
+function nullableWholeNumber(value: unknown) {
+    const number = Number(value);
+
+    return Number.isInteger(number) && number > 0 ? number : null;
+}
+
+function nullableText(value: unknown) {
+    const text = typeof value === 'string' ? value.trim() : '';
+
+    return text || null;
 }
 
 function firstRow<T>(data: unknown) {

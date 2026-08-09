@@ -1,8 +1,8 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -204,7 +204,7 @@ export default function VerifiedAddressPicker({
                 <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>
                     Search for your home address
                 </Text>
-                <TextInput
+                <DictationTextInput
                     placeholder="Start typing your street address"
                     placeholderTextColor={theme.colors.mutedText}
                     value={searchText}
@@ -230,7 +230,7 @@ export default function VerifiedAddressPicker({
                 <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>
                     Apartment, suite, or unit number (optional)
                 </Text>
-                <TextInput
+                <DictationTextInput
                     placeholder="Optional"
                     placeholderTextColor={theme.colors.mutedText}
                     value={unit}

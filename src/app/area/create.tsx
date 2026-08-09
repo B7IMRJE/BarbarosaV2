@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -249,7 +250,7 @@ export default function CreateAreaScreen() {
                         </Text>
 
                         {(selectedTemplate.id === 'custom-area' || !!initialAreaName) && (
-                            <TextInput
+                            <DictationTextInput
                                 value={customAreaName}
                                 onChangeText={setCustomAreaName}
                                 placeholder="Bathroom 3, Closet, Cabinet..."

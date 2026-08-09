@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { ScrollView, Text, TextInput, useWindowDimensions, View, type TextInputProps } from 'react-native';
+import { ScrollView, Text, useWindowDimensions, View, type TextInputProps } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import HomeHeader from '../../../../components/HomeHeader';
 import ThemedButton from '../../../../components/theme/ThemedButton';
@@ -678,7 +679,7 @@ export default function CompanyClientsScreen() {
                         </View>
 
                         <View style={searchRowStyle}>
-                            <TextInput
+                            <DictationTextInput
                                 value={searchDraft}
                                 onChangeText={setSearchDraft}
                                 onSubmitEditing={runCustomerSearch}
@@ -1015,7 +1016,7 @@ function InviteInput({
     return (
         <View style={inputWrapStyle}>
             <Text style={[metaTextStyle, { color: glassPalette.mutedText }]}>{label}</Text>
-            <TextInput
+            <DictationTextInput
                 value={value}
                 onChangeText={onChangeText}
                 placeholder={placeholder}

@@ -1,9 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ScrollView,
     Text,
-    TextInput,
     View,
 } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
@@ -290,7 +290,7 @@ function ThemedInput({
     return (
         <View style={inputGroupStyle}>
             <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>{label}</Text>
-            <TextInput
+            <DictationTextInput
                 placeholder={placeholder}
                 placeholderTextColor={theme.colors.mutedText}
                 value={value}

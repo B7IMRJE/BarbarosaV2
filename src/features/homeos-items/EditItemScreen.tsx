@@ -1,10 +1,10 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ActivityIndicator,
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -393,7 +393,7 @@ export default function EditItemScreen() {
                             ]}
                         >
                             <Text style={[scaleStyle(smallLabelStyle), { color: theme.colors.mutedText }]}>Brand</Text>
-                            <TextInput
+                            <DictationTextInput
                                 style={[scaleStyle(smallInputStyle), { color: theme.colors.text }]}
                                 placeholder="Brand"
                                 placeholderTextColor={theme.colors.mutedText}
@@ -413,7 +413,7 @@ export default function EditItemScreen() {
                             ]}
                         >
                             <Text style={[scaleStyle(smallLabelStyle), { color: theme.colors.mutedText }]}>Model</Text>
-                            <TextInput
+                            <DictationTextInput
                                 style={[scaleStyle(smallInputStyle), { color: theme.colors.text }]}
                                 placeholder="Model"
                                 placeholderTextColor={theme.colors.mutedText}
@@ -433,7 +433,7 @@ export default function EditItemScreen() {
                             ]}
                         >
                             <Text style={[scaleStyle(smallLabelStyle), { color: theme.colors.mutedText }]}>Serial</Text>
-                            <TextInput
+                            <DictationTextInput
                                 style={[scaleStyle(smallInputStyle), { color: theme.colors.text }]}
                                 placeholder="Serial"
                                 placeholderTextColor={theme.colors.mutedText}
@@ -523,7 +523,7 @@ function ThemedInput({
     const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <TextInput
+        <DictationTextInput
             style={{
                 backgroundColor: theme.colors.surface,
                 borderRadius: theme.radii.button,

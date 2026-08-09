@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
 import { getStatusCardStyle } from '../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../components/theme/ThemedButton';
@@ -492,7 +493,7 @@ export default function SystemAreasScreen() {
                     </View>
                 </ThemedCard>
 
-                <TextInput
+                <DictationTextInput
                     value={search}
                     onChangeText={setSearch}
                     placeholder="Search areas..."

@@ -1,3 +1,4 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
@@ -6,7 +7,6 @@ import {
     ScrollView,
     Switch,
     Text,
-    TextInput,
     TouchableOpacity,
     useWindowDimensions,
     View,
@@ -408,7 +408,7 @@ function Field(props: {
     return (
         <View style={{ gap: 7 }}>
             <Text style={fieldLabelStyle}>{props.label}</Text>
-            <TextInput
+            <DictationTextInput
                 value={props.value}
                 onChangeText={props.onChangeText}
                 multiline={props.multiline}

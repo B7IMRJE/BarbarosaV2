@@ -38,7 +38,13 @@
       "expo-image",
       "expo-web-browser",
       "expo-notifications",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow HomeOS to record short dictation for text fields."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

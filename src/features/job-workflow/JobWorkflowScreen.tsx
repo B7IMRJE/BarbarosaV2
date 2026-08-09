@@ -1,8 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import type React from 'react';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Linking, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import SignaturePad, { isDrawnSignature } from '../../components/signature-pad';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import { loadCompanyEstimateBuilderDraft } from '../../lib/estimateBuilderDraft';
@@ -1191,7 +1192,7 @@ function CustomerSelectionList({ selections }: { selections?: string[] }) {
     );
 }
 function Field(props: { label: string; value: string; onChangeText: (value: string) => void; multiline?: boolean; disabled?: boolean }) {
-    return <View><Text style={fieldLabelStyle}>{props.label}</Text><TextInput {...props} editable={!props.disabled} style={[inputStyle, props.multiline && textAreaStyle, props.disabled && disabledStyle]} placeholderTextColor="#7391a5" /></View>;
+    return <View><Text style={fieldLabelStyle}>{props.label}</Text><DictationTextInput {...props} editable={!props.disabled} style={[inputStyle, props.multiline && textAreaStyle, props.disabled && disabledStyle]} placeholderTextColor="#7391a5" /></View>;
 }
 function WorkflowCheck({ checked, label, onPress }: { checked: boolean; label: string; onPress: () => void }) {
     return (

@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -202,7 +203,7 @@ export default function CreateSystemScreen() {
                         })}
                     </View>
 
-                    <TextInput
+                    <DictationTextInput
                         value={serviceName}
                         onChangeText={setServiceName}
                         placeholder="Inventory / Storage"
@@ -220,7 +221,7 @@ export default function CreateSystemScreen() {
                         }}
                     />
 
-                    <TextInput
+                    <DictationTextInput
                         value={description}
                         onChangeText={setDescription}
                         placeholder="Optional description"

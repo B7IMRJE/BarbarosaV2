@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import PendingCustomerInvitesCard from '../components/PendingCustomerInvitesCard';
 import HomeDashboardView, {
   type DashboardSystemTile,
@@ -43,7 +44,7 @@ import {
 } from '../lib/serviceRequestRealtime';
 import type { HomeHealthEmergency } from '../lib/homeHealth';
 import { isHomeOSPhoneLayout } from '../lib/homeos-responsive-layout';
-import { loadActiveHomeIdentity, loadHomeIdentityForProperty, type HomeIdentity } from '../lib/homeIdentity';
+import { loadActiveHomeIdentity, loadCompanyHomeIdentity, type HomeIdentity } from '../lib/homeIdentity';
 import {
   providerModePath,
   providerModeItemPath,
@@ -250,10 +251,7 @@ export default function HomeScreen() {
 
     try {
       setHomeIdentity(providerModeContext
-        ? await loadHomeIdentityForProperty(providerModeContext.propertyId, {
-          ownerDisplayName: 'Customer',
-          canEdit: false,
-        })
+        ? await loadCompanyHomeIdentity(providerModeContext)
         : await loadActiveHomeIdentity());
     } catch {
       setHomeIdentity(null);
@@ -844,6 +842,10 @@ export default function HomeScreen() {
 
             router.push('/home/edit' as any);
           }}
+          onOpenConstructionHistory={() => router.push(providerModeContext
+            ? providerModePath('/home-story', providerModeContext) as any
+            : '/home-story' as any
+          )}
           items={homeItems}
           emergencies={activeEmergencies}
           maintenanceReminders={maintenanceReminders}
@@ -1206,7 +1208,7 @@ export default function HomeScreen() {
             />
           </View>
 
-          <TextInput
+          <DictationTextInput
             value={serviceIssueSummary}
             onChangeText={setServiceIssueSummary}
             placeholder="Briefly describe the issue"
@@ -1424,7 +1426,7 @@ export default function HomeScreen() {
 
                     {isActiveRequest && (
                       <>
-                        <TextInput
+                        <DictationTextInput
                           value={serviceRequestNoteById[request.id] || ''}
                           onChangeText={(text) => setServiceRequestNoteById((current) => ({ ...current, [request.id]: text }))}
                           placeholder="Add a note for dispatch"

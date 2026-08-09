@@ -1,10 +1,10 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     Alert,
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -220,7 +220,7 @@ export default function RegisterScreen() {
                             {registrationSubtitle(confirmNextRoute, workAccountMode)}
                         </Text>
 
-                        <TextInput
+                        <DictationTextInput
                             placeholder="Full Name"
                             value={fullName}
                             onChangeText={setFullName}
@@ -232,7 +232,7 @@ export default function RegisterScreen() {
                             style={inputStyle}
                         />
 
-                        <TextInput
+                        <DictationTextInput
                             placeholder="Phone"
                             value={phone}
                             onChangeText={setPhone}
@@ -244,7 +244,7 @@ export default function RegisterScreen() {
                             style={inputStyle}
                         />
 
-                        <TextInput
+                        <DictationTextInput
                             placeholder="Email"
                             value={email}
                             onChangeText={setEmail}

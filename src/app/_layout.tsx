@@ -16,6 +16,7 @@ import {
 } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
 import GlobalDispatchChatOverlay from '../components/dispatch/GlobalDispatchChatOverlay';
+import DictationProvider from '../components/input/DictationProvider';
 import GlobalNavigation from '../components/navigation/GlobalNavigation';
 import { ThemeProvider } from '../theme';
 
@@ -266,42 +267,44 @@ export default function Layout() {
 
   return (
     <ThemeProvider>
-      {routeGuardError ? (
-        <View style={serviceErrorWrapStyle}>
-          <Text style={serviceErrorTitleStyle}>HomeOS services unavailable</Text>
-          <Text style={serviceErrorBodyStyle}>{routeGuardError}</Text>
-          <TouchableOpacity activeOpacity={0.82} onPress={retryRouteGuard} style={retryButtonStyle}>
-            <Text style={retryButtonTextStyle}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={{ flex: 1 }}>
-          <GlobalNavigation>
-            <Slot />
-          </GlobalNavigation>
-          {routeIsSettled && (
-            <GlobalDispatchChatOverlay
-              pathname={pathname}
-              preferredCompanyId={firstRouteParam(routeParams.companyId)}
-            />
-          )}
-          {!routeIsSettled && (
-            <View
-              accessibilityLabel="Opening secure workspace"
-              accessibilityRole="progressbar"
-              style={routePrivacyCurtainStyle}
-            >
-              <View style={routePrivacyCardStyle}>
-                <ActivityIndicator size="large" color="#56C9B1" />
-                <Text style={routePrivacyTitleStyle}>Opening secure workspace</Text>
-                <Text style={routePrivacyBodyStyle}>
-                  Confirming your account, permissions, and company access.
-                </Text>
+      <DictationProvider>
+        {routeGuardError ? (
+          <View style={serviceErrorWrapStyle}>
+            <Text style={serviceErrorTitleStyle}>HomeOS services unavailable</Text>
+            <Text style={serviceErrorBodyStyle}>{routeGuardError}</Text>
+            <TouchableOpacity activeOpacity={0.82} onPress={retryRouteGuard} style={retryButtonStyle}>
+              <Text style={retryButtonTextStyle}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={{ flex: 1 }}>
+            <GlobalNavigation>
+              <Slot />
+            </GlobalNavigation>
+            {routeIsSettled && (
+              <GlobalDispatchChatOverlay
+                pathname={pathname}
+                preferredCompanyId={firstRouteParam(routeParams.companyId)}
+              />
+            )}
+            {!routeIsSettled && (
+              <View
+                accessibilityLabel="Opening secure workspace"
+                accessibilityRole="progressbar"
+                style={routePrivacyCurtainStyle}
+              >
+                <View style={routePrivacyCardStyle}>
+                  <ActivityIndicator size="large" color="#56C9B1" />
+                  <Text style={routePrivacyTitleStyle}>Opening secure workspace</Text>
+                  <Text style={routePrivacyBodyStyle}>
+                    Confirming your account, permissions, and company access.
+                  </Text>
+                </View>
               </View>
-            </View>
-          )}
-        </View>
-      )}
+            )}
+          </View>
+        )}
+      </DictationProvider>
     </ThemeProvider>
   );
 

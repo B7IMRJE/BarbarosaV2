@@ -1,3 +1,4 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
@@ -5,7 +6,6 @@ import {
     Image,
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -862,7 +862,7 @@ export default function EmergencyDetailScreen() {
                     <Text style={{ color: theme.colors.mutedText, marginTop: 8, lineHeight: 20 }}>
                         This note stays on the private HomeOS issue timeline. {hasDispatchRequest ? 'Use Request Update above to notify Dispatch.' : 'Send this issue to Dispatch before requesting company updates.'}
                     </Text>
-                    <TextInput
+                    <DictationTextInput
                         value={note}
                         onChangeText={setNote}
                         placeholder="Add a private HomeOS issue note, action taken, or condition change."
@@ -1025,7 +1025,7 @@ function ServiceReviewCard({
 
                     <View>
                         <Text style={[reviewLabelStyle, { color: theme.colors.text }]}>Comments</Text>
-                        <TextInput
+                        <DictationTextInput
                             value={form.comments}
                             onChangeText={onCommentsChange}
                             placeholder="Optional comments"

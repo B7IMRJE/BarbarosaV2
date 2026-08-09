@@ -1,9 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -158,35 +158,35 @@ export default function PropertiesScreen() {
                         + Add Property
                     </Text>
 
-                    <TextInput
+                    <DictationTextInput
                         placeholder="Property Name"
                         value={propertyName}
                         onChangeText={setPropertyName}
                         style={inputStyle}
                     />
 
-                    <TextInput
+                    <DictationTextInput
                         placeholder="Address"
                         value={address}
                         onChangeText={setAddress}
                         style={inputStyle}
                     />
 
-                    <TextInput
+                    <DictationTextInput
                         placeholder="City"
                         value={city}
                         onChangeText={setCity}
                         style={inputStyle}
                     />
 
-                    <TextInput
+                    <DictationTextInput
                         placeholder="State"
                         value={stateName}
                         onChangeText={setStateName}
                         style={inputStyle}
                     />
 
-                    <TextInput
+                    <DictationTextInput
                         placeholder="ZIP"
                         value={zip}
                         onChangeText={setZip}

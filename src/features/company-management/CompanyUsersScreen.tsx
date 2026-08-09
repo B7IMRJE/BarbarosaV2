@@ -1,3 +1,4 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { useLocalSearchParams, type Href } from 'expo-router';
 import type { ReactNode } from 'react';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
@@ -6,7 +7,6 @@ import {
     ScrollView,
     Switch,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -1020,7 +1020,7 @@ export default function CompanyUsersScreen() {
 
                         <ThemedCard style={searchCardStyle}>
                             <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Search Team</Text>
-                            <TextInput
+                            <DictationTextInput
                                 placeholder="Search name, email, role, or status"
                                 placeholderTextColor={theme.colors.mutedText}
                                 value={searchQuery}
@@ -1045,7 +1045,7 @@ export default function CompanyUsersScreen() {
                                 company membership only after the user accepts it with their work account.
                             </Text>
 
-                            <TextInput
+                            <DictationTextInput
                                 placeholder="Full Name"
                                 placeholderTextColor={theme.colors.mutedText}
                                 value={fullName}
@@ -1060,7 +1060,7 @@ export default function CompanyUsersScreen() {
                                 ]}
                             />
 
-                            <TextInput
+                            <DictationTextInput
                                 placeholder="Email"
                                 placeholderTextColor={theme.colors.mutedText}
                                 value={email}

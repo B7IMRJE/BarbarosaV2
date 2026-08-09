@@ -1,9 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     ScrollView,
     Text,
-    TextInput,
     View,
 } from 'react-native';
 import PasswordField from '../../components/auth/password-field';
@@ -254,7 +254,7 @@ export default function LoginScreen() {
                     {workAccountMode ? 'Sign in with the invited email to accept your company invitation.' : 'Login to your HomeOS account.'}
                 </Text>
 
-                <TextInput
+                <DictationTextInput
                     placeholder="Email"
                     value={email}
                     onChangeText={(value) => {
@@ -294,7 +294,7 @@ export default function LoginScreen() {
                     <View style={{ height: 1, backgroundColor: '#CBD5E1', flex: 1 }} />
                 </View>
 
-                <TextInput
+                <DictationTextInput
                     placeholder="Six-digit invitation code"
                     value={invitationCode}
                     onChangeText={(value) => setInvitationCode(value.replace(/\D/g, '').slice(0, 6))}

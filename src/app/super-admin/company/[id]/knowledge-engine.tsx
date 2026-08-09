@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import {
     getKnowledgeObjectByPriceKey,
@@ -173,7 +174,7 @@ export default function KnowledgeEngineScreen() {
                             <View style={controlGridStyle}>
                                 <View style={fieldWrapStyle}>
                                     <Text style={fieldLabelStyle}>Search</Text>
-                                    <TextInput
+                                    <DictationTextInput
                                         value={searchQuery}
                                         onChangeText={setSearchQuery}
                                         placeholder="Search service, price key, equipment, notes..."

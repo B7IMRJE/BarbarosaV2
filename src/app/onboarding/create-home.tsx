@@ -1,3 +1,4 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -5,7 +6,6 @@ import {
     Platform,
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
     type TextInputProps,
@@ -308,7 +308,7 @@ function ThemedInput({
     return (
         <View style={inputGroupStyle}>
             <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>{label}</Text>
-            <TextInput
+            <DictationTextInput
                 placeholder={placeholder}
                 placeholderTextColor={theme.colors.mutedText}
                 value={value}

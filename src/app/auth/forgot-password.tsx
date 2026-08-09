@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { supabase } from '../../lib/supabase';
 
 export default function ForgotPasswordScreen() {
@@ -44,7 +45,7 @@ export default function ForgotPasswordScreen() {
                     Enter the email used for your HomeOS account or company invitation. We will send a secure link to create or change your password.
                 </Text>
 
-                <TextInput
+                <DictationTextInput
                     placeholder="Email"
                     value={email}
                     onChangeText={setEmail}

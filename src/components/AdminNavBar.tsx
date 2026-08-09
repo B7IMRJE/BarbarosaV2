@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, type Href } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { AppState, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { AppState, Text, TouchableOpacity, View } from 'react-native';
 import {
     getCompanyLeadCounts,
     LEAD_ALERT_REFRESH_MS,
@@ -383,7 +384,7 @@ function ManagementIdentityBadge({
                     <View style={[identityDetailsPanelStyle, { borderColor: theme.colors.border }]}>
                         <Text style={[identityDetailsTextStyle, { color: theme.colors.text }]}>Owner display name</Text>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                            <TextInput
+                            <DictationTextInput
                                 accessibilityLabel="Owner display name"
                                 value={nameDraft}
                                 onChangeText={onChangeName}

@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import AdminNavBar from '../components/AdminNavBar';
 import HomeHeader from '../components/HomeHeader';
 import ThemedButton from '../components/theme/ThemedButton';
@@ -691,7 +692,7 @@ function MeetingComposer({
                 This creates one shared calendar item for everyone selected. It does not create a customer job.
             </Text>
             <View style={{ gap: 10, marginTop: 14 }}>
-                <TextInput
+                <DictationTextInput
                     accessibilityLabel="Meeting title"
                     editable={!saving}
                     onChangeText={(title) => onChange({ title })}
@@ -701,7 +702,7 @@ function MeetingComposer({
                     value={form.title}
                 />
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                    <TextInput
+                    <DictationTextInput
                         accessibilityLabel="Meeting date"
                         editable={!saving}
                         inputMode="numeric"
@@ -711,7 +712,7 @@ function MeetingComposer({
                         style={[inputStyle, { flexBasis: 180, flexGrow: 1 }]}
                         value={form.date}
                     />
-                    <TextInput
+                    <DictationTextInput
                         accessibilityLabel="Meeting start time"
                         editable={!saving}
                         inputMode="numeric"
@@ -721,7 +722,7 @@ function MeetingComposer({
                         style={[inputStyle, { flexBasis: 150, flexGrow: 1 }]}
                         value={form.startTime}
                     />
-                    <TextInput
+                    <DictationTextInput
                         accessibilityLabel="Meeting duration in minutes"
                         editable={!saving}
                         inputMode="numeric"
@@ -732,7 +733,7 @@ function MeetingComposer({
                         value={form.durationMinutes}
                     />
                 </View>
-                <TextInput
+                <DictationTextInput
                     accessibilityLabel="Meeting notes"
                     editable={!saving}
                     multiline

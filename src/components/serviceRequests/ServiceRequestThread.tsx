@@ -1,5 +1,6 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
 import ThemedButton from '../theme/ThemedButton';
 import ThemedCard from '../theme/ThemedCard';
 import { useTheme } from '../../theme/useTheme';
@@ -183,7 +184,7 @@ export default function ServiceRequestThread({
 
             {!!message && <Text style={[styles.notice, { color: theme.colors.mutedText }]}>{message}</Text>}
 
-            <TextInput
+            <DictationTextInput
                 value={draft}
                 onChangeText={setDraft}
                 placeholder={`Message ${recipient}`}

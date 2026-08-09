@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../components/HomeHeader';
 import { loadEstimateDraft } from '../lib/estimateDraft';
 import { loadJobs, type Job } from '../lib/jobs';
@@ -382,14 +383,14 @@ export default function ManagementScreen() {
                         <View style={{ gap: scaleIcon(12) }}>
                             <Text style={[scaleStyle(actionTitleStyle), { color: theme.colors.text }]}>Add Holiday</Text>
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
-                                <TextInput
+                                <DictationTextInput
                                     value={holidayName}
                                     onChangeText={setHolidayName}
                                     placeholder="Holiday name"
                                     placeholderTextColor={theme.colors.mutedText}
                                     style={[managementTimeInputStyle, { color: theme.colors.text, borderColor: theme.colors.border }]}
                                 />
-                                <TextInput
+                                <DictationTextInput
                                     value={holidayDate}
                                     onChangeText={setHolidayDate}
                                     placeholder="YYYY-MM-DD"

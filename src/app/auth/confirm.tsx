@@ -1,7 +1,8 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import type { Session, User } from '@supabase/supabase-js';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
@@ -242,7 +243,7 @@ export default function AuthConfirmScreen() {
 
                     {failed && (
                         <View style={{ marginTop: 18 }}>
-                            <TextInput
+                            <DictationTextInput
                                 placeholder="Invited email for resend"
                                 value={confirmationEmail}
                                 onChangeText={setConfirmationEmail}
@@ -265,7 +266,7 @@ export default function AuthConfirmScreen() {
                             />
                             {shouldShowInviteCodeEntry ? (
                                 <>
-                                    <TextInput
+                                    <DictationTextInput
                                         placeholder="Invite code"
                                         value={inviteCode}
                                         onChangeText={setInviteCode}

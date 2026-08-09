@@ -1,7 +1,8 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { AppState, Image, Pressable, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { AppState, Image, Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../lib/companyAuditLogs';
 import { getCompanyDisplayName } from '../../lib/companyDisplayName';
@@ -2832,7 +2833,7 @@ function Field({
             >
                 {label}
             </Text>
-            <TextInput
+            <DictationTextInput
                 value={value}
                 onChangeText={onChangeText}
                 onEndEditing={(event) => onEndEditing?.(event.nativeEvent.text)}

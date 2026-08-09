@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import SystemStatusCard from '../../components/cards/SystemStatusCard';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -1593,7 +1594,7 @@ export default function CompanyPriceBookScreen() {
                                     Search the full catalog when you already know the service name.
                                 </Text>
                                 <View style={filterRowStyle}>
-                                    <TextInput
+                                    <DictationTextInput
                                         value={search}
                                         onChangeText={setSearch}
                                         placeholder="Search plumbing services..."
@@ -2576,7 +2577,7 @@ function PriceResearchImportTool({
                 Riverside recommendations are planning data based on current labor, installation, and local fee references. Review company costs, access, warranty, overhead, and margin before customer use.
             </Text>
 
-            <TextInput
+            <DictationTextInput
                 value={text}
                 onChangeText={onChangeText}
                 multiline
@@ -3251,7 +3252,7 @@ function EditorField({
     return (
         <View style={fieldWrapStyle}>
             <Text style={[fieldLabelStyle, { color: theme.colors.mutedText }]}>{label}</Text>
-            <TextInput
+            <DictationTextInput
                 value={value}
                 onChangeText={onChangeText}
                 keyboardType={keyboardType || 'default'}

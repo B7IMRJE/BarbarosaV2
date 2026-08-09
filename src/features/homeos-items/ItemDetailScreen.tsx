@@ -1,3 +1,4 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
 
 import * as DocumentPicker from 'expo-document-picker';
@@ -12,7 +13,6 @@ import {
     Modal,
     ScrollView,
     Text,
-    TextInput,
     View,
     TouchableOpacity,
 } from 'react-native';
@@ -3651,7 +3651,7 @@ export default function ItemScreen() {
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                         Details
                     </Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerNoteText}
                         onChangeText={setProviderNoteText}
                         placeholder="Add company note or client update details"
@@ -3700,7 +3700,7 @@ export default function ItemScreen() {
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                         Finding title
                     </Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerFindingTitle}
                         onChangeText={setProviderFindingTitle}
                         placeholder="Example: Supply line is corroded"
@@ -3726,7 +3726,7 @@ export default function ItemScreen() {
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                         Description
                     </Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerFindingDescription}
                         onChangeText={setProviderFindingDescription}
                         placeholder="What did the technician observe?"
@@ -3745,7 +3745,7 @@ export default function ItemScreen() {
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                         Recommended action
                     </Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerFindingAction}
                         onChangeText={setProviderFindingAction}
                         placeholder="Optional next step"
@@ -3832,7 +3832,7 @@ export default function ItemScreen() {
                     <View style={scaleStyle(providerTwoColumnRowStyle)}>
                         <View style={scaleStyle(providerFieldWrapStyle)}>
                             <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Name</Text>
-                            <TextInput
+                            <DictationTextInput
                                 value={providerEditName}
                                 onChangeText={setProviderEditName}
                                 placeholder="Item name"
@@ -3842,7 +3842,7 @@ export default function ItemScreen() {
                         </View>
                         <View style={scaleStyle(providerFieldWrapStyle)}>
                             <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Condition</Text>
-                            <TextInput
+                            <DictationTextInput
                                 value={providerEditCondition}
                                 onChangeText={setProviderEditCondition}
                                 placeholder="Condition"
@@ -3910,7 +3910,7 @@ export default function ItemScreen() {
                                 </View>
                             ) : null}
                             {providerEditStatusChoice === 'Custom' ? (
-                                <TextInput
+                                <DictationTextInput
                                     value={providerEditCustomStatus}
                                     onChangeText={setProviderEditCustomStatus}
                                     placeholder="Enter custom status"
@@ -3929,7 +3929,7 @@ export default function ItemScreen() {
                         </View>
                         <View style={scaleStyle(providerFieldWrapStyle)}>
                             <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Brand</Text>
-                            <TextInput
+                            <DictationTextInput
                                 value={providerEditBrand}
                                 onChangeText={setProviderEditBrand}
                                 placeholder="Brand"
@@ -3939,7 +3939,7 @@ export default function ItemScreen() {
                         </View>
                         <View style={scaleStyle(providerFieldWrapStyle)}>
                             <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Model</Text>
-                            <TextInput
+                            <DictationTextInput
                                 value={providerEditModel}
                                 onChangeText={setProviderEditModel}
                                 placeholder="Model"
@@ -3949,7 +3949,7 @@ export default function ItemScreen() {
                         </View>
                         <View style={scaleStyle(providerFieldWrapStyle)}>
                             <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Serial</Text>
-                            <TextInput
+                            <DictationTextInput
                                 value={providerEditSerial}
                                 onChangeText={setProviderEditSerial}
                                 placeholder="Serial"
@@ -3959,7 +3959,7 @@ export default function ItemScreen() {
                         </View>
                     </View>
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Location</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerEditLocation}
                         onChangeText={setProviderEditLocation}
                         placeholder="Location"
@@ -3967,7 +3967,7 @@ export default function ItemScreen() {
                         style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
                     />
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Notes / details</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerEditNotes}
                         onChangeText={setProviderEditNotes}
                         placeholder="Optional staged edit notes"
@@ -4007,7 +4007,7 @@ export default function ItemScreen() {
                         Add a real client HomeOS component inside {item?.name || 'this item'} for the assigned job context.
                     </Text>
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Item name</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerRelatedName}
                         onChangeText={setProviderRelatedName}
                         placeholder="Example: Shutoff valve"
@@ -4015,7 +4015,7 @@ export default function ItemScreen() {
                         style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
                     />
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Category</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerRelatedCategory}
                         onChangeText={setProviderRelatedCategory}
                         placeholder="Category"
@@ -4023,7 +4023,7 @@ export default function ItemScreen() {
                         style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
                     />
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Location</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerRelatedLocation}
                         onChangeText={setProviderRelatedLocation}
                         placeholder="Location"
@@ -4031,7 +4031,7 @@ export default function ItemScreen() {
                         style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
                     />
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Notes</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={providerRelatedNotes}
                         onChangeText={setProviderRelatedNotes}
                         placeholder="Optional"
@@ -5208,7 +5208,7 @@ export default function ItemScreen() {
                                 <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                     Reminder title
                                 </Text>
-                                <TextInput
+                                <DictationTextInput
                                     value={customReminderTitle}
                                     onChangeText={setCustomReminderTitle}
                                     placeholder="Example: Replace filter"
@@ -5226,7 +5226,7 @@ export default function ItemScreen() {
                                 <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                     Description / notes
                                 </Text>
-                                <TextInput
+                                <DictationTextInput
                                     value={customReminderDescription}
                                     onChangeText={setCustomReminderDescription}
                                     placeholder="Optional"
@@ -5248,7 +5248,7 @@ export default function ItemScreen() {
                                         <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                             Every
                                         </Text>
-                                        <TextInput
+                                        <DictationTextInput
                                             value={customReminderInterval}
                                             onChangeText={setCustomReminderInterval}
                                             keyboardType="number-pad"
@@ -5283,7 +5283,7 @@ export default function ItemScreen() {
                                         <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                             Start date
                                         </Text>
-                                        <TextInput
+                                        <DictationTextInput
                                             value={customReminderStartDate}
                                             onChangeText={setCustomReminderStartDate}
                                             placeholder="YYYY-MM-DD"
@@ -5303,7 +5303,7 @@ export default function ItemScreen() {
                                         <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
                                             Next due date
                                         </Text>
-                                        <TextInput
+                                        <DictationTextInput
                                             value={customReminderNextDueDate}
                                             onChangeText={setCustomReminderNextDueDate}
                                             placeholder="YYYY-MM-DD"
@@ -5686,7 +5686,7 @@ export default function ItemScreen() {
                     <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>Record the route from a recognizable starting point, show the exact valve, and demonstrate the safe shutoff direction. Nothing appears as a homeowner emergency guide until every required part is saved.</Text>
 
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Exact location and walking directions *</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={safetyGuideLocation}
                         onChangeText={setSafetyGuideLocation}
                         placeholder="Example: From the front door, walk through the left side gate. The blue valve is beside the garage wall."
@@ -5697,7 +5697,7 @@ export default function ItemScreen() {
                     />
 
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>How to shut it off *</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={safetyGuideInstructions}
                         onChangeText={setSafetyGuideInstructions}
                         placeholder="Explain which handle to use and which direction to turn it."
@@ -5708,7 +5708,7 @@ export default function ItemScreen() {
                     />
 
                     <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Safety warning</Text>
-                    <TextInput
+                    <DictationTextInput
                         value={safetyGuideWarning}
                         onChangeText={setSafetyGuideWarning}
                         placeholder="Example: Do not enter if water is near electrical equipment. Do not force a corroded valve."

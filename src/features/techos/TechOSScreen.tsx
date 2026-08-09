@@ -1,7 +1,8 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Image, ScrollView, Text, TextInput, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { Image, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import TechnicianDispatchChat from '../../components/dispatch/TechnicianDispatchChat';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
@@ -2427,7 +2428,7 @@ function TechTimingPromptCard({
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Your next arrival window begins at {formatTime(job.slot.arrival_window_start || job.slot.start_at)}. Will you make it on time?
             </Text>
-            <TextInput
+            <DictationTextInput
                 value={estimatedRemainingMinutes}
                 onChangeText={onChangeEstimatedRemainingMinutes}
                 placeholder="Estimated time remaining on current job (minutes)"
@@ -2848,14 +2849,14 @@ function TechOSAccessGate({
                             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                                 Enter today’s missed time. It cannot be earlier than 8:00 AM and will require Dispatch approval.
                             </Text>
-                            <TextInput
+                            <DictationTextInput
                                 value={correctionTime}
                                 onChangeText={setCorrectionTime}
                                 placeholder="08:00"
                                 placeholderTextColor={theme.colors.mutedText}
                                 style={[techCompactInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
                             />
-                            <TextInput
+                            <DictationTextInput
                                 value={correctionReason}
                                 onChangeText={setCorrectionReason}
                                 placeholder="Why was the clock-in missed?"
@@ -3956,14 +3957,14 @@ function TechOSTimeClockPanel({
                 <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                     This sends a request to Dispatch. Your time does not change until it is approved.
                 </Text>
-                <TextInput
+                <DictationTextInput
                     value={correctionTime}
                     onChangeText={setCorrectionTime}
                     placeholder="08:00"
                     placeholderTextColor={theme.colors.mutedText}
                     style={[techCompactInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
                 />
-                <TextInput
+                <DictationTextInput
                     value={correctionReason}
                     onChangeText={setCorrectionReason}
                     placeholder={`Why was the clock-${correctionMode === 'clock_out' ? 'out' : 'in'} missed?`}
@@ -4014,7 +4015,7 @@ function TechOSTimeClockPanel({
                         style={assignedJobActionButtonStyle}
                     />
                 )}
-                <TextInput
+                <DictationTextInput
                     value={dayNotes}
                     onChangeText={setDayNotes}
                     placeholder="Corrections, changes, or notes about today"
@@ -4029,7 +4030,7 @@ function TechOSTimeClockPanel({
                     style={assignedJobActionButtonStyle}
                 />
                 {injuryReported && (
-                    <TextInput
+                    <DictationTextInput
                         value={injuryDetails}
                         onChangeText={setInjuryDetails}
                         placeholder="Describe the injury and immediate action taken"
@@ -4994,7 +4995,7 @@ function TechOSAssignedJobDetail({
                     </View>
                 )}
                 {selectedStatusNotePreset === 'custom' && (
-                    <TextInput
+                    <DictationTextInput
                         value={customStatusNote}
                         onChangeText={onChangeCustomStatusNote}
                         placeholder="Type a custom job status note"
@@ -5085,7 +5086,7 @@ function TechOSAssignedJobDetail({
                         {getServiceVisitOutcomeLabel(closeoutForm.outcome)}
                     </Text>
                 )}
-                <TextInput
+                <DictationTextInput
                     value={closeoutForm.notes}
                     onChangeText={(notes) => onChangeCloseoutForm({ notes })}
                     placeholder="Work performed, reason, parts, or next action"
@@ -5123,7 +5124,7 @@ function TechOSAssignedJobDetail({
                         ))}
                     </View>
                 )}
-                <TextInput
+                <DictationTextInput
                     value={closeoutForm.homeownerNote}
                     onChangeText={(homeownerNote) => onChangeCloseoutForm({ homeownerNote })}
                     placeholder="Optional homeowner-safe update"

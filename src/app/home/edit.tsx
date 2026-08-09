@@ -1,3 +1,4 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -6,7 +7,6 @@ import {
     Platform,
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
     type TextInputProps,
@@ -15,16 +15,18 @@ import VerifiedAddressPicker from '../../components/address/VerifiedAddressPicke
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
+    MAJOR_HOME_UPGRADE_OPTIONS,
     PROPERTY_TYPE_OPTIONS,
     loadActiveHomeIdentity,
     updateHomeIdentity,
     type HomeIdentity,
+    type MajorHomeUpgradeType,
     type PropertyType,
     type VerifiedAddress,
 } from '../../lib/homeIdentity';
 import { useTheme } from '../../theme/useTheme';
 
-type FieldName = 'homeName' | 'address' | 'propertyType';
+type FieldName = 'homeName' | 'address' | 'propertyType' | 'yearBuilt' | 'squareFootage' | 'apn';
 type FormErrors = Partial<Record<FieldName, string>>;
 
 export default function EditHomeIdentityScreen() {
@@ -63,6 +65,10 @@ export default function EditHomeIdentityScreen() {
     const [homeName, setHomeName] = useState('');
     const [propertyType, setPropertyType] = useState<PropertyType>('HOUSE');
     const [verifiedAddress, setVerifiedAddress] = useState<VerifiedAddress | null>(null);
+    const [yearBuilt, setYearBuilt] = useState('');
+    const [squareFootage, setSquareFootage] = useState('');
+    const [apn, setApn] = useState('');
+    const [majorUpgradeTypes, setMajorUpgradeTypes] = useState<MajorHomeUpgradeType[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [errors, setErrors] = useState<FormErrors>({});
@@ -82,6 +88,10 @@ export default function EditHomeIdentityScreen() {
             setHomeName(activeIdentity?.name || '');
             setPropertyType(normalizePropertyType(activeIdentity?.propertyType));
             setVerifiedAddress(activeIdentity?.address || null);
+            setYearBuilt(activeIdentity?.yearBuilt ? String(activeIdentity.yearBuilt) : '');
+            setSquareFootage(activeIdentity?.squareFootage ? String(activeIdentity.squareFootage) : '');
+            setApn(activeIdentity?.apn || '');
+            setMajorUpgradeTypes(activeIdentity?.majorUpgradeTypes || []);
 
             if (!activeIdentity) {
                 setMessage('No active home was found for this account.');
@@ -101,6 +111,9 @@ export default function EditHomeIdentityScreen() {
             homeName: trimmedHomeName,
             address: verifiedAddress,
             propertyType,
+            yearBuilt,
+            squareFootage,
+            apn,
         });
 
         if (Object.keys(nextErrors).length > 0) {
@@ -120,6 +133,10 @@ export default function EditHomeIdentityScreen() {
                 name: trimmedHomeName,
                 propertyType,
                 address: verifiedAddress,
+                yearBuilt: parseOptionalWholeNumber(yearBuilt),
+                squareFootage: parseOptionalWholeNumber(squareFootage),
+                apn: apn.trim() || null,
+                majorUpgradeTypes,
             });
 
             router.replace('/' as any);
@@ -152,7 +169,7 @@ export default function EditHomeIdentityScreen() {
 
                     <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Edit Home Information</Text>
                     <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
-                        Update your home name, verified address, and property type.
+                        Keep your Home Identity and optional homeowner-provided property facts together.
                     </Text>
 
                     {loading ? (
@@ -170,7 +187,7 @@ export default function EditHomeIdentityScreen() {
 
                             <ThemedInput
                                 label="Home nickname or display name"
-                                placeholder="Main Home"
+                                placeholder="Example: Bravo’s Home"
                                 value={homeName}
                                 onChangeText={(value) => {
                                     setHomeName(value);
@@ -221,6 +238,76 @@ export default function EditHomeIdentityScreen() {
                                 </Text>
                             )}
 
+                            <View style={[scaleStyle(profileFactsStyle), { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+                                <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Home Profile</Text>
+                                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText, marginBottom: scaleIcon(16) }]}>
+                                    These facts are optional and homeowner-provided. HomeOS does not publicly verify them. No deed image or ownership document is requested, and automated property lookup is not enabled.
+                                </Text>
+
+                                <ThemedInput
+                                    label="Year built (optional)"
+                                    placeholder="Example: 1987"
+                                    value={yearBuilt}
+                                    onChangeText={(value) => {
+                                        setYearBuilt(value.replace(/\D/g, '').slice(0, 4));
+                                        clearFieldError('yearBuilt');
+                                    }}
+                                    keyboardType="number-pad"
+                                    editable={!saving}
+                                    error={errors.yearBuilt}
+                                />
+
+                                <ThemedInput
+                                    label="Square footage (optional)"
+                                    placeholder="Example: 1850"
+                                    value={squareFootage}
+                                    onChangeText={(value) => {
+                                        setSquareFootage(value.replace(/\D/g, '').slice(0, 7));
+                                        clearFieldError('squareFootage');
+                                    }}
+                                    keyboardType="number-pad"
+                                    editable={!saving}
+                                    error={errors.squareFootage}
+                                />
+
+                                <ThemedInput
+                                    label="Assessor parcel number / APN (optional)"
+                                    placeholder="Only add this if you choose"
+                                    value={apn}
+                                    onChangeText={(value) => {
+                                        setApn(value.slice(0, 100));
+                                        clearFieldError('apn');
+                                    }}
+                                    dictationEnabled={false}
+                                    editable={!saving}
+                                    error={errors.apn}
+                                />
+
+                                <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Major upgrades or additions (optional)</Text>
+                                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText, marginBottom: scaleIcon(10) }]}>
+                                    Select what the homeowner reports. Add dates and durable records in Construction History.
+                                </Text>
+                                <View style={scaleStyle(propertyTypeGridStyle)}>
+                                    {MAJOR_HOME_UPGRADE_OPTIONS.map((option) => {
+                                        const selected = majorUpgradeTypes.includes(option.value);
+
+                                        return (
+                                            <ThemedButton
+                                                key={option.value}
+                                                title={option.label}
+                                                variant={selected ? 'primary' : 'secondary'}
+                                                disabled={saving}
+                                                onPress={() => setMajorUpgradeTypes((current) => selected
+                                                    ? current.filter((value) => value !== option.value)
+                                                    : [...current, option.value]
+                                                )}
+                                                style={scaleStyle(propertyTypeButtonStyle)}
+                                            />
+                                        );
+                                    })}
+                                </View>
+                            </View>
+
                             <ThemedButton
                                 title={saving ? 'Saving...' : 'Save Home'}
                                 disabled={saving || !identity || !verifiedAddress}
@@ -255,10 +342,16 @@ function validateHomeForm({
     homeName,
     address,
     propertyType,
+    yearBuilt,
+    squareFootage,
+    apn,
 }: {
     homeName: string;
     address: VerifiedAddress | null;
     propertyType: string;
+    yearBuilt: string;
+    squareFootage: string;
+    apn: string;
 }) {
     const nextErrors: FormErrors = {};
 
@@ -274,7 +367,28 @@ function validateHomeForm({
         nextErrors.propertyType = 'Choose a property type.';
     }
 
+    const year = parseOptionalWholeNumber(yearBuilt);
+    const nextYear = new Date().getFullYear() + 1;
+    if (yearBuilt.trim() && (year === null || year < 1600 || year > nextYear)) {
+        nextErrors.yearBuilt = `Enter a year from 1600 to ${nextYear}, or leave it blank.`;
+    }
+
+    const footage = parseOptionalWholeNumber(squareFootage);
+    if (squareFootage.trim() && (footage === null || footage < 1 || footage > 1_000_000)) {
+        nextErrors.squareFootage = 'Enter square footage from 1 to 1,000,000, or leave it blank.';
+    }
+
+    if (apn.trim().length > 100) nextErrors.apn = 'Keep the APN under 100 characters.';
+
     return nextErrors;
+}
+
+function parseOptionalWholeNumber(value: string) {
+    if (!value.trim()) return null;
+
+    const number = Number(value);
+
+    return Number.isInteger(number) ? number : null;
 }
 
 function normalizePropertyType(value?: string | null): PropertyType {
@@ -291,6 +405,7 @@ function ThemedInput({
     keyboardType,
     autoCapitalize,
     editable = true,
+    dictationEnabled = true,
     error,
 }: {
     label: string;
@@ -300,6 +415,7 @@ function ThemedInput({
     keyboardType?: TextInputProps['keyboardType'];
     autoCapitalize?: TextInputProps['autoCapitalize'];
     editable?: boolean;
+    dictationEnabled?: boolean;
     error?: string;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
@@ -322,7 +438,8 @@ function ThemedInput({
     return (
         <View style={scaledInputGroupStyle}>
             <Text style={[scaledFieldLabelStyle, { color: theme.colors.text }]}>{label}</Text>
-            <TextInput
+            <DictationTextInput
+                dictationEnabled={dictationEnabled}
                 placeholder={placeholder}
                 placeholderTextColor={theme.colors.mutedText}
                 value={value}
@@ -408,6 +525,14 @@ const loadingRowStyle = {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
     gap: 10,
+};
+
+const profileFactsStyle = {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 16,
+    marginTop: 18,
+    marginBottom: 18,
 };
 
 const bodyTextStyle = {

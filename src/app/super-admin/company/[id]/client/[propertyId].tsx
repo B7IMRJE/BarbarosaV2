@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import AdminNavBar from '../../../../../components/AdminNavBar';
 import ThemedButton from '../../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../../components/theme/ThemedCard';
@@ -16,6 +17,7 @@ import {
     type ProviderStagedWorkEntry,
 } from '../../../../../lib/providerStagedWork';
 import { resolveCompanyWorkspaceTheme } from '../../../../../lib/companyWorkspaceTheme';
+import { loadCompanyHomeIdentity, propertyTypeLabel, type HomeIdentity } from '../../../../../lib/homeIdentity';
 import { supabase } from '../../../../../lib/supabase';
 import { ThemeContext } from '../../../../../theme';
 import { CompanyGlassDepthProvider } from '../../../../../theme/glass-depth';
@@ -102,6 +104,7 @@ export default function CompanyClientDetailScreen() {
     const [company, setCompany] = useState<CompanyRecord | null>(null);
     const [client, setClient] = useState<CompanyClient | null>(null);
     const [property, setProperty] = useState<PropertyRecord | null>(null);
+    const [clientHomeIdentity, setClientHomeIdentity] = useState<HomeIdentity | null>(null);
     const [connection, setConnection] = useState<PropertyConnection | null>(null);
     const [invite, setInvite] = useState<CustomerInvite | null>(null);
     const [stagedEntries, setStagedEntries] = useState<ProviderStagedWorkEntry[]>([]);
@@ -139,7 +142,8 @@ export default function CompanyClientDetailScreen() {
     }, [companyId, clientPropertyId]);
 
     const companyName = getCompanyDisplayName(company);
-    const homeName = client?.display_name || property?.name || 'Customer Home';
+    const homeName = clientHomeIdentity?.name || property?.name || 'Customer Home';
+    const homeownerName = clientHomeIdentity?.ownerDisplayName || invite?.invited_name || client?.display_name || 'Not specified';
     const linkedAt = client?.connected_at || invite?.accepted_at || connection?.created_at || client?.created_at || null;
     const source = client?.source || connection?.request_source || null;
     const permissions = useMemo(
@@ -164,6 +168,7 @@ export default function CompanyClientDetailScreen() {
         setEmergencyIntakes([]);
         setEmergencyIntakeMessage('');
         setStagedEntries([]);
+        setClientHomeIdentity(null);
         setStagingStatusMessage('');
 
         const hasAccess = await verifyClientDetailAccess(companyId);
@@ -218,6 +223,17 @@ export default function CompanyClientDetailScreen() {
         setCompany((companyResult.data || null) as CompanyRecord | null);
         setClient(loadedClient);
         setProperty((propertyResult.data || null) as PropertyRecord | null);
+        try {
+            setClientHomeIdentity(await loadCompanyHomeIdentity({
+                companyId,
+                propertyId: clientPropertyId,
+                serviceRequestId: '',
+                scheduleSlotId: '',
+                jobId: '',
+            }));
+        } catch {
+            setClientHomeIdentity(null);
+        }
         await Promise.all([
             loadConnection(loadedClient),
             loadAcceptedInvite(),
@@ -533,13 +549,21 @@ export default function CompanyClientDetailScreen() {
 
                         <ThemedCard style={heroCardStyle}>
                             <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>{homeName}</Text>
-                            <DetailRow label="Customer" value={invite?.invited_name || client?.display_name || 'Not specified'} />
+                            <DetailRow label="Homeowner" value={homeownerName} />
+                            <DetailRow label="Home identity" value={homeName} />
+                            <DetailRow label="Home type" value={propertyTypeLabel(clientHomeIdentity?.propertyType)} />
+                            <DetailRow label="Year built" value={clientHomeIdentity?.yearBuilt ? String(clientHomeIdentity.yearBuilt) : 'Not provided'} />
+                            <DetailRow label="Square footage" value={clientHomeIdentity?.squareFootage ? clientHomeIdentity.squareFootage.toLocaleString() : 'Not provided'} />
+                            <DetailRow label="APN" value={clientHomeIdentity?.apn || 'Not provided'} />
                             <DetailRow label="Email" value={invite?.invited_email || 'Not shared'} />
                             <DetailRow label="Phone" value={invite?.invited_phone || 'Not shared'} />
                             <DetailRow label="Address" value={formatAddress(property) || 'Address not available'} />
                             <DetailRow label="Provider status" value={formatStatus(client?.status)} />
                             <DetailRow label="Source" value={formatSource(source)} />
                             <DetailRow label="Linked date" value={formatDate(linkedAt)} />
+                            <Text style={[bodyTextStyle, { color: theme.colors.mutedText, marginTop: 14 }]}>
+                                Home profile facts are homeowner-provided and not publicly verified. Automated property lookup is not enabled.
+                            </Text>
                         </ThemedCard>
 
                         <ThemedCard style={sectionCardStyle}>
@@ -656,7 +680,7 @@ export default function CompanyClientDetailScreen() {
                                 <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                                     This note is company-side only. It is not written to the homeowner’s permanent HomeOS.
                                 </Text>
-                                <TextInput
+                                <DictationTextInput
                                     value={noteText}
                                     onChangeText={setNoteText}
                                     placeholder="Add customer context, call notes, or follow-up details..."

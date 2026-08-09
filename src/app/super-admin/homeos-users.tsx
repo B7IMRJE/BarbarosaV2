@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, Text, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import GlassCard from '../../components/glass/GlassCard';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -301,7 +302,7 @@ export default function PlatformHomeOSUsersScreen() {
                     Platform accounts, company positions, client relationships, account status, and effective permissions.
                 </Text>
 
-                <TextInput
+                <DictationTextInput
                     value={search}
                     onChangeText={setSearch}
                     placeholder="Search name, email, account ID, role, or company"

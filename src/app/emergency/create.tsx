@@ -1,9 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -387,7 +387,7 @@ export default function CreateEmergencyScreen() {
                 <OptionRow options={areas} value={area} onChange={setArea} />
 
                 <Text style={[labelStyle, { color: theme.colors.text }]}>Description</Text>
-                <TextInput
+                <DictationTextInput
                     value={description}
                     onChangeText={setDescription}
                     placeholder="Describe the emergency, visible damage, sounds, smells, and shutoff actions taken."

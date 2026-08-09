@@ -1,3 +1,4 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -5,7 +6,6 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     useWindowDimensions,
     View,
 } from 'react-native';
@@ -340,7 +340,7 @@ export default function DispatchChatOverlay({
                         <Text style={[styles.errorText, { color: theme.colors.danger }]}>{errorMessage}</Text>
                     )}
                     <View style={[styles.composer, { borderTopColor: theme.colors.border }]}>
-                        <TextInput
+                        <DictationTextInput
                             accessibilityLabel="Message technician"
                             value={draft}
                             onChangeText={setDraft}

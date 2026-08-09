@@ -1,10 +1,10 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
     Image,
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     useWindowDimensions,
     View,
@@ -232,7 +232,7 @@ export default function CompaniesScreen() {
                         + Create Company
                     </Text>
 
-                        <TextInput
+                        <DictationTextInput
                             placeholder="Company Name"
                             value={name}
                             onChangeText={setName}

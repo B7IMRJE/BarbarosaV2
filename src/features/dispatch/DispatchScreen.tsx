@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
+import { Alert, Animated, AppState, Easing, Modal, Platform, Pressable, ScrollView, Text, useWindowDimensions, View, type ViewStyle } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
@@ -2417,7 +2418,7 @@ function DispatchWorkQueue({
             </View>
 
             <View style={workQueueControlRowStyle}>
-                <TextInput
+                <DictationTextInput
                     value={search}
                     onChangeText={onChangeSearch}
                     placeholder="Search job code, customer, address, ZIP, or technician"
@@ -3458,7 +3459,7 @@ function DispatchRequestCard({
                                     {selectedTechnician ? getTechnicianAssignmentDisplayName(selectedTechnician) : 'No technician selected'}
                                 </Text>
                             </View>
-                            <TextInput
+                            <DictationTextInput
                                 value={scheduleForm.technicianSearch}
                                 onChangeText={(technicianSearchText) => onUpdateScheduleForm({ technicianSearch: technicianSearchText })}
                                 placeholder="Search technicians"
@@ -3832,7 +3833,7 @@ function ScheduleInput({
     return (
         <View style={scheduleInputWrapStyle}>
             <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>{label}</Text>
-            <TextInput
+            <DictationTextInput
                 value={value}
                 onChangeText={onChangeText}
                 placeholder={placeholder}

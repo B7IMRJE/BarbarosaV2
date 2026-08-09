@@ -1,8 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
 
 import { router } from 'expo-router';
 import { useEffect, useEffectEvent, useState } from 'react';
-import { ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { Job, createJob, loadJobs } from '../../lib/jobs';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
@@ -148,14 +149,14 @@ export default function JobsIndexScreen() {
                 <View style={scaleJobStyle(createCardStyle, scaleFont, scaleIcon)}>
                     <Text style={scaleJobStyle(sectionTitleStyle, scaleFont, scaleIcon)}>Create Job</Text>
 
-                    <TextInput
+                    <DictationTextInput
                         placeholder="Job title"
                         value={title}
                         onChangeText={setTitle}
                         style={scaleJobStyle(inputStyle, scaleFont, scaleIcon)}
                     />
 
-                    <TextInput
+                    <DictationTextInput
                         placeholder="Room or area"
                         value={roomOrArea}
                         onChangeText={setRoomOrArea}

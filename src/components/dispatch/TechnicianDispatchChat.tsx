@@ -1,3 +1,4 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -5,7 +6,6 @@ import {
     ScrollView,
     StyleSheet,
     Text,
-    TextInput,
     View,
 } from 'react-native';
 import {
@@ -184,7 +184,7 @@ export default function TechnicianDispatchChat({
             )}
 
             <View style={styles.composer}>
-                <TextInput
+                <DictationTextInput
                     accessibilityLabel="Message Dispatch"
                     value={draft}
                     onChangeText={setDraft}

@@ -1,5 +1,6 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import {
     loadAnnouncementHistory,
@@ -101,7 +102,7 @@ export default function CommunicationsCenter() {
                     <>
                         <View style={styles.panel}>
                             <Text style={styles.heading}>1. Choose recipients</Text>
-                            <TextInput value={query} onChangeText={setQuery} placeholder="Search name, city, state, or masked contact" style={styles.input} />
+                            <DictationTextInput value={query} onChangeText={setQuery} placeholder="Search name, city, state, or masked contact" style={styles.input} />
                             <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
                                 <TouchableOpacity style={styles.smallButton} onPress={() => setSelected(visibleCustomers.map((item) => item.user_id))}>
                                     <Text style={styles.buttonText}>Select visible ({visibleCustomers.length})</Text>
@@ -133,8 +134,8 @@ export default function CommunicationsCenter() {
                                     </TouchableOpacity>
                                 ))}
                             </View>
-                            <TextInput value={title} onChangeText={setTitle} maxLength={100} placeholder="Clear title" style={styles.input} />
-                            <TextInput value={body} onChangeText={setBody} maxLength={1000} multiline placeholder="Short message—no address, payment, or sensitive home details" style={[styles.input, { minHeight: 120, textAlignVertical: 'top' }]} />
+                            <DictationTextInput value={title} onChangeText={setTitle} maxLength={100} placeholder="Clear title" style={styles.input} />
+                            <DictationTextInput value={body} onChangeText={setBody} maxLength={1000} multiline placeholder="Short message—no address, payment, or sensitive home details" style={[styles.input, { minHeight: 120, textAlignVertical: 'top' }]} />
                             <Text style={styles.notice}>Push preview: “You have a new update from HomeOS.” Full details appear only after sign-in.</Text>
                             <TouchableOpacity disabled={sending} onPress={() => void reviewAndSend()} style={[styles.sendButton, sending && { opacity: 0.6 }]}>
                                 <Text style={styles.buttonText}>{sending ? 'Sending…' : `Review ${selected.length} recipient${selected.length === 1 ? '' : 's'} & send`}</Text>

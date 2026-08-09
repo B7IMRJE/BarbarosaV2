@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import AdminNavBar from '../../../../components/AdminNavBar';
 import HomeHeader from '../../../../components/HomeHeader';
 import ThemedButton from '../../../../components/theme/ThemedButton';
@@ -122,7 +123,7 @@ export default function CompanyRedeemCodeScreen() {
 
                 <ThemedCard style={formCardStyle}>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Connection Code</Text>
-                    <TextInput
+                    <DictationTextInput
                         autoCapitalize="characters"
                         autoCorrect={false}
                         placeholder="Enter code"

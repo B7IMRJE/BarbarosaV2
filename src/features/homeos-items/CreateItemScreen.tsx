@@ -1,9 +1,9 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
     ScrollView,
     Text,
-    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
@@ -752,7 +752,7 @@ function ThemedInput({
                     {label}
                 </Text>
             )}
-            <TextInput
+            <DictationTextInput
                 placeholder={placeholder}
                 placeholderTextColor={theme.colors.mutedText}
                 value={value}

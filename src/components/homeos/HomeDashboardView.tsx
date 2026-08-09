@@ -51,6 +51,7 @@ type HomeDashboardViewProps = {
   identity: HomeIdentity | null;
   identityLoading: boolean;
   onEditIdentity: () => void;
+  onOpenConstructionHistory: () => void;
   items: HomeDashboardItem[];
   emergencies?: HomeHealthEmergency[];
   maintenanceReminders: HomeDashboardMaintenanceReminder[];
@@ -74,6 +75,7 @@ export default function HomeDashboardView({
   identity,
   identityLoading,
   onEditIdentity,
+  onOpenConstructionHistory,
   items,
   emergencies = [],
   maintenanceReminders,
@@ -183,6 +185,7 @@ export default function HomeDashboardView({
         identity={identity}
         loading={identityLoading}
         onEdit={onEditIdentity}
+        onOpenHistory={onOpenConstructionHistory}
       />
 
       {afterIdentity}

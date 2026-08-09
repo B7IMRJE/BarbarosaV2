@@ -1,6 +1,7 @@
+import DictationTextInput from '@/components/input/DictationTextInput';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ScrollView, Text, TextInput, View } from 'react-native';
+import { ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -111,7 +112,7 @@ export default function ResetHomeSetupScreen() {
                     <Text style={{ color: theme.colors.text, fontWeight: '900', marginTop: 18, marginBottom: 8 }}>
                         Type RESET to enable the active home reset.
                     </Text>
-                    <TextInput
+                    <DictationTextInput
                         value={confirmation}
                         onChangeText={(value) => {
                             setConfirmation(value);
