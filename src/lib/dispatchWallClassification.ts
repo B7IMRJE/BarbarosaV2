@@ -134,10 +134,15 @@ export function buildDispatchWallSections(
     scheduleSlots: DispatchWallScheduleSlot[],
     companyUsers: DispatchWallCompanyUser[],
     now: Date,
-    timingEvents: DispatchWallTimingEvent[] = []
+    timingEvents: DispatchWallTimingEvent[] = [],
+    workflowsByRequestId: Record<string, DispatchWallWorkflowState | undefined> = {}
 ): DispatchWallSections {
     const sections = createEmptySections();
-    const slotsByRequestId = groupSlotsByRequestId(scheduleSlots);
+    const reconciledScheduleSlots = reconcileDispatchWallSlotsWithJobWorkflows(
+        scheduleSlots,
+        workflowsByRequestId
+    );
+    const slotsByRequestId = groupSlotsByRequestId(reconciledScheduleSlots);
     const timingEventsByRequestId = groupTimingEventsByRequestId(timingEvents);
     const usersById = new Map(companyUsers.map((user) => [user.id, user]));
 
@@ -145,7 +150,8 @@ export function buildDispatchWallSections(
         const requestSlots = slotsByRequestId.get(request.id) || [];
         const slot = getCurrentWallScheduleSlot(requestSlots, request, now);
         const timingEvent = getLatestTimingEvent(timingEventsByRequestId.get(request.id) || [], slot);
-        const risk = calculateWallDispatchRisk(request, slot, scheduleSlots, timingEvent, now);
+        const workflowStatus = normalizeStatus(workflowsByRequestId[request.id]?.status);
+        const risk = calculateWallDispatchRisk(request, slot, reconciledScheduleSlots, timingEvent, now);
         const sectionKey = classifyDispatchWallRequest(request, slot, risk, timingEvent, now);
 
         if (!sectionKey) return;
@@ -160,12 +166,12 @@ export function buildDispatchWallSections(
             availability: null,
             timingEvent,
             risk,
-            statusLabel: getWallStatusLabel(request, slot, risk),
+            statusLabel: getWallStatusLabel(request, slot, risk, workflowStatus),
             sortTime: getWallSortTime(sectionKey, request, slot),
         });
     });
 
-    buildAvailableTechnicianItems(companyUsers, scheduleSlots, now).forEach((item) => {
+    buildAvailableTechnicianItems(companyUsers, reconciledScheduleSlots, now).forEach((item) => {
         sections.available.push(item);
     });
 
@@ -1073,12 +1079,19 @@ function isActiveCustomFieldStatus(slot: DispatchWallScheduleSlot | null) {
     );
 }
 
-function getWallStatusLabel(request: DispatchWallRequest, slot: DispatchWallScheduleSlot | null, risk: DispatchRiskResult) {
+function getWallStatusLabel(
+    request: DispatchWallRequest,
+    slot: DispatchWallScheduleSlot | null,
+    risk: DispatchRiskResult,
+    workflowStatus = ''
+) {
     const effectiveState = resolveDispatchWallEffectiveState(request, slot);
     const operationalStatus = getReconciledOperationalStatus(request, slot);
     const explicitOperationalSection = getExplicitWallOperationalSection(slot, operationalStatus);
 
     if (effectiveState.terminalLabel) return effectiveState.terminalLabel;
+    if (workflowStatus === 'store_trip') return 'Store Run';
+    if (workflowStatus === 'returning_to_job') return 'Returning to Job';
     if (explicitOperationalSection) return formatWallStatusLabel(operationalStatus);
     if (risk.state === 'AT_RISK') return 'At Risk';
     if (risk.state === 'RUNNING_LATE') return risk.needsReassignment ? 'Needs Reassignment' : 'Running Late';

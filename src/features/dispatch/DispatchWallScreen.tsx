@@ -33,7 +33,6 @@ import {
 } from '../../lib/dispatchWallNavigation';
 import {
     buildDispatchWallSections,
-    reconcileDispatchWallSlotsWithJobWorkflows,
     formatWallStatusLabel,
     getWallDisplayCode,
     type DispatchWallCompanyUser,
@@ -600,12 +599,16 @@ function DispatchWallContent() {
     }, [expandedSectionKey, detailItem]);
 
     const effectiveDataNow = dataNow || HYDRATION_SAFE_WALL_TIME;
-    const reconciledScheduleSlots = useMemo(() => (
-        reconcileDispatchWallSlotsWithJobWorkflows(scheduleSlots, soldJobsByRequestId)
-    ), [scheduleSlots, soldJobsByRequestId]);
     const sections = useMemo(() => (
-        buildDispatchWallSections(requests, reconciledScheduleSlots, companyUsers, effectiveDataNow, timingEvents)
-    ), [requests, reconciledScheduleSlots, companyUsers, effectiveDataNow, timingEvents]);
+        buildDispatchWallSections(
+            requests,
+            scheduleSlots,
+            companyUsers,
+            effectiveDataNow,
+            timingEvents,
+            soldJobsByRequestId
+        )
+    ), [requests, scheduleSlots, companyUsers, effectiveDataNow, timingEvents, soldJobsByRequestId]);
     const leadCounts = useMemo(() => calculateCompanyLeadCounts(requests), [requests]);
     const companyName = getCompanyName(company) || (demoMode ? 'Bravo Dispatch' : 'Dispatch');
     const expandedItems = expandedSectionKey ? sections[expandedSectionKey] : [];
@@ -2382,13 +2385,6 @@ function getCompanyName(company: CompanyBrand | null) {
 
 function openManagementOS(companyId: string) {
     const path = `/dispatch?companyId=${encodeURIComponent(companyId)}`;
-
-    if (Platform.OS === 'web') {
-        const windowLike = globalThis as { open?: (url?: string, target?: string, features?: string) => Window | null };
-        windowLike.open?.(path, '_blank', 'noopener,noreferrer');
-        return;
-    }
-
     router.push(path as never);
 }
 

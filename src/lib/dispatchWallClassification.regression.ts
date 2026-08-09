@@ -1,6 +1,5 @@
 import {
     buildDispatchWallSections,
-    reconcileDispatchWallSlotsWithJobWorkflows,
     type DispatchWallCompanyUser,
     type DispatchWallRequest,
     type DispatchWallScheduleSlot,
@@ -53,14 +52,18 @@ function storeRunStaysInProgressOnTheWall() {
         arrival_window_end: localIso(0, 12),
         updated_at: localIso(0, 11),
     });
-    const reconciledSlots = reconcileDispatchWallSlotsWithJobWorkflows([slot], {
-        [request.id]: { status: 'store_trip' },
-    });
-    const sections = buildDispatchWallSections([request], reconciledSlots, [createTechnician('tech-2', 'tech 2')], now);
+    const sections = buildDispatchWallSections(
+        [request],
+        [slot],
+        [createTechnician('tech-2', 'tech 2')],
+        now,
+        [],
+        { [request.id]: { status: 'store_trip' } }
+    );
     const item = getSingleRequestItem(sections, request.id);
 
     assert(item.sectionKey === 'in_progress', 'A store run must keep an already-started job in the In Progress section.');
-    assert(item.statusLabel === 'In Progress', 'A store run must not be relabeled as the original On My Way trip.');
+    assert(item.statusLabel === 'Store Run', 'A store run must have a clear wall status instead of the original On My Way trip.');
     assert(item.slot?.tech_status_note === 'Going to the supply store.', 'The wall card should retain the store-run status note.');
 }
 
@@ -77,13 +80,18 @@ function returnFromStoreStaysInProgressOnTheWall() {
         arrival_window_end: localIso(0, 12),
         updated_at: localIso(0, 11),
     });
-    const reconciledSlots = reconcileDispatchWallSlotsWithJobWorkflows([slot], {
-        [request.id]: { status: 'returning_to_job' },
-    });
-    const sections = buildDispatchWallSections([request], reconciledSlots, [createTechnician('tech-2', 'tech 2')], now);
+    const sections = buildDispatchWallSections(
+        [request],
+        [slot],
+        [createTechnician('tech-2', 'tech 2')],
+        now,
+        [],
+        { [request.id]: { status: 'returning_to_job' } }
+    );
     const item = getSingleRequestItem(sections, request.id);
 
     assert(item.sectionKey === 'in_progress', 'Returning from the store must keep an already-started job in the In Progress section.');
+    assert(item.statusLabel === 'Returning to Job', 'Returning from the store must have a clear wall status.');
     assert(item.slot?.tech_status_note === 'Purchase complete — technician is returning to the job site.', 'A missing return note should receive a clear wall status.');
 }
 
