@@ -30,6 +30,10 @@
       "destination": "/jobs/[id]"
     },
     {
+      "source": "/home-story/:id",
+      "destination": "/home-story/[id]"
+    },
+    {
       "source": "/emergency/:id",
       "destination": "/emergency/[id]"
     },
