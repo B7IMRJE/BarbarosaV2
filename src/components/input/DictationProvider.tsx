@@ -14,9 +14,17 @@ import {
     useRef,
     useState,
 } from 'react';
-import { Alert, Platform } from 'react-native';
-import { readDictationErrorMessage } from '../../lib/dictation';
+import {
+    Alert,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    View,
+} from 'react-native';
+import { buildDictationAudioMetadata, readDictationErrorMessage } from '../../lib/dictation';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../lib/supabase';
+import { useTheme } from '../../theme/useTheme';
 
 const MAX_RECORDING_MILLISECONDS = 60_000;
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
@@ -36,12 +44,19 @@ type DictationContextValue = {
     toggleDictation: (input: StartDictationInput) => Promise<void>;
 };
 
+type DictationNotice = {
+    title: string;
+    message: string;
+};
+
 const DictationContext = createContext<DictationContextValue | null>(null);
 
 export default function DictationProvider({ children }: PropsWithChildren) {
     const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+    const { theme } = useTheme();
     const [activeFieldId, setActiveFieldId] = useState('');
     const [phase, setPhase] = useState<DictationPhase>('idle');
+    const [notice, setNotice] = useState<DictationNotice | null>(null);
     const activeRequestRef = useRef<StartDictationInput | null>(null);
     const stopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -56,6 +71,15 @@ export default function DictationProvider({ children }: PropsWithChildren) {
         setActiveFieldId('');
         setPhase('idle');
     }, [clearStopTimer]);
+
+    const showFailure = useCallback((title: string, message: string) => {
+        if (Platform.OS === 'web') {
+            setNotice({ title, message });
+            return;
+        }
+
+        Alert.alert(title, message);
+    }, []);
 
     const stopAndTranscribe = useCallback(async () => {
         const activeRequest = activeRequestRef.current;
@@ -72,6 +96,7 @@ export default function DictationProvider({ children }: PropsWithChildren) {
 
             const audioResponse = await fetch(uri);
             const audioBlob = await audioResponse.blob();
+            const audioMetadata = buildDictationAudioMetadata(audioBlob.type, uri, Platform.OS);
 
             if (!audioBlob.size) throw new Error('The recording was empty.');
             if (audioBlob.size > MAX_AUDIO_BYTES) {
@@ -95,8 +120,8 @@ export default function DictationProvider({ children }: PropsWithChildren) {
                     headers: {
                         Authorization: `Bearer ${session.access_token}`,
                         apikey: supabaseAnonKey,
-                        'Content-Type': audioBlob.type || recordingContentType(uri),
-                        'X-HomeOS-Audio-Filename': recordingFilename(uri),
+                        'Content-Type': audioMetadata.contentType,
+                        'X-HomeOS-Audio-Filename': audioMetadata.filename,
                     },
                     body: audioBlob,
                     signal: controller.signal,
@@ -116,7 +141,7 @@ export default function DictationProvider({ children }: PropsWithChildren) {
 
             activeRequest.onTranscript(transcript);
         } catch (error) {
-            Alert.alert('Dictation unavailable', formatDictationFailure(error));
+            showFailure('Dictation unavailable', formatDictationFailure(error));
         } finally {
             reset();
             try {
@@ -125,14 +150,14 @@ export default function DictationProvider({ children }: PropsWithChildren) {
                 // The field is still usable when the platform cannot reset audio mode.
             }
         }
-    }, [clearStopTimer, recorder, reset]);
+    }, [clearStopTimer, recorder, reset, showFailure]);
 
     const toggleDictation = useCallback(async (input: StartDictationInput) => {
         if (phase === 'transcribing') return;
 
         if (phase === 'recording') {
             if (activeFieldId !== input.fieldId) {
-                Alert.alert('Dictation already recording', 'Finish the current recording before starting another field.');
+                showFailure('Dictation already recording', 'Finish the current recording before starting another field.');
                 return;
             }
 
@@ -141,15 +166,17 @@ export default function DictationProvider({ children }: PropsWithChildren) {
         }
 
         try {
+            setNotice(null);
+
             if (!isSecureWebContext()) {
-                Alert.alert('Microphone unavailable', 'Web dictation requires a secure HTTPS connection. You can still type in this field.');
+                showFailure('Microphone unavailable', 'Web dictation requires a secure HTTPS connection. You can still type in this field.');
                 return;
             }
 
             const permission = await AudioModule.requestRecordingPermissionsAsync();
 
             if (!permission.granted) {
-                Alert.alert(
+                showFailure(
                     'Microphone permission needed',
                     'Allow microphone access in device settings to use dictation. You can still type in every field.',
                 );
@@ -165,9 +192,9 @@ export default function DictationProvider({ children }: PropsWithChildren) {
             stopTimerRef.current = setTimeout(() => void stopAndTranscribe(), MAX_RECORDING_MILLISECONDS);
         } catch (error) {
             reset();
-            Alert.alert('Microphone unavailable', formatDictationFailure(error));
+            showFailure('Microphone unavailable', formatDictationFailure(error));
         }
-    }, [activeFieldId, phase, recorder, reset, stopAndTranscribe]);
+    }, [activeFieldId, phase, recorder, reset, showFailure, stopAndTranscribe]);
 
     useEffect(() => () => clearStopTimer(), [clearStopTimer]);
 
@@ -177,7 +204,39 @@ export default function DictationProvider({ children }: PropsWithChildren) {
         toggleDictation,
     }), [activeFieldId, phase, toggleDictation]);
 
-    return <DictationContext.Provider value={value}>{children}</DictationContext.Provider>;
+    return (
+        <DictationContext.Provider value={value}>
+            {children}
+            {Platform.OS === 'web' && notice ? (
+                <View
+                    accessibilityLiveRegion="assertive"
+                    accessibilityRole="alert"
+                    aria-atomic
+                    aria-live="assertive"
+                    style={[
+                        styles.notice,
+                        {
+                            backgroundColor: theme.colors.dangerBackground,
+                            borderColor: theme.colors.danger,
+                        },
+                    ]}
+                >
+                    <View style={styles.noticeCopy}>
+                        <Text style={[styles.noticeTitle, { color: theme.colors.danger }]}>{notice.title}</Text>
+                        <Text style={[styles.noticeMessage, { color: theme.colors.text }]}>{notice.message}</Text>
+                    </View>
+                    <Pressable
+                        accessibilityLabel="Dismiss dictation message"
+                        accessibilityRole="button"
+                        onPress={() => setNotice(null)}
+                        style={styles.dismissButton}
+                    >
+                        <Text style={[styles.dismissText, { color: theme.colors.text }]}>Close</Text>
+                    </Pressable>
+                </View>
+            ) : null}
+        </DictationContext.Provider>
+    );
 }
 
 export function useDictation() {
@@ -192,23 +251,6 @@ function isSecureWebContext() {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return true;
 
     return window.isSecureContext || ['localhost', '127.0.0.1'].includes(window.location.hostname);
-}
-
-function recordingFilename(uri: string) {
-    const filename = uri.split(/[/?#]/).filter(Boolean).pop() || '';
-
-    return /\.(m4a|mp4|mp3|wav|webm|ogg)$/i.test(filename) ? filename : `homeos-dictation.${Platform.OS === 'web' ? 'webm' : 'm4a'}`;
-}
-
-function recordingContentType(uri: string) {
-    const extension = recordingFilename(uri).split('.').pop()?.toLowerCase();
-
-    if (extension === 'webm') return 'audio/webm';
-    if (extension === 'wav') return 'audio/wav';
-    if (extension === 'ogg') return 'audio/ogg';
-    if (extension === 'mp3') return 'audio/mpeg';
-
-    return 'audio/mp4';
 }
 
 async function readResponseJson(response: Response) {
@@ -238,3 +280,44 @@ function formatDictationFailure(error: unknown) {
 
     return message || 'Your text was not changed. Please try again or keep typing.';
 }
+
+const styles = StyleSheet.create({
+    notice: {
+        alignItems: 'flex-start',
+        borderRadius: 14,
+        borderWidth: 2,
+        bottom: 20,
+        boxShadow: '0 10px 28px rgba(0, 0, 0, 0.24)',
+        flexDirection: 'row',
+        gap: 12,
+        left: 16,
+        maxWidth: 520,
+        padding: 16,
+        position: 'absolute',
+        right: 16,
+        zIndex: 12_000,
+    },
+    noticeCopy: {
+        flex: 1,
+        gap: 4,
+    },
+    noticeTitle: {
+        fontSize: 16,
+        fontWeight: '900',
+        lineHeight: 20,
+    },
+    noticeMessage: {
+        fontSize: 14,
+        fontWeight: '700',
+        lineHeight: 20,
+    },
+    dismissButton: {
+        minHeight: 36,
+        justifyContent: 'center',
+        paddingHorizontal: 6,
+    },
+    dismissText: {
+        fontSize: 13,
+        fontWeight: '900',
+    },
+});

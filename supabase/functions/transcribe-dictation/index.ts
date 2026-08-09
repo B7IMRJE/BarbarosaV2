@@ -3,15 +3,17 @@ declare const Deno: {
 };
 
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
-const ALLOWED_AUDIO_TYPES = new Set([
-    'audio/flac',
-    'audio/m4a',
-    'audio/mp4',
-    'audio/mpeg',
-    'audio/ogg',
-    'audio/wav',
-    'audio/webm',
-    'video/mp4',
+const AUDIO_EXTENSION_BY_CONTENT_TYPE = new Map([
+    ['audio/m4a', 'm4a'],
+    ['audio/mp3', 'mp3'],
+    ['audio/mp4', 'mp4'],
+    ['audio/mpeg', 'mp3'],
+    ['audio/mpga', 'mpga'],
+    ['audio/wav', 'wav'],
+    ['audio/webm', 'webm'],
+    ['audio/x-m4a', 'm4a'],
+    ['audio/x-wav', 'wav'],
+    ['video/mp4', 'mp4'],
 ]);
 
 type FunctionEnv = {
@@ -26,27 +28,33 @@ export default {
         if (req.method === 'OPTIONS') return handleOptions(req);
         if (req.method !== 'POST') return errorJson(req, 405, 'method_not_allowed', 'Method not allowed.');
 
+        const requestId = crypto.randomUUID();
+        const startedAt = Date.now();
+        let contentType = '';
+
         try {
             const env = loadEnv();
             const token = bearerToken(req);
 
-            if (!token) return errorJson(req, 401, 'not_authenticated', 'Please sign in again before using dictation.');
+            logDictation('request_received', requestId, { content_type: normalizeContentType(req.headers.get('Content-Type')) });
+
+            if (!token) return loggedError(req, requestId, startedAt, 401, 'not_authenticated', 'Please sign in again before using dictation.');
             if (!env.openAiApiKey) {
-                return errorJson(req, 501, 'openai_not_configured', 'Dictation is not configured yet. You can still type in this field.');
+                return loggedError(req, requestId, startedAt, 501, 'openai_not_configured', 'Dictation is not configured yet. You can still type in this field.');
             }
             if (!await isAuthenticated(env, token)) {
-                return errorJson(req, 401, 'not_authenticated', 'Please sign in again before using dictation.');
+                return loggedError(req, requestId, startedAt, 401, 'not_authenticated', 'Please sign in again before using dictation.');
             }
 
-            const contentType = normalizeContentType(req.headers.get('Content-Type'));
-            if (!ALLOWED_AUDIO_TYPES.has(contentType)) {
-                return errorJson(req, 415, 'unsupported_audio', 'That microphone recording format is not supported. Please try again.');
+            contentType = normalizeContentType(req.headers.get('Content-Type'));
+            if (!isSupportedAudioContentType(contentType)) {
+                return loggedError(req, requestId, startedAt, 415, 'unsupported_audio', 'That microphone recording format is not supported. Please try again.', { content_type: contentType });
             }
 
             const audio = await req.arrayBuffer();
-            if (!audio.byteLength) return errorJson(req, 400, 'empty_audio', 'No speech recording was received.');
+            if (!audio.byteLength) return loggedError(req, requestId, startedAt, 400, 'empty_audio', 'No speech recording was received.', { content_type: contentType, audio_bytes: 0 });
             if (audio.byteLength > MAX_AUDIO_BYTES) {
-                return errorJson(req, 413, 'audio_too_large', 'That recording is too large. Please try a shorter note.');
+                return loggedError(req, requestId, startedAt, 413, 'audio_too_large', 'That recording is too large. Please try a shorter note.', { content_type: contentType, audio_bytes: audio.byteLength });
             }
 
             const filename = safeFilename(req.headers.get('X-HomeOS-Audio-Filename'), contentType);
@@ -66,21 +74,34 @@ export default {
 
             if (!openAiResponse.ok) {
                 const detail = readString(readRecord(responseBody?.error)?.message);
-                return errorJson(
+                return loggedError(
                     req,
+                    requestId,
+                    startedAt,
                     openAiResponse.status === 429 ? 503 : 502,
                     'transcription_failed',
                     detail || 'The transcription service is unavailable. Your text was not changed.',
+                    {
+                        audio_bytes: audio.byteLength,
+                        content_type: contentType,
+                        upstream_status: openAiResponse.status,
+                    },
                 );
             }
 
             const transcript = readString(responseBody?.text);
-            if (!transcript) return errorJson(req, 422, 'no_speech', 'No speech was detected. Please try again and speak clearly.');
+            if (!transcript) return loggedError(req, requestId, startedAt, 422, 'no_speech', 'No speech was detected. Please try again and speak clearly.', { audio_bytes: audio.byteLength, content_type: contentType, upstream_status: openAiResponse.status });
 
-            return json(req, { ok: true, transcript });
-        } catch (error) {
-            const message = error instanceof Error ? error.message : '';
-            return errorJson(req, 500, 'unexpected_error', message || 'Dictation is temporarily unavailable. Your text was not changed.');
+            logDictation('request_completed', requestId, {
+                audio_bytes: audio.byteLength,
+                content_type: contentType,
+                duration_ms: Date.now() - startedAt,
+                status: 200,
+                upstream_status: openAiResponse.status,
+            });
+            return json(req, { ok: true, transcript }, 200, requestId);
+        } catch {
+            return loggedError(req, requestId, startedAt, 500, 'unexpected_error', 'Dictation is temporarily unavailable. Your text was not changed.', { content_type: contentType });
         }
     },
 };
@@ -123,22 +144,20 @@ function publishableKey() {
     throw new Error('Dictation is not configured: Supabase publishable key is missing.');
 }
 
-function safeFilename(value: string | null, contentType: string) {
+export function safeFilename(value: string | null, contentType: string) {
+    const extension = AUDIO_EXTENSION_BY_CONTENT_TYPE.get(normalizeContentType(contentType)) || 'bin';
     const filename = String(value || '').replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 80);
-    if (filename && /\.(flac|m4a|mp3|mp4|ogg|wav|webm)$/i.test(filename)) return filename;
+    const basename = filename.replace(/\.[^.]*$/, '').replace(/^\.+|\.+$/g, '') || 'homeos-dictation';
 
-    const extension = contentType.includes('webm') ? 'webm'
-        : contentType.includes('wav') ? 'wav'
-            : contentType.includes('ogg') ? 'ogg'
-                : contentType.includes('mpeg') ? 'mp3'
-                    : contentType.includes('flac') ? 'flac'
-                        : 'm4a';
-
-    return `homeos-dictation.${extension}`;
+    return `${basename}.${extension}`;
 }
 
-function normalizeContentType(value: string | null) {
+export function normalizeContentType(value: string | null) {
     return String(value || '').split(';')[0].trim().toLowerCase();
+}
+
+export function isSupportedAudioContentType(value: string | null) {
+    return AUDIO_EXTENSION_BY_CONTENT_TYPE.has(normalizeContentType(value));
 }
 
 function bearerToken(req: Request) {
@@ -153,15 +172,45 @@ function handleOptions(req: Request) {
     return new Response('ok', { headers: corsHeaders(req) });
 }
 
-function json(req: Request, body: Record<string, unknown>, status = 200) {
+function json(req: Request, body: Record<string, unknown>, status = 200, requestId = '') {
     return new Response(JSON.stringify(body), {
         status,
-        headers: { ...corsHeaders(req), 'Content-Type': 'application/json; charset=utf-8' },
+        headers: {
+            ...corsHeaders(req),
+            'Content-Type': 'application/json; charset=utf-8',
+            ...(requestId ? { 'X-HomeOS-Request-Id': requestId } : {}),
+        },
     });
 }
 
 function errorJson(req: Request, status: number, code: string, message: string) {
     return json(req, { ok: false, code, message }, status);
+}
+
+function loggedError(
+    req: Request,
+    requestId: string,
+    startedAt: number,
+    status: number,
+    code: string,
+    message: string,
+    details: Record<string, string | number> = {},
+) {
+    logDictation('request_completed', requestId, {
+        ...details,
+        code,
+        duration_ms: Date.now() - startedAt,
+        status,
+    });
+    return json(req, { ok: false, code, message }, status, requestId);
+}
+
+function logDictation(event: string, requestId: string, details: Record<string, string | number>) {
+    console.log(JSON.stringify({
+        event: `dictation_${event}`,
+        request_id: requestId,
+        ...details,
+    }));
 }
 
 function corsHeaders(req: Request) {
