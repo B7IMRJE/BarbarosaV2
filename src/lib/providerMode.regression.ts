@@ -12,6 +12,7 @@ runProviderModeRegressions();
 export function runProviderModeRegressions() {
     providerModeParamsPreserveTechOSJobContext();
     providerModeItemPathPreservesEstimateContext();
+    providerModeItemPathPreservesFocusedView();
     providerModePathKeepsBackToCurrentJob();
     providerContextDoesNotInventOptionalIds();
     missingProviderContextIsDetected();
@@ -47,6 +48,17 @@ function providerModeItemPathPreservesEstimateContext() {
     assert(itemPath.includes('serviceRequestId=request-1'), 'Provider item path should preserve service request id.');
     assert(itemPath.includes('scheduleSlotId=slot-1'), 'Provider item path should preserve schedule slot id.');
     assert(itemPath.includes('jobId=job-1'), 'Provider item path should preserve job id.');
+}
+
+function providerModeItemPathPreservesFocusedView() {
+    const itemPath = String(providerModeItemPath('kitchen-angle-stop', createContext(), {
+        itemView: 'edit-information',
+        saved: '1',
+    }));
+
+    assert(itemPath.includes('itemView=edit-information'), 'Provider item path should preserve a focused item-management view.');
+    assert(itemPath.includes('saved=1'), 'Provider item path should preserve focused-view confirmation state.');
+    assert(itemPath.includes('jobId=job-1'), 'Focused item routes should preserve provider job context.');
 }
 
 function providerModePathKeepsBackToCurrentJob() {

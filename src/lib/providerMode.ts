@@ -109,8 +109,15 @@ export function providerModePath(pathname: string, context: ProviderModeParams) 
     return `${pathname}?${query}` as Href;
 }
 
-export function providerModeItemPath(itemSlug: string, context: ProviderModeParams) {
-    const query = new URLSearchParams(providerModeQueryParams(context)).toString();
+export function providerModeItemPath(
+    itemSlug: string,
+    context: ProviderModeParams,
+    extraParams: Record<string, string> = {}
+) {
+    const query = new URLSearchParams({
+        ...providerModeQueryParams(context),
+        ...extraParams,
+    }).toString();
 
     return `/item/${encodeURIComponent(itemSlug)}?${query}` as Href;
 }

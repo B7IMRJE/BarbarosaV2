@@ -135,6 +135,8 @@ type ProviderFindingSeverity = 'low' | 'medium' | 'high' | 'urgent';
 
 type ItemActionGroupKey = 'components' | 'maintenance' | 'estimate' | 'provider' | 'media' | 'item';
 
+type ItemFocusedView = 'management' | 'edit-information';
+
 const itemSectionTilePalettes: Record<
     ItemActionGroupKey,
     { background: string; border: string; accent: string; text: string; mutedText: string }
@@ -213,6 +215,15 @@ const documentCategories = [
 const providerNoteDestinations: ProviderNoteDestination[] = ['company_only', 'client_update'];
 
 const providerFindingSeverities: ProviderFindingSeverity[] = ['low', 'medium', 'high', 'urgent'];
+
+const providerItemStatusOptions = [
+    'Missing Information',
+    'Not Inspected',
+    'Good',
+    'Needs Attention',
+    'Emergency',
+    'Custom',
+];
 
 const PROVIDER_STAGED_PHOTO_BUCKET = 'item-files';
 const SAFETY_GUIDE_BUCKET = 'item-files';
@@ -514,6 +525,8 @@ export default function ItemScreen() {
         serviceRequestId?: string | string[];
         scheduleSlotId?: string | string[];
         jobId?: string | string[];
+        itemView?: string | string[];
+        saved?: string | string[];
     }>();
     const slug = firstParam(routeParams.slug);
     const managementCompanyId = firstParam(routeParams.companyId);
@@ -521,6 +534,8 @@ export default function ItemScreen() {
     const isManagementMode = firstParam(routeParams.mode) === 'management' && !!managementCompanyId && !!managementPropertyId;
     const providerModeContext = readProviderModeParams(routeParams);
     const providerContextIncomplete = hasProviderModeRouteSignal(routeParams) && !providerModeContext;
+    const itemFocusedView = firstParam(routeParams.itemView) as ItemFocusedView | '';
+    const focusedSaveComplete = firstParam(routeParams.saved) === '1';
     const [item, setItem] = useState<any>(null);
     const [relatedItems, setRelatedItems] = useState<HomeItemHierarchyRecord[]>([]);
     const [files, setFiles] = useState<ItemFile[]>([]);
@@ -585,7 +600,9 @@ export default function ItemScreen() {
     const [providerFindingStageForEstimate, setProviderFindingStageForEstimate] = useState(false);
     const [providerEditName, setProviderEditName] = useState('');
     const [providerEditCondition, setProviderEditCondition] = useState('');
-    const [providerEditStatus, setProviderEditStatus] = useState('');
+    const [providerEditStatusChoice, setProviderEditStatusChoice] = useState('Missing Information');
+    const [providerEditCustomStatus, setProviderEditCustomStatus] = useState('');
+    const [providerStatusPickerOpen, setProviderStatusPickerOpen] = useState(false);
     const [providerEditBrand, setProviderEditBrand] = useState('');
     const [providerEditModel, setProviderEditModel] = useState('');
     const [providerEditSerial, setProviderEditSerial] = useState('');
@@ -605,6 +622,7 @@ export default function ItemScreen() {
     });
     const loadItemEvent = useEffectEvent(loadItem);
     const refreshProviderStagedEntriesEvent = useEffectEvent(refreshProviderStagedEntries);
+    const openProviderEditEvent = useEffectEvent(() => openProviderPanel('edit'));
     const isProviderMode = Boolean(providerModeContext);
     const hasItem = Boolean(item);
 
@@ -653,6 +671,19 @@ export default function ItemScreen() {
         setCustomReminderNextDueDate(calculateNextDueDate(startDate, interval, customReminderUnit));
     }, [customReminderInterval, customReminderStartDate, customReminderUnit, showCustomMaintenanceForm]);
 
+    useEffect(() => {
+        if (itemFocusedView !== 'edit-information' || !isProviderMode || !hasItem) return;
+
+        openProviderEditEvent();
+    }, [
+        itemFocusedView,
+        isProviderMode,
+        hasItem,
+        item?.id,
+        providerModeContext?.companyId,
+        providerModeContext?.propertyId,
+    ]);
+
     async function refreshProviderStagedEntries() {
         if (!providerModeContext || !item) {
             setProviderStagedEntries([]);
@@ -684,9 +715,14 @@ export default function ItemScreen() {
         if (!providerModeContext) return;
 
         if (panel === 'edit') {
+            const currentStatus = String(item?.status || 'Missing Information').trim() || 'Missing Information';
+            const statusIsPreset = providerItemStatusOptions.includes(currentStatus) && currentStatus !== 'Custom';
+
             setProviderEditName(item?.name || '');
             setProviderEditCondition(item?.install_state || '');
-            setProviderEditStatus(item?.status || '');
+            setProviderEditStatusChoice(statusIsPreset ? currentStatus : 'Custom');
+            setProviderEditCustomStatus(statusIsPreset ? '' : currentStatus);
+            setProviderStatusPickerOpen(false);
             setProviderEditBrand(item?.brand || '');
             setProviderEditModel(item?.model || '');
             setProviderEditSerial(item?.serial || '');
@@ -838,23 +874,36 @@ export default function ItemScreen() {
     }
 
     async function handleSaveProviderEdit() {
+        const selectedStatus = providerEditStatusChoice === 'Custom'
+            ? providerEditCustomStatus.trim()
+            : providerEditStatusChoice.trim();
+
+        if (!selectedStatus) {
+            setMessage('Enter a custom status before saving changes.');
+            return;
+        }
+
         const saved = await saveProviderStagedEntry(
             'edit',
             {
                 name: providerEditName.trim(),
                 condition: providerEditCondition.trim(),
-                status: providerEditStatus.trim(),
+                status: selectedStatus,
                 brand: providerEditBrand.trim(),
                 model: providerEditModel.trim(),
                 serial: providerEditSerial.trim(),
                 location: providerEditLocation.trim(),
                 notes: providerEditNotes.trim(),
             },
-            'Information edit staged. The client HomeOS record was not changed.'
+            'Changes saved for company review. The client HomeOS record was not changed.'
         );
 
         if (saved) {
             setProviderPanel('none');
+
+            if (itemFocusedView === 'edit-information') {
+                router.replace(focusedItemPath('management', { saved: '1' }) as any);
+            }
         }
     }
 
@@ -2410,9 +2459,44 @@ export default function ItemScreen() {
         }
     }
 
+    function focusedItemPath(view: ItemFocusedView, extraParams: Record<string, string> = {}) {
+        const itemSlug = item?.item_slug || String(slug);
+
+        if (providerModeContext) {
+            return providerModeItemPath(itemSlug, providerModeContext, {
+                itemView: view,
+                ...extraParams,
+            });
+        }
+
+        const query = new URLSearchParams({ itemView: view, ...extraParams }).toString();
+        return `/item/${encodeURIComponent(itemSlug)}?${query}`;
+    }
+
+    function baseItemPath() {
+        const itemSlug = item?.item_slug || String(slug);
+
+        return providerModeContext
+            ? providerModeItemPath(itemSlug, providerModeContext)
+            : `/item/${encodeURIComponent(itemSlug)}`;
+    }
+
+    function openItemManagement() {
+        router.push(focusedItemPath('management') as any);
+    }
+
+    function closeProviderEdit() {
+        if (itemFocusedView === 'edit-information') {
+            router.back();
+            return;
+        }
+
+        setProviderPanel('none');
+    }
+
     function handleEditInformation() {
         if (providerModeContext) {
-            openProviderPanel('edit');
+            router.push(focusedItemPath('edit-information') as any);
             return;
         }
 
@@ -3237,7 +3321,7 @@ export default function ItemScreen() {
         (!estimateAccess || providerModeContext)
     );
 
-    if (isManagementMode) {
+    if (isManagementMode && !itemFocusedView) {
         const managementBackRoute = `/super-admin/company/${managementCompanyId}/client/${managementPropertyId}/items`;
         const location = item.location || item.parent_area || 'Not specified';
         const managementDetailCards = [
@@ -3441,15 +3525,16 @@ export default function ItemScreen() {
         group: ItemActionGroupKey,
         title: string,
         subtitle: string,
-        meta?: string
+        meta?: string,
+        onOpen?: () => void
     ) {
-        const expanded = expandedActionGroups[group];
+        const expanded = onOpen ? false : expandedActionGroups[group];
         const palette = itemSectionTilePalettes[group];
 
         return (
             <TouchableOpacity
                 key={group}
-                onPress={() => toggleActionGroup(group)}
+                onPress={onOpen || (() => toggleActionGroup(group))}
                 activeOpacity={0.84}
                 style={[
                     scaleStyle(sectionTileStyle),
@@ -3742,7 +3827,7 @@ export default function ItemScreen() {
                         Edit Information
                     </Text>
                     <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                        This saves a staged edit only. The client item is not changed until publishing exists.
+                        Save the technician&apos;s changes for company review. The homeowner record remains protected until an authorized update is published.
                     </Text>
                     <View style={scaleStyle(providerTwoColumnRowStyle)}>
                         <View style={scaleStyle(providerFieldWrapStyle)}>
@@ -3767,13 +3852,80 @@ export default function ItemScreen() {
                         </View>
                         <View style={scaleStyle(providerFieldWrapStyle)}>
                             <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Status</Text>
-                            <TextInput
-                                value={providerEditStatus}
-                                onChangeText={setProviderEditStatus}
-                                placeholder="Status"
-                                placeholderTextColor={theme.colors.mutedText}
-                                style={[maintenanceTextInputStyle, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, color: theme.colors.text }]}
-                            />
+                            <TouchableOpacity
+                                onPress={() => setProviderStatusPickerOpen(!providerStatusPickerOpen)}
+                                activeOpacity={0.82}
+                                accessibilityRole="button"
+                                accessibilityLabel="Choose item status"
+                                style={[
+                                    providerStatusSelectStyle,
+                                    {
+                                        backgroundColor: theme.colors.surface,
+                                        borderColor: providerStatusPickerOpen ? theme.colors.primary : theme.colors.border,
+                                    },
+                                ]}
+                            >
+                                <Text style={[providerStatusSelectTextStyle, { color: theme.colors.text }]}>
+                                    {providerEditStatusChoice}
+                                </Text>
+                                <Text style={[providerStatusSelectIconStyle, { color: theme.colors.primary }]}>
+                                    {providerStatusPickerOpen ? '▲' : '▼'}
+                                </Text>
+                            </TouchableOpacity>
+                            {providerStatusPickerOpen ? (
+                                <View
+                                    style={[
+                                        providerStatusDropdownStyle,
+                                        {
+                                            backgroundColor: theme.colors.surface,
+                                            borderColor: theme.colors.border,
+                                        },
+                                    ]}
+                                >
+                                    {providerItemStatusOptions.map((statusOption) => {
+                                        const selected = providerEditStatusChoice === statusOption;
+
+                                        return (
+                                            <TouchableOpacity
+                                                key={statusOption}
+                                                onPress={() => {
+                                                    setProviderEditStatusChoice(statusOption);
+                                                    setProviderStatusPickerOpen(false);
+                                                }}
+                                                activeOpacity={0.82}
+                                                style={[
+                                                    providerStatusOptionStyle,
+                                                    {
+                                                        backgroundColor: selected ? theme.colors.surfaceAlt : theme.colors.surface,
+                                                        borderColor: theme.colors.border,
+                                                    },
+                                                ]}
+                                            >
+                                                <Text style={[providerStatusOptionTextStyle, { color: theme.colors.text }]}>
+                                                    {statusOption}{selected ? '  ✓' : ''}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
+                            ) : null}
+                            {providerEditStatusChoice === 'Custom' ? (
+                                <TextInput
+                                    value={providerEditCustomStatus}
+                                    onChangeText={setProviderEditCustomStatus}
+                                    placeholder="Enter custom status"
+                                    placeholderTextColor={theme.colors.mutedText}
+                                    autoFocus
+                                    style={[
+                                        maintenanceTextInputStyle,
+                                        {
+                                            backgroundColor: theme.colors.surface,
+                                            borderColor: theme.colors.border,
+                                            color: theme.colors.text,
+                                        },
+                                    ]}
+                                />
+                            ) : null}
                         </View>
                         <View style={scaleStyle(providerFieldWrapStyle)}>
                             <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>Brand</Text>
@@ -3826,7 +3978,7 @@ export default function ItemScreen() {
                     />
                     <View style={scaleStyle(providerFormActionRowStyle)}>
                         <ThemedButton
-                            title={savingProviderWork ? 'Saving...' : 'Save Staged Edit'}
+                            title={savingProviderWork ? 'Saving Changes...' : 'Save Changes'}
                             onPress={handleSaveProviderEdit}
                             disabled={savingProviderWork}
                             style={scaleStyle(providerFormButtonStyle)}
@@ -3835,7 +3987,7 @@ export default function ItemScreen() {
                         <ThemedButton
                             title="Cancel"
                             variant="ghost"
-                            onPress={() => setProviderPanel('none')}
+                            onPress={closeProviderEdit}
                             disabled={savingProviderWork}
                             style={scaleStyle(providerFormButtonStyle)}
                             textStyle={scaleStyle(fileActionButtonTextStyle)}
@@ -4454,6 +4606,150 @@ export default function ItemScreen() {
         );
     }
 
+    if (itemFocusedView === 'management') {
+        return (
+            <>
+                <ScrollView
+                    style={{ flex: 1, backgroundColor: theme.colors.background }}
+                    contentContainerStyle={{ padding: scaleIcon(20), paddingBottom: scaleIcon(40), alignItems: 'center' }}
+                >
+                    <View style={{ width: '100%', maxWidth: 760 }}>
+                        <HomeHeader />
+
+                        <Text style={[scaleStyle(focusedPageEyebrowStyle), { color: theme.colors.primary }]}>ITEM MANAGEMENT</Text>
+                        <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Manage this item</Text>
+                        <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
+                            {item.name || 'HomeOS item'}
+                        </Text>
+
+                        <ThemedButton
+                            title="Back to Item"
+                            variant="secondary"
+                            onPress={() => router.replace(baseItemPath() as any)}
+                            style={scaleStyle(focusedPageBackButtonStyle)}
+                            textStyle={scaleStyle(buttonTextStyle)}
+                        />
+
+                        {focusedSaveComplete ? (
+                            <ThemedCard
+                                style={[
+                                    scaleStyle(focusedSaveCardStyle),
+                                    {
+                                        backgroundColor: theme.colors.surfaceAlt,
+                                        borderColor: theme.colors.primary,
+                                    },
+                                ]}
+                            >
+                                <Text style={[scaleStyle(focusedSaveTitleStyle), { color: theme.colors.primary }]}>Changes saved</Text>
+                                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.text }]}>
+                                    The technician&apos;s item update is saved for company review.
+                                </Text>
+                            </ThemedCard>
+                        ) : null}
+
+                        <ThemedCard style={scaleStyle(focusedManagementCardStyle)}>
+                            <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>Choose an action</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                Open one item task at a time. Your place on the item page stays intact.
+                            </Text>
+                            <View style={scaleStyle(focusedManagementActionsStyle)}>
+                                <ThemedButton
+                                    title="Edit Information"
+                                    onPress={handleEditInformation}
+                                    style={scaleStyle(focusedManagementButtonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                                <ThemedButton
+                                    title="Add Related Item"
+                                    variant="secondary"
+                                    onPress={handleAddRelatedItem}
+                                    style={scaleStyle(focusedManagementButtonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                                <ThemedButton
+                                    title="Request Service"
+                                    variant="secondary"
+                                    onPress={() => setMessage('Request service comes next.')}
+                                    style={scaleStyle(focusedManagementButtonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                                <ThemedButton
+                                    title="Archive Item"
+                                    variant="danger"
+                                    onPress={confirmArchiveItem}
+                                    style={scaleStyle(focusedManagementButtonStyle)}
+                                    textStyle={scaleStyle(removeButtonTextStyle)}
+                                />
+                            </View>
+                        </ThemedCard>
+
+                        {renderProviderWorkPanel()}
+                        {renderProviderStagedUpdatesPanel()}
+
+                        {!!message ? (
+                            <ThemedCard style={scaleStyle(messageCardStyle)}>
+                                <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Message</Text>
+                                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>{message}</Text>
+                            </ThemedCard>
+                        ) : null}
+                    </View>
+                </ScrollView>
+
+                {renderProviderPhotoViewerModal()}
+                {renderProviderPhotoRemoveConfirmModal()}
+            </>
+        );
+    }
+
+    if (itemFocusedView === 'edit-information') {
+        return (
+            <ScrollView
+                style={{ flex: 1, backgroundColor: theme.colors.background }}
+                contentContainerStyle={{ padding: scaleIcon(20), paddingBottom: scaleIcon(40), alignItems: 'center' }}
+            >
+                <View style={{ width: '100%', maxWidth: 760 }}>
+                    <HomeHeader />
+
+                    <Text style={[scaleStyle(focusedPageEyebrowStyle), { color: theme.colors.primary }]}>ITEM MANAGEMENT</Text>
+                    <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Edit item information</Text>
+                    <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
+                        {item.name || 'HomeOS item'}
+                    </Text>
+
+                    {!providerModeContext ? (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0 }]}>Provider context needed</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
+                                Reopen this item from the assigned company job before editing it.
+                            </Text>
+                            <ThemedButton
+                                title="Back to Item"
+                                variant="secondary"
+                                onPress={() => router.replace(baseItemPath() as any)}
+                                style={scaleStyle(focusedPageBackButtonStyle)}
+                                textStyle={scaleStyle(buttonTextStyle)}
+                            />
+                        </ThemedCard>
+                    ) : providerPanel === 'edit' ? (
+                        renderProviderWorkPanel()
+                    ) : (
+                        <View style={scaleStyle(focusedPageLoadingStyle)}>
+                            <ActivityIndicator size="large" color={theme.colors.primary} />
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>Opening item form...</Text>
+                        </View>
+                    )}
+
+                    {!!message ? (
+                        <ThemedCard style={scaleStyle(messageCardStyle)}>
+                            <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Message</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>{message}</Text>
+                        </ThemedCard>
+                    ) : null}
+                </View>
+            </ScrollView>
+        );
+    }
+
     return (
         <>
             <ScrollView
@@ -4663,7 +4959,9 @@ export default function ItemScreen() {
                         {renderSectionTile(
                             'item',
                             'Item Management',
-                            'Edit, add components, request service, or archive.'
+                            'Edit, add components, request service, or archive.',
+                            undefined,
+                            openItemManagement
                         )}
                     </View>
 
@@ -6288,6 +6586,64 @@ const subtitleStyle = {
     lineHeight: 22,
 };
 
+const focusedPageEyebrowStyle = {
+    marginTop: 8,
+    marginBottom: 6,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 1.2,
+    fontWeight: '900' as const,
+};
+
+const focusedPageBackButtonStyle = {
+    alignSelf: 'flex-start' as const,
+    minWidth: 140,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    marginBottom: 4,
+};
+
+const focusedSaveCardStyle = {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 12,
+};
+
+const focusedSaveTitleStyle = {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900' as const,
+    marginBottom: 4,
+};
+
+const focusedManagementCardStyle = {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 18,
+    marginTop: 12,
+};
+
+const focusedManagementActionsStyle = {
+    gap: 10,
+    marginTop: 16,
+};
+
+const focusedManagementButtonStyle = {
+    width: '100%' as const,
+    minHeight: 54,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+};
+
+const focusedPageLoadingStyle = {
+    minHeight: 220,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
+    gap: 14,
+};
+
 const photoCardStyle = {
     borderRadius: 22,
     padding: 18,
@@ -7011,6 +7367,52 @@ const providerTwoColumnRowStyle = {
 const providerFieldWrapStyle = {
     flex: 1,
     minWidth: 210,
+};
+
+const providerStatusSelectStyle = {
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 8,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+};
+
+const providerStatusSelectTextStyle = {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800' as const,
+};
+
+const providerStatusSelectIconStyle = {
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const providerStatusDropdownStyle = {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 6,
+    marginBottom: 12,
+    gap: 4,
+};
+
+const providerStatusOptionStyle = {
+    minHeight: 44,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center' as const,
+};
+
+const providerStatusOptionTextStyle = {
+    fontSize: 15,
+    fontWeight: '800' as const,
 };
 
 const providerToggleRowStyle = {
