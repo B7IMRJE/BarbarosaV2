@@ -86,6 +86,7 @@ import {
     type EligibleEstimateRecommendation,
     type EstimateRecommendationRelationship,
 } from '../../lib/estimate-option-rulebook';
+import { buildDocumentedTechnicianSummary } from '../../lib/estimateTechnicianSummary';
 import {
     canUseCompanyEstimateWorkflow,
     loadCurrentCompanyEstimateAccess,
@@ -2339,6 +2340,52 @@ export default function EstimateScreen() {
         }
     }
 
+    function applyDocumentedTechnicianSummaries(workspaceChoices: Phase1EstimateChoice[]) {
+        const summaries = workspaceChoices
+            .map((choice) => ({
+                choiceId: choice.id,
+                homeownerExplanation: buildDocumentedTechnicianSummary({
+                    technicianNotes: draftContext?.issue_summary,
+                    workItems: choice.pricingResult.lineItems,
+                }),
+            }))
+            .filter((summary) => Boolean(summary.homeownerExplanation));
+
+        if (summaries.length === 0) return false;
+
+        setEditableCopyByChoiceId((current) => {
+            const next = { ...current };
+
+            for (const summary of summaries) {
+                const choice = workspaceChoices.find((candidate) => candidate.id === summary.choiceId);
+
+                if (!choice) continue;
+
+                next[summary.choiceId] = {
+                    title: current[summary.choiceId]?.title || choice.title,
+                    shortSummary: current[summary.choiceId]?.shortSummary || choice.shortSummary,
+                    homeownerExplanation: summary.homeownerExplanation,
+                };
+            }
+
+            return next;
+        });
+
+        return true;
+    }
+
+    function applyDocumentedTechnicianSummaryFallback(workspaceChoices: Phase1EstimateChoice[], reason: string) {
+        const applied = applyDocumentedTechnicianSummaries(workspaceChoices);
+
+        if (applied) {
+            setMessage(`Customer summary updated from the technician notes. ${reason}`);
+        } else {
+            setMessage(reason);
+        }
+
+        return applied;
+    }
+
     async function draftWithAi(workspaceChoices: Phase1EstimateChoice[], draftGate: EstimateDraftGate) {
         if (!estimateAccess) return;
 
@@ -2348,7 +2395,10 @@ export default function EstimateScreen() {
         }
 
         if (!draftGate.canDraft) {
-            setMessage(`AI drafting needs: ${draftGate.blockers.join(' ')}`);
+            applyDocumentedTechnicianSummaryFallback(
+                workspaceChoices,
+                `Complete the remaining presentation items before requesting the full AI draft. ${draftGate.blockers.join(' ')}`,
+            );
             return;
         }
 
@@ -2371,13 +2421,14 @@ export default function EstimateScreen() {
                 const warning = formatAiDraftWarning(sessionError?.message || 'Sign in again.');
 
                 setAiDraftWarnings([warning]);
-                setMessage(warning);
+                applyDocumentedTechnicianSummaryFallback(workspaceChoices, 'The live AI service is unavailable right now, so review the generated wording before sending it.');
                 return;
             }
 
             const resolvedSession = await resolveSessionForDraft(selectedCategory);
 
             if (!resolvedSession) {
+                applyDocumentedTechnicianSummaryFallback(workspaceChoices, 'The live AI service could not start, so review the generated wording before sending it.');
                 return;
             }
 
@@ -2413,15 +2464,25 @@ export default function EstimateScreen() {
                     'No unsupported savings, lifespan, financing, or performance claims',
                 ],
             });
-            const response = await fetch(`${supabaseUrl}/functions/v1/draft-estimate-options`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${session.access_token}`,
-                    apikey: supabaseAnonKey,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(payload),
-            });
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15_000);
+            let response: Response;
+
+            try {
+                response = await fetch(`${supabaseUrl}/functions/v1/draft-estimate-options`, {
+                    method: 'POST',
+                    headers: {
+                        Authorization: `Bearer ${session.access_token}`,
+                        apikey: supabaseAnonKey,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal,
+                });
+            } finally {
+                clearTimeout(timeout);
+            }
+
             const data = await readFunctionJson(response);
 
             if (!response.ok) {
@@ -2430,7 +2491,7 @@ export default function EstimateScreen() {
                 const warning = formatAiDraftWarning(messageText);
 
                 setAiDraftWarnings([warning]);
-                setMessage(warning);
+                applyDocumentedTechnicianSummaryFallback(workspaceChoices, 'The live AI service was unavailable, so review the generated wording before sending it.');
                 return;
             }
 
@@ -2440,7 +2501,7 @@ export default function EstimateScreen() {
                 const warning = formatAiDraftWarning(validation.errors[0] || 'The returned draft did not pass the app safety check.');
 
                 setAiDraftWarnings([warning]);
-                setMessage(warning);
+                applyDocumentedTechnicianSummaryFallback(workspaceChoices, 'The live AI response could not be used, so review the generated wording before sending it.');
                 return;
             }
 
@@ -2468,7 +2529,7 @@ export default function EstimateScreen() {
             const warning = formatAiDraftWarning(error instanceof Error ? error.message : 'Unknown error');
 
             setAiDraftWarnings([warning]);
-            setMessage(warning);
+            applyDocumentedTechnicianSummaryFallback(workspaceChoices, 'The live AI service did not finish, so review the generated wording before sending it.');
         } finally {
             setAiDrafting(false);
         }
@@ -4407,7 +4468,7 @@ function renderGuidedEstimateBuilder({
                                             <View style={guidedSummaryHeaderStyle}>
                                                 <View style={{ flex: 1 }}>
                                                     <Text style={guidedFieldLabelStyle}>Customer summary</Text>
-                                                    <Text style={guidedFieldHelpStyle}>AI can organize documented facts, but it cannot add work or change the price.</Text>
+                                                    <Text style={guidedFieldHelpStyle}>Turn technician notes into a customer-friendly plumbing explanation. It cannot add work or change the price.</Text>
                                                 </View>
                                                 <TouchableOpacity
                                                     disabled={aiDrafting || requirementUploadInProgress}
