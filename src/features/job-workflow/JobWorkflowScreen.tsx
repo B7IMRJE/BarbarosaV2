@@ -75,6 +75,7 @@ export default function JobWorkflowScreen() {
     const [sameDayHomeownerSignature, setSameDayHomeownerSignature] = useState('');
     const [sameDayAgreementConfirmed, setSameDayAgreementConfirmed] = useState(false);
     const [sameDayTechnicianConfirmed, setSameDayTechnicianConfirmed] = useState(false);
+    const [workTimingChoice, setWorkTimingChoice] = useState<'today' | 'later' | null>(null);
     const [returnHandoffOpen, setReturnHandoffOpen] = useState(false);
     const [returnWorkSummary, setReturnWorkSummary] = useState('');
     const [returnRemainingWork, setReturnRemainingWork] = useState('');
@@ -141,6 +142,10 @@ export default function JobWorkflowScreen() {
         setSameDayReason((current) => current.trim() || approvedWorkSummary);
         setSameDayHomeownerName((current) => current.trim() || bundle.workflow.homeowner_name || '');
     }, [approvedWorkSummary, bundle?.workflow.homeowner_name, bundle?.workflow.status]);
+
+    useEffect(() => {
+        setWorkTimingChoice(null);
+    }, [bundle?.workflow.id]);
 
     const attachmentCounts = useMemo(() => {
         const counts: Record<string, number> = {};
@@ -754,77 +759,124 @@ export default function JobWorkflowScreen() {
 
             {status === 'sold' && (
                 <Section title="When will the work happen?" subtitle="The technician decides whether to start today or set up a later visit.">
-                    <View style={sameDayCardStyle}>
-                        <Text style={optionTitleStyle}>Start Work Today</Text>
-                        <Text style={bodyStyle}>
-                            This is never automatic. Use it when the customer approves today’s plan and the technician confirms the job can be
-                            handled today—whether that means a small repair, stabilizing a leak, or completing the full approved project.
-                        </Text>
-                        <Text style={mutedStyle}>Approved total: {formatMoney(authorizedTotal)} · The signed job approval stays attached to this start record.</Text>
+                    <Text style={timingInstructionStyle}>Choose one. You can switch choices until you press the final confirmation button.</Text>
+                    <View style={timingChoiceGridStyle}>
+                        <TimingChoice
+                            title="Start Work Today"
+                            description="Complete the same-day authorization, then begin pre-work documentation."
+                            selected={workTimingChoice === 'today'}
+                            disabled={busy}
+                            onPress={() => {
+                                setWorkTimingChoice('today');
+                                setMessage('');
+                            }}
+                        />
+                        <TimingChoice
+                            title="Perform Work Later"
+                            description="Choose a future return date when more time, materials, permits, or staffing are needed."
+                            selected={workTimingChoice === 'later'}
+                            disabled={busy}
+                            onPress={() => {
+                                setWorkTimingChoice('later');
+                                setMessage('');
+                            }}
+                        />
+                    </View>
 
-                        <Field
-                            label="Approved work starting today"
-                            value={sameDayReason}
-                            onChangeText={setSameDayReason}
-                            multiline
-                        />
-                        <WorkflowCheck
-                            checked={sameDayAgreementConfirmed}
-                            onPress={() => setSameDayAgreementConfirmed((value) => !value)}
-                            label="The signed and dated company agreement was given to the customer before work begins."
-                        />
-                        <WorkflowCheck
-                            checked={sameDayTechnicianConfirmed}
-                            onPress={() => setSameDayTechnicianConfirmed((value) => !value)}
-                            label="Technician confirms today’s plan, staffing, materials, and time make this start workable."
-                        />
-
-                        <View style={completionAcknowledgementStyle}>
-                            <Text style={optionTitleStyle}>
-                                {sameDayAuthorizationDocument?.title || 'Customer same-day authorization'}
-                            </Text>
+                    {workTimingChoice === 'today' && (
+                        <View style={sameDayCardStyle}>
+                            <Text style={optionTitleStyle}>Start Work Today</Text>
                             <Text style={bodyStyle}>
-                                {sameDayAuthorizationDocument?.body || (
-                                    'I requested that the approved work described above begin today. I received the signed agreement and authorize the company to start today. Any applicable cancellation notice remains part of my agreement.'
-                                )}
+                                This is never automatic. Use it when the customer approves today’s plan and the technician confirms the job can be
+                                handled today—whether that means a small repair, stabilizing a leak, or completing the full approved project.
                             </Text>
-                            {sameDayAuthorizationDocument?.auto_record_datetime && (
-                                <Text style={mutedStyle}>The signed date and time will be recorded automatically.</Text>
-                            )}
-                        </View>
-                        <Field
-                            label="Customer full name"
-                            value={sameDayHomeownerName}
-                            onChangeText={setSameDayHomeownerName}
-                        />
-                        <SignaturePad
-                            label="Same-day work authorization signature"
-                            value={sameDayHomeownerSignature}
-                            onChange={setSameDayHomeownerSignature}
-                        />
-                        <PrimaryButton
-                            title={busy ? 'Saving authorization...' : 'Start Work Today'}
-                            disabled={busy || !sameDayReady}
-                            onPress={startWorkToday}
-                        />
-                    </View>
+                            <Text style={mutedStyle}>Approved total: {formatMoney(authorizedTotal)} · The signed job approval stays attached to this start record.</Text>
 
-                    <View style={policyExplanationStyle}>
-                        <Text style={optionTitleStyle}>Set up a later visit</Text>
-                        <Text style={bodyStyle}>
-                            Use this when the work needs more time, materials, permits, staffing, or planning before the technician can begin.
-                        </Text>
-                    </View>
-                    <Field
-                        label="Return date and time (example: 2026-07-28T09:00:00-07:00)"
-                        value={scheduleDate}
-                        onChangeText={setScheduleDate}
-                    />
-                    <SecondaryButton
-                        title="Schedule for Another Day"
-                        disabled={busy}
-                        onPress={() => run('choose_later', { scheduled_for: scheduleDate })}
-                    />
+                            <Field
+                                label="Approved work starting today"
+                                value={sameDayReason}
+                                onChangeText={setSameDayReason}
+                                multiline
+                            />
+                            <WorkflowCheck
+                                checked={sameDayAgreementConfirmed}
+                                onPress={() => setSameDayAgreementConfirmed((value) => !value)}
+                                label="The signed and dated company agreement was given to the customer before work begins."
+                            />
+                            <WorkflowCheck
+                                checked={sameDayTechnicianConfirmed}
+                                onPress={() => setSameDayTechnicianConfirmed((value) => !value)}
+                                label="Technician confirms today’s plan, staffing, materials, and time make this start workable."
+                            />
+
+                            <View style={completionAcknowledgementStyle}>
+                                <Text style={optionTitleStyle}>
+                                    {sameDayAuthorizationDocument?.title || 'Customer same-day authorization'}
+                                </Text>
+                                <Text style={bodyStyle}>
+                                    {sameDayAuthorizationDocument?.body || (
+                                        'I requested that the approved work described above begin today. I received the signed agreement and authorize the company to start today. Any applicable cancellation notice remains part of my agreement.'
+                                    )}
+                                </Text>
+                                {sameDayAuthorizationDocument?.auto_record_datetime && (
+                                    <Text style={mutedStyle}>The signed date and time will be recorded automatically.</Text>
+                                )}
+                            </View>
+                            <Field
+                                label="Customer full name"
+                                value={sameDayHomeownerName}
+                                onChangeText={setSameDayHomeownerName}
+                            />
+                            <SignaturePad
+                                label="Same-day work authorization signature"
+                                value={sameDayHomeownerSignature}
+                                onChange={setSameDayHomeownerSignature}
+                            />
+                            <PrimaryButton
+                                title={busy ? 'Saving authorization...' : 'Confirm & Start Work Today'}
+                                disabled={busy || !sameDayReady}
+                                onPress={startWorkToday}
+                            />
+                            <SecondaryButton
+                                title="Choose Perform Work Later Instead"
+                                disabled={busy}
+                                onPress={() => {
+                                    setWorkTimingChoice('later');
+                                    setMessage('');
+                                }}
+                            />
+                        </View>
+                    )}
+
+                    {workTimingChoice === 'later' && (
+                        <View style={laterVisitCardStyle}>
+                            <Text style={optionTitleStyle}>Perform Work Later</Text>
+                            <Text style={bodyStyle}>
+                                Use this when the work needs more time, materials, permits, staffing, or planning before the technician can begin.
+                            </Text>
+                            <Field
+                                label="Return date and time (example: 2026-07-28T09:00:00-07:00)"
+                                value={scheduleDate}
+                                onChangeText={setScheduleDate}
+                            />
+                            {!scheduleDate.trim() && (
+                                <Text style={mutedStyle}>Enter the return date and time before confirming this choice.</Text>
+                            )}
+                            <PrimaryButton
+                                title={busy ? 'Saving later visit...' : 'Confirm Later Visit'}
+                                disabled={busy || !scheduleDate.trim()}
+                                onPress={() => run('choose_later', { scheduled_for: scheduleDate })}
+                            />
+                            <SecondaryButton
+                                title="Choose Start Work Today Instead"
+                                disabled={busy}
+                                onPress={() => {
+                                    setWorkTimingChoice('today');
+                                    setMessage('');
+                                }}
+                            />
+                        </View>
+                    )}
                 </Section>
             )}
 
@@ -1149,6 +1201,37 @@ function WorkflowCheck({ checked, label, onPress }: { checked: boolean; label: s
         </TouchableOpacity>
     );
 }
+function TimingChoice({
+    title,
+    description,
+    selected,
+    disabled,
+    onPress,
+}: {
+    title: string;
+    description: string;
+    selected: boolean;
+    disabled?: boolean;
+    onPress: () => void;
+}) {
+    return (
+        <TouchableOpacity
+            accessibilityRole="radio"
+            accessibilityState={{ selected, disabled: !!disabled }}
+            disabled={disabled}
+            onPress={onPress}
+            style={[timingChoiceStyle, selected && timingChoiceSelectedStyle, disabled && disabledStyle]}
+        >
+            <View style={timingChoiceHeaderStyle}>
+                <Text style={[optionTitleStyle, timingChoiceTitleStyle]}>{title}</Text>
+                <Text style={[timingChoiceStatusStyle, selected && timingChoiceStatusSelectedStyle]}>
+                    {selected ? 'Selected' : 'Choose'}
+                </Text>
+            </View>
+            <Text style={mutedStyle}>{description}</Text>
+        </TouchableOpacity>
+    );
+}
 function PrimaryButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
     return <TouchableOpacity onPress={onPress} disabled={disabled} style={[primaryButtonStyle, disabled && disabledStyle]}><Text style={primaryButtonTextStyle}>{title}</Text></TouchableOpacity>;
 }
@@ -1298,6 +1381,15 @@ const timelineStyle = { borderLeftColor: '#35aaa5', borderLeftWidth: 3, paddingL
 const totalStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } as const;
 const totalAmountStyle = { color: '#52e0a4', fontSize: 24, fontWeight: '900' } as const;
 const policyExplanationStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 14, gap: 10 } as const;
+const timingInstructionStyle = { color: '#d9ffff', backgroundColor: '#123d48', borderRadius: 10, padding: 11, fontSize: 13, fontWeight: '800' } as const;
+const timingChoiceGridStyle = { gap: 10 } as const;
+const timingChoiceStyle = { backgroundColor: '#102432', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 } as const;
+const timingChoiceSelectedStyle = { backgroundColor: '#15372f', borderColor: '#45d893', borderWidth: 2 } as const;
+const timingChoiceHeaderStyle = { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 } as const;
+const timingChoiceTitleStyle = { flex: 1 } as const;
+const timingChoiceStatusStyle = { color: '#bdd2dc', backgroundColor: '#173f55', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, fontWeight: '900', overflow: 'hidden' } as const;
+const timingChoiceStatusSelectedStyle = { color: '#092c2c', backgroundColor: '#72e2c7' } as const;
 const sameDayCardStyle = { backgroundColor: '#15372f', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 11 } as const;
+const laterVisitCardStyle = { backgroundColor: '#15372f', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 11 } as const;
 const completionAcknowledgementStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 } as const;
 const twoButtonRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' } as const;
