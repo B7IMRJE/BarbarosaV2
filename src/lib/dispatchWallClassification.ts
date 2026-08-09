@@ -44,6 +44,10 @@ export type DispatchWallScheduleSlot = {
     updated_at: string | null;
 };
 
+export type DispatchWallWorkflowState = {
+    status: string | null;
+};
+
 export type DispatchWallCompanyUser = {
     id: string;
     company_id: string;
@@ -104,6 +108,26 @@ const WALL_SECTION_KEYS: DispatchWallSectionKey[] = [
     'absent',
     'closed_today',
 ];
+
+export function reconcileDispatchWallSlotsWithJobWorkflows(
+    scheduleSlots: DispatchWallScheduleSlot[],
+    workflowsByRequestId: Record<string, DispatchWallWorkflowState | undefined>
+) {
+    return scheduleSlots.map((slot) => {
+        const requestId = String(slot.service_request_id || '').trim();
+        const workflowStatus = normalizeStatus(requestId ? workflowsByRequestId[requestId]?.status : null);
+
+        if (!['store_trip', 'returning_to_job'].includes(workflowStatus)) return slot;
+
+        return {
+            ...slot,
+            status: 'in_progress',
+            tech_status_note: slot.tech_status_note || (workflowStatus === 'store_trip'
+                ? 'Technician is on a store run.'
+                : 'Purchase complete — technician is returning to the job site.'),
+        };
+    });
+}
 
 export function buildDispatchWallSections(
     requests: DispatchWallRequest[],

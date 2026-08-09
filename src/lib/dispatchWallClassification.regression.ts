@@ -1,5 +1,6 @@
 import {
     buildDispatchWallSections,
+    reconcileDispatchWallSlotsWithJobWorkflows,
     type DispatchWallCompanyUser,
     type DispatchWallRequest,
     type DispatchWallScheduleSlot,
@@ -28,6 +29,8 @@ export function runDispatchWallClassificationRegressions() {
     futureAssignedOnMyWayMovesForward();
     futureAssignedLiveWorkMovesForward();
     legacyCustomSlotUsesNewerInProgressRequestState();
+    storeRunStaysInProgressOnTheWall();
+    returnFromStoreStaysInProgressOnTheWall();
     futureAssignedTechnicianRehydratesConsistently();
     currentDayOperationalStatesRemainUnchanged();
     completedEmergencyVisitFromYesterdayIsExcluded();
@@ -35,6 +38,53 @@ export function runDispatchWallClassificationRegressions() {
     olderCompletedVisitDoesNotOverrideNewerOnMyWayVisit();
     terminalSelectedVisitDoesNotEnterActivePanels();
     classifiedRequestsDoNotDuplicateAcrossSections();
+}
+
+function storeRunStaysInProgressOnTheWall() {
+    const request = createEmergencyScheduledRequest('store-run-active-job');
+    const slot = createSlot({
+        id: 'store-run-active-job-slot',
+        service_request_id: request.id,
+        status: 'on_my_way',
+        tech_status_note: 'Going to the supply store.',
+        start_at: localIso(0, 11),
+        end_at: localIso(0, 13),
+        arrival_window_start: localIso(0, 11),
+        arrival_window_end: localIso(0, 12),
+        updated_at: localIso(0, 11),
+    });
+    const reconciledSlots = reconcileDispatchWallSlotsWithJobWorkflows([slot], {
+        [request.id]: { status: 'store_trip' },
+    });
+    const sections = buildDispatchWallSections([request], reconciledSlots, [createTechnician('tech-2', 'tech 2')], now);
+    const item = getSingleRequestItem(sections, request.id);
+
+    assert(item.sectionKey === 'in_progress', 'A store run must keep an already-started job in the In Progress section.');
+    assert(item.statusLabel === 'In Progress', 'A store run must not be relabeled as the original On My Way trip.');
+    assert(item.slot?.tech_status_note === 'Going to the supply store.', 'The wall card should retain the store-run status note.');
+}
+
+function returnFromStoreStaysInProgressOnTheWall() {
+    const request = createEmergencyScheduledRequest('returning-active-job');
+    const slot = createSlot({
+        id: 'returning-active-job-slot',
+        service_request_id: request.id,
+        status: 'on_my_way',
+        tech_status_note: null,
+        start_at: localIso(0, 11),
+        end_at: localIso(0, 13),
+        arrival_window_start: localIso(0, 11),
+        arrival_window_end: localIso(0, 12),
+        updated_at: localIso(0, 11),
+    });
+    const reconciledSlots = reconcileDispatchWallSlotsWithJobWorkflows([slot], {
+        [request.id]: { status: 'returning_to_job' },
+    });
+    const sections = buildDispatchWallSections([request], reconciledSlots, [createTechnician('tech-2', 'tech 2')], now);
+    const item = getSingleRequestItem(sections, request.id);
+
+    assert(item.sectionKey === 'in_progress', 'Returning from the store must keep an already-started job in the In Progress section.');
+    assert(item.slot?.tech_status_note === 'Purchase complete — technician is returning to the job site.', 'A missing return note should receive a clear wall status.');
 }
 
 function legacyCustomSlotUsesNewerInProgressRequestState() {

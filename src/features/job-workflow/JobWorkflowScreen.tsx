@@ -911,7 +911,7 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'store_trip' && (
-                <Section title="4. Store run" subtitle="Record receipts and purchased parts for the company.">
+                <Section title="4. Store run" subtitle="The live board keeps this job In Progress and shows Store Run. Record receipts and purchased parts for the company.">
                     <MediaActions
                         label="Receipt media"
                         count={attachmentCounts.receipt}
@@ -933,8 +933,8 @@ export default function JobWorkflowScreen() {
             )}
 
             {status === 'returning_to_job' && (
-                <Section title="Returning to job site" subtitle="Dispatch and the homeowner can see the return status.">
-                    <PrimaryButton title="Arrived — Resume Work" disabled={busy} onPress={() => run('arrive_from_store')} />
+                <Section title="Returning to job site" subtitle="Dispatch can see that you are returning. Confirm arrival before work can resume.">
+                    <PrimaryButton title="I'm Back at the Job — Resume Work" disabled={busy} onPress={() => run('arrive_from_store')} />
                 </Section>
             )}
 

@@ -33,6 +33,7 @@ import {
 } from '../../lib/dispatchWallNavigation';
 import {
     buildDispatchWallSections,
+    reconcileDispatchWallSlotsWithJobWorkflows,
     formatWallStatusLabel,
     getWallDisplayCode,
     type DispatchWallCompanyUser,
@@ -599,9 +600,12 @@ function DispatchWallContent() {
     }, [expandedSectionKey, detailItem]);
 
     const effectiveDataNow = dataNow || HYDRATION_SAFE_WALL_TIME;
+    const reconciledScheduleSlots = useMemo(() => (
+        reconcileDispatchWallSlotsWithJobWorkflows(scheduleSlots, soldJobsByRequestId)
+    ), [scheduleSlots, soldJobsByRequestId]);
     const sections = useMemo(() => (
-        buildDispatchWallSections(requests, scheduleSlots, companyUsers, effectiveDataNow, timingEvents)
-    ), [requests, scheduleSlots, companyUsers, effectiveDataNow, timingEvents]);
+        buildDispatchWallSections(requests, reconciledScheduleSlots, companyUsers, effectiveDataNow, timingEvents)
+    ), [requests, reconciledScheduleSlots, companyUsers, effectiveDataNow, timingEvents]);
     const leadCounts = useMemo(() => calculateCompanyLeadCounts(requests), [requests]);
     const companyName = getCompanyName(company) || (demoMode ? 'Bravo Dispatch' : 'Dispatch');
     const expandedItems = expandedSectionKey ? sections[expandedSectionKey] : [];
