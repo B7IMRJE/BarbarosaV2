@@ -47,6 +47,10 @@ const providerCategoryByKey = new Map(
     providerCategoryDefinitions.map((definition) => [definition.key, definition] as const)
 );
 
+export function getProviderCategoryCatalog() {
+    return providerCategoryDefinitions.map(({ key, label }) => ({ key, label }));
+}
+
 export function normalizeExplicitProviderCategory(value: string | null | undefined) {
     const normalizedValue = normalizeCategoryText(value);
 

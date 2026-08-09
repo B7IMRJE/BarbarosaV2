@@ -11,6 +11,10 @@ import {
 } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import { getCompanyDisplayName } from '../../lib/companyDisplayName';
+import {
+    getExplicitProviderCategoryOptions,
+    getProviderCategoryCatalog,
+} from '../../lib/providerVisibility';
 import { supabase } from '../../lib/supabase';
 
 type Company = {
@@ -35,6 +39,8 @@ type Company = {
     short_description: string | null;
 };
 
+const providerCategoryCatalog = getProviderCategoryCatalog();
+
 export default function CompaniesScreen() {
     const { selectFor } = useLocalSearchParams<{ selectFor?: string }>();
     const { width: viewportWidth } = useWindowDimensions();
@@ -48,6 +54,9 @@ export default function CompaniesScreen() {
     const [name, setName] = useState('');
     const [message, setMessage] = useState('Loading companies...');
     const [loading, setLoading] = useState(false);
+    const [openCategoryCompanyId, setOpenCategoryCompanyId] = useState('');
+    const [savingCategoryCompanyId, setSavingCategoryCompanyId] = useState('');
+    const [categoryMessageByCompanyId, setCategoryMessageByCompanyId] = useState<Record<string, string>>({});
 
     useEffect(() => {
         loadCompanies();
@@ -111,6 +120,58 @@ export default function CompaniesScreen() {
         }
 
         router.push(`/super-admin/company/${companyId}` as any);
+    }
+
+    async function updateCompanyCategory(company: Company, categoryLabel: string | null) {
+        setSavingCategoryCompanyId(company.id);
+        setCategoryMessageByCompanyId((current) => ({
+            ...current,
+            [company.id]: categoryLabel ? `Saving ${categoryLabel}...` : 'Removing category...',
+        }));
+
+        const { data, error } = await supabase.rpc('update_company_brand_profile', {
+            p_company_id: company.id,
+            p_public_name: company.public_name || '',
+            p_dba_name: company.dba_name || '',
+            p_logo_url: company.logo_url || '',
+            p_primary_color: company.primary_color || company.theme_color || '#071B33',
+            p_secondary_color: company.secondary_color || '#FFFFFF',
+            p_accent_color: company.accent_color || '#0B5FFF',
+            p_service_categories: categoryLabel ? [categoryLabel] : [],
+            p_homeos_rating: Number(company.homeos_rating || 0),
+            p_homeos_rating_count: Number(company.homeos_rating_count || 0),
+            p_combined_experience_years: Number(company.combined_experience_years || 0),
+            p_license_number: company.license_number || '',
+            p_phone: company.phone || '',
+            p_website: company.website || '',
+            p_short_description: company.short_description || '',
+        });
+
+        setSavingCategoryCompanyId('');
+
+        if (error) {
+            setCategoryMessageByCompanyId((current) => ({
+                ...current,
+                [company.id]: `Could not save category: ${error.message}`,
+            }));
+            return;
+        }
+
+        const updatedCompany = data as Company;
+        setCompanies((current) =>
+            current.map((currentCompany) =>
+                currentCompany.id === company.id
+                    ? { ...currentCompany, ...updatedCompany }
+                    : currentCompany
+            )
+        );
+        setOpenCategoryCompanyId('');
+        setCategoryMessageByCompanyId((current) => ({
+            ...current,
+            [company.id]: categoryLabel
+                ? `${categoryLabel} category saved.`
+                : 'No category. This company is hidden from homeowner discovery.',
+        }));
     }
 
     return (
@@ -247,6 +308,12 @@ export default function CompaniesScreen() {
                         const accentColor = company.accent_color || '#0B5FFF';
                         const secondaryColor = company.secondary_color || '#FFFFFF';
                         const categories = company.service_categories || [];
+                        const explicitCategories = getExplicitProviderCategoryOptions(categories);
+                        const categoryButtonLabel = explicitCategories.length > 0
+                            ? explicitCategories.map((category) => category.label).join(', ')
+                            : 'Pick category';
+                        const categoryPickerOpen = openCategoryCompanyId === company.id;
+                        const savingCategory = savingCategoryCompanyId === company.id;
                         const rating = Number(company.homeos_rating || 0).toFixed(1);
                         const ratingCount = company.homeos_rating_count || 0;
                         const visibleCategories = (categories.length ? categories : ['No categories']).slice(0, 2);
@@ -427,6 +494,128 @@ export default function CompaniesScreen() {
                                                 </View>
                                             )}
                                         </View>
+
+                                        {!isSelectingForProperties && (
+                                            <View
+                                                style={{
+                                                    marginTop: 12,
+                                                    borderTopWidth: 1,
+                                                    borderTopColor: '#E3E8EF',
+                                                    paddingTop: 12,
+                                                    gap: 8,
+                                                }}
+                                            >
+                                                <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '900' }}>
+                                                    SERVICE CATEGORY
+                                                </Text>
+                                                <TouchableOpacity
+                                                    disabled={savingCategory}
+                                                    onPress={(event) => {
+                                                        event.stopPropagation();
+                                                        setOpenCategoryCompanyId((current) =>
+                                                            current === company.id ? '' : company.id
+                                                        );
+                                                    }}
+                                                    style={{
+                                                        minHeight: 42,
+                                                        borderWidth: 1,
+                                                        borderColor: explicitCategories.length > 0 ? '#8BC9D2' : '#F1B7B7',
+                                                        borderRadius: 12,
+                                                        backgroundColor: explicitCategories.length > 0 ? '#ECFEFF' : '#FFF7F7',
+                                                        paddingHorizontal: 12,
+                                                        paddingVertical: 10,
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'space-between',
+                                                        gap: 8,
+                                                    }}
+                                                >
+                                                    <Text
+                                                        numberOfLines={2}
+                                                        style={{
+                                                            color: '#071B33',
+                                                            fontWeight: '900',
+                                                            flex: 1,
+                                                            minWidth: 0,
+                                                        }}
+                                                    >
+                                                        {savingCategory ? 'Saving...' : categoryButtonLabel}
+                                                    </Text>
+                                                    <Text style={{ color: '#0F7485', fontWeight: '900' }}>
+                                                        {categoryPickerOpen ? '▲' : '▼'}
+                                                    </Text>
+                                                </TouchableOpacity>
+
+                                                {categoryPickerOpen && (
+                                                    <View
+                                                        style={{
+                                                            borderWidth: 1,
+                                                            borderColor: '#CBD5E1',
+                                                            borderRadius: 12,
+                                                            backgroundColor: '#FFFFFF',
+                                                            overflow: 'hidden',
+                                                        }}
+                                                    >
+                                                        {providerCategoryCatalog.map((category) => (
+                                                            <TouchableOpacity
+                                                                key={category.key}
+                                                                disabled={savingCategory}
+                                                                onPress={(event) => {
+                                                                    event.stopPropagation();
+                                                                    void updateCompanyCategory(company, category.label);
+                                                                }}
+                                                                style={{
+                                                                    paddingHorizontal: 12,
+                                                                    paddingVertical: 11,
+                                                                    borderBottomWidth: 1,
+                                                                    borderBottomColor: '#E3E8EF',
+                                                                    backgroundColor: explicitCategories.some(
+                                                                        (selectedCategory) => selectedCategory.key === category.key
+                                                                    )
+                                                                        ? '#ECFEFF'
+                                                                        : '#FFFFFF',
+                                                                }}
+                                                            >
+                                                                <Text style={{ color: '#071B33', fontWeight: '800' }}>
+                                                                    {category.label}
+                                                                </Text>
+                                                            </TouchableOpacity>
+                                                        ))}
+                                                        <TouchableOpacity
+                                                            disabled={savingCategory}
+                                                            onPress={(event) => {
+                                                                event.stopPropagation();
+                                                                void updateCompanyCategory(company, null);
+                                                            }}
+                                                            style={{
+                                                                paddingHorizontal: 12,
+                                                                paddingVertical: 11,
+                                                                backgroundColor: '#FFF7F7',
+                                                            }}
+                                                        >
+                                                            <Text style={{ color: '#B42318', fontWeight: '800' }}>
+                                                                No category — hide from homeowners
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    </View>
+                                                )}
+
+                                                {!!categoryMessageByCompanyId[company.id] && (
+                                                    <Text
+                                                        style={{
+                                                            color: categoryMessageByCompanyId[company.id].startsWith('Could not')
+                                                                ? '#B42318'
+                                                                : '#475569',
+                                                            fontSize: 12,
+                                                            fontWeight: '700',
+                                                            lineHeight: 17,
+                                                        }}
+                                                    >
+                                                        {categoryMessageByCompanyId[company.id]}
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        )}
 
                                         <View
                                             style={{

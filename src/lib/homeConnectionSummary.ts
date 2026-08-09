@@ -64,12 +64,14 @@ export function isChosenProviderConnection(connection: HomeConnectionSummaryRow)
     const source = normalizeRequestSource(connection.request_source);
     const status = normalizeStatus(connection.status);
 
-    return (
-        source === 'homeowner_provider_request' &&
+    if (source === 'company_customer_invite') {
+        return status === 'connected';
+    }
+
+    return source === 'homeowner_provider_request' &&
         status !== 'revoked' &&
         status !== 'expired' &&
-        status !== 'declined'
-    );
+        status !== 'declined';
 }
 
 function preferredProviderToConnection(

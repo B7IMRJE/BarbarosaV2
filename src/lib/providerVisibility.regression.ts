@@ -1,6 +1,7 @@
 import {
     filterAvailableProviderCompanies,
     getExplicitProviderCategoryKeys,
+    getProviderCategoryCatalog,
     hasExplicitProviderClassification,
 } from './providerVisibility';
 
@@ -12,6 +13,7 @@ export function runProviderVisibilityRegressions() {
     unfilledHvacAndElectricalProvidersRemainVisible();
     invitationDoesNotBypassClassification();
     providerNeverAppearsUnderWrongCategory();
+    categoryPickerUsesOnlyExplicitCanonicalCategories();
 }
 
 function unclassifiedProviderIsHidden() {
@@ -73,6 +75,20 @@ function providerNeverAppearsUnderWrongCategory() {
     assert(
         mixedProviderResult.companies[0]?.service_categories?.join(',') === 'HVAC',
         'A mixed provider must not appear under its occupied Plumbing category.'
+    );
+}
+
+function categoryPickerUsesOnlyExplicitCanonicalCategories() {
+    const catalog = getProviderCategoryCatalog();
+    const labels = catalog.map((category) => category.label);
+
+    assert(labels.includes('Plumbing'), 'The category picker must include the canonical Plumbing category.');
+    assert(labels.includes('HVAC'), 'The category picker must include the canonical HVAC category.');
+    assert(labels.includes('Electrical'), 'The category picker must include the canonical Electrical category.');
+    assert(!labels.includes('No category'), 'No category must remain a hiding action, not a valid classification.');
+    assert(
+        new Set(catalog.map((category) => category.key)).size === catalog.length,
+        'The category picker must not contain duplicate category assignments.'
     );
 }
 

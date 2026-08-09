@@ -7,6 +7,8 @@ export function runHomeConnectionSummaryRegressions() {
     activePreferredProviderCountsAsConnected();
     preferredAndLegacyRowsDoNotDoubleCount();
     revokedLegacyProviderDoesNotCount();
+    acceptedCompanyInviteCountsAsConnected();
+    pendingCompanyInviteDoesNotCount();
 }
 
 function activePreferredProviderCountsAsConnected() {
@@ -36,6 +38,30 @@ function revokedLegacyProviderDoesNotCount() {
     assert(currentProviders.length === 0, 'A revoked provider connection must not count as current.');
 }
 
+function acceptedCompanyInviteCountsAsConnected() {
+    const currentProviders = buildCurrentProviderConnections(
+        [connection('connection-3', 'company-3', 'connected', 'company_customer_invite')],
+        []
+    );
+
+    assert(
+        currentProviders.length === 1,
+        'An accepted company-created customer invitation must remain the current provider relationship.'
+    );
+}
+
+function pendingCompanyInviteDoesNotCount() {
+    const currentProviders = buildCurrentProviderConnections(
+        [connection('connection-4', 'company-4', 'pending', 'company_customer_invite')],
+        []
+    );
+
+    assert(
+        currentProviders.length === 0,
+        'A pending company invitation must not bypass provider classification and acceptance.'
+    );
+}
+
 function preferredProvider(companyId: string) {
     return {
         property_id: 'property-1',
@@ -47,13 +73,18 @@ function preferredProvider(companyId: string) {
     };
 }
 
-function connection(id: string, companyId: string, status: string): HomeConnectionSummaryRow {
+function connection(
+    id: string,
+    companyId: string,
+    status: string,
+    requestSource = 'homeowner_provider_request'
+): HomeConnectionSummaryRow {
     return {
         id,
         property_id: 'property-1',
         company_id: companyId,
         status,
-        request_source: 'homeowner_provider_request',
+        request_source: requestSource,
         can_view_documents: false,
         can_view_photos: false,
         can_view_service_history: false,
