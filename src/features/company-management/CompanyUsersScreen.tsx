@@ -14,6 +14,16 @@ import AdminNavBar from '../../components/AdminNavBar';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../lib/companyAuditLogs';
+import {
+    COMPANY_PERMISSION_KEYS,
+    COMPANY_ROLE_OPTIONS as ROLE_OPTIONS,
+    CUSTOMIZABLE_COMPANY_ROLE_OPTIONS as CUSTOMIZABLE_ROLE_OPTIONS,
+    findReusablePendingInvitation,
+    formatPermissionCoverage,
+    isInvitationExpired,
+    type CompanyRole,
+    type CustomizableCompanyRole,
+} from '../../lib/companyInvitationRules';
 import { mergeCompanyTeamRosterMembers } from '../../lib/companyTeamRoster';
 import {
     COMPANY_PERMISSION_LABELS,
@@ -37,7 +47,6 @@ import { GlassPaletteProvider } from '../../theme/glass-palette-context';
 import { createCompanyGlassPalette } from '../../theme/glassPalette';
 import { useTheme } from '../../theme/useTheme';
 
-type CompanyRole = 'owner' | 'admin' | 'manager' | 'office' | 'dispatcher' | 'supervisor' | 'technician';
 type MemberActionStatus = 'active' | 'suspended' | 'inactive';
 
 type CompanyUser = {
@@ -86,37 +95,12 @@ type ManualInviteResult = {
 
 type SubmitStage = 'idle' | 'creating' | 'sending';
 type SectionKey = 'owners' | 'adminManagerStaff' | 'technicians' | 'members' | 'invitations';
-type CustomizableCompanyRole = Exclude<CompanyRole, 'owner'>;
-
 type CompanyUserManagementAccessResult = {
     canManage: boolean;
     canView: boolean;
     message: string | null;
 };
 
-const ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
-    { label: 'Company Owner', value: 'owner' },
-    { label: 'Admin', value: 'admin' },
-    { label: 'Manager', value: 'manager' },
-    { label: 'Office', value: 'office' },
-    { label: 'Dispatcher', value: 'dispatcher' },
-    { label: 'Supervisor', value: 'supervisor' },
-    { label: 'Technician', value: 'technician' },
-];
-const CUSTOMIZABLE_ROLE_OPTIONS = ROLE_OPTIONS.filter(
-    (option): option is { label: string; value: CustomizableCompanyRole } => option.value !== 'owner'
-);
-
-const COMPANY_PERMISSION_KEYS: CompanyPermissionKey[] = [
-    'can_view_techos',
-    'can_create_estimates',
-    'can_add_item_to_estimate',
-    'can_manage_price_book',
-    'can_view_customers',
-    'can_view_jobs',
-    'can_manage_company_users',
-    'can_manage_company_profile',
-];
 const COMPANY_PERMISSION_DESCRIPTIONS: Record<CompanyPermissionKey, string> = {
     can_view_techos: 'Open TechOS and use its available work tools.',
     can_create_estimates: 'Create estimate and proposal drafts.',
@@ -583,6 +567,7 @@ export default function CompanyUsersScreen() {
 
         if (!manualInvite.inviteCode && !manualInvite.inviteUrl) {
             const message = `${failurePrefix}: ${manualInvite.warning || 'the server did not return an invite link or code.'}`;
+            await loadCompanyUsers(false);
             setManualInvitesById((current) => ({
                 ...current,
                 [invitationId]: {
@@ -901,7 +886,7 @@ export default function CompanyUsersScreen() {
                                                 ]}
                                             >
                                                 <Text style={[permissionSummaryTextStyle, { color: theme.colors.text }]}>
-                                                    {option.label}: {countEnabledPermissions(rolePermissions[option.value])}
+                                                    {option.label}: {formatPermissionCoverage(rolePermissions[option.value])}
                                                 </Text>
                                             </View>
                                         ))}
@@ -2289,10 +2274,6 @@ function createDefaultRolePermissionProfiles(): Record<CustomizableCompanyRole, 
     }, {} as Record<CustomizableCompanyRole, CompanyPermissionSet>);
 }
 
-function countEnabledPermissions(permissions: CompanyPermissionSet) {
-    return `${COMPANY_PERMISSION_KEYS.filter((permissionKey) => permissions[permissionKey]).length}/${COMPANY_PERMISSION_KEYS.length}`;
-}
-
 function summarizeEnabledPermissions(permissions: CompanyPermissionSet) {
     const enabled = COMPANY_PERMISSION_KEYS
         .filter((permissionKey) => permissions[permissionKey])
@@ -2350,16 +2331,6 @@ function normalizeInvitationRecord(row: unknown): CompanyInvitation | null {
         email_delivery_status: readStringField(record, 'email_delivery_status'),
         email_delivery_error: readStringField(record, 'email_delivery_error'),
     };
-}
-
-function findReusablePendingInvitation(email: string, invitations: CompanyInvitation[], nowMs: number) {
-    const normalizedEmail = email.trim().toLowerCase();
-
-    return invitations.find((invitation) =>
-        invitation.email.trim().toLowerCase() === normalizedEmail &&
-        normalizeStatus(invitation.status) === 'pending' &&
-        !isInvitationExpired(invitation, nowMs)
-    ) || null;
 }
 
 async function loadReusablePendingInvitation(companyId: string, email: string, nowMs: number) {
@@ -2601,18 +2572,6 @@ function formatDate(value: string | null) {
     if (Number.isNaN(date.getTime())) return 'Unknown';
 
     return date.toLocaleDateString();
-}
-
-function isInvitationExpired(invitation: CompanyInvitation, nowMs: number) {
-    const status = normalizeStatus(invitation.status);
-
-    if (status === 'expired') return true;
-    if (status !== 'pending') return false;
-    if (!invitation.expires_at) return false;
-
-    const expiresAtMs = new Date(invitation.expires_at).getTime();
-
-    return Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs;
 }
 
 function formatDeliverySummary(invitation: CompanyInvitation) {

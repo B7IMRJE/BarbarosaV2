@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     Pressable,
     ScrollView,
@@ -26,6 +26,7 @@ import {
     SHARED_LOGIN_HEADING,
     SHARED_LOGIN_SUPPORTING_TEXT,
 } from '../../lib/loginFlow';
+import { safeInvitationLoginErrorMessage } from '../../lib/invitationLogin';
 import { supabase } from '../../lib/supabase';
 import ThemedButton from '../../components/theme/ThemedButton';
 
@@ -62,6 +63,7 @@ export default function LoginScreen() {
     const [message, setMessage] = useState('');
     const [unconfirmedEmail, setUnconfirmedEmail] = useState('');
     const [signInFocused, setSignInFocused] = useState(false);
+    const invitationRequestInFlight = useRef(false);
 
     useEffect(() => {
         if (!confirmNextRoute) return;
@@ -195,6 +197,8 @@ export default function LoginScreen() {
     }
 
     async function handleInvitationCodeLogin() {
+        if (invitationRequestInFlight.current) return;
+
         const code = invitationCode.replace(/\D/g, '');
 
         if (code.length !== 6) {
@@ -202,55 +206,67 @@ export default function LoginScreen() {
             return;
         }
 
+        invitationRequestInFlight.current = true;
         setInvitationLoading(true);
         setMessage('Checking invitation code...');
 
-        const { data, error } = await supabase.functions.invoke(
-            'exchange-invitation-login-code',
-            { body: { code } }
-        );
-        const result = data as {
-            ok?: boolean;
-            access_token?: string;
-            refresh_token?: string;
-            next?: string;
-            message?: string;
-        } | null;
-
-        if (
-            error ||
-            !result?.ok ||
-            !result.access_token ||
-            !result.refresh_token
-        ) {
-            setInvitationLoading(false);
-            setMessage(
-                result?.message ||
-                await readInvitationLoginError(error) ||
-                'This invitation code is invalid or expired.'
+        try {
+            const { data, error } = await supabase.functions.invoke(
+                'exchange-invitation-login-code',
+                { body: { code } }
             );
-            return;
+            const result = data as {
+                ok?: boolean;
+                code?: string;
+                access_token?: string;
+                refresh_token?: string;
+                next?: string;
+                message?: string;
+            } | null;
+
+            if (
+                error ||
+                !result?.ok ||
+                !result.access_token ||
+                !result.refresh_token
+            ) {
+                const responseError = await readInvitationLoginError(error);
+                setMessage(safeInvitationLoginErrorMessage(
+                    result?.code || responseError.code,
+                    result?.message || responseError.message
+                ));
+                return;
+            }
+
+            const { error: sessionError } = await supabase.auth.setSession({
+                access_token: result.access_token,
+                refresh_token: result.refresh_token,
+            });
+
+            if (sessionError) {
+                setMessage('The invitation was verified, but your secure session could not be started. Try again.');
+                return;
+            }
+
+            const nextRoute = result.next || '/';
+            setMessage('Invitation verified. Create your password to protect this account.');
+
+            try {
+                await markInvitationPasswordSetupPending();
+            } catch {
+                // The authenticated password-setup route remains safe even when optional local storage is unavailable.
+            }
+
+            router.replace({
+                pathname: '/profile/change-password',
+                params: { first: '1', next: nextRoute },
+            } as any);
+        } catch {
+            setMessage(safeInvitationLoginErrorMessage());
+        } finally {
+            invitationRequestInFlight.current = false;
+            setInvitationLoading(false);
         }
-
-        const { error: sessionError } = await supabase.auth.setSession({
-            access_token: result.access_token,
-            refresh_token: result.refresh_token,
-        });
-
-        setInvitationLoading(false);
-
-        if (sessionError) {
-            setMessage('The invitation was verified, but HomeOS could not start your session. Try again.');
-            return;
-        }
-
-        const nextRoute = result.next || '/';
-        await markInvitationPasswordSetupPending();
-        setMessage('Invitation verified. Create your password to protect this account.');
-        router.replace({
-            pathname: '/profile/change-password',
-            params: { first: '1', next: nextRoute },
-        } as any);
     }
 
     return (
@@ -386,7 +402,9 @@ export default function LoginScreen() {
 }
 
 async function readInvitationLoginError(error: unknown) {
-    if (!error || typeof error !== 'object' || !('context' in error)) return '';
+    if (!error || typeof error !== 'object' || !('context' in error)) {
+        return { code: '', message: '' };
+    }
 
     const context = (error as { context?: unknown }).context;
     if (
@@ -395,12 +413,15 @@ async function readInvitationLoginError(error: unknown) {
         !('clone' in context) ||
         typeof (context as Response).clone !== 'function'
     ) {
-        return error instanceof Error ? error.message : '';
+        return { code: '', message: '' };
     }
 
     const response = (context as Response).clone();
-    const payload = await response.json().catch(() => null) as { message?: string } | null;
-    return String(payload?.message || '').trim();
+    const payload = await response.json().catch(() => null) as { code?: string; message?: string } | null;
+    return {
+        code: String(payload?.code || '').trim(),
+        message: String(payload?.message || '').trim(),
+    };
 }
 
 function firstParam(value: string | string[] | undefined) {

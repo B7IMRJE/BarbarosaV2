@@ -4,6 +4,11 @@ declare const Deno: {
     };
 };
 
+import {
+    classifyCompanyInvitationCode,
+    invitationCodeStateMessage,
+} from '../_shared/companyInvitationCodePolicy.ts';
+
 type DeliveryInvitation = {
     invitation_id: string;
     company_id: string;
@@ -616,8 +621,10 @@ async function loadInvitationForCodeCreation(
 ): Promise<DeliveryInvitation> {
     const url = new URL('/rest/v1/company_user_invitations', env.supabaseUrl);
     url.searchParams.set('id', `eq.${invitationId}`);
-    url.searchParams.set('status', 'eq.pending');
-    url.searchParams.set('select', 'id,company_id,email,role,full_name,expires_at');
+    url.searchParams.set(
+        'select',
+        'id,company_id,email,role,full_name,status,revoked_at,accepted_at,accepted_by_user_id,login_code_used_at,manual_invite_expires_at,expires_at'
+    );
     url.searchParams.set('limit', '1');
     const response = await fetch(url, {
         headers: {
@@ -631,12 +638,31 @@ async function loadInvitationForCodeCreation(
         email?: string;
         role?: string;
         full_name?: string | null;
+        status?: string | null;
+        revoked_at?: string | null;
+        accepted_at?: string | null;
+        accepted_by_user_id?: string | null;
+        login_code_used_at?: string | null;
+        manual_invite_expires_at?: string | null;
         expires_at?: string | null;
     }[];
     const invitation = rows[0];
 
     if (!response.ok || !invitation?.id || !invitation.company_id || !invitation.email) {
         throw new RequestError(404, 'invitation_not_found', 'Invitation login code cannot be created.');
+    }
+
+    const state = classifyCompanyInvitationCode(invitation);
+
+    if (state === 'used') {
+        throw new RequestError(
+            409,
+            'invitation_already_accepted',
+            'This invitation was already accepted. Open the active team member record to generate a new login code.'
+        );
+    }
+    if (state !== 'eligible') {
+        throw new RequestError(409, `invitation_${state}`, invitationCodeStateMessage(state));
     }
 
     return {

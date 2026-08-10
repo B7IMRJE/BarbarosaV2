@@ -4,6 +4,12 @@ declare const Deno: {
     };
 };
 
+import {
+    classifyCompanyInvitationCode,
+    invitationCodeStateMessage,
+    type CompanyInvitationCodeState,
+} from '../_shared/companyInvitationCodePolicy.ts';
+
 const CODE_PATTERN = /^\d{6}$/;
 const LOCKOUT_WINDOW_MS = 15 * 60 * 1000;
 const MAX_FAILURES_PER_CODE = 5;
@@ -48,8 +54,24 @@ export default {
 
         let invitation;
         try {
-            invitation =
-                await findCompanyUserInvitation(supabaseUrl, serviceRoleKey, code) ||
+            const companyInvitation = await findCompanyUserInvitation(supabaseUrl, serviceRoleKey, code);
+
+            if (companyInvitation && companyInvitation.state !== 'eligible') {
+                await recordAttempt(supabaseUrl, serviceRoleKey, {
+                    invitationId: companyInvitation.id,
+                    ipHash,
+                    codeHash,
+                    succeeded: false,
+                    outcome: companyInvitation.state === 'expired' ? 'expired' : 'invalid',
+                });
+                return response(req, {
+                    ok: false,
+                    code: invitationCodeStateCode(companyInvitation.state),
+                    message: invitationCodeStateMessage(companyInvitation.state),
+                }, companyInvitation.state === 'used' ? 409 : 400);
+            }
+
+            invitation = companyInvitation?.invitation ||
                 await findCustomerInvitation(supabaseUrl, serviceRoleKey, code);
         } catch (error) {
             return response(req, {
@@ -80,7 +102,7 @@ export default {
                 succeeded: false,
                 outcome: 'invalid',
             });
-            return response(req, { ok: false, message: 'This invitation code is invalid or expired.' }, 400);
+            return response(req, { ok: false, code: 'invalid', message: 'This invitation code is invalid or expired.' }, 400);
         }
 
         const invitationAuth = await createInvitationAuthOtp(
@@ -98,13 +120,13 @@ export default {
             });
             return response(req, {
                 ok: false,
+                code: 'auth_failed',
                 message: 'The invitation was found, but its secure login session could not be prepared.',
             }, 500);
         }
         const verificationToken = invitationAuth.tokenHash;
         const verificationTypes = ['email', invitationAuth.type, 'invite', 'magiclink'] as const;
 
-        let lastVerificationMessage = '';
         for (const type of [...new Set(verificationTypes)]) {
             const verifyResponse = await fetch(`${supabaseUrl}/auth/v1/verify`, {
                 method: 'POST',
@@ -128,13 +150,6 @@ export default {
                 message?: string;
                 error_description?: string;
             } | null;
-            lastVerificationMessage = String(
-                verifyBody?.msg ||
-                verifyBody?.message ||
-                verifyBody?.error_description ||
-                ''
-            ).trim();
-
             if (
                 verifyResponse.ok &&
                 verifyBody?.access_token &&
@@ -221,9 +236,8 @@ export default {
             req,
             {
                 ok: false,
-                message: lastVerificationMessage
-                    ? `The invitation was found, but login verification failed: ${lastVerificationMessage}`
-                    : 'The invitation was found, but login verification failed.',
+                code: 'auth_failed',
+                message: 'The invitation was found, but secure login verification could not be completed.',
             },
             400
         );
@@ -301,10 +315,10 @@ async function acceptCompanyUserInvitation(
 async function findCompanyUserInvitation(supabaseUrl: string, serviceRoleKey: string, code: string) {
     const url = new URL('/rest/v1/company_user_invitations', supabaseUrl);
     url.searchParams.set('manual_invite_code', `eq.${code}`);
-    url.searchParams.set('status', 'eq.pending');
-    url.searchParams.set('revoked_at', 'is.null');
-    url.searchParams.set('accepted_at', 'is.null');
-    url.searchParams.set('select', 'id,email,manual_invite_expires_at,expires_at');
+    url.searchParams.set(
+        'select',
+        'id,email,status,revoked_at,accepted_at,accepted_by_user_id,login_code_used_at,manual_invite_expires_at,expires_at'
+    );
     url.searchParams.set('limit', '1');
 
     const lookupResponse = await fetch(url, {
@@ -316,23 +330,48 @@ async function findCompanyUserInvitation(supabaseUrl: string, serviceRoleKey: st
     const rows = await lookupResponse.json().catch(() => []) as {
         id?: string;
         email?: string;
+        status?: string | null;
+        revoked_at?: string | null;
+        accepted_at?: string | null;
+        accepted_by_user_id?: string | null;
+        login_code_used_at?: string | null;
         manual_invite_expires_at?: string | null;
         expires_at?: string | null;
     }[];
     const invitation = rows[0];
 
-    if (!lookupResponse.ok || !invitation?.id || !invitation.email) return null;
+    if (!lookupResponse.ok) {
+        throw new Error('The company invitation resolver is unavailable.');
+    }
+    if (!invitation?.id || !invitation.email) return null;
 
-    const expiresAt = invitation.manual_invite_expires_at || invitation.expires_at;
+    const state = classifyCompanyInvitationCode(invitation);
 
-    if (expiresAt && new Date(expiresAt).getTime() <= Date.now()) return null;
+    if (state !== 'eligible') {
+        return {
+            id: invitation.id,
+            state,
+            invitation: null,
+        };
+    }
 
     return {
         id: invitation.id,
-        email: invitation.email,
-        source: 'company_user' as const,
-        connectionCode: '',
+        state,
+        invitation: {
+            id: invitation.id,
+            email: invitation.email,
+            source: 'company_user' as const,
+            connectionCode: '',
+        },
     };
+}
+
+function invitationCodeStateCode(state: Exclude<CompanyInvitationCodeState, 'eligible'>) {
+    if (state === 'used') return 'already_used';
+    if (state === 'expired') return 'expired';
+    if (state === 'revoked') return 'revoked';
+    return 'inactive';
 }
 
 async function createInvitationAuthOtp(
