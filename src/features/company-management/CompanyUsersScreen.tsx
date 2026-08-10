@@ -1,7 +1,7 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { useLocalSearchParams, type Href } from 'expo-router';
 import type { ReactNode } from 'react';
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
     Pressable,
     ScrollView,
@@ -115,6 +115,7 @@ const COMPANY_PERMISSION_DESCRIPTIONS: Record<CompanyPermissionKey, string> = {
 export default function CompanyUsersScreen() {
     const themeContext = useTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
+    const teamScrollRef = useRef<ScrollView>(null);
 
     const [members, setMembers] = useState<CompanyUser[]>([]);
     const [invitations, setInvitations] = useState<CompanyInvitation[]>([]);
@@ -147,6 +148,7 @@ export default function CompanyUsersScreen() {
     const [submitStage, setSubmitStage] = useState<SubmitStage>('idle');
     const [actionLoadingKey, setActionLoadingKey] = useState<string | null>(null);
     const [manualInvitesById, setManualInvitesById] = useState<Record<string, ManualInviteDetails>>({});
+    const [invitationResultToReveal, setInvitationResultToReveal] = useState<{ invitationId: string } | null>(null);
     const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
         owners: false,
         adminManagerStaff: false,
@@ -180,6 +182,23 @@ export default function CompanyUsersScreen() {
 
         return () => clearInterval(timer);
     }, []);
+
+    useEffect(() => {
+        if (!invitationResultToReveal) return;
+
+        setTouchedSections((current) => ({ ...current, invitations: true }));
+        setCollapsedSections((current) => ({ ...current, invitations: false }));
+        setExpandedRows((current) => ({
+            ...current,
+            [`invitation:${invitationResultToReveal.invitationId}`]: true,
+        }));
+
+        const scrollTimer = setTimeout(() => {
+            teamScrollRef.current?.scrollToEnd({ animated: true });
+        }, 250);
+
+        return () => clearTimeout(scrollTimer);
+    }, [invitationResultToReveal]);
 
     useEffect(() => {
         const hasOwners = members.some((member) => isCompanyOwnerRole(member.role));
@@ -435,6 +454,7 @@ export default function CompanyUsersScreen() {
         setFullName('');
         setEmail('');
         setRole('technician');
+        setInvitationResultToReveal({ invitationId: invitationToSend.id });
         setMessage(`Invitation code ready for ${normalizedEmail}: ${manualInvite.inviteCode}`);
     }
 
@@ -595,6 +615,7 @@ export default function CompanyUsersScreen() {
             },
         }));
         await loadCompanyUsers(false);
+        setInvitationResultToReveal({ invitationId });
         setMessage(manualInvite.warning ? `${successMessage} ${manualInvite.warning}` : successMessage);
         return true;
     }
@@ -796,6 +817,7 @@ export default function CompanyUsersScreen() {
         <ThemeContext.Provider value={{ ...themeContext, theme }}>
         <GlassPaletteProvider palette={companyGlassPalette}>
         <ScrollView
+            ref={teamScrollRef}
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
                 padding: 20,
