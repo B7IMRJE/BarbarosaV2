@@ -15,6 +15,7 @@ import {
     readInviteCodeFromNextPath,
     replacePendingCompanyInviteFromNextPath,
 } from '../../lib/companyInviteState';
+import { syncMyProfile } from '../../lib/profileSync';
 import { supabase } from '../../lib/supabase';
 
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
@@ -124,10 +125,18 @@ export default function RegisterScreen() {
             return;
         }
 
-        if (data.user) {
-            await supabase.from('profiles').upsert(
-                buildProfileUpsertPayload(data.user.id, cleanEmail, cleanName, cleanPhone, profileRole, workAccountMode)
-            );
+        if (data.user && data.session) {
+            try {
+                await syncMyProfile({
+                    fullName: cleanName,
+                    phone: cleanPhone,
+                    role: profileRole,
+                });
+            } catch (profileError) {
+                setLoading(false);
+                setMessage(profileError instanceof Error ? profileError.message : 'Could not prepare your secure profile.');
+                return;
+            }
         }
 
         setLoading(false);
@@ -367,36 +376,6 @@ function buildAuthNavParams(nextRoute: string | null, workAccountMode: boolean, 
     if (cleanEmail) navParams.email = cleanEmail;
 
     return Object.keys(navParams).length ? navParams : undefined;
-}
-
-type ProfileUpsertPayload = {
-    id: string;
-    email: string;
-    full_name?: string;
-    phone?: string;
-    role: string;
-};
-
-function buildProfileUpsertPayload(
-    userId: string,
-    email: string,
-    fullName: string,
-    phone: string,
-    role: string,
-    workAccountMode: boolean
-): ProfileUpsertPayload {
-    const profilePayload: ProfileUpsertPayload = {
-        id: userId,
-        email,
-        role,
-    };
-    const cleanFullName = fullName.trim();
-    const cleanPhone = phone.trim();
-
-    if (cleanFullName) profilePayload.full_name = cleanFullName;
-    if (!workAccountMode && cleanPhone) profilePayload.phone = cleanPhone;
-
-    return profilePayload;
 }
 
 function buildConfirmRedirect(nextRoute: string | null) {
