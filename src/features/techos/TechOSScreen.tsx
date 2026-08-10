@@ -4653,6 +4653,7 @@ function TechOSAssignedJobDetail({
     const canOpenClientHomeOS = hasTechOSClientHomeContext(clientContext);
     const estimateActionLabel = getTechOSEstimateActionLabel(estimateDraftCount);
     const [openSectionKey, setOpenSectionKey] = useState<TechOSJobWorkspaceSectionKey | null>(null);
+    const [preArrivalJobCardOpen, setPreArrivalJobCardOpen] = useState(false);
     const [showMoreWorkflowActions, setShowMoreWorkflowActions] = useState(false);
     const [nextActionPickerOpen, setNextActionPickerOpen] = useState(false);
     const [statusNotePickerOpen, setStatusNotePickerOpen] = useState(false);
@@ -4693,6 +4694,42 @@ function TechOSAssignedJobDetail({
                     <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>Update Dispatch and the homeowner while you travel. The worksite tools open after you arrive.</Text>
                     <Text style={[techJobWorkspaceCurrentStatusStyle, { color: techOSTheme.textColor }]}>Current: {formatTechWorkflowStatusText(workflowStatus)}</Text>
                 </View>
+
+                <ThemedButton
+                    title={preArrivalJobCardOpen ? 'Hide Job Card' : 'View Job Card'}
+                    variant="secondary"
+                    onPress={() => setPreArrivalJobCardOpen((current) => !current)}
+                    style={assignedJobActionButtonStyle}
+                />
+
+                {preArrivalJobCardOpen && (
+                    <TechOSDetailSection
+                        title="Customer Request"
+                        description="The original information, photos, and videos the homeowner sent with this job."
+                        techOSTheme={techOSTheme}
+                        variantKey="request"
+                        onClose={() => setPreArrivalJobCardOpen(false)}
+                    >
+                        <View style={techJobDetailInfoGridStyle}>
+                            <TechJobDetailInfo label="Home / Request" value={location} techOSTheme={techOSTheme} />
+                            <TechJobDetailInfo label="Request" value={requestReference} techOSTheme={techOSTheme} />
+                            <TechJobDetailInfo label="Request Type" value={formatLabel(job.request?.request_type || 'service request')} techOSTheme={techOSTheme} />
+                            <TechJobDetailInfo label="Priority" value={formatLabel(job.slot.priority || job.request?.priority || 'normal')} techOSTheme={techOSTheme} />
+                            <TechJobDetailInfo label="Submitted" value={formatDateTime(job.request?.created_at)} techOSTheme={techOSTheme} />
+                        </View>
+                        <Text style={[clientMetaTextStyle, { color: techOSTheme.textColor, marginTop: 10 }]}>
+                            {job.request?.issue_summary || job.slot.notes || 'No request description was provided.'}
+                        </Text>
+                        {!!chatServiceRequestId ? (
+                            <ServiceRequestMediaGallery
+                                serviceRequestId={chatServiceRequestId}
+                                title="Homeowner photos and videos"
+                            />
+                        ) : (
+                            <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 10 }]}>No customer request media is linked to this job.</Text>
+                        )}
+                    </TechOSDetailSection>
+                )}
 
                 <TechOSDetailSection
                     title="Travel Status"
