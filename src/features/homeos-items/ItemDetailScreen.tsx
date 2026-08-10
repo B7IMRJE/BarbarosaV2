@@ -94,6 +94,12 @@ import {
     type ProviderStagedWorkType,
 } from '../../lib/providerStagedWork';
 import { supabase } from '../../lib/supabase';
+import {
+    loadHomeItemLifetimeHistory,
+    warrantyChoiceLabel,
+    type HomeItemLifetimeHistoryEntry,
+    type HomeItemLifetimeHistoryMedia,
+} from '../../lib/home-item-closeout';
 import { useTheme } from '../../theme/useTheme';
 
 declare const __DEV__: boolean;
@@ -541,6 +547,8 @@ export default function ItemScreen() {
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
     const [maintenanceCompletions, setMaintenanceCompletions] = useState<MaintenanceCompletion[]>([]);
+    const [lifetimeHistory, setLifetimeHistory] = useState<HomeItemLifetimeHistoryEntry[]>([]);
+    const [lifetimeHistoryLoading, setLifetimeHistoryLoading] = useState(false);
     const [safetyGuide, setSafetyGuide] = useState<HomeItemSafetyGuideRecord | null>(null);
     const [showSafetyGuide, setShowSafetyGuide] = useState(false);
     const [showSafetyGuideEditor, setShowSafetyGuideEditor] = useState(false);
@@ -719,7 +727,7 @@ export default function ItemScreen() {
             const statusIsPreset = providerItemStatusOptions.includes(currentStatus) && currentStatus !== 'Custom';
 
             setProviderEditName(item?.name || '');
-            setProviderEditCondition(item?.install_state || '');
+            setProviderEditCondition(item?.condition || item?.install_state || '');
             setProviderEditStatusChoice(statusIsPreset ? currentStatus : 'Custom');
             setProviderEditCustomStatus(statusIsPreset ? '' : currentStatus);
             setProviderStatusPickerOpen(false);
@@ -1438,6 +1446,7 @@ export default function ItemScreen() {
         setFiles([]);
         setMaintenanceTasks([]);
         setMaintenanceCompletions([]);
+        setLifetimeHistory([]);
         setSafetyGuide(null);
         setShowSafetyGuide(false);
         setShowSafetyGuideEditor(false);
@@ -1535,6 +1544,7 @@ export default function ItemScreen() {
         } else {
             setItem(itemRow);
             setMessage('');
+            await loadLifetimeHistory(String(itemRow.id || ''));
             const nextRelatedItems = await loadRelatedItemsForCurrentItem({
                 propertyId: activeProperty.propertyId,
                 parentItem: itemRow,
@@ -1562,6 +1572,41 @@ export default function ItemScreen() {
         }
 
         setLoading(false);
+    }
+
+    async function loadLifetimeHistory(homeItemId: string, companyId = managementCompanyId || providerModeContext?.companyId || null) {
+        if (!homeItemId) {
+            setLifetimeHistory([]);
+            return;
+        }
+        setLifetimeHistoryLoading(true);
+        try {
+            const history = await loadHomeItemLifetimeHistory({
+                homeItemId,
+                companyId,
+                serviceRequestId: providerModeContext?.serviceRequestId || null,
+                scheduleSlotId: providerModeContext?.scheduleSlotId || null,
+                jobId: providerModeContext?.jobId || null,
+            });
+            setLifetimeHistory(history.entries || []);
+        } catch (error) {
+            logMediaDebug('load-lifetime-history', error);
+            setLifetimeHistory([]);
+        } finally {
+            setLifetimeHistoryLoading(false);
+        }
+    }
+
+    async function openLifetimeMedia(media: HomeItemLifetimeHistoryMedia) {
+        try {
+            const { data, error } = await supabase.storage
+                .from(media.bucket || 'company-job-files')
+                .createSignedUrl(media.storage_path, 60 * 15);
+            if (error || !data?.signedUrl) throw error || new Error('Media could not be opened.');
+            await Linking.openURL(data.signedUrl);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'Media could not be opened.');
+        }
     }
 
     async function loadSafetyGuide({
@@ -1706,7 +1751,7 @@ export default function ItemScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, property_id, name, item_slug, system, location, parent_area, category, status, install_state, created_at')
+            .select('id, property_id, name, item_slug, system, location, parent_area, category, status, condition, install_state, installed_on, install_date, brand, model, serial, part_number, installation_notes, created_at')
             .eq('item_slug', slug)
             .eq('property_id', targetPropertyId)
             .maybeSingle();
@@ -1720,6 +1765,7 @@ export default function ItemScreen() {
         } else {
             setItem(data);
             setMessage('');
+            await loadLifetimeHistory(String(data.id || ''), targetCompanyId);
         }
 
         setLoading(false);
@@ -3326,10 +3372,11 @@ export default function ItemScreen() {
         const location = item.location || item.parent_area || 'Not specified';
         const managementDetailCards = [
             { label: 'Status', value: item.status || 'Missing Information' },
-            { label: 'Condition', value: item.install_state || 'Unknown' },
+            { label: 'Condition', value: item.condition || item.install_state || 'Unknown' },
             { label: 'System', value: item.system || 'Unknown' },
             { label: 'Category', value: item.category || 'Unknown' },
             { label: 'Area / Location', value: location },
+            { label: 'Installed On', value: formatPermanentDate(item.installed_on || item.install_date) },
             { label: 'Home', value: shortId(item.property_id || managementPropertyId) },
         ];
 
@@ -3360,10 +3407,18 @@ export default function ItemScreen() {
                         ))}
                     </View>
 
+                    <LifetimeHistoryCard
+                        entries={lifetimeHistory}
+                        loading={lifetimeHistoryLoading}
+                        onOpenMedia={(media) => void openLifetimeMedia(media)}
+                        scaleStyle={scaleStyle}
+                        theme={theme}
+                    />
+
                     <ThemedCard style={scaleStyle(messageCardStyle)}>
                         <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Privacy</Text>
                         <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
-                            Basic item identity is visible because this is an active company customer relationship. Media, documents, maintenance history, and private HomeOS notes are not shown in this company view.
+                            This authorized company can see the permanent service events it performed. Unrelated private HomeOS notes and files remain protected.
                         </Text>
                     </ThemedCard>
 
@@ -3495,7 +3550,7 @@ export default function ItemScreen() {
     );
 
     const detailCards = [
-        { label: 'Condition', value: item.install_state || 'Unknown' },
+        { label: 'Condition', value: item.condition || item.install_state || 'Unknown' },
         { label: 'Status', value: item.status || 'Missing Information' },
         { label: 'System', value: item.system || 'Unknown' },
         { label: 'Category', value: item.category || 'Unknown' },
@@ -3504,6 +3559,8 @@ export default function ItemScreen() {
         { label: 'Brand', value: item.brand || 'Unknown' },
         { label: 'Model', value: item.model || 'Unknown' },
         { label: 'Serial', value: item.serial || 'Unknown' },
+        { label: 'Part Number', value: item.part_number || 'Unknown' },
+        { label: 'Installed On', value: formatPermanentDate(item.installed_on || item.install_date) },
     ];
 
     function toggleActionGroup(group: ItemActionGroupKey) {
@@ -4911,6 +4968,14 @@ export default function ItemScreen() {
                         ))}
                     </View>
 
+                    <LifetimeHistoryCard
+                        entries={lifetimeHistory}
+                        loading={lifetimeHistoryLoading}
+                        onOpenMedia={(media) => void openLifetimeMedia(media)}
+                        scaleStyle={scaleStyle}
+                        theme={theme}
+                    />
+
                     <View style={scaleStyle(fileSummaryStyle)}>
                         <ThemedCard style={scaleStyle(fileSummaryCardStyle)}>
                             <Text style={[scaleStyle(fileSummaryTitleStyle), { color: theme.colors.mutedText }]}>Photos</Text>
@@ -6268,6 +6333,114 @@ function isPlatformAdminProfile(profile?: PlatformProfile | null) {
         String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
         profile?.is_platform_admin === true
     );
+}
+
+function LifetimeHistoryCard({
+    entries,
+    loading,
+    onOpenMedia,
+    scaleStyle,
+    theme,
+}: {
+    entries: HomeItemLifetimeHistoryEntry[];
+    loading: boolean;
+    onOpenMedia: (media: HomeItemLifetimeHistoryMedia) => void;
+    scaleStyle: <T extends Record<string, any>>(style: T) => T;
+    theme: HistoryTheme;
+}) {
+    return (
+        <ThemedCard style={scaleStyle(lifetimeHistoryCardStyle)}>
+            <Text style={[scaleStyle(lifetimeHistoryTitleStyle), { color: theme.colors.text }]}>Lifetime Service History</Text>
+            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>Permanent repairs, installations, replacements, warranties, documents, and job references for this exact item.</Text>
+            {loading ? <ActivityIndicator size="small" /> : null}
+            {!loading && entries.length === 0 ? (
+                <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>No completed linked service has been recorded yet.</Text>
+            ) : null}
+            {entries.map((entry) => (
+                <View key={entry.id} style={[scaleStyle(lifetimeHistoryEntryStyle), { borderColor: theme.colors.border }]}>
+                    <View style={scaleStyle(lifetimeHistoryHeaderStyle)}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={[scaleStyle(lifetimeHistoryEntryTitleStyle), { color: theme.colors.text }]}>{lifetimeHistoryEntryLabel(entry.entry_type)}</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>{formatPermanentDate(entry.completion_date)} · {entry.company_name || 'Service provider'}{entry.technician_name ? ` · ${entry.technician_name}` : ''}</Text>
+                        </View>
+                    </View>
+                    {!!entry.original_problem && <HistoryLine label="Original problem" value={entry.original_problem} theme={theme} scaleStyle={scaleStyle} />}
+                    {!!entry.findings && <HistoryLine label="Findings" value={entry.findings} theme={theme} scaleStyle={scaleStyle} />}
+                    {!!entry.recommended_work && <HistoryLine label="Recommended work" value={entry.recommended_work} theme={theme} scaleStyle={scaleStyle} />}
+                    {!!entry.work_performed && <HistoryLine label="Work performed" value={entry.work_performed} theme={theme} scaleStyle={scaleStyle} />}
+                    {!!entry.installation_notes && <HistoryLine label="Notes" value={entry.installation_notes} theme={theme} scaleStyle={scaleStyle} />}
+                    {(entry.brand || entry.model || entry.serial_number || entry.part_number) && (
+                        <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>Equipment: {[entry.brand, entry.model, entry.serial_number, entry.part_number].filter(Boolean).join(' · ')}</Text>
+                    )}
+                    {!!entry.estimate_reference && <HistoryLine label="Estimate / proposal" value={entry.estimate_reference} theme={theme} scaleStyle={scaleStyle} />}
+                    {!!entry.invoice_reference && <HistoryLine label="Invoice" value={entry.invoice_reference} theme={theme} scaleStyle={scaleStyle} />}
+                    {entry.customer_signature_recorded && <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.primary }]}>Customer completion/signature recorded</Text>}
+                    {entry.warranties.map((warranty) => (
+                        <View key={warranty.id} style={scaleStyle(lifetimeWarrantyRowStyle)}>
+                            <Text style={[scaleStyle(lifetimeWarrantyLabelStyle), { color: theme.colors.text }]}>{warrantyTypeLabel(warranty.warranty_type)}</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>{warrantyChoiceLabel(warranty.coverage_kind)} · Starts {formatPermanentDate(warranty.start_date)}{warranty.expiration_date ? ` · Expires ${formatPermanentDate(warranty.expiration_date)}` : ''}</Text>
+                        </View>
+                    ))}
+                    {entry.media.length > 0 && (
+                        <View style={scaleStyle(lifetimeMediaRowStyle)}>
+                            {entry.media.map((media) => (
+                                <TouchableOpacity key={media.id} onPress={() => onOpenMedia(media)} style={[scaleStyle(lifetimeMediaButtonStyle), { borderColor: theme.colors.border }]}>
+                                    <Text style={[scaleStyle(lifetimeMediaButtonTextStyle), { color: theme.colors.primary }]}>{mediaRoleLabel(media.stage)} · {media.file_name}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
+                </View>
+            ))}
+        </ThemedCard>
+    );
+}
+
+function HistoryLine({ label, value, theme, scaleStyle }: {
+    label: string;
+    value: string;
+    theme: HistoryTheme;
+    scaleStyle: <T extends Record<string, any>>(style: T) => T;
+}) {
+    return <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}><Text style={{ fontWeight: '900' }}>{label}: </Text>{value}</Text>;
+}
+
+type HistoryTheme = {
+    colors: {
+        text: string;
+        mutedText: string;
+        border: string;
+        primary: string;
+    };
+};
+
+function formatPermanentDate(value?: string | null) {
+    if (!value) return 'Unknown';
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? new Date(`${value}T12:00:00`)
+        : new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function lifetimeHistoryEntryLabel(value: string) {
+    return ({
+        installation: 'Installation',
+        repair: 'Repair',
+        replacement_installation: 'Replacement Installed',
+        replacement_retired: 'Previous Item Replaced',
+    } as Record<string, string>)[value] || value.replace(/_/g, ' ');
+}
+
+function warrantyTypeLabel(value: string) {
+    return ({
+        workmanship: 'Workmanship Warranty',
+        labor: 'Labor Warranty',
+        manufacturer_parts: 'Manufacturer / Parts Warranty',
+    } as Record<string, string>)[value] || value;
+}
+
+function mediaRoleLabel(value: string) {
+    return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function firstParam(value?: string | string[]) {
@@ -8020,4 +8193,61 @@ const documentTypeBlockTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
     textTransform: 'capitalize' as const,
+};
+
+const lifetimeHistoryCardStyle = {
+    marginTop: 18,
+    padding: 18,
+    gap: 12,
+};
+
+const lifetimeHistoryTitleStyle = {
+    fontSize: 24,
+    fontWeight: '900' as const,
+};
+
+const lifetimeHistoryEntryStyle = {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 14,
+    gap: 8,
+};
+
+const lifetimeHistoryHeaderStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const lifetimeHistoryEntryTitleStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+};
+
+const lifetimeWarrantyRowStyle = {
+    borderRadius: 12,
+    paddingVertical: 6,
+};
+
+const lifetimeWarrantyLabelStyle = {
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const lifetimeMediaRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
+};
+
+const lifetimeMediaButtonStyle = {
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
+};
+
+const lifetimeMediaButtonTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
 };

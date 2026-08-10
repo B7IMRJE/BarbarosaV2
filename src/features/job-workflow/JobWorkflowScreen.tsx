@@ -1,4 +1,5 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
+import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import type React from 'react';
@@ -26,10 +27,27 @@ import {
     recordCloseoutPayment,
     startSameDayWork,
     uploadJobWorkflowMedia,
+    uploadJobWorkflowDocument,
     type JobWorkflowAttachment,
     type JobWorkflowBundle,
     type JobWorkflowRequestCard,
 } from '../../lib/jobWorkflow';
+import {
+    buildCloseoutWarranty,
+    buildHomeItemCloseoutDraft,
+    defaultHomeItemCloseoutType,
+    HOME_ITEM_CLOSEOUT_TYPES,
+    HOME_ITEM_CONDITIONS,
+    HOME_ITEM_WARRANTY_CHOICES,
+    loadCompanyJobHomeItemCloseout,
+    saveCompanyJobHomeItemCloseout,
+    todayDateInput,
+    warrantyChoiceLabel,
+    type HomeItemCloseoutContext,
+    type HomeItemCloseoutDraft,
+    type HomeItemCloseoutWarranty,
+    type HomeItemWarrantyType,
+} from '../../lib/home-item-closeout';
 import {
     changeJobWorkflowCalendarMonth,
     combineJobWorkflowScheduleDateTime,
@@ -111,6 +129,10 @@ export default function JobWorkflowScreen() {
     const [jobCardLoading, setJobCardLoading] = useState(false);
     const [jobCardMessage, setJobCardMessage] = useState('');
     const [requestCard, setRequestCard] = useState<JobWorkflowRequestCard | null>(null);
+    const [homeItemCloseout, setHomeItemCloseout] = useState<{
+        context: HomeItemCloseoutContext;
+        draft: HomeItemCloseoutDraft;
+    } | null>(null);
     const [legalDocumentInputs, setLegalDocumentInputs] = useState<Record<string, {
         customerName: string;
         signature: string;
@@ -474,6 +496,115 @@ export default function JobWorkflowScreen() {
                 videoMaxDuration: mediaType === 'videos' ? 90 : undefined,
             });
             if (!result.canceled) await saveMedia(stage, result.assets);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function addWarrantyDocument() {
+        if (!bundle || busy) return;
+        setBusy(true);
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'image/*'],
+                multiple: true,
+                copyToCacheDirectory: true,
+            });
+            if (result.canceled) return;
+            for (const asset of result.assets) {
+                await uploadJobWorkflowDocument({ workflow: bundle.workflow, stage: 'warranty', asset });
+            }
+            await refresh();
+            setMessage(`${result.assets.length} warranty document${result.assets.length === 1 ? '' : 's'} attached.`);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function openHomeItemCloseout() {
+        if (!bundle || busy) return;
+        setBusy(true);
+        setMessage('Preparing the permanent HomeOS item update...');
+        try {
+            const context = await loadCompanyJobHomeItemCloseout(bundle.workflow.id);
+            if (!context.linked || !context.item) {
+                await advanceJobWorkflow(bundle.workflow.id, 'complete_work');
+                await refresh();
+                setMessage('Technician completion recorded.');
+                return;
+            }
+
+            const completionType = defaultHomeItemCloseoutType(context);
+            const date = todayDateInput();
+            const warranties: HomeItemCloseoutWarranty[] = (['workmanship', 'labor', 'manufacturer_parts'] as HomeItemWarrantyType[])
+                .map((warrantyType) => buildCloseoutWarranty({
+                    warrantyType,
+                    choice: 'unknown_verify_later',
+                    startDate: date,
+                }));
+            const draft = context.draft || buildHomeItemCloseoutDraft({
+                completionType,
+                itemName: context.item.name,
+                condition: completionType === 'repaired' ? 'Good' : 'Newly Installed',
+                completionDate: date,
+                installedOn: completionType === 'repaired' && context.item.installed_on
+                    ? context.item.installed_on
+                    : date,
+                brand: context.item.brand || '',
+                model: context.item.model || '',
+                serialNumber: context.item.serial_number || '',
+                partNumber: context.item.part_number || '',
+                workPerformed: approvedWorkSummary,
+                installationNotes: context.item.installation_notes || '',
+                warranties,
+            });
+            setHomeItemCloseout({ context, draft });
+            setMessage('');
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function updateHomeItemCloseout(patch: Partial<HomeItemCloseoutDraft>) {
+        setHomeItemCloseout((current) => current
+            ? { ...current, draft: { ...current.draft, ...patch } }
+            : current);
+    }
+
+    function updateHomeItemWarranty(warrantyType: HomeItemWarrantyType, patch: Partial<HomeItemCloseoutWarranty>) {
+        setHomeItemCloseout((current) => current
+            ? {
+                ...current,
+                draft: {
+                    ...current.draft,
+                    warranties: current.draft.warranties.map((warranty) => warranty.warranty_type === warrantyType
+                        ? { ...warranty, ...patch }
+                        : warranty),
+                },
+            }
+            : current);
+    }
+
+    async function confirmHomeItemCloseout() {
+        if (!bundle || !homeItemCloseout || busy) return;
+        if (!homeItemCloseout.draft.work_performed.trim()) {
+            setMessage('Describe the work performed before completing the job.');
+            return;
+        }
+        setBusy(true);
+        setMessage('Updating the permanent HomeOS item and completing the work...');
+        try {
+            await saveCompanyJobHomeItemCloseout(bundle.workflow.id, homeItemCloseout.draft);
+            await advanceJobWorkflow(bundle.workflow.id, 'complete_work');
+            setHomeItemCloseout(null);
+            await refresh();
+            setMessage('Work completed. The linked HomeOS item and lifetime history were updated.');
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
@@ -1128,6 +1259,14 @@ export default function JobWorkflowScreen() {
                     <Field label="Issue notes (optional)" value={issueSummary} onChangeText={setIssueSummary} multiline />
                     <SecondaryButton title="Pause Work — Issue Found" disabled={busy} onPress={pauseForIssue} />
                     <MediaActions
+                        label="During-work media"
+                        count={attachmentCounts.during}
+                        disabled={busy}
+                        onTakePhoto={() => captureMedia('during', 'images')}
+                        onRecordVideo={() => captureMedia('during', 'videos')}
+                        onAddFromLibrary={() => addMediaFromLibrary('during')}
+                    />
+                    <MediaActions
                         label="Completed-work media"
                         count={attachmentCounts.after}
                         disabled={busy}
@@ -1135,7 +1274,7 @@ export default function JobWorkflowScreen() {
                         onRecordVideo={() => captureMedia('after', 'videos')}
                         onAddFromLibrary={() => addMediaFromLibrary('after')}
                     />
-                    <PrimaryButton title="Technician Finished — Open Close Out" disabled={busy || !requiredLegalDocumentsReady} onPress={() => run('complete_work')} />
+                    <PrimaryButton title="Technician Finished — Open Close Out" disabled={busy || !requiredLegalDocumentsReady} onPress={() => void openHomeItemCloseout()} />
                     <SecondaryButton title="Go to Store" disabled={busy} onPress={startStoreRun} />
                     <SecondaryButton title="Continue Job on Another Visit" disabled={busy} onPress={() => setReturnHandoffOpen(true)} />
                 </Section>
@@ -1304,7 +1443,171 @@ export default function JobWorkflowScreen() {
                 request={requestCard}
                 visible={jobCardOpen}
             />
+            <HomeItemCloseoutModal
+                busy={busy}
+                closeout={homeItemCloseout}
+                documentCount={attachmentCounts.warranty || 0}
+                photoCount={(attachmentCounts.before || 0) + (attachmentCounts.issue || 0) + (attachmentCounts.handoff || 0) + (attachmentCounts.during || 0) + (attachmentCounts.purchased_item || 0) + (attachmentCounts.after || 0)}
+                onAddDocument={() => void addWarrantyDocument()}
+                onAddPhoto={() => void addMediaFromLibrary('warranty')}
+                onClose={() => setHomeItemCloseout(null)}
+                onConfirm={() => void confirmHomeItemCloseout()}
+                onUpdate={updateHomeItemCloseout}
+                onUpdateWarranty={updateHomeItemWarranty}
+            />
         </>
+    );
+}
+
+function HomeItemCloseoutModal({
+    busy,
+    closeout,
+    documentCount,
+    photoCount,
+    onAddDocument,
+    onAddPhoto,
+    onClose,
+    onConfirm,
+    onUpdate,
+    onUpdateWarranty,
+}: {
+    busy: boolean;
+    closeout: { context: HomeItemCloseoutContext; draft: HomeItemCloseoutDraft } | null;
+    documentCount: number;
+    photoCount: number;
+    onAddDocument: () => void;
+    onAddPhoto: () => void;
+    onClose: () => void;
+    onConfirm: () => void;
+    onUpdate: (patch: Partial<HomeItemCloseoutDraft>) => void;
+    onUpdateWarranty: (type: HomeItemWarrantyType, patch: Partial<HomeItemCloseoutWarranty>) => void;
+}) {
+    if (!closeout) return null;
+    const { context, draft } = closeout;
+
+    return (
+        <Modal visible animationType="slide" onRequestClose={onClose}>
+            <ScrollView style={jobCardModalScreenStyle} contentContainerStyle={jobCardModalContentStyle}>
+                <View style={jobCardModalHeaderStyle}>
+                    <View style={{ flex: 1, minWidth: 220 }}>
+                        <Text style={eyebrowStyle}>HOMEOS ITEM UPDATE</Text>
+                        <Text style={jobCardModalTitleStyle}>{draft.item_name}</Text>
+                        <Text style={mutedStyle}>{[context.item?.parent_area, context.item?.location].filter(Boolean).join(' · ') || 'Linked property item'}</Text>
+                    </View>
+                    <SecondaryButton title="Cancel" disabled={busy} onPress={onClose} />
+                </View>
+
+                <View style={closeoutSummaryStyle}>
+                    <Text style={closeoutSummaryLabelStyle}>Permanent status</Text>
+                    <Text style={closeoutSummaryValueStyle}>Installed</Text>
+                    <Text style={mutedStyle}>The job remains the service transaction. This item becomes the permanent equipment record.</Text>
+                </View>
+
+                <Text style={legalTitleStyle}>What happened to this item?</Text>
+                <View style={mediaActionRowStyle}>
+                    {HOME_ITEM_CLOSEOUT_TYPES.map((type) => (
+                        <ChoiceButton key={type} selected={draft.completion_type === type} title={type === 'installed' ? 'Installed' : type === 'repaired' ? 'Repaired' : 'Replaced'} onPress={() => onUpdate({ completion_type: type })} />
+                    ))}
+                </View>
+
+                <Field label="Item name" value={draft.item_name} onChangeText={(item_name) => onUpdate({ item_name })} />
+                <Text style={fieldLabelStyle}>Condition</Text>
+                <View style={mediaActionRowStyle}>
+                    {HOME_ITEM_CONDITIONS.map((condition) => (
+                        <ChoiceButton key={condition} selected={draft.condition === condition} title={condition} onPress={() => onUpdate({ condition })} />
+                    ))}
+                </View>
+                <Field label={draft.completion_type === 'repaired' ? 'Original installed on' : 'Installed on'} value={draft.installed_on} onChangeText={(installed_on) => onUpdate({ installed_on })} />
+                <Text style={mutedStyle}>Use YYYY-MM-DD. Today is prefilled for installations and replacements.</Text>
+
+                <View style={closeoutTwoColumnStyle}>
+                    <View style={closeoutColumnStyle}><Field label="Brand (optional)" value={draft.brand} onChangeText={(brand) => onUpdate({ brand })} /></View>
+                    <View style={closeoutColumnStyle}><Field label="Model (optional)" value={draft.model} onChangeText={(model) => onUpdate({ model })} /></View>
+                    <View style={closeoutColumnStyle}><Field label="Serial number (optional)" value={draft.serial_number} onChangeText={(serial_number) => onUpdate({ serial_number })} /></View>
+                    <View style={closeoutColumnStyle}><Field label="Part number (optional)" value={draft.part_number} onChangeText={(part_number) => onUpdate({ part_number })} /></View>
+                </View>
+                <Field label="Work performed *" value={draft.work_performed} onChangeText={(work_performed) => onUpdate({ work_performed })} multiline />
+                <Field label="Installation / service notes (optional)" value={draft.installation_notes} onChangeText={(installation_notes) => onUpdate({ installation_notes })} multiline />
+
+                <Text style={legalTitleStyle}>Separate warranties</Text>
+                {draft.warranties.map((warranty) => (
+                    <WarrantyEditor key={warranty.warranty_type} warranty={warranty} warrantyStartDate={draft.completion_date} onUpdate={(patch) => onUpdateWarranty(warranty.warranty_type, patch)} />
+                ))}
+
+                <View style={closeoutSummaryStyle}>
+                    <Text style={optionTitleStyle}>Permanent attachments</Text>
+                    <Text style={bodyStyle}>Photos: {photoCount} attached · Warranty documents: {documentCount} attached</Text>
+                    <View style={mediaActionRowStyle}>
+                        <SecondaryButton title="Add Warranty Photo" disabled={busy} onPress={onAddPhoto} />
+                        <SecondaryButton title="Add Warranty PDF" disabled={busy} onPress={onAddDocument} />
+                    </View>
+                    <Text style={mutedStyle}>Before, diagnostic, during-work, product, label, and after photos already on this job will follow the item into HomeOS history.</Text>
+                </View>
+
+                <PrimaryButton title="Confirm HomeOS Update & Complete Work" disabled={busy || !draft.work_performed.trim()} onPress={onConfirm} />
+                <SecondaryButton title="Return to Job" disabled={busy} onPress={onClose} />
+            </ScrollView>
+        </Modal>
+    );
+}
+
+function WarrantyEditor({ warranty, warrantyStartDate, onUpdate }: {
+    warranty: HomeItemCloseoutWarranty;
+    warrantyStartDate: string;
+    onUpdate: (patch: Partial<HomeItemCloseoutWarranty>) => void;
+}) {
+    const title = warranty.warranty_type === 'workmanship'
+        ? 'Workmanship Warranty'
+        : warranty.warranty_type === 'labor'
+            ? 'Labor Warranty'
+            : 'Manufacturer / Parts Warranty';
+
+    return (
+        <View style={legalDocumentCardStyle}>
+            <Text style={optionTitleStyle}>{title}</Text>
+            <View style={mediaActionRowStyle}>
+                {HOME_ITEM_WARRANTY_CHOICES.map((choice) => (
+                    <ChoiceButton
+                        key={choice}
+                        selected={warranty.coverage_kind === choice}
+                        title={warrantyChoiceLabel(choice)}
+                        onPress={() => {
+                            const next = buildCloseoutWarranty({
+                                warrantyType: warranty.warranty_type,
+                                choice,
+                                startDate: warrantyStartDate,
+                                customLabel: warranty.custom_label || '',
+                                customExpiration: warranty.expiration_date || '',
+                                notes: warranty.notes || '',
+                                verified: warranty.verification_status === 'verified',
+                            });
+                            onUpdate(next);
+                        }}
+                    />
+                ))}
+            </View>
+            {warranty.coverage_kind === 'custom' && (
+                <>
+                    <Field label="Custom warranty" value={warranty.custom_label || ''} onChangeText={(custom_label) => onUpdate({ custom_label })} />
+                    <Field label="Expiration date (optional)" value={warranty.expiration_date || ''} onChangeText={(expiration_date) => onUpdate({ expiration_date })} />
+                </>
+            )}
+            <Field label="Warranty notes (optional)" value={warranty.notes || ''} onChangeText={(notes) => onUpdate({ notes })} />
+            {warranty.warranty_type === 'manufacturer_parts' && warranty.coverage_kind !== 'unknown_verify_later' && (
+                <TouchableOpacity style={checkRowStyle} onPress={() => onUpdate({ verification_status: warranty.verification_status === 'verified' ? 'technician_entered' : 'verified' })}>
+                    <Text style={checkStyle}>{warranty.verification_status === 'verified' ? '☑' : '☐'}</Text>
+                    <Text style={bodyStyle}>Verified from box, manual, warranty card, receipt, or manufacturer information</Text>
+                </TouchableOpacity>
+            )}
+        </View>
+    );
+}
+
+function ChoiceButton({ selected, title, onPress }: { selected: boolean; title: string; onPress: () => void }) {
+    return (
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ selected }} onPress={onPress} style={[closeoutChoiceStyle, selected && closeoutChoiceSelectedStyle]}>
+            <Text style={[closeoutChoiceTextStyle, selected && closeoutChoiceTextSelectedStyle]}>{title}</Text>
+        </TouchableOpacity>
     );
 }
 
@@ -1869,3 +2172,12 @@ const schedulingSelectionStyle = { color: '#d9ffff', backgroundColor: '#123d48',
 const schedulingPendingStyle = { color: '#092c2c', backgroundColor: '#72e2c7', borderRadius: 10, padding: 11, fontSize: 13, fontWeight: '900', textAlign: 'center' } as const;
 const completionAcknowledgementStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 } as const;
 const twoButtonRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' } as const;
+const closeoutSummaryStyle = { backgroundColor: '#102432', borderColor: '#45d893', borderWidth: 1, borderRadius: 14, padding: 14, gap: 7 } as const;
+const closeoutSummaryLabelStyle = { color: '#93adba', fontSize: 12, fontWeight: '800' } as const;
+const closeoutSummaryValueStyle = { color: '#72e2c7', fontSize: 22, fontWeight: '900' } as const;
+const closeoutTwoColumnStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 12 } as const;
+const closeoutColumnStyle = { flexBasis: 250, flexGrow: 1 } as const;
+const closeoutChoiceStyle = { borderColor: '#3b7188', borderWidth: 1, borderRadius: 999, paddingVertical: 9, paddingHorizontal: 12, backgroundColor: '#071d29' } as const;
+const closeoutChoiceSelectedStyle = { borderColor: '#72e2c7', backgroundColor: '#15372f' } as const;
+const closeoutChoiceTextStyle = { color: '#d8eaf2', fontSize: 12, fontWeight: '800' } as const;
+const closeoutChoiceTextSelectedStyle = { color: '#72e2c7' } as const;

@@ -1,4 +1,5 @@
 import type * as ImagePicker from 'expo-image-picker';
+import type * as DocumentPicker from 'expo-document-picker';
 import { parseCompanyLegalDocuments, type CompanyLegalDocument } from './companyLegalDocuments';
 import {
     normalizeJobWorkflowRequestCard,
@@ -28,6 +29,11 @@ export type JobWorkflow = {
     schedule_slot_id: string | null;
     job_id: string | null;
     property_id: string | null;
+    home_item_id: string | null;
+    completed_home_item_id: string | null;
+    homeos_item_update_payload: Record<string, unknown> | null;
+    homeos_item_update_reviewed_at: string | null;
+    homeos_item_history_id: string | null;
     selected_source_choice_id: string | null;
     selected_option_snapshot: PersistableEstimateChoice | null;
     selected_source_choice_ids: string[];
@@ -82,7 +88,7 @@ export type ContractRule = {
 export type JobWorkflowAttachment = {
     id: string;
     workflow_id: string;
-    stage: 'before' | 'receipt' | 'purchased_item' | 'issue' | 'handoff' | 'after';
+    stage: 'before' | 'receipt' | 'purchased_item' | 'issue' | 'handoff' | 'during' | 'after' | 'warranty';
     visibility: 'company' | 'homeowner';
     storage_path: string;
     file_name: string;
@@ -406,6 +412,47 @@ export async function uploadJobWorkflowMedia(input: {
     return data as JobWorkflowAttachment;
 }
 
+export async function uploadJobWorkflowDocument(input: {
+    workflow: JobWorkflow;
+    stage: 'warranty';
+    asset: DocumentPicker.DocumentPickerAsset;
+}) {
+    const mimeType = input.asset.mimeType || 'application/pdf';
+    if (mimeType !== 'application/pdf' && !mimeType.startsWith('image/')) {
+        throw new Error('Choose a PDF or image warranty document.');
+    }
+
+    const extension = fileExtension(input.asset.name || '', mimeType);
+    const fileName = sanitizeName(input.asset.name || `${input.stage}-${Date.now()}.${extension}`);
+    const storagePath = [
+        'companies', input.workflow.company_id, 'workflows', input.workflow.id,
+        input.stage, `${Date.now()}-${fileName}`,
+    ].join('/');
+    const body = await fetch(input.asset.uri).then((response) => response.blob());
+    const { error: uploadError } = await supabase.storage
+        .from('company-job-files')
+        .upload(storagePath, body, {
+            contentType: mimeType,
+            upsert: false,
+        });
+    if (uploadError) throw uploadError;
+
+    const { data, error } = await supabase.rpc('record_company_job_workflow_attachment', {
+        p_workflow_id: input.workflow.id,
+        p_stage: input.stage,
+        p_storage_path: storagePath,
+        p_file_name: fileName,
+        p_mime_type: mimeType,
+        p_size_bytes: input.asset.size || null,
+        p_caption: 'Warranty document',
+    });
+    if (error) {
+        await supabase.storage.from('company-job-files').remove([storagePath]);
+        throw error;
+    }
+    return data as JobWorkflowAttachment;
+}
+
 function sanitizeName(value: string) {
     return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'photo.jpg';
 }
@@ -418,6 +465,7 @@ function fileExtension(name: string, mimeType: string) {
     if (mimeType.includes('webm')) return 'webm';
     if (mimeType.includes('png')) return 'png';
     if (mimeType.includes('webp')) return 'webp';
+    if (mimeType.includes('pdf')) return 'pdf';
     return 'jpg';
 }
 
