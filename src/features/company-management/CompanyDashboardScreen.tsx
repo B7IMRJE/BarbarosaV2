@@ -11,6 +11,7 @@ import {
     LEAD_ALERT_REFRESH_MS,
     type CompanyLeadCounts,
 } from '../../lib/companyLeadAlerts';
+import { resolveCompanyManagementResponsiveLayout } from '../../lib/companyManagementResponsive';
 import {
     loadCurrentCompanyPermissionAccess,
     type CompanyPermissionKey,
@@ -188,7 +189,8 @@ export default function CompanyDashboardScreen() {
     const { id } = useLocalSearchParams<{ id?: string | string[] }>();
     const routeCompanyId = normalizeRouteParam(id);
     const { width: viewportWidth } = useWindowDimensions();
-    const isPhoneLayout = viewportWidth <= 640;
+    const responsiveLayout = resolveCompanyManagementResponsiveLayout(viewportWidth);
+    const isPhoneLayout = responsiveLayout.isPhoneLayout;
     const pagePadding = isPhoneLayout ? 16 : 20;
     const heroLogoSize = isPhoneLayout ? 64 : 86;
     const previewLogoSize = isPhoneLayout ? 112 : 96;
@@ -1015,6 +1017,8 @@ export default function CompanyDashboardScreen() {
                             message={leadCountMessage}
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
+                            stackContent={responsiveLayout.stackLeadAlertContent}
+                            constrainActions={responsiveLayout.constrainLeadAlertActions}
                             onOpen={() => router.push({
                                 pathname: '/dispatch',
                                 params: { companyId: activeCompanyId },
@@ -1682,6 +1686,8 @@ function LeadAlertPanel({
     message,
     accentColor,
     primaryColor,
+    stackContent,
+    constrainActions,
     onOpen,
     onRefresh,
 }: {
@@ -1690,6 +1696,8 @@ function LeadAlertPanel({
     message: string;
     accentColor: string;
     primaryColor: string;
+    stackContent: boolean;
+    constrainActions: boolean;
     onOpen: () => void;
     onRefresh: () => void;
 }) {
@@ -1699,6 +1707,7 @@ function LeadAlertPanel({
 
     return (
         <View
+            testID="lead-alert-panel"
             style={{
                 backgroundColor: hasLeads ? '#F8FAFC' : '#FFFFFF',
                 borderColor: unavailable ? '#DC2626' : hasLeads ? accentColor : '#E3E8EF',
@@ -1708,8 +1717,26 @@ function LeadAlertPanel({
                 padding: 14,
             }}
         >
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ flex: 1, minWidth: 220 }}>
+            <View
+                style={{
+                    width: '100%',
+                    maxWidth: '100%',
+                    minWidth: 0,
+                    flexDirection: stackContent ? 'column' : 'row',
+                    flexWrap: stackContent ? 'nowrap' : 'wrap',
+                    gap: 10,
+                    alignItems: stackContent ? 'stretch' : 'center',
+                    justifyContent: 'space-between',
+                }}
+            >
+                <View
+                    style={{
+                        flex: stackContent ? undefined : 1,
+                        width: stackContent ? '100%' : undefined,
+                        maxWidth: '100%',
+                        minWidth: stackContent ? 0 : 220,
+                    }}
+                >
                     <Text style={{ color: unavailable ? '#DC2626' : primaryColor, fontSize: 13, fontWeight: '900' }}>
                         Lead Alerts
                     </Text>
@@ -1724,7 +1751,19 @@ function LeadAlertPanel({
                     </Text>
                 </View>
 
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <View
+                    testID="lead-alert-actions"
+                    style={{
+                        width: constrainActions ? '100%' : undefined,
+                        maxWidth: '100%',
+                        minWidth: 0,
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        flexShrink: 1,
+                        gap: 8,
+                        justifyContent: constrainActions ? 'flex-start' : 'flex-end',
+                    }}
+                >
                     <LeadAlertPill
                         label={
                             unavailable
@@ -1779,6 +1818,8 @@ function LeadAlertPill({
     const content = (
         <View
             style={{
+                maxWidth: '100%',
+                flexShrink: 1,
                 backgroundColor,
                 borderRadius: 999,
                 paddingHorizontal: 12,
@@ -1794,7 +1835,13 @@ function LeadAlertPill({
     if (!onPress) return content;
 
     return (
-        <TouchableOpacity activeOpacity={0.84} onPress={onPress}>
+        <TouchableOpacity
+            accessibilityLabel={label}
+            accessibilityRole="button"
+            activeOpacity={0.84}
+            onPress={onPress}
+            style={{ maxWidth: '100%', flexShrink: 1 }}
+        >
             {content}
         </TouchableOpacity>
     );
