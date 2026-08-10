@@ -1,8 +1,14 @@
 import type * as ImagePicker from 'expo-image-picker';
 import { parseCompanyLegalDocuments, type CompanyLegalDocument } from './companyLegalDocuments';
+import {
+    normalizeJobWorkflowRequestCard,
+    type JobWorkflowRequestCard,
+} from './job-workflow-request-card';
 import { supabase } from './supabase';
 import type { PersistableEstimateChoice } from './estimateOptionPersistence';
 import type { JobReturnHandoffMaterial } from './jobReturnHandoff';
+
+export type { JobWorkflowRequestCard } from './job-workflow-request-card';
 
 export type JobWorkflowStatus =
     | 'presenting' | 'accepted' | 'sold' | 'scheduled_later' | 'prework'
@@ -108,6 +114,29 @@ export async function loadOrCreateJobWorkflow(estimateSessionId: string): Promis
         ...bundle,
         legal_documents: parseCompanyLegalDocuments(bundle?.legal_documents),
     };
+}
+
+export async function loadJobWorkflowRequestCard(
+    workflow: Pick<JobWorkflow, 'company_id' | 'service_request_id'>
+): Promise<JobWorkflowRequestCard | null> {
+    const serviceRequestId = String(workflow.service_request_id || '').trim();
+    const companyId = String(workflow.company_id || '').trim();
+
+    if (!serviceRequestId || !companyId) return null;
+
+    const { data, error } = await supabase
+        .from('service_requests')
+        .select('id, company_id, property_id, display_code, display_sequence, request_type, status, priority, issue_summary, created_at')
+        .eq('id', serviceRequestId)
+        .eq('company_id', companyId)
+        .maybeSingle();
+
+    if (error) {
+        console.warn('[JobWorkflow] Customer request card load failed.', { code: error.code || 'unknown' });
+        throw new Error('The customer request could not be loaded. Please try again.');
+    }
+
+    return normalizeJobWorkflowRequestCard(data);
 }
 
 export async function advanceJobWorkflow(

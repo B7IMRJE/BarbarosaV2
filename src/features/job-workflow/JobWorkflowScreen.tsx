@@ -3,7 +3,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import type React from 'react';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { Linking, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Linking, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
 import SignaturePad, { isDrawnSignature } from '../../components/signature-pad';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import { loadCompanyEstimateBuilderDraft } from '../../lib/estimateBuilderDraft';
@@ -19,12 +20,14 @@ import {
     closeJobWorkflow,
     createJobReturnHandoff,
     createJobWorkflowAttachmentUrl,
+    loadJobWorkflowRequestCard,
     loadOrCreateJobWorkflow,
     recordCloseoutPayment,
     startSameDayWork,
     uploadJobWorkflowMedia,
     type JobWorkflowAttachment,
     type JobWorkflowBundle,
+    type JobWorkflowRequestCard,
 } from '../../lib/jobWorkflow';
 import {
     getCompanyLegalDocument,
@@ -85,6 +88,10 @@ export default function JobWorkflowScreen() {
     const [returnPickupNotes, setReturnPickupNotes] = useState('');
     const [returnScheduledFor, setReturnScheduledFor] = useState('');
     const [approvalPage, setApprovalPage] = useState<1 | 2 | 3>(1);
+    const [jobCardOpen, setJobCardOpen] = useState(false);
+    const [jobCardLoading, setJobCardLoading] = useState(false);
+    const [jobCardMessage, setJobCardMessage] = useState('');
+    const [requestCard, setRequestCard] = useState<JobWorkflowRequestCard | null>(null);
     const [legalDocumentInputs, setLegalDocumentInputs] = useState<Record<string, {
         customerName: string;
         signature: string;
@@ -482,6 +489,33 @@ export default function JobWorkflowScreen() {
         }
     }
 
+    async function openJobCard() {
+        setJobCardOpen(true);
+        setJobCardLoading(true);
+        setJobCardMessage('');
+        setRequestCard(null);
+
+        try {
+            if (!bundle?.workflow.service_request_id) {
+                setJobCardMessage('This workflow is not linked to a customer request yet.');
+                return;
+            }
+
+            const nextRequestCard = await loadJobWorkflowRequestCard(bundle.workflow);
+
+            if (!nextRequestCard) {
+                setJobCardMessage('The linked customer request is unavailable.');
+                return;
+            }
+
+            setRequestCard(nextRequestCard);
+        } catch (error) {
+            setJobCardMessage(errorMessage(error));
+        } finally {
+            setJobCardLoading(false);
+        }
+    }
+
     if (!bundle) {
         return <View style={screenStyle}><Text style={messageStyle}>{message}</Text></View>;
     }
@@ -560,12 +594,13 @@ export default function JobWorkflowScreen() {
     }
 
     return (
-        <ScrollView
-            ref={workflowScrollRef}
-            contentInsetAdjustmentBehavior="automatic"
-            style={screenStyle}
-            contentContainerStyle={contentStyle}
-        >
+        <>
+            <ScrollView
+                ref={workflowScrollRef}
+                contentInsetAdjustmentBehavior="automatic"
+                style={screenStyle}
+                contentContainerStyle={contentStyle}
+            >
             <View style={headerStyle}>
                 <View style={{ flex: 1 }}>
                     <Text style={eyebrowStyle}>
@@ -585,7 +620,9 @@ export default function JobWorkflowScreen() {
                 </TouchableOpacity>
             </View>
 
-            {!!message && <View style={noticeStyle}><Text style={noticeTextStyle}>{message}</Text></View>}
+                {!!message && <View style={noticeStyle}><Text style={noticeTextStyle}>{message}</Text></View>}
+
+                <SecondaryButton title="View Job Card" onPress={() => void openJobCard()} />
 
             {showGenericLegalDocuments && (
                 <JobLegalDocumentsPanel
@@ -1111,8 +1148,106 @@ export default function JobWorkflowScreen() {
                 ))}
                 {bundle.events.length === 0 && <Text style={mutedStyle}>No workflow events yet.</Text>}
             </Section>}
-        </ScrollView>
+            </ScrollView>
+
+            <JobRequestCardModal
+                loading={jobCardLoading}
+                message={jobCardMessage}
+                onClose={() => setJobCardOpen(false)}
+                request={requestCard}
+                visible={jobCardOpen}
+            />
+        </>
     );
+}
+
+function JobRequestCardModal({
+    loading,
+    message,
+    onClose,
+    request,
+    visible,
+}: {
+    loading: boolean;
+    message: string;
+    onClose: () => void;
+    request: JobWorkflowRequestCard | null;
+    visible: boolean;
+}) {
+    return (
+        <Modal
+            animationType="slide"
+            onRequestClose={onClose}
+            presentationStyle="pageSheet"
+            visible={visible}
+        >
+            <ScrollView
+                contentInsetAdjustmentBehavior="automatic"
+                style={jobCardModalScreenStyle}
+                contentContainerStyle={jobCardModalContentStyle}
+            >
+                <View style={jobCardModalHeaderStyle}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={eyebrowStyle}>Customer request</Text>
+                        <Text style={jobCardModalTitleStyle}>Job Card</Text>
+                        <Text style={mutedStyle}>The original information and media sent with this request.</Text>
+                    </View>
+                    <TouchableOpacity accessibilityRole="button" style={secondaryButtonStyle} onPress={onClose}>
+                        <Text style={secondaryButtonTextStyle}>Close</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {loading && <View style={noticeStyle}><Text style={noticeTextStyle}>Loading job card...</Text></View>}
+                {!loading && !!message && <View style={noticeStyle}><Text style={noticeTextStyle}>{message}</Text></View>}
+
+                {!loading && request && (
+                    <>
+                        <View style={jobCardRequestStyle}>
+                            <View style={jobCardReferenceRowStyle}>
+                                <Text style={jobCardReferenceStyle}>{getJobRequestReference(request)}</Text>
+                                <Text style={jobCardPriorityStyle}>{formatRequestCardLabel(request.priority || 'normal')}</Text>
+                            </View>
+                            <RequestCardDetail label="Request type" value={formatRequestCardLabel(request.request_type || 'service')} />
+                            <RequestCardDetail label="Status" value={formatRequestCardLabel(request.status || 'new')} />
+                            <RequestCardDetail label="Submitted" value={formatDate(request.created_at)} />
+                            <View style={jobCardIssueStyle}>
+                                <Text style={fieldLabelStyle}>Customer description</Text>
+                                <Text selectable style={bodyStyle}>
+                                    {request.issue_summary || 'No description was included with this request.'}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <ServiceRequestMediaGallery
+                            serviceRequestId={request.id}
+                            title="Customer photos and videos"
+                        />
+                    </>
+                )}
+            </ScrollView>
+        </Modal>
+    );
+}
+
+function RequestCardDetail({ label, value }: { label: string; value: string }) {
+    return (
+        <View style={jobCardDetailRowStyle}>
+            <Text style={mutedStyle}>{label}</Text>
+            <Text selectable style={jobCardDetailValueStyle}>{value}</Text>
+        </View>
+    );
+}
+
+function getJobRequestReference(request: JobWorkflowRequestCard) {
+    if (request.display_code) return `Request ${request.display_code}`;
+    if (request.display_sequence) return `Request A${String(request.display_sequence).padStart(4, '0')}`;
+    return 'Customer Request';
+}
+
+function formatRequestCardLabel(value: string) {
+    return value
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function JobLegalDocumentsPanel(props: {
@@ -1237,7 +1372,7 @@ function PrimaryButton({ title, onPress, disabled }: { title: string; onPress: (
     return <TouchableOpacity onPress={onPress} disabled={disabled} style={[primaryButtonStyle, disabled && disabledStyle]}><Text style={primaryButtonTextStyle}>{title}</Text></TouchableOpacity>;
 }
 function SecondaryButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
-    return <TouchableOpacity onPress={onPress} disabled={disabled} style={[secondaryButtonStyle, disabled && disabledStyle]}><Text style={secondaryButtonTextStyle}>{title}</Text></TouchableOpacity>;
+    return <TouchableOpacity accessibilityRole="button" onPress={onPress} disabled={disabled} style={[secondaryButtonStyle, disabled && disabledStyle]}><Text style={secondaryButtonTextStyle}>{title}</Text></TouchableOpacity>;
 }
 function MediaActions({
     label,
@@ -1329,6 +1464,17 @@ function formatDate(value: string | null) {
 const screenStyle = { flex: 1, backgroundColor: '#071924' } as const;
 const contentStyle = { width: '100%', maxWidth: 980, alignSelf: 'center', padding: 18, gap: 14, paddingBottom: 80 } as const;
 const headerStyle = { flexDirection: 'row', alignItems: 'flex-start', gap: 12 } as const;
+const jobCardModalScreenStyle = { flex: 1, backgroundColor: '#071924' } as const;
+const jobCardModalContentStyle = { width: '100%', maxWidth: 760, alignSelf: 'center', padding: 18, gap: 14, paddingBottom: 50 } as const;
+const jobCardModalHeaderStyle = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 12 } as const;
+const jobCardModalTitleStyle = { color: '#f2fbff', fontSize: 28, fontWeight: '900', marginTop: 4 } as const;
+const jobCardRequestStyle = { backgroundColor: '#0d2a3a', borderColor: '#24536b', borderWidth: 1, borderRadius: 18, padding: 16, gap: 12 } as const;
+const jobCardReferenceRowStyle = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 } as const;
+const jobCardReferenceStyle = { color: '#67e8f9', fontSize: 18, fontWeight: '900' } as const;
+const jobCardPriorityStyle = { color: '#092c2c', backgroundColor: '#72e2c7', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, fontSize: 11, fontWeight: '900', overflow: 'hidden' } as const;
+const jobCardDetailRowStyle = { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8, borderBottomColor: '#24536b', borderBottomWidth: 1, paddingBottom: 10 } as const;
+const jobCardDetailValueStyle = { color: '#f2fbff', fontSize: 13, fontWeight: '800', textAlign: 'right' } as const;
+const jobCardIssueStyle = { backgroundColor: '#071d29', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 14, gap: 5 } as const;
 const eyebrowStyle = { color: '#49d6d0', fontSize: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1 } as const;
 const titleStyle = { color: '#f2fbff', fontSize: 28, fontWeight: '900', marginTop: 4 } as const;
 const quoteNumberStyle = { color: '#67e8f9', fontSize: 15, fontWeight: '900', letterSpacing: 0.4, marginTop: 8 } as const;
