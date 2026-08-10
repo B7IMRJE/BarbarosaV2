@@ -7,6 +7,10 @@ import {
 import { supabase } from './supabase';
 import type { PersistableEstimateChoice } from './estimateOptionPersistence';
 import type { JobReturnHandoffMaterial } from './jobReturnHandoff';
+import {
+    getJobWorkflowSchedulingReasonLabel,
+    type JobWorkflowSchedulingReason,
+} from './job-workflow-scheduling';
 
 export type { JobWorkflowRequestCard } from './job-workflow-request-card';
 
@@ -150,6 +154,80 @@ export async function advanceJobWorkflow(
         p_payload: payload,
     });
     if (error) throw error;
+    return data as JobWorkflow;
+}
+
+export async function deferJobWorkflowScheduling(input: {
+    workflow: Pick<JobWorkflow, 'id' | 'company_id' | 'service_request_id' | 'property_id' | 'schedule_slot_id'>;
+    reason: JobWorkflowSchedulingReason;
+    note?: string;
+}): Promise<JobWorkflow> {
+    const workflowId = input.workflow.id.trim();
+    const companyId = input.workflow.company_id.trim();
+    const reasonLabel = getJobWorkflowSchedulingReasonLabel(input.reason);
+    const note = String(input.note || '').trim();
+
+    if (!workflowId || !companyId) throw new Error('The job workflow is unavailable.');
+
+    const updatedAt = new Date().toISOString();
+    const { data, error } = await supabase
+        .from('company_job_workflows')
+        .update({
+            execution_timing: 'later',
+            scheduled_for: null,
+            updated_at: updatedAt,
+        })
+        .eq('id', workflowId)
+        .eq('company_id', companyId)
+        .eq('status', 'sold')
+        .select('*')
+        .maybeSingle();
+
+    if (error) throw error;
+    if (!data) throw new Error('This sold job is no longer available for Dispatch scheduling. Refresh and try again.');
+
+    const detail = note ? `${reasonLabel}: ${note}` : reasonLabel;
+    const { error: workflowEventError } = await supabase
+        .from('company_job_workflow_events')
+        .insert({
+            workflow_id: workflowId,
+            company_id: companyId,
+            event_type: 'dispatch_schedule_later',
+            title: 'Dispatch scheduling requested',
+            detail,
+            visibility: 'company',
+            metadata: { reason: input.reason },
+        });
+
+    if (workflowEventError) {
+        console.warn('[JobWorkflow] Dispatch scheduling event could not be recorded.', {
+            code: workflowEventError.code || 'unknown',
+        });
+    }
+
+    if (input.workflow.service_request_id) {
+        const { error: requestEventError } = await supabase
+            .from('service_request_events')
+            .insert({
+                company_id: companyId,
+                service_request_id: input.workflow.service_request_id,
+                property_id: input.workflow.property_id,
+                schedule_slot_id: input.workflow.schedule_slot_id,
+                event_type: 'choose_later',
+                message: `Dispatch scheduling requested — ${detail}`,
+                event_visibility: 'internal',
+                audience: 'internal',
+                metadata: { workflow_id: workflowId, reason: input.reason },
+                dedupe_key: `dispatch-schedule-later:${workflowId}:${updatedAt}`,
+            });
+
+        if (requestEventError) {
+            console.warn('[JobWorkflow] Dispatch scheduling request activity could not be recorded.', {
+                code: requestEventError.code || 'unknown',
+            });
+        }
+    }
+
     return data as JobWorkflow;
 }
 

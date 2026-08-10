@@ -20,6 +20,7 @@ import {
     closeJobWorkflow,
     createJobReturnHandoff,
     createJobWorkflowAttachmentUrl,
+    deferJobWorkflowScheduling,
     loadJobWorkflowRequestCard,
     loadOrCreateJobWorkflow,
     recordCloseoutPayment,
@@ -29,6 +30,19 @@ import {
     type JobWorkflowBundle,
     type JobWorkflowRequestCard,
 } from '../../lib/jobWorkflow';
+import {
+    changeJobWorkflowCalendarMonth,
+    combineJobWorkflowScheduleDateTime,
+    formatJobWorkflowDateInput,
+    formatJobWorkflowMonthInput,
+    formatJobWorkflowScheduleDate,
+    formatJobWorkflowScheduleTime,
+    getEarliestJobWorkflowScheduleDate,
+    getJobWorkflowCalendarDays,
+    JOB_WORKFLOW_SCHEDULING_REASONS,
+    JOB_WORKFLOW_TIME_OPTIONS,
+    type JobWorkflowSchedulingReason,
+} from '../../lib/job-workflow-scheduling';
 import {
     getCompanyLegalDocument,
     getWorkflowStageForStatus,
@@ -69,6 +83,8 @@ export default function JobWorkflowScreen() {
     const [cancellationName, setCancellationName] = useState('');
     const [cancellationSignature, setCancellationSignature] = useState('');
     const [scheduleDate, setScheduleDate] = useState('');
+    const [scheduleTime, setScheduleTime] = useState('09:00');
+    const [scheduleCalendarMonth, setScheduleCalendarMonth] = useState('');
     const [conditionUnchanged, setConditionUnchanged] = useState(false);
     const [issueSummary, setIssueSummary] = useState('');
     const [resolutionSummary, setResolutionSummary] = useState('');
@@ -80,6 +96,9 @@ export default function JobWorkflowScreen() {
     const [sameDayAgreementConfirmed, setSameDayAgreementConfirmed] = useState(false);
     const [sameDayTechnicianConfirmed, setSameDayTechnicianConfirmed] = useState(false);
     const [workTimingChoice, setWorkTimingChoice] = useState<'today' | 'later' | null>(null);
+    const [laterVisitPlan, setLaterVisitPlan] = useState<'appointment' | 'dispatch' | null>(null);
+    const [schedulingReason, setSchedulingReason] = useState<JobWorkflowSchedulingReason | null>(null);
+    const [schedulingNote, setSchedulingNote] = useState('');
     const [returnHandoffOpen, setReturnHandoffOpen] = useState(false);
     const [returnWorkSummary, setReturnWorkSummary] = useState('');
     const [returnRemainingWork, setReturnRemainingWork] = useState('');
@@ -151,10 +170,6 @@ export default function JobWorkflowScreen() {
         setSameDayHomeownerName((current) => current.trim() || bundle.workflow.homeowner_name || '');
     }, [approvedWorkSummary, bundle?.workflow.homeowner_name, bundle?.workflow.status]);
 
-    useEffect(() => {
-        setWorkTimingChoice(null);
-    }, [bundle?.workflow.id]);
-
     const attachmentCounts = useMemo(() => {
         const counts: Record<string, number> = {};
         for (const attachment of bundle?.attachments || []) {
@@ -183,6 +198,24 @@ export default function JobWorkflowScreen() {
             );
             setHomeownerName(next.workflow.homeowner_name || '');
             const isNewWorkflow = hydratedWorkflowIdRef.current !== next.workflow.id;
+            if (isNewWorkflow) {
+                const earliestScheduleDate = getEarliestJobWorkflowScheduleDate({
+                    acceptedAt: next.workflow.homeowner_accepted_at,
+                    soldAt: next.workflow.sold_at,
+                    cancellationDays: next.contract_rule.cancellation_days,
+                });
+                const scheduleDateText = formatJobWorkflowDateInput(earliestScheduleDate);
+
+                setScheduleDate(scheduleDateText);
+                setScheduleCalendarMonth(formatJobWorkflowMonthInput(earliestScheduleDate));
+                setScheduleTime('09:00');
+                setWorkTimingChoice(next.workflow.status === 'sold' && next.workflow.execution_timing === 'later'
+                    ? 'later'
+                    : null);
+                setLaterVisitPlan(next.workflow.status === 'sold' && next.workflow.execution_timing === 'later' && !next.workflow.scheduled_for
+                    ? 'dispatch'
+                    : null);
+            }
             if (isNewWorkflow || !completionNameDirtyRef.current) {
                 setCompletionName(next.workflow.completion_homeowner_name || '');
                 completionNameDirtyRef.current = false;
@@ -320,6 +353,33 @@ export default function JobWorkflowScreen() {
             });
             await refresh();
             setMessage('Same-day start authorization recorded. Document the work area before starting work.');
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function handSchedulingToDispatch() {
+        if (!bundle || busy) return;
+        if (!schedulingReason) {
+            setMessage('Choose why Dispatch needs to schedule this work later.');
+            return;
+        }
+
+        setBusy(true);
+        setMessage('Sending this sold job to Dispatch for scheduling...');
+
+        try {
+            await deferJobWorkflowScheduling({
+                workflow: bundle.workflow,
+                reason: schedulingReason,
+                note: schedulingNote,
+            });
+            await refresh();
+            setWorkTimingChoice('later');
+            setLaterVisitPlan('dispatch');
+            setMessage('Dispatch scheduling requested. No appointment has been promised to the customer yet.');
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
@@ -568,6 +628,12 @@ export default function JobWorkflowScreen() {
         && sameDayAgreementConfirmed
         && sameDayTechnicianConfirmed;
     const sameDayReady = sameDayBaseReady && requiredLegalDocumentsReady;
+    const earliestScheduleDate = formatJobWorkflowDateInput(getEarliestJobWorkflowScheduleDate({
+        acceptedAt: workflow.homeowner_accepted_at,
+        soldAt: workflow.sold_at,
+        cancellationDays: rule.cancellation_days,
+    }));
+    const scheduledFor = combineJobWorkflowScheduleDateTime(scheduleDate, scheduleTime);
 
     function toggleChoice(choiceId: string) {
         setSelectedChoiceIds((current) => toggleEstimateChoiceSelection(options, current, choiceId));
@@ -890,21 +956,102 @@ export default function JobWorkflowScreen() {
                         <View style={laterVisitCardStyle}>
                             <Text style={optionTitleStyle}>Perform Work Later</Text>
                             <Text style={bodyStyle}>
-                                Use this when the work needs more time, materials, permits, staffing, or planning before the technician can begin.
+                                Create the return appointment now, or send the sold job to Dispatch when parts, permits, staffing, or the customer are not ready yet.
                             </Text>
-                            <Field
-                                label="Return date and time (example: 2026-07-28T09:00:00-07:00)"
-                                value={scheduleDate}
-                                onChangeText={setScheduleDate}
-                            />
-                            {!scheduleDate.trim() && (
-                                <Text style={mutedStyle}>Enter the return date and time before confirming this choice.</Text>
+                            <View style={timingChoiceGridStyle}>
+                                <TimingChoice
+                                    title="Create Appointment Now"
+                                    description="Choose the calendar date and start time while you are with the customer."
+                                    selected={laterVisitPlan === 'appointment'}
+                                    disabled={busy}
+                                    onPress={() => {
+                                        setLaterVisitPlan('appointment');
+                                        setMessage('');
+                                    }}
+                                />
+                                <TimingChoice
+                                    title="Dispatch Schedules Later"
+                                    description="Keep the sold job active without promising a date until parts or another condition is ready."
+                                    selected={laterVisitPlan === 'dispatch'}
+                                    disabled={busy}
+                                    onPress={() => {
+                                        setLaterVisitPlan('dispatch');
+                                        setMessage('');
+                                    }}
+                                />
+                            </View>
+
+                            {laterVisitPlan === 'appointment' && (
+                                <View style={appointmentPanelStyle}>
+                                    <View style={appointmentHeaderStyle}>
+                                        <View style={{ flex: 1, minWidth: 0 }}>
+                                            <Text style={optionTitleStyle}>Return Appointment</Text>
+                                            <Text style={mutedStyle}>
+                                                {formatJobWorkflowScheduleDate(scheduleDate)} at {formatJobWorkflowScheduleTime(scheduleTime)}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                    <JobWorkflowDatePicker
+                                        selectedDate={scheduleDate}
+                                        calendarMonth={scheduleCalendarMonth}
+                                        minimumDate={earliestScheduleDate}
+                                        onSelectDate={(date) => {
+                                            setScheduleDate(date);
+                                            setScheduleCalendarMonth(date.slice(0, 7));
+                                        }}
+                                        onChangeMonth={setScheduleCalendarMonth}
+                                    />
+                                    <JobWorkflowTimePicker value={scheduleTime} onSelect={setScheduleTime} />
+                                    <Text style={mutedStyle}>
+                                        The signed cancellation period is respected automatically. Earliest available date: {formatJobWorkflowScheduleDate(earliestScheduleDate)}.
+                                    </Text>
+                                    <PrimaryButton
+                                        title={busy ? 'Creating appointment...' : 'Confirm Return Appointment'}
+                                        disabled={busy || !scheduledFor}
+                                        onPress={() => run('choose_later', { scheduled_for: scheduledFor })}
+                                    />
+                                </View>
                             )}
-                            <PrimaryButton
-                                title={busy ? 'Saving later visit...' : 'Confirm Later Visit'}
-                                disabled={busy || !scheduleDate.trim()}
-                                onPress={() => run('choose_later', { scheduled_for: scheduleDate })}
-                            />
+
+                            {laterVisitPlan === 'dispatch' && (
+                                <View style={appointmentPanelStyle}>
+                                    <Text style={optionTitleStyle}>Why is scheduling waiting?</Text>
+                                    <View style={schedulingReasonGridStyle}>
+                                        {JOB_WORKFLOW_SCHEDULING_REASONS.map((reason) => (
+                                            <SchedulingReasonChoice
+                                                key={reason.value}
+                                                title={reason.label}
+                                                selected={schedulingReason === reason.value}
+                                                disabled={busy}
+                                                onPress={() => setSchedulingReason(reason.value)}
+                                            />
+                                        ))}
+                                    </View>
+                                    {!!schedulingReason && (
+                                        <Text style={schedulingSelectionStyle}>
+                                            Selected: {JOB_WORKFLOW_SCHEDULING_REASONS.find((reason) => reason.value === schedulingReason)?.label}
+                                        </Text>
+                                    )}
+                                    <Field
+                                        label="Dispatch note (optional)"
+                                        value={schedulingNote}
+                                        onChangeText={setSchedulingNote}
+                                        multiline
+                                    />
+                                    <PrimaryButton
+                                        title={busy ? 'Sending to Dispatch...' : 'Leave Active for Dispatch'}
+                                        disabled={busy || !schedulingReason}
+                                        onPress={handSchedulingToDispatch}
+                                    />
+                                    {workflow.execution_timing === 'later' && !workflow.scheduled_for && (
+                                        <Text style={schedulingPendingStyle}>Waiting for Dispatch · No appointment promised yet</Text>
+                                    )}
+                                </View>
+                            )}
+
+                            {!laterVisitPlan && (
+                                <Text style={mutedStyle}>Choose whether to create the appointment now or let Dispatch schedule it later.</Text>
+                            )}
                             <SecondaryButton
                                 title="Choose Start Work Today Instead"
                                 disabled={busy}
@@ -1311,6 +1458,134 @@ function JobLegalDocumentsPanel(props: {
     );
 }
 
+function JobWorkflowDatePicker({
+    selectedDate,
+    calendarMonth,
+    minimumDate,
+    onSelectDate,
+    onChangeMonth,
+}: {
+    selectedDate: string;
+    calendarMonth: string;
+    minimumDate: string;
+    onSelectDate: (date: string) => void;
+    onChangeMonth: (month: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const monthDate = new Date(`${calendarMonth || selectedDate.slice(0, 7)}-01T12:00:00`);
+    const monthTitle = Number.isNaN(monthDate.getTime())
+        ? 'Choose Date'
+        : monthDate.toLocaleDateString([], { month: 'long', year: 'numeric' });
+
+    return (
+        <View style={appointmentFieldStyle}>
+            <Text style={fieldLabelStyle}>Appointment date</Text>
+            <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={`${formatJobWorkflowScheduleDate(selectedDate)}. Open calendar.`}
+                onPress={() => setOpen((current) => !current)}
+                style={appointmentSelectStyle}
+            >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={appointmentSelectValueStyle}>{formatJobWorkflowScheduleDate(selectedDate)}</Text>
+                    <Text style={appointmentSelectHintStyle}>{selectedDate || 'No date selected'}</Text>
+                </View>
+                <Text style={appointmentChevronStyle}>{open ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+
+            {open && (
+                <View style={calendarPanelStyle}>
+                    <View style={calendarHeaderStyle}>
+                        <SecondaryButton
+                            title="Previous"
+                            onPress={() => onChangeMonth(changeJobWorkflowCalendarMonth(calendarMonth, -1))}
+                        />
+                        <Text style={calendarMonthTitleStyle}>{monthTitle}</Text>
+                        <SecondaryButton
+                            title="Next"
+                            onPress={() => onChangeMonth(changeJobWorkflowCalendarMonth(calendarMonth, 1))}
+                        />
+                    </View>
+                    <View style={calendarGridStyle}>
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((weekday) => (
+                            <Text key={weekday} style={calendarWeekdayStyle}>{weekday}</Text>
+                        ))}
+                        {getJobWorkflowCalendarDays(calendarMonth).map((day) => {
+                            const selected = day.dateText === selectedDate;
+                            const disabled = day.dateText < minimumDate;
+
+                            return (
+                                <TouchableOpacity
+                                    key={day.dateText}
+                                    accessibilityRole="button"
+                                    accessibilityState={{ selected, disabled }}
+                                    disabled={disabled}
+                                    onPress={() => {
+                                        onSelectDate(day.dateText);
+                                        setOpen(false);
+                                    }}
+                                    style={[
+                                        calendarDayStyle,
+                                        selected && calendarDaySelectedStyle,
+                                        !day.inCurrentMonth && calendarDayOutsideStyle,
+                                        disabled && disabledStyle,
+                                    ]}
+                                >
+                                    <Text style={[calendarDayTextStyle, selected && calendarDayTextSelectedStyle]}>{day.label}</Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </View>
+            )}
+        </View>
+    );
+}
+
+function JobWorkflowTimePicker({ value, onSelect }: { value: string; onSelect: (value: string) => void }) {
+    const [open, setOpen] = useState(false);
+
+    return (
+        <View style={appointmentFieldStyle}>
+            <Text style={fieldLabelStyle}>Appointment time</Text>
+            <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={`${formatJobWorkflowScheduleTime(value)}. Open time choices.`}
+                onPress={() => setOpen((current) => !current)}
+                style={appointmentSelectStyle}
+            >
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={appointmentSelectValueStyle}>{formatJobWorkflowScheduleTime(value)}</Text>
+                    <Text style={appointmentSelectHintStyle}>30-minute choices</Text>
+                </View>
+                <Text style={appointmentChevronStyle}>{open ? '▲' : '▼'}</Text>
+            </TouchableOpacity>
+            {open && (
+                <View style={appointmentTimeGridStyle}>
+                    {JOB_WORKFLOW_TIME_OPTIONS.map((option) => {
+                        const selected = option.value === value;
+
+                        return (
+                            <TouchableOpacity
+                                key={option.value}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected }}
+                                onPress={() => {
+                                    onSelect(option.value);
+                                    setOpen(false);
+                                }}
+                                style={[appointmentTimeOptionStyle, selected && appointmentTimeOptionSelectedStyle]}
+                            >
+                                <Text style={[appointmentTimeTextStyle, selected && appointmentTimeTextSelectedStyle]}>{option.label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            )}
+        </View>
+    );
+}
+
 function Section({ title, subtitle, children }: { title: string; subtitle: string; children?: React.ReactNode }) {
     return <View style={sectionStyle}><Text style={sectionTitleStyle}>{title}</Text><Text style={mutedStyle}>{subtitle}</Text>{children}</View>;
 }
@@ -1365,6 +1640,31 @@ function TimingChoice({
                 </Text>
             </View>
             <Text style={mutedStyle}>{description}</Text>
+        </TouchableOpacity>
+    );
+}
+function SchedulingReasonChoice({
+    title,
+    selected,
+    disabled,
+    onPress,
+}: {
+    title: string;
+    selected: boolean;
+    disabled?: boolean;
+    onPress: () => void;
+}) {
+    return (
+        <TouchableOpacity
+            accessibilityRole="radio"
+            accessibilityState={{ selected, disabled: !!disabled }}
+            disabled={disabled}
+            onPress={onPress}
+            style={[schedulingReasonChoiceStyle, selected && schedulingReasonChoiceSelectedStyle, disabled && disabledStyle]}
+        >
+            <Text style={[schedulingReasonChoiceTextStyle, selected && schedulingReasonChoiceTextSelectedStyle]}>
+                {selected ? '●' : '○'} {title}
+            </Text>
         </TouchableOpacity>
     );
 }
@@ -1538,5 +1838,34 @@ const timingChoiceStatusStyle = { color: '#bdd2dc', backgroundColor: '#173f55', 
 const timingChoiceStatusSelectedStyle = { color: '#092c2c', backgroundColor: '#72e2c7' } as const;
 const sameDayCardStyle = { backgroundColor: '#15372f', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 11 } as const;
 const laterVisitCardStyle = { backgroundColor: '#15372f', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 11 } as const;
+const appointmentPanelStyle = { backgroundColor: '#0a2230', borderColor: '#315c70', borderWidth: 1, borderRadius: 12, padding: 12, gap: 12 } as const;
+const appointmentHeaderStyle = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10 } as const;
+const appointmentFieldStyle = { gap: 6 } as const;
+const appointmentSelectStyle = { minHeight: 54, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, borderColor: '#3b7188', borderWidth: 1, borderRadius: 11, backgroundColor: '#071d29', paddingVertical: 10, paddingHorizontal: 12 } as const;
+const appointmentSelectValueStyle = { color: '#f2fbff', fontSize: 15, fontWeight: '900' } as const;
+const appointmentSelectHintStyle = { color: '#93adba', fontSize: 11, marginTop: 2 } as const;
+const appointmentChevronStyle = { color: '#5ce5df', fontSize: 13, fontWeight: '900' } as const;
+const calendarPanelStyle = { borderColor: '#315c70', borderWidth: 1, borderRadius: 12, backgroundColor: '#071d29', padding: 10, gap: 10 } as const;
+const calendarHeaderStyle = { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 } as const;
+const calendarMonthTitleStyle = { color: '#f2fbff', fontSize: 14, fontWeight: '900', flex: 1, textAlign: 'center' } as const;
+const calendarGridStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 4, justifyContent: 'space-between' } as const;
+const calendarWeekdayStyle = { color: '#93adba', width: '13%', textAlign: 'center', fontSize: 10, fontWeight: '800', paddingVertical: 4 } as const;
+const calendarDayStyle = { width: '13%', minHeight: 34, borderColor: '#315c70', borderWidth: 1, borderRadius: 8, alignItems: 'center', justifyContent: 'center' } as const;
+const calendarDaySelectedStyle = { backgroundColor: '#10a8a2', borderColor: '#72e2c7' } as const;
+const calendarDayOutsideStyle = { opacity: 0.55 } as const;
+const calendarDayTextStyle = { color: '#d8eaf2', fontSize: 12, fontWeight: '800' } as const;
+const calendarDayTextSelectedStyle = { color: '#02151c' } as const;
+const appointmentTimeGridStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 7 } as const;
+const appointmentTimeOptionStyle = { flexBasis: 108, flexGrow: 1, borderColor: '#315c70', borderWidth: 1, borderRadius: 9, alignItems: 'center', paddingVertical: 9, paddingHorizontal: 8 } as const;
+const appointmentTimeOptionSelectedStyle = { backgroundColor: '#10a8a2', borderColor: '#72e2c7' } as const;
+const appointmentTimeTextStyle = { color: '#d8eaf2', fontSize: 12, fontWeight: '800' } as const;
+const appointmentTimeTextSelectedStyle = { color: '#02151c' } as const;
+const schedulingReasonGridStyle = { gap: 8 } as const;
+const schedulingReasonChoiceStyle = { borderColor: '#3b7188', borderWidth: 1, borderRadius: 11, backgroundColor: '#071d29', paddingVertical: 11, paddingHorizontal: 13 } as const;
+const schedulingReasonChoiceSelectedStyle = { borderColor: '#72e2c7', backgroundColor: '#15372f' } as const;
+const schedulingReasonChoiceTextStyle = { color: '#d8f8ff', fontSize: 13, fontWeight: '800' } as const;
+const schedulingReasonChoiceTextSelectedStyle = { color: '#72e2c7' } as const;
+const schedulingSelectionStyle = { color: '#d9ffff', backgroundColor: '#123d48', borderRadius: 10, padding: 10, fontSize: 13, fontWeight: '800' } as const;
+const schedulingPendingStyle = { color: '#092c2c', backgroundColor: '#72e2c7', borderRadius: 10, padding: 11, fontSize: 13, fontWeight: '900', textAlign: 'center' } as const;
 const completionAcknowledgementStyle = { backgroundColor: '#123b35', borderColor: '#45d893', borderWidth: 1, borderRadius: 12, padding: 14, gap: 8 } as const;
 const twoButtonRowStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'space-between' } as const;

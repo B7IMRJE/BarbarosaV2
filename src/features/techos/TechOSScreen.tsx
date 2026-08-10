@@ -2075,6 +2075,7 @@ export default function TechOSScreen() {
                     showTechnicianHours={isTechnicianWorkspace}
                     onSignOut={signOutFromTechOS}
                     onOpenTimeClock={() => openTimeClock('overview')}
+                    onOpenLunchBreaks={() => openTimeClock('lunch')}
                     onOpenClockOut={() => openTimeClock('clock-out')}
                     signingOut={signingOut}
                 />}
@@ -2483,6 +2484,7 @@ function TechOSProfileHeader({
     upcomingJobCount,
     showTechnicianHours,
     onOpenClockOut,
+    onOpenLunchBreaks,
     onOpenTimeClock,
     onSignOut,
     signingOut,
@@ -2505,6 +2507,7 @@ function TechOSProfileHeader({
     upcomingJobCount: number;
     showTechnicianHours: boolean;
     onOpenClockOut: () => void;
+    onOpenLunchBreaks: () => void;
     onOpenTimeClock: () => void;
     onSignOut: () => void;
     signingOut: boolean;
@@ -2609,12 +2612,20 @@ function TechOSProfileHeader({
                         ))}
                     </View>
                     {technicianTimeEntryState === 'current' && (
-                        <ThemedButton
-                            title="Clock Out"
-                            variant="primary"
-                            onPress={onOpenClockOut}
-                            style={techProfileClockOutButtonStyle}
-                        />
+                        <View style={techProfileClockActionRowStyle}>
+                            <ThemedButton
+                                title="Lunch / Breaks"
+                                variant="secondary"
+                                onPress={onOpenLunchBreaks}
+                                style={techProfileClockActionButtonStyle}
+                            />
+                            <ThemedButton
+                                title="Clock Out"
+                                variant="primary"
+                                onPress={onOpenClockOut}
+                                style={techProfileClockActionButtonStyle}
+                            />
+                        </View>
                     )}
                 </View>
             )}
@@ -3653,7 +3664,7 @@ function TechOSTimeClockPanel({
 
     const stepTitle: Record<TechOSTimeClockStep, string> = {
         overview: 'Time Clock',
-        lunch: 'Lunch Check',
+        lunch: 'Lunch & Rest Breaks',
         overtime: 'Overtime Review',
         'clock-out': 'Clock Out',
         correction: 'Time Correction',
@@ -3748,7 +3759,7 @@ function TechOSTimeClockPanel({
                 {!!openEntry && (
                     <View style={{ gap: 10 }}>
                         <ThemedButton
-                            title={activeBreak ? 'Lunch in Progress — Open Lunch' : 'Review Lunch & Breaks'}
+                            title={activeBreak ? 'Lunch in Progress — Open Lunch' : activeRestBreak ? 'Rest Break in Progress — Open' : 'Lunch / Rest Breaks'}
                             variant="secondary"
                             onPress={() => setActiveStep('lunch')}
                             style={assignedJobActionButtonStyle}
@@ -3827,26 +3838,36 @@ function TechOSTimeClockPanel({
                     Record only the lunch you actually took. Lunch time is excluded from worked hours.
                     {' '}If you already took lunch without using the clock, record those 30 minutes after clocking out and before submitting the day.
                 </Text>
-                <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
-                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>Current lunch record</Text>
-                    <Text style={[summaryValueStyle, { color: theme.colors.text }]}>
-                        {activeBreak ? 'In progress' : `${openEntry?.breakMinutes || latestEntry?.breakMinutes || 0} min`}
-                    </Text>
+                <View style={techBreakSummaryGridStyle}>
+                    <View style={[emptyClientStateStyle, techBreakSummaryCardStyle, { borderColor: theme.colors.border }]}>
+                        <Text style={[clientNameStyle, { color: theme.colors.text }]}>Lunch</Text>
+                        <Text style={[summaryValueStyle, { color: theme.colors.text }]}>
+                            {activeBreak ? 'In progress' : `${openEntry?.breakMinutes || latestEntry?.breakMinutes || 0} min`}
+                        </Text>
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Off duty · excluded from worked time</Text>
+                    </View>
+                    <View style={[emptyClientStateStyle, techBreakSummaryCardStyle, { borderColor: theme.colors.border }]}>
+                        <Text style={[clientNameStyle, { color: theme.colors.text }]}>Paid rest</Text>
+                        <Text style={[summaryValueStyle, { color: theme.colors.text }]}>
+                            {activeRestBreak ? 'In progress' : `${openEntry?.restBreakMinutes || latestEntry?.restBreakMinutes || 0} min`}
+                        </Text>
+                        <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Paid · remains part of worked time</Text>
+                    </View>
                 </View>
                 {!!openEntry && (
                     <View style={{ gap: 10 }}>
                         <ThemedButton
                             title={activeBreak ? 'End Lunch Now' : 'Start Lunch Now'}
                             variant="primary"
-                            disabled={updatingClock || (!activeBreak && openEntry.breakMinutes >= 30)}
-                            onPress={() => runTimeEntryAction(activeBreak ? 'end_break' : 'start_break', 'overview')}
+                            disabled={updatingClock || activeRestBreak || (!activeBreak && openEntry.breakMinutes >= 30)}
+                            onPress={() => runTimeEntryAction(activeBreak ? 'end_break' : 'start_break', 'lunch')}
                             style={assignedJobActionButtonStyle}
                         />
                         <ThemedButton
                             title={activeRestBreak ? 'End Rest Break' : 'Take a 10-Minute Rest Break'}
                             variant="secondary"
                             disabled={updatingClock || activeBreak}
-                            onPress={() => runTimeEntryAction(activeRestBreak ? 'end_rest_break' : 'start_rest_break', 'overview')}
+                            onPress={() => runTimeEntryAction(activeRestBreak ? 'end_rest_break' : 'start_rest_break', 'lunch')}
                             style={assignedJobActionButtonStyle}
                         />
                         {overtimeWarningState !== 'none' && (
@@ -6670,10 +6691,31 @@ const techProfileSignOutButtonStyle = {
     paddingVertical: 10,
 };
 
-const techProfileClockOutButtonStyle = {
-    alignSelf: 'stretch' as const,
+const techProfileClockActionRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 8,
     marginTop: 10,
+};
+
+const techProfileClockActionButtonStyle = {
+    flexBasis: 150,
+    flexGrow: 1,
+    flexShrink: 1,
     minHeight: 48,
+};
+
+const techBreakSummaryGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const techBreakSummaryCardStyle = {
+    flexBasis: 220,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
 };
 
 const techProfileHoursSectionStyle = {
