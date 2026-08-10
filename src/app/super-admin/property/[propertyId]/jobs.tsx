@@ -26,7 +26,7 @@ export default function SuperAdminPropertyJobsScreen() {
                 <ThemedCard>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Jobs Coming Soon</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Super Admin job history for this property has not been built yet.
+                        SuperOS job history for this property has not been built yet.
                     </Text>
                     <ThemedButton
                         title="Back to Property Dashboard"

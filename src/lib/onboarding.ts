@@ -1,170 +1,99 @@
-import { isStaffRole, normalizeRole } from './roles';
 import { supabase } from './supabase';
+import { getCompanyDisplayName } from './companyDisplayName';
+import {
+    companyManagementRoute,
+    normalizeCompanyUserRole,
+    normalizeCompanyUserStatus,
+    resolveAuthorizedWorkspaceRoute,
+    serviceUnavailableRouteDecision,
+    techOSRoute,
+    type CompanyRouteAccessRow,
+    type LoggedInUserRouteDecision,
+    type ProfileRouteFields,
+} from './workspaceAccess';
 
-export const HOME_ROUTE = '/' as const;
-export const SUPER_ADMIN_ROUTE = '/super-admin' as const;
-export const FIRST_HOME_ONBOARDING_ROUTE = '/onboarding/create-home' as const;
-export const TECHOS_ROUTE = '/techos' as const;
-export const COMPANY_INVITE_ROUTE = '/company-invite' as const;
+export {
+    COMPANY_INVITE_ROUTE,
+    FIRST_HOME_ONBOARDING_ROUTE,
+    HOME_ROUTE,
+    SUPER_ADMIN_ROUTE,
+    TECHOS_ROUTE,
+    WORKSPACE_ACCESS_ERROR_MESSAGE,
+    WORKSPACE_CHOOSER_ROUTE,
+    buildAuthorizedWorkspaces,
+    isSuperAdminProfile,
+    resolveAuthorizedWorkspaceRoute,
+    type AuthorizedWorkspace,
+    type AuthorizedWorkspaceKind,
+    type AuthorizedWorkspaceResolutionInput,
+    type CompanyRouteAccessRow,
+    type LoggedInUserRouteDecision,
+    type LoggedInUserRouteReason,
+    type ProfileRouteFields,
+} from './workspaceAccess';
+
 export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
 const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
 const TECHOS_COMPANY_ROLES = ['technician'];
-const COMPANY_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD-TECH', 'FIELD TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER', 'DISPATCH', 'SUPERVISOR'];
-
-export type LoggedInUserRoute = string;
-
-export type LoggedInUserRouteReason =
-    | 'super-admin'
-    | 'company-management'
-    | 'company-technician'
-    | 'staff'
-    | 'work-pending-invite'
-    | 'homeowner-active-membership'
-    | 'homeowner-needs-first-home'
-    | 'profile-missing'
-    | 'profile-query-error'
-    | 'membership-query-error'
-    | 'service-unavailable'
-    | 'unexpected-error';
-
-export type LoggedInUserRouteDecision = {
-    route: LoggedInUserRoute;
-    reason: LoggedInUserRouteReason;
-    companyId?: string | null;
-    companyRole?: string | null;
-    allowedCompanyIds?: string[];
-    message?: string;
-};
 
 type ResolveLoggedInUserRouteOptions = {
     preferredCompanyId?: string | null;
 };
 
-type ProfileRouteFields = {
-    id?: string | null;
-    role?: string | null;
-    is_platform_admin?: boolean | null;
-};
-
-export function isSuperAdminProfile(profile?: ProfileRouteFields | null) {
-    return (
-        normalizeRole(profile?.role) === 'SUPER_ADMIN' ||
-        profile?.is_platform_admin === true
-    );
-}
 
 export async function resolveLoggedInUserRoute(
     userId: string,
     options: ResolveLoggedInUserRouteOptions = {}
 ): Promise<LoggedInUserRouteDecision> {
     try {
-        const profileQuery = await loadRouteProfile(userId);
-        const profile = profileQuery.data;
+        const [profileQuery, companyAccessQuery, membershipQuery] = await Promise.all([
+            loadRouteProfile(userId),
+            loadLoggedInUserCompanyAccess(userId),
+            supabase
+                .from('property_memberships')
+                .select('id', { count: 'exact' })
+                .eq('user_id', userId)
+                .eq('status', 'active')
+                .limit(20),
+        ]);
 
-        if (isSuperAdminProfile(profile)) {
-            return {
-                route: SUPER_ADMIN_ROUTE,
-                reason: 'super-admin',
-            };
+        if (profileQuery.error || companyAccessQuery.error || membershipQuery.error) {
+            return serviceUnavailableRouteDecision();
         }
 
-        const companyAccessQuery = await loadLoggedInUserCompanyAccess(userId);
         const activeCompanyAccess = companyAccessQuery.data
             .filter((companyUser) => normalizeCompanyUserStatus(companyUser.status) === 'active');
-        const companyRoute = resolveActiveCompanyRoute(activeCompanyAccess, options.preferredCompanyId);
-        if (companyRoute) return companyRoute;
-
-        if (companyAccessQuery.error) {
-            return serviceUnavailableRouteDecision(companyAccessQuery.error.message);
-        }
-
-        if (profileQuery.error) {
-            return isServiceUnavailableError(profileQuery.error)
-                ? serviceUnavailableRouteDecision(profileQuery.error.message)
-                : {
-                    route: HOME_ROUTE,
-                    reason: 'profile-query-error',
-                    message: 'Login succeeded, but HomeOS could not confirm your account profile. Opening HomeOS.',
-                };
-        }
-
-        if (!profile) {
-            return {
-                route: HOME_ROUTE,
-                reason: 'profile-missing',
-                message: 'Login succeeded, but HomeOS could not find your account profile. Opening HomeOS.',
-            };
-        }
-
-        const role = normalizeRole(profile.role);
-
-        if (isStaffRole(role) || COMPANY_PROFILE_ROLES.includes(role)) {
-            const fallbackCompanyAccess = pickCompanyAccess(activeCompanyAccess, options.preferredCompanyId);
-
-            if (fallbackCompanyAccess) {
-                return {
-                    route: techOSRoute(fallbackCompanyAccess.company_id),
-                    reason: 'company-technician',
-                    companyId: fallbackCompanyAccess.company_id,
-                    companyRole: normalizeCompanyUserRole(fallbackCompanyAccess.role),
-                    allowedCompanyIds: [fallbackCompanyAccess.company_id],
-                };
-            }
-
-            return {
-                route: TECHOS_ROUTE,
-                reason: 'staff',
-            };
-        }
-
-        if (role === 'WORK') {
-            return {
-                route: COMPANY_INVITE_ROUTE,
-                reason: 'work-pending-invite',
-                message: 'Open your company invitation link to finish work account setup.',
-            };
-        }
-
-        if (role !== 'HOMEOWNER') {
-            return {
-                route: TECHOS_ROUTE,
-                reason: 'staff',
-            };
-        }
-
-        const membershipQuery = await supabase
-            .from('property_memberships')
-            .select('id', { count: 'exact' })
-            .eq('user_id', userId)
-            .eq('status', 'active')
-            .limit(20);
         const activePropertyMembershipCount = membershipQuery.count ?? (membershipQuery.data || []).length;
+        const companyNames = await loadAuthorizedCompanyNames(activeCompanyAccess);
 
-        if (membershipQuery.error) {
-            return isServiceUnavailableError(membershipQuery.error)
-                ? serviceUnavailableRouteDecision(membershipQuery.error.message)
-                : {
-                    route: HOME_ROUTE,
-                    reason: 'membership-query-error',
-                    message: 'Login succeeded, but HomeOS could not confirm your home setup. Opening HomeOS.',
-                };
-        }
-
-        if (activePropertyMembershipCount > 0) {
-            return {
-                route: HOME_ROUTE,
-                reason: 'homeowner-active-membership',
-            };
-        }
-
-        return {
-            route: FIRST_HOME_ONBOARDING_ROUTE,
-            reason: 'homeowner-needs-first-home',
-        };
-    } catch (error) {
-        return serviceUnavailableRouteDecision(getErrorMessage(error));
+        return resolveAuthorizedWorkspaceRoute({
+            profile: profileQuery.data,
+            companyAccess: activeCompanyAccess,
+            activePropertyMembershipCount,
+            companyNames,
+            preferredCompanyId: options.preferredCompanyId,
+        });
+    } catch {
+        return serviceUnavailableRouteDecision();
     }
+}
+
+async function loadAuthorizedCompanyNames(activeCompanyAccess: CompanyRouteAccessRow[]) {
+    const companyIds = Array.from(new Set(activeCompanyAccess.map((access) => access.company_id).filter(Boolean)));
+    if (!companyIds.length) return {};
+
+    const result = await supabase
+        .from('companies')
+        .select('id, name, public_name, dba_name')
+        .in('id', companyIds);
+
+    if (result.error) return {};
+
+    return Object.fromEntries((result.data || []).map((company) => [
+        company.id,
+        getCompanyDisplayName(company, 'your company'),
+    ]));
 }
 
 export function resolveActiveCompanyRoute(
@@ -207,17 +136,6 @@ export function resolveActiveCompanyRoute(
         allowedCompanyIds: [technicianAccess.company_id],
     };
 }
-
-export type CompanyRouteAccessRow = {
-    id: string | null;
-    company_id: string;
-    full_name: string | null;
-    email: string | null;
-    role: string | null;
-    status: string | null;
-    created_at: string | null;
-    can_view_techos?: boolean | null;
-};
 
 export async function loadLoggedInUserCompanyAccess(
     userId: string
@@ -296,20 +214,6 @@ function normalizeCompanyAccessRows(data: unknown): CompanyRouteAccessRow[] {
         .filter((row) => row.company_id);
 }
 
-function pickCompanyAccess(
-    rows: CompanyRouteAccessRow[],
-    preferredCompanyId?: string | null
-) {
-    const preferredId = String(preferredCompanyId || '').trim();
-
-    if (preferredId) {
-        const preferredRow = rows.find((row) => row.company_id === preferredId);
-        if (preferredRow) return preferredRow;
-    }
-
-    return rows[0] || null;
-}
-
 function pickCompanyAccessForRoles(
     rows: CompanyRouteAccessRow[],
     roles: string[],
@@ -342,26 +246,6 @@ function pickCompanyAccessForTechOS(
     }
 
     return matchingRows[0] || null;
-}
-
-function normalizeCompanyUserRole(role?: string | null) {
-    const normalizedRole = String(role || '').trim().toLowerCase();
-
-    if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
-    if (normalizedRole === 'dispatch') return 'dispatcher';
-    return normalizedRole;
-}
-
-function normalizeCompanyUserStatus(status?: string | null) {
-    return String(status || '').trim().toLowerCase();
-}
-
-function companyManagementRoute(companyId: string) {
-    return `/super-admin/company/${companyId}`;
-}
-
-function techOSRoute(companyId: string) {
-    return `${TECHOS_ROUTE}?companyId=${encodeURIComponent(companyId)}`;
 }
 
 function readStringField(record: Record<string, unknown>, key: string) {
@@ -414,38 +298,6 @@ async function loadPlatformAdminFlag() {
     } catch {
         return null;
     }
-}
-
-function serviceUnavailableRouteDecision(message?: string | null): LoggedInUserRouteDecision {
-    return {
-        route: HOME_ROUTE,
-        reason: 'service-unavailable',
-        message: normalizeServiceUnavailableMessage(message),
-    };
-}
-
-function isServiceUnavailableError(error?: { message?: string | null } | null) {
-    return isServiceUnavailableMessage(error?.message);
-}
-
-function isServiceUnavailableMessage(message?: string | null) {
-    const normalizedMessage = String(message || '').toLowerCase();
-
-    return (
-        normalizedMessage.includes('failed to fetch') ||
-        normalizedMessage.includes('network request failed') ||
-        normalizedMessage.includes('fetch failed') ||
-        normalizedMessage.includes('load failed') ||
-        normalizedMessage.includes('networkerror')
-    );
-}
-
-function normalizeServiceUnavailableMessage(message?: string | null) {
-    const cleanMessage = String(message || '').trim();
-
-    return isServiceUnavailableMessage(cleanMessage) || !cleanMessage
-        ? HOMEOS_SERVICE_ERROR_MESSAGE
-        : cleanMessage;
 }
 
 function getErrorMessage(error: unknown) {

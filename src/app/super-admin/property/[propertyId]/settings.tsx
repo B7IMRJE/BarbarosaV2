@@ -26,7 +26,7 @@ export default function SuperAdminPropertySettingsScreen() {
                 <ThemedCard>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Settings Coming Soon</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Super Admin settings for this property have not been built yet.
+                        SuperOS settings for this property have not been built yet.
                     </Text>
                     <ThemedButton
                         title="Back to Property Dashboard"

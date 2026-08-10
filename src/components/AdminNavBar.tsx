@@ -296,7 +296,7 @@ export default function AdminNavBar({
                 />
                 {isPlatformAdmin && (
                     <NavButton
-                        label="Super Admin"
+                        label="SuperOS"
                         onPress={() => router.replace('/super-admin' as Href)}
                         backgroundColor={theme.colors.surface}
                         borderColor={theme.colors.border}

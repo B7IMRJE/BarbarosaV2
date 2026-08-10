@@ -87,7 +87,7 @@ export default function CompanyAuditLogScreen() {
                     <Text style={[kickerStyle, { color: theme.colors.primary }]}>ManagementOS</Text>
                     <Text style={[titleStyle, { color: theme.colors.text }]}>Activity / Audit Log</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        {companyName} actions are listed newest first. Only owner, admin, manager, and platform admin access can view this log.
+                        {companyName} actions are listed newest first. Only owner, admin, manager, and SuperOS access can view this log.
                     </Text>
                     <View style={buttonRowStyle}>
                         <ThemedButton title={loading ? 'Refreshing...' : 'Refresh'} onPress={loadAuditLog} style={buttonStyle} />

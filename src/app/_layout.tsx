@@ -11,7 +11,9 @@ import {
   HOME_ROUTE,
   SUPER_ADMIN_ROUTE,
   TECHOS_ROUTE,
+  WORKSPACE_CHOOSER_ROUTE,
   resolveLoggedInUserRoute,
+  type AuthorizedWorkspace,
   type LoggedInUserRouteDecision,
 } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
@@ -554,6 +556,18 @@ function resolveRedirectForPath(
     return null;
   }
 
+  if (pathname === WORKSPACE_CHOOSER_ROUTE) {
+    return routeDecision.reason === 'multiple-workspaces'
+      ? null
+      : routeDecision.route;
+  }
+
+  if (routeDecision.reason === 'multiple-workspaces') {
+    return isAuthorizedWorkspacePath(pathname, routeParams, routeDecision.workspaces || [])
+      ? null
+      : WORKSPACE_CHOOSER_ROUTE;
+  }
+
   if (isAuthPath(pathname)) {
     return routeDecision.route;
   }
@@ -670,6 +684,76 @@ function resolveRedirectForPath(
   }
 
   return null;
+}
+
+function isAuthorizedWorkspacePath(
+  pathname: string,
+  routeParams: ProviderModeRouteParams,
+  workspaces: AuthorizedWorkspace[]
+) {
+  return workspaces.some((workspace) => {
+    const companyIds = workspace.companyId ? [workspace.companyId] : [];
+
+    if (workspace.kind === 'administration') {
+      return (
+        isSuperAdminPath(pathname) ||
+        isAdminPath(pathname) ||
+        isProviderModeHomeOsPath(pathname, routeParams) ||
+        isProviderModeEstimatePath(pathname, routeParams) ||
+        isTechOSPath(pathname) ||
+        isDispatchPath(pathname) ||
+        isDispatchWallPath(pathname) ||
+        isSchedulePath(pathname) ||
+        isJobWorkflowPath(pathname) ||
+        pathname === PROFILE_CHANGE_PASSWORD_ROUTE
+      );
+    }
+
+    if (workspace.kind === 'management') {
+      return (
+        isAdminShellPath(pathname) ||
+        isAllowedCompanyManagementPath(pathname, companyIds) ||
+        isProviderModeHomeOsPath(pathname, routeParams, companyIds) ||
+        isDispatchPath(pathname) ||
+        isDispatchWallPath(pathname) ||
+        isSchedulePath(pathname) ||
+        isEstimatePath(pathname) ||
+        isJobWorkflowPath(pathname) ||
+        pathname === COMPANY_INVITATIONS_ROUTE ||
+        pathname === PROFILE_CHANGE_PASSWORD_ROUTE
+      );
+    }
+
+    if (workspace.kind === 'technician') {
+      return (
+        isAllowedCompanyClientPath(pathname, companyIds) ||
+        isAllowedCompanyPriceBookPath(pathname, companyIds) ||
+        isProviderModeHomeOsPath(pathname, routeParams, companyIds) ||
+        isTechOSPath(pathname) ||
+        isEstimatePath(pathname) ||
+        isJobWorkflowPath(pathname) ||
+        pathname === COMPANY_INVITATIONS_ROUTE ||
+        pathname === PROFILE_CHANGE_PASSWORD_ROUTE
+      );
+    }
+
+    return isHomeWorkspacePath(pathname);
+  });
+}
+
+function isHomeWorkspacePath(pathname: string) {
+  return !(
+    isAuthPath(pathname) ||
+    isSuperAdminPath(pathname) ||
+    isAdminPath(pathname) ||
+    isTechOSPath(pathname) ||
+    isDispatchPath(pathname) ||
+    isDispatchWallPath(pathname) ||
+    isSchedulePath(pathname) ||
+    isEstimatePath(pathname) ||
+    isJobWorkflowPath(pathname) ||
+    pathname === WORKSPACE_CHOOSER_ROUTE
+  );
 }
 
 function firstRouteParam(value?: string | string[]) {

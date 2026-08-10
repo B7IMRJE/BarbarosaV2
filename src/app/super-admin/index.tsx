@@ -151,7 +151,7 @@ export default function SuperAdminDashboard() {
             >
                 <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                     <Text style={{ marginTop: 20, fontSize: isPhoneLayout ? 28 : 34, fontWeight: '900', color: '#071B33' }}>
-                        Super Admin Guard Diagnostics
+                        SuperOS access unavailable
                     </Text>
 
                     <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24, lineHeight: 22 }}>
@@ -235,7 +235,7 @@ export default function SuperAdminDashboard() {
                 </Text>
 
                 <Text style={{ fontSize: isPhoneLayout ? 30 : 34, fontWeight: '900', color: '#071B33', marginTop: 6 }}>
-                    HomeOS SUPER_ADMIN
+                    SuperOS
                 </Text>
 
                 <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>

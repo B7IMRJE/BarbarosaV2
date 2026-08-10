@@ -1,9 +1,10 @@
-import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
+    Pressable,
     ScrollView,
     Text,
+    TextInput,
     View,
 } from 'react-native';
 import PasswordField from '../../components/auth/password-field';
@@ -15,13 +16,20 @@ import {
     replacePendingCompanyInviteFromNextPath,
 } from '../../lib/companyInviteState';
 import { isCustomerInvitePending } from '../../lib/customerInviteStatus';
-import { resolveLoggedInUserRoute } from '../../lib/onboarding';
+import { resolveLoggedInUserRoute, WORKSPACE_ACCESS_ERROR_MESSAGE } from '../../lib/onboarding';
 import { markInvitationPasswordSetupPending } from '../../lib/invitation-password-setup';
+import {
+    classifyLoginError,
+    safeLoginErrorMessage,
+    SESSION_START_ERROR_MESSAGE,
+    SHARED_LOGIN_ACTION,
+    SHARED_LOGIN_HEADING,
+    SHARED_LOGIN_SUPPORTING_TEXT,
+} from '../../lib/loginFlow';
 import { supabase } from '../../lib/supabase';
 import ThemedButton from '../../components/theme/ThemedButton';
 
 const EMAIL_RATE_LIMIT_MESSAGE = 'Too many confirmation emails were requested. Please wait before trying again.';
-const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 const COMPANY_INVITE_ROUTE = '/company-invite';
 const CUSTOMER_INVITE_ROUTE = '/customer-invite';
 
@@ -53,6 +61,7 @@ export default function LoginScreen() {
     const [resending, setResending] = useState(false);
     const [message, setMessage] = useState('');
     const [unconfirmedEmail, setUnconfirmedEmail] = useState('');
+    const [signInFocused, setSignInFocused] = useState(false);
 
     useEffect(() => {
         if (!confirmNextRoute) return;
@@ -83,7 +92,7 @@ export default function LoginScreen() {
 
         setUnconfirmedEmail('');
 
-        let data: { user: { id: string } | null } = { user: null };
+        let data: { user: { id: string } | null; hasSession: boolean } = { user: null, hasSession: false };
         let error: unknown = null;
 
         try {
@@ -91,36 +100,40 @@ export default function LoginScreen() {
                 email: cleanEmail,
                 password,
             });
-            data = { user: result.data.user ? { id: result.data.user.id } : null };
+            data = {
+                user: result.data.user ? { id: result.data.user.id } : null,
+                hasSession: Boolean(result.data.session),
+            };
             error = result.error;
         } catch (authError) {
             setLoading(false);
-            setMessage(normalizeServiceErrorMessage(getErrorMessage(authError)));
+            setMessage(safeLoginErrorMessage(classifyLoginError(authError)));
             return;
         }
 
         if (error) {
             setLoading(false);
-            const errorCode = classifyAuthError(error);
+            const errorCode = classifyLoginError(error);
 
-            if (errorCode === 'email_not_confirmed') {
+            if (errorCode === 'email-not-confirmed') {
                 setUnconfirmedEmail(cleanEmail);
                 setMessage(unconfirmedEmailMessage(confirmNextRoute, workAccountMode));
                 return;
             }
 
-            if (errorCode === 'invalid_credentials') {
-                setMessage('Incorrect email or password.');
-                return;
-            }
-
-            setMessage('Login failed. Please try again.');
+            setMessage(safeLoginErrorMessage(errorCode));
             return;
         }
 
         if (!data.user) {
             setLoading(false);
             setMessage('Login failed: no user returned.');
+            return;
+        }
+
+        if (!data.hasSession) {
+            setLoading(false);
+            setMessage(SESSION_START_ERROR_MESSAGE);
             return;
         }
 
@@ -137,7 +150,7 @@ export default function LoginScreen() {
         setLoading(false);
 
         if (routeDecision.reason === 'service-unavailable') {
-            setMessage(routeDecision.message || HOMEOS_SERVICE_ERROR_MESSAGE);
+            setMessage(routeDecision.message || WORKSPACE_ACCESS_ERROR_MESSAGE);
             return;
         }
 
@@ -247,14 +260,15 @@ export default function LoginScreen() {
         >
             <View style={{ width: '100%', maxWidth: 500, marginTop: 60 }}>
                 <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33' }}>
-                    {workAccountMode ? 'Work Account Login' : 'HomeOS Login'}
+                    {SHARED_LOGIN_HEADING}
                 </Text>
 
                 <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24 }}>
-                    {workAccountMode ? 'Sign in with the invited email to accept your company invitation.' : 'Login to your HomeOS account.'}
+                    {SHARED_LOGIN_SUPPORTING_TEXT}
                 </Text>
 
-                <DictationTextInput
+                <TextInput
+                    accessibilityLabel="Email address"
                     placeholder="Email"
                     value={email}
                     onChangeText={(value) => {
@@ -281,12 +295,25 @@ export default function LoginScreen() {
                     style={inputStyle}
                 />
 
-                <ThemedButton
-                    title={loading ? 'Logging in...' : 'Login'}
+                <Pressable
+                    accessibilityLabel={SHARED_LOGIN_ACTION}
+                    accessibilityRole="button"
+                    accessibilityState={{ disabled: loading || resending || invitationLoading }}
                     onPress={handleLogin}
                     disabled={loading || resending || invitationLoading}
-                    style={buttonStyle}
-                />
+                    onFocus={() => setSignInFocused(true)}
+                    onBlur={() => setSignInFocused(false)}
+                    style={({ pressed }) => [
+                        signInButtonStyle,
+                        signInFocused && signInButtonFocusedStyle,
+                        pressed && !loading && { transform: [{ translateY: 1 }], opacity: 0.92 },
+                        (loading || resending || invitationLoading) && { opacity: 0.5 },
+                    ]}
+                >
+                    <Text style={signInButtonTextStyle}>
+                        {loading ? 'Signing in...' : SHARED_LOGIN_ACTION}
+                    </Text>
+                </Pressable>
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 22 }}>
                     <View style={{ height: 1, backgroundColor: '#CBD5E1', flex: 1 }} />
@@ -294,7 +321,8 @@ export default function LoginScreen() {
                     <View style={{ height: 1, backgroundColor: '#CBD5E1', flex: 1 }} />
                 </View>
 
-                <DictationTextInput
+                <TextInput
+                    accessibilityLabel="Six-digit invitation code"
                     placeholder="Six-digit invitation code"
                     value={invitationCode}
                     onChangeText={(value) => setInvitationCode(value.replace(/\D/g, '').slice(0, 6))}
@@ -315,7 +343,11 @@ export default function LoginScreen() {
                 />
 
                 {!!message && (
-                    <View style={messageBoxStyle}>
+                    <View
+                        accessibilityLiveRegion="polite"
+                        aria-live="polite"
+                        style={messageBoxStyle}
+                    >
                         <Text style={messageTextStyle}>{message}</Text>
                     </View>
                 )}
@@ -506,56 +538,6 @@ function isEmailRateLimitError(error: unknown) {
     );
 }
 
-function classifyAuthError(error: unknown) {
-    const code =
-        typeof (error as { code?: unknown }).code === 'string'
-            ? (error as { code: string }).code
-            : '';
-    const message =
-        typeof (error as { message?: unknown }).message === 'string'
-            ? (error as { message: string }).message.toLowerCase()
-            : '';
-
-    if (code === 'email_not_confirmed' || message.includes('email not confirmed')) {
-        return 'email_not_confirmed';
-    }
-
-    if (code === 'invalid_credentials' || message.includes('invalid login credentials')) {
-        return 'invalid_credentials';
-    }
-
-    return 'other';
-}
-
-function normalizeServiceErrorMessage(message?: string | null) {
-    const cleanMessage = String(message || '').trim();
-
-    if (!cleanMessage || isFetchFailureMessage(cleanMessage)) {
-        return HOMEOS_SERVICE_ERROR_MESSAGE;
-    }
-
-    return cleanMessage;
-}
-
-function isFetchFailureMessage(message?: string | null) {
-    const normalizedMessage = String(message || '').toLowerCase();
-
-    return (
-        normalizedMessage.includes('failed to fetch') ||
-        normalizedMessage.includes('network request failed') ||
-        normalizedMessage.includes('fetch failed') ||
-        normalizedMessage.includes('load failed') ||
-        normalizedMessage.includes('networkerror')
-    );
-}
-
-function getErrorMessage(error: unknown) {
-    if (error instanceof Error) return error.message;
-    if (typeof error === 'string') return error;
-
-    return HOMEOS_SERVICE_ERROR_MESSAGE;
-}
-
 const inputStyle = {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -568,6 +550,32 @@ const inputStyle = {
 
 const buttonStyle = {
     marginTop: 8,
+};
+
+const signInButtonStyle = {
+    alignItems: 'center' as const,
+    backgroundColor: '#0B5FFF',
+    borderColor: '#0B5FFF',
+    borderRadius: 14,
+    borderWidth: 2,
+    justifyContent: 'center' as const,
+    marginTop: 8,
+    minHeight: 52,
+    paddingHorizontal: 20,
+    paddingVertical: 13,
+};
+
+const signInButtonFocusedStyle = {
+    borderColor: '#071B33',
+    boxShadow: '0 0 0 3px rgba(11, 95, 255, 0.28)',
+};
+
+const signInButtonTextStyle = {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900' as const,
+    letterSpacing: 0.15,
+    textAlign: 'center' as const,
 };
 
 const secondaryButtonStyle = {

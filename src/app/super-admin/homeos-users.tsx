@@ -125,7 +125,7 @@ export default function PlatformHomeOSUsersScreen() {
 
     async function loadUsers() {
         if (!await loadCurrentUserPlatformAdmin()) {
-            setMessage('Platform administrator access is required.');
+            setMessage('SuperOS access is required.');
             return;
         }
 
@@ -411,7 +411,7 @@ export default function PlatformHomeOSUsersScreen() {
                                                 return;
                                             }
                                             await loadUsers();
-                                            setMessage('Primary company updated. This is visible only in Platform Administration.');
+                                            setMessage('Primary company updated. This is visible only in SuperOS.');
                                         }}
                                     />
                                 ) : null
@@ -429,7 +429,7 @@ export default function PlatformHomeOSUsersScreen() {
                 )}
 
                 <ThemedButton
-                    title="Back to Platform Administration"
+                    title="Back to SuperOS"
                     variant="glass"
                     onPress={() => router.push('/super-admin' as any)}
                     style={{ marginTop: 24 }}

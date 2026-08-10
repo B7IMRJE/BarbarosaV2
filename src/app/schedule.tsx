@@ -140,7 +140,7 @@ export default function ScheduleBoardScreen() {
                 setMessage(
                     requestedCompanyId
                         ? 'You do not have Schedule Board access for this company.'
-                        : 'Choose a company before opening Schedule Board as a platform admin.'
+                        : 'Choose a company in SuperOS before opening Schedule Board.'
                 );
                 return;
             }

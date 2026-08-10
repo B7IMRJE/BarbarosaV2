@@ -26,7 +26,7 @@ export default function SuperAdminPropertyPhotosScreen() {
                 <ThemedCard>
                     <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Photos Coming Soon</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Super Admin photo review for this property has not been built yet.
+                        SuperOS photo review for this property has not been built yet.
                     </Text>
                     <ThemedButton
                         title="Back to Property Dashboard"
