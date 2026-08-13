@@ -17,6 +17,7 @@ import {
     saveCompanyProductCatalogItem,
     uploadCompanyCatalogDocument,
     uploadCompanyCatalogPhoto,
+    validateCompanyCatalogDraft,
     type CompanyCatalogDraft,
     type CompanyCatalogFileKind,
     type CompanyCatalogItem,
@@ -42,6 +43,7 @@ export default function CompanyCatalogScreen() {
     const [busy, setBusy] = useState(false);
     const [search, setSearch] = useState('');
     const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
+    const [saveFeedback, setSaveFeedback] = useState('');
 
     useEffect(() => {
         if (!companyId) {
@@ -112,19 +114,39 @@ export default function CompanyCatalogScreen() {
     function editItem(item: CompanyCatalogItem) {
         if (!canManage) return;
         setDraft(toDraft(item));
+        setSaveFeedback('');
         setMessage(`Editing ${item.productName}.`);
     }
 
     async function saveDraft() {
-        if (!companyId || !draft || busy || !canManage) return;
+        if (busy) return;
+        if (!companyId || !draft) {
+            setSaveFeedback('This catalog card could not be identified. Return to the catalog and open it again.');
+            return;
+        }
+        const validationMessage = validateCompanyCatalogDraft(draft);
+        if (validationMessage) {
+            setSaveFeedback(validationMessage);
+            return;
+        }
+        if (!canManage) {
+            setSaveFeedback('This work account does not have permission to save catalog cards.');
+            return;
+        }
         setBusy(true);
+        setSaveFeedback('Saving catalog card...');
         setMessage('Saving catalog card...');
         try {
             const saved = await saveCompanyProductCatalogItem(companyId, draft);
+            setDraft(toDraft(saved));
             await refresh(saved.id);
-            setMessage(`${saved.productName} saved as ${statusLabel(saved.status)}.`);
+            const successMessage = `${saved.productName} saved as ${statusLabel(saved.status)}. Photos and documents are now available.`;
+            setSaveFeedback(successMessage);
+            setMessage(successMessage);
         } catch (error) {
-            setMessage(errorMessage(error));
+            const failureMessage = errorMessage(error);
+            setSaveFeedback(failureMessage);
+            setMessage(failureMessage);
         } finally {
             setBusy(false);
         }
@@ -205,7 +227,7 @@ export default function CompanyCatalogScreen() {
                     <>
                         <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
                             <DictationTextInput value={search} onChangeText={setSearch} placeholder="Search brand, model, category, or SKU" style={{ flex: 1, minHeight: 52, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, color: textColor }} />
-                            {canManage && items.length > 0 && <ThemedButton title="Create Catalog Card" onPress={() => setDraft(emptyCompanyCatalogDraft())} />}
+                            {canManage && items.length > 0 && <ThemedButton title="Create Catalog Card" onPress={() => { setSaveFeedback(''); setDraft(emptyCompanyCatalogDraft()); }} />}
                         </View>
                         <View style={{ gap: 14 }}>
                             {visibleItems.map((item) => {
@@ -240,7 +262,7 @@ export default function CompanyCatalogScreen() {
                                         <Text style={{ color: mutedColor, lineHeight: scaleFont(21) }}>
                                             Add the product name, category, brand, model, photos, manuals, warranty details, and an optional Price Book service link.
                                         </Text>
-                                        <ThemedButton title="Create Catalog Card" onPress={() => setDraft(emptyCompanyCatalogDraft())} />
+                                        <ThemedButton title="Create Catalog Card" onPress={() => { setSaveFeedback(''); setDraft(emptyCompanyCatalogDraft()); }} />
                                     </View>
                                 </ThemedCard>
                             )}
@@ -319,6 +341,20 @@ export default function CompanyCatalogScreen() {
                                 <ThemedButton title={busy ? 'Saving...' : 'Save Catalog Card'} disabled={busy} onPress={() => void saveDraft()} style={{ flex: 1 }} />
                                 <ThemedButton title="Back to Catalog" variant="secondary" disabled={busy} onPress={() => setDraft(null)} style={{ flex: 1 }} />
                             </View>
+                            <View
+                                accessibilityLiveRegion="polite"
+                                style={{
+                                    borderWidth: 1,
+                                    borderColor: saveFeedback ? theme.colors.primary : theme.colors.border,
+                                    borderRadius: 12,
+                                    backgroundColor: theme.colors.surface,
+                                    padding: 12,
+                                }}
+                            >
+                                <Text selectable style={{ color: saveFeedback ? textColor : mutedColor, fontWeight: saveFeedback ? '800' : '600', lineHeight: scaleFont(20) }}>
+                                    {saveFeedback || validateCompanyCatalogDraft(draft) || 'Required fields are complete. Tap Save Catalog Card to continue.'}
+                                </Text>
+                            </View>
                         </View>
                     </ThemedCard>
                 )}
@@ -359,4 +395,9 @@ function parseList(value: string) { return Array.from(new Set(value.split(',').m
 function parseLines(value: string) { return Array.from(new Set(value.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean))); }
 function parseSpecifications(value: string) { return value.split(/\r?\n/).reduce<Record<string, string>>((result, line) => { const separator = line.indexOf(':'); if (separator > 0) { const key = line.slice(0, separator).trim(); const entry = line.slice(separator + 1).trim(); if (key && entry) result[key] = entry; } return result; }, {}); }
 function specificationsText(value: Record<string, string>) { return Object.entries(value).map(([key, entry]) => `${key}: ${entry}`).join('\n'); }
-function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Catalog action failed.'; }
+function errorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') return error.message;
+    if (typeof error === 'string' && error.trim()) return error.trim();
+    return 'Catalog action failed. Check the required fields and try again.';
+}
