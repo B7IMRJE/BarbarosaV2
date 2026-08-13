@@ -1,18 +1,22 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useEffectEvent, useState } from 'react';
 import {
     ScrollView,
     Text,
     TouchableOpacity,
+    useWindowDimensions,
     View,
 } from 'react-native';
 import PasswordField from '../../components/auth/password-field';
 import {
     clearInvitationPasswordSetupPending,
+    INVITATION_PASSWORD_SETUP_COMPLETED_AT_KEY,
+    requiresInvitationPasswordSetup,
 } from '../../lib/invitation-password-setup';
 import { supabase } from '../../lib/supabase';
 
 export default function ChangePasswordScreen() {
+    const { width: windowWidth } = useWindowDimensions();
     const params = useLocalSearchParams<{ first?: string; next?: string }>();
     const firstPasswordSetup = params.first === '1';
     const nextRoute = safeNextRoute(params.next);
@@ -20,9 +24,12 @@ export default function ChangePasswordScreen() {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState('Checking recovery session...');
+    const prepareSessionEvent = useEffectEvent(prepareSession);
+    const horizontalPadding = windowWidth < 390 ? 16 : 24;
+    const formWidth = Math.max(0, Math.min(windowWidth - (horizontalPadding * 2), 500));
 
     useEffect(() => {
-        prepareSession();
+        void prepareSessionEvent();
     }, []);
 
     async function prepareSession() {
@@ -54,6 +61,12 @@ export default function ChangePasswordScreen() {
             return;
         }
 
+        if (firstPasswordSetup && !(await requiresInvitationPasswordSetup({ assumePending: true }))) {
+            setMessage('Your password is already set. Opening your account...');
+            router.replace(nextRoute as any);
+            return;
+        }
+
         setMessage(`Logged in as: ${data.user.email}`);
     }
 
@@ -76,7 +89,12 @@ export default function ChangePasswordScreen() {
         setLoading(true);
         setMessage('Updating password...');
 
-        const { error } = await supabase.auth.updateUser({ password });
+        const { error } = await supabase.auth.updateUser({
+            password,
+            data: {
+                [INVITATION_PASSWORD_SETUP_COMPLETED_AT_KEY]: new Date().toISOString(),
+            },
+        });
 
         setLoading(false);
 
@@ -91,16 +109,23 @@ export default function ChangePasswordScreen() {
     }
 
     async function cancelInvitationLogin() {
+        await clearInvitationPasswordSetupPending();
         await supabase.auth.signOut();
         router.replace('/auth/login' as any);
     }
 
     return (
         <ScrollView
+            contentInsetAdjustmentBehavior="automatic"
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
-            contentContainerStyle={{ padding: 24, alignItems: 'center' }}
+            contentContainerStyle={{
+                alignItems: 'center',
+                paddingBottom: 32,
+                paddingHorizontal: horizontalPadding,
+                paddingTop: 24,
+            }}
         >
-            <View style={{ width: '100%', maxWidth: 500, marginTop: 50 }}>
+            <View style={{ width: formWidth, maxWidth: '100%', minWidth: 0, marginTop: windowWidth < 390 ? 18 : 34 }}>
                 <Text
                     onPress={firstPasswordSetup ? cancelInvitationLogin : () => router.back()}
                     style={{
@@ -113,7 +138,7 @@ export default function ChangePasswordScreen() {
                     {firstPasswordSetup ? '← Sign Out' : '← Back'}
                 </Text>
 
-                <Text style={{ fontSize: 34, fontWeight: '900', color: '#071B33' }}>
+                <Text style={{ fontSize: windowWidth < 390 ? 30 : 34, fontWeight: '900', color: '#071B33', flexShrink: 1 }}>
                     {firstPasswordSetup ? 'Create Your Password' : 'Change Password'}
                 </Text>
 
@@ -168,6 +193,8 @@ const inputStyle = {
     marginBottom: 14,
     borderWidth: 1,
     borderColor: '#E3E8EF',
+    minWidth: 0,
+    width: '100%' as const,
 };
 
 const buttonStyle = {
@@ -175,6 +202,7 @@ const buttonStyle = {
     padding: 18,
     borderRadius: 18,
     alignItems: 'center' as const,
+    width: '100%' as const,
 };
 
 const buttonTextStyle = {
@@ -190,6 +218,8 @@ const messageBoxStyle = {
     padding: 16,
     borderWidth: 1,
     borderColor: '#E3E8EF',
+    minWidth: 0,
+    width: '100%' as const,
 };
 
 const messageTextStyle = {

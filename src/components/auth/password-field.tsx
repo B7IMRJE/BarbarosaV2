@@ -13,11 +13,11 @@ export default function PasswordField({ style, ...props }: PasswordFieldProps) {
     const [visible, setVisible] = useState(false);
 
     return (
-        <View style={{ position: 'relative' }}>
+        <View style={{ minWidth: 0, position: 'relative', width: '100%' }}>
             <TextInput
                 {...props}
                 secureTextEntry={!visible}
-                style={[style, { paddingRight: 58 }]}
+                style={[style, { minWidth: 0, paddingRight: 58, width: '100%' }]}
             />
             <Pressable
                 accessibilityRole="button"

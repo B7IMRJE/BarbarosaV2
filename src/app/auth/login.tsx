@@ -17,7 +17,10 @@ import {
 } from '../../lib/companyInviteState';
 import { isCustomerInvitePending } from '../../lib/customerInviteStatus';
 import { resolveLoggedInUserRoute, WORKSPACE_ACCESS_ERROR_MESSAGE } from '../../lib/onboarding';
-import { markInvitationPasswordSetupPending } from '../../lib/invitation-password-setup';
+import {
+    clearInvitationPasswordSetupPending,
+    markInvitationPasswordSetupPending,
+} from '../../lib/invitation-password-setup';
 import {
     classifyLoginError,
     safeLoginErrorMessage,
@@ -137,6 +140,14 @@ export default function LoginScreen() {
             setLoading(false);
             setMessage(SESSION_START_ERROR_MESSAGE);
             return;
+        }
+
+        try {
+            // A successful password sign-in proves first-time password setup is complete.
+            // Clear any legacy device marker left behind by an invitation-code session.
+            await clearInvitationPasswordSetupPending();
+        } catch {
+            // Authentication succeeded; optional device storage must not block routing.
         }
 
         const verifiedNextRoute = await resolvePostLoginNextRoute(nextRoute);
