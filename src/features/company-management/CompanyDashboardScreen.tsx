@@ -5,6 +5,11 @@ import React, { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { AppState, Image, Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../lib/companyAuditLogs';
+import {
+    canViewCompanyDashboardModule,
+    getVisibleCompanyDashboardModules,
+    type CompanyDashboardModule,
+} from '../../lib/companyDashboardModules';
 import { getCompanyDisplayName } from '../../lib/companyDisplayName';
 import {
     getCompanyLeadCounts,
@@ -159,22 +164,6 @@ const brandThemePresets = [
         accentColor: '#C48756',
     },
 ];
-const cards = [
-    'Company Profile / Identity',
-    'Visual Control Center',
-    'Customers / Clients',
-    'Leads / Requests',
-    'Opportunities',
-    'Estimates / Proposals',
-    'Jobs / Dispatch',
-    'Team / Technicians',
-    'Activity / Audit Log',
-    'Catalog',
-    'Price Book',
-    'Knowledge Engine',
-    'Contracts & Legal Documents',
-    'Settings / Permissions',
-];
 const COMPANY_DASHBOARD_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_view_techos',
     'can_create_estimates',
@@ -209,10 +198,10 @@ export default function CompanyDashboardScreen() {
     const [companyPermissions, setCompanyPermissions] = useState<CompanyPermissionSet | null>(null);
     const leadRefreshInFlight = useRef(false);
     const activeCompanyId = company?.id || routeCompanyId;
-    const visibleCards = cards;
-    const availableCardCount = cards.filter((card) =>
-        isPlatformAdmin || canViewCompanyModule(card, companyPermissions)
-    ).length;
+    const visibleCards = getVisibleCompanyDashboardModules({
+        isPlatformAdmin,
+        permissions: companyPermissions,
+    });
     const loadCompanyEvent = useEffectEvent(loadCompany);
 
     useEffect(() => {
@@ -621,14 +610,14 @@ export default function CompanyDashboardScreen() {
             setSavingBrand(false);
         }
     }
-    async function openModule(card: string) {
+    async function openModule(card: CompanyDashboardModule) {
         if (!activeCompanyId) {
             alert('Missing company id.');
             return;
         }
 
-        if (!isPlatformAdmin && !canViewCompanyModule(card, companyPermissions)) {
-            alert('This tool is reserved for the company owner, admin, or manager. It remains visible here so the full workspace is easy to find.');
+        if (!isPlatformAdmin && !canViewCompanyDashboardModule(card, companyPermissions)) {
+            alert('You do not have permission to open this tool.');
             return;
         }
 
@@ -1010,7 +999,7 @@ export default function CompanyDashboardScreen() {
                             }}
                         >
                             <Text numberOfLines={1} style={{ color: brandAccent, fontSize: 12, fontWeight: '900' }}>
-                                {visibleCards.length} tools shown · {availableCardCount} available
+                                {visibleCards.length} tools available
                             </Text>
                         </View>
                     </View>
@@ -1052,11 +1041,10 @@ export default function CompanyDashboardScreen() {
                                 title={card}
                                 description={getModuleDescription(card)}
                                 actionLabel={getModuleActionLabel(card)}
-                                isAvailable={isPlatformAdmin || canViewCompanyModule(card, companyPermissions)}
+                                isAvailable
                                 isExpanded={
                                     (card === 'Company Profile / Identity' && expandedConfigSection === 'identity') ||
-                                    (card === 'Visual Control Center' && expandedConfigSection === 'theme') ||
-                                    (card === 'Services & Trust Profile' && expandedConfigSection === 'services')
+                                    (card === 'Visual Control Center' && expandedConfigSection === 'theme')
                                 }
                                 primaryColor={brandPrimary}
                                 accentColor={brandAccent}
@@ -2247,38 +2235,6 @@ async function loadCompanyDashboardPermissions(companyId: string): Promise<Compa
     } as CompanyPermissionSet);
 }
 
-function canViewCompanyModule(card: string, permissions: CompanyPermissionSet | null) {
-    if (!permissions) return false;
-
-    if (card === 'Company Profile / Identity') return permissions.can_manage_company_profile;
-    if (card === 'Visual Control Center') return false;
-    if (card === 'Customers / Clients') return permissions.can_view_customers;
-    if (card === 'Leads / Requests') {
-        return permissions.can_view_customers && permissions.can_view_jobs;
-    }
-    if (card === 'Opportunities') {
-        return permissions.can_view_customers && permissions.can_view_jobs;
-    }
-    if (card === 'Estimates / Proposals') return permissions.can_create_estimates;
-    if (card === 'Jobs / Dispatch') return permissions.can_view_jobs;
-    if (card === 'Team / Technicians') {
-        return permissions.can_manage_company_users || permissions.can_view_jobs;
-    }
-    if (card === 'Activity / Audit Log') return permissions.can_manage_company_users;
-    if (card === 'Catalog') {
-        return permissions.can_view_techos || permissions.can_manage_price_book;
-    }
-    if (card === 'Price Book') {
-        return permissions.can_view_techos || permissions.can_manage_price_book;
-    }
-    if (card === 'Knowledge Engine') return permissions.can_view_jobs;
-    if (card === 'Contracts & Legal Documents') return permissions.can_manage_company_profile;
-    if (card === 'Settings / Permissions') {
-        return permissions.can_manage_company_users || permissions.can_manage_company_profile;
-    }
-
-    return false;
-}
 
 function normalizeServiceErrorMessage(message?: string | null) {
     const cleanMessage = String(message || '').trim();
