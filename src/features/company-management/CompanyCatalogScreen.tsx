@@ -8,6 +8,7 @@ import { Linking, ScrollView, Text, TouchableOpacity, View, useWindowDimensions 
 import AdminNavBar from '../../components/AdminNavBar';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import { canManageCompanyCatalog } from '../../lib/companyCatalogAccess';
 import { loadCurrentCompanyPermissionAccess } from '../../lib/companyPermissions';
 import {
     createCompanyCatalogFileUrl,
@@ -23,6 +24,7 @@ import {
     type CompanyCatalogTier,
 } from '../../lib/companyProductCatalog';
 import { loadCompanyPriceBook, type CompanyPriceBookItem } from '../../lib/companyPriceBook';
+import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 
 export default function CompanyCatalogScreen() {
@@ -54,17 +56,24 @@ export default function CompanyCatalogScreen() {
         if (!companyId) return;
         try {
             setMessage('Loading the company catalog...');
-            const [manageAccess, catalog, priceBook] = await Promise.all([
+            const [isPlatformAdmin, manageAccess, catalog, priceBook] = await Promise.all([
+                loadCurrentUserPlatformAdmin(),
                 loadCurrentCompanyPermissionAccess('can_manage_price_book', { companyId }),
                 loadCompanyProductCatalog(companyId),
                 loadCompanyPriceBook(companyId),
             ]);
-            setCanManage(Boolean(manageAccess.access));
+            const mayManage = canManageCompanyCatalog({
+                isPlatformAdmin,
+                hasCompanyPriceBookPermission: Boolean(manageAccess.access),
+            });
+            setCanManage(mayManage);
             setItems(catalog);
             setPriceBookItems(priceBook.items.filter((item) => item.active));
             setMessage(catalog.length
                 ? `${catalog.length} catalog card${catalog.length === 1 ? '' : 's'} ready.`
-                : 'No catalog cards yet. Create the first approved product card.');
+                : mayManage
+                    ? 'No catalog cards yet. Create the first approved product card.'
+                    : 'No catalog cards yet. Catalog management access is required to create one.');
             if (preferredItemId) {
                 const saved = catalog.find((item) => item.id === preferredItemId);
                 if (saved) setDraft(toDraft(saved));
@@ -179,7 +188,7 @@ export default function CompanyCatalogScreen() {
                     <>
                         <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
                             <DictationTextInput value={search} onChangeText={setSearch} placeholder="Search brand, model, category, or SKU" style={{ flex: 1, minHeight: 52, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, color: textColor }} />
-                            {canManage && <ThemedButton title="Create Catalog Card" onPress={() => setDraft(emptyCompanyCatalogDraft())} />}
+                            {canManage && items.length > 0 && <ThemedButton title="Create Catalog Card" onPress={() => setDraft(emptyCompanyCatalogDraft())} />}
                         </View>
                         <View style={{ gap: 14 }}>
                             {visibleItems.map((item) => {
@@ -206,7 +215,19 @@ export default function CompanyCatalogScreen() {
                                     </ThemedCard>
                                 );
                             })}
-                            {!visibleItems.length && <Text style={{ color: mutedColor }}>No catalog cards match this search.</Text>}
+                            {!visibleItems.length && items.length > 0 && <Text style={{ color: mutedColor }}>No catalog cards match this search.</Text>}
+                            {!items.length && canManage && (
+                                <ThemedCard>
+                                    <View style={{ gap: 12 }}>
+                                        <Text style={{ color: textColor, fontWeight: '900', fontSize: scaleFont(20) }}>Create your first catalog card</Text>
+                                        <Text style={{ color: mutedColor, lineHeight: scaleFont(21) }}>
+                                            Add the product name, category, brand, model, photos, manuals, warranty details, and an optional Price Book service link.
+                                        </Text>
+                                        <ThemedButton title="Create Catalog Card" onPress={() => setDraft(emptyCompanyCatalogDraft())} />
+                                    </View>
+                                </ThemedCard>
+                            )}
+                            {!items.length && !canManage && <Text style={{ color: mutedColor }}>There are no approved catalog cards to view.</Text>}
                         </View>
                     </>
                 )}
