@@ -401,10 +401,8 @@ export default function CompaniesScreen() {
                         const hiddenCategoryCount = Math.max(0, categories.length - visibleCategories.length);
 
                         return (
-                            <TouchableOpacity
+                            <View
                                 key={company.id}
-                                onPress={() => openCompany(company.id)}
-                                activeOpacity={0.86}
                                 style={{
                                     width: companyCardWidth,
                                     maxWidth: '100%',
@@ -855,18 +853,25 @@ export default function CompaniesScreen() {
                                             </Text>
                                         )}
 
-                                        <Text
+                                        <TouchableOpacity
+                                            accessibilityRole="button"
+                                            accessibilityLabel={isSelectingForProperties ? `Select ${displayName}` : `Open ${displayName}`}
+                                            onPress={() => openCompany(company.id)}
                                             style={{
-                                                color: accentColor,
                                                 marginTop: 14,
-                                                fontWeight: '900',
+                                                alignSelf: 'flex-start',
+                                                borderRadius: 10,
+                                                paddingVertical: 8,
+                                                paddingHorizontal: 2,
                                             }}
                                         >
-                                            Open Company
-                                        </Text>
+                                            <Text style={{ color: accentColor, fontWeight: '900' }}>
+                                                {isSelectingForProperties ? 'Select Company' : 'Open Company'}
+                                            </Text>
+                                        </TouchableOpacity>
                                     </View>
                                 </View>
-                            </TouchableOpacity>
+                            </View>
                         );
                     })}
                 </View>
