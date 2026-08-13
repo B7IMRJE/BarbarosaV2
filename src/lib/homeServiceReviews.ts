@@ -1,11 +1,30 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const HOME_SERVICE_REVIEWS_KEY = 'homeos_service_reviews_v1';
+import { supabase } from './supabase';
 
 export type HomeServiceReviewTarget = 'technician' | 'company';
 
 export type HomeServiceReview = {
     id: string;
+    target_type: HomeServiceReviewTarget;
+    property_id: string;
+    emergency_id: string | null;
+    service_request_id: string;
+    company_id: string;
+    company_name: string | null;
+    technician_id: string | null;
+    technician_name: string | null;
+    star_rating: number;
+    category_scores: Record<string, number>;
+    comments: string;
+    tags: string[];
+    verified_completed_job: true;
+    moderation_status: 'private' | 'approved' | 'rejected';
+    created_at: string;
+    updated_at: string;
+    source: 'server';
+};
+
+export type SaveHomeServiceReviewInput = {
+    id?: string;
     target_type: HomeServiceReviewTarget;
     property_id: string;
     emergency_id: string | null;
@@ -15,15 +34,9 @@ export type HomeServiceReview = {
     technician_id: string | null;
     technician_name: string | null;
     star_rating: number;
+    category_scores: Record<string, number>;
     comments: string;
     tags: string[];
-    created_at: string;
-    updated_at: string;
-    source: 'local';
-};
-
-export type SaveHomeServiceReviewInput = Omit<HomeServiceReview, 'id' | 'created_at' | 'updated_at' | 'source'> & {
-    id?: string;
 };
 
 export async function loadHomeServiceReviewsForEmergency(emergencyId: string): Promise<HomeServiceReview[]> {
@@ -31,107 +44,128 @@ export async function loadHomeServiceReviewsForEmergency(emergencyId: string): P
 
     if (!normalizedEmergencyId) return [];
 
-    const reviews = await readReviews();
+    const { data: emergency, error: emergencyError } = await supabase
+        .from('home_emergencies')
+        .select('service_request_id')
+        .eq('id', normalizedEmergencyId)
+        .maybeSingle();
 
-    return reviews
-        .filter((review) => review.emergency_id === normalizedEmergencyId)
-        .sort((first, second) => second.updated_at.localeCompare(first.updated_at));
+    if (emergencyError) throw new Error(emergencyError.message);
+
+    const serviceRequestId = readString((emergency as Record<string, unknown> | null)?.service_request_id);
+
+    if (!serviceRequestId) return [];
+
+    const { data, error } = await supabase.rpc('get_verified_home_service_reviews_for_request', {
+        p_service_request_id: serviceRequestId,
+    });
+
+    if (error) throw new Error(error.message);
+
+    return readReviews(data, normalizedEmergencyId);
 }
 
 export async function saveHomeServiceReview(input: SaveHomeServiceReviewInput): Promise<HomeServiceReview> {
-    const reviews = await readReviews();
-    const now = new Date().toISOString();
-    const existingIndex = reviews.findIndex((review) => review.id === input.id || matchesReviewTarget(review, input));
-    const existingReview = existingIndex >= 0 ? reviews[existingIndex] : null;
-    const nextReview: HomeServiceReview = {
-        ...input,
-        id: existingReview?.id || input.id || makeReviewId(input.target_type),
-        star_rating: Math.max(1, Math.min(5, Math.round(input.star_rating))),
-        comments: input.comments.trim(),
-        tags: input.tags.map((tag) => tag.trim()).filter(Boolean),
-        created_at: existingReview?.created_at || now,
-        updated_at: now,
-        source: 'local',
-    };
+    const serviceRequestId = String(input.service_request_id || '').trim();
 
-    const nextReviews = existingIndex >= 0
-        ? reviews.map((review, index) => (index === existingIndex ? nextReview : review))
-        : [nextReview, ...reviews];
-
-    await writeReviews(nextReviews);
-
-    return nextReview;
-}
-
-async function readReviews(): Promise<HomeServiceReview[]> {
-    const raw = await readRaw(HOME_SERVICE_REVIEWS_KEY);
-
-    if (!raw) return [];
-
-    try {
-        const parsed = JSON.parse(raw);
-
-        if (!Array.isArray(parsed)) return [];
-
-        return parsed
-            .map(readReview)
-            .filter((review): review is HomeServiceReview => Boolean(review));
-    } catch {
-        return [];
+    if (!serviceRequestId) {
+        throw new Error('A completed service request is required before leaving a verified review.');
     }
-}
 
-async function writeReviews(reviews: HomeServiceReview[]) {
-    await writeRaw(HOME_SERVICE_REVIEWS_KEY, JSON.stringify(reviews));
-}
+    const categoryScores = cleanCategoryScores(input.category_scores);
+    const { data, error } = await supabase.rpc('save_verified_home_service_review', {
+        p_service_request_id: serviceRequestId,
+        p_target_type: input.target_type,
+        p_star_rating: clampRating(input.star_rating),
+        p_category_scores: categoryScores,
+        p_tags: cleanList(input.tags),
+        p_comments: input.comments.trim() || null,
+        p_technician_company_user_id: input.target_type === 'technician'
+            ? String(input.technician_id || '').trim() || null
+            : null,
+    });
 
-function readReview(value: unknown): HomeServiceReview | null {
-    if (!value || typeof value !== 'object') return null;
+    if (error) throw new Error(error.message);
 
-    const record = value as Record<string, unknown>;
-    const targetType = readReviewTarget(record.target_type);
-    const id = readString(record.id);
-    const propertyId = readString(record.property_id);
-    const starRating = readNumber(record.star_rating);
-    const createdAt = readString(record.created_at);
-    const updatedAt = readString(record.updated_at);
+    const review = readReviews(data, input.emergency_id)[0];
 
-    if (!targetType || !id || !propertyId || starRating < 1 || !createdAt || !updatedAt) return null;
+    if (!review) throw new Error('The verified review was saved but could not be read.');
 
     return {
-        id,
-        target_type: targetType,
-        property_id: propertyId,
-        emergency_id: readNullableString(record.emergency_id),
-        service_request_id: readNullableString(record.service_request_id),
-        company_id: readNullableString(record.company_id),
-        company_name: readNullableString(record.company_name),
-        technician_id: readNullableString(record.technician_id),
-        technician_name: readNullableString(record.technician_name),
-        star_rating: Math.max(1, Math.min(5, Math.round(starRating))),
-        comments: readString(record.comments),
-        tags: readStringArray(record.tags),
-        created_at: createdAt,
-        updated_at: updatedAt,
-        source: 'local',
+        ...review,
+        company_name: input.company_name,
+        technician_name: input.technician_name,
     };
 }
 
-function matchesReviewTarget(review: HomeServiceReview, input: SaveHomeServiceReviewInput) {
-    return (
-        review.target_type === input.target_type &&
-        review.property_id === input.property_id &&
-        review.emergency_id === input.emergency_id &&
-        review.service_request_id === input.service_request_id
-    );
+function readReviews(data: unknown, emergencyId: string | null) {
+    return (Array.isArray(data) ? data : data ? [data] : [])
+        .map((value): HomeServiceReview | null => {
+            const record = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+            const targetType = readReviewTarget(record.target_type);
+            const id = readString(record.id);
+            const propertyId = readString(record.property_id);
+            const serviceRequestId = readString(record.service_request_id);
+            const companyId = readString(record.company_id);
+            const starRating = clampRating(Number(record.star_rating));
+            const createdAt = readString(record.created_at);
+            const updatedAt = readString(record.updated_at);
+
+            if (!targetType || !id || !propertyId || !serviceRequestId || !companyId || !createdAt || !updatedAt) {
+                return null;
+            }
+
+            return {
+                id,
+                target_type: targetType,
+                property_id: propertyId,
+                emergency_id: emergencyId,
+                service_request_id: serviceRequestId,
+                company_id: companyId,
+                company_name: null,
+                technician_id: readNullableString(record.technician_company_user_id),
+                technician_name: null,
+                star_rating: starRating,
+                category_scores: cleanCategoryScores(record.category_scores),
+                comments: readString(record.comments),
+                tags: readStringArray(record.tags),
+                verified_completed_job: true,
+                moderation_status: readModerationStatus(record.moderation_status),
+                created_at: createdAt,
+                updated_at: updatedAt,
+                source: 'server',
+            };
+        })
+        .filter((review): review is HomeServiceReview => Boolean(review));
 }
 
-function makeReviewId(targetType: HomeServiceReviewTarget) {
-    return `${targetType}-review-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+function cleanCategoryScores(value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+
+    return Object.entries(value).reduce<Record<string, number>>((result, [key, entry]) => {
+        const normalizedKey = key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        const score = Number(entry);
+
+        if (normalizedKey && Number.isFinite(score)) result[normalizedKey] = clampRating(score);
+
+        return result;
+    }, {});
 }
 
 function readReviewTarget(value: unknown): HomeServiceReviewTarget | null {
     return value === 'technician' || value === 'company' ? value : null;
+}
+
+function readModerationStatus(value: unknown): HomeServiceReview['moderation_status'] {
+    return value === 'approved' || value === 'rejected' ? value : 'private';
+}
+
+function clampRating(value: number) {
+    return Math.max(1, Math.min(5, Math.round(Number.isFinite(value) ? value : 1)));
+}
+
+function cleanList(values: string[]) {
+    return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
 function readString(value: unknown) {
@@ -139,36 +173,9 @@ function readString(value: unknown) {
 }
 
 function readNullableString(value: unknown) {
-    const text = readString(value);
-
-    return text || null;
-}
-
-function readNumber(value: unknown) {
-    const number = Number(value);
-
-    return Number.isFinite(number) ? number : 0;
+    return readString(value) || null;
 }
 
 function readStringArray(value: unknown) {
-    if (!Array.isArray(value)) return [];
-
-    return value.map(readString).filter(Boolean);
-}
-
-async function readRaw(key: string) {
-    if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key);
-    }
-
-    return AsyncStorage.getItem(key);
-}
-
-async function writeRaw(key: string, value: string) {
-    if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(key, value);
-        return;
-    }
-
-    await AsyncStorage.setItem(key, value);
+    return Array.isArray(value) ? cleanList(value.map(readString)) : [];
 }

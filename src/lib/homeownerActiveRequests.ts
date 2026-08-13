@@ -29,6 +29,7 @@ export type HomeownerActiveServiceRequest = {
     provider_name: string | null;
     schedule_slot_id: string | null;
     schedule_status: string | null;
+    technician_company_user_id?: string | null;
     technician_name: string | null;
     arrival_window_start: string | null;
     arrival_window_end: string | null;
@@ -436,6 +437,7 @@ async function loadScheduleSummaries(requestIds: string[]) {
         accumulator[requestId] = {
             schedule_slot_id: readString(record, 'id') || null,
             schedule_status: readString(record, 'status') || null,
+            technician_company_user_id: technicianId || null,
             technician_name: technicianNames[technicianId] || null,
             arrival_window_start: readString(record, 'arrival_window_start') || null,
             arrival_window_end: readString(record, 'arrival_window_end') || null,
@@ -484,6 +486,7 @@ function normalizeActiveServiceRequests(data: unknown): HomeownerActiveServiceRe
                 provider_name: readOptionalString(record.provider_name),
                 schedule_slot_id: readOptionalString(record.schedule_slot_id),
                 schedule_status: readOptionalString(record.schedule_status),
+                technician_company_user_id: readOptionalString(record.technician_company_user_id),
                 technician_name: readOptionalString(record.technician_name),
                 arrival_window_start: readOptionalString(record.arrival_window_start),
                 arrival_window_end: readOptionalString(record.arrival_window_end),

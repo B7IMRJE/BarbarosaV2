@@ -1,4 +1,5 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -353,6 +354,7 @@ export default function TechOSScreen() {
     const [authUserId, setAuthUserId] = useState('');
     const [authEmail, setAuthEmail] = useState('');
     const [signingOut, setSigningOut] = useState(false);
+    const [showPublicProfileInvitation, setShowPublicProfileInvitation] = useState(false);
     const [accessMode, setAccessMode] = useState<TechOSAccessMode>('choosing');
     const [accessModeLoading, setAccessModeLoading] = useState(false);
     const [accessModeMessage, setAccessModeMessage] = useState('');
@@ -419,6 +421,27 @@ export default function TechOSScreen() {
         [membership?.id, technicianCompanyUserIds, techOSMode]
     );
     const primaryTechnicianCompanyUserId = assignedTechnicianCompanyUserIds[0] || '';
+
+    useEffect(() => {
+        let active = true;
+
+        if (!primaryTechnicianCompanyUserId || techOSMode !== 'technician') {
+            setShowPublicProfileInvitation(false);
+            return;
+        }
+
+        void AsyncStorage.getItem(`barbarosa:techos:public-profile-invitation:${primaryTechnicianCompanyUserId}`)
+            .then((value) => {
+                if (active) setShowPublicProfileInvitation(value !== 'dismissed');
+            })
+            .catch(() => {
+                if (active) setShowPublicProfileInvitation(true);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [primaryTechnicianCompanyUserId, techOSMode]);
     const handleTechnicianTimeEntriesChange = useCallback((entries: TechnicianTimeEntry[]) => {
         setTechnicianTimeEntries(entries);
         setTechnicianTimeEntriesLoaded(true);
@@ -2021,6 +2044,28 @@ export default function TechOSScreen() {
     const technicianName = isPlatformAdminAccess
         ? 'Platform Admin'
         : membership?.full_name || authEmail || membership?.email || 'Technician';
+
+    function openMyPublicProfile() {
+        dismissPublicProfileInvitation();
+        router.push({
+            pathname: '/techos/profile',
+            params: {
+                companyUserId: primaryTechnicianCompanyUserId,
+                companyName,
+                technicianName,
+            },
+        } as never);
+    }
+
+    function dismissPublicProfileInvitation() {
+        setShowPublicProfileInvitation(false);
+        if (!primaryTechnicianCompanyUserId) return;
+
+        void AsyncStorage.setItem(
+            `barbarosa:techos:public-profile-invitation:${primaryTechnicianCompanyUserId}`,
+            'dismissed'
+        ).catch(() => undefined);
+    }
     const isTimeClockFocused = isTechnicianWorkspace && dashboardView === 'time-clock' && !selectedAssignedJob;
     const overtimeRemainingSeconds = Math.max(0, REGULAR_SHIFT_SECONDS - technicianHourSummary.workedSeconds);
 
@@ -2077,8 +2122,22 @@ export default function TechOSScreen() {
                     onOpenTimeClock={() => openTimeClock('overview')}
                     onOpenLunchBreaks={() => openTimeClock('lunch')}
                     onOpenClockOut={() => openTimeClock('clock-out')}
+                    onOpenPublicProfile={openMyPublicProfile}
                     signingOut={signingOut}
                 />}
+
+                {showPublicProfileInvitation && !selectedAssignedJob && !isTimeClockFocused && (
+                    <ThemedCard style={{ marginTop: 14 }}>
+                        <Text style={[sectionTitleStyle, { color: techOSTheme.textColor }]}>Set up your homeowner-facing profile</Text>
+                        <Text style={[bodyTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 6 }]}>
+                            Add your uniform portrait, professional biography, experience, and specialties. Management reviews every change before homeowners can see it.
+                        </Text>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+                            <ThemedButton title="Open My Profile" onPress={openMyPublicProfile} style={{ flexGrow: 1 }} />
+                            <ThemedButton title="Not Now" variant="secondary" onPress={dismissPublicProfileInvitation} style={{ flexGrow: 1 }} />
+                        </View>
+                    </ThemedCard>
+                )}
 
                 {!!dispatchCompanyId && !selectedAssignedJob && !isTimeClockFocused && (
                     <View style={techQuickActionRowStyle}>
@@ -2485,6 +2544,7 @@ function TechOSProfileHeader({
     showTechnicianHours,
     onOpenClockOut,
     onOpenLunchBreaks,
+    onOpenPublicProfile,
     onOpenTimeClock,
     onSignOut,
     signingOut,
@@ -2508,6 +2568,7 @@ function TechOSProfileHeader({
     showTechnicianHours: boolean;
     onOpenClockOut: () => void;
     onOpenLunchBreaks: () => void;
+    onOpenPublicProfile: () => void;
     onOpenTimeClock: () => void;
     onSignOut: () => void;
     signingOut: boolean;
@@ -2563,6 +2624,14 @@ function TechOSProfileHeader({
                     style={techProfileSignOutButtonStyle}
                 />
             </View>
+            {showTechnicianHours && (
+                <ThemedButton
+                    title="My Public Profile & QR"
+                    variant="secondary"
+                    onPress={onOpenPublicProfile}
+                    style={{ alignSelf: 'flex-start', marginTop: 14 }}
+                />
+            )}
             {showTechnicianHours && (
                 <View style={techProfileHoursSectionStyle}>
                     <Text selectable style={[techProfileHoursHeadingStyle, { color: techOSTheme.mutedTextColor }]}>

@@ -77,15 +77,29 @@ type EmergencyRecord = {
 
 type ReviewFormState = {
     rating: number;
+    categoryRatings: Record<string, number>;
     comments: string;
     tags: string[];
 };
 
 const technicianReviewTags = ['On time', 'Professional', 'Clean work', 'Explained clearly'];
 const companyReviewTags = ['Fair pricing', 'Easy scheduling', 'Good communication', 'Would recommend'];
+const technicianReviewCategories = [
+    { key: 'arrival_reliability', label: 'Arrival & reliability' },
+    { key: 'professionalism', label: 'Professionalism' },
+    { key: 'work_quality', label: 'Work quality' },
+    { key: 'communication', label: 'Communication' },
+];
+const companyReviewCategories = [
+    { key: 'scheduling', label: 'Scheduling' },
+    { key: 'office_communication', label: 'Office communication' },
+    { key: 'pricing_clarity', label: 'Pricing clarity' },
+    { key: 'overall_service', label: 'Overall service' },
+];
 
 const emptyReviewForm: ReviewFormState = {
     rating: 0,
+    categoryRatings: {},
     comments: '',
     tags: [],
 };
@@ -507,8 +521,19 @@ export default function EmergencyDetailScreen() {
         await loadEmergency({ preserveMessages: true });
     }
 
-    function updateReviewRating(target: HomeServiceReviewTarget, rating: number) {
-        updateReviewForm(target, (form) => ({ ...form, rating }));
+    function updateReviewCategoryRating(target: HomeServiceReviewTarget, category: string, rating: number) {
+        updateReviewForm(target, (form) => {
+            const categoryRatings = { ...form.categoryRatings, [category]: rating };
+            const scores = Object.values(categoryRatings);
+
+            return {
+                ...form,
+                categoryRatings,
+                rating: scores.length > 0
+                    ? Math.max(1, Math.min(5, Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)))
+                    : 0,
+            };
+        });
     }
 
     function updateReviewComments(target: HomeServiceReviewTarget, comments: string) {
@@ -541,8 +566,10 @@ export default function EmergencyDetailScreen() {
 
         const form = target === 'technician' ? technicianReviewForm : companyReviewForm;
 
-        if (form.rating < 1) {
-            setReviewMessage(`${reviewTitle(target)} needs a star rating.`);
+        const requiredCategories = target === 'technician' ? technicianReviewCategories : companyReviewCategories;
+
+        if (requiredCategories.some((category) => !form.categoryRatings[category.key])) {
+            setReviewMessage(`${reviewTitle(target)} needs a rating for each service category.`);
             return;
         }
 
@@ -563,6 +590,7 @@ export default function EmergencyDetailScreen() {
                 technician_id: null,
                 technician_name: null,
                 star_rating: form.rating,
+                category_scores: form.categoryRatings,
                 comments: form.comments,
                 tags: form.tags,
             });
@@ -793,12 +821,13 @@ export default function EmergencyDetailScreen() {
                             title="Review Technician"
                             targetName={savedTechnicianReview?.technician_name || 'Technician not assigned in HomeOS yet'}
                             tags={technicianReviewTags}
+                            categories={technicianReviewCategories}
                             form={technicianReviewForm}
                             savedReview={savedTechnicianReview}
                             expanded={activeReviewTarget === 'technician'}
                             saving={savingReviewTarget === 'technician'}
                             onToggle={() => setActiveReviewTarget(activeReviewTarget === 'technician' ? null : 'technician')}
-                            onRatingChange={(rating) => updateReviewRating('technician', rating)}
+                            onCategoryRatingChange={(category, rating) => updateReviewCategoryRating('technician', category, rating)}
                             onTagToggle={(tag) => toggleReviewTag('technician', tag)}
                             onCommentsChange={(comments) => updateReviewComments('technician', comments)}
                             onSubmit={() => submitReview('technician')}
@@ -807,12 +836,13 @@ export default function EmergencyDetailScreen() {
                             title="Review Company"
                             targetName={preferredProvider?.companyName || savedCompanyReview?.company_name || 'Company not connected yet'}
                             tags={companyReviewTags}
+                            categories={companyReviewCategories}
                             form={companyReviewForm}
                             savedReview={savedCompanyReview}
                             expanded={activeReviewTarget === 'company'}
                             saving={savingReviewTarget === 'company'}
                             onToggle={() => setActiveReviewTarget(activeReviewTarget === 'company' ? null : 'company')}
-                            onRatingChange={(rating) => updateReviewRating('company', rating)}
+                            onCategoryRatingChange={(category, rating) => updateReviewCategoryRating('company', category, rating)}
                             onTagToggle={(tag) => toggleReviewTag('company', tag)}
                             onCommentsChange={(comments) => updateReviewComments('company', comments)}
                             onSubmit={() => submitReview('company')}
@@ -911,12 +941,13 @@ function ServiceReviewCard({
     title,
     targetName,
     tags,
+    categories,
     form,
     savedReview,
     expanded,
     saving,
     onToggle,
-    onRatingChange,
+    onCategoryRatingChange,
     onTagToggle,
     onCommentsChange,
     onSubmit,
@@ -924,12 +955,13 @@ function ServiceReviewCard({
     title: string;
     targetName: string;
     tags: string[];
+    categories: { key: string; label: string }[];
     form: ReviewFormState;
     savedReview?: HomeServiceReview;
     expanded: boolean;
     saving: boolean;
     onToggle: () => void;
-    onRatingChange: (rating: number) => void;
+    onCategoryRatingChange: (category: string, rating: number) => void;
     onTagToggle: (tag: string) => void;
     onCommentsChange: (comments: string) => void;
     onSubmit: () => void;
@@ -962,32 +994,42 @@ function ServiceReviewCard({
             {expanded && (
                 <View style={reviewFormStyle}>
                     <View>
-                        <Text style={[reviewLabelStyle, { color: theme.colors.text }]}>Star rating</Text>
-                        <View style={starRowStyle}>
-                            {[1, 2, 3, 4, 5].map((rating) => (
-                                <TouchableOpacity
-                                    key={rating}
-                                    onPress={() => onRatingChange(rating)}
-                                    activeOpacity={0.82}
-                                    style={[
-                                        starButtonStyle,
-                                        {
-                                            backgroundColor: visibleRating >= rating ? theme.colors.primary : theme.colors.surface,
-                                            borderColor: visibleRating >= rating ? theme.colors.primary : theme.colors.border,
-                                        },
-                                    ]}
-                                >
-                                    <Text
-                                        style={{
-                                            color: visibleRating >= rating ? theme.colors.primaryText : theme.colors.text,
-                                            fontWeight: '900',
-                                        }}
-                                    >
-                                        {rating}
+                        <Text style={[reviewLabelStyle, { color: theme.colors.text }]}>Rate each part of the service</Text>
+                        <Text style={{ color: theme.colors.mutedText, fontSize: 12, fontWeight: '800', marginBottom: 10 }}>
+                            Overall score: {visibleRating || 'Not complete'}
+                        </Text>
+                        {categories.map((category) => {
+                            const categoryRating = form.categoryRatings[category.key] || savedReview?.category_scores[category.key] || 0;
+
+                            return (
+                                <View key={category.key} style={{ marginBottom: 11 }}>
+                                    <Text style={{ color: theme.colors.text, fontSize: 13, fontWeight: '900', marginBottom: 6 }}>
+                                        {category.label}
                                     </Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
+                                    <View style={starRowStyle}>
+                                        {[1, 2, 3, 4, 5].map((rating) => (
+                                            <TouchableOpacity
+                                                key={rating}
+                                                accessibilityLabel={`${category.label}: ${rating} out of 5`}
+                                                onPress={() => onCategoryRatingChange(category.key, rating)}
+                                                activeOpacity={0.82}
+                                                style={[
+                                                    starButtonStyle,
+                                                    {
+                                                        backgroundColor: categoryRating >= rating ? theme.colors.primary : theme.colors.surface,
+                                                        borderColor: categoryRating >= rating ? theme.colors.primary : theme.colors.border,
+                                                    },
+                                                ]}
+                                            >
+                                                <Text style={{ color: categoryRating >= rating ? theme.colors.primaryText : theme.colors.text, fontWeight: '900' }}>
+                                                    {rating}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </View>
+                            );
+                        })}
                     </View>
 
                     <View>
@@ -1082,6 +1124,7 @@ function reviewToForm(review?: HomeServiceReview): ReviewFormState {
 
     return {
         rating: review.star_rating,
+        categoryRatings: review.category_scores,
         comments: review.comments,
         tags: review.tags,
     };

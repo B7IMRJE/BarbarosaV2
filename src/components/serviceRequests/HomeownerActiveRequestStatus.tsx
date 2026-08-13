@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import {
@@ -366,7 +367,20 @@ export default function HomeownerActiveRequestStatus({ bottomOffset }: Homeowner
 
                         <View style={{ gap: scaleIcon(8), marginTop: scaleIcon(12) }}>
                             <DetailLine label="Provider" value={selectedTracker.providerName} />
-                            <DetailLine label="Technician" value={selectedTracker.technicianName} />
+                            <DetailLine
+                                label="Technician"
+                                value={selectedTracker.technicianName}
+                                actionLabel={selectedTracker.request.technician_company_user_id ? 'View profile' : undefined}
+                                onPress={selectedTracker.request.technician_company_user_id
+                                    ? () => router.push({
+                                        pathname: '/technician/[id]',
+                                        params: {
+                                            id: selectedTracker.request.technician_company_user_id || '',
+                                            serviceRequestId: selectedTracker.request.id,
+                                        },
+                                    })
+                                    : undefined}
+                            />
                             {!!getActiveRequestEtaStatusText(selectedTracker) && (
                                 <DetailLine label="ETA" value={getActiveRequestEtaStatusText(selectedTracker)} />
                             )}
@@ -439,7 +453,17 @@ function Badge({ label }: { label: string }) {
     );
 }
 
-function DetailLine({ label, value }: { label: string; value: string }) {
+function DetailLine({
+    label,
+    value,
+    actionLabel,
+    onPress,
+}: {
+    label: string;
+    value: string;
+    actionLabel?: string;
+    onPress?: () => void;
+}) {
     const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
@@ -456,9 +480,27 @@ function DetailLine({ label, value }: { label: string; value: string }) {
             <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(11), fontWeight: '900', textTransform: 'uppercase' }}>
                 {label}
             </Text>
-            <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '800', lineHeight: scaleFont(19), marginTop: scaleIcon(2) }}>
-                {value}
-            </Text>
+            {onPress ? (
+                <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`${actionLabel || 'Open'} ${value}`}
+                    activeOpacity={0.78}
+                    onPress={onPress}
+                    style={{ alignItems: 'center', flexDirection: 'row', gap: scaleIcon(6), marginTop: scaleIcon(2) }}
+                >
+                    <Text style={{ color: theme.colors.link, flex: 1, fontSize: scaleFont(13), fontWeight: '900', lineHeight: scaleFont(19) }}>
+                        {value}
+                    </Text>
+                    <Text style={{ color: theme.colors.link, fontSize: scaleFont(11), fontWeight: '900' }}>
+                        {actionLabel || 'Open'}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={scaleIcon(14)} color={theme.colors.link} />
+                </TouchableOpacity>
+            ) : (
+                <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '800', lineHeight: scaleFont(19), marginTop: scaleIcon(2) }}>
+                    {value}
+                </Text>
+            )}
         </View>
     );
 }

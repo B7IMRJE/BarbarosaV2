@@ -1,5 +1,6 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { useLocalSearchParams, type Href } from 'expo-router';
+import QRCode from 'react-native-qrcode-svg';
 import type { ReactNode } from 'react';
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
@@ -43,7 +44,22 @@ import {
     resolveCompanyWorkspaceTheme,
     type CompanyWorkspaceBrand,
 } from '../../lib/companyWorkspaceTheme';
+import {
+    formatProfileList,
+    loadCompanyTechnicianPublicProfiles,
+    parseProfileList,
+    saveCompanyTechnicianPublicProfile,
+    type CompanyTechnicianPublicProfile,
+} from '../../lib/technicianPublicProfile';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../lib/supabase';
+import {
+    PROFESSIONAL_CONTACT_FIELDS,
+    buildProfessionalVCard,
+    loadCompanyStaffProfessionalContacts,
+    saveStaffProfessionalContact,
+    type ProfessionalContactField,
+    type StaffProfessionalContact,
+} from '../../lib/staffProfessionalContact';
 import { ThemeContext } from '../../theme';
 import { GlassPaletteProvider } from '../../theme/glass-palette-context';
 import { createCompanyGlassPalette } from '../../theme/glassPalette';
@@ -103,6 +119,31 @@ type CompanyUserManagementAccessResult = {
     message: string | null;
 };
 
+type TechnicianProfileDraft = {
+    displayName: string;
+    profilePhotoUrl: string;
+    shortBio: string;
+    generalLocation: string;
+    familyNote: string;
+    hobbies: string;
+    specialties: string;
+    languages: string;
+    certifications: string;
+    yearsExperience: string;
+    published: boolean;
+};
+
+type StaffProfessionalContactDraft = {
+    professionalTitle: string;
+    department: string;
+    professionalPhone: string;
+    professionalEmail: string;
+    extension: string;
+    professionalWebsite: string;
+    yearsWithCompany: string;
+    sharedFields: ProfessionalContactField[];
+};
+
 const COMPANY_PERMISSION_DESCRIPTIONS: Record<CompanyPermissionKey, string> = {
     can_view_techos: 'Open TechOS and use its available work tools.',
     can_create_estimates: 'Create estimate and proposal drafts.',
@@ -124,6 +165,8 @@ export default function CompanyUsersScreen() {
     const teamScrollRef = useRef<ScrollView>(null);
 
     const [members, setMembers] = useState<CompanyUser[]>([]);
+    const [technicianProfilesByMemberId, setTechnicianProfilesByMemberId] = useState<Record<string, CompanyTechnicianPublicProfile>>({});
+    const [professionalContactsByMemberId, setProfessionalContactsByMemberId] = useState<Record<string, StaffProfessionalContact>>({});
     const [invitations, setInvitations] = useState<CompanyInvitation[]>([]);
     const [fullName, setFullName] = useState('');
     const [email, setEmail] = useState('');
@@ -274,6 +317,8 @@ export default function CompanyUsersScreen() {
 
         if (!accessResult.canManage) {
             setInvitations([]);
+            setTechnicianProfilesByMemberId({});
+            setProfessionalContactsByMemberId({});
             setCanManageRolePermissions(false);
             if (showLoading) {
                 setMessage('Viewing the active company roster. Only owners, admins, and managers can change team access.');
@@ -281,7 +326,7 @@ export default function CompanyUsersScreen() {
             return true;
         }
 
-        const [invitationsResult, permissionProfilesResult] = await Promise.all([
+        const [invitationsResult, permissionProfilesResult, technicianProfilesResult, professionalContactsResult] = await Promise.all([
             supabase
                 .from('company_user_invitations')
                 .select(
@@ -290,6 +335,12 @@ export default function CompanyUsersScreen() {
                 .eq('company_id', String(id))
                 .order('created_at', { ascending: false }),
             loadCompanyRolePermissionProfiles(String(id)),
+            loadCompanyTechnicianPublicProfiles(String(id))
+                .then((profiles) => ({ profiles, error: null as Error | null }))
+                .catch((error) => ({ profiles: [] as CompanyTechnicianPublicProfile[], error: error as Error })),
+            loadCompanyStaffProfessionalContacts(String(id))
+                .then((contacts) => ({ contacts, error: null as Error | null }))
+                .catch((error) => ({ contacts: [] as StaffProfessionalContact[], error: error as Error })),
         ]);
 
         if (invitationsResult.error) {
@@ -298,6 +349,14 @@ export default function CompanyUsersScreen() {
         }
 
         setInvitations((invitationsResult.data || []) as CompanyInvitation[]);
+        setTechnicianProfilesByMemberId(technicianProfilesResult.profiles.reduce<Record<string, CompanyTechnicianPublicProfile>>((result, profile) => {
+            result[profile.company_user_id] = profile;
+            return result;
+        }, {}));
+        setProfessionalContactsByMemberId(professionalContactsResult.contacts.reduce<Record<string, StaffProfessionalContact>>((result, contact) => {
+            result[contact.company_user_id] = contact;
+            return result;
+        }, {}));
         setRolePermissions(permissionProfilesResult.profiles);
         setSavedRolePermissions(permissionProfilesResult.profiles);
         setCanManageRolePermissions(permissionProfilesResult.canCustomize);
@@ -307,6 +366,69 @@ export default function CompanyUsersScreen() {
         }
 
         return true;
+    }
+
+    async function saveTechnicianProfile(
+        memberId: string,
+        draft: TechnicianProfileDraft
+    ) {
+        setActionLoadingKey(`${memberId}:public-profile`);
+        setMessage('Saving the homeowner-facing technician profile...');
+
+        try {
+            const savedProfile = await saveCompanyTechnicianPublicProfile({
+                company_user_id: memberId,
+                display_name: draft.displayName,
+                profile_photo_url: draft.profilePhotoUrl,
+                short_bio: draft.shortBio,
+                general_location: draft.generalLocation,
+                family_note: draft.familyNote,
+                hobbies: parseProfileList(draft.hobbies),
+                specialties: parseProfileList(draft.specialties),
+                languages: parseProfileList(draft.languages),
+                certifications: parseProfileList(draft.certifications),
+                years_experience: parseOptionalInteger(draft.yearsExperience),
+                publication_status: draft.published ? 'published' : 'draft',
+            });
+
+            setTechnicianProfilesByMemberId((current) => ({
+                ...current,
+                [memberId]: savedProfile,
+            }));
+            setMessage(draft.published
+                ? 'Technician profile approved and visible to assigned homeowners.'
+                : 'Technician profile saved as a private company draft.');
+        } catch (error) {
+            setMessage(`Technician profile failed: ${getErrorMessage(error)}`);
+        } finally {
+            setActionLoadingKey(null);
+        }
+    }
+
+    async function saveProfessionalContact(memberId: string, draft: StaffProfessionalContactDraft) {
+        setActionLoadingKey(`${memberId}:professional-contact`);
+        setMessage('Saving company-approved professional contact...');
+
+        try {
+            const savedContact = await saveStaffProfessionalContact({
+                company_user_id: memberId,
+                professional_title: draft.professionalTitle,
+                department: draft.department,
+                professional_phone: draft.professionalPhone,
+                professional_email: draft.professionalEmail,
+                extension: draft.extension,
+                professional_website: draft.professionalWebsite,
+                years_with_company: parseOptionalInteger(draft.yearsWithCompany),
+                shared_fields: draft.sharedFields,
+            });
+
+            setProfessionalContactsByMemberId((current) => ({ ...current, [memberId]: savedContact }));
+            setMessage('Professional contact and QR sharing choices saved.');
+        } catch (error) {
+            setMessage(`Professional contact failed: ${getErrorMessage(error)}`);
+        } finally {
+            setActionLoadingKey(null);
+        }
     }
 
     function toggleRolePermission(permissionKey: CompanyPermissionKey, enabled: boolean) {
@@ -1175,8 +1297,13 @@ export default function CompanyUsersScreen() {
                                         expanded={!!expandedRows[`member:${member.id}`]}
                                         actionLoadingKey={actionLoadingKey}
                                         canManage={canManageUsers}
+                                        companyName={companyName}
+                                        publicProfile={technicianProfilesByMemberId[member.id]}
+                                        professionalContact={professionalContactsByMemberId[member.id]}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
+                                        onSavePublicProfile={saveTechnicianProfile}
+                                        onSaveProfessionalContact={saveProfessionalContact}
                                     />
                                 ))
                             )}
@@ -1198,8 +1325,13 @@ export default function CompanyUsersScreen() {
                                         expanded={!!expandedRows[`member:${member.id}`]}
                                         actionLoadingKey={actionLoadingKey}
                                         canManage={canManageUsers}
+                                        companyName={companyName}
+                                        publicProfile={technicianProfilesByMemberId[member.id]}
+                                        professionalContact={professionalContactsByMemberId[member.id]}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
+                                        onSavePublicProfile={saveTechnicianProfile}
+                                        onSaveProfessionalContact={saveProfessionalContact}
                                     />
                                 ))
                             )}
@@ -1221,8 +1353,13 @@ export default function CompanyUsersScreen() {
                                         expanded={!!expandedRows[`member:${member.id}`]}
                                         actionLoadingKey={actionLoadingKey}
                                         canManage={canManageUsers}
+                                        companyName={companyName}
+                                        publicProfile={technicianProfilesByMemberId[member.id]}
+                                        professionalContact={professionalContactsByMemberId[member.id]}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
+                                        onSavePublicProfile={saveTechnicianProfile}
+                                        onSaveProfessionalContact={saveProfessionalContact}
                                     />
                                 ))
                             )}
@@ -1244,8 +1381,13 @@ export default function CompanyUsersScreen() {
                                         expanded={!!expandedRows[`member:${member.id}`]}
                                         actionLoadingKey={actionLoadingKey}
                                         canManage={canManageUsers}
+                                        companyName={companyName}
+                                        publicProfile={technicianProfilesByMemberId[member.id]}
+                                        professionalContact={professionalContactsByMemberId[member.id]}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
+                                        onSavePublicProfile={saveTechnicianProfile}
+                                        onSaveProfessionalContact={saveProfessionalContact}
                                     />
                                 ))
                             )}
@@ -1405,15 +1547,25 @@ function TeamMemberRow({
     expanded,
     actionLoadingKey,
     canManage,
+    companyName,
+    publicProfile,
+    professionalContact,
     onToggle,
     onStatusChange,
+    onSavePublicProfile,
+    onSaveProfessionalContact,
 }: {
     member: CompanyUser;
     expanded: boolean;
     actionLoadingKey: string | null;
     canManage: boolean;
+    companyName: string;
+    publicProfile?: CompanyTechnicianPublicProfile;
+    professionalContact?: StaffProfessionalContact;
     onToggle: () => void;
     onStatusChange: (memberId: string, nextStatus: MemberActionStatus) => void;
+    onSavePublicProfile: (memberId: string, draft: TechnicianProfileDraft) => Promise<void>;
+    onSaveProfessionalContact: (memberId: string, draft: StaffProfessionalContactDraft) => Promise<void>;
 }) {
     const { theme } = useTheme();
     const status = normalizeStatus(member.status);
@@ -1574,11 +1726,22 @@ function TeamMemberRow({
                         </Text>
                     </DetailPanelSection>
 
-                    <DetailPanelSection title="Technician Public Profile">
-                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
-                            Technician public profile editing will be added here later.
-                        </Text>
-                    </DetailPanelSection>
+                    <StaffProfessionalContactEditor
+                        companyName={companyName}
+                        member={member}
+                        contact={professionalContact}
+                        saving={actionLoadingKey === `${member.id}:professional-contact`}
+                        onSave={(draft) => onSaveProfessionalContact(member.id, draft)}
+                    />
+
+                    {isTechnicianRole(member.role) && (
+                        <TechnicianPublicProfileEditor
+                            member={member}
+                            profile={publicProfile}
+                            saving={actionLoadingKey === `${member.id}:public-profile`}
+                            onSave={(draft) => onSavePublicProfile(member.id, draft)}
+                        />
+                    )}
 
                     <DetailPanelSection title="Jobs">
                         <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
@@ -1644,6 +1807,431 @@ function TeamMemberRow({
             )}
         </GlassGridCard>
     );
+}
+
+function TechnicianPublicProfileEditor({
+    member,
+    profile,
+    saving,
+    onSave,
+}: {
+    member: CompanyUser;
+    profile?: CompanyTechnicianPublicProfile;
+    saving: boolean;
+    onSave: (draft: TechnicianProfileDraft) => Promise<void>;
+}) {
+    const { theme } = useTheme();
+    const [draft, setDraft] = useState<TechnicianProfileDraft>(() => createTechnicianProfileDraft(member, profile));
+
+    useEffect(() => {
+        setDraft(createTechnicianProfileDraft(member, profile));
+    }, [member, profile]);
+
+    function updateDraft<K extends keyof TechnicianProfileDraft>(key: K, value: TechnicianProfileDraft[K]) {
+        setDraft((current) => ({ ...current, [key]: value }));
+    }
+
+    return (
+        <DetailPanelSection title="Technician Public Profile">
+            <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                Homeowners assigned to this technician can tap their name to see only the information approved here. Personal email, phone, and street address are never shown.
+            </Text>
+
+            {!!profile?.pending_profile && (
+                <View style={[publicProfileApprovalStyle, { borderColor: theme.colors.primary }]}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Technician changes awaiting review</Text>
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText, marginTop: 3 }]}>
+                            The form below is prefilled with the technician’s submission. Review it, correct anything needed, then publish or keep it private.
+                        </Text>
+                    </View>
+                </View>
+            )}
+
+            <View style={[publicProfileApprovalStyle, { borderColor: theme.colors.border }]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>
+                        Homeowner preview: {draft.displayName || getMemberDisplayName(member, 'Technician')}
+                    </Text>
+                    <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText, marginTop: 3 }]}>
+                        {draft.shortBio || 'No biography entered yet.'}
+                    </Text>
+                    {!!draft.specialties && (
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText, marginTop: 3 }]}>
+                            Specialties: {draft.specialties}
+                        </Text>
+                    )}
+                </View>
+            </View>
+
+            <ProfileField label="Public display name">
+                <DictationTextInput
+                    value={draft.displayName}
+                    onChangeText={(value) => updateDraft('displayName', value)}
+                    placeholder={getMemberDisplayName(member, 'Technician')}
+                    accessibilityLabel="Public technician display name"
+                    style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                />
+            </ProfileField>
+
+            <ProfileField label="Uniform portrait HTTPS address">
+                <DictationTextInput
+                    value={draft.profilePhotoUrl}
+                    onChangeText={(value) => updateDraft('profilePhotoUrl', value)}
+                    placeholder="https://..."
+                    autoCapitalize="none"
+                    keyboardType="url"
+                    accessibilityLabel="Technician portrait address"
+                    style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                />
+            </ProfileField>
+
+            <ProfileField label="Friendly biography">
+                <DictationTextInput
+                    value={draft.shortBio}
+                    onChangeText={(value) => updateDraft('shortBio', value)}
+                    placeholder="A short company-approved introduction..."
+                    multiline
+                    numberOfLines={4}
+                    accessibilityLabel="Technician biography"
+                    style={[inputStyle, publicProfileMultilineStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                />
+            </ProfileField>
+
+            <View style={publicProfileFieldGridStyle}>
+                <ProfileField label="General location" compact>
+                    <DictationTextInput
+                        value={draft.generalLocation}
+                        onChangeText={(value) => updateDraft('generalLocation', value)}
+                        placeholder="Riverside area"
+                        accessibilityLabel="Technician general location"
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+                <ProfileField label="Years of experience" compact>
+                    <DictationTextInput
+                        value={draft.yearsExperience}
+                        onChangeText={(value) => updateDraft('yearsExperience', value.replace(/\D/g, '').slice(0, 2))}
+                        placeholder="10"
+                        keyboardType="number-pad"
+                        accessibilityLabel="Technician years of experience"
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+            </View>
+
+            <ProfileField label="Optional family note">
+                <DictationTextInput
+                    value={draft.familyNote}
+                    onChangeText={(value) => updateDraft('familyNote', value)}
+                    placeholder="For example: Proud father of five"
+                    accessibilityLabel="Optional technician family note"
+                    style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                />
+            </ProfileField>
+
+            {([
+                ['specialties', 'Specialties', 'Leak detection, repiping, water heaters'],
+                ['languages', 'Languages', 'English, Spanish'],
+                ['certifications', 'Certifications', 'Backflow certified, OSHA 10'],
+                ['hobbies', 'Hobbies', 'Soccer, drones, building projects'],
+            ] as const).map(([key, label, placeholder]) => (
+                <ProfileField key={key} label={`${label} — separate with commas`}>
+                    <DictationTextInput
+                        value={draft[key]}
+                        onChangeText={(value) => updateDraft(key, value)}
+                        placeholder={placeholder}
+                        accessibilityLabel={`Technician ${label.toLowerCase()}`}
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+            ))}
+
+            <View style={[publicProfileApprovalStyle, { borderColor: theme.colors.border }]}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Approved for homeowners</Text>
+                    <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText, marginTop: 3 }]}>
+                        Off keeps this as a private company draft. On publishes it only to homeowners with an assigned service request.
+                    </Text>
+                </View>
+                <Switch
+                    accessibilityLabel="Publish technician profile to assigned homeowners"
+                    value={draft.published}
+                    onValueChange={(value) => updateDraft('published', value)}
+                    trackColor={{ false: theme.colors.border, true: theme.colors.primary }}
+                />
+            </View>
+
+            <ThemedButton
+                title={saving ? 'Saving Profile...' : draft.published ? 'Save & Publish Profile' : 'Save Private Draft'}
+                disabled={saving}
+                onPress={() => void onSave(draft)}
+                style={actionButtonStyle}
+            />
+        </DetailPanelSection>
+    );
+}
+
+function StaffProfessionalContactEditor({
+    companyName,
+    member,
+    contact,
+    saving,
+    onSave,
+}: {
+    companyName: string;
+    member: CompanyUser;
+    contact?: StaffProfessionalContact;
+    saving: boolean;
+    onSave: (draft: StaffProfessionalContactDraft) => Promise<void>;
+}) {
+    const { theme } = useTheme();
+    const [draft, setDraft] = useState<StaffProfessionalContactDraft>(() => createStaffProfessionalContactDraft(contact));
+
+    useEffect(() => {
+        setDraft(createStaffProfessionalContactDraft(contact));
+    }, [contact]);
+
+    function updateDraft<K extends keyof StaffProfessionalContactDraft>(
+        key: K,
+        value: StaffProfessionalContactDraft[K]
+    ) {
+        setDraft((current) => ({ ...current, [key]: value }));
+    }
+
+    function toggleSharedField(field: ProfessionalContactField) {
+        updateDraft(
+            'sharedFields',
+            draft.sharedFields.includes(field)
+                ? draft.sharedFields.filter((value) => value !== field)
+                : [...draft.sharedFields, field]
+        );
+    }
+
+    const qrValue = buildProfessionalVCard({
+        displayName: getMemberDisplayName(member, 'Company professional'),
+        companyName,
+        contact: {
+            professional_title: draft.professionalTitle,
+            department: draft.department,
+            professional_phone: draft.professionalPhone,
+            professional_email: draft.professionalEmail,
+            extension: draft.extension,
+            professional_website: draft.professionalWebsite,
+            years_with_company: parseOptionalInteger(draft.yearsWithCompany),
+            shared_fields: draft.sharedFields,
+        },
+    });
+    const shareableFields = PROFESSIONAL_CONTACT_FIELDS.filter((field) => {
+        if (field === 'professional_title') return Boolean(draft.professionalTitle.trim());
+        if (field === 'department') return Boolean(draft.department.trim());
+        if (field === 'professional_phone') return Boolean(draft.professionalPhone.trim());
+        if (field === 'professional_email') return Boolean(draft.professionalEmail.trim());
+        if (field === 'extension') return Boolean(draft.extension.trim());
+        if (field === 'professional_website') return Boolean(draft.professionalWebsite.trim());
+        return Boolean(draft.yearsWithCompany.trim());
+    });
+
+    return (
+        <DetailPanelSection title="Professional Staff Contact & QR Card">
+            <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                Company-approved work information only. Personal phone numbers, personal email, home address, account credentials, and private HR information are never included.
+            </Text>
+
+            <View style={publicProfileFieldGridStyle}>
+                <ProfileField label="Position / title" compact>
+                    <DictationTextInput
+                        value={draft.professionalTitle}
+                        onChangeText={(value) => updateDraft('professionalTitle', value)}
+                        placeholder={formatRole(member.role)}
+                        accessibilityLabel="Professional position or title"
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+                <ProfileField label="Department" compact>
+                    <DictationTextInput
+                        value={draft.department}
+                        onChangeText={(value) => updateDraft('department', value)}
+                        placeholder="Service, Dispatch, Office..."
+                        accessibilityLabel="Professional department"
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+            </View>
+
+            <View style={publicProfileFieldGridStyle}>
+                <ProfileField label="Work phone" compact>
+                    <DictationTextInput
+                        value={draft.professionalPhone}
+                        onChangeText={(value) => updateDraft('professionalPhone', value)}
+                        placeholder="Company-approved work number"
+                        keyboardType="phone-pad"
+                        accessibilityLabel="Professional work phone"
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+                <ProfileField label="Extension" compact>
+                    <DictationTextInput
+                        value={draft.extension}
+                        onChangeText={(value) => updateDraft('extension', value)}
+                        placeholder="Optional"
+                        accessibilityLabel="Professional phone extension"
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+            </View>
+
+            <ProfileField label="Work email">
+                <DictationTextInput
+                    value={draft.professionalEmail}
+                    onChangeText={(value) => updateDraft('professionalEmail', value)}
+                    placeholder="name@company.com"
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    accessibilityLabel="Professional work email"
+                    style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                />
+            </ProfileField>
+
+            <View style={publicProfileFieldGridStyle}>
+                <ProfileField label="Professional website" compact>
+                    <DictationTextInput
+                        value={draft.professionalWebsite}
+                        onChangeText={(value) => updateDraft('professionalWebsite', value)}
+                        placeholder="https://company.com"
+                        autoCapitalize="none"
+                        keyboardType="url"
+                        accessibilityLabel="Professional website"
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+                <ProfileField label="Years with company" compact>
+                    <DictationTextInput
+                        value={draft.yearsWithCompany}
+                        onChangeText={(value) => updateDraft('yearsWithCompany', value.replace(/\D/g, '').slice(0, 2))}
+                        placeholder="5"
+                        keyboardType="number-pad"
+                        accessibilityLabel="Years with company"
+                        style={[inputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
+                    />
+                </ProfileField>
+            </View>
+
+            <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Visible on public profile and QR contact card</Text>
+            <View style={permissionGridStyle}>
+                {PROFESSIONAL_CONTACT_FIELDS.map((field) => {
+                    const selected = draft.sharedFields.includes(field);
+                    const available = shareableFields.includes(field);
+
+                    return (
+                        <TouchableOpacity
+                            key={field}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: selected, disabled: !available }}
+                            disabled={!available}
+                            onPress={() => toggleSharedField(field)}
+                            style={[
+                                permissionPillStyle,
+                                {
+                                    backgroundColor: selected ? theme.colors.secondaryButton : theme.colors.background,
+                                    borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                    opacity: available ? 1 : 0.45,
+                                },
+                            ]}
+                        >
+                            <Text style={[permissionPillTextStyle, { color: selected ? theme.colors.primary : theme.colors.mutedText }]}>
+                                {formatProfessionalContactField(field)}: {selected ? 'Shared' : 'Private'}
+                            </Text>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+
+            {shareableFields.length > 0 && (
+                <View style={[publicProfileApprovalStyle, { borderColor: theme.colors.border, alignItems: 'center' }]}>
+                    <QRCode value={qrValue} size={132} color={theme.colors.text} backgroundColor={theme.colors.surface} />
+                    <View style={{ flex: 1, minWidth: 180 }}>
+                        <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Professional contact QR preview</Text>
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText, marginTop: 3 }]}>
+                            Scanning creates a standard contact card containing only the professional fields marked Shared.
+                        </Text>
+                    </View>
+                </View>
+            )}
+
+            <ThemedButton
+                title={saving ? 'Saving Professional Contact...' : 'Save Professional Contact'}
+                disabled={saving}
+                onPress={() => void onSave(draft)}
+                style={actionButtonStyle}
+            />
+        </DetailPanelSection>
+    );
+}
+
+function ProfileField({ label, compact = false, children }: { label: string; compact?: boolean; children: ReactNode }) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={[publicProfileFieldStyle, compact && publicProfileCompactFieldStyle]}>
+            <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>{label}</Text>
+            {children}
+        </View>
+    );
+}
+
+function createTechnicianProfileDraft(
+    member: CompanyUser,
+    profile?: CompanyTechnicianPublicProfile
+): TechnicianProfileDraft {
+    const source = profile?.pending_profile || profile;
+
+    return {
+        displayName: source?.display_name || getMemberDisplayName(member, 'Technician'),
+        profilePhotoUrl: source?.profile_photo_url || '',
+        shortBio: source?.short_bio || '',
+        generalLocation: source?.general_location || '',
+        familyNote: source?.family_note || '',
+        hobbies: formatProfileList(source?.hobbies || []),
+        specialties: formatProfileList(source?.specialties || []),
+        languages: formatProfileList(source?.languages || []),
+        certifications: formatProfileList(source?.certifications || []),
+        yearsExperience: source?.years_experience === null || source?.years_experience === undefined
+            ? ''
+            : String(source.years_experience),
+        published: !profile?.pending_profile && profile?.publication_status === 'published',
+    };
+}
+
+function createStaffProfessionalContactDraft(
+    contact?: StaffProfessionalContact
+): StaffProfessionalContactDraft {
+    return {
+        professionalTitle: contact?.professional_title || '',
+        department: contact?.department || '',
+        professionalPhone: contact?.professional_phone || '',
+        professionalEmail: contact?.professional_email || '',
+        extension: contact?.extension || '',
+        professionalWebsite: contact?.professional_website || '',
+        yearsWithCompany: contact?.years_with_company === null || contact?.years_with_company === undefined
+            ? ''
+            : String(contact.years_with_company),
+        sharedFields: contact?.shared_fields ? [...contact.shared_fields] : [...PROFESSIONAL_CONTACT_FIELDS],
+    };
+}
+
+function formatProfessionalContactField(field: ProfessionalContactField) {
+    const labels: Record<ProfessionalContactField, string> = {
+        professional_title: 'Position',
+        department: 'Department',
+        professional_phone: 'Work phone',
+        professional_email: 'Work email',
+        extension: 'Extension',
+        professional_website: 'Website',
+        years_with_company: 'Years with company',
+    };
+
+    return labels[field];
 }
 
 function DetailPanelSection({ title, children }: { title: string; children: ReactNode }) {
@@ -2576,6 +3164,23 @@ function formatAuthUserId(authUserId: string | null) {
     return `Auth user ${authUserId.slice(0, 8)}`;
 }
 
+function parseOptionalInteger(value: string) {
+    const normalized = value.trim();
+
+    if (!normalized) return null;
+
+    const parsed = Number.parseInt(normalized, 10);
+
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+
+    return 'Unknown error';
+}
+
 function formatLabel(value: string | null) {
     return String(value || 'unknown')
         .trim()
@@ -2782,6 +3387,42 @@ const inputStyle = {
     minWidth: 0,
     paddingHorizontal: 16,
     paddingVertical: 16,
+};
+
+const publicProfileFieldStyle = {
+    gap: 7,
+    marginTop: 12,
+    minWidth: 0,
+    width: '100%' as const,
+};
+
+const publicProfileCompactFieldStyle = {
+    flexBasis: 240,
+    flexGrow: 1,
+};
+
+const publicProfileFieldGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+    width: '100%' as const,
+};
+
+const publicProfileMultilineStyle = {
+    minHeight: 110,
+    textAlignVertical: 'top' as const,
+};
+
+const publicProfileApprovalStyle = {
+    alignItems: 'center' as const,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row' as const,
+    gap: 12,
+    justifyContent: 'space-between' as const,
+    marginTop: 14,
+    padding: 12,
+    width: '100%' as const,
 };
 
 const roleGridStyle = {
