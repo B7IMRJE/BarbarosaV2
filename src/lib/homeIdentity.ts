@@ -4,6 +4,13 @@ import {
     createMissingStarterHomeItems,
 } from './starterHomeSetup';
 import type { ProviderHomeItemsReadContext } from './providerHomeItems';
+import {
+    loadCompanyHomeStructureAccess,
+    loadMyHomeStructureAccess,
+    updateMyHomeStructureAccess,
+    type HomeStoryCount,
+    type HomeStructureAccessDetails,
+} from './homePropertyAccess';
 
 export type PropertyType =
     | 'HOUSE'
@@ -40,6 +47,9 @@ export type HomeIdentity = {
     apn: string | null;
     majorUpgradeTypes: MajorHomeUpgradeType[];
     profileUpdatedAt: string | null;
+    storyCount: HomeStoryCount | null;
+    gateCode: string | null;
+    accessUpdatedAt: string | null;
 };
 
 export const MAJOR_HOME_UPGRADE_OPTIONS = [
@@ -61,6 +71,8 @@ export type HomeIdentityInput = {
     squareFootage?: number | null;
     apn?: string | null;
     majorUpgradeTypes?: MajorHomeUpgradeType[];
+    storyCount: HomeStoryCount;
+    gateCode?: string | null;
 };
 
 type HomeIdentityRow = {
@@ -116,7 +128,12 @@ export async function loadActiveHomeIdentity() {
     const identity = normalizeHomeIdentity(row);
 
     try {
-        return mergeHomeProfileDetails(identity, await loadHomeProfileDetails(identity.propertyId));
+        const [profileDetails, accessDetails] = await Promise.all([
+            loadHomeProfileDetails(identity.propertyId),
+            loadMyHomeStructureAccess(identity.propertyId),
+        ]);
+
+        return mergeHomeDetails(identity, profileDetails, accessDetails);
     } catch {
         return identity;
     }
@@ -163,7 +180,12 @@ export async function loadCompanyHomeIdentity(context: ProviderHomeItemsReadCont
 
     const row = firstRow<HomeIdentityRow>(data);
 
-    return row ? normalizeHomeIdentity({ ...row, membership_role: 'PROVIDER' }) : null;
+    if (!row) return null;
+
+    const identity = normalizeHomeIdentity({ ...row, membership_role: 'PROVIDER' });
+    const accessDetails = await loadCompanyHomeStructureAccess(context);
+
+    return mergeHomeDetails(identity, normalizeHomeProfileDetails(row), accessDetails);
 }
 
 export async function createFirstHomeIdentity(input: HomeIdentityInput) {
@@ -185,6 +207,11 @@ export async function createFirstHomeIdentity(input: HomeIdentityInput) {
     if (!propertyId) {
         throw new Error('We could not confirm your home was created. Please try again.');
     }
+
+    await updateMyHomeStructureAccess(propertyId, {
+        storyCount: input.storyCount,
+        gateCode: input.gateCode,
+    });
 
     if (!userError && user?.id) {
         await createMissingStarterHomeItems(
@@ -228,6 +255,11 @@ export async function updateHomeIdentity(propertyId: string, input: HomeIdentity
     if (profileError) {
         throw new Error(`Your home identity was saved, but the optional homeowner-provided details could not be saved: ${profileError.message}`);
     }
+
+    await updateMyHomeStructureAccess(propertyId, {
+        storyCount: input.storyCount,
+        gateCode: input.gateCode,
+    });
 
     return updatedPropertyId;
 }
@@ -332,11 +364,24 @@ function normalizeHomeProfileDetails(row: HomeIdentityRow | Record<string, unkno
         apn: nullableText(row.homeowner_apn),
         majorUpgradeTypes: normalizeMajorUpgradeTypes(row.homeowner_major_upgrade_types),
         profileUpdatedAt: nullableText(row.homeowner_profile_updated_at),
+        storyCount: null,
+        gateCode: null,
+        accessUpdatedAt: null,
     };
 }
 
-function mergeHomeProfileDetails(identity: HomeIdentity, details: ReturnType<typeof normalizeHomeProfileDetails>): HomeIdentity {
-    return { ...identity, ...details };
+function mergeHomeDetails(
+    identity: HomeIdentity,
+    profileDetails: ReturnType<typeof normalizeHomeProfileDetails>,
+    accessDetails: HomeStructureAccessDetails
+): HomeIdentity {
+    return {
+        ...identity,
+        ...profileDetails,
+        storyCount: accessDetails.storyCount,
+        gateCode: accessDetails.gateCode,
+        accessUpdatedAt: accessDetails.updatedAt,
+    };
 }
 
 function normalizeMajorUpgradeTypes(value: unknown): MajorHomeUpgradeType[] {

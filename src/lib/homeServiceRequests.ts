@@ -33,6 +33,7 @@ export type CreateHomeownerServiceRequestInput = {
     requestType: 'regular' | 'emergency';
     issueSummary: string;
     priority: 'low' | 'normal' | 'high' | 'emergency';
+    accessInstructions?: string | null;
 };
 
 export type CompanyDispatchServiceRequest = CompanyDispatchRequest;
@@ -56,12 +57,13 @@ type LocalServiceRequestUpdate = {
 export async function createHomeownerServiceRequest(
     input: CreateHomeownerServiceRequestInput
 ): Promise<CreatedServiceRequestReceipt> {
-    const { data, error } = await supabase.rpc('create_homeowner_service_request', {
+    const { data, error } = await supabase.rpc('create_homeowner_service_request_with_access', {
         p_property_id: input.propertyId,
         p_company_id: input.companyId,
         p_request_type: input.requestType,
         p_issue_summary: input.issueSummary,
         p_priority: input.priority,
+        p_access_instructions: input.accessInstructions?.trim() || null,
     });
 
     if (error) {

@@ -11,6 +11,7 @@ import {
     shouldShowHomeownerFloatingSosButton,
 } from '../../lib/homeownerActiveRequests';
 import { isStaffRole, loadCurrentUserRole } from '../../lib/roles';
+import { shouldShowGlobalBackButton } from '../../lib/navigation';
 import { useTheme } from '../../theme/useTheme';
 import { isHomeOSPhoneLayout } from '../../lib/homeos-responsive-layout';
 import { orbitalGlassPalette } from '../../theme/glassPalette';
@@ -95,7 +96,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     );
 
     const currentPath = normalizePath(pathname);
-    const canUseBack = currentPath !== '/';
+    const shouldShowBack = shouldShowGlobalBackButton(currentPath);
     const isTechOSRoute = currentPath === '/techos' || currentPath.startsWith('/techos/');
     const techOSCompanyId = firstRouteParam(routeParams.companyId);
     const homeRoute = resolveGlobalHomeRoute({ pathname: currentPath, companyId: techOSCompanyId });
@@ -216,21 +217,18 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
                     }}
                 >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}>
-                        <ThemedButton
-                            title="Back"
-                            variant="glass"
-                            disabled={!canUseBack}
-                            onPress={() => {
-                                if (canUseBack) {
-                                    router.back();
-                                }
-                            }}
-                            style={{
-                                borderRadius: theme.radii.pill,
-                                paddingHorizontal: scaleIcon(14),
-                                minHeight: scaleIcon(46),
-                            }}
-                        />
+                        {shouldShowBack && (
+                            <ThemedButton
+                                title="Back"
+                                variant="glass"
+                                onPress={() => router.back()}
+                                style={{
+                                    borderRadius: theme.radii.pill,
+                                    paddingHorizontal: scaleIcon(14),
+                                    minHeight: scaleIcon(46),
+                                }}
+                            />
+                        )}
 
                         <ThemedButton
                             title="Home"

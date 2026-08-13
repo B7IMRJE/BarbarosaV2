@@ -1615,6 +1615,7 @@ function WallDetailOverlay({
                     </View>
                     <ScrollView contentContainerStyle={detailBodyStyle}>
                         <DetailRow label="Issue" value={request.issue_summary || 'Issue not provided'} />
+                        {!!request.access_instructions && <DetailRow label="Property Access" value={request.access_instructions} />}
                         <DetailRow label="Priority" value={formatLabel(request.priority)} />
                         <DetailRow label="Status" value={item.statusLabel} />
                         <DetailRow label="Technician" value={getDispatchWallTechnicianDisplayText(item, availableTechnician, 'Not assigned')} />

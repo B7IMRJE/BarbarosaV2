@@ -42,6 +42,7 @@ import {
     loadCompanyJobHomeItemCloseout,
     saveCompanyJobHomeItemCloseout,
     todayDateInput,
+    warrantyChoiceFromText,
     warrantyChoiceLabel,
     type HomeItemCloseoutContext,
     type HomeItemCloseoutDraft,
@@ -538,26 +539,39 @@ export default function JobWorkflowScreen() {
                 return;
             }
 
-            const completionType = defaultHomeItemCloseoutType(context);
+            const defaultCompletionType = defaultHomeItemCloseoutType(context);
+            const completionType = context.catalog_product && defaultCompletionType === 'repaired'
+                ? 'replaced'
+                : defaultCompletionType;
             const date = todayDateInput();
+            const catalogWarrantyByType: Record<HomeItemWarrantyType, string> = {
+                workmanship: context.catalog_product?.workmanship_warranty || '',
+                labor: context.catalog_product?.labor_warranty || '',
+                manufacturer_parts: context.catalog_product?.manufacturer_warranty || '',
+            };
             const warranties: HomeItemCloseoutWarranty[] = (['workmanship', 'labor', 'manufacturer_parts'] as HomeItemWarrantyType[])
-                .map((warrantyType) => buildCloseoutWarranty({
-                    warrantyType,
-                    choice: 'unknown_verify_later',
-                    startDate: date,
-                }));
+                .map((warrantyType) => {
+                    const warrantyText = catalogWarrantyByType[warrantyType];
+                    const choice = warrantyChoiceFromText(warrantyText);
+                    return buildCloseoutWarranty({
+                        warrantyType,
+                        choice,
+                        startDate: date,
+                        customLabel: choice === 'custom' ? warrantyText : '',
+                    });
+                });
             const draft = context.draft || buildHomeItemCloseoutDraft({
                 completionType,
-                itemName: context.item.name,
+                itemName: context.catalog_product?.product_name || context.item.name,
                 condition: completionType === 'repaired' ? 'Good' : 'Newly Installed',
                 completionDate: date,
                 installedOn: completionType === 'repaired' && context.item.installed_on
                     ? context.item.installed_on
                     : date,
-                brand: context.item.brand || '',
-                model: context.item.model || '',
+                brand: context.catalog_product?.brand || context.item.brand || '',
+                model: context.catalog_product?.model || context.item.model || '',
                 serialNumber: context.item.serial_number || '',
-                partNumber: context.item.part_number || '',
+                partNumber: context.catalog_product?.manufacturer_part_number || context.item.part_number || '',
                 workPerformed: approvedWorkSummary,
                 installationNotes: context.item.installation_notes || '',
                 warranties,

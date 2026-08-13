@@ -2372,6 +2372,7 @@ function buildDeterministicChoices(input: {
     if (input.category === 'valve_replacement') {
         return buildValveDeterministicChoices(
             validPricingResults,
+            input.products,
             input.answers,
             input.template,
             input.draftContext
@@ -2797,13 +2798,18 @@ function formatAnswerLabel(value: string) {
 
 function buildValveDeterministicChoices(
     pricingResults: EstimatePricingResult[],
+    products: EstimateApprovedProduct[],
     answers: EstimateAnswerSet,
     template: EstimateCategoryTemplate,
     draftContext: EstimateDraftContextLike | null
 ) {
     const homeownerName = preferredHomeownerFirstName(draftContext);
+    const compatibleProducts = products.filter((product) => {
+        const identity = normalizeText(`${product.category} ${product.brand} ${product.model} ${product.compatibleApplications.join(' ')}`);
+        return identity.includes('valve') && product.approved && product.active;
+    });
 
-    return pricingResults.slice(0, 4).map((pricingResult, index): EstimateChoice => {
+    return pricingResults.slice(0, 4).flatMap((pricingResult, index): EstimateChoice[] => {
         const primaryLine = pricingResult.lineItems[0];
         const lineNames = pricingResult.lineItems.map((line) => line.name);
         const scopeName = valveScopeChoiceName(primaryLine?.name || 'Valve Replacement');
@@ -2814,7 +2820,40 @@ function buildValveDeterministicChoices(
             ? 'configure available controls, complete required testing or coordination, and document operation'
             : 'reconnect the existing compatible piping, complete only the selected related items, and test operation';
 
-        return {
+        const matchingProducts = compatibleProducts.filter((product) =>
+            !product.priceBookEntryId || pricingResult.lineItems.some((line) => line.priceBookEntryId === product.priceBookEntryId)
+        ).slice(0, 4);
+        if (matchingProducts.length > 0) {
+            return matchingProducts.map((product, productIndex) => {
+                const productLabel = `${product.brand} ${product.model}`.trim();
+                return {
+                    id: `valve-product-${product.id}-${index + 1}`,
+                    kind: 'individual' as const,
+                    title: homeownerName ? `${homeownerName}'s ${productLabel} ${scopeName}` : `${productLabel} ${scopeName}`,
+                    shortSummary: [productLabel, product.warranty, ...lineNames].filter(Boolean).join(' · '),
+                    homeownerExplanation: `${action} the documented ${valveScopeDescription(primaryLine?.name || scopeName)} using the approved ${productLabel}, ${completion}.`,
+                    keyBenefits: [`Company-approved ${productLabel}`, product.warranty || 'Warranty reviewed at closeout', 'Operation tested after installation'],
+                    whyItDiffers: `Uses the specific approved ${productLabel} catalog card while keeping labor and scope tied to the company Price Book.`,
+                    recommendedReason: productIndex === 0 && index === 0 ? 'Matches the documented valve scope and selected company product.' : null,
+                    productIds: [product.id],
+                    scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+                    warrantyIds: product.warranty ? [product.id] : [],
+                    inclusionIds: pricingResult.lineItems.map((line) => line.code),
+                    exclusionIds: ['unselected-valves', 'unrelated-fixtures'],
+                    pricingResult,
+                    recommended: productIndex === 0 && index === 0,
+                    displayOrder: index * 4 + productIndex + 1,
+                    customerSelections: uniqueText([
+                        `Approved product: ${productLabel}`,
+                        product.warranty ? `Manufacturer warranty: ${product.warranty}` : '',
+                        ...product.installationRequirements.map((requirement) => `Product requirement: ${requirement}`),
+                        ...buildEstimateCustomerSelections(template, answers),
+                    ]),
+                };
+            });
+        }
+
+        return [{
             id: `individual-valve-${index + 1}`,
             kind: 'individual',
             title,
@@ -2834,7 +2873,7 @@ function buildValveDeterministicChoices(
             recommended: index === 0,
             displayOrder: index + 1,
             customerSelections: buildEstimateCustomerSelections(template, answers),
-        };
+        }];
     });
 }
 

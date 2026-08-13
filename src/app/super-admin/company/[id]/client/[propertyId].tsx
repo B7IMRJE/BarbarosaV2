@@ -18,6 +18,7 @@ import {
 } from '../../../../../lib/providerStagedWork';
 import { resolveCompanyWorkspaceTheme } from '../../../../../lib/companyWorkspaceTheme';
 import { loadCompanyHomeIdentity, propertyTypeLabel, type HomeIdentity } from '../../../../../lib/homeIdentity';
+import { homeStoryCountLabel, maskGateCode } from '../../../../../lib/homePropertyAccess';
 import { supabase } from '../../../../../lib/supabase';
 import { ThemeContext } from '../../../../../theme';
 import { CompanyGlassDepthProvider } from '../../../../../theme/glass-depth';
@@ -105,6 +106,7 @@ export default function CompanyClientDetailScreen() {
     const [client, setClient] = useState<CompanyClient | null>(null);
     const [property, setProperty] = useState<PropertyRecord | null>(null);
     const [clientHomeIdentity, setClientHomeIdentity] = useState<HomeIdentity | null>(null);
+    const [showGateCode, setShowGateCode] = useState(false);
     const [connection, setConnection] = useState<PropertyConnection | null>(null);
     const [invite, setInvite] = useState<CustomerInvite | null>(null);
     const [stagedEntries, setStagedEntries] = useState<ProviderStagedWorkEntry[]>([]);
@@ -169,6 +171,7 @@ export default function CompanyClientDetailScreen() {
         setEmergencyIntakeMessage('');
         setStagedEntries([]);
         setClientHomeIdentity(null);
+        setShowGateCode(false);
         setStagingStatusMessage('');
 
         const hasAccess = await verifyClientDetailAccess(companyId);
@@ -552,12 +555,32 @@ export default function CompanyClientDetailScreen() {
                             <DetailRow label="Homeowner" value={homeownerName} />
                             <DetailRow label="Home identity" value={homeName} />
                             <DetailRow label="Home type" value={propertyTypeLabel(clientHomeIdentity?.propertyType)} />
+                            <DetailRow label="Building stories" value={homeStoryCountLabel(clientHomeIdentity?.storyCount)} />
                             <DetailRow label="Year built" value={clientHomeIdentity?.yearBuilt ? String(clientHomeIdentity.yearBuilt) : 'Not provided'} />
                             <DetailRow label="Square footage" value={clientHomeIdentity?.squareFootage ? clientHomeIdentity.squareFootage.toLocaleString() : 'Not provided'} />
                             <DetailRow label="APN" value={clientHomeIdentity?.apn || 'Not provided'} />
                             <DetailRow label="Email" value={invite?.invited_email || 'Not shared'} />
                             <DetailRow label="Phone" value={invite?.invited_phone || 'Not shared'} />
                             <DetailRow label="Address" value={formatAddress(property) || 'Address not available'} />
+                            {clientHomeIdentity?.gateCode ? (
+                                <View style={gateCodeRowStyle}>
+                                    <View style={{ flex: 1, minWidth: 0 }}>
+                                        <DetailRow
+                                            label="Gate or property access code"
+                                            value={showGateCode ? clientHomeIdentity.gateCode : maskGateCode(clientHomeIdentity.gateCode)}
+                                        />
+                                    </View>
+                                    <ThemedButton
+                                        title={showGateCode ? 'Hide' : 'Reveal'}
+                                        variant="secondary"
+                                        onPress={() => setShowGateCode((current) => !current)}
+                                        style={smallButtonStyle}
+                                        textStyle={smallButtonTextStyle}
+                                    />
+                                </View>
+                            ) : (
+                                <DetailRow label="Gate or property access code" value="Not provided" />
+                            )}
                             <DetailRow label="Provider status" value={formatStatus(client?.status)} />
                             <DetailRow label="Source" value={formatSource(source)} />
                             <DetailRow label="Linked date" value={formatDate(linkedAt)} />
@@ -1148,6 +1171,13 @@ const noteButtonRowStyle = {
     flexWrap: 'wrap' as const,
     gap: 10,
     marginTop: 12,
+};
+
+const gateCodeRowStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    gap: 10,
 };
 
 const smallButtonStyle = {

@@ -6,6 +6,7 @@ import {
     propertyTypeLabel,
     type HomeIdentity,
 } from '../lib/homeIdentity';
+import { homeStoryCountLabel, maskGateCode } from '../lib/homePropertyAccess';
 import { supabase } from '../lib/supabase';
 import { useTheme } from '../theme/useTheme';
 import ThemedButton from './theme/ThemedButton';
@@ -27,8 +28,13 @@ export default function HomeIdentityCard({ identity, loading, onEdit, onOpenHist
     const { theme } = useTheme();
     const [mapDataUrl, setMapDataUrl] = useState('');
     const [mapLoading, setMapLoading] = useState(false);
+    const [showGateCode, setShowGateCode] = useState(false);
     const latitude = identity?.address?.latitude ?? null;
     const longitude = identity?.address?.longitude ?? null;
+
+    useEffect(() => {
+        setShowGateCode(false);
+    }, [identity?.propertyId]);
 
     useEffect(() => {
         let cancelled = false;
@@ -117,10 +123,11 @@ export default function HomeIdentityCard({ identity, loading, onEdit, onOpenHist
                         {propertyTypeLabel(identity.propertyType)}
                     </Text>
 
-                    {(identity.yearBuilt || identity.squareFootage || identity.apn || identity.majorUpgradeTypes.length > 0) ? (
+                    {(identity.storyCount || identity.yearBuilt || identity.squareFootage || identity.apn || identity.majorUpgradeTypes.length > 0) ? (
                         <View style={[profileFactsStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
                             <Text style={[profileSourceStyle, { color: theme.colors.mutedText }]}>Homeowner-provided · not publicly verified</Text>
                             <View style={profileFactsRowStyle}>
+                                {identity.storyCount ? <ProfileFact label="Building stories" value={homeStoryCountLabel(identity.storyCount)} /> : null}
                                 {identity.yearBuilt ? <ProfileFact label="Year built" value={String(identity.yearBuilt)} /> : null}
                                 {identity.squareFootage ? <ProfileFact label="Square feet" value={identity.squareFootage.toLocaleString()} /> : null}
                                 {identity.apn ? <ProfileFact label="APN" value={identity.apn} /> : null}
@@ -131,6 +138,29 @@ export default function HomeIdentityCard({ identity, loading, onEdit, onOpenHist
                                     />
                                 ) : null}
                             </View>
+                        </View>
+                    ) : null}
+
+                    {identity.gateCode ? (
+                        <View style={[accessDetailsStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
+                            <View style={accessDetailsHeaderStyle}>
+                                <View style={accessDetailsTextStyle}>
+                                    <Text style={[profileFactLabelStyle, { color: theme.colors.mutedText }]}>Gate or property access code</Text>
+                                    <Text style={[accessCodeStyle, { color: theme.colors.text }]}>
+                                        {showGateCode ? identity.gateCode : maskGateCode(identity.gateCode)}
+                                    </Text>
+                                </View>
+                                <ThemedButton
+                                    title={showGateCode ? 'Hide' : 'Reveal'}
+                                    variant="secondary"
+                                    onPress={() => setShowGateCode((current) => !current)}
+                                    style={revealButtonStyle}
+                                    textStyle={editButtonTextStyle}
+                                />
+                            </View>
+                            <Text style={[accessHelpStyle, { color: theme.colors.mutedText }]}>
+                                Private access information. Do not include it in public-facing messages or documents.
+                            </Text>
                         </View>
                     ) : null}
 
@@ -305,6 +335,43 @@ const profileFactValueStyle = {
     fontSize: 14,
     fontWeight: '900' as const,
     marginTop: 3,
+};
+
+const accessDetailsStyle = {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 12,
+};
+
+const accessDetailsHeaderStyle = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+};
+
+const accessDetailsTextStyle = {
+    flex: 1,
+    minWidth: 0,
+};
+
+const accessCodeStyle = {
+    fontSize: 18,
+    fontWeight: '900' as const,
+    marginTop: 4,
+};
+
+const accessHelpStyle = {
+    fontSize: 11,
+    fontWeight: '800' as const,
+    lineHeight: 16,
+    marginTop: 8,
+};
+
+const revealButtonStyle = {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
 };
 
 const buildTextStyle = {

@@ -3339,6 +3339,14 @@ function DispatchRequestCard({
                     <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
                         Property: {formatPropertyAddress(request)}
                     </Text>
+                    {!!request.access_instructions && (
+                        <View style={[techStatusPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                            <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Property Access</Text>
+                            <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                {request.access_instructions}
+                            </Text>
+                        </View>
+                    )}
                     <ServiceRequestMediaGallery
                         serviceRequestId={request.id}
                         title="Request photos and videos"

@@ -8,11 +8,16 @@ import type {
 export * from './home-item-closeout-core';
 
 export async function loadCompanyJobHomeItemCloseout(workflowId: string) {
-    const { data, error } = await supabase.rpc('get_company_job_homeos_closeout', {
-        p_workflow_id: workflowId,
-    });
-    if (error) throw error;
-    return data as HomeItemCloseoutContext;
+    const [closeoutResult, catalogResult] = await Promise.all([
+        supabase.rpc('get_company_job_homeos_closeout', { p_workflow_id: workflowId }),
+        supabase.rpc('get_company_job_selected_catalog_product', { p_workflow_id: workflowId }),
+    ]);
+    if (closeoutResult.error) throw closeoutResult.error;
+    if (catalogResult.error) throw catalogResult.error;
+    return {
+        ...(closeoutResult.data as HomeItemCloseoutContext),
+        catalog_product: catalogResult.data || null,
+    } as HomeItemCloseoutContext;
 }
 
 export async function saveCompanyJobHomeItemCloseout(workflowId: string, draft: HomeItemCloseoutDraft) {

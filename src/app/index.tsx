@@ -18,6 +18,7 @@ import {
   requireActivePropertyMembership,
 } from '../lib/activeProperty';
 import {
+  createHomeownerServiceRequest,
   formatServiceRequestReference,
   requestHomeownerServiceRequestUpdate,
 } from '../lib/homeServiceRequests';
@@ -184,6 +185,7 @@ export default function HomeScreen() {
   const [providerSelectionCompanyId, setProviderSelectionCompanyId] = useState('');
   const [serviceRequestType, setServiceRequestType] = useState<'regular' | 'emergency'>('regular');
   const [serviceIssueSummary, setServiceIssueSummary] = useState('');
+  const [serviceAccessInstructions, setServiceAccessInstructions] = useState('');
   const [serviceRequestMessage, setServiceRequestMessage] = useState('');
   const [submittingServiceRequest, setSubmittingServiceRequest] = useState(false);
   const [homeServiceRequests, setHomeServiceRequests] = useState<HomeServiceRequest[]>([]);
@@ -250,9 +252,13 @@ export default function HomeScreen() {
     setActivePropertyId(activeProperty.propertyId);
 
     try {
-      setHomeIdentity(providerModeContext
+      const nextHomeIdentity = providerModeContext
         ? await loadCompanyHomeIdentity(providerModeContext)
-        : await loadActiveHomeIdentity());
+        : await loadActiveHomeIdentity();
+      setHomeIdentity(nextHomeIdentity);
+      if (!providerModeContext) {
+        setServiceAccessInstructions((current) => current || nextHomeIdentity?.gateCode || '');
+      }
     } catch {
       setHomeIdentity(null);
     } finally {
@@ -690,6 +696,11 @@ export default function HomeScreen() {
       return;
     }
 
+    if (serviceAccessInstructions.trim().length > 1000) {
+      setServiceRequestMessage('Keep gate codes and property access instructions under 1,000 characters.');
+      return;
+    }
+
     if (hasUnresolvedServiceRequestMedia(serviceRequestMedia)) {
       setServiceRequestMessage('Wait for the current media action to finish before sending the request.');
       return;
@@ -701,21 +712,20 @@ export default function HomeScreen() {
     let confirmedRequest = pendingServiceRequest;
 
     if (!confirmedRequest) {
-      const { data, error } = await supabase.rpc('create_homeowner_service_request', {
-        p_property_id: activePropertyId,
-        p_company_id: preferredProvider.companyId,
-        p_request_type: serviceRequestType,
-        p_issue_summary: issueSummary,
-        p_priority: serviceRequestType === 'emergency' ? 'emergency' : 'normal',
-      });
-
-      if (error) {
+      try {
+        confirmedRequest = await createHomeownerServiceRequest({
+          propertyId: activePropertyId,
+          companyId: preferredProvider.companyId,
+          requestType: serviceRequestType,
+          issueSummary,
+          priority: serviceRequestType === 'emergency' ? 'emergency' : 'normal',
+          accessInstructions: serviceAccessInstructions,
+        });
+      } catch (error) {
         setSubmittingServiceRequest(false);
-        setServiceRequestMessage(`Could not send service request: ${error.message}`);
+        setServiceRequestMessage(`Could not send service request: ${getErrorMessage(error)}`);
         return;
       }
-
-      confirmedRequest = parseCreatedServiceRequest(data);
     }
 
     if (!confirmedRequest) {
@@ -748,6 +758,7 @@ export default function HomeScreen() {
     setPendingServiceRequest(null);
     setServiceRequestMedia([]);
     setServiceIssueSummary('');
+    setServiceAccessInstructions(homeIdentity?.gateCode || '');
     setServiceRequestType('regular');
     setServiceRequestMessage(`Service request sent. ${formatServiceRequestReference(confirmedRequest)}.`);
     void broadcastServiceRequestRefresh(
@@ -1228,6 +1239,49 @@ export default function HomeScreen() {
             }}
           />
 
+          <Text
+            style={{
+              fontSize: scaleFont(12),
+              color: theme.colors.mutedText,
+              lineHeight: scaleFont(18),
+              marginBottom: scaleIcon(8),
+              fontWeight: '800',
+            }}
+          >
+            Gate code, door code, or other access instructions (optional)
+          </Text>
+          <DictationTextInput
+            dictationEnabled={false}
+            value={serviceAccessInstructions}
+            onChangeText={(value) => setServiceAccessInstructions(value.slice(0, 1000))}
+            placeholder="Only add codes or instructions needed to enter this property"
+            placeholderTextColor={theme.colors.mutedText}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={{
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+              borderRadius: theme.radii.card,
+              padding: scaleIcon(12),
+              color: theme.colors.text,
+              fontSize: scaleFont(14),
+              fontWeight: '700',
+              marginBottom: scaleIcon(6),
+            }}
+          />
+          <Text
+            style={{
+              fontSize: scaleFont(11),
+              color: theme.colors.mutedText,
+              lineHeight: scaleFont(16),
+              marginBottom: scaleIcon(12),
+              fontWeight: '700',
+            }}
+          >
+            Stored separately from the public request card and shown only in an authorized company workflow.
+          </Text>
+
           {serviceRequestType === 'emergency' && (
             <Text
               style={{
@@ -1578,48 +1632,6 @@ function getTimeValue(value?: string | null) {
 
 function shortId(value?: string | null) {
   return String(value || '').replace(/-/g, '').slice(0, 8).toUpperCase() || 'UNKNOWN';
-}
-
-function parseCreatedServiceRequest(data: unknown): CreatedServiceRequestReceipt | null {
-  const row = Array.isArray(data) ? data[0] : data;
-
-  if (!row || typeof row !== 'object') return null;
-
-  const record = row as Record<string, unknown>;
-  const id = String(record.service_request_id || '').trim();
-  const companyId = String(record.company_id || '').trim();
-  const propertyId = String(record.property_id || '').trim();
-
-  if (!id || !companyId || !propertyId) return null;
-
-  return {
-    id,
-    displayCode: readOptionalString(record.display_code)?.toUpperCase() || null,
-    displaySequence: readOptionalNumber(record.display_sequence),
-    companyId,
-    propertyId,
-    requestType: String(record.request_type || ''),
-    status: String(record.status || ''),
-    priority: String(record.priority || ''),
-    createdAt: typeof record.created_at === 'string' ? record.created_at : null,
-  };
-}
-
-function readOptionalString(value: unknown) {
-  const text = String(value || '').trim();
-
-  return text || null;
-}
-
-function readOptionalNumber(value: unknown) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') {
-    const parsed = Number(value);
-
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
 }
 
 function formatServiceEventError(message: string, setupMessage: string) {

@@ -235,7 +235,7 @@ const requirementSkipReasons: { label: string; reason: EstimateRequirementSkipRe
 ];
 
 export default function EstimateScreen() {
-    const { companyId, propertyId, itemSlug, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId, estimateSessionId, step } = useLocalSearchParams<{
+    const { companyId, propertyId, itemSlug, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId, estimateSessionId, step, catalogItemId } = useLocalSearchParams<{
         companyId?: string | string[];
         propertyId?: string | string[];
         itemSlug?: string | string[];
@@ -247,6 +247,7 @@ export default function EstimateScreen() {
         jobId?: string | string[];
         estimateSessionId?: string | string[];
         step?: string | string[];
+        catalogItemId?: string | string[];
     }>();
     const requestedCompanyId = firstParam(companyId);
     const requestedPropertyId = firstParam(propertyId);
@@ -256,6 +257,7 @@ export default function EstimateScreen() {
     const requestedEstimateSessionId = firstParam(estimateSessionId);
     const requestedBuilderStepParam = firstParam(step);
     const requestedBuilderStep = normalizeEstimateBuilderStep(requestedBuilderStepParam);
+    const requestedCatalogItemId = firstParam(catalogItemId);
     const providerRouteParams = {
         providerMode,
         companyId,
@@ -330,6 +332,7 @@ export default function EstimateScreen() {
         presentationMode: boolean;
         technicianApproved: boolean;
     } | null>(null);
+    const catalogPrefillAppliedRef = useRef('');
     const estimateScrollRef = useRef<ScrollView | null>(null);
     const estimateContentRef = useRef<View | null>(null);
     const expandedChecklistRef = useRef<View | null>(null);
@@ -443,11 +446,33 @@ export default function EstimateScreen() {
             void loadCompanyApprovedProducts(estimateAccess.companyId)
                 .then((products) => {
                     if (!active) return;
-                    setApprovedProducts(products);
+                    const requestedProduct = requestedCatalogItemId
+                        ? products.find((product) => product.id === requestedCatalogItemId) || null
+                        : null;
+                    const orderedProducts = requestedProduct
+                        ? [requestedProduct, ...products.filter((product) => product.id !== requestedProduct.id)]
+                        : products;
+                    setApprovedProducts(orderedProducts);
                     setApprovedProductMessage(products.length > 0
                         ? `${products.length} approved product${products.length === 1 ? '' : 's'} available.`
                         : 'No approved products are configured for this company yet.'
                     );
+                    if (requestedProduct && catalogPrefillAppliedRef.current !== requestedProduct.id) {
+                        const category = estimateCategoryForCatalogProduct(requestedProduct);
+                        catalogPrefillAppliedRef.current = requestedProduct.id;
+                        setSelectedWorkType(getEstimateWorkTypeForCategory(category));
+                        setSelectedCategory(category);
+                        setEstimateCategoryChosen(true);
+                        setGuidedStep('build');
+                        setGuidedBuildStep('work');
+                        setOptionsWorkspaceOpen(true);
+                        if (category === 'water_heater') {
+                            setSelectedChoiceId(`water-heater-product-${requestedProduct.id}`);
+                        } else if (category === 'valve_replacement') {
+                            setSelectedChoiceId(`valve-product-${requestedProduct.id}-1`);
+                        }
+                        setMessage(`${requestedProduct.brand} ${requestedProduct.model} carried in from the company Catalog. Confirm the site scope before adding it to the quote.`);
+                    }
                 })
                 .catch((error) => {
                     if (!active) return;
@@ -460,7 +485,7 @@ export default function EstimateScreen() {
             return () => {
                 active = false;
             };
-        }, [estimateAccess?.companyId])
+        }, [estimateAccess?.companyId, requestedCatalogItemId])
     );
 
     useEffect(() => {
@@ -4397,7 +4422,7 @@ function renderGuidedEstimateBuilder({
                                         </TouchableOpacity>
                                     </View>
 
-                                    {selectedCategory === 'water_heater' && (
+                                    {(selectedCategory === 'water_heater' || selectedCategory === 'valve_replacement') && (
                                         <View style={guidedProductPickerStyle}>
                                             <Text style={guidedFieldLabelStyle}>Approved equipment</Text>
                                             <Text style={guidedFieldHelpStyle}>
@@ -5181,6 +5206,16 @@ function readStringArray(value: unknown) {
 
 function readSnapshotString(value: unknown) {
     return typeof value === 'string' ? value : '';
+}
+
+function estimateCategoryForCatalogProduct(product: EstimateApprovedProduct): EstimateOptionCategory {
+    const identity = `${product.category} ${product.brand} ${product.model} ${product.compatibleApplications.join(' ')}`.toLowerCase();
+    if (identity.includes('water heater') || identity.includes('tankless')) return 'water_heater';
+    if (identity.includes('valve') || identity.includes('shutoff') || identity.includes('regulator')) return 'valve_replacement';
+    if (identity.includes('toilet') || identity.includes('bidet')) return 'toilet_replacement';
+    if (identity.includes('disposal')) return 'garbage_disposal';
+    if (identity.includes('filter') || identity.includes('softener') || identity.includes('reverse osmosis')) return 'water_filtration_replacement';
+    return 'faucet_replacement';
 }
 
 function firstParam(value?: string | string[]) {

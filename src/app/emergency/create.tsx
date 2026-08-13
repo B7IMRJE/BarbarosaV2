@@ -94,6 +94,7 @@ export default function CreateEmergencyScreen() {
     const [emergencyType, setEmergencyType] = useState(emergencyTypes[0]);
     const [area, setArea] = useState(areas[0]);
     const [description, setDescription] = useState('');
+    const [accessInstructions, setAccessInstructions] = useState('');
     const [media, setMedia] = useState<ServiceRequestMediaDraft[]>([]);
     const [pendingEmergency, setPendingEmergency] = useState<PendingEmergencySubmission | null>(null);
     const [message, setMessage] = useState('');
@@ -102,6 +103,11 @@ export default function CreateEmergencyScreen() {
     async function submitEmergency() {
         if (!description.trim()) {
             setMessage('Description is required.');
+            return;
+        }
+
+        if (accessInstructions.trim().length > 1000) {
+            setMessage('Keep gate codes and property access instructions under 1,000 characters.');
             return;
         }
 
@@ -204,6 +210,7 @@ export default function CreateEmergencyScreen() {
                         requestType: 'emergency',
                         issueSummary: buildServiceRequestSummary(emergencyType, area, description),
                         priority: 'emergency',
+                        accessInstructions,
                     });
                 } catch (error) {
                     const staged = await stageEmergencyForPreferredCompany({
@@ -404,6 +411,29 @@ export default function CreateEmergencyScreen() {
                         },
                     ]}
                 />
+
+                <Text style={[labelStyle, { color: theme.colors.text }]}>Property Access (Optional)</Text>
+                <DictationTextInput
+                    dictationEnabled={false}
+                    value={accessInstructions}
+                    onChangeText={(value) => setAccessInstructions(value.slice(0, 1000))}
+                    placeholder="Gate code, door code, or instructions needed to enter"
+                    placeholderTextColor={theme.colors.mutedText}
+                    secureTextEntry
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={[
+                        inputStyle,
+                        {
+                            color: theme.colors.text,
+                            backgroundColor: theme.colors.surface,
+                            borderColor: theme.colors.border,
+                        },
+                    ]}
+                />
+                <Text style={{ color: theme.colors.mutedText, fontWeight: '700', lineHeight: 18, marginTop: -6, marginBottom: 14 }}>
+                    Stored separately from the request card and shown only in an authorized company workflow.
+                </Text>
 
                 <ServiceRequestMediaPicker
                     items={media}

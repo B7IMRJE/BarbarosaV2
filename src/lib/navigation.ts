@@ -14,3 +14,10 @@ export function safeBack(router: BackRouter, fallbackRoute: Href) {
 
     router.replace(fallbackRoute);
 }
+
+export function shouldShowGlobalBackButton(pathname?: string | null) {
+    const pathOnly = String(pathname || '/').split(/[?#]/, 1)[0] || '/';
+    const normalizedPath = pathOnly.replace(/\/+$/, '') || '/';
+
+    return normalizedPath !== '/';
+}

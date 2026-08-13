@@ -75,6 +75,17 @@ export type HomeItemCloseoutContext = {
     draft: HomeItemCloseoutDraft | null;
     approved_scope: string[];
     attachment_counts: Record<string, number>;
+    catalog_product?: {
+        id: string;
+        product_name: string | null;
+        category: string;
+        brand: string;
+        model: string;
+        manufacturer_part_number: string | null;
+        workmanship_warranty: string | null;
+        labor_warranty: string | null;
+        manufacturer_warranty: string | null;
+    } | null;
 };
 
 export type HomeItemLifetimeHistoryMedia = {
@@ -152,6 +163,18 @@ export function warrantyChoiceLabel(choice: HomeItemWarrantyChoice) {
         custom: 'Custom',
         unknown_verify_later: 'Unknown / Verify Later',
     } as const)[choice];
+}
+
+export function warrantyChoiceFromText(value?: string | null): HomeItemWarrantyChoice {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (!normalized || normalized.includes('unknown') || normalized.includes('verify')) return 'unknown_verify_later';
+    if (normalized.includes('limited lifetime')) return 'limited_lifetime';
+    if (normalized.includes('lifetime')) return 'lifetime';
+    if (/\b10\s*(year|yr)/.test(normalized)) return '10_years';
+    if (/\b5\s*(year|yr)/.test(normalized)) return '5_years';
+    if (/\b2\s*(year|yr)/.test(normalized)) return '2_years';
+    if (/\b1\s*(year|yr)/.test(normalized)) return '1_year';
+    return 'custom';
 }
 
 export function warrantyExpirationDate(startDate: string, choice: HomeItemWarrantyChoice, customExpiration?: string | null) {

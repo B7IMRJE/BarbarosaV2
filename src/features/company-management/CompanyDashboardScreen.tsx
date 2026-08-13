@@ -169,6 +169,7 @@ const cards = [
     'Jobs / Dispatch',
     'Team / Technicians',
     'Activity / Audit Log',
+    'Catalog',
     'Price Book',
     'Knowledge Engine',
     'Contracts & Legal Documents',
@@ -683,6 +684,11 @@ export default function CompanyDashboardScreen() {
 
         if (card === 'Price Book') {
             router.push(`/super-admin/company/${activeCompanyId}/price-book` as never);
+            return;
+        }
+
+        if (card === 'Catalog') {
+            router.push(`/super-admin/company/${activeCompanyId}/catalog` as never);
             return;
         }
 
@@ -2191,6 +2197,7 @@ function getModuleDescription(title: string) {
     if (title === 'Jobs / Dispatch') return 'Open the dispatch queue for jobs, requests, and technician workflow setup.';
     if (title === 'Team / Technicians') return 'Open company owners, admins, managers, technicians, and invitations.';
     if (title === 'Activity / Audit Log') return 'Review company-scoped ManagementOS actions and changes.';
+    if (title === 'Catalog') return 'Create approved product cards with models, photos, manuals, warranties, and optional Price Book links.';
     if (title === 'Price Book') return 'Company-owned price book for estimate and proposal line items.';
     if (title === 'Knowledge Engine') return 'Review read-only Bravo Knowledge Engine objects before connecting them to operations.';
     if (title === 'Contracts & Legal Documents') return 'Manage company wording, workflow requirements, revisions, and immutable signed copies.';
@@ -2207,6 +2214,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Jobs / Dispatch') return 'Open Dispatch';
     if (title === 'Estimates / Proposals') return 'Open Estimates';
     if (title === 'Activity / Audit Log') return 'Open Audit Log';
+    if (title === 'Catalog') return 'Open Catalog';
     if (title === 'Price Book') return 'Open Price Book';
     if (title === 'Knowledge Engine') return 'Open Viewer';
     if (title === 'Contracts & Legal Documents') return 'Manage Documents';
@@ -2257,6 +2265,9 @@ function canViewCompanyModule(card: string, permissions: CompanyPermissionSet | 
         return permissions.can_manage_company_users || permissions.can_view_jobs;
     }
     if (card === 'Activity / Audit Log') return permissions.can_manage_company_users;
+    if (card === 'Catalog') {
+        return permissions.can_view_techos || permissions.can_manage_price_book;
+    }
     if (card === 'Price Book') {
         return permissions.can_view_techos || permissions.can_manage_price_book;
     }

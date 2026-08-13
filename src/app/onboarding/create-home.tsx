@@ -19,11 +19,15 @@ import {
     type PropertyType,
     type VerifiedAddress,
 } from '../../lib/homeIdentity';
+import {
+    HOME_STORY_COUNT_OPTIONS,
+    type HomeStoryCount,
+} from '../../lib/homePropertyAccess';
 import { syncMyProfile } from '../../lib/profileSync';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
-type FieldName = 'homeName' | 'address' | 'propertyType';
+type FieldName = 'homeName' | 'address' | 'propertyType' | 'storyCount' | 'gateCode';
 type FormErrors = Partial<Record<FieldName, string>>;
 
 export default function CreateHomeOnboardingScreen() {
@@ -32,6 +36,8 @@ export default function CreateHomeOnboardingScreen() {
     const nextRoute = useMemo(() => resolveSafeNext(firstParam(params.next)), [params.next]);
     const [homeName, setHomeName] = useState('');
     const [propertyType, setPropertyType] = useState<PropertyType>('HOUSE');
+    const [storyCount, setStoryCount] = useState<HomeStoryCount>('1');
+    const [gateCode, setGateCode] = useState('');
     const [verifiedAddress, setVerifiedAddress] = useState<VerifiedAddress | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [errors, setErrors] = useState<FormErrors>({});
@@ -50,6 +56,8 @@ export default function CreateHomeOnboardingScreen() {
             homeName: trimmedHomeName,
             address: verifiedAddress,
             propertyType,
+            storyCount,
+            gateCode,
         });
 
         if (Object.keys(nextErrors).length > 0) {
@@ -91,6 +99,8 @@ export default function CreateHomeOnboardingScreen() {
                 name: trimmedHomeName,
                 propertyType,
                 address: verifiedAddress,
+                storyCount,
+                gateCode,
             });
 
             router.replace(buildThemeRoute(nextRoute) as never);
@@ -184,6 +194,54 @@ export default function CreateHomeOnboardingScreen() {
                             </Text>
                         )}
 
+                        <Text style={[fieldLabelStyle, { color: theme.colors.text, marginTop: 18 }]}>Building stories</Text>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText, marginBottom: 10 }]}>
+                            This helps providers plan access, crew needs, time, and material movement.
+                        </Text>
+                        <View style={propertyTypeGridStyle}>
+                            {HOME_STORY_COUNT_OPTIONS.map((option) => {
+                                const selected = storyCount === option.value;
+
+                                return (
+                                    <ThemedButton
+                                        key={option.value}
+                                        title={option.label}
+                                        variant={selected ? 'primary' : 'secondary'}
+                                        disabled={submitting}
+                                        onPress={() => {
+                                            setStoryCount(option.value);
+                                            clearFieldError('storyCount');
+                                        }}
+                                        style={propertyTypeButtonStyle}
+                                    />
+                                );
+                            })}
+                        </View>
+                        {!!errors.storyCount && (
+                            <Text style={[fieldErrorStyle, { color: theme.colors.danger }]}>
+                                {errors.storyCount}
+                            </Text>
+                        )}
+
+                        <ThemedInput
+                            label="Gate or property access code (optional)"
+                            placeholder="Enter only if access requires it"
+                            value={gateCode}
+                            onChangeText={(value) => {
+                                setGateCode(value.slice(0, 80));
+                                clearFieldError('gateCode');
+                            }}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                            secureTextEntry
+                            dictationEnabled={false}
+                            editable={!submitting}
+                            error={errors.gateCode}
+                        />
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText, marginTop: -6, marginBottom: 14 }]}>
+                            Hidden by default and available only in an authorized HomeOS or provider context.
+                        </Text>
+
                         {!verifiedAddress && (
                             <Text style={[addressHelpStyle, { color: theme.colors.mutedText }]}>
                                 To enable Create Home, select an address result and then choose Use This Address.
@@ -249,10 +307,14 @@ function validateHomeForm({
     homeName,
     address,
     propertyType,
+    storyCount,
+    gateCode,
 }: {
     homeName: string;
     address: VerifiedAddress | null;
     propertyType: string;
+    storyCount: string;
+    gateCode: string;
 }) {
     const nextErrors: FormErrors = {};
 
@@ -268,6 +330,12 @@ function validateHomeForm({
         nextErrors.propertyType = 'Choose a property type.';
     }
 
+    if (!HOME_STORY_COUNT_OPTIONS.some((option) => option.value === storyCount)) {
+        nextErrors.storyCount = 'Choose the number of stories.';
+    }
+
+    if (gateCode.trim().length > 80) nextErrors.gateCode = 'Keep the access code under 80 characters.';
+
     return nextErrors;
 }
 
@@ -279,6 +347,9 @@ function ThemedInput({
     keyboardType,
     autoCapitalize,
     editable = true,
+    dictationEnabled = true,
+    secureTextEntry = false,
+    autoCorrect,
     error,
 }: {
     label: string;
@@ -288,6 +359,9 @@ function ThemedInput({
     keyboardType?: TextInputProps['keyboardType'];
     autoCapitalize?: TextInputProps['autoCapitalize'];
     editable?: boolean;
+    dictationEnabled?: boolean;
+    secureTextEntry?: boolean;
+    autoCorrect?: boolean;
     error?: string;
 }) {
     const { theme } = useTheme();
@@ -296,13 +370,16 @@ function ThemedInput({
         <View style={inputGroupStyle}>
             <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>{label}</Text>
             <DictationTextInput
+                dictationEnabled={dictationEnabled}
                 placeholder={placeholder}
                 placeholderTextColor={theme.colors.mutedText}
                 value={value}
                 onChangeText={onChangeText}
                 keyboardType={keyboardType}
                 autoCapitalize={autoCapitalize}
+                autoCorrect={autoCorrect}
                 editable={editable}
+                secureTextEntry={secureTextEntry}
                 style={{
                     backgroundColor: theme.colors.surfaceAlt,
                     borderColor: theme.colors.border,

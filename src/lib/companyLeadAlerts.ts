@@ -24,6 +24,8 @@ export type CompanyDispatchRequest = {
     acknowledged_at: string | null;
     converted_job_id: string | null;
     converted_at: string | null;
+    access_instructions?: string | null;
+    access_updated_at?: string | null;
 };
 
 export type CompanyLeadCounts = {
@@ -52,20 +54,44 @@ export async function getCompanyDispatchRequests(companyId: string): Promise<Com
         throw new Error('Company id is required to load dispatch requests.');
     }
 
-    const { data, error } = await supabase.rpc('get_company_dispatch_requests', {
-        p_company_id: normalizedCompanyId,
-    });
+    const [requestsResult, accessResult] = await Promise.all([
+        supabase.rpc('get_company_dispatch_requests', {
+            p_company_id: normalizedCompanyId,
+        }),
+        supabase.rpc('get_company_service_request_access', {
+            p_company_id: normalizedCompanyId,
+        }),
+    ]);
 
-    if (error) {
-        throw new Error(error.message);
+    if (requestsResult.error) {
+        throw new Error(requestsResult.error.message);
     }
 
-    const rows: unknown[] = Array.isArray(data) ? data : [];
+    if (accessResult.error) {
+        throw new Error(accessResult.error.message);
+    }
+
+    const accessByRequestId = new Map(
+        (Array.isArray(accessResult.data) ? accessResult.data : [])
+            .map(parseCompanyServiceRequestAccess)
+            .filter((row): row is CompanyServiceRequestAccess => Boolean(row))
+            .map((row) => [row.service_request_id, row] as const)
+    );
+    const rows: unknown[] = Array.isArray(requestsResult.data) ? requestsResult.data : [];
 
     return rows
         .map(parseCompanyDispatchRequest)
         .filter((request): request is CompanyDispatchRequest => Boolean(request))
-        .filter((request) => request.company_id === normalizedCompanyId);
+        .filter((request) => request.company_id === normalizedCompanyId)
+        .map((request) => {
+            const access = accessByRequestId.get(request.id);
+
+            return {
+                ...request,
+                access_instructions: access?.access_instructions || null,
+                access_updated_at: access?.access_updated_at || null,
+            };
+        });
 }
 
 export async function getCompanyLeadCounts(companyId: string): Promise<CompanyLeadCounts> {
@@ -190,6 +216,30 @@ function parseCompanyDispatchRequest(row: unknown): CompanyDispatchRequest | nul
         acknowledged_at: readOptionalString(record.acknowledged_at),
         converted_job_id: readOptionalString(record.converted_job_id),
         converted_at: readOptionalString(record.converted_at),
+        access_instructions: null,
+        access_updated_at: null,
+    };
+}
+
+type CompanyServiceRequestAccess = {
+    service_request_id: string;
+    access_instructions: string;
+    access_updated_at: string | null;
+};
+
+function parseCompanyServiceRequestAccess(row: unknown): CompanyServiceRequestAccess | null {
+    if (!row || typeof row !== 'object') return null;
+
+    const record = row as Record<string, unknown>;
+    const serviceRequestId = readString(record.service_request_id);
+    const accessInstructions = readString(record.access_instructions);
+
+    if (!serviceRequestId || !accessInstructions) return null;
+
+    return {
+        service_request_id: serviceRequestId,
+        access_instructions: accessInstructions,
+        access_updated_at: readOptionalString(record.access_updated_at),
     };
 }
 

@@ -31,6 +31,7 @@ import {
 import { addItemToEstimateDraft, loadEstimateDraft, saveEstimateDraftContext } from '../../lib/estimateDraft';
 import { inferEstimateCategoryFromDraft } from '../../lib/estimateOptions';
 import { resolveEstimateOptionSession } from '../../lib/estimateSessions';
+import { canShowHomeItemEstimateTools } from '../../lib/homeItemEstimateVisibility';
 import { createJobWithFirstEvent } from '../../lib/jobs';
 import {
     calculateNextDueDate,
@@ -1387,51 +1388,43 @@ export default function ItemScreen() {
         }
     }
 
-    async function loadEstimateAccessForCurrentContext(companyId?: string | null) {
+    async function loadEstimateAccessForCurrentContext() {
         setCheckingEstimateAccess(true);
         setEstimateAccess(null);
         setEstimatePermissionMessage('Checking estimate permission...');
 
         try {
-            if (providerModeContext) {
-                const providerAccess = await validateProviderModeAccess(
-                    providerModeContext.companyId,
-                    providerModeContext.propertyId
-                );
-
-                if (!providerAccess.access) {
-                    setEstimatePermissionMessage(
-                        providerAccess.error || 'Provider mode access could not be confirmed.'
-                    );
-                    return;
-                }
-
-                if (!canUseCompanyEstimateWorkflow(providerAccess.access)) {
-                    setEstimatePermissionMessage('This work account is not authorized to create estimates for this company.');
-                    return;
-                }
-
-                setEstimateAccess({
-                    userId: providerAccess.access.userId,
-                    companyUserId: providerAccess.access.companyUserId,
-                    companyId: providerAccess.access.companyId,
-                    role: providerAccess.access.role,
-                    status: providerAccess.access.status,
-                    permissions: providerAccess.access.permissions,
-                });
+            if (!providerModeContext) {
                 setEstimatePermissionMessage('');
                 return;
             }
 
-            const estimatePermission = await loadCurrentCompanyEstimateAccess({
-                companyId,
-            });
-
-            setEstimateAccess(estimatePermission.access);
-            setEstimatePermissionMessage(estimatePermission.access
-                ? ''
-                : estimatePermission.error || 'This work account is not authorized to create estimates for this company.'
+            const providerAccess = await validateProviderModeAccess(
+                providerModeContext.companyId,
+                providerModeContext.propertyId
             );
+
+            if (!providerAccess.access) {
+                setEstimatePermissionMessage(
+                    providerAccess.error || 'Provider mode access could not be confirmed.'
+                );
+                return;
+            }
+
+            if (!canUseCompanyEstimateWorkflow(providerAccess.access)) {
+                setEstimatePermissionMessage('This work account is not authorized to create estimates for this company.');
+                return;
+            }
+
+            setEstimateAccess({
+                userId: providerAccess.access.userId,
+                companyUserId: providerAccess.access.companyUserId,
+                companyId: providerAccess.access.companyId,
+                role: providerAccess.access.role,
+                status: providerAccess.access.status,
+                permissions: providerAccess.access.permissions,
+            });
+            setEstimatePermissionMessage('');
         } finally {
             setCheckingEstimateAccess(false);
         }
@@ -1492,7 +1485,9 @@ export default function ItemScreen() {
             return;
         }
 
-        await loadEstimateAccessForCurrentContext(providerModeContext?.companyId);
+        if (providerModeContext) {
+            await loadEstimateAccessForCurrentContext();
+        }
 
         let itemRow: HomeItemRow | null = null;
         let loadErrorMessage = '';
@@ -2572,6 +2567,15 @@ export default function ItemScreen() {
     }
 
     function openCurrentItemEstimate() {
+        if (!canShowHomeItemEstimateTools({
+            hasEstimateAccess: Boolean(estimateAccess),
+            isManagementMode,
+            isProviderMode,
+        })) {
+            setMessage('Estimate tools are available from an authorized company workspace.');
+            return;
+        }
+
         router.push({
             pathname: '/estimate/workspace',
             params: {
@@ -2588,7 +2592,11 @@ export default function ItemScreen() {
     }
 
     async function handleViewEstimate() {
-        if (!estimateAccess) {
+        if (!estimateAccess || !canShowHomeItemEstimateTools({
+            hasEstimateAccess: true,
+            isManagementMode,
+            isProviderMode,
+        })) {
             setMessage(estimatePermissionMessage || 'You do not have permission to view estimates.');
             return;
         }
@@ -2612,18 +2620,20 @@ export default function ItemScreen() {
     }
 
     async function handleAddToEstimate() {
-        if (!estimateAccess) {
+        if (!estimateAccess || !canShowHomeItemEstimateTools({
+            hasEstimateAccess: true,
+            isManagementMode,
+            isProviderMode,
+        })) {
             setMessage(estimatePermissionMessage || 'You do not have permission to add estimates.');
             return;
         }
 
         const estimateCompanyId = providerModeContext?.companyId || estimateAccess.companyId;
         const estimatePropertyId = providerModeContext?.propertyId || item.property_id || managementPropertyId || '';
-        const estimateSource: 'provider_mode' | 'management' | 'homeos' = providerModeContext
+        const estimateSource: 'provider_mode' | 'management' = providerModeContext
             ? 'provider_mode'
-            : isManagementMode
-                ? 'management'
-                : 'homeos';
+            : 'management';
         const draftItemId = String(item.id || item.item_slug || slug);
         const draftItem = {
             id: draftItemId,
@@ -2743,6 +2753,15 @@ export default function ItemScreen() {
     }
 
     async function handleStartJobThread() {
+        if (!canShowHomeItemEstimateTools({
+            hasEstimateAccess: Boolean(estimateAccess),
+            isManagementMode,
+            isProviderMode,
+        })) {
+            setMessage('Job tools are available from an authorized company workspace.');
+            return;
+        }
+
         if (providerModeContext) {
             setMessage('Job thread creation from provider mode is coming next. Add to Estimate is available now.');
             return;
@@ -3360,8 +3379,14 @@ export default function ItemScreen() {
         );
     }
 
-    const canAddItemToEstimate = Boolean(estimateAccess);
+    const hasEstimateWorkspaceContext = isManagementMode || isProviderMode;
+    const canAddItemToEstimate = canShowHomeItemEstimateTools({
+        hasEstimateAccess: Boolean(estimateAccess),
+        isManagementMode,
+        isProviderMode,
+    });
     const showEstimateUnavailableMessage = Boolean(
+        hasEstimateWorkspaceContext &&
         !checkingEstimateAccess &&
         estimatePermissionMessage &&
         (!estimateAccess || providerModeContext)
@@ -3422,7 +3447,7 @@ export default function ItemScreen() {
                         </Text>
                     </ThemedCard>
 
-                    {checkingEstimateAccess && (
+                    {hasEstimateWorkspaceContext && checkingEstimateAccess && (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>
                             <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Estimate</Text>
                             <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>
@@ -5407,7 +5432,7 @@ export default function ItemScreen() {
                     </ThemedCard>
                     ) : null}
 
-                    {checkingEstimateAccess && (
+                    {hasEstimateWorkspaceContext && checkingEstimateAccess && (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>
                             <Text style={[scaleStyle(labelStyle), { color: theme.colors.mutedText }]}>Estimate</Text>
                             <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText }]}>

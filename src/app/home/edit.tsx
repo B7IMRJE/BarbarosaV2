@@ -24,9 +24,13 @@ import {
     type PropertyType,
     type VerifiedAddress,
 } from '../../lib/homeIdentity';
+import {
+    HOME_STORY_COUNT_OPTIONS,
+    type HomeStoryCount,
+} from '../../lib/homePropertyAccess';
 import { useTheme } from '../../theme/useTheme';
 
-type FieldName = 'homeName' | 'address' | 'propertyType' | 'yearBuilt' | 'squareFootage' | 'apn';
+type FieldName = 'homeName' | 'address' | 'propertyType' | 'storyCount' | 'gateCode' | 'yearBuilt' | 'squareFootage' | 'apn';
 type FormErrors = Partial<Record<FieldName, string>>;
 
 export default function EditHomeIdentityScreen() {
@@ -64,6 +68,8 @@ export default function EditHomeIdentityScreen() {
     const [identity, setIdentity] = useState<HomeIdentity | null>(null);
     const [homeName, setHomeName] = useState('');
     const [propertyType, setPropertyType] = useState<PropertyType>('HOUSE');
+    const [storyCount, setStoryCount] = useState<HomeStoryCount | ''>('');
+    const [gateCode, setGateCode] = useState('');
     const [verifiedAddress, setVerifiedAddress] = useState<VerifiedAddress | null>(null);
     const [yearBuilt, setYearBuilt] = useState('');
     const [squareFootage, setSquareFootage] = useState('');
@@ -87,6 +93,8 @@ export default function EditHomeIdentityScreen() {
             setIdentity(activeIdentity);
             setHomeName(activeIdentity?.name || '');
             setPropertyType(normalizePropertyType(activeIdentity?.propertyType));
+            setStoryCount(activeIdentity?.storyCount || '');
+            setGateCode(activeIdentity?.gateCode || '');
             setVerifiedAddress(activeIdentity?.address || null);
             setYearBuilt(activeIdentity?.yearBuilt ? String(activeIdentity.yearBuilt) : '');
             setSquareFootage(activeIdentity?.squareFootage ? String(activeIdentity.squareFootage) : '');
@@ -111,6 +119,8 @@ export default function EditHomeIdentityScreen() {
             homeName: trimmedHomeName,
             address: verifiedAddress,
             propertyType,
+            storyCount,
+            gateCode,
             yearBuilt,
             squareFootage,
             apn,
@@ -122,7 +132,7 @@ export default function EditHomeIdentityScreen() {
             return;
         }
 
-        if (!verifiedAddress) return;
+        if (!verifiedAddress || !storyCount) return;
 
         setErrors({});
         setMessage('');
@@ -133,6 +143,8 @@ export default function EditHomeIdentityScreen() {
                 name: trimmedHomeName,
                 propertyType,
                 address: verifiedAddress,
+                storyCount,
+                gateCode,
                 yearBuilt: parseOptionalWholeNumber(yearBuilt),
                 squareFootage: parseOptionalWholeNumber(squareFootage),
                 apn: apn.trim() || null,
@@ -238,6 +250,54 @@ export default function EditHomeIdentityScreen() {
                                 </Text>
                             )}
 
+                            <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text, marginTop: scaleIcon(18) }]}>Building stories</Text>
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText, marginBottom: scaleIcon(10) }]}>
+                                This helps providers plan access, crew needs, time, and material movement.
+                            </Text>
+                            <View style={scaleStyle(propertyTypeGridStyle)}>
+                                {HOME_STORY_COUNT_OPTIONS.map((option) => {
+                                    const selected = storyCount === option.value;
+
+                                    return (
+                                        <ThemedButton
+                                            key={option.value}
+                                            title={option.label}
+                                            variant={selected ? 'primary' : 'secondary'}
+                                            disabled={saving}
+                                            onPress={() => {
+                                                setStoryCount(option.value);
+                                                clearFieldError('storyCount');
+                                            }}
+                                            style={scaleStyle(propertyTypeButtonStyle)}
+                                        />
+                                    );
+                                })}
+                            </View>
+                            {!!errors.storyCount && (
+                                <Text style={[scaleStyle(fieldErrorStyle), { color: theme.colors.danger }]}>
+                                    {errors.storyCount}
+                                </Text>
+                            )}
+
+                            <ThemedInput
+                                label="Gate or property access code (optional)"
+                                placeholder="Enter only if access requires it"
+                                value={gateCode}
+                                onChangeText={(value) => {
+                                    setGateCode(value.slice(0, 80));
+                                    clearFieldError('gateCode');
+                                }}
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                secureTextEntry
+                                dictationEnabled={false}
+                                editable={!saving}
+                                error={errors.gateCode}
+                            />
+                            <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText, marginTop: -scaleIcon(6), marginBottom: scaleIcon(14) }]}>
+                                Hidden by default and available only in an authorized HomeOS or provider context.
+                            </Text>
+
                             <View style={[scaleStyle(profileFactsStyle), { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceAlt }]}>
                                 <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Home Profile</Text>
                                 <Text style={[scaleStyle(bodyTextStyle), { color: theme.colors.mutedText, marginBottom: scaleIcon(16) }]}>
@@ -342,6 +402,8 @@ function validateHomeForm({
     homeName,
     address,
     propertyType,
+    storyCount,
+    gateCode,
     yearBuilt,
     squareFootage,
     apn,
@@ -349,6 +411,8 @@ function validateHomeForm({
     homeName: string;
     address: VerifiedAddress | null;
     propertyType: string;
+    storyCount: string;
+    gateCode: string;
     yearBuilt: string;
     squareFootage: string;
     apn: string;
@@ -366,6 +430,12 @@ function validateHomeForm({
     if (!PROPERTY_TYPE_OPTIONS.some((option) => option.value === propertyType)) {
         nextErrors.propertyType = 'Choose a property type.';
     }
+
+    if (!HOME_STORY_COUNT_OPTIONS.some((option) => option.value === storyCount)) {
+        nextErrors.storyCount = 'Choose the number of stories.';
+    }
+
+    if (gateCode.trim().length > 80) nextErrors.gateCode = 'Keep the access code under 80 characters.';
 
     const year = parseOptionalWholeNumber(yearBuilt);
     const nextYear = new Date().getFullYear() + 1;
@@ -406,6 +476,8 @@ function ThemedInput({
     autoCapitalize,
     editable = true,
     dictationEnabled = true,
+    secureTextEntry = false,
+    autoCorrect,
     error,
 }: {
     label: string;
@@ -416,6 +488,8 @@ function ThemedInput({
     autoCapitalize?: TextInputProps['autoCapitalize'];
     editable?: boolean;
     dictationEnabled?: boolean;
+    secureTextEntry?: boolean;
+    autoCorrect?: boolean;
     error?: string;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
@@ -447,6 +521,8 @@ function ThemedInput({
                 keyboardType={keyboardType}
                 autoCapitalize={autoCapitalize}
                 editable={editable}
+                secureTextEntry={secureTextEntry}
+                autoCorrect={autoCorrect}
                 style={{
                     backgroundColor: theme.colors.surfaceAlt,
                     borderRadius: theme.radii.button,
