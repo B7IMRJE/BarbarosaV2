@@ -640,6 +640,11 @@ export default function CompanyDashboardScreen() {
             return;
         }
 
+        if (card === 'Operations Rooms') {
+            router.push(`/super-admin/company/${activeCompanyId}/operations` as never);
+            return;
+        }
+
         if (card === 'Settings / Permissions') {
             router.push(`/super-admin/company/${activeCompanyId}/users` as any);
             return;
@@ -2183,6 +2188,7 @@ function getModuleDescription(title: string) {
     if (title === 'Opportunities') return 'Track sales opportunities after request triage is built.';
     if (title === 'Estimates / Proposals') return 'Open estimate drafts and proposal foundations without fake pricing.';
     if (title === 'Jobs / Dispatch') return 'Open the dispatch queue for jobs, requests, and technician workflow setup.';
+    if (title === 'Operations Rooms') return 'Follow timestamped clock, travel, job, media, sales, and closeout activity by team room.';
     if (title === 'Team / Technicians') return 'Open company owners, admins, managers, technicians, and invitations.';
     if (title === 'Activity / Audit Log') return 'Review company-scoped ManagementOS actions and changes.';
     if (title === 'Catalog') return 'Create approved product cards with models, photos, manuals, warranties, and optional Price Book links.';
@@ -2200,6 +2206,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Services & Trust Profile') return 'Configure below';
     if (title === 'Leads / Requests') return 'Open Requests';
     if (title === 'Jobs / Dispatch') return 'Open Dispatch';
+    if (title === 'Operations Rooms') return 'Open Live Thread';
     if (title === 'Estimates / Proposals') return 'Open Estimates';
     if (title === 'Activity / Audit Log') return 'Open Audit Log';
     if (title === 'Catalog') return 'Open Catalog';

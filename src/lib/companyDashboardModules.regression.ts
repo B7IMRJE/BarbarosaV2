@@ -17,6 +17,7 @@ function runCompanyDashboardModuleRegressions() {
     });
 
     assert(dispatcherModules.includes('Jobs / Dispatch'), 'Dispatch should see Jobs / Dispatch.');
+    assert(dispatcherModules.includes('Operations Rooms'), 'Dispatch should see the live Operations Rooms.');
     assert(dispatcherModules.includes('Team / Technicians'), 'Dispatch should see the operational team directory.');
     assert(dispatcherModules.includes('Customers / Clients'), 'Dispatch should see customers and clients.');
     assert(dispatcherModules.includes('Catalog'), 'Dispatch should retain approved catalog access.');
