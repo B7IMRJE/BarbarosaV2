@@ -8,7 +8,7 @@ import { Linking, ScrollView, Text, TouchableOpacity, View, useWindowDimensions 
 import AdminNavBar from '../../components/AdminNavBar';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
-import { canManageCompanyCatalog } from '../../lib/companyCatalogAccess';
+import { canManageCompanyCatalog, canManageCompanyCatalogPricing } from '../../lib/companyCatalogAccess';
 import { loadCurrentCompanyPermissionAccess } from '../../lib/companyPermissions';
 import {
     createCompanyCatalogFileUrl,
@@ -37,6 +37,7 @@ export default function CompanyCatalogScreen() {
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [draft, setDraft] = useState<CompanyCatalogDraft | null>(null);
     const [canManage, setCanManage] = useState(false);
+    const [canManagePricing, setCanManagePricing] = useState(false);
     const [message, setMessage] = useState('Loading the company catalog...');
     const [busy, setBusy] = useState(false);
     const [search, setSearch] = useState('');
@@ -56,19 +57,35 @@ export default function CompanyCatalogScreen() {
         if (!companyId) return;
         try {
             setMessage('Loading the company catalog...');
-            const [isPlatformAdmin, manageAccess, catalog, priceBook] = await Promise.all([
+            const [isPlatformAdmin, manageAccess, customerAccess, jobAccess] = await Promise.all([
                 loadCurrentUserPlatformAdmin(),
                 loadCurrentCompanyPermissionAccess('can_manage_price_book', { companyId }),
-                loadCompanyProductCatalog(companyId),
-                loadCompanyPriceBook(companyId),
+                loadCurrentCompanyPermissionAccess('can_view_customers', { companyId }),
+                loadCurrentCompanyPermissionAccess('can_view_jobs', { companyId }),
             ]);
             const mayManage = canManageCompanyCatalog({
                 isPlatformAdmin,
                 hasCompanyPriceBookPermission: Boolean(manageAccess.access),
+                canViewCompanyCustomers: Boolean(customerAccess.access),
+                canViewCompanyJobs: Boolean(jobAccess.access),
             });
+            const mayManagePricing = canManageCompanyCatalogPricing({
+                isPlatformAdmin,
+                hasCompanyPriceBookPermission: Boolean(manageAccess.access),
+            });
+            const [catalogResult, priceBookResult] = await Promise.allSettled([
+                loadCompanyProductCatalog(companyId),
+                mayManagePricing
+                    ? loadCompanyPriceBook(companyId)
+                    : Promise.resolve(null),
+            ]);
+            if (catalogResult.status === 'rejected') throw catalogResult.reason;
+            const catalog = catalogResult.value;
+            const priceBook = priceBookResult.status === 'fulfilled' ? priceBookResult.value : null;
             setCanManage(mayManage);
+            setCanManagePricing(mayManagePricing);
             setItems(catalog);
-            setPriceBookItems(priceBook.items.filter((item) => item.active));
+            setPriceBookItems(priceBook?.items.filter((item) => item.active) || []);
             setMessage(catalog.length
                 ? `${catalog.length} catalog card${catalog.length === 1 ? '' : 's'} ready.`
                 : mayManage
@@ -250,19 +267,26 @@ export default function CompanyCatalogScreen() {
                             <Field label="Homeowner description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
                             <ChoiceRow label="Card status" values={['draft', 'approved', 'archived'] as CompanyCatalogStatus[]} selected={draft.status} onSelect={(status) => setDraft({ ...draft, status })} />
                             <ChoiceRow label="Product tier" values={['Essential', 'Professional', 'Premium'] as CompanyCatalogTier[]} selected={draft.tier} onSelect={(tier) => setDraft({ ...draft, tier })} />
-                            <View style={{ gap: 7 }}>
+                            {canManagePricing ? <View style={{ gap: 7 }}>
                                 <Text style={{ color: textColor, fontWeight: '800' }}>Optional linked Price Book service</Text>
                                 <Text style={{ color: mutedColor }}>The product card supplies model, media, manuals, and warranty. The linked service supplies labor, scope, and company pricing.</Text>
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                                     <Pill label="No link" selected={!draft.priceBookItemId} onPress={() => setDraft({ ...draft, priceBookItemId: null })} />
                                     {priceBookItems.slice(0, 40).map((item) => <Pill key={item.id} label={item.name} selected={draft.priceBookItemId === item.id} onPress={() => setDraft({ ...draft, priceBookItemId: item.id })} />)}
                                 </View>
-                            </View>
-                            <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
+                            </View> : (
+                                <View style={{ gap: 5, padding: 12, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12 }}>
+                                    <Text style={{ color: textColor, fontWeight: '900' }}>Product details access</Text>
+                                    <Text style={{ color: mutedColor, lineHeight: scaleFont(20) }}>
+                                        You can create and edit catalog cards. Company prices and Price Book links remain unchanged and require pricing permission.
+                                    </Text>
+                                </View>
+                            )}
+                            {canManagePricing && <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
                                 <View style={{ flex: 1 }}><NumberField label="Approved product price (optional)" value={draft.approvedSellingPrice} onChange={(approvedSellingPrice) => setDraft({ ...draft, approvedSellingPrice })} /></View>
                                 <View style={{ flex: 1 }}><NumberField label="Minimum price (optional)" value={draft.minimumSellingPrice} onChange={(minimumSellingPrice) => setDraft({ ...draft, minimumSellingPrice })} /></View>
                                 <View style={{ flex: 1 }}><NumberField label="Maximum price (optional)" value={draft.maximumSellingPrice} onChange={(maximumSellingPrice) => setDraft({ ...draft, maximumSellingPrice })} /></View>
-                            </View>
+                            </View>}
                             <Field label="Specifications (one Key: Value per line)" value={specificationsText(draft.specifications)} onChangeText={(value) => setDraft({ ...draft, specifications: parseSpecifications(value) })} multiline />
                             <Field label="Compatible applications (comma separated)" value={draft.compatibleApplications.join(', ')} onChangeText={(value) => setDraft({ ...draft, compatibleApplications: parseList(value) })} multiline />
                             <Field label="Installation requirements (one per line)" value={draft.installationRequirements.join('\n')} onChangeText={(value) => setDraft({ ...draft, installationRequirements: parseLines(value) })} multiline />
