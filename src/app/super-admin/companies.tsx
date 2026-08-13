@@ -10,6 +10,11 @@ import {
     View,
 } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
+import {
+    COMPANY_CREDENTIAL_MAX_LENGTH,
+    formatCompanyCredential,
+    normalizeCompanyCredential,
+} from '../../lib/companyCredential';
 import { getCompanyDisplayName } from '../../lib/companyDisplayName';
 import {
     getExplicitProviderCategoryOptions,
@@ -57,6 +62,10 @@ export default function CompaniesScreen() {
     const [openCategoryCompanyId, setOpenCategoryCompanyId] = useState('');
     const [savingCategoryCompanyId, setSavingCategoryCompanyId] = useState('');
     const [categoryMessageByCompanyId, setCategoryMessageByCompanyId] = useState<Record<string, string>>({});
+    const [editingCredentialCompanyId, setEditingCredentialCompanyId] = useState('');
+    const [credentialDraft, setCredentialDraft] = useState('');
+    const [savingCredentialCompanyId, setSavingCredentialCompanyId] = useState('');
+    const [credentialMessageByCompanyId, setCredentialMessageByCompanyId] = useState<Record<string, string>>({});
 
     useEffect(() => {
         loadCompanies();
@@ -171,6 +180,76 @@ export default function CompaniesScreen() {
             [company.id]: categoryLabel
                 ? `${categoryLabel} category saved.`
                 : 'No category. This company is hidden from homeowner discovery.',
+        }));
+    }
+
+    function beginCredentialEdit(company: Company) {
+        setEditingCredentialCompanyId(company.id);
+        setCredentialDraft(company.license_number || '');
+        setCredentialMessageByCompanyId((current) => ({ ...current, [company.id]: '' }));
+    }
+
+    function cancelCredentialEdit() {
+        setEditingCredentialCompanyId('');
+        setCredentialDraft('');
+    }
+
+    async function saveCompanyCredential(company: Company) {
+        const nextCredential = normalizeCompanyCredential(credentialDraft);
+
+        if (nextCredential.length > COMPANY_CREDENTIAL_MAX_LENGTH) {
+            setCredentialMessageByCompanyId((current) => ({
+                ...current,
+                [company.id]: `Keep the license or credential under ${COMPANY_CREDENTIAL_MAX_LENGTH} characters.`,
+            }));
+            return;
+        }
+
+        setSavingCredentialCompanyId(company.id);
+        setCredentialMessageByCompanyId((current) => ({
+            ...current,
+            [company.id]: nextCredential ? 'Saving license or credential...' : 'Removing license or credential...',
+        }));
+
+        const { data, error } = await supabase.rpc('update_company_brand_profile', {
+            p_company_id: company.id,
+            p_public_name: company.public_name || '',
+            p_dba_name: company.dba_name || '',
+            p_logo_url: company.logo_url || '',
+            p_primary_color: company.primary_color || company.theme_color || '#071B33',
+            p_secondary_color: company.secondary_color || '#FFFFFF',
+            p_accent_color: company.accent_color || '#0B5FFF',
+            p_service_categories: company.service_categories || [],
+            p_homeos_rating: Number(company.homeos_rating || 0),
+            p_homeos_rating_count: Number(company.homeos_rating_count || 0),
+            p_combined_experience_years: Number(company.combined_experience_years || 0),
+            p_license_number: nextCredential,
+            p_phone: company.phone || '',
+            p_website: company.website || '',
+            p_short_description: company.short_description || '',
+        });
+
+        setSavingCredentialCompanyId('');
+
+        if (error) {
+            setCredentialMessageByCompanyId((current) => ({
+                ...current,
+                [company.id]: `Could not save license or credential: ${error.message}`,
+            }));
+            return;
+        }
+
+        const updatedCompany = data as Company;
+        setCompanies((current) => current.map((currentCompany) => (
+            currentCompany.id === company.id
+                ? { ...currentCompany, ...updatedCompany }
+                : currentCompany
+        )));
+        setEditingCredentialCompanyId('');
+        setCredentialDraft('');
+        setCredentialMessageByCompanyId((current) => ({
+            ...current,
+            [company.id]: nextCredential ? 'License or credential saved.' : 'License or credential marked missing.',
         }));
     }
 
@@ -314,6 +393,8 @@ export default function CompaniesScreen() {
                             : 'Pick category';
                         const categoryPickerOpen = openCategoryCompanyId === company.id;
                         const savingCategory = savingCategoryCompanyId === company.id;
+                        const credentialEditorOpen = editingCredentialCompanyId === company.id;
+                        const savingCredential = savingCredentialCompanyId === company.id;
                         const rating = Number(company.homeos_rating || 0).toFixed(1);
                         const ratingCount = company.homeos_rating_count || 0;
                         const visibleCategories = (categories.length ? categories : ['No categories']).slice(0, 2);
@@ -633,12 +714,146 @@ export default function CompaniesScreen() {
                                             <Text style={{ color: '#64748B', fontWeight: '700', flexShrink: 1 }}>
                                                 {ratingCount} ratings
                                             </Text>
-                                            {!!company.license_number && (
-                                                <Text numberOfLines={1} style={{ color: '#64748B', fontWeight: '700', maxWidth: '100%' }}>
-                                                    Lic# {company.license_number}
-                                                </Text>
+                                            {!isSelectingForProperties && !credentialEditorOpen && (
+                                                <TouchableOpacity
+                                                    accessibilityRole="button"
+                                                    accessibilityLabel={`${formatCompanyCredential(company.license_number)}. Edit.`}
+                                                    disabled={savingCredential}
+                                                    onPress={(event) => {
+                                                        event.stopPropagation();
+                                                        beginCredentialEdit(company);
+                                                    }}
+                                                    style={{
+                                                        maxWidth: '100%',
+                                                        minWidth: 0,
+                                                        flexDirection: 'row',
+                                                        alignItems: 'center',
+                                                        gap: 6,
+                                                        borderBottomWidth: 1,
+                                                        borderBottomColor: company.license_number ? '#CBD5E1' : '#F1B7B7',
+                                                        paddingBottom: 2,
+                                                    }}
+                                                >
+                                                    <Text
+                                                        numberOfLines={2}
+                                                        style={{
+                                                            color: company.license_number ? '#64748B' : '#B42318',
+                                                            fontWeight: '800',
+                                                            maxWidth: '100%',
+                                                            flexShrink: 1,
+                                                        }}
+                                                    >
+                                                        {formatCompanyCredential(company.license_number)}
+                                                    </Text>
+                                                    <Text style={{ color: accentColor, fontWeight: '900' }}>Edit</Text>
+                                                </TouchableOpacity>
                                             )}
                                         </View>
+
+                                        {!isSelectingForProperties && credentialEditorOpen && (
+                                            <View
+                                                style={{
+                                                    marginTop: 12,
+                                                    borderWidth: 1,
+                                                    borderColor: '#8BC9D2',
+                                                    borderRadius: 14,
+                                                    backgroundColor: '#ECFEFF',
+                                                    padding: 12,
+                                                    gap: 9,
+                                                }}
+                                            >
+                                                <Text style={{ color: '#071B33', fontSize: 12, fontWeight: '900' }}>
+                                                    LICENSE OR PROFESSIONAL CREDENTIAL
+                                                </Text>
+                                                <DictationTextInput
+                                                    value={credentialDraft}
+                                                    onChangeText={(value) => setCredentialDraft(value.slice(0, COMPANY_CREDENTIAL_MAX_LENGTH))}
+                                                    onPressIn={(event) => event.stopPropagation()}
+                                                    placeholder="License number, Journeyman, Professional, or custom text"
+                                                    placeholderTextColor="#64748B"
+                                                    autoCapitalize="words"
+                                                    autoCorrect={false}
+                                                    editable={!savingCredential}
+                                                    maxLength={COMPANY_CREDENTIAL_MAX_LENGTH}
+                                                    style={{
+                                                        minHeight: 46,
+                                                        borderWidth: 1,
+                                                        borderColor: '#8BC9D2',
+                                                        borderRadius: 12,
+                                                        backgroundColor: '#FFFFFF',
+                                                        color: '#071B33',
+                                                        paddingHorizontal: 12,
+                                                        paddingVertical: 11,
+                                                        fontWeight: '800',
+                                                    }}
+                                                />
+                                                <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', lineHeight: 17 }}>
+                                                    Leave blank to display “Missing.” This text is reused anywhere the company credential appears.
+                                                </Text>
+                                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                                    <TouchableOpacity
+                                                        accessibilityRole="button"
+                                                        disabled={savingCredential}
+                                                        onPress={(event) => {
+                                                            event.stopPropagation();
+                                                            void saveCompanyCredential(company);
+                                                        }}
+                                                        style={{
+                                                            flexGrow: 1,
+                                                            minWidth: 110,
+                                                            borderRadius: 10,
+                                                            backgroundColor: '#071B33',
+                                                            paddingHorizontal: 14,
+                                                            paddingVertical: 11,
+                                                            alignItems: 'center',
+                                                            opacity: savingCredential ? 0.55 : 1,
+                                                        }}
+                                                    >
+                                                        <Text style={{ color: '#FFFFFF', fontWeight: '900' }}>
+                                                            {savingCredential ? 'Saving...' : 'Save'}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        accessibilityRole="button"
+                                                        disabled={savingCredential}
+                                                        onPress={(event) => {
+                                                            event.stopPropagation();
+                                                            cancelCredentialEdit();
+                                                        }}
+                                                        style={{
+                                                            flexGrow: 1,
+                                                            minWidth: 110,
+                                                            borderWidth: 1,
+                                                            borderColor: '#CBD5E1',
+                                                            borderRadius: 10,
+                                                            backgroundColor: '#FFFFFF',
+                                                            paddingHorizontal: 14,
+                                                            paddingVertical: 11,
+                                                            alignItems: 'center',
+                                                        }}
+                                                    >
+                                                        <Text style={{ color: '#071B33', fontWeight: '900' }}>Cancel</Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        )}
+
+                                        {!!credentialMessageByCompanyId[company.id] && (
+                                            <Text
+                                                selectable
+                                                style={{
+                                                    color: credentialMessageByCompanyId[company.id].startsWith('Could not') || credentialMessageByCompanyId[company.id].startsWith('Keep')
+                                                        ? '#B42318'
+                                                        : '#475569',
+                                                    fontSize: 12,
+                                                    fontWeight: '700',
+                                                    lineHeight: 17,
+                                                    marginTop: 8,
+                                                }}
+                                            >
+                                                {credentialMessageByCompanyId[company.id]}
+                                            </Text>
+                                        )}
 
                                         <Text
                                             style={{
