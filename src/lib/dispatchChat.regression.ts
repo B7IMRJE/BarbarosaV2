@@ -2,6 +2,7 @@ import {
     getDispatchChatAlertLabel,
     getDispatchChatAttentionThread,
     getDispatchChatRequestLabel,
+    getDispatchChatUnreadBadge,
     normalizeDispatchChatInbox,
 } from './dispatchChat';
 
@@ -12,6 +13,7 @@ export function runDispatchChatRegressions() {
     latestUnreadThreadWinsAttention();
     friendlyRequestCodeIsUsed();
     databaseCountsNormalizeFromStrings();
+    unreadBadgeStaysCompact();
 }
 
 function unreadTechnicianMessageRaisesAssistanceAlert() {
@@ -40,6 +42,12 @@ function databaseCountsNormalizeFromStrings() {
     }])[0];
 
     assert(normalized.unread_count === 3, 'Postgres bigint unread counts should normalize to numbers.');
+}
+
+function unreadBadgeStaysCompact() {
+    assert(getDispatchChatUnreadBadge(0) === '', 'Read chats should not show an unread badge.');
+    assert(getDispatchChatUnreadBadge(3) === '3', 'Unread chat count should appear on the minimized launcher.');
+    assert(getDispatchChatUnreadBadge(140) === '99+', 'Large unread counts should not widen the minimized launcher.');
 }
 
 function threadRow(overrides: Record<string, unknown> = {}) {

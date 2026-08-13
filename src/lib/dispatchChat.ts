@@ -116,6 +116,15 @@ export function getDispatchChatAlertLabel(thread?: DispatchChatInboxThread | nul
     return thread && thread.unread_count > 0 ? 'Tech needs assistance' : 'Dispatch chat';
 }
 
+export function getDispatchChatUnreadBadge(unreadCount: number) {
+    const normalizedCount = Number.isFinite(unreadCount) ? Math.max(0, Math.floor(unreadCount)) : 0;
+
+    if (normalizedCount === 0) return '';
+    if (normalizedCount > 99) return '99+';
+
+    return String(normalizedCount);
+}
+
 export function getDispatchChatRequestLabel(thread?: DispatchChatInboxThread | null) {
     if (!thread) return 'Service request';
 

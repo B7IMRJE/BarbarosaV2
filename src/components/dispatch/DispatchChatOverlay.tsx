@@ -23,6 +23,7 @@ import {
     getDispatchChatAlertLabel,
     getDispatchChatAttentionThread,
     getDispatchChatRequestLabel,
+    getDispatchChatUnreadBadge,
     loadCompanyDispatchChatInbox,
     loadServiceRequestDispatchChatMessages,
     markServiceRequestDispatchChatRead,
@@ -68,6 +69,7 @@ export default function DispatchChatOverlay({
         [threads]
     );
     const hasUnread = unreadCount > 0;
+    const unreadBadge = getDispatchChatUnreadBadge(unreadCount);
     const panelWidth = Math.min(Math.max(width - 24, 292), wallMode ? 430 : 390);
     const alertStyle = useAnimatedStyle(() => ({ opacity: alertOpacity.value }));
 
@@ -380,12 +382,13 @@ export default function DispatchChatOverlay({
                 <Animated.View style={alertStyle}>
                     <Pressable
                         accessibilityRole="button"
-                        accessibilityLabel={`${getDispatchChatAlertLabel(attentionThread)}. ${attentionThread.latest_message}`}
+                        accessibilityLabel={hasUnread
+                            ? `${getDispatchChatAlertLabel(attentionThread)}. ${unreadCount} unread. Latest from ${attentionThread.technician_name}.`
+                            : 'Open Dispatch chat'}
                         onPress={() => void openThread(attentionThread)}
                         style={({ pressed }) => [
-                            styles.alert,
+                            styles.launcher,
                             {
-                                width: panelWidth,
                                 backgroundColor: hasUnread
                                     ? theme.colors.status.needsAttention.background
                                     : theme.colors.surface,
@@ -396,20 +399,19 @@ export default function DispatchChatOverlay({
                             pressed ? styles.pressed : null,
                         ]}
                     >
-                        <View style={[styles.unreadDot, { backgroundColor: hasUnread ? theme.colors.danger : theme.colors.primary }]} />
-                        <View style={styles.alertCopy}>
-                            <Text style={[styles.alertTitle, { color: theme.colors.text }]} numberOfLines={1}>
-                                {getDispatchChatAlertLabel(attentionThread)}
-                                {unreadCount > 1 ? ` · ${unreadCount}` : ''}
-                            </Text>
-                            <Text style={[styles.alertMessage, { color: theme.colors.text }]} numberOfLines={1}>
-                                {attentionThread.latest_message}
-                            </Text>
-                            <Text style={[styles.meta, { color: theme.colors.mutedText }]} numberOfLines={1}>
-                                {attentionThread.technician_name} · {getDispatchChatRequestLabel(attentionThread)}
-                            </Text>
+                        <View style={[styles.chatGlyph, { borderColor: theme.colors.primary }]}>
+                            <View style={[styles.chatGlyphTail, { borderColor: theme.colors.primary }]} />
+                            <View style={styles.chatGlyphDots}>
+                                <View style={[styles.chatGlyphDot, { backgroundColor: theme.colors.primary }]} />
+                                <View style={[styles.chatGlyphDot, { backgroundColor: theme.colors.primary }]} />
+                                <View style={[styles.chatGlyphDot, { backgroundColor: theme.colors.primary }]} />
+                            </View>
                         </View>
-                        <Text style={[styles.openGlyph, { color: theme.colors.primary }]}>›</Text>
+                        {hasUnread && (
+                            <View style={[styles.unreadBadge, { backgroundColor: theme.colors.danger }]}>
+                                <Text style={styles.unreadBadgeText}>{unreadBadge}</Text>
+                            </View>
+                        )}
                     </Pressable>
                 </Animated.View>
             )}
@@ -425,44 +427,61 @@ const styles = StyleSheet.create({
         elevation: 18,
         alignItems: 'flex-end',
     },
-    alert: {
-        minHeight: 76,
-        maxWidth: '100%',
+    launcher: {
+        width: 56,
+        height: 56,
         borderWidth: 2,
         borderRadius: 18,
-        paddingHorizontal: 14,
-        paddingVertical: 11,
-        flexDirection: 'row',
+        borderCurve: 'continuous',
         alignItems: 'center',
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.22,
-        shadowRadius: 18,
+        justifyContent: 'center',
+        boxShadow: '0 8px 18px rgba(0, 0, 0, 0.22)',
     },
-    unreadDot: {
-        width: 11,
-        height: 11,
+    chatGlyph: {
+        width: 29,
+        height: 22,
+        borderWidth: 2,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    chatGlyphTail: {
+        position: 'absolute',
+        right: 3,
+        bottom: -5,
+        width: 8,
+        height: 8,
+        borderRightWidth: 2,
+        borderBottomWidth: 2,
+        transform: [{ rotate: '28deg' }],
+    },
+    chatGlyphDots: {
+        flexDirection: 'row',
+        gap: 3,
+    },
+    chatGlyphDot: {
+        width: 3,
+        height: 3,
         borderRadius: 999,
-        marginRight: 11,
     },
-    alertCopy: {
-        flex: 1,
-        minWidth: 0,
+    unreadBadge: {
+        position: 'absolute',
+        top: -7,
+        right: -7,
+        minWidth: 22,
+        height: 22,
+        borderRadius: 999,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 5,
+        borderWidth: 2,
+        borderColor: '#FFFFFF',
     },
-    alertTitle: {
-        fontSize: 14,
+    unreadBadgeText: {
+        color: '#FFFFFF',
+        fontSize: 10,
         fontWeight: '900',
-        marginBottom: 2,
-    },
-    alertMessage: {
-        fontSize: 15,
-        fontWeight: '700',
-        marginBottom: 2,
-    },
-    openGlyph: {
-        fontSize: 30,
-        fontWeight: '500',
-        marginLeft: 8,
+        fontVariant: ['tabular-nums'],
     },
     panel: {
         maxWidth: '100%',
