@@ -9,6 +9,7 @@ import {
     Text,
     TouchableOpacity,
     View,
+    useWindowDimensions,
 } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -25,6 +26,7 @@ import {
     type CustomizableCompanyRole,
 } from '../../lib/companyInvitationRules';
 import { mergeCompanyTeamRosterMembers } from '../../lib/companyTeamRoster';
+import { resolveCompanyTeamContentWidth } from '../../lib/companyTeamLayout';
 import {
     COMPANY_PERMISSION_LABELS,
     canAccessTechOS as canAccessCompanyTechOS,
@@ -115,6 +117,10 @@ const COMPANY_PERMISSION_DESCRIPTIONS: Record<CompanyPermissionKey, string> = {
 export default function CompanyUsersScreen() {
     const themeContext = useTheme();
     const { id } = useLocalSearchParams<{ id: string }>();
+    const { width: viewportWidth } = useWindowDimensions();
+    const phone = viewportWidth < 700;
+    const pagePadding = phone ? 14 : 20;
+    const contentWidth = resolveCompanyTeamContentWidth(viewportWidth, pagePadding);
     const teamScrollRef = useRef<ScrollView>(null);
 
     const [members, setMembers] = useState<CompanyUser[]>([]);
@@ -820,18 +826,19 @@ export default function CompanyUsersScreen() {
             ref={teamScrollRef}
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
-                padding: 20,
+                padding: pagePadding,
                 paddingBottom: 40,
                 alignItems: 'center',
             }}
+            contentInsetAdjustmentBehavior="automatic"
         >
-            <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
+            <View style={{ width: contentWidth, maxWidth: 900, minWidth: 0 }}>
                 <AdminNavBar
                     companyId={String(id || '')}
                     backFallback={`/super-admin/company/${id}` as Href}
                 />
 
-                <Text style={[titleStyle, { color: theme.colors.text }]}>Team / Technicians</Text>
+                <Text style={[titleStyle, { color: theme.colors.text, fontSize: phone ? 30 : 34 }]}>Team / Technicians</Text>
 
                 <Text style={[subtitleStyle, { color: theme.colors.mutedText }]}>
                     {canManageUsers
@@ -1312,10 +1319,12 @@ function CompactSection({
     children: ReactNode;
 }) {
     const { theme } = useTheme();
+    const { width } = useWindowDimensions();
+    const phone = width < 700;
 
     return (
         <View style={compactSectionStyle}>
-            <View style={compactSectionHeaderStyle}>
+            <View style={[compactSectionHeaderStyle, phone && compactSectionHeaderPhoneStyle]}>
                 <View style={compactSectionTitleWrapStyle}>
                     <Text style={[sectionHeadingStyle, { color: theme.colors.text }]}>{title}</Text>
                     <View
@@ -1334,7 +1343,7 @@ function CompactSection({
                     title={collapsed ? 'Expand' : 'Collapse'}
                     variant="secondary"
                     onPress={onToggle}
-                    style={sectionToggleButtonStyle}
+                    style={[sectionToggleButtonStyle, phone && sectionToggleButtonPhoneStyle]}
                     textStyle={sectionToggleTextStyle}
                 />
             </View>
@@ -1364,6 +1373,8 @@ function GlassGridCard({
     onPress: () => void;
 }) {
     const { theme } = useTheme();
+    const { width } = useWindowDimensions();
+    const phone = width < 700;
     const [hovered, setHovered] = useState(false);
 
     return (
@@ -1380,7 +1391,8 @@ function GlassGridCard({
                     shadowColor: theme.colors.text,
                 },
                 hovered && glassCardHoverStyle,
-                expanded && glassCardExpandedStyle,
+                phone && glassCardPhoneStyle,
+                expanded && (phone ? glassCardExpandedPhoneStyle : glassCardExpandedStyle),
             ]}
         >
             {children}
@@ -2688,11 +2700,20 @@ const compactSectionHeaderStyle = {
     marginBottom: 10,
 };
 
+const compactSectionHeaderPhoneStyle = {
+    alignItems: 'stretch' as const,
+    flexDirection: 'column' as const,
+};
+
 const compactSectionTitleWrapStyle = {
     alignItems: 'center' as const,
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
+    flexBasis: 220,
+    flexGrow: 1,
+    flexShrink: 1,
     gap: 8,
+    maxWidth: '100%' as const,
     minWidth: 0,
 };
 
@@ -2714,14 +2735,20 @@ const sectionToggleButtonStyle = {
     paddingVertical: 9,
 };
 
+const sectionToggleButtonPhoneStyle = {
+    alignSelf: 'flex-start' as const,
+};
+
 const sectionToggleTextStyle = {
     fontSize: 13,
 };
 
 const sectionHeadingStyle = {
+    flexShrink: 1,
     fontSize: 22,
     fontWeight: '900' as const,
     marginBottom: 14,
+    minWidth: 0,
 };
 
 const sectionTitleStyle = {
@@ -2856,6 +2883,19 @@ const glassCardExpandedStyle = {
     flexBasis: 460,
     maxWidth: 560,
     minHeight: 240,
+};
+
+const glassCardPhoneStyle = {
+    flexBasis: '100%' as const,
+    maxWidth: '100%' as const,
+    width: '100%' as const,
+};
+
+const glassCardExpandedPhoneStyle = {
+    flexBasis: '100%' as const,
+    maxWidth: '100%' as const,
+    minHeight: 240,
+    width: '100%' as const,
 };
 
 const glassCardTopRowStyle = {
