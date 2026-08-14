@@ -54,9 +54,27 @@ export default {
 
         let invitation;
         try {
-            const companyInvitation = await findCompanyUserInvitation(supabaseUrl, serviceRoleKey, code);
+            const [companyInvitation, customerInvitation] = await Promise.all([
+                findCompanyUserInvitation(supabaseUrl, serviceRoleKey, code),
+                findCustomerInvitation(supabaseUrl, serviceRoleKey, code),
+            ]);
 
-            if (companyInvitation && companyInvitation.state !== 'eligible') {
+            if (companyInvitation?.state === 'eligible' && customerInvitation) {
+                await recordAttempt(supabaseUrl, serviceRoleKey, {
+                    invitationId: companyInvitation.id,
+                    ipHash,
+                    codeHash,
+                    succeeded: false,
+                    outcome: 'invalid',
+                });
+                return response(req, {
+                    ok: false,
+                    code: 'code_collision',
+                    message: 'This invitation code cannot be resolved safely. Ask the sender for a new code.',
+                }, 409);
+            }
+
+            if (companyInvitation && companyInvitation.state !== 'eligible' && !customerInvitation) {
                 await recordAttempt(supabaseUrl, serviceRoleKey, {
                     invitationId: companyInvitation.id,
                     ipHash,
@@ -71,8 +89,9 @@ export default {
                 }, companyInvitation.state === 'used' ? 409 : 400);
             }
 
-            invitation = companyInvitation?.invitation ||
-                await findCustomerInvitation(supabaseUrl, serviceRoleKey, code);
+            invitation = companyInvitation?.state === 'eligible'
+                ? companyInvitation.invitation
+                : customerInvitation;
         } catch (error) {
             return response(req, {
                 ok: false,
