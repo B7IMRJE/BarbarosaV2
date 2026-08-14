@@ -9,6 +9,12 @@ import AdminNavBar from '../../components/AdminNavBar';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { canManageCompanyCatalog, canManageCompanyCatalogPricing } from '../../lib/companyCatalogAccess';
+import {
+    loadApprovedMasterCatalogForCompany,
+    saveCompanyCatalogOffering,
+    type ApprovedMasterCatalogItem,
+    type CompanyCatalogOffering,
+} from '../../lib/catalogFactory';
 import { loadCurrentCompanyPermissionAccess } from '../../lib/companyPermissions';
 import {
     createCompanyCatalogFileUrl,
@@ -44,6 +50,10 @@ export default function CompanyCatalogScreen() {
     const [search, setSearch] = useState('');
     const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
     const [saveFeedback, setSaveFeedback] = useState('');
+    const [masterItems, setMasterItems] = useState<ApprovedMasterCatalogItem[]>([]);
+    const [showMasterCatalog, setShowMasterCatalog] = useState(false);
+    const [offeringItem, setOfferingItem] = useState<ApprovedMasterCatalogItem | null>(null);
+    const [offeringDraft, setOfferingDraft] = useState<CompanyCatalogOffering>(emptyOffering());
 
     useEffect(() => {
         if (!companyId) {
@@ -75,11 +85,12 @@ export default function CompanyCatalogScreen() {
                 isPlatformAdmin,
                 hasCompanyPriceBookPermission: Boolean(manageAccess.access),
             });
-            const [catalogResult, priceBookResult] = await Promise.allSettled([
+            const [catalogResult, priceBookResult, masterResult] = await Promise.allSettled([
                 loadCompanyProductCatalog(companyId),
                 mayManagePricing
                     ? loadCompanyPriceBook(companyId)
                     : Promise.resolve(null),
+                loadApprovedMasterCatalogForCompany(companyId),
             ]);
             if (catalogResult.status === 'rejected') throw catalogResult.reason;
             const catalog = catalogResult.value;
@@ -88,6 +99,7 @@ export default function CompanyCatalogScreen() {
             setCanManagePricing(mayManagePricing);
             setItems(catalog);
             setPriceBookItems(priceBook?.items.filter((item) => item.active) || []);
+            setMasterItems(masterResult.status === 'fulfilled' ? masterResult.value : []);
             setMessage(catalog.length
                 ? `${catalog.length} catalog card${catalog.length === 1 ? '' : 's'} ready.`
                 : mayManage
@@ -198,6 +210,31 @@ export default function CompanyCatalogScreen() {
         catch (error) { setMessage(errorMessage(error)); }
     }
 
+    function beginOffering(item: ApprovedMasterCatalogItem) {
+        setOfferingItem(item);
+        setOfferingDraft(item.offering || emptyOffering());
+        setMessage(`Setting company pricing for ${item.brand} ${item.modelNumber}.`);
+    }
+
+    async function saveOffering() {
+        if (!companyId || !offeringItem || busy) return;
+        if (!canManagePricing) {
+            setMessage('Price Book permission is required to set company offering prices.');
+            return;
+        }
+        setBusy(true);
+        try {
+            await saveCompanyCatalogOffering(companyId, offeringItem.id, offeringDraft);
+            setOfferingItem(null);
+            setMessage(`${offeringItem.brand} ${offeringItem.modelNumber} added to this company catalog. Global product facts were not changed.`);
+            await refresh();
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
     const normalizedSearch = search.trim().toLowerCase();
     const visibleItems = items.filter((item) => !normalizedSearch || [item.productName, item.category, item.brand, item.model, item.sku]
         .join(' ').toLowerCase().includes(normalizedSearch));
@@ -225,6 +262,52 @@ export default function CompanyCatalogScreen() {
 
                 {!draft && (
                     <>
+                        <ThemedCard>
+                            <View style={{ gap: 12 }}>
+                                <Text style={{ color: textColor, fontSize: scaleFont(21), fontWeight: '900' }}>Approved Master Products</Text>
+                                <Text style={{ color: mutedColor, lineHeight: scaleFont(21) }}>
+                                    Browse products approved by the platform Catalog Factory. Adding one creates a company offering; material cost, markup, labor, installed price, supplier, and company warranty remain private to this company.
+                                </Text>
+                                <ThemedButton
+                                    title={showMasterCatalog ? 'Hide Master Catalog' : `Browse Master Catalog (${masterItems.length})`}
+                                    variant="secondary"
+                                    onPress={() => setShowMasterCatalog((value) => !value)}
+                                />
+                                {showMasterCatalog && <View style={{ gap: 12 }}>
+                                    {masterItems.map((item) => <View key={item.id} style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, padding: 12, gap: 8 }}>
+                                        <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
+                                            {!!item.primaryImageUrl && <Image source={item.primaryImageUrl} contentFit="contain" style={{ width: phone ? '100%' : 130, height: 110, borderRadius: 10, backgroundColor: theme.colors.surface }} />}
+                                            <View style={{ flex: 1, gap: 5 }}>
+                                                <Text style={{ color: textColor, fontSize: scaleFont(18), fontWeight: '900' }}>{item.brand} {item.familyName} {item.modelNumber}</Text>
+                                                <Text style={{ color: mutedColor }}>{item.category} · {item.manufacturer}</Text>
+                                                {!!item.manufacturerPartNumber && <Text style={{ color: mutedColor }}>Part {item.manufacturerPartNumber}</Text>}
+                                                <Text style={{ color: mutedColor }}>{item.offering ? `Company offering: ${item.offering.active ? 'Active' : 'Inactive'}` : 'Not in this company catalog yet'}</Text>
+                                            </View>
+                                        </View>
+                                        {canManagePricing && <ThemedButton title={item.offering ? 'Edit Company Offering' : 'Add to Company Catalog'} onPress={() => beginOffering(item)} />}
+                                    </View>)}
+                                    {!masterItems.length && <Text style={{ color: mutedColor }}>No approved master products are published yet.</Text>}
+                                </View>}
+                            </View>
+                        </ThemedCard>
+                        {offeringItem && <ThemedCard>
+                            <View style={{ gap: 12 }}>
+                                <Text style={{ color: textColor, fontSize: scaleFont(21), fontWeight: '900' }}>Company Offering · {offeringItem.brand} {offeringItem.modelNumber}</Text>
+                                <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
+                                    <View style={{ flex: 1 }}><NumberField label="Material cost" value={offeringDraft.materialCost} onChange={(materialCost) => setOfferingDraft({ ...offeringDraft, materialCost })} /></View>
+                                    <View style={{ flex: 1 }}><NumberField label="Markup" value={offeringDraft.markup} onChange={(markup) => setOfferingDraft({ ...offeringDraft, markup })} /></View>
+                                    <View style={{ flex: 1 }}><NumberField label="Labor amount" value={offeringDraft.laborAmount} onChange={(laborAmount) => setOfferingDraft({ ...offeringDraft, laborAmount })} /></View>
+                                    <View style={{ flex: 1 }}><NumberField label="Installed price" value={offeringDraft.installedPrice} onChange={(installedPrice) => setOfferingDraft({ ...offeringDraft, installedPrice })} /></View>
+                                </View>
+                                <Field label="Preferred supplier" value={offeringDraft.preferredSupplier} onChangeText={(preferredSupplier) => setOfferingDraft({ ...offeringDraft, preferredSupplier })} />
+                                <Field label="Company warranty" value={offeringDraft.companyWarranty} onChangeText={(companyWarranty) => setOfferingDraft({ ...offeringDraft, companyWarranty })} multiline />
+                                <ChoiceRow label="Offering status" values={['active', 'inactive']} selected={offeringDraft.active ? 'active' : 'inactive'} onSelect={(value) => setOfferingDraft({ ...offeringDraft, active: value === 'active' })} />
+                                <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
+                                    <ThemedButton title={busy ? 'Saving...' : 'Save Company Offering'} disabled={busy} onPress={() => void saveOffering()} style={{ flex: 1 }} />
+                                    <ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={() => setOfferingItem(null)} style={{ flex: 1 }} />
+                                </View>
+                            </View>
+                        </ThemedCard>}
                         <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
                             <DictationTextInput value={search} onChangeText={setSearch} placeholder="Search brand, model, category, or SKU" style={{ flex: 1, minHeight: 52, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, color: textColor }} />
                             {canManage && items.length > 0 && <ThemedButton title="Create Catalog Card" onPress={() => { setSaveFeedback(''); setDraft(emptyCompanyCatalogDraft()); }} />}
@@ -387,6 +470,9 @@ function Pill({ label, selected, onPress }: { label: string; selected: boolean; 
 function toDraft(item: CompanyCatalogItem): CompanyCatalogDraft {
     const { companyId: _companyId, priceBookItemName: _priceBookItemName, files: _files, createdAt: _createdAt, updatedAt: _updatedAt, ...draft } = item;
     return draft;
+}
+function emptyOffering(): CompanyCatalogOffering {
+    return { materialCost: null, markup: null, laborAmount: null, installedPrice: null, preferredSupplier: '', companyWarranty: '', active: true };
 }
 function firstParam(value?: string | string[]) { return Array.isArray(value) ? value[0] || '' : value || ''; }
 function statusLabel(value: string) { return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()); }

@@ -6,6 +6,7 @@ declare const Deno: {
 
 type CustomerInvite = {
     id: string;
+    company_id: string;
     invited_email: string | null;
     invited_name: string | null;
     invite_code: string | null;
@@ -43,6 +44,21 @@ export default {
         if (!invite.invited_email) return response(req, { ok: false, message: 'Add an email address before creating a login code.' }, 400);
         if (invite.revoked_at || !['pending', 'accepted'].includes(String(invite.status || '').toLowerCase())) {
             return response(req, { ok: false, message: 'This customer invitation is no longer active.' }, 409);
+        }
+
+        const rateResult = await checkInvitationRate(
+            supabaseUrl,
+            publishableKey,
+            authToken,
+            invite.company_id,
+            invite.id
+        );
+        if (!rateResult.allowed) {
+            return response(req, {
+                ok: false,
+                message: rateResult.message || 'Customer login code creation is temporarily limited.',
+                retry_after_seconds: rateResult.retry_after_seconds || 0,
+            }, 429);
         }
 
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
@@ -100,7 +116,7 @@ async function loadAuthorizedInvite(
     if (!invitationId) return null;
     const url = new URL('/rest/v1/company_customer_invitations', supabaseUrl);
     url.searchParams.set('id', `eq.${invitationId}`);
-    url.searchParams.set('select', 'id,invited_email,invited_name,invite_code,status,expires_at,revoked_at,accepted_at');
+    url.searchParams.set('select', 'id,company_id,invited_email,invited_name,invite_code,status,expires_at,revoked_at,accepted_at');
     url.searchParams.set('limit', '1');
     const result = await fetch(url, {
         headers: { apikey: publishableKey, Authorization: `Bearer ${authToken}` },
@@ -108,6 +124,35 @@ async function loadAuthorizedInvite(
     if (!result.ok) return null;
     const rows = await result.json().catch(() => []) as CustomerInvite[];
     return rows[0] || null;
+}
+
+async function checkInvitationRate(
+    supabaseUrl: string,
+    publishableKey: string,
+    authToken: string,
+    companyId: string,
+    invitationId: string
+) {
+    const result = await fetch(`${supabaseUrl}/rest/v1/rpc/check_and_record_company_invitation_rate`, {
+        method: 'POST',
+        headers: {
+            apikey: publishableKey,
+            Authorization: `Bearer ${authToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            p_company_id: companyId,
+            p_action: 'customer_login_code',
+            p_recipient_key: invitationId,
+        }),
+    });
+    if (!result.ok) {
+        return { allowed: false, message: 'Customer login code security checks could not be completed.' };
+    }
+    return await result.json().catch(() => ({
+        allowed: false,
+        message: 'Customer login code security checks could not be completed.',
+    })) as { allowed: boolean; message?: string; retry_after_seconds?: number };
 }
 
 function generateSecureLoginCode() {
