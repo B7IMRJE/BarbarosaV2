@@ -7,6 +7,17 @@ import AdminNavBar from '../../components/AdminNavBar';
 import ProductCardImage from '../../components/catalog/product-card-image';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import {
+    companyCatalogPackageLabel,
+    companyCatalogPackageLimit,
+    loadCompanyCatalogEntitlement,
+    saveCompanyCatalogEntitlement,
+    toggleCompanyCatalogSelection,
+    validateCompanyCatalogEntitlementDraft,
+    type CompanyCatalogEntitlement,
+    type CompanyCatalogEntitlementDraft,
+    type CompanyCatalogPackageTier,
+} from '../../lib/companyCatalogEntitlement';
 import { canManageCompanyCatalog, canManageCompanyCatalogPricing } from '../../lib/companyCatalogAccess';
 import {
     loadApprovedMasterCatalogForCompany,
@@ -52,8 +63,12 @@ export default function CompanyCatalogScreen() {
     const [items, setItems] = useState<CompanyCatalogItem[]>([]);
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [draft, setDraft] = useState<CompanyCatalogDraft | null>(null);
+    const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
     const [canManage, setCanManage] = useState(false);
     const [canManagePricing, setCanManagePricing] = useState(false);
+    const [entitlement, setEntitlement] = useState<CompanyCatalogEntitlement | null>(null);
+    const [entitlementDraft, setEntitlementDraft] = useState<CompanyCatalogEntitlementDraft | null>(null);
+    const [entitlementFeedback, setEntitlementFeedback] = useState('');
     const [message, setMessage] = useState('Loading the company catalog...');
     const [busy, setBusy] = useState(false);
     const [search, setSearch] = useState('');
@@ -80,22 +95,27 @@ export default function CompanyCatalogScreen() {
         if (!companyId) return;
         try {
             setMessage('Loading the company catalog...');
-            const [isPlatformAdmin, manageAccess, customerAccess, jobAccess] = await Promise.all([
+            const [platformAdmin, manageAccess, customerAccess, jobAccess, catalogEntitlement] = await Promise.all([
                 loadCurrentUserPlatformAdmin(),
                 loadCurrentCompanyPermissionAccess('can_manage_price_book', { companyId }),
                 loadCurrentCompanyPermissionAccess('can_view_customers', { companyId }),
                 loadCurrentCompanyPermissionAccess('can_view_jobs', { companyId }),
+                loadCompanyCatalogEntitlement(companyId),
             ]);
-            const mayManage = canManageCompanyCatalog({
-                isPlatformAdmin,
+            const baseMayManage = canManageCompanyCatalog({
+                isPlatformAdmin: platformAdmin,
                 hasCompanyPriceBookPermission: Boolean(manageAccess.access),
                 canViewCompanyCustomers: Boolean(customerAccess.access),
                 canViewCompanyJobs: Boolean(jobAccess.access),
             });
-            const mayManagePricing = canManageCompanyCatalogPricing({
-                isPlatformAdmin,
+            const baseMayManagePricing = canManageCompanyCatalogPricing({
+                isPlatformAdmin: platformAdmin,
                 hasCompanyPriceBookPermission: Boolean(manageAccess.access),
             });
+            const mayManage = baseMayManage && (
+                platformAdmin || (catalogEntitlement.active && catalogEntitlement.packageTier === 'full')
+            );
+            const mayManagePricing = baseMayManagePricing && catalogEntitlement.active;
             const [catalogResult, priceBookResult, masterResult] = await Promise.allSettled([
                 loadCompanyProductCatalog(companyId),
                 mayManagePricing
@@ -106,14 +126,25 @@ export default function CompanyCatalogScreen() {
             if (catalogResult.status === 'rejected') throw catalogResult.reason;
             const catalog = catalogResult.value;
             const priceBook = priceBookResult.status === 'fulfilled' ? priceBookResult.value : null;
+            setIsPlatformAdmin(platformAdmin);
             setCanManage(mayManage);
             setCanManagePricing(mayManagePricing);
+            setEntitlement(catalogEntitlement);
+            setEntitlementDraft({
+                active: catalogEntitlement.active,
+                packageTier: catalogEntitlement.packageTier,
+                selectedVariantIds: catalogEntitlement.selectedVariantIds,
+            });
             setItems(catalog);
             setPriceBookItems(priceBook?.items.filter((item) => item.active) || []);
             setMasterItems(masterResult.status === 'fulfilled' ? masterResult.value : []);
-            setMessage(catalog.length
-                ? `${catalog.length} catalog card${catalog.length === 1 ? '' : 's'} ready.`
-                : mayManage
+            setMessage(!catalogEntitlement.active
+                ? platformAdmin
+                    ? 'Catalog access is inactive. Existing catalog records and installed HomeOS history are preserved.'
+                    : 'This company catalog is inactive. Contact Platform Administration to restore access.'
+                : catalog.length
+                    ? `${catalog.length} catalog card${catalog.length === 1 ? '' : 's'} ready in ${companyCatalogPackageLabel(catalogEntitlement.packageTier)}.`
+                    : mayManage
                     ? 'No catalog cards yet. Create the first approved product card.'
                     : 'No catalog cards yet. Catalog management access is required to create one.');
             if (preferredItemId) {
@@ -132,6 +163,70 @@ export default function CompanyCatalogScreen() {
         } catch (error) {
             setMessage(errorMessage(error));
         }
+    }
+
+    async function saveEntitlement() {
+        if (!companyId || !entitlementDraft || busy || !isPlatformAdmin) return;
+        const validationMessage = validateCompanyCatalogEntitlementDraft(entitlementDraft);
+        if (validationMessage) {
+            setEntitlementFeedback(validationMessage);
+            return;
+        }
+
+        setBusy(true);
+        setEntitlementFeedback('Saving catalog access...');
+        try {
+            const saved = await saveCompanyCatalogEntitlement(companyId, entitlementDraft);
+            setEntitlement(saved);
+            setEntitlementDraft({
+                active: saved.active,
+                packageTier: saved.packageTier,
+                selectedVariantIds: saved.selectedVariantIds,
+            });
+            const successMessage = saved.active
+                ? `${companyCatalogPackageLabel(saved.packageTier)} is active with ${saved.assignedCount} available card${saved.assignedCount === 1 ? '' : 's'}.`
+                : 'Catalog access is inactive. Existing installed HomeOS item history was not changed.';
+            setEntitlementFeedback(successMessage);
+            await refresh();
+            setEntitlementFeedback(successMessage);
+        } catch (error) {
+            setEntitlementFeedback(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function choosePackageTier(packageTier: CompanyCatalogPackageTier) {
+        setEntitlementDraft((current) => {
+            if (!current) return current;
+            const limit = companyCatalogPackageLimit(packageTier);
+            return {
+                ...current,
+                packageTier,
+                selectedVariantIds: limit === null
+                    ? current.selectedVariantIds
+                    : current.selectedVariantIds.slice(0, limit),
+            };
+        });
+        setEntitlementFeedback('');
+        if (packageTier !== 'full') setShowMasterCatalog(true);
+    }
+
+    function togglePackageCard(variantId: string) {
+        if (!entitlementDraft || entitlementDraft.packageTier === 'full') return;
+        const nextIds = toggleCompanyCatalogSelection(
+            entitlementDraft.selectedVariantIds,
+            variantId,
+            entitlementDraft.packageTier,
+        );
+        if (nextIds.length === entitlementDraft.selectedVariantIds.length
+            && !entitlementDraft.selectedVariantIds.includes(variantId)) {
+            const limit = companyCatalogPackageLimit(entitlementDraft.packageTier);
+            setEntitlementFeedback(`This package already has its ${limit} selected cards. Remove one before adding another.`);
+            return;
+        }
+        setEntitlementDraft({ ...entitlementDraft, selectedVariantIds: nextIds });
+        setEntitlementFeedback('Package selection changed. Save Catalog Access to apply it.');
     }
 
     function editItem(item: CompanyCatalogItem) {
@@ -325,6 +420,13 @@ export default function CompanyCatalogScreen() {
     const editingItem = draft?.id ? items.find((item) => item.id === draft.id) || null : null;
     const textColor = theme.colors.text;
     const mutedColor = theme.colors.mutedText;
+    const entitlementValidation = entitlementDraft
+        ? validateCompanyCatalogEntitlementDraft(entitlementDraft)
+        : '';
+    const selectedPackageIds = new Set(entitlementDraft?.selectedVariantIds || []);
+    const selectedPackageLimit = entitlementDraft
+        ? companyCatalogPackageLimit(entitlementDraft.packageTier)
+        : null;
 
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -344,6 +446,84 @@ export default function CompanyCatalogScreen() {
                 </ThemedCard>
                 <Text style={{ color: mutedColor }}>{message}</Text>
 
+                {entitlement && entitlementDraft && (
+                    <ThemedCard>
+                        <View style={{ gap: 14 }}>
+                            <View style={{ flexDirection: phone ? 'column' : 'row', alignItems: phone ? 'stretch' : 'center', justifyContent: 'space-between', gap: 10 }}>
+                                <View style={{ flex: 1, gap: 5 }}>
+                                    <Text selectable style={{ color: textColor, fontWeight: '900', fontSize: scaleFont(21) }}>Catalog Access</Text>
+                                    <Text selectable style={{ color: mutedColor, lineHeight: scaleFont(21) }}>
+                                        Controls which master product cards this company can use in ManagementOS, estimates, and technician workflows. Installed HomeOS item history remains available if access is turned off.
+                                    </Text>
+                                </View>
+                                <Pill
+                                    label={entitlement.active ? 'Active' : 'Inactive'}
+                                    selected={entitlement.active}
+                                />
+                            </View>
+
+                            {isPlatformAdmin ? (
+                                <>
+                                    <ChoiceRow
+                                        label="Company access"
+                                        values={['active', 'inactive']}
+                                        selected={entitlementDraft.active ? 'active' : 'inactive'}
+                                        onSelect={(value) => {
+                                            setEntitlementDraft({ ...entitlementDraft, active: value === 'active' });
+                                            setEntitlementFeedback('Catalog access changed. Save to apply it.');
+                                        }}
+                                    />
+                                    <View style={{ gap: 8 }}>
+                                        <Text selectable style={{ color: textColor, fontWeight: '800' }}>Card package</Text>
+                                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                                            {(['curated_10', 'curated_20', 'full'] as CompanyCatalogPackageTier[]).map((packageTier) => (
+                                                <Pill
+                                                    key={packageTier}
+                                                    label={companyCatalogPackageLabel(packageTier)}
+                                                    selected={entitlementDraft.packageTier === packageTier}
+                                                    onPress={() => choosePackageTier(packageTier)}
+                                                />
+                                            ))}
+                                        </View>
+                                        <Text selectable style={{ color: mutedColor, lineHeight: scaleFont(20) }}>
+                                            {selectedPackageLimit === null
+                                                ? `All ${entitlement.availableCount} approved master cards are included automatically. Company-authored legacy cards remain available in the full package.`
+                                                : `${selectedPackageIds.size} of ${selectedPackageLimit} master cards selected. Open the master catalog below to curate this package.`}
+                                        </Text>
+                                    </View>
+                                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
+                                        {selectedPackageLimit !== null && (
+                                            <ThemedButton
+                                                title={showMasterCatalog ? 'Hide Card Selection' : 'Choose Package Cards'}
+                                                variant="secondary"
+                                                onPress={() => setShowMasterCatalog((value) => !value)}
+                                                style={{ flex: 1 }}
+                                            />
+                                        )}
+                                        <ThemedButton
+                                            title={busy ? 'Saving...' : 'Save Catalog Access'}
+                                            disabled={busy || Boolean(entitlementValidation)}
+                                            onPress={() => void saveEntitlement()}
+                                            style={{ flex: 1 }}
+                                        />
+                                    </View>
+                                    <View accessibilityLiveRegion="polite" style={{ borderWidth: 1, borderColor: entitlementFeedback || entitlementValidation ? theme.colors.primary : theme.colors.border, borderRadius: 12, padding: 12, backgroundColor: theme.colors.surface }}>
+                                        <Text selectable style={{ color: entitlementFeedback || entitlementValidation ? textColor : mutedColor, fontWeight: '700', lineHeight: scaleFont(20) }}>
+                                            {entitlementFeedback || entitlementValidation || 'Catalog access is ready to save.'}
+                                        </Text>
+                                    </View>
+                                </>
+                            ) : (
+                                <Text selectable style={{ color: mutedColor, lineHeight: scaleFont(21) }}>
+                                    {entitlement.active
+                                        ? `${companyCatalogPackageLabel(entitlement.packageTier)} provides ${entitlement.assignedCount} catalog card${entitlement.assignedCount === 1 ? '' : 's'} to this company.`
+                                        : 'Catalog access is currently inactive. Existing installed HomeOS records are preserved.'}
+                                </Text>
+                            )}
+                        </View>
+                    </ThemedCard>
+                )}
+
                 {!draft && (
                     <>
                         <ThemedCard>
@@ -358,7 +538,9 @@ export default function CompanyCatalogScreen() {
                                     onPress={() => setShowMasterCatalog((value) => !value)}
                                 />
                                 {showMasterCatalog && <View style={{ gap: 12 }}>
-                                    {masterItems.map((item) => <View key={item.id} style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, padding: 12, gap: 8 }}>
+                                    {masterItems.map((item) => {
+                                        const includedInDraftPackage = entitlementDraft?.packageTier === 'full' || selectedPackageIds.has(item.id);
+                                        return <View key={item.id} style={{ borderWidth: 1, borderColor: includedInDraftPackage ? theme.colors.primary : theme.colors.border, borderRadius: 14, padding: 12, gap: 8 }}>
                                         <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
                                             <ProductCardImage
                                                 imageUrl={item.primaryImageUrl}
@@ -370,10 +552,21 @@ export default function CompanyCatalogScreen() {
                                                 <Text style={{ color: mutedColor }}>{item.category} · {item.manufacturer}</Text>
                                                 {!!item.manufacturerPartNumber && <Text style={{ color: mutedColor }}>Part {item.manufacturerPartNumber}</Text>}
                                                 <Text style={{ color: mutedColor }}>{item.offering ? `Company offering: ${item.offering.active ? 'Active' : 'Inactive'}` : 'Not in this company catalog yet'}</Text>
+                                                <Text style={{ color: item.entitled ? theme.colors.primary : mutedColor, fontWeight: '800' }}>
+                                                    {item.entitled ? 'Currently included in the company package' : includedInDraftPackage ? 'Will be included after Catalog Access is saved' : 'Not included in the company package'}
+                                                </Text>
                                             </View>
                                         </View>
-                                        {canManagePricing && <ThemedButton title={item.offering ? 'Edit Company Offering' : 'Add to Company Catalog'} onPress={() => beginOffering(item)} />}
-                                    </View>)}
+                                        {isPlatformAdmin && selectedPackageLimit !== null && (
+                                            <ThemedButton
+                                                title={includedInDraftPackage ? 'Remove from Package' : 'Include in Package'}
+                                                variant="secondary"
+                                                onPress={() => togglePackageCard(item.id)}
+                                            />
+                                        )}
+                                        {canManagePricing && item.entitled && <ThemedButton title={item.offering ? 'Edit Company Offering' : 'Add Company Offering'} onPress={() => beginOffering(item)} />}
+                                    </View>;
+                                    })}
                                     {!masterItems.length && <Text style={{ color: mutedColor }}>No approved master products are published yet.</Text>}
                                 </View>}
                             </View>
@@ -424,9 +617,12 @@ export default function CompanyCatalogScreen() {
                                                 {!!item.manufacturerPartNumber && <Text style={{ color: mutedColor }}>Part {item.manufacturerPartNumber}</Text>}
                                                 <Text style={{ color: mutedColor }}>{item.files.filter((file) => file.kind === 'photo').length} photos · {item.files.filter((file) => file.kind !== 'photo').length} documents</Text>
                                                 {!!item.priceBookItemName && <Text style={{ color: mutedColor }}>Price Book: {item.priceBookItemName}</Text>}
+                                                <Text style={{ color: item.entitled ? theme.colors.primary : mutedColor, fontWeight: '800' }}>
+                                                    {item.entitled ? 'Available in this company package' : 'Preserved but not available in this company package'}
+                                                </Text>
                                                 <View style={{ flexDirection: phone ? 'column' : 'row', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
                                                     {canManage && <ThemedButton title="Edit Card" variant="secondary" onPress={() => editItem(item)} style={{ flexGrow: 1 }} />}
-                                                    {item.status === 'approved' && <ThemedButton title="Add to Quote" onPress={() => router.push({ pathname: '/estimate', params: { companyId, catalogItemId: item.id, mode: 'management' } } as never)} style={{ flexGrow: 1 }} />}
+                                                    {item.status === 'approved' && item.entitled && entitlement?.active && <ThemedButton title="Add to Quote" onPress={() => router.push({ pathname: '/estimate', params: { companyId, catalogItemId: item.id, mode: 'management' } } as never)} style={{ flexGrow: 1 }} />}
                                                 </View>
                                             </View>
                                         </View>
@@ -599,7 +795,17 @@ function Pill({ label, selected, onPress }: { label: string; selected: boolean; 
 }
 
 function toDraft(item: CompanyCatalogItem): CompanyCatalogDraft {
-    const { companyId: _companyId, priceBookItemName: _priceBookItemName, masterPrimaryImageUrl: _masterPrimaryImageUrl, files: _files, createdAt: _createdAt, updatedAt: _updatedAt, ...draft } = item;
+    const {
+        companyId: _companyId,
+        priceBookItemName: _priceBookItemName,
+        masterPrimaryImageUrl: _masterPrimaryImageUrl,
+        masterProductVariantId: _masterProductVariantId,
+        entitled: _entitled,
+        files: _files,
+        createdAt: _createdAt,
+        updatedAt: _updatedAt,
+        ...draft
+    } = item;
     return draft;
 }
 function emptyOffering(): CompanyCatalogOffering {

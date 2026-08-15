@@ -84,6 +84,7 @@ export type ApprovedMasterCatalogItem = {
     description: string;
     specifications: Record<string, unknown>;
     primaryImageUrl: string;
+    entitled: boolean;
     offering: CompanyCatalogOffering | null;
 };
 
@@ -320,6 +321,7 @@ function parseApprovedMaster(value: unknown): ApprovedMasterCatalogItem | null {
         id, category: text(row.category), manufacturer: text(row.manufacturer), brand: text(row.brand), familyName: text(row.family_name),
         modelNumber: text(row.model_number), manufacturerPartNumber: text(row.manufacturer_part_number), upcGtin: text(row.upc_gtin),
         description: text(row.description), specifications: record(row.specifications), primaryImageUrl: text(row.primary_image_url),
+        entitled: row.entitled === true,
         offering: row.offering ? parseOffering(row.offering) : null,
     };
 }

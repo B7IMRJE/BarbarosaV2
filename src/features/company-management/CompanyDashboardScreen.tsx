@@ -2209,7 +2209,7 @@ function getModuleDescription(title: string) {
     if (title === 'Operations Rooms') return 'Follow timestamped clock, travel, job, media, sales, and closeout activity by team room.';
     if (title === 'Team / Technicians') return 'Open company owners, admins, managers, technicians, and invitations.';
     if (title === 'Activity / Audit Log') return 'Review company-scoped ManagementOS actions and changes.';
-    if (title === 'Catalog') return 'Create approved product cards with models, photos, manuals, warranties, and optional Price Book links.';
+    if (title === 'Catalog') return 'Control company catalog access and card packages, then manage approved products and offerings.';
     if (title === 'Price Book') return 'Company-owned price book for estimate and proposal line items.';
     if (title === 'Knowledge Engine') return 'Review read-only Bravo Knowledge Engine objects before connecting them to operations.';
     if (title === 'Contracts & Legal Documents') return 'Manage company wording, workflow requirements, revisions, and immutable signed copies.';
@@ -2227,7 +2227,7 @@ function getModuleActionLabel(title: string) {
     if (title === 'Operations Rooms') return 'Open Live Thread';
     if (title === 'Estimates / Proposals') return 'Open Estimates';
     if (title === 'Activity / Audit Log') return 'Open Audit Log';
-    if (title === 'Catalog') return 'Open Catalog';
+    if (title === 'Catalog') return 'Manage Catalog Access';
     if (title === 'Price Book') return 'Open Price Book';
     if (title === 'Knowledge Engine') return 'Open Viewer';
     if (title === 'Contracts & Legal Documents') return 'Manage Documents';
