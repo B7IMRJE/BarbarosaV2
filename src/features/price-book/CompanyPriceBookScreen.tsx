@@ -20,6 +20,10 @@ import {
     type CompanyPriceBookUnit,
 } from '../../lib/companyPriceBook';
 import {
+    getCompanyPriceBookLoadErrorMessage,
+    withCompanyPriceBookLoadTimeout,
+} from '../../lib/companyPriceBookLoading';
+import {
     plumbingPriceBookAreaNames,
     plumbingPriceBookCatalog,
     plumbingPriceBookCatalogItems,
@@ -401,6 +405,7 @@ export default function CompanyPriceBookScreen() {
     const [canView, setCanView] = useState(false);
     const [backendStatusMessage, setBackendStatusMessage] = useState('');
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState('');
     const [editorOpen, setEditorOpen] = useState(false);
@@ -506,53 +511,67 @@ export default function CompanyPriceBookScreen() {
 
     async function loadPriceBook() {
         if (!companyId) {
-            setMessage('Missing company id.');
+            setLoadError('The company could not be identified. Return to the company dashboard and try again.');
             setLoading(false);
             return;
         }
 
         setLoading(true);
+        setLoadError('');
         setMessage('');
         setCanView(false);
         setManageAccess(null);
         setViewAccess(null);
 
-        const access = await resolvePriceBookAccess(companyId);
+        try {
+            const access = await withCompanyPriceBookLoadTimeout(
+                resolvePriceBookAccess(companyId),
+                'Price Book permissions took too long to load.'
+            );
 
-        if (!access.allowed) {
-            if (!access.userId) {
-                router.replace('/auth/login' as never);
+            if (!access.allowed) {
+                if (!access.userId) {
+                    router.replace('/auth/login' as never);
+                    return;
+                }
+
+                setLoadError(access.error || 'This account does not have permission to view the company Price Book.');
                 return;
             }
 
-            setMessage(access.error || 'You do not have access to this company price book.');
+            setCanView(true);
+            setManageAccess(access.manageAccess);
+            setViewAccess(access.viewAccess);
+
+            const [companyResult, priceBookResult] = await withCompanyPriceBookLoadTimeout(
+                Promise.all([
+                    supabase
+                        .from('companies')
+                        .select('id, name, public_name, dba_name, service_categories')
+                        .eq('id', companyId)
+                        .maybeSingle(),
+                    loadCompanyPriceBook(companyId),
+                ]),
+                'The company Price Book took too long to load.'
+            );
+
+            if (companyResult.error) {
+                throw new Error(`Could not load company context: ${companyResult.error.message}`);
+            }
+
+            setCompany((companyResult.data || null) as CompanyRecord | null);
+            setItems(priceBookResult.items);
+            setBackendStatusMessage(priceBookResult.backendStatus.message);
+        } catch (error) {
+            setCanView(false);
+            setLoadError(getCompanyPriceBookLoadErrorMessage(error));
+
+            if (__DEV__) {
+                console.error('Company Price Book failed to load.', error);
+            }
+        } finally {
             setLoading(false);
-            return;
         }
-
-        setCanView(true);
-        setManageAccess(access.manageAccess);
-        setViewAccess(access.viewAccess);
-
-        const [companyResult, priceBookResult] = await Promise.all([
-            supabase
-                .from('companies')
-                .select('id, name, public_name, dba_name, service_categories')
-                .eq('id', companyId)
-                .maybeSingle(),
-            loadCompanyPriceBook(companyId),
-        ]);
-
-        if (companyResult.error) {
-            setMessage(`Could not load company context: ${companyResult.error.message}`);
-            setLoading(false);
-            return;
-        }
-
-        setCompany((companyResult.data || null) as CompanyRecord | null);
-        setItems(priceBookResult.items);
-        setBackendStatusMessage(priceBookResult.backendStatus.message);
-        setLoading(false);
     }
 
     function openAllItems() {
@@ -1366,10 +1385,28 @@ export default function CompanyPriceBookScreen() {
                     <ThemedCard>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>Loading price book...</Text>
                     </ThemedCard>
-                ) : message && !canView ? (
+                ) : loadError || !canView ? (
                     <ThemedCard>
                         <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Unable to Open Price Book</Text>
-                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
+                            {loadError || 'This account does not have permission to view the company Price Book.'}
+                        </Text>
+                        <View style={[tabRowStyle, { marginTop: 16 }]}>
+                            <ThemedButton
+                                title="Try Again"
+                                variant="primary"
+                                onPress={() => void loadPriceBook()}
+                                style={compactButtonStyle}
+                                textStyle={compactButtonTextStyle}
+                            />
+                            <ThemedButton
+                                title="Company Dashboard"
+                                variant="secondary"
+                                onPress={() => router.push(companyRoute as never)}
+                                style={compactButtonStyle}
+                                textStyle={compactButtonTextStyle}
+                            />
+                        </View>
                     </ThemedCard>
                 ) : (
                     <>
