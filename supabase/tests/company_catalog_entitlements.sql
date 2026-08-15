@@ -4,6 +4,7 @@
 do $$
 declare
     v_get_settings_def text;
+    v_get_settings_config text[];
     v_save_settings_def text;
     v_master_catalog_def text;
     v_company_catalog_def text;
@@ -29,8 +30,10 @@ begin
         raise exception 'Catalog entitlement mutations must go through the audited Platform Administration RPC.';
     end if;
 
-    select pg_get_functiondef('public.get_company_catalog_entitlement(uuid)'::regprocedure)
-    into v_get_settings_def;
+    select pg_get_functiondef(proc.oid), proc.proconfig
+    into v_get_settings_def, v_get_settings_config
+    from pg_proc proc
+    where proc.oid = 'public.get_company_catalog_entitlement(uuid)'::regprocedure;
     select pg_get_functiondef('public.save_company_catalog_entitlement(uuid,boolean,text,uuid[])'::regprocedure)
     into v_save_settings_def;
     select pg_get_functiondef('public.get_approved_master_catalog_for_company(uuid)'::regprocedure)
@@ -45,7 +48,8 @@ begin
     into v_homeos_reference_def;
 
     if v_get_settings_def !~* 'security definer'
-       or v_get_settings_def !~* 'set[[:space:]]+search_path[[:space:]]+(to|=)[[:space:]]+pg_catalog,[[:space:]]+public,[[:space:]]+pg_temp' then
+       or not coalesce(v_get_settings_config, array[]::text[])
+           @> array['search_path=pg_catalog, public, pg_temp'] then
         raise exception 'Catalog entitlement reads must keep a hardened search path.';
     end if;
 
@@ -59,6 +63,13 @@ begin
        or v_company_catalog_def !~* 'company_catalog_variant_is_entitled'
        or v_approved_products_def !~* 'company_catalog_variant_is_entitled' then
         raise exception 'Master, ManagementOS, and estimate catalog reads must enforce card entitlements.';
+    end if;
+
+    if pg_get_function_result('public.get_company_approved_products(uuid)'::regprocedure) <> 'SETOF jsonb'
+       or v_company_catalog_def !~* 'master_primary_image_url'
+       or v_approved_products_def !~* 'master_primary_image_url'
+       or v_approved_products_def !~* 'main_media' then
+        raise exception 'Catalog entitlement reads must preserve the product image response contract.';
     end if;
 
     if v_storage_access_def !~* 'company_catalog_product_is_entitled'

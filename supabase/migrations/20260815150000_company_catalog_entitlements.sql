@@ -884,6 +884,14 @@ as $$
         'company_notes', product.company_notes,
         'master_product_variant_id', product.master_product_variant_id,
         'entitled', public.company_catalog_variant_is_entitled(product.company_id, product.master_product_variant_id),
+        'master_primary_image_url', (
+            select asset.source_url
+            from public.catalog_source_assets asset
+            where asset.product_variant_id = product.master_product_variant_id
+              and asset.asset_type = 'image'
+            order by asset.is_primary desc, asset.created_at
+            limit 1
+        ),
         'created_at', product.created_at,
         'updated_at', product.updated_at,
         'files', coalesce((
@@ -927,66 +935,75 @@ revoke all on function public.get_company_product_catalog(uuid) from public, ano
 grant execute on function public.get_company_product_catalog(uuid) to authenticated;
 
 create or replace function public.get_company_approved_products(p_company_id uuid)
-returns table (
-    id uuid,
-    company_id uuid,
-    category text,
-    brand text,
-    model text,
-    tier text,
-    approved_selling_price numeric,
-    price_book_item_id uuid,
-    minimum_selling_price numeric,
-    maximum_selling_price numeric,
-    main_product_media_id uuid,
-    product_specifications jsonb,
-    compatible_applications text[],
-    required_accessory_ids uuid[],
-    installation_requirements text[],
-    warranty text,
-    extended_warranty_eligible boolean,
-    availability_note text,
-    manufacturer_reference text,
-    approved boolean,
-    active boolean
-)
-language plpgsql
+returns setof jsonb
+language sql
+stable
 security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
-begin
-    if auth.uid() is null then
-        raise exception 'Not authenticated';
-    end if;
-    if not public.company_estimate_options_can_use(p_company_id) then
-        raise exception 'Not authorized';
-    end if;
-
-    return query
-    select
-        product.id,
-        product.company_id,
-        product.category,
-        product.brand,
-        product.model,
-        product.tier,
-        product.approved_selling_price,
-        product.price_book_item_id,
-        product.minimum_selling_price,
-        product.maximum_selling_price,
-        product.main_product_media_id,
-        product.product_specifications,
-        product.compatible_applications,
-        product.required_accessory_ids,
-        product.installation_requirements,
-        product.warranty,
-        product.extended_warranty_eligible,
-        product.availability_note,
-        product.manufacturer_reference,
-        product.approved,
-        product.active
+    select jsonb_build_object(
+        'id', product.id,
+        'company_id', product.company_id,
+        'category', product.category,
+        'brand', product.brand,
+        'model', product.model,
+        'tier', product.tier,
+        'approved_selling_price', product.approved_selling_price,
+        'price_book_item_id', product.price_book_item_id,
+        'minimum_selling_price', product.minimum_selling_price,
+        'maximum_selling_price', product.maximum_selling_price,
+        'product_specifications', product.product_specifications,
+        'compatible_applications', to_jsonb(product.compatible_applications),
+        'required_accessory_ids', to_jsonb(product.required_accessory_ids),
+        'installation_requirements', to_jsonb(product.installation_requirements),
+        'warranty', product.warranty,
+        'extended_warranty_eligible', product.extended_warranty_eligible,
+        'availability_note', product.availability_note,
+        'manufacturer_reference', product.manufacturer_reference,
+        'approved', product.approved,
+        'active', product.active,
+        'master_primary_image_url', (
+            select asset.source_url
+            from public.catalog_source_assets asset
+            where asset.product_variant_id = product.master_product_variant_id
+              and asset.asset_type = 'image'
+            order by asset.is_primary desc, asset.created_at
+            limit 1
+        ),
+        'main_media', (
+            select jsonb_build_object(
+                'id', media.id,
+                'company_id', media.company_id,
+                'product_id', media.product_id,
+                'bucket', media.bucket,
+                'storage_path', media.storage_path,
+                'alt_text', media.alt_text,
+                'active', media.active
+            )
+            from public.company_product_media media
+            where media.id = product.main_product_media_id
+              and media.product_id = product.id
+              and media.active
+        ),
+        'additional_media', coalesce((
+            select jsonb_agg(jsonb_build_object(
+                'id', media.id,
+                'company_id', media.company_id,
+                'product_id', media.product_id,
+                'bucket', media.bucket,
+                'storage_path', media.storage_path,
+                'alt_text', media.alt_text,
+                'active', media.active
+            ) order by media.created_at)
+            from public.company_product_media media
+            where media.product_id = product.id
+              and media.active
+              and media.id is distinct from product.main_product_media_id
+        ), '[]'::jsonb)
+    )
     from public.company_approved_products product
     where product.company_id = p_company_id
+      and public.company_estimate_options_can_use(p_company_id)
       and product.active
       and product.approved
       and public.company_catalog_variant_is_entitled(
@@ -994,7 +1011,6 @@ begin
           product.master_product_variant_id
       )
     order by product.category, product.tier, product.brand, product.model;
-end;
 $$;
 
 revoke all on function public.get_company_approved_products(uuid) from public, anon;
