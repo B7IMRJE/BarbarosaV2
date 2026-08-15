@@ -36,6 +36,14 @@ import {
     type CatalogStatus,
     type CatalogTemplateDefinition,
 } from '../../lib/catalogFactoryCore';
+import {
+    CATALOG_SOURCE_PREVIEW_COUNT,
+    CATALOG_SPECIFICATION_PREVIEW_COUNT,
+    catalogFieldLabel,
+    catalogPreviewItems,
+    catalogSourceDisplayName,
+    catalogSpecificationDisplays,
+} from '../../lib/catalogFactoryPresentation';
 import { researchCatalogProduct } from '../../lib/catalogProductResearch';
 import {
     mapCatalogResearchSpecifications,
@@ -632,9 +640,153 @@ function Filters({ filters, setFilters, templates, busy, onApply }: { filters: C
 }
 
 function FactoryRecordCard({ record, selected, showPrices, history, busy, onToggle, onEdit, onApprove, onReject, onNeedsReview }: { record: CatalogFactoryRecord; selected: boolean; showPrices: boolean; history: boolean; busy: boolean; onToggle: () => void; onEdit: () => void; onApprove: () => void; onReject: () => void; onNeedsReview: () => void }) {
+    const [specificationsExpanded, setSpecificationsExpanded] = useState(false);
+    const [sourcesExpanded, setSourcesExpanded] = useState(false);
     const warnings = [...record.validationWarnings, ...record.duplicateWarnings, ...record.missingFields];
     const latestPrices = record.retailListings.flatMap((listing) => listing.observations.slice(0, history ? 100 : 1).map((observation) => ({ listing, observation })));
-    return <ThemedCard><View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-start' }}>{record.primaryImageUrl ? <Image source={record.primaryImageUrl} contentFit="contain" style={{ width: 110, height: 110, borderRadius: 12, backgroundColor: '#FFFFFF' }} /> : <View style={{ width: 90, height: 90, borderRadius: 12, backgroundColor: '#E7EDF3', alignItems: 'center', justifyContent: 'center' }}><Text>No image</Text></View>}<View style={{ flex: 1, gap: 5 }}><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}><TouchableOpacity onPress={onToggle} style={{ borderWidth: 2, borderColor: selected ? '#087D78' : '#9BA8B5', backgroundColor: selected ? '#D9F5F1' : '#FFFFFF', borderRadius: 8, width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontWeight: '900' }}>{selected ? '✓' : ''}</Text></TouchableOpacity><Text selectable style={{ fontSize: 20, fontWeight: '900', flexShrink: 1 }}>{record.brand} {record.familyName} {record.modelNumber}</Text><Badge label={record.status.replace('_', ' ')} tone={record.status === 'approved' ? 'green' : record.status === 'rejected' ? 'red' : 'amber'} /></View><Text selectable style={{ color: '#58697A' }}>{record.category} · {record.manufacturer}</Text><Text selectable style={{ color: '#58697A' }}>MPN {record.manufacturerPartNumber || 'missing'} · UPC/GTIN {record.upcGtin || 'missing'}</Text><Text selectable style={{ color: '#58697A' }}>Confidence {record.confidence == null ? 'not supplied' : `${Math.round(record.confidence * 100)}%`} · Verified {record.lastVerifiedAt ? new Date(record.lastVerifiedAt).toLocaleString() : 'not verified'}</Text></View></View>{!!record.description && <Text selectable>{record.description}</Text>}<Text selectable style={{ fontWeight: '900' }}>Specifications</Text><Text selectable style={{ color: '#58697A', fontFamily: 'monospace' }}>{JSON.stringify(record.specifications, null, 2)}</Text>{warnings.length > 0 && <View style={{ backgroundColor: '#FFF4DD', padding: 11, borderRadius: 10 }}><Text selectable style={{ fontWeight: '900', color: '#704B00' }}>Unresolved warnings</Text>{warnings.map((warning, index) => <Text selectable key={`${warning}-${index}`} style={{ color: '#704B00' }}>• {warning}</Text>)}</View>}<View style={{ gap: 5 }}><Text selectable style={{ fontWeight: '900' }}>Sources</Text>{record.sources.map((source) => <TouchableOpacity key={source.id} onPress={() => void Linking.openURL(source.sourceUrl)}><Text selectable style={{ color: '#087D78', textDecorationLine: 'underline' }}>{source.sourceType.replaceAll('_', ' ')}: {source.title || source.sourceUrl}</Text></TouchableOpacity>)}{!record.sources.length && <Text style={{ color: '#58697A' }}>No source links supplied.</Text>}</View>{showPrices && <View style={{ gap: 7 }}><Text selectable style={{ fontWeight: '900' }}>{history ? 'Historical retail observations' : 'Retail price comparison'}</Text>{latestPrices.map(({ listing, observation }) => <View key={observation.id} style={{ borderTopWidth: 1, borderTopColor: '#D8E0E8', paddingTop: 7 }}><Text selectable style={{ fontWeight: '800' }}>{listing.retailer} {listing.retailerSku ? `· ${listing.retailerSku}` : ''}</Text><Text selectable>Regular {money(observation.regularPrice)} · Sale {money(observation.salePrice)} · {observation.availability || 'availability unknown'}</Text><Text selectable style={{ color: '#58697A' }}>{new Date(observation.observedAt).toLocaleString()} · {observation.zipCode || observation.market || 'market not supplied'}</Text>{!!listing.productUrl && <TouchableOpacity onPress={() => void Linking.openURL(listing.productUrl)}><Text style={{ color: '#087D78', textDecorationLine: 'underline' }}>Open retailer page</Text></TouchableOpacity>}</View>)}{!latestPrices.length && <Text style={{ color: '#58697A' }}>No retail observations yet.</Text>}</View>}<ButtonRow><ThemedButton title="Edit" variant="secondary" disabled={busy} onPress={onEdit} style={{ flex: 1 }} />{record.status !== 'approved' && <ThemedButton title="Approve" disabled={busy || warnings.length > 0} onPress={onApprove} style={{ flex: 1 }} />}{record.status !== 'rejected' && <ThemedButton title="Reject" variant="danger" disabled={busy} onPress={onReject} style={{ flex: 1 }} />}{record.status === 'draft' && <ThemedButton title="Needs Review" variant="secondary" disabled={busy} onPress={onNeedsReview} style={{ flex: 1 }} />}</ButtonRow></ThemedCard>;
+    const specificationDisplays = catalogSpecificationDisplays(record.specifications);
+    const visibleSpecifications = catalogPreviewItems(specificationDisplays, specificationsExpanded, CATALOG_SPECIFICATION_PREVIEW_COUNT);
+    const visibleSources = catalogPreviewItems(record.sources, sourcesExpanded, CATALOG_SOURCE_PREVIEW_COUNT);
+
+    return (
+        <ThemedCard>
+            <View style={{ gap: 14 }}>
+                <View style={{ flexDirection: 'row', gap: 14, alignItems: 'flex-start' }}>
+                    {record.primaryImageUrl ? (
+                        <Image source={record.primaryImageUrl} contentFit="contain" style={{ width: 110, height: 110, borderRadius: 12, backgroundColor: '#FFFFFF' }} />
+                    ) : (
+                        <View style={{ width: 90, height: 90, borderRadius: 12, backgroundColor: '#E7EDF3', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text>No image</Text>
+                        </View>
+                    )}
+                    <View style={{ flex: 1, gap: 5 }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                            <TouchableOpacity
+                                accessibilityRole="checkbox"
+                                accessibilityLabel={`Select ${record.brand} ${record.modelNumber}`}
+                                accessibilityState={{ checked: selected }}
+                                onPress={onToggle}
+                                style={{ borderWidth: 2, borderColor: selected ? '#087D78' : '#9BA8B5', backgroundColor: selected ? '#D9F5F1' : '#FFFFFF', borderRadius: 8, width: 30, height: 30, alignItems: 'center', justifyContent: 'center' }}
+                            >
+                                <Text style={{ fontWeight: '900' }}>{selected ? '✓' : ''}</Text>
+                            </TouchableOpacity>
+                            <Text selectable style={{ fontSize: 20, fontWeight: '900', flexShrink: 1 }}>{record.brand} {record.familyName} {record.modelNumber}</Text>
+                            <Badge label={record.status.replace('_', ' ')} tone={record.status === 'approved' ? 'green' : record.status === 'rejected' ? 'red' : 'amber'} />
+                        </View>
+                        <Text selectable style={{ color: '#58697A' }}>{record.category} · {record.manufacturer}</Text>
+                        <Text selectable style={{ color: '#58697A' }}>MPN {record.manufacturerPartNumber || 'missing'} · UPC/GTIN {record.upcGtin || 'missing'}</Text>
+                        <Text selectable style={{ color: '#58697A' }}>Confidence {record.confidence == null ? 'not supplied' : `${Math.round(record.confidence * 100)}%`} · Verified {record.lastVerifiedAt ? new Date(record.lastVerifiedAt).toLocaleString() : 'not verified'}</Text>
+                    </View>
+                </View>
+
+                {!!record.description && <Text selectable style={{ lineHeight: 21 }}>{record.description}</Text>}
+
+                <View style={{ gap: 9 }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
+                        <Text selectable style={{ fontWeight: '900', fontSize: 17 }}>Specifications</Text>
+                        <Text selectable style={{ color: '#58697A' }}>{specificationDisplays.length} detail{specificationDisplays.length === 1 ? '' : 's'}</Text>
+                    </View>
+                    {visibleSpecifications.length > 0 ? (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                            {visibleSpecifications.map((specification) => (
+                                <View key={specification.key} style={{ flexGrow: 1, flexBasis: 300, minWidth: 220, gap: 3, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#D8E0E8', backgroundColor: '#F6F8FA' }}>
+                                    <Text selectable style={{ color: '#58697A', fontSize: 12, fontWeight: '900', letterSpacing: 0.3 }}>{specification.label}</Text>
+                                    <Text selectable style={{ color: '#12283D', lineHeight: 20 }}>{specification.value}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    ) : (
+                        <Text selectable style={{ color: '#58697A' }}>No specifications supplied.</Text>
+                    )}
+                    {specificationDisplays.length > CATALOG_SPECIFICATION_PREVIEW_COUNT && (
+                        <DisclosureButton
+                            expanded={specificationsExpanded}
+                            label={specificationsExpanded ? 'Show fewer specifications' : `Show all ${specificationDisplays.length} specifications`}
+                            onPress={() => setSpecificationsExpanded((current) => !current)}
+                        />
+                    )}
+                </View>
+
+                {warnings.length > 0 && (
+                    <View accessibilityRole="alert" style={{ backgroundColor: '#FFF4DD', padding: 11, borderRadius: 10, gap: 3 }}>
+                        <Text selectable style={{ fontWeight: '900', color: '#704B00' }}>Unresolved warnings</Text>
+                        {warnings.map((warning, index) => <Text selectable key={`${warning}-${index}`} style={{ color: '#704B00' }}>• {warning}</Text>)}
+                    </View>
+                )}
+
+                <View style={{ gap: 8 }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'baseline', justifyContent: 'space-between' }}>
+                        <Text selectable style={{ fontWeight: '900', fontSize: 17 }}>Sources</Text>
+                        <Text selectable style={{ color: '#58697A' }}>{record.sources.length} link{record.sources.length === 1 ? '' : 's'}</Text>
+                    </View>
+                    {visibleSources.map((source) => (
+                        <View key={source.id} style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center', borderTopWidth: 1, borderTopColor: '#D8E0E8', paddingTop: 8 }}>
+                            <View style={{ backgroundColor: '#E8F2FA', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4 }}>
+                                <Text selectable style={{ color: '#315466', fontSize: 12, fontWeight: '900' }}>{catalogFieldLabel(source.sourceType)}</Text>
+                            </View>
+                            <TouchableOpacity
+                                accessibilityRole="link"
+                                accessibilityLabel={`Open ${catalogSourceDisplayName(source.title, source.sourceUrl)}`}
+                                onPress={() => void Linking.openURL(source.sourceUrl)}
+                                style={{ flex: 1, minWidth: 180 }}
+                            >
+                                <Text selectable numberOfLines={sourcesExpanded ? undefined : 2} style={{ color: '#087D78', textDecorationLine: 'underline', fontWeight: '700' }}>
+                                    {catalogSourceDisplayName(source.title, source.sourceUrl)}
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    ))}
+                    {!record.sources.length && <Text selectable style={{ color: '#58697A' }}>No source links supplied.</Text>}
+                    {record.sources.length > CATALOG_SOURCE_PREVIEW_COUNT && (
+                        <DisclosureButton
+                            expanded={sourcesExpanded}
+                            label={sourcesExpanded ? 'Show fewer sources' : `Show all ${record.sources.length} sources`}
+                            onPress={() => setSourcesExpanded((current) => !current)}
+                        />
+                    )}
+                </View>
+
+                {showPrices && (
+                    <View style={{ gap: 7 }}>
+                        <Text selectable style={{ fontWeight: '900' }}>{history ? 'Historical retail observations' : 'Retail price comparison'}</Text>
+                        {latestPrices.map(({ listing, observation }) => (
+                            <View key={observation.id} style={{ borderTopWidth: 1, borderTopColor: '#D8E0E8', paddingTop: 7 }}>
+                                <Text selectable style={{ fontWeight: '800' }}>{listing.retailer} {listing.retailerSku ? `· ${listing.retailerSku}` : ''}</Text>
+                                <Text selectable>Regular {money(observation.regularPrice)} · Sale {money(observation.salePrice)} · {observation.availability || 'availability unknown'}</Text>
+                                <Text selectable style={{ color: '#58697A' }}>{new Date(observation.observedAt).toLocaleString()} · {observation.zipCode || observation.market || 'market not supplied'}</Text>
+                                {!!listing.productUrl && (
+                                    <TouchableOpacity accessibilityRole="link" onPress={() => void Linking.openURL(listing.productUrl)}>
+                                        <Text selectable style={{ color: '#087D78', textDecorationLine: 'underline' }}>Open retailer page</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        ))}
+                        {!latestPrices.length && <Text selectable style={{ color: '#58697A' }}>No retail observations yet.</Text>}
+                    </View>
+                )}
+
+                <ButtonRow>
+                    <ThemedButton title="Edit" variant="secondary" disabled={busy} onPress={onEdit} style={{ flex: 1 }} />
+                    {record.status !== 'approved' && <ThemedButton title="Approve" disabled={busy || warnings.length > 0} onPress={onApprove} style={{ flex: 1 }} />}
+                    {record.status !== 'rejected' && <ThemedButton title="Reject" variant="danger" disabled={busy} onPress={onReject} style={{ flex: 1 }} />}
+                    {record.status === 'draft' && <ThemedButton title="Needs Review" variant="secondary" disabled={busy} onPress={onNeedsReview} style={{ flex: 1 }} />}
+                </ButtonRow>
+            </View>
+        </ThemedCard>
+    );
+}
+
+function DisclosureButton({ expanded, label, onPress }: { expanded: boolean; label: string; onPress: () => void }) {
+    return (
+        <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            onPress={onPress}
+            style={{ alignSelf: 'flex-start', borderWidth: 1, borderColor: '#8EA0B2', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, backgroundColor: '#FFFFFF' }}
+        >
+            <Text style={{ color: '#173D59', fontWeight: '900' }}>{label}</Text>
+        </TouchableOpacity>
+    );
 }
 
 function EditPanel({ record, json, setJson, mergeTargetId, setMergeTargetId, candidates, busy, onSave, onMerge, onCancel }: { record: CatalogFactoryRecord; json: string; setJson: (value: string) => void; mergeTargetId: string; setMergeTargetId: (value: string) => void; candidates: CatalogFactoryRecord[]; busy: boolean; onSave: () => void; onMerge: () => void; onCancel: () => void }) {
