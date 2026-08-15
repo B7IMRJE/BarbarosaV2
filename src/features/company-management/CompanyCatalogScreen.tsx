@@ -52,6 +52,10 @@ import {
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 import CatalogResearchReview from './CatalogResearchReview';
+import {
+    CompactMasterCatalogCard,
+    MasterCatalogProductDetailsModal,
+} from './master-catalog-product-card';
 import PlumbingCatalogSuggestionsPanel from './PlumbingCatalogSuggestionsPanel';
 
 export default function CompanyCatalogScreen() {
@@ -76,6 +80,7 @@ export default function CompanyCatalogScreen() {
     const [saveFeedback, setSaveFeedback] = useState('');
     const [masterItems, setMasterItems] = useState<ApprovedMasterCatalogItem[]>([]);
     const [showMasterCatalog, setShowMasterCatalog] = useState(false);
+    const [masterDetailItem, setMasterDetailItem] = useState<ApprovedMasterCatalogItem | null>(null);
     const [offeringItem, setOfferingItem] = useState<ApprovedMasterCatalogItem | null>(null);
     const [offeringDraft, setOfferingDraft] = useState<CompanyCatalogOffering>(emptyOffering());
     const [researching, setResearching] = useState(false);
@@ -427,6 +432,9 @@ export default function CompanyCatalogScreen() {
     const selectedPackageLimit = entitlementDraft
         ? companyCatalogPackageLimit(entitlementDraft.packageTier)
         : null;
+    const masterDetailIncludedInDraftPackage = Boolean(masterDetailItem && (
+        entitlementDraft?.packageTier === 'full' || selectedPackageIds.has(masterDetailItem.id)
+    ));
 
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -537,35 +545,22 @@ export default function CompanyCatalogScreen() {
                                     variant="secondary"
                                     onPress={() => setShowMasterCatalog((value) => !value)}
                                 />
-                                {showMasterCatalog && <View style={{ gap: 12 }}>
+                                {showMasterCatalog && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12), alignItems: 'stretch' }}>
                                     {masterItems.map((item) => {
                                         const includedInDraftPackage = entitlementDraft?.packageTier === 'full' || selectedPackageIds.has(item.id);
-                                        return <View key={item.id} style={{ borderWidth: 1, borderColor: includedInDraftPackage ? theme.colors.primary : theme.colors.border, borderRadius: 14, padding: 12, gap: 8 }}>
-                                        <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
-                                            <ProductCardImage
-                                                imageUrl={item.primaryImageUrl}
-                                                productName={`${item.brand} ${item.familyName} ${item.modelNumber}`.trim()}
-                                                style={{ width: phone ? '100%' : 130, height: 110 }}
+                                        return (
+                                            <CompactMasterCatalogCard
+                                                key={item.id}
+                                                item={item}
+                                                phone={phone}
+                                                includedInDraftPackage={includedInDraftPackage}
+                                                packageSelectionAvailable={isPlatformAdmin && selectedPackageLimit !== null}
+                                                canManagePricing={canManagePricing}
+                                                onShowDetails={() => setMasterDetailItem(item)}
+                                                onTogglePackage={() => togglePackageCard(item.id)}
+                                                onBeginOffering={() => beginOffering(item)}
                                             />
-                                            <View style={{ flex: 1, gap: 5 }}>
-                                                <Text style={{ color: textColor, fontSize: scaleFont(18), fontWeight: '900' }}>{item.brand} {item.familyName} {item.modelNumber}</Text>
-                                                <Text style={{ color: mutedColor }}>{item.category} · {item.manufacturer}</Text>
-                                                {!!item.manufacturerPartNumber && <Text style={{ color: mutedColor }}>Part {item.manufacturerPartNumber}</Text>}
-                                                <Text style={{ color: mutedColor }}>{item.offering ? `Company offering: ${item.offering.active ? 'Active' : 'Inactive'}` : 'Not in this company catalog yet'}</Text>
-                                                <Text style={{ color: item.entitled ? theme.colors.primary : mutedColor, fontWeight: '800' }}>
-                                                    {item.entitled ? 'Currently included in the company package' : includedInDraftPackage ? 'Will be included after Catalog Access is saved' : 'Not included in the company package'}
-                                                </Text>
-                                            </View>
-                                        </View>
-                                        {isPlatformAdmin && selectedPackageLimit !== null && (
-                                            <ThemedButton
-                                                title={includedInDraftPackage ? 'Remove from Package' : 'Include in Package'}
-                                                variant="secondary"
-                                                onPress={() => togglePackageCard(item.id)}
-                                            />
-                                        )}
-                                        {canManagePricing && item.entitled && <ThemedButton title={item.offering ? 'Edit Company Offering' : 'Add Company Offering'} onPress={() => beginOffering(item)} />}
-                                    </View>;
+                                        );
                                     })}
                                     {!masterItems.length && <Text style={{ color: mutedColor }}>No approved master products are published yet.</Text>}
                                 </View>}
@@ -769,6 +764,11 @@ export default function CompanyCatalogScreen() {
                     </ThemedCard>
                 )}
             </ScrollView>
+            <MasterCatalogProductDetailsModal
+                item={masterDetailItem}
+                includedInDraftPackage={masterDetailIncludedInDraftPackage}
+                onClose={() => setMasterDetailItem(null)}
+            />
         </View>
     );
 }

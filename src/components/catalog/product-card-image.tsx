@@ -6,10 +6,11 @@ import { useTheme } from '../../theme/useTheme';
 type ProductCardImageProps = {
     imageUrl?: string | null;
     productName: string;
+    compact?: boolean;
     style?: StyleProp<ViewStyle>;
 };
 
-export default function ProductCardImage({ imageUrl, productName, style }: ProductCardImageProps) {
+export default function ProductCardImage({ imageUrl, productName, compact = false, style }: ProductCardImageProps) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const [failedUrl, setFailedUrl] = useState('');
     const cleanImageUrl = imageUrl?.trim() || '';
@@ -23,7 +24,7 @@ export default function ProductCardImage({ imageUrl, productName, style }: Produ
         <View
             style={[
                 {
-                    minHeight: scaleIcon(110),
+                    minHeight: scaleIcon(compact ? 68 : 110),
                     overflow: 'hidden',
                     borderRadius: theme.radii.button,
                     borderCurve: 'continuous',
@@ -46,13 +47,13 @@ export default function ProductCardImage({ imageUrl, productName, style }: Produ
                     transition={180}
                 />
             ) : (
-                <View style={{ flex: 1, minHeight: scaleIcon(110), alignItems: 'center', justifyContent: 'center', gap: scaleIcon(6), padding: scaleIcon(12) }}>
-                    <Text style={{ fontSize: scaleIcon(30) }}>📦</Text>
+                <View style={{ flex: 1, minHeight: scaleIcon(compact ? 68 : 110), alignItems: 'center', justifyContent: 'center', gap: scaleIcon(compact ? 2 : 6), padding: scaleIcon(compact ? 6 : 12) }}>
+                    <Text style={{ fontSize: scaleIcon(compact ? 24 : 30) }}>📦</Text>
                     <Text
-                        style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '800', textAlign: 'center' }}
-                        numberOfLines={2}
+                        style={{ color: theme.colors.mutedText, fontSize: scaleFont(compact ? 10 : 12), fontWeight: '800', textAlign: 'center' }}
+                        numberOfLines={compact ? 1 : 2}
                     >
-                        Product photo not available
+                        {compact ? 'No photo' : 'Product photo not available'}
                     </Text>
                 </View>
             )}

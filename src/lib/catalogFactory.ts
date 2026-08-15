@@ -88,6 +88,17 @@ export type ApprovedMasterCatalogItem = {
     offering: CompanyCatalogOffering | null;
 };
 
+export type ApprovedMasterCatalogReference = {
+    id: string;
+    kind: string;
+    title: string;
+    url: string;
+};
+
+export type ApprovedMasterCatalogDetail = {
+    references: ApprovedMasterCatalogReference[];
+};
+
 export type CompanyCatalogOffering = {
     id?: string;
     companyId?: string;
@@ -225,6 +236,60 @@ export async function loadApprovedMasterCatalogForCompany(companyId: string) {
     return array(data).map(parseApprovedMaster).filter(Boolean) as ApprovedMasterCatalogItem[];
 }
 
+export async function loadApprovedMasterCatalogDetail(variantId: string): Promise<ApprovedMasterCatalogDetail> {
+    const [sourcesResult, assetsResult] = await Promise.all([
+        supabase
+            .from('catalog_sources')
+            .select('id, source_type, source_url, title')
+            .eq('product_variant_id', variantId)
+            .order('created_at', { ascending: true }),
+        supabase
+            .from('catalog_source_assets')
+            .select('id, asset_type, source_url')
+            .eq('product_variant_id', variantId)
+            .order('is_primary', { ascending: false })
+            .order('created_at', { ascending: true }),
+    ]);
+
+    if (sourcesResult.error) throw sourcesResult.error;
+    if (assetsResult.error) throw assetsResult.error;
+
+    const references = [
+        ...array(sourcesResult.data).map((value) => {
+            const row = record(value);
+            const id = text(row.id);
+            const url = text(row.source_url);
+            if (!id || !url) return null;
+            const kind = text(row.source_type) || 'other';
+            return {
+                id: `source-${id}`,
+                kind,
+                title: text(row.title) || catalogReferenceLabel(kind),
+                url,
+            } satisfies ApprovedMasterCatalogReference;
+        }),
+        ...array(assetsResult.data).map((value) => {
+            const row = record(value);
+            const id = text(row.id);
+            const url = text(row.source_url);
+            if (!id || !url) return null;
+            const kind = text(row.asset_type) || 'other';
+            return {
+                id: `asset-${id}`,
+                kind,
+                title: catalogReferenceLabel(kind),
+                url,
+            } satisfies ApprovedMasterCatalogReference;
+        }),
+    ].filter(Boolean) as ApprovedMasterCatalogReference[];
+
+    return {
+        references: references.filter((reference, index) => (
+            references.findIndex((candidate) => candidate.url === reference.url) === index
+        )),
+    };
+}
+
 export async function saveCompanyCatalogOffering(companyId: string, variantId: string, offering: CompanyCatalogOffering) {
     const { data, error } = await supabase.rpc('save_company_catalog_offering', {
         p_company_id: companyId,
@@ -340,6 +405,18 @@ function parseOffering(value: unknown): CompanyCatalogOffering {
         companyWarranty: text(row.company_warranty),
         active: row.active !== false,
     };
+}
+
+function catalogReferenceLabel(kind: string) {
+    return ({
+        manufacturer_page: 'Manufacturer product page',
+        retailer_page: 'Retailer product page',
+        installation_manual: 'Installation manual',
+        specification_sheet: 'Specification sheet',
+        warranty_document: 'Warranty document',
+        image: 'Product image',
+        other: 'Product reference',
+    } as Record<string, string>)[kind] || 'Product reference';
 }
 
 function parseField(value: unknown): CatalogTemplateField | null {
