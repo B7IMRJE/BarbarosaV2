@@ -36,6 +36,8 @@ import {
     type CatalogSourceDraft,
 } from '../../lib/catalogFactory';
 import {
+    CATALOG_FINISH_OPTIONS,
+    catalogFinishOption,
     catalogFactoryEditorPayload,
     catalogFactoryEditorSpecifications,
     createCatalogFactoryEditorDraft,
@@ -938,8 +940,21 @@ function EditPanel({
     const { scaleFont, scaleIcon, theme } = useTheme();
     const [newSpecificationKey, setNewSpecificationKey] = useState('');
     const [newSpecificationValue, setNewSpecificationValue] = useState('');
+    const [addingSpecification, setAddingSpecification] = useState(false);
+    const [showMediaLibrary, setShowMediaLibrary] = useState(false);
+    const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+    const [showDescription, setShowDescription] = useState(false);
+    const [showReferences, setShowReferences] = useState(false);
+    const [showCompatibility, setShowCompatibility] = useState(false);
+    const [showApplications, setShowApplications] = useState(false);
+    const [showWarranty, setShowWarranty] = useState(false);
+    const [showDuplicateMerge, setShowDuplicateMerge] = useState(false);
     const productName = draft.productTitle || [draft.brand, draft.familyName, draft.modelNumber].filter(Boolean).join(' ');
     const specificationEntries = Object.entries(draft.specifications);
+    const finishOption = catalogFinishOption(draft.finish);
+    const selectedTemplate = templates.find((template) => template.id === draft.templateId);
+    const primaryAsset = record.assets.find((asset) => asset.active && asset.assetType === 'image' && asset.isPrimary)
+        || record.assets.find((asset) => asset.active && asset.assetType === 'image');
 
     function updateSpecification(key: string, value: string) {
         setDraft({ ...draft, specifications: { ...draft.specifications, [key]: value } });
@@ -951,136 +966,124 @@ function EditPanel({
         setDraft({ ...draft, specifications: { ...draft.specifications, [key]: newSpecificationValue.trim() } });
         setNewSpecificationKey('');
         setNewSpecificationValue('');
+        setAddingSpecification(false);
     }
 
     return (
-        <ThemedCard style={{ padding: phone ? scaleIcon(14) : scaleIcon(20) }}>
-            <View style={{ gap: scaleIcon(18) }}>
+        <ThemedCard style={{ padding: phone ? scaleIcon(12) : scaleIcon(16) }}>
+            <View style={{ gap: scaleIcon(12) }}>
                 <View style={{ gap: scaleIcon(6) }}>
-                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(phone ? 25 : 30), fontWeight: '900' }}>Edit Master Product</Text>
-                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(16), lineHeight: scaleFont(23) }}>
-                        Clear visual fields cover the product card and its reference details. Changes here do not add service history, job photos, or pricing.
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(phone ? 23 : 27), fontWeight: '900' }}>Edit Master Product</Text>
+                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(15), lineHeight: scaleFont(21) }}>
+                        Edit the compact master reference card. Pricing, service history, and job photos stay separate.
                     </Text>
                 </View>
 
-                <EditorSection title="Product identity" description="This information identifies the exact manufacturer product shown across entitled catalogs and HomeOS references.">
-                    <Field label="Product title / name *" value={draft.productTitle} onChangeText={(productTitle) => setDraft({ ...draft, productTitle })} placeholder="Example: Acme Flow 100 Kitchen Faucet" />
-                    <View style={{ gap: 7 }}>
-                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>Category / product type *</Text>
+                <CompactEditorCard title="Product Media" description="The primary photo appears first on compact catalog cards. Master reference media stays separate from HomeOS service and job photos.">
+                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12), alignItems: phone ? 'stretch' : 'center' }}>
+                        <ProductCardImage
+                            compact
+                            imageUrl={primaryAsset?.displayUrl || record.primaryImageUrl}
+                            productName={productName}
+                            style={{ width: phone ? '100%' : 116, height: 116, minHeight: 116, alignSelf: 'center' }}
+                        />
+                        <View style={{ flex: 1, gap: scaleIcon(8) }}>
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{primaryAsset ? primaryAsset.fileName : 'No primary product photo'}</Text>
+                            <Text selectable style={{ color: theme.colors.mutedText, lineHeight: scaleFont(19) }}>{primaryAsset ? 'Primary card image' : 'Upload a product photo to replace the placeholder.'}</Text>
+                            <ThemedButton title="Upload Product Photo" disabled={busy} onPress={onUploadPhoto} />
+                        </View>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(7) }}>
+                        <CompactButton title="Upload Manual" onPress={() => onUploadDocument('installation_manual')} disabled={busy} />
+                        <CompactButton title="Upload Spec Sheet" onPress={() => onUploadDocument('specification_sheet')} disabled={busy} />
+                        <CompactButton title="Upload Warranty" onPress={() => onUploadDocument('warranty_document')} disabled={busy} />
+                    </View>
+                    <CompactDisclosureCard title={`Media Library (${record.assets.length})`} summary="Primary image, HomeOS visibility, and active reference controls" expanded={showMediaLibrary} onToggle={() => setShowMediaLibrary(!showMediaLibrary)}>
+                        {record.assets.map((asset) => (
+                            <MediaTile key={asset.id} asset={asset} productName={productName} busy={busy} phone={phone} onChange={(patch) => onChangeMedia(asset, patch)} />
+                        ))}
+                        {!record.assets.length && <Text selectable style={{ color: theme.colors.mutedText }}>No media files have been added.</Text>}
+                    </CompactDisclosureCard>
+                </CompactEditorCard>
+
+                <CompactEditorCard title="Product Information" description="Canonical card identity and finish.">
+                    <CompactField label="Product title / name *" value={draft.productTitle} onChangeText={(productTitle) => setDraft({ ...draft, productTitle })} placeholder="Example: Acme Flow 100 Kitchen Faucet" />
+                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(9) }}>
+                        <CompactFieldBox label="Manufacturer *" value={draft.manufacturer} onChangeText={(manufacturer) => setDraft({ ...draft, manufacturer })} />
+                        <CompactFieldBox label="Brand *" value={draft.brand} onChangeText={(brand) => setDraft({ ...draft, brand })} />
+                    </View>
+                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(9) }}>
+                        <CompactFieldBox label="Product family *" value={draft.familyName} onChangeText={(familyName) => setDraft({ ...draft, familyName })} />
+                        <CompactFieldBox label="Exact model *" value={draft.modelNumber} onChangeText={(modelNumber) => setDraft({ ...draft, modelNumber })} />
+                    </View>
+                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(9) }}>
+                        <CompactFieldBox label="MPN" value={draft.manufacturerPartNumber} onChangeText={(manufacturerPartNumber) => setDraft({ ...draft, manufacturerPartNumber })} />
+                        <CompactFieldBox label="UPC / GTIN" value={draft.upcGtin} onChangeText={(upcGtin) => setDraft({ ...draft, upcGtin })} />
+                    </View>
+                    <CompactDisclosureCard title="Category / Type" summary={selectedTemplate?.categoryName || record.category || 'Choose a category'} expanded={showCategoryPicker} onToggle={() => setShowCategoryPicker(!showCategoryPicker)}>
+                        <ChoiceWrap>{templates.filter((template) => template.status === 'approved' || template.id === draft.templateId).map((template) => <Chip key={template.id} label={template.categoryName} selected={draft.templateId === template.id} onPress={() => { setDraft({ ...draft, templateId: template.id }); setShowCategoryPicker(false); }} />)}</ChoiceWrap>
+                    </CompactDisclosureCard>
+                    <View style={{ gap: scaleIcon(7) }}>
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>Finish</Text>
                         <ChoiceWrap>
-                            {templates.filter((template) => template.status === 'approved' || template.id === draft.templateId).map((template) => (
-                                <Chip key={template.id} label={template.categoryName} selected={draft.templateId === template.id} onPress={() => setDraft({ ...draft, templateId: template.id, productType: draft.productType || template.categoryName })} />
-                            ))}
+                            {[...CATALOG_FINISH_OPTIONS, 'Custom' as const].map((option) => <Chip key={option} label={option} selected={finishOption === option} onPress={() => setDraft({ ...draft, finish: option === 'Custom' ? (finishOption === 'Custom' ? draft.finish : '') : option })} />)}
                         </ChoiceWrap>
+                        {finishOption === 'Custom' && <CompactField label="Custom finish" value={draft.finish} onChangeText={(finish) => setDraft({ ...draft, finish })} placeholder="Enter the manufacturer finish" />}
                     </View>
-                    <Field label="Product type" value={draft.productType} onChangeText={(productType) => setDraft({ ...draft, productType })} placeholder="Example: Kitchen faucet" />
-                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12) }}>
-                        <FieldBox label="Manufacturer *" value={draft.manufacturer} onChangeText={(manufacturer) => setDraft({ ...draft, manufacturer })} />
-                        <FieldBox label="Brand *" value={draft.brand} onChangeText={(brand) => setDraft({ ...draft, brand })} />
-                    </View>
-                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12) }}>
-                        <FieldBox label="Product family *" value={draft.familyName} onChangeText={(familyName) => setDraft({ ...draft, familyName })} />
-                        <FieldBox label="Exact model number *" value={draft.modelNumber} onChangeText={(modelNumber) => setDraft({ ...draft, modelNumber })} />
-                    </View>
-                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12) }}>
-                        <FieldBox label="Manufacturer part number / MPN" value={draft.manufacturerPartNumber} onChangeText={(manufacturerPartNumber) => setDraft({ ...draft, manufacturerPartNumber })} />
-                        <FieldBox label="UPC / GTIN" value={draft.upcGtin} onChangeText={(upcGtin) => setDraft({ ...draft, upcGtin })} />
-                    </View>
-                    <Field label="Product description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
-                </EditorSection>
+                    <CompactDisclosureCard title="Description" summary={draft.description ? compactSummary(draft.description) : 'No description'} expanded={showDescription} onToggle={() => setShowDescription(!showDescription)}>
+                        <Field label="Product description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
+                    </CompactDisclosureCard>
+                </CompactEditorCard>
 
-                <EditorSection title="Appearance & sizing" description="Use the exact manufacturer values where they apply.">
-                    <View style={{ flexDirection: phone ? 'column' : 'row', flexWrap: 'wrap', gap: scaleIcon(12) }}>
-                        <FieldBox label="Finish" value={draft.finish} onChangeText={(finish) => setDraft({ ...draft, finish })} />
-                        <FieldBox label="Color" value={draft.color} onChangeText={(color) => setDraft({ ...draft, color })} />
-                        <FieldBox label="Size" value={draft.size} onChangeText={(size) => setDraft({ ...draft, size })} />
-                        <FieldBox label="Capacity" value={draft.capacity} onChangeText={(capacity) => setDraft({ ...draft, capacity })} />
-                    </View>
-                </EditorSection>
-
-                <EditorSection title="Compatibility, applications & warranty" description="Enter one part, application, or compatibility note per line so the reference remains easy to scan.">
-                    <Field label="Compatibility" value={draft.compatibility} onChangeText={(compatibility) => setDraft({ ...draft, compatibility })} multiline placeholder="One compatibility note per line" />
-                    <Field label="Compatible parts / accessories" value={draft.compatibleParts} onChangeText={(compatibleParts) => setDraft({ ...draft, compatibleParts })} multiline placeholder="One part or accessory per line" />
-                    <Field label="Applications / suitable uses" value={draft.applications} onChangeText={(applications) => setDraft({ ...draft, applications })} multiline placeholder="One application per line" />
-                    <Field label="Manufacturer warranty" value={draft.warranty} onChangeText={(warranty) => setDraft({ ...draft, warranty })} multiline />
-                </EditorSection>
-
-                <EditorSection title="Specifications" description="Every stored specification stays editable. Add uncommon manufacturer metadata with a plainly labeled field below.">
-                    {specificationEntries.map(([key, value]) => (
-                        <View key={key} style={{ gap: 7 }}>
-                            <Field label={catalogFieldLabel(key)} value={specificationEditorValue(value)} onChangeText={(next) => updateSpecification(key, next)} />
-                            <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => { const next = { ...draft.specifications }; delete next[key]; setDraft({ ...draft, specifications: next }); }} style={{ alignSelf: 'flex-start', paddingVertical: 5 }}>
-                                <Text style={{ color: theme.colors.danger, fontWeight: '900' }}>Remove {catalogFieldLabel(key)}</Text>
-                            </TouchableOpacity>
-                        </View>
-                    ))}
-                    {!specificationEntries.length && <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(15) }}>No additional specifications yet.</Text>}
-                    <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, padding: scaleIcon(12), gap: scaleIcon(10), backgroundColor: theme.colors.surfaceAlt }}>
-                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(17), fontWeight: '900' }}>Add a specification</Text>
-                        <Field label="Specification label" value={newSpecificationKey} onChangeText={setNewSpecificationKey} placeholder="Example: Max flow rate" />
-                        <Field label="Specification value" value={newSpecificationValue} onChangeText={setNewSpecificationValue} placeholder="Example: 1.5 GPM" />
-                        <ThemedButton title="Add Specification" variant="secondary" disabled={busy || !newSpecificationKey.trim()} onPress={addSpecification} />
-                    </View>
-                </EditorSection>
-
-                <EditorSection title="Manufacturer links & manuals" description="Add verified web references. Uploaded manuals and documents are managed separately in Product media below.">
+                <CompactDisclosureCard title={`References · Manufacturer Links & Manuals (${draft.sources.length})`} summary="Open to edit existing links or add a reference" expanded={showReferences} onToggle={() => setShowReferences(!showReferences)}>
                     {draft.sources.map((source, index) => (
-                        <View key={source.id || `source-${index}`} style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, padding: scaleIcon(12), gap: scaleIcon(10) }}>
-                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(17), fontWeight: '900' }}>Reference {index + 1}</Text>
-                            <ChoiceWrap>
-                                {SOURCE_TYPES.map((type) => <Chip key={type.value} label={type.label} selected={source.sourceType === type.value} onPress={() => setDraft({ ...draft, sources: draft.sources.map((item, itemIndex) => itemIndex === index ? { ...item, sourceType: type.value } : item) })} />)}
-                            </ChoiceWrap>
-                            <Field label="Link title" value={source.title} onChangeText={(title) => setDraft({ ...draft, sources: draft.sources.map((item, itemIndex) => itemIndex === index ? { ...item, title } : item) })} placeholder="Example: Manufacturer product page" />
-                            <Field label="Source URL" value={source.sourceUrl} onChangeText={(sourceUrl) => setDraft({ ...draft, sources: draft.sources.map((item, itemIndex) => itemIndex === index ? { ...item, sourceUrl } : item) })} placeholder="https://manufacturer.example/product" />
-                            <ThemedButton title="Remove Reference" variant="secondary" disabled={busy} onPress={() => setDraft({ ...draft, sources: draft.sources.filter((_, itemIndex) => itemIndex !== index) })} />
-                        </View>
+                        <ReferenceTile key={source.id || `source-${index}`} source={source} index={index} busy={busy} onChange={(patch) => setDraft({ ...draft, sources: draft.sources.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item) })} onRemove={() => setDraft({ ...draft, sources: draft.sources.filter((_, itemIndex) => itemIndex !== index) })} />
                     ))}
-                    <ThemedButton title="Add Manufacturer or Manual Link" variant="secondary" disabled={busy} onPress={() => setDraft({ ...draft, sources: [...draft.sources, { sourceType: 'manufacturer_page', sourceUrl: '', title: '' }] })} />
-                </EditorSection>
+                    {!draft.sources.length && <Text selectable style={{ color: theme.colors.mutedText }}>No manufacturer links or manual references yet.</Text>}
+                    <CompactButton title="Add Reference" onPress={() => setDraft({ ...draft, sources: [...draft.sources, { sourceType: 'manufacturer_page', sourceUrl: '', title: '' }] })} disabled={busy} />
+                </CompactDisclosureCard>
 
-                <EditorSection title="Product media" description="Master reference media is separate from HomeOS service history and job photos. The primary image appears on compact master cards after save.">
-                    <View style={{ flexDirection: phone ? 'column' : 'row', flexWrap: 'wrap', gap: scaleIcon(9) }}>
-                        <ThemedButton title="Upload Product Photo" disabled={busy} onPress={onUploadPhoto} style={{ flexGrow: 1 }} />
-                        <ThemedButton title="Upload Manual" variant="secondary" disabled={busy} onPress={() => onUploadDocument('installation_manual')} style={{ flexGrow: 1 }} />
-                        <ThemedButton title="Upload Spec Sheet" variant="secondary" disabled={busy} onPress={() => onUploadDocument('specification_sheet')} style={{ flexGrow: 1 }} />
-                        <ThemedButton title="Upload Warranty" variant="secondary" disabled={busy} onPress={() => onUploadDocument('warranty_document')} style={{ flexGrow: 1 }} />
+                <CompactEditorCard title="Specifications" description="Product-specific facts such as cartridge, showerhead, monoblock, flow rate, size, and capacity belong here.">
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), alignItems: 'stretch' }}>
+                        {specificationEntries.map(([key, value]) => (
+                            <SpecificationTile key={key} label={catalogFieldLabel(key)} value={specificationEditorValue(value)} phone={phone} busy={busy} onChange={(next) => updateSpecification(key, next)} onRemove={() => { const next = { ...draft.specifications }; delete next[key]; setDraft({ ...draft, specifications: next }); }} />
+                        ))}
                     </View>
-                    {!!record.primaryImageUrl && <ProductCardImage imageUrl={record.primaryImageUrl} productName={productName} style={{ width: '100%', maxWidth: 420, height: 210, alignSelf: 'center' }} />}
-                    {record.assets.map((asset) => (
-                        <View key={asset.id} style={{ borderWidth: 1, borderColor: asset.isPrimary ? theme.colors.primary : theme.colors.border, borderRadius: 12, padding: scaleIcon(12), gap: scaleIcon(9), opacity: asset.active ? 1 : 0.58 }}>
-                            <View style={{ flexDirection: 'row', gap: scaleIcon(11), alignItems: 'center' }}>
-                                {asset.assetType === 'image' && asset.displayUrl
-                                    ? <ProductCardImage compact imageUrl={asset.displayUrl} productName={productName} style={{ width: 72, height: 72 }} />
-                                    : <View style={{ width: 72, height: 72, borderRadius: 10, backgroundColor: theme.colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>FILE</Text></View>}
-                                <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-                                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{asset.fileName}</Text>
-                                    <Text selectable style={{ color: theme.colors.mutedText }}>{catalogAssetTypeLabel(asset.assetType)}{asset.isPrimary ? ' · Primary card image' : ''}</Text>
-                                    <Text selectable style={{ color: asset.homeownerVisible ? theme.colors.primary : theme.colors.mutedText, fontWeight: '800' }}>{asset.homeownerVisible ? 'Visible in linked HomeOS product details' : 'Company staff only'}</Text>
-                                </View>
+                    {!specificationEntries.length && <Text selectable style={{ color: theme.colors.mutedText }}>No product-specific specifications yet.</Text>}
+                    {!addingSpecification
+                        ? <CompactButton title="+ Add Specification" onPress={() => setAddingSpecification(true)} disabled={busy} />
+                        : <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, borderCurve: 'continuous', padding: scaleIcon(10), gap: scaleIcon(8), backgroundColor: theme.colors.surfaceAlt }}>
+                            <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(8) }}>
+                                <CompactFieldBox label="Specification" value={newSpecificationKey} onChangeText={setNewSpecificationKey} placeholder="Flow rate" />
+                                <CompactFieldBox label="Value" value={newSpecificationValue} onChangeText={setNewSpecificationValue} placeholder="1.5 GPM" />
                             </View>
-                            <View style={{ flexDirection: phone ? 'column' : 'row', flexWrap: 'wrap', gap: scaleIcon(8) }}>
-                                {!!asset.displayUrl && <ThemedButton title="Open" variant="secondary" disabled={busy} onPress={() => void Linking.openURL(asset.displayUrl)} style={{ flexGrow: 1 }} />}
-                                {asset.assetType === 'image' && !asset.isPrimary && <ThemedButton title="Use as Primary Image" variant="secondary" disabled={busy || !asset.active} onPress={() => onChangeMedia(asset, { isPrimary: true })} style={{ flexGrow: 1 }} />}
-                                <ThemedButton title={asset.homeownerVisible ? 'Make Staff-Only' : 'Show in HomeOS'} variant="secondary" disabled={busy || !asset.active} onPress={() => onChangeMedia(asset, { homeownerVisible: !asset.homeownerVisible })} style={{ flexGrow: 1 }} />
-                                <ThemedButton title={asset.active ? 'Hide Reference' : 'Restore Reference'} variant="secondary" disabled={busy} onPress={() => onChangeMedia(asset, { active: !asset.active })} style={{ flexGrow: 1 }} />
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(7) }}>
+                                <CompactButton title="Add" onPress={addSpecification} disabled={busy || !newSpecificationKey.trim()} />
+                                <CompactButton title="Cancel" onPress={() => { setAddingSpecification(false); setNewSpecificationKey(''); setNewSpecificationValue(''); }} disabled={busy} />
                             </View>
-                        </View>
-                    ))}
-                    {!record.assets.length && <Text selectable style={{ color: theme.colors.mutedText }}>No master product media yet. Upload a product photo to give the compact card an image.</Text>}
-                </EditorSection>
+                        </View>}
+                </CompactEditorCard>
 
-                <EditorSection title="Advanced JSON" description="Uncommon structured metadata and workflow warnings remain available here without blocking the visual editor.">
-                    <DisclosureButton expanded={showAdvancedJson} label={showAdvancedJson ? 'Hide Advanced JSON' : 'Show Advanced JSON'} onPress={() => setShowAdvancedJson(!showAdvancedJson)} />
-                    {showAdvancedJson && <Field label="Advanced product data JSON" value={json} onChangeText={setJson} multiline monospace />}
-                </EditorSection>
-
-                <EditorSection title="Duplicate merge" description="Use only when this record duplicates another master product. Saving normal edits does not merge records.">
+                <CompactDisclosureCard title="Compatibility & Parts" summary={lineSummary(draft.compatibility, draft.compatibleParts)} expanded={showCompatibility} onToggle={() => setShowCompatibility(!showCompatibility)}>
+                    <CompactField label="Compatibility" value={draft.compatibility} onChangeText={(compatibility) => setDraft({ ...draft, compatibility })} multiline placeholder="One compatibility note per line" />
+                    <CompactField label="Compatible parts / accessories" value={draft.compatibleParts} onChangeText={(compatibleParts) => setDraft({ ...draft, compatibleParts })} multiline placeholder="One part or accessory per line" />
+                </CompactDisclosureCard>
+                <CompactDisclosureCard title="Applications" summary={lineSummary(draft.applications)} expanded={showApplications} onToggle={() => setShowApplications(!showApplications)}>
+                    <CompactField label="Applications / suitable uses" value={draft.applications} onChangeText={(applications) => setDraft({ ...draft, applications })} multiline placeholder="One application per line" />
+                </CompactDisclosureCard>
+                <CompactDisclosureCard title="Warranty" summary={draft.warranty ? compactSummary(draft.warranty) : 'No manufacturer warranty'} expanded={showWarranty} onToggle={() => setShowWarranty(!showWarranty)}>
+                    <CompactField label="Manufacturer warranty" value={draft.warranty} onChangeText={(warranty) => setDraft({ ...draft, warranty })} multiline />
+                </CompactDisclosureCard>
+                <CompactDisclosureCard title="Advanced JSON" summary="Uncommon structured metadata and workflow warnings" expanded={showAdvancedJson} onToggle={() => setShowAdvancedJson(!showAdvancedJson)}>
+                    <Field label="Advanced product data JSON" value={json} onChangeText={setJson} multiline monospace />
+                </CompactDisclosureCard>
+                <CompactDisclosureCard title="Duplicate Merge" summary="Only use when this is a duplicate master product" expanded={showDuplicateMerge} onToggle={() => setShowDuplicateMerge(!showDuplicateMerge)}>
                     <ChoiceWrap>{candidates.slice(0, 50).map((candidate) => <Chip key={candidate.id} label={`${candidate.brand} ${candidate.modelNumber}`} selected={mergeTargetId === candidate.id} onPress={() => setMergeTargetId(candidate.id)} />)}</ChoiceWrap>
                     <ThemedButton title="Merge Selected Duplicate" variant="danger" disabled={busy || !mergeTargetId} onPress={onMerge} />
-                </EditorSection>
+                </CompactDisclosureCard>
 
                 <ButtonRow>
-                    <ThemedButton title={busy ? 'Saving...' : 'Save Master Product'} disabled={busy} onPress={onSave} style={{ flex: 1 }} />
+                    <ThemedButton title={busy ? 'Saving...' : 'Save Master Product'} disabled={busy} onPress={onSave} style={{ flex: 1, minWidth: 190 }} />
                     <ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={onCancel} style={{ flex: 1 }} />
                 </ButtonRow>
             </View>
@@ -1088,17 +1091,137 @@ function EditPanel({
     );
 }
 
-function EditorSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function CompactEditorCard({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     return (
-        <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 15, padding: scaleIcon(14), backgroundColor: theme.colors.surface, gap: scaleIcon(12) }}>
-            <View style={{ gap: 4 }}>
-                <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>{title}</Text>
-                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(15), lineHeight: scaleFont(21) }}>{description}</Text>
-            </View>
+        <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, borderCurve: 'continuous', padding: scaleIcon(12), backgroundColor: theme.colors.surface, gap: scaleIcon(10) }}>
+            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(19), fontWeight: '900' }}>{title}</Text>
+            {!!description && <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(19) }}>{description}</Text>}
             {children}
         </View>
     );
+}
+
+function CompactDisclosureCard({ title, summary, expanded, onToggle, children }: { title: string; summary: string; expanded: boolean; onToggle: () => void; children: React.ReactNode }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 13, borderCurve: 'continuous', backgroundColor: theme.colors.surface, overflow: 'hidden' }}>
+            <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityState={{ expanded }}
+                accessibilityLabel={`${title}. ${summary}`}
+                onPress={onToggle}
+                style={{ minHeight: 54, paddingHorizontal: scaleIcon(12), paddingVertical: scaleIcon(9), flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}
+            >
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{title}</Text>
+                    <Text selectable numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.mutedText, fontSize: scaleFont(13) }}>{summary}</Text>
+                </View>
+                <Text accessibilityElementsHidden style={{ color: theme.colors.primary, fontSize: scaleFont(22), fontWeight: '900' }}>{expanded ? '−' : '+'}</Text>
+            </TouchableOpacity>
+            {expanded && <View style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, padding: scaleIcon(10), gap: scaleIcon(9), backgroundColor: theme.colors.surfaceAlt }}>{children}</View>}
+        </View>
+    );
+}
+
+function CompactField({ label, value, onChangeText, placeholder, multiline }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <View style={{ gap: 5 }}>
+            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>{label}</Text>
+            <TextInput
+                accessibilityLabel={label}
+                value={value}
+                onChangeText={onChangeText}
+                placeholder={placeholder}
+                placeholderTextColor={theme.colors.mutedText}
+                multiline={multiline}
+                style={{ minHeight: multiline ? 84 : 44, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, borderCurve: 'continuous', paddingHorizontal: scaleIcon(11), paddingVertical: scaleIcon(multiline ? 9 : 7), backgroundColor: theme.colors.background, color: theme.colors.text, fontSize: scaleFont(15), lineHeight: scaleFont(20), textAlignVertical: multiline ? 'top' : 'center' }}
+            />
+        </View>
+    );
+}
+
+function CompactFieldBox(props: Parameters<typeof CompactField>[0]) {
+    return <View style={{ flex: 1, minWidth: 180 }}><CompactField {...props} /></View>;
+}
+
+function CompactButton({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ disabled: Boolean(disabled) }} disabled={disabled} onPress={onPress} style={{ minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, borderCurve: 'continuous', paddingHorizontal: scaleIcon(11), paddingVertical: scaleIcon(7), backgroundColor: theme.colors.surface, opacity: disabled ? 0.55 : 1 }}>
+            <Text style={{ color: theme.colors.primary, fontSize: scaleFont(14), fontWeight: '900', textAlign: 'center' }}>{title}</Text>
+        </TouchableOpacity>
+    );
+}
+
+function SpecificationTile({ label, value, phone, busy, onChange, onRemove }: { label: string; value: string; phone: boolean; busy: boolean; onChange: (value: string) => void; onRemove: () => void }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <View style={{ width: phone ? '100%' : '31.5%', minWidth: phone ? 0 : 220, flexGrow: 1, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 11, borderCurve: 'continuous', padding: scaleIcon(9), gap: 6, backgroundColor: theme.colors.surfaceAlt }}>
+            <View style={{ minHeight: 28, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                <Text selectable numberOfLines={2} style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900', flex: 1 }}>{label}</Text>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Remove ${label}`} disabled={busy} onPress={onRemove} style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ color: theme.colors.danger, fontSize: scaleFont(18), fontWeight: '900' }}>×</Text>
+                </TouchableOpacity>
+            </View>
+            <TextInput accessibilityLabel={`${label} value`} value={value} onChangeText={onChange} style={{ minHeight: 42, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 9, paddingHorizontal: scaleIcon(10), paddingVertical: scaleIcon(6), backgroundColor: theme.colors.background, color: theme.colors.text, fontSize: scaleFont(15) }} />
+        </View>
+    );
+}
+
+function ReferenceTile({ source, index, busy, onChange, onRemove }: { source: CatalogSourceDraft; index: number; busy: boolean; onChange: (patch: Partial<CatalogSourceDraft>) => void; onRemove: () => void }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 11, borderCurve: 'continuous', padding: scaleIcon(10), gap: scaleIcon(8), backgroundColor: theme.colors.surface }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900' }}>{source.title || `Reference ${index + 1}`}</Text>
+                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '800' }}>{catalogFieldLabel(source.sourceType)}</Text>
+                </View>
+                <CompactButton title="Remove" onPress={onRemove} disabled={busy} />
+            </View>
+            <ChoiceWrap>{SOURCE_TYPES.map((type) => <Chip key={type.value} label={type.label} selected={source.sourceType === type.value} onPress={() => onChange({ sourceType: type.value })} />)}</ChoiceWrap>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8) }}>
+                <View style={{ flex: 1, minWidth: 200 }}><CompactField label="Title" value={source.title} onChangeText={(title) => onChange({ title })} placeholder="Manufacturer product page" /></View>
+                <View style={{ flex: 2, minWidth: 260 }}><CompactField label="URL" value={source.sourceUrl} onChangeText={(sourceUrl) => onChange({ sourceUrl })} placeholder="https://manufacturer.example/product" /></View>
+            </View>
+        </View>
+    );
+}
+
+function MediaTile({ asset, productName, busy, phone, onChange }: { asset: CatalogFactoryAsset; productName: string; busy: boolean; phone: boolean; onChange: (patch: { isPrimary?: boolean; homeownerVisible?: boolean; active?: boolean }) => void }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <View style={{ borderWidth: 1, borderColor: asset.isPrimary ? theme.colors.primary : theme.colors.border, borderRadius: 11, borderCurve: 'continuous', padding: scaleIcon(9), gap: scaleIcon(8), opacity: asset.active ? 1 : 0.58, backgroundColor: theme.colors.surface }}>
+            <View style={{ flexDirection: 'row', gap: scaleIcon(9), alignItems: 'center' }}>
+                {asset.assetType === 'image' && asset.displayUrl
+                    ? <ProductCardImage compact imageUrl={asset.displayUrl} productName={productName} style={{ width: 58, height: 58 }} />
+                    : <View style={{ width: 58, height: 58, borderRadius: 9, backgroundColor: theme.colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>FILE</Text></View>}
+                <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                    <Text selectable numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>{asset.fileName}</Text>
+                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12) }}>{catalogAssetTypeLabel(asset.assetType)}{asset.isPrimary ? ' · Primary' : ''}</Text>
+                    <Text selectable style={{ color: asset.homeownerVisible ? theme.colors.primary : theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '800' }}>{asset.homeownerVisible ? 'Visible in HomeOS' : 'Staff-only'}</Text>
+                </View>
+            </View>
+            <View style={{ flexDirection: phone ? 'column' : 'row', flexWrap: 'wrap', gap: scaleIcon(7) }}>
+                {!!asset.displayUrl && <CompactButton title="Open" onPress={() => void Linking.openURL(asset.displayUrl)} disabled={busy} />}
+                {asset.assetType === 'image' && !asset.isPrimary && <CompactButton title="Make Primary" onPress={() => onChange({ isPrimary: true })} disabled={busy || !asset.active} />}
+                <CompactButton title={asset.homeownerVisible ? 'Make Staff-Only' : 'Show in HomeOS'} onPress={() => onChange({ homeownerVisible: !asset.homeownerVisible })} disabled={busy || !asset.active} />
+                <CompactButton title={asset.active ? 'Hide' : 'Restore'} onPress={() => onChange({ active: !asset.active })} disabled={busy} />
+            </View>
+        </View>
+    );
+}
+
+function compactSummary(value: string) {
+    const cleaned = value.trim().replace(/\s+/g, ' ');
+    return cleaned.length > 72 ? `${cleaned.slice(0, 69)}...` : cleaned;
+}
+
+function lineSummary(...values: string[]) {
+    const count = values.flatMap((value) => value.split(/[\n,]/).map((entry) => entry.trim()).filter(Boolean)).length;
+    return count ? `${count} item${count === 1 ? '' : 's'}` : 'None added';
 }
 
 const SOURCE_TYPES = [
@@ -1134,7 +1257,7 @@ function Title({ children }: { children: React.ReactNode }) { return <Text selec
 function ButtonRow({ children }: { children: React.ReactNode }) { return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{children}</View>; }
 function ChoiceWrap({ children }: { children: React.ReactNode }) { return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>{children}</View>; }
 function Action({ title, onPress }: { title: string; onPress: () => void }) { return <TouchableOpacity onPress={onPress} style={{ backgroundColor: '#073D57', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14 }}><Text style={{ color: '#FFFFFF', fontWeight: '900' }}>{title}</Text></TouchableOpacity>; }
-function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) { return <TouchableOpacity onPress={onPress} style={{ borderWidth: 1, borderColor: selected ? '#087D78' : '#AAB7C5', backgroundColor: selected ? '#D9F5F1' : '#FFFFFF', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}><Text style={{ color: '#09223A', fontWeight: '800' }}>{label}</Text></TouchableOpacity>; }
+function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) { return <TouchableOpacity accessibilityRole="button" accessibilityState={{ selected }} onPress={onPress} style={{ minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: selected ? '#087D78' : '#AAB7C5', backgroundColor: selected ? '#D9F5F1' : '#FFFFFF', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 8 }}><Text style={{ color: '#09223A', fontWeight: '800' }}>{label}</Text></TouchableOpacity>; }
 function Toggle({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) { return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Switch value={value} onValueChange={onChange} /><Text style={{ fontWeight: '800' }}>{label}</Text></View>; }
 function Badge({ label, tone }: { label: string; tone: 'green' | 'red' | 'amber' }) { const colors = tone === 'green' ? ['#DDF7EA', '#086B42'] : tone === 'red' ? ['#FFE7EA', '#961B2C'] : ['#FFF2D7', '#745000']; return <View style={{ backgroundColor: colors[0], borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 }}><Text style={{ color: colors[1], fontWeight: '900' }}>{label}</Text></View>; }
 function Notice({ message }: { message: string }) { return <View style={{ backgroundColor: '#E8F2FA', borderRadius: 12, padding: 12 }}><Text selectable style={{ color: '#173D59', fontWeight: '700' }}>{message}</Text></View>; }

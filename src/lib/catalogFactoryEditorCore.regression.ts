@@ -1,4 +1,5 @@
 import {
+    catalogFinishOption,
     catalogFactoryEditorPayload,
     catalogFactoryEditorSpecifications,
     createCatalogFactoryEditorDraft,
@@ -12,8 +13,8 @@ function assert(condition: unknown, message: string) {
 const record: CatalogFactoryRecord = {
     id: 'variant-1', familyId: 'family-1', templateId: 'template-1', category: 'Faucet', manufacturer: 'Acme', brand: 'Acme',
     familyName: 'Flow', modelNumber: 'F-100', manufacturerPartNumber: 'MPN-1', upcGtin: '', color: 'Chrome', finish: 'Polished',
-    size: '', capacity: '', description: 'Fixture', specifications: {
-        product_name: 'Acme Flow Faucet', compatibility: ['Deck mount', 'Three hole'], max_flow: '1.5 GPM', warranty: 'Old value',
+    size: '4 inch', capacity: '', description: 'Fixture', specifications: {
+        product_name: 'Acme Flow Faucet', product_type: 'Faucet', compatibility: ['Deck mount', 'Three hole'], max_flow: '1.5 GPM', finish: 'Chrome', warranty: 'Old value',
     }, status: 'approved', confidence: 0.9, validationWarnings: [], duplicateWarnings: [], missingFields: [], lastVerifiedAt: null,
     updatedAt: null, primaryImageUrl: '', assets: [], sources: [], retailListings: [],
 };
@@ -22,6 +23,11 @@ const draft = createCatalogFactoryEditorDraft(record);
 assert(draft.productTitle === 'Acme Flow Faucet', 'The visual title must read the stored product name.');
 assert(draft.compatibility.includes('Deck mount'), 'Compatibility arrays must become readable visual lines.');
 assert(draft.specifications.max_flow === '1.5 GPM', 'Uncommon specifications must remain editable.');
+assert(draft.finish === 'Polished', 'The canonical finish must prefer the existing finish column.');
+assert(draft.specifications.size === '4 inch', 'A fixed size value must move into editable specifications.');
+assert(!('product_type' in draft.specifications), 'A product type identical to the category must not be duplicated.');
+assert(!('finish' in draft.specifications), 'Finish must have only one canonical visible value.');
+assert(catalogFinishOption('Black') === 'Matte Black/Black', 'Common finish aliases must select the canonical picker option.');
 
 draft.compatibility = 'Wall mount\nSingle hole';
 draft.warranty = 'Limited lifetime';
@@ -38,5 +44,14 @@ const payload = catalogFactoryEditorPayload(draft, {
 });
 assert(payload.model_number === 'F-100', 'Core identity fields must be preserved in the save payload.');
 assert(Array.isArray(payload.sources), 'The save payload must always contain a sources array.');
+assert(payload.color === null && payload.size === null && payload.capacity === null, 'Retired fixed fields must be cleared after their values are preserved in specifications.');
+const advancedPayload = catalogFactoryEditorPayload(draft, {
+    confidence: 0.9,
+    validationWarnings: [],
+    duplicateWarnings: [],
+    missingFields: [],
+    specifications: { ...draft.specifications, finish: 'Duplicate finish', color: 'Duplicate color' },
+});
+assert(!('finish' in advancedPayload.specifications) && !('color' in advancedPayload.specifications), 'Advanced JSON must not reintroduce duplicate finish or color values.');
 
 console.log('catalogFactoryEditorCore regression checks passed');

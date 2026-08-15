@@ -2,7 +2,6 @@ import type { CatalogFactoryRecord, CatalogSourceDraft } from './catalogFactory'
 
 export const CATALOG_EDITOR_SPECIFICATION_KEYS = {
     productTitle: 'product_name',
-    productType: 'product_type',
     compatibility: 'compatibility',
     compatibleParts: 'compatible_parts',
     applications: 'applications',
@@ -10,6 +9,20 @@ export const CATALOG_EDITOR_SPECIFICATION_KEYS = {
 } as const;
 
 const VISUAL_SPECIFICATION_KEYS = new Set<string>(Object.values(CATALOG_EDITOR_SPECIFICATION_KEYS));
+
+export const CATALOG_FINISH_OPTIONS = [
+    'Chrome',
+    'Brushed Nickel',
+    'Stainless Steel',
+    'Matte Black/Black',
+    'Oil-Rubbed Bronze',
+    'Bronze',
+    'Brass',
+    'Gold',
+    'White',
+] as const;
+
+export type CatalogFinishOption = typeof CATALOG_FINISH_OPTIONS[number] | 'Custom';
 
 export type CatalogFactoryEditorDraft = {
     productTitle: string;
@@ -20,12 +33,8 @@ export type CatalogFactoryEditorDraft = {
     modelNumber: string;
     manufacturerPartNumber: string;
     upcGtin: string;
-    color: string;
     finish: string;
-    size: string;
-    capacity: string;
     description: string;
-    productType: string;
     compatibility: string;
     compatibleParts: string;
     applications: string;
@@ -35,6 +44,21 @@ export type CatalogFactoryEditorDraft = {
 };
 
 export function createCatalogFactoryEditorDraft(record: CatalogFactoryRecord): CatalogFactoryEditorDraft {
+    const existingFinish = record.finish || record.color || specificationText(record.specifications.finish) || specificationText(record.specifications.color);
+    const finishOption = catalogFinishOption(existingFinish);
+    const additionalSpecifications = Object.fromEntries(
+        Object.entries(record.specifications).filter(([key]) => (
+            !VISUAL_SPECIFICATION_KEYS.has(key)
+            && key !== 'type'
+            && key !== 'warranty'
+            && key !== 'finish'
+            && key !== 'color'
+            && key !== 'product_type'
+        )),
+    );
+    preserveSpecification(additionalSpecifications, 'product_type', record.specifications.product_type, record.category);
+    preserveSpecification(additionalSpecifications, 'size', record.size);
+    preserveSpecification(additionalSpecifications, 'capacity', record.capacity);
     return {
         productTitle: specificationText(record.specifications[CATALOG_EDITOR_SPECIFICATION_KEYS.productTitle])
             || [record.brand, record.familyName, record.modelNumber].filter(Boolean).join(' '),
@@ -45,21 +69,14 @@ export function createCatalogFactoryEditorDraft(record: CatalogFactoryRecord): C
         modelNumber: record.modelNumber,
         manufacturerPartNumber: record.manufacturerPartNumber,
         upcGtin: record.upcGtin,
-        color: record.color,
-        finish: record.finish,
-        size: record.size,
-        capacity: record.capacity,
+        finish: finishOption === 'Custom' ? existingFinish : finishOption,
         description: record.description,
-        productType: specificationText(record.specifications[CATALOG_EDITOR_SPECIFICATION_KEYS.productType])
-            || specificationText(record.specifications.type),
         compatibility: specificationText(record.specifications[CATALOG_EDITOR_SPECIFICATION_KEYS.compatibility]),
         compatibleParts: specificationText(record.specifications[CATALOG_EDITOR_SPECIFICATION_KEYS.compatibleParts]),
         applications: specificationText(record.specifications[CATALOG_EDITOR_SPECIFICATION_KEYS.applications]),
         warranty: specificationText(record.specifications[CATALOG_EDITOR_SPECIFICATION_KEYS.warranty])
             || specificationText(record.specifications.warranty),
-        specifications: Object.fromEntries(
-            Object.entries(record.specifications).filter(([key]) => !VISUAL_SPECIFICATION_KEYS.has(key) && key !== 'type' && key !== 'warranty'),
-        ),
+        specifications: additionalSpecifications,
         sources: record.sources.map((source) => ({
             id: source.id,
             sourceType: source.sourceType || 'other',
@@ -72,11 +89,12 @@ export function createCatalogFactoryEditorDraft(record: CatalogFactoryRecord): C
 export function catalogFactoryEditorSpecifications(draft: CatalogFactoryEditorDraft) {
     const specifications = { ...draft.specifications };
     setOptionalSpecification(specifications, CATALOG_EDITOR_SPECIFICATION_KEYS.productTitle, draft.productTitle);
-    setOptionalSpecification(specifications, CATALOG_EDITOR_SPECIFICATION_KEYS.productType, draft.productType);
     setOptionalSpecification(specifications, CATALOG_EDITOR_SPECIFICATION_KEYS.compatibility, lines(draft.compatibility));
     setOptionalSpecification(specifications, CATALOG_EDITOR_SPECIFICATION_KEYS.compatibleParts, lines(draft.compatibleParts));
     setOptionalSpecification(specifications, CATALOG_EDITOR_SPECIFICATION_KEYS.applications, lines(draft.applications));
     setOptionalSpecification(specifications, CATALOG_EDITOR_SPECIFICATION_KEYS.warranty, draft.warranty);
+    delete specifications.finish;
+    delete specifications.color;
     return specifications;
 }
 
@@ -91,6 +109,9 @@ export function catalogFactoryEditorPayload(
         sources?: CatalogSourceDraft[];
     },
 ) {
+    const specifications = sanitizeSpecifications(
+        workflow.specifications || catalogFactoryEditorSpecifications(draft),
+    );
     return {
         category_template_id: draft.templateId,
         manufacturer: draft.manufacturer.trim(),
@@ -99,12 +120,12 @@ export function catalogFactoryEditorPayload(
         model_number: draft.modelNumber.trim(),
         manufacturer_part_number: nullable(draft.manufacturerPartNumber),
         upc_gtin: nullable(draft.upcGtin),
-        color: nullable(draft.color),
+        color: null,
         finish: nullable(draft.finish),
-        size: nullable(draft.size),
-        capacity: nullable(draft.capacity),
+        size: null,
+        capacity: null,
         description: nullable(draft.description),
-        specifications: workflow.specifications || catalogFactoryEditorSpecifications(draft),
+        specifications,
         sources: (workflow.sources || draft.sources).map((source) => ({
             id: source.id || null,
             type: source.sourceType || 'other',
@@ -118,6 +139,29 @@ export function catalogFactoryEditorPayload(
     };
 }
 
+export function catalogFinishOption(value: string): CatalogFinishOption {
+    const normalized = value.trim().toLowerCase();
+    const aliases: Record<string, CatalogFinishOption> = {
+        black: 'Matte Black/Black',
+        'matte black': 'Matte Black/Black',
+        'matte black / black': 'Matte Black/Black',
+        'oil rubbed bronze': 'Oil-Rubbed Bronze',
+        'oil-rubbed bronze (orb)': 'Oil-Rubbed Bronze',
+        'oil rubbed bronze (orb)': 'Oil-Rubbed Bronze',
+        'polished chrome': 'Chrome',
+    };
+    if (aliases[normalized]) return aliases[normalized];
+    return CATALOG_FINISH_OPTIONS.find((option) => option.toLowerCase() === normalized) || 'Custom';
+}
+
+function sanitizeSpecifications(value: Record<string, unknown>) {
+    const specifications = { ...value };
+    Object.keys(specifications).forEach((key) => {
+        if (['finish', 'color'].includes(key.trim().toLowerCase())) delete specifications[key];
+    });
+    return specifications;
+}
+
 function setOptionalSpecification(target: Record<string, unknown>, key: string, value: unknown) {
     if (Array.isArray(value)) {
         if (value.length) target[key] = value;
@@ -127,6 +171,17 @@ function setOptionalSpecification(target: Record<string, unknown>, key: string, 
     const cleaned = typeof value === 'string' ? value.trim() : value;
     if (cleaned === '' || cleaned == null) delete target[key];
     else target[key] = cleaned;
+}
+
+function preserveSpecification(target: Record<string, unknown>, key: string, value: unknown, duplicateValue = '') {
+    const text = specificationText(value);
+    if (!text || text.toLowerCase() === duplicateValue.trim().toLowerCase()) return;
+    const existing = specificationText(target[key]);
+    if (existing) {
+        if (existing.toLowerCase() !== text.toLowerCase()) target[key] = `${existing}\n${text}`;
+        return;
+    }
+    target[key] = value;
 }
 
 function specificationText(value: unknown) {
