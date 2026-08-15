@@ -1,5 +1,6 @@
 import {
     applyCatalogProductResearch,
+    mapCatalogResearchSpecifications,
     readCatalogProductResearchResponse,
     type CatalogResearchDraft,
 } from './catalogProductResearchCore';
@@ -7,6 +8,14 @@ import { getPlumbingCatalogSuggestions } from './plumbingCatalogSuggestions';
 
 const response = readCatalogProductResearchResponse({
     ok: true,
+    model: 'gpt-5.6-luna',
+    usage: {
+        input_tokens: 900,
+        output_tokens: 700,
+        total_tokens: 1_600,
+        web_search_calls: 1,
+        max_output_tokens: 2_400,
+    },
     research: {
         product_name: 'Moen Posi-Temp Shower Valve with Remodel Plate',
         category: 'Shower Valve',
@@ -43,6 +52,15 @@ const response = readCatalogProductResearchResponse({
 assert(response.specifications.length === 1, 'Duplicate researched specifications should be removed.');
 assert(response.sources.length === 1, 'Only safe HTTP(S) research sources should be retained.');
 assert(response.installationRequirements[1]?.requirementType === 'code_verification', 'Requirement verification types should be preserved.');
+assert(response.usage?.totalTokens === 1_600 && response.usage.maxOutputTokens === 2_400, 'Research usage and cost caps should be visible to the client.');
+
+const faucetSpecifications = mapCatalogResearchSpecifications(response, {
+    universalFields: [],
+    specificationFields: [{ key: 'application' }, { key: 'valve_type' }],
+    requiredFields: ['application'],
+});
+assert(faucetSpecifications.application === 'Remodel / retrofit opening', 'A researched compatible application should satisfy an application-required category template.');
+assert(faucetSpecifications.valve_type === 'Pressure-balancing', 'Human-readable researched keys should map to canonical template keys.');
 
 const draft: CatalogResearchDraft & { approvedSellingPrice: number; companyNotes: string } = {
     productName: 'Field-entered card',

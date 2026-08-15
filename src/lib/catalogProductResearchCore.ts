@@ -52,6 +52,16 @@ export type CatalogProductResearch = {
     confidence: CatalogResearchConfidence;
     exactModelMatch: boolean;
     warnings: string[];
+    model: string;
+    usage: CatalogResearchUsage | null;
+};
+
+export type CatalogResearchUsage = {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    webSearchCalls: number;
+    maxOutputTokens: number;
 };
 
 export type CatalogResearchDraft = {
@@ -124,8 +134,43 @@ export function readCatalogProductResearchResponse(value: unknown): CatalogProdu
         confidence: readConfidence(research.confidence),
         exactModelMatch: research.exact_model_match === true,
         warnings: uniqueStrings(research.warnings, 16),
+        model: cleanText(root.model, 120),
+        usage: readUsage(root.usage),
     };
 }
+
+export function mapCatalogResearchSpecifications(
+    research: CatalogProductResearch,
+    template?: Pick<CatalogTemplateShape, 'universalFields' | 'specificationFields' | 'requiredFields'>,
+) {
+    const templateFields = [
+        ...(template?.universalFields || []),
+        ...(template?.specificationFields || []),
+    ];
+    const knownKeys = new Map(
+        templateFields.map((field) => [normalizeFieldKey(field.key), field.key]),
+    );
+    const specifications = research.specifications.reduce<Record<string, string>>((result, item) => {
+        const normalized = normalizeFieldKey(item.key);
+        const key = knownKeys.get(normalized) || toSnakeCase(item.key);
+        if (key && item.value) result[key] = item.value;
+        return result;
+    }, {});
+
+    const applicationKey = templateFields.find((field) => normalizeFieldKey(field.key) === 'application')?.key
+        || template?.requiredFields.find((field) => normalizeFieldKey(field) === 'application');
+    if (applicationKey && !specifications[applicationKey] && research.compatibleApplications[0]?.value) {
+        specifications[applicationKey] = research.compatibleApplications[0].value;
+    }
+
+    return specifications;
+}
+
+type CatalogTemplateShape = {
+    universalFields: { key: string }[];
+    specificationFields: { key: string }[];
+    requiredFields: string[];
+};
 
 export function applyCatalogProductResearch<T extends CatalogResearchDraft>(
     draft: T,
@@ -216,6 +261,31 @@ function readSource(value: unknown): CatalogResearchSource | null {
 function readConfidence(value: unknown): CatalogResearchConfidence {
     const normalized = cleanText(value, 20).toLowerCase();
     return normalized === 'high' || normalized === 'medium' ? normalized : 'low';
+}
+
+function readUsage(value: unknown): CatalogResearchUsage | null {
+    const usage = record(value);
+    if (!Object.keys(usage).length) return null;
+    return {
+        inputTokens: nonNegativeInteger(usage.input_tokens),
+        outputTokens: nonNegativeInteger(usage.output_tokens),
+        totalTokens: nonNegativeInteger(usage.total_tokens),
+        webSearchCalls: nonNegativeInteger(usage.web_search_calls),
+        maxOutputTokens: nonNegativeInteger(usage.max_output_tokens),
+    };
+}
+
+function nonNegativeInteger(value: unknown) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
+}
+
+function normalizeFieldKey(value: string) {
+    return value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function toSnakeCase(value: string) {
+    return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
 }
 
 function safeUrl(value: unknown) {

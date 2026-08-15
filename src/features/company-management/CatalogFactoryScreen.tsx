@@ -37,7 +37,11 @@ import {
     type CatalogTemplateDefinition,
 } from '../../lib/catalogFactoryCore';
 import { researchCatalogProduct } from '../../lib/catalogProductResearch';
-import type { CatalogProductResearch } from '../../lib/catalogProductResearchCore';
+import {
+    mapCatalogResearchSpecifications,
+    type CatalogProductResearch,
+    type CatalogResearchSourceType,
+} from '../../lib/catalogProductResearchCore';
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 
@@ -80,6 +84,7 @@ export default function CatalogFactoryScreen() {
     const [mergeTargetId, setMergeTargetId] = useState('');
     const [seedResearch, setSeedResearch] = useState<CatalogProductResearch | null>(null);
     const [researchingSeed, setResearchingSeed] = useState(false);
+    const [seedSaveError, setSeedSaveError] = useState('');
 
     useEffect(() => {
         void initialize();
@@ -139,6 +144,7 @@ export default function CatalogFactoryScreen() {
     }
 
     async function createSeedRecord() {
+        setSeedSaveError('');
         let specifications: Record<string, unknown>;
         let sources: unknown[];
         let retailListings: unknown[];
@@ -147,7 +153,9 @@ export default function CatalogFactoryScreen() {
             sources = parseArray(seedDraft.sources, 'Sources');
             retailListings = parseArray(seedDraft.retail_listings, 'Retail listings');
         } catch (error) {
-            setMessage(errorMessage(error));
+            const nextMessage = errorMessage(error);
+            setSeedSaveError(nextMessage);
+            setMessage(nextMessage);
             return;
         }
         const row: CatalogImportRow = {
@@ -159,19 +167,34 @@ export default function CatalogFactoryScreen() {
         };
         const preview = validateCatalogImportRows([row], templates)[0];
         if (preview.errors.length) {
-            setMessage(preview.errors.join(' '));
+            const nextMessage = preview.errors.join(' ');
+            setSeedSaveError(nextMessage);
+            setMessage(nextMessage);
             return;
         }
         setBusy(true);
         try {
             const summary = await importCatalogDrafts({ rows: [row], fileName: 'manual-seed-record.json', format: 'json', originalData: JSON.stringify([row], null, 2) });
             setImportSummary(summary);
+            if (summary.created < 1) {
+                const nextMessage = summary.duplicate > 0
+                    ? 'This product was not created because an existing catalog record has the same UPC/GTIN or manufacturer part number.'
+                    : 'The database rejected this draft. Review the fields above and try again; no product was created.';
+                setSeedSaveError(nextMessage);
+                setMessage(nextMessage);
+                return;
+            }
             setSeedDraft(emptySeed);
             setSeedResearch(null);
+            setSeedSaveError('');
             setMode('review');
             setMessage(`Seed draft created. ${summary.warning} warning${summary.warning === 1 ? '' : 's'} require review.`);
             await refresh({ status: 'draft' });
-        } catch (error) { setMessage(errorMessage(error)); }
+        } catch (error) {
+            const nextMessage = errorMessage(error);
+            setSeedSaveError(nextMessage);
+            setMessage(nextMessage);
+        }
         finally { setBusy(false); }
     }
 
@@ -202,10 +225,12 @@ export default function CatalogFactoryScreen() {
     function useResearchInSeed() {
         if (!seedResearch) return;
         const confidence = seedResearch.confidence === 'high' ? '0.95' : seedResearch.confidence === 'medium' ? '0.75' : '0.5';
-        const specifications = seedResearch.specifications.reduce<Record<string, string>>((result, item) => {
-            result[item.key] = item.value;
-            return result;
-        }, {});
+        const template = templates.find((candidate) =>
+            candidate.status === 'approved'
+            && (candidate.templateKey.toLowerCase() === seedDraft.category.trim().toLowerCase()
+                || candidate.categoryName.toLowerCase() === seedDraft.category.trim().toLowerCase())
+        );
+        const specifications = mapCatalogResearchSpecifications(seedResearch, template);
         const verifiedAt = new Date().toISOString();
         setSeedDraft((current) => ({
             ...current,
@@ -217,7 +242,7 @@ export default function CatalogFactoryScreen() {
             description: seedResearch.description || current.description,
             specifications: JSON.stringify(specifications, null, 2),
             sources: JSON.stringify(seedResearch.sources.map((source) => ({
-                source_type: source.sourceType,
+                type: catalogSourceType(source.sourceType),
                 url: source.url,
                 title: source.title,
                 verified_at: verifiedAt,
@@ -225,6 +250,7 @@ export default function CatalogFactoryScreen() {
             })), null, 2),
             confidence,
         }));
+        setSeedSaveError('');
         setMessage('Sourced manufacturer details applied to the master seed. Review every field, then create the draft seed.');
     }
 
@@ -396,7 +422,7 @@ export default function CatalogFactoryScreen() {
                 </View>
 
                 {mode === 'template' && <TemplateEditor draft={templateDraft} setDraft={setTemplateDraft} busy={busy} onSave={() => void createTemplate()} onCancel={() => setMode('overview')} />}
-                {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={setSeedDraft} templates={templates} busy={busy} researching={researchingSeed} research={seedResearch} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => setSeedResearch(null)} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setMode('overview'); }} />}
+                {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={(next) => { setSeedDraft(next); setSeedSaveError(''); }} templates={templates} busy={busy} researching={researchingSeed} research={seedResearch} saveError={seedSaveError} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => setSeedResearch(null)} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setSeedSaveError(''); setMode('overview'); }} />}
                 {mode === 'import' && <ImportPanel busy={busy} preview={importPreview} summary={importSummary} fileName={importFileName} onPick={() => void pickImportFile()} onImport={() => void commitImport()} />}
 
                 {(mode === 'overview' || mode === 'review' || mode === 'prices' || mode === 'history') && (
@@ -445,6 +471,7 @@ function SeedEditor({
     busy,
     researching,
     research,
+    saveError,
     onResearch,
     onUseResearch,
     onClearResearch,
@@ -457,6 +484,7 @@ function SeedEditor({
     busy: boolean;
     researching: boolean;
     research: CatalogProductResearch | null;
+    saveError: string;
     onResearch: () => void;
     onUseResearch: () => void;
     onClearResearch: () => void;
@@ -464,6 +492,18 @@ function SeedEditor({
     onCancel: () => void;
 }) {
     const canResearch = Boolean(draft.category.trim() && (draft.brand.trim() || draft.manufacturer.trim()) && (draft.model_number.trim() || draft.manufacturer_part_number.trim()));
+    const selectedTemplate = templates.find((template) =>
+        template.status === 'approved'
+        && (template.templateKey.toLowerCase() === draft.category.trim().toLowerCase()
+            || template.categoryName.toLowerCase() === draft.category.trim().toLowerCase())
+    );
+    const specificationValues = safeParseObject(draft.specifications);
+    const updateSpecification = (key: string, value: string) => {
+        setDraft({
+            ...draft,
+            specifications: JSON.stringify({ ...safeParseObject(draft.specifications), [key]: value }, null, 2),
+        });
+    };
     return (
         <ThemedCard>
             <Title>New Master Product Seed</Title>
@@ -484,7 +524,7 @@ function SeedEditor({
             <View style={{ gap: 8, borderWidth: 1, borderColor: '#AAB7C5', borderRadius: 12, padding: 12 }}>
                 <Text selectable style={{ fontWeight: '900', fontSize: 18 }}>Automatic manufacturer research</Text>
                 <Text selectable style={{ color: '#58697A', lineHeight: 20 }}>
-                    Searches current manufacturer pages, manuals, specifications, and warranty sources. Results stay in review until you use them and create the draft.
+                    Searches current manufacturer pages, manuals, specifications, and warranty sources. Each run uses the low-cost research model, at most two web searches, and a 2,400-output-token cap. Results stay in review until you create the draft.
                 </Text>
                 <ThemedButton title={researching ? 'Researching Manufacturer...' : 'Research Manufacturer'} disabled={busy || researching || !canResearch} onPress={onResearch} />
                 {research && (
@@ -499,7 +539,21 @@ function SeedEditor({
                 <FieldBox label="Capacity" value={draft.capacity} onChangeText={(capacity) => setDraft({ ...draft, capacity })} />
             </ButtonRow>
             <Field label="Description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
-            <Field label="Specifications JSON" value={draft.specifications} onChangeText={(specifications) => setDraft({ ...draft, specifications })} multiline monospace />
+            {!!selectedTemplate?.specificationFields.length && (
+                <View style={{ gap: 10, borderWidth: 1, borderColor: '#B8CDD4', borderRadius: 12, padding: 12, backgroundColor: '#F5FBFC' }}>
+                    <Text selectable style={{ fontWeight: '900', fontSize: 18 }}>{selectedTemplate.categoryName} specifications</Text>
+                    <Text selectable style={{ color: '#58697A' }}>Fields marked with * are required before the draft can be created.</Text>
+                    {selectedTemplate.specificationFields.map((field) => (
+                        <Field
+                            key={field.key}
+                            label={`${field.label}${selectedTemplate.requiredFields.includes(field.key) ? ' *' : ''}`}
+                            value={String(specificationValues[field.key] ?? '')}
+                            onChangeText={(value) => updateSpecification(field.key, value)}
+                        />
+                    ))}
+                </View>
+            )}
+            <Field label="Specifications JSON (advanced)" value={draft.specifications} onChangeText={(specifications) => setDraft({ ...draft, specifications })} multiline monospace />
             <Field label="Primary image source URL" value={draft.primary_image_url} onChangeText={(primary_image_url) => setDraft({ ...draft, primary_image_url })} />
             <Field label="Source links JSON array" value={draft.sources} onChangeText={(sources) => setDraft({ ...draft, sources })} multiline monospace />
             <Field label="Retail listings JSON array" value={draft.retail_listings} onChangeText={(retail_listings) => setDraft({ ...draft, retail_listings })} multiline monospace />
@@ -508,6 +562,11 @@ function SeedEditor({
                 <ThemedButton title={busy ? 'Creating...' : 'Create Draft Seed'} disabled={busy || researching} onPress={onSave} style={{ flex: 1 }} />
                 <ThemedButton title="Cancel" variant="secondary" disabled={busy || researching} onPress={onCancel} style={{ flex: 1 }} />
             </ButtonRow>
+            {!!saveError && (
+                <View accessibilityRole="alert" style={{ backgroundColor: '#FFF1F1', borderColor: '#D36A72', borderWidth: 1, borderRadius: 10, padding: 11 }}>
+                    <Text selectable style={{ color: '#7A1720', fontWeight: '800', lineHeight: 20 }}>{saveError}</Text>
+                </View>
+            )}
         </ThemedCard>
     );
 }
@@ -519,6 +578,11 @@ function FactoryResearchReview({ research, onUse, onClear }: { research: Catalog
                 {research.productName} · {research.exactModelMatch ? 'exact model confirmed' : 'exact model not confirmed'} · {research.confidence} confidence
             </Text>
             {research.warnings.map((warning) => <Text selectable key={warning} style={{ color: '#704B00' }}>• {warning}</Text>)}
+            {research.usage && (
+                <Text selectable style={{ color: '#315466' }}>
+                    Cost control: {research.usage.totalTokens.toLocaleString()} tokens used · {research.usage.webSearchCalls} web search{research.usage.webSearchCalls === 1 ? '' : 'es'} · {research.usage.maxOutputTokens.toLocaleString()} output-token cap
+                </Text>
+            )}
             <Text selectable style={{ fontWeight: '900' }}>Sources</Text>
             {research.sources.map((source) => (
                 <TouchableOpacity key={source.url} accessibilityRole="link" onPress={() => void Linking.openURL(source.url)}>
@@ -531,6 +595,31 @@ function FactoryResearchReview({ research, onUse, onClear }: { research: Catalog
             </ButtonRow>
         </View>
     );
+}
+
+function catalogSourceType(sourceType: CatalogResearchSourceType) {
+    switch (sourceType) {
+        case 'manufacturer_product':
+        case 'manufacturer_support':
+            return 'manufacturer_page';
+        case 'manufacturer_manual':
+            return 'installation_manual';
+        case 'manufacturer_warranty':
+            return 'warranty_document';
+        case 'distributor':
+            return 'retailer_page';
+        default:
+            return 'other';
+    }
+}
+
+function safeParseObject(value: string): Record<string, unknown> {
+    try {
+        const parsed = JSON.parse(value) as unknown;
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+    } catch {
+        return {};
+    }
 }
 
 function ImportPanel({ busy, preview, summary, fileName, onPick, onImport }: { busy: boolean; preview: CatalogImportPreviewRow[]; summary: CatalogImportSummary | null; fileName: string; onPick: () => void; onImport: () => void }) {

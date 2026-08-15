@@ -21,6 +21,8 @@ type CatalogResearchRequest = {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_INPUT_LENGTH = 1_000;
+const MAX_OUTPUT_TOKENS = 2_400;
+const MAX_WEB_SEARCH_CALLS = 2;
 
 export default {
     async fetch(req: Request): Promise<Response> {
@@ -50,14 +52,15 @@ export default {
                 },
                 body: JSON.stringify({
                     model: env.model,
-                    reasoning: { effort: 'low' },
+                    reasoning: { effort: 'none' },
                     tools: [{
                         type: 'web_search',
-                        search_context_size: 'medium',
+                        search_context_size: 'low',
                         external_web_access: true,
                         filters: { blocked_domains: ['reddit.com', 'quora.com', 'wikipedia.org'] },
                     }],
                     tool_choice: 'required',
+                    max_tool_calls: MAX_WEB_SEARCH_CALLS,
                     include: ['web_search_call.action.sources'],
                     input: [
                         {
@@ -104,7 +107,7 @@ export default {
                             schema: catalogResearchSchema(),
                         },
                     },
-                    max_output_tokens: 6_000,
+                    max_output_tokens: MAX_OUTPUT_TOKENS,
                 }),
             });
 
@@ -129,6 +132,7 @@ export default {
                 ok: true,
                 message: 'Manufacturer research is ready for review.',
                 model: env.model,
+                usage: responseUsage(responseBody),
                 research: normalized,
             });
         } catch (error) {
@@ -144,7 +148,7 @@ function loadEnv(): FunctionEnv {
         supabaseUrl: normalizeUrl(requiredEnv('SUPABASE_URL')),
         publishableKey: publishableKey(),
         openAiApiKey: Deno.env.get('OPENAI_API_KEY') || '',
-        model: Deno.env.get('CATALOG_RESEARCH_MODEL') || 'gpt-5.5',
+        model: Deno.env.get('CATALOG_RESEARCH_MODEL') || 'gpt-5.6-luna',
     };
 }
 
@@ -347,6 +351,22 @@ function extractOutputText(body: Record<string, unknown> | null) {
         }
     }
     return '';
+}
+
+function responseUsage(body: Record<string, unknown> | null) {
+    const usage = readRecord(body?.usage);
+    return {
+        input_tokens: readNonNegativeInteger(usage?.input_tokens),
+        output_tokens: readNonNegativeInteger(usage?.output_tokens),
+        total_tokens: readNonNegativeInteger(usage?.total_tokens),
+        web_search_calls: readArray(body?.output).filter((item) => readString(readRecord(item)?.type) === 'web_search_call').length,
+        max_output_tokens: MAX_OUTPUT_TOKENS,
+    };
+}
+
+function readNonNegativeInteger(value: unknown) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
 }
 
 async function loadAuthUserId(env: FunctionEnv, token: string) {
