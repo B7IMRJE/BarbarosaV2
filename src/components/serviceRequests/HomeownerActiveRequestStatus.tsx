@@ -378,7 +378,7 @@ export default function HomeownerActiveRequestStatus({ bottomOffset }: Homeowner
                                             id: selectedTracker.request.technician_company_user_id || '',
                                             serviceRequestId: selectedTracker.request.id,
                                         },
-                                    })
+                                    } as never)
                                     : undefined}
                             />
                             {!!getActiveRequestEtaStatusText(selectedTracker) && (

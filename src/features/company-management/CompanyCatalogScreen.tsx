@@ -31,8 +31,16 @@ import {
     type CompanyCatalogTier,
 } from '../../lib/companyProductCatalog';
 import { loadCompanyPriceBook, type CompanyPriceBookItem } from '../../lib/companyPriceBook';
+import { researchCatalogProduct } from '../../lib/catalogProductResearch';
+import {
+    applyCatalogProductResearch,
+    type CatalogProductResearch,
+    type CatalogResearchApplyGroup,
+} from '../../lib/catalogProductResearchCore';
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
+import CatalogResearchReview from './CatalogResearchReview';
+import PlumbingCatalogSuggestionsPanel from './PlumbingCatalogSuggestionsPanel';
 
 export default function CompanyCatalogScreen() {
     const { id } = useLocalSearchParams<{ id?: string | string[] }>();
@@ -54,6 +62,8 @@ export default function CompanyCatalogScreen() {
     const [showMasterCatalog, setShowMasterCatalog] = useState(false);
     const [offeringItem, setOfferingItem] = useState<ApprovedMasterCatalogItem | null>(null);
     const [offeringDraft, setOfferingDraft] = useState<CompanyCatalogOffering>(emptyOffering());
+    const [researching, setResearching] = useState(false);
+    const [researchResult, setResearchResult] = useState<CatalogProductResearch | null>(null);
 
     useEffect(() => {
         if (!companyId) {
@@ -126,12 +136,59 @@ export default function CompanyCatalogScreen() {
     function editItem(item: CompanyCatalogItem) {
         if (!canManage) return;
         setDraft(toDraft(item));
+        setResearchResult(null);
         setSaveFeedback('');
         setMessage(`Editing ${item.productName}.`);
     }
 
+    async function researchManufacturer() {
+        if (!companyId || !draft || researching) return;
+        if (!canManage) {
+            setSaveFeedback('Catalog management access is required for manufacturer research.');
+            return;
+        }
+        setResearching(true);
+        setResearchResult(null);
+        setSaveFeedback('Searching manufacturer product pages, manuals, specifications, and warranty information...');
+        setMessage('Researching the exact manufacturer product...');
+        try {
+            const result = await researchCatalogProduct({
+                companyId,
+                category: draft.category,
+                brand: draft.brand,
+                model: draft.model,
+                manufacturerPartNumber: draft.manufacturerPartNumber,
+                notes: draft.companyNotes,
+            });
+            setResearchResult(result);
+            const resultMessage = result.exactModelMatch
+                ? 'Exact manufacturer product found. Review the sourced details before applying them.'
+                : 'Research finished, but the exact model was not confirmed. Review every warning and source before applying.';
+            setSaveFeedback(resultMessage);
+            setMessage(resultMessage);
+        } catch (error) {
+            const failureMessage = errorMessage(error);
+            setSaveFeedback(failureMessage);
+            setMessage(failureMessage);
+        } finally {
+            setResearching(false);
+        }
+    }
+
+    function applyResearch(groups: CatalogResearchApplyGroup[]) {
+        if (!researchResult) return;
+        setDraft((current) => current ? applyCatalogProductResearch(current, researchResult, groups) : current);
+        const applied = groups.length === 6 ? 'All researched details' : groups.map(statusLabel).join(', ');
+        setSaveFeedback(`${applied} applied to this draft. Review the fields, then save the catalog card.`);
+    }
+
+    function updateIdentity(patch: Partial<Pick<CompanyCatalogDraft, 'category' | 'brand' | 'model' | 'manufacturerPartNumber'>>) {
+        setDraft((current) => current ? { ...current, ...patch } : current);
+        setResearchResult(null);
+    }
+
     async function saveDraft() {
-        if (busy) return;
+        if (busy || researching) return;
         if (!companyId || !draft) {
             setSaveFeedback('This catalog card could not be identified. Return to the catalog and open it again.');
             return;
@@ -245,7 +302,7 @@ export default function CompanyCatalogScreen() {
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
             <AdminNavBar companyId={companyId} backFallback={companyId ? `/super-admin/company/${companyId}` as never : '/super-admin'} />
-            <ScrollView contentContainerStyle={{ padding: scaleIcon(phone ? 14 : 22), paddingBottom: scaleIcon(80), gap: scaleIcon(16), width: '100%', maxWidth: 1180, alignSelf: 'center' }}>
+            <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: scaleIcon(phone ? 14 : 22), paddingBottom: scaleIcon(80), gap: scaleIcon(16), width: '100%', maxWidth: 1180, alignSelf: 'center' }}>
                 <View style={{ gap: 6 }}>
                     <Text style={{ color: textColor, fontSize: scaleFont(phone ? 30 : 38), fontWeight: '900' }}>Product Catalog</Text>
                     <Text style={{ color: mutedColor, fontSize: scaleFont(16), lineHeight: scaleFont(23) }}>
@@ -345,7 +402,7 @@ export default function CompanyCatalogScreen() {
                                         <Text style={{ color: mutedColor, lineHeight: scaleFont(21) }}>
                                             Add the product name, category, brand, model, photos, manuals, warranty details, and an optional Price Book service link.
                                         </Text>
-                                        <ThemedButton title="Create Catalog Card" onPress={() => { setSaveFeedback(''); setDraft(emptyCompanyCatalogDraft()); }} />
+                                        <ThemedButton title="Create Catalog Card" onPress={() => { setSaveFeedback(''); setResearchResult(null); setDraft(emptyCompanyCatalogDraft()); }} />
                                     </View>
                                 </ThemedCard>
                             )}
@@ -361,14 +418,32 @@ export default function CompanyCatalogScreen() {
                             <Text style={{ color: mutedColor }}>Draft cards stay internal. Approved cards become selectable during estimates.</Text>
                             <Field label="Card name" value={draft.productName} onChangeText={(productName) => setDraft({ ...draft, productName })} placeholder="Example: Moen M-Core 3-Series Shower Valve" />
                             <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
-                                <View style={{ flex: 1 }}><Field label="Category *" value={draft.category} onChangeText={(category) => setDraft({ ...draft, category })} placeholder="Shower Valve" /></View>
-                                <View style={{ flex: 1 }}><Field label="Brand *" value={draft.brand} onChangeText={(brand) => setDraft({ ...draft, brand })} placeholder="Moen" /></View>
-                                <View style={{ flex: 1 }}><Field label="Model *" value={draft.model} onChangeText={(model) => setDraft({ ...draft, model })} placeholder="Model number" /></View>
+                                <View style={{ flex: 1 }}><Field label="Category *" value={draft.category} onChangeText={(category) => updateIdentity({ category })} placeholder="Shower Valve" /></View>
+                                <View style={{ flex: 1 }}><Field label="Brand *" value={draft.brand} onChangeText={(brand) => updateIdentity({ brand })} placeholder="Moen" /></View>
+                                <View style={{ flex: 1 }}><Field label="Model *" value={draft.model} onChangeText={(model) => updateIdentity({ model })} placeholder="Exact model number" /></View>
                             </View>
                             <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
-                                <View style={{ flex: 1 }}><Field label="Manufacturer part number" value={draft.manufacturerPartNumber} onChangeText={(manufacturerPartNumber) => setDraft({ ...draft, manufacturerPartNumber })} /></View>
+                                <View style={{ flex: 1 }}><Field label="Manufacturer part number" value={draft.manufacturerPartNumber} onChangeText={(manufacturerPartNumber) => updateIdentity({ manufacturerPartNumber })} /></View>
                                 <View style={{ flex: 1 }}><Field label="SKU" value={draft.sku} onChangeText={(sku) => setDraft({ ...draft, sku })} /></View>
                             </View>
+                            <View style={{ gap: 10, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, padding: 13, backgroundColor: theme.colors.surface }}>
+                                <Text selectable style={{ color: textColor, fontWeight: '900', fontSize: scaleFont(18) }}>Automatic manufacturer research</Text>
+                                <Text selectable style={{ color: mutedColor, lineHeight: scaleFont(20) }}>
+                                    Enter the category, brand, and exact model or part number. HomeOS searches current manufacturer product pages, manuals, specifications, and warranty sources, then lets you review before anything is added.
+                                </Text>
+                                <ThemedButton
+                                    title={researching ? 'Researching Manufacturer...' : 'Research Manufacturer & Fill Details'}
+                                    disabled={researching || !draft.category.trim() || !draft.brand.trim() || (!draft.model.trim() && !draft.manufacturerPartNumber.trim())}
+                                    onPress={() => void researchManufacturer()}
+                                />
+                            </View>
+                            {researchResult && (
+                                <CatalogResearchReview
+                                    research={researchResult}
+                                    onApply={applyResearch}
+                                    onClear={() => setResearchResult(null)}
+                                />
+                            )}
                             <Field label="Homeowner description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
                             <ChoiceRow label="Card status" values={['draft', 'approved', 'archived'] as CompanyCatalogStatus[]} selected={draft.status} onSelect={(status) => setDraft({ ...draft, status })} />
                             <ChoiceRow label="Product tier" values={['Essential', 'Professional', 'Premium'] as CompanyCatalogTier[]} selected={draft.tier} onSelect={(tier) => setDraft({ ...draft, tier })} />
@@ -392,6 +467,10 @@ export default function CompanyCatalogScreen() {
                                 <View style={{ flex: 1 }}><NumberField label="Minimum price (optional)" value={draft.minimumSellingPrice} onChange={(minimumSellingPrice) => setDraft({ ...draft, minimumSellingPrice })} /></View>
                                 <View style={{ flex: 1 }}><NumberField label="Maximum price (optional)" value={draft.maximumSellingPrice} onChange={(maximumSellingPrice) => setDraft({ ...draft, maximumSellingPrice })} /></View>
                             </View>}
+                            <PlumbingCatalogSuggestionsPanel
+                                draft={draft}
+                                onChange={(patch) => setDraft({ ...draft, ...patch })}
+                            />
                             <Field label="Specifications (one Key: Value per line)" value={specificationsText(draft.specifications)} onChangeText={(value) => setDraft({ ...draft, specifications: parseSpecifications(value) })} multiline />
                             <Field label="Compatible applications (comma separated)" value={draft.compatibleApplications.join(', ')} onChangeText={(value) => setDraft({ ...draft, compatibleApplications: parseList(value) })} multiline />
                             <Field label="Installation requirements (one per line)" value={draft.installationRequirements.join('\n')} onChangeText={(value) => setDraft({ ...draft, installationRequirements: parseLines(value) })} multiline />
@@ -421,8 +500,8 @@ export default function CompanyCatalogScreen() {
                                 ))}</View>}
                             </View>
                             <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
-                                <ThemedButton title={busy ? 'Saving...' : 'Save Catalog Card'} disabled={busy} onPress={() => void saveDraft()} style={{ flex: 1 }} />
-                                <ThemedButton title="Back to Catalog" variant="secondary" disabled={busy} onPress={() => setDraft(null)} style={{ flex: 1 }} />
+                                <ThemedButton title={busy ? 'Saving...' : researching ? 'Finish Research Before Saving' : 'Save Catalog Card'} disabled={busy || researching} onPress={() => void saveDraft()} style={{ flex: 1 }} />
+                                <ThemedButton title="Back to Catalog" variant="secondary" disabled={busy || researching} onPress={() => { setResearchResult(null); setDraft(null); }} style={{ flex: 1 }} />
                             </View>
                             <View
                                 accessibilityLiveRegion="polite"

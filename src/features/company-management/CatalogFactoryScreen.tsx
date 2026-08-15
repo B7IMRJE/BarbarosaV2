@@ -36,6 +36,8 @@ import {
     type CatalogStatus,
     type CatalogTemplateDefinition,
 } from '../../lib/catalogFactoryCore';
+import { researchCatalogProduct } from '../../lib/catalogProductResearch';
+import type { CatalogProductResearch } from '../../lib/catalogProductResearchCore';
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 
@@ -76,6 +78,8 @@ export default function CatalogFactoryScreen() {
     const [editing, setEditing] = useState<CatalogFactoryRecord | null>(null);
     const [editJson, setEditJson] = useState('{}');
     const [mergeTargetId, setMergeTargetId] = useState('');
+    const [seedResearch, setSeedResearch] = useState<CatalogProductResearch | null>(null);
+    const [researchingSeed, setResearchingSeed] = useState(false);
 
     useEffect(() => {
         void initialize();
@@ -163,11 +167,65 @@ export default function CatalogFactoryScreen() {
             const summary = await importCatalogDrafts({ rows: [row], fileName: 'manual-seed-record.json', format: 'json', originalData: JSON.stringify([row], null, 2) });
             setImportSummary(summary);
             setSeedDraft(emptySeed);
+            setSeedResearch(null);
             setMode('review');
             setMessage(`Seed draft created. ${summary.warning} warning${summary.warning === 1 ? '' : 's'} require review.`);
             await refresh({ status: 'draft' });
         } catch (error) { setMessage(errorMessage(error)); }
         finally { setBusy(false); }
+    }
+
+    async function researchSeedProduct() {
+        if (researchingSeed) return;
+        setResearchingSeed(true);
+        setSeedResearch(null);
+        setMessage('Searching manufacturer product pages, manuals, specifications, and warranty information...');
+        try {
+            const result = await researchCatalogProduct({
+                category: seedDraft.category,
+                brand: seedDraft.brand || seedDraft.manufacturer,
+                model: seedDraft.model_number,
+                manufacturerPartNumber: seedDraft.manufacturer_part_number,
+                notes: seedDraft.description,
+            });
+            setSeedResearch(result);
+            setMessage(result.exactModelMatch
+                ? 'Exact manufacturer product found. Review the sources, then use the research in the seed draft.'
+                : 'Research completed without an exact model match. Review warnings before using any result.');
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setResearchingSeed(false);
+        }
+    }
+
+    function useResearchInSeed() {
+        if (!seedResearch) return;
+        const confidence = seedResearch.confidence === 'high' ? '0.95' : seedResearch.confidence === 'medium' ? '0.75' : '0.5';
+        const specifications = seedResearch.specifications.reduce<Record<string, string>>((result, item) => {
+            result[item.key] = item.value;
+            return result;
+        }, {});
+        const verifiedAt = new Date().toISOString();
+        setSeedDraft((current) => ({
+            ...current,
+            manufacturer: seedResearch.manufacturer || seedResearch.brand || current.manufacturer,
+            brand: seedResearch.brand || current.brand,
+            family_name: seedResearch.familyName || seedResearch.productName || current.family_name,
+            model_number: seedResearch.modelNumber || current.model_number,
+            manufacturer_part_number: seedResearch.manufacturerPartNumber || current.manufacturer_part_number,
+            description: seedResearch.description || current.description,
+            specifications: JSON.stringify(specifications, null, 2),
+            sources: JSON.stringify(seedResearch.sources.map((source) => ({
+                source_type: source.sourceType,
+                url: source.url,
+                title: source.title,
+                verified_at: verifiedAt,
+                confidence,
+            })), null, 2),
+            confidence,
+        }));
+        setMessage('Sourced manufacturer details applied to the master seed. Review every field, then create the draft seed.');
     }
 
     async function pickImportFile() {
@@ -321,7 +379,7 @@ export default function CatalogFactoryScreen() {
                 <View style={{ gap: 6 }}>
                     <Text selectable style={{ color: textColor, fontSize: scaleFont(phone ? 31 : 40), fontWeight: '900' }}>Catalog Factory</Text>
                     <Text selectable style={{ color: mutedColor, fontSize: scaleFont(16), lineHeight: scaleFont(23) }}>
-                        Platform master products, structured research imports, review, approval, retail observations, and company adoption. Imports and future MCP tools can create drafts only.
+                        Platform master products, live manufacturer research, structured imports, review, approval, retail observations, and company adoption. Research and imports create drafts only.
                     </Text>
                 </View>
                 <Notice message={message} />
@@ -338,7 +396,7 @@ export default function CatalogFactoryScreen() {
                 </View>
 
                 {mode === 'template' && <TemplateEditor draft={templateDraft} setDraft={setTemplateDraft} busy={busy} onSave={() => void createTemplate()} onCancel={() => setMode('overview')} />}
-                {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={setSeedDraft} templates={templates} busy={busy} onSave={() => void createSeedRecord()} onCancel={() => setMode('overview')} />}
+                {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={setSeedDraft} templates={templates} busy={busy} researching={researchingSeed} research={seedResearch} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => setSeedResearch(null)} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setMode('overview'); }} />}
                 {mode === 'import' && <ImportPanel busy={busy} preview={importPreview} summary={importSummary} fileName={importFileName} onPick={() => void pickImportFile()} onImport={() => void commitImport()} />}
 
                 {(mode === 'overview' || mode === 'review' || mode === 'prices' || mode === 'history') && (
@@ -380,8 +438,99 @@ function TemplateEditor({ draft, setDraft, busy, onSave, onCancel }: { draft: ty
     return <ThemedCard><Title>New Category Template</Title><Field label="Template key *" value={draft.templateKey} onChangeText={(templateKey) => setDraft({ ...draft, templateKey })} placeholder="tankless_water_heater" /><Field label="Category name *" value={draft.categoryName} onChangeText={(categoryName) => setDraft({ ...draft, categoryName })} placeholder="Tankless Water Heater" /><Field label="Description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline /><Field label="Universal fields (comma separated)" value={draft.universalFields} onChangeText={(universalFields) => setDraft({ ...draft, universalFields })} /><Field label="Category specification fields (comma separated)" value={draft.specificationFields} onChangeText={(specificationFields) => setDraft({ ...draft, specificationFields })} placeholder="fuel_type, max_gpm, input_btu" /><Field label="Required category fields (comma separated)" value={draft.requiredFields} onChangeText={(requiredFields) => setDraft({ ...draft, requiredFields })} placeholder="fuel_type, max_gpm" /><StatusChoices value={draft.status} onChange={(status) => setDraft({ ...draft, status })} /><ButtonRow><ThemedButton title={busy ? 'Saving...' : 'Save Template'} disabled={busy} onPress={onSave} style={{ flex: 1 }} /><ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={onCancel} style={{ flex: 1 }} /></ButtonRow></ThemedCard>;
 }
 
-function SeedEditor({ draft, setDraft, templates, busy, onSave, onCancel }: { draft: typeof emptySeed; setDraft: (draft: typeof emptySeed) => void; templates: CatalogTemplateDefinition[]; busy: boolean; onSave: () => void; onCancel: () => void }) {
-    return <ThemedCard><Title>New Master Product Seed</Title><Text style={{ color: '#58697A' }}>This creates a draft only. Product facts, sources, external image URLs, and retail observations remain pending until review.</Text><ChoiceWrap>{templates.filter((template) => template.status === 'approved').map((template) => <Chip key={template.id} label={template.categoryName} selected={draft.category === template.templateKey} onPress={() => setDraft({ ...draft, category: template.templateKey })} />)}</ChoiceWrap><Field label="Category *" value={draft.category} onChangeText={(category) => setDraft({ ...draft, category })} /><Field label="Manufacturer *" value={draft.manufacturer} onChangeText={(manufacturer) => setDraft({ ...draft, manufacturer })} /><Field label="Brand *" value={draft.brand} onChangeText={(brand) => setDraft({ ...draft, brand })} /><Field label="Family name *" value={draft.family_name} onChangeText={(family_name) => setDraft({ ...draft, family_name })} /><Field label="Exact model number *" value={draft.model_number} onChangeText={(model_number) => setDraft({ ...draft, model_number })} /><Field label="Manufacturer part number" value={draft.manufacturer_part_number} onChangeText={(manufacturer_part_number) => setDraft({ ...draft, manufacturer_part_number })} /><Field label="UPC / GTIN" value={draft.upc_gtin} onChangeText={(upc_gtin) => setDraft({ ...draft, upc_gtin })} /><ButtonRow><FieldBox label="Color" value={draft.color} onChangeText={(color) => setDraft({ ...draft, color })} /><FieldBox label="Finish" value={draft.finish} onChangeText={(finish) => setDraft({ ...draft, finish })} /><FieldBox label="Size" value={draft.size} onChangeText={(size) => setDraft({ ...draft, size })} /><FieldBox label="Capacity" value={draft.capacity} onChangeText={(capacity) => setDraft({ ...draft, capacity })} /></ButtonRow><Field label="Description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline /><Field label="Specifications JSON" value={draft.specifications} onChangeText={(specifications) => setDraft({ ...draft, specifications })} multiline monospace /><Field label="Primary image source URL" value={draft.primary_image_url} onChangeText={(primary_image_url) => setDraft({ ...draft, primary_image_url })} /><Field label="Source links JSON array" value={draft.sources} onChangeText={(sources) => setDraft({ ...draft, sources })} multiline monospace /><Field label="Retail listings JSON array" value={draft.retail_listings} onChangeText={(retail_listings) => setDraft({ ...draft, retail_listings })} multiline monospace /><Field label="Confidence (0 to 1)" value={draft.confidence} onChangeText={(confidence) => setDraft({ ...draft, confidence })} keyboardType="decimal-pad" /><ButtonRow><ThemedButton title={busy ? 'Creating...' : 'Create Draft Seed'} disabled={busy} onPress={onSave} style={{ flex: 1 }} /><ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={onCancel} style={{ flex: 1 }} /></ButtonRow></ThemedCard>;
+function SeedEditor({
+    draft,
+    setDraft,
+    templates,
+    busy,
+    researching,
+    research,
+    onResearch,
+    onUseResearch,
+    onClearResearch,
+    onSave,
+    onCancel,
+}: {
+    draft: typeof emptySeed;
+    setDraft: (draft: typeof emptySeed) => void;
+    templates: CatalogTemplateDefinition[];
+    busy: boolean;
+    researching: boolean;
+    research: CatalogProductResearch | null;
+    onResearch: () => void;
+    onUseResearch: () => void;
+    onClearResearch: () => void;
+    onSave: () => void;
+    onCancel: () => void;
+}) {
+    const canResearch = Boolean(draft.category.trim() && (draft.brand.trim() || draft.manufacturer.trim()) && (draft.model_number.trim() || draft.manufacturer_part_number.trim()));
+    return (
+        <ThemedCard>
+            <Title>New Master Product Seed</Title>
+            <Text selectable style={{ color: '#58697A' }}>
+                This creates a draft only. Product facts, sources, external image URLs, and retail observations remain pending until review.
+            </Text>
+            <ChoiceWrap>
+                {templates.filter((template) => template.status === 'approved').map((template) => (
+                    <Chip key={template.id} label={template.categoryName} selected={draft.category === template.templateKey} onPress={() => setDraft({ ...draft, category: template.templateKey })} />
+                ))}
+            </ChoiceWrap>
+            <Field label="Category *" value={draft.category} onChangeText={(category) => setDraft({ ...draft, category })} />
+            <Field label="Manufacturer *" value={draft.manufacturer} onChangeText={(manufacturer) => setDraft({ ...draft, manufacturer })} />
+            <Field label="Brand *" value={draft.brand} onChangeText={(brand) => setDraft({ ...draft, brand })} />
+            <Field label="Family name *" value={draft.family_name} onChangeText={(family_name) => setDraft({ ...draft, family_name })} />
+            <Field label="Exact model number *" value={draft.model_number} onChangeText={(model_number) => setDraft({ ...draft, model_number })} />
+            <Field label="Manufacturer part number" value={draft.manufacturer_part_number} onChangeText={(manufacturer_part_number) => setDraft({ ...draft, manufacturer_part_number })} />
+            <View style={{ gap: 8, borderWidth: 1, borderColor: '#AAB7C5', borderRadius: 12, padding: 12 }}>
+                <Text selectable style={{ fontWeight: '900', fontSize: 18 }}>Automatic manufacturer research</Text>
+                <Text selectable style={{ color: '#58697A', lineHeight: 20 }}>
+                    Searches current manufacturer pages, manuals, specifications, and warranty sources. Results stay in review until you use them and create the draft.
+                </Text>
+                <ThemedButton title={researching ? 'Researching Manufacturer...' : 'Research Manufacturer'} disabled={busy || researching || !canResearch} onPress={onResearch} />
+                {research && (
+                    <FactoryResearchReview research={research} onUse={onUseResearch} onClear={onClearResearch} />
+                )}
+            </View>
+            <Field label="UPC / GTIN" value={draft.upc_gtin} onChangeText={(upc_gtin) => setDraft({ ...draft, upc_gtin })} />
+            <ButtonRow>
+                <FieldBox label="Color" value={draft.color} onChangeText={(color) => setDraft({ ...draft, color })} />
+                <FieldBox label="Finish" value={draft.finish} onChangeText={(finish) => setDraft({ ...draft, finish })} />
+                <FieldBox label="Size" value={draft.size} onChangeText={(size) => setDraft({ ...draft, size })} />
+                <FieldBox label="Capacity" value={draft.capacity} onChangeText={(capacity) => setDraft({ ...draft, capacity })} />
+            </ButtonRow>
+            <Field label="Description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
+            <Field label="Specifications JSON" value={draft.specifications} onChangeText={(specifications) => setDraft({ ...draft, specifications })} multiline monospace />
+            <Field label="Primary image source URL" value={draft.primary_image_url} onChangeText={(primary_image_url) => setDraft({ ...draft, primary_image_url })} />
+            <Field label="Source links JSON array" value={draft.sources} onChangeText={(sources) => setDraft({ ...draft, sources })} multiline monospace />
+            <Field label="Retail listings JSON array" value={draft.retail_listings} onChangeText={(retail_listings) => setDraft({ ...draft, retail_listings })} multiline monospace />
+            <Field label="Confidence (0 to 1)" value={draft.confidence} onChangeText={(confidence) => setDraft({ ...draft, confidence })} keyboardType="decimal-pad" />
+            <ButtonRow>
+                <ThemedButton title={busy ? 'Creating...' : 'Create Draft Seed'} disabled={busy || researching} onPress={onSave} style={{ flex: 1 }} />
+                <ThemedButton title="Cancel" variant="secondary" disabled={busy || researching} onPress={onCancel} style={{ flex: 1 }} />
+            </ButtonRow>
+        </ThemedCard>
+    );
+}
+
+function FactoryResearchReview({ research, onUse, onClear }: { research: CatalogProductResearch; onUse: () => void; onClear: () => void }) {
+    return (
+        <View style={{ gap: 8, backgroundColor: research.exactModelMatch ? '#E9F8F1' : '#FFF4DD', borderRadius: 11, padding: 11 }}>
+            <Text selectable style={{ fontWeight: '900' }}>
+                {research.productName} · {research.exactModelMatch ? 'exact model confirmed' : 'exact model not confirmed'} · {research.confidence} confidence
+            </Text>
+            {research.warnings.map((warning) => <Text selectable key={warning} style={{ color: '#704B00' }}>• {warning}</Text>)}
+            <Text selectable style={{ fontWeight: '900' }}>Sources</Text>
+            {research.sources.map((source) => (
+                <TouchableOpacity key={source.url} accessibilityRole="link" onPress={() => void Linking.openURL(source.url)}>
+                    <Text selectable style={{ color: '#087D78', textDecorationLine: 'underline', fontWeight: '800' }}>{source.title}</Text>
+                </TouchableOpacity>
+            ))}
+            <ButtonRow>
+                <ThemedButton title="Use Research in Seed Draft" disabled={!research.sources.length} onPress={onUse} style={{ flex: 1 }} />
+                <ThemedButton title="Clear" variant="secondary" onPress={onClear} style={{ flex: 1 }} />
+            </ButtonRow>
+        </View>
+    );
 }
 
 function ImportPanel({ busy, preview, summary, fileName, onPick, onImport }: { busy: boolean; preview: CatalogImportPreviewRow[]; summary: CatalogImportSummary | null; fileName: string; onPick: () => void; onImport: () => void }) {
