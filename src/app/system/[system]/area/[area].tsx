@@ -18,7 +18,7 @@ import {
 import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
-    hasAssignedProviderHomeItemsContext,
+    getProviderHomeItemsReadStrategy,
 } from '../../../../lib/providerHomeItems';
 import {
     formatDirectItemsEmptyMessage,
@@ -260,13 +260,32 @@ export default function AreaScreen() {
         let loadErrorMessage = '';
 
         if (providerModeContext) {
-            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+            const readStrategy = getProviderHomeItemsReadStrategy(
+                providerModeContext,
+                activeProperty.membershipRole
+            );
+
+            if (readStrategy === 'denied') {
                 loadErrorMessage = 'Client HomeOS requires an assigned request, visit, or job context.';
-            } else {
+            } else if (readStrategy === 'assigned_rpc') {
                 const { data, error } = await supabase.rpc(
                     'get_provider_homeos_items',
                     buildProviderHomeItemsRpcArgs(providerModeContext)
                 );
+
+                if (error) {
+                    loadErrorMessage = error.message;
+                } else {
+                    rows = (data || []) as AreaHomeItem[];
+                }
+            } else {
+                const { data, error } = await supabase
+                    .from('home_items')
+                    .select('id, name, system, item_slug, category, status, install_state, location, parent_area, catalog_product_id, master_product_variant_id')
+                    .eq('property_id', activeProperty.propertyId)
+                    .or('archived.eq.false,archived.is.null')
+                    .order('system', { ascending: true })
+                    .order('name', { ascending: true });
 
                 if (error) {
                     loadErrorMessage = error.message;

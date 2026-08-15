@@ -20,7 +20,7 @@ import {
 } from '../../../lib/providerMode';
 import {
     buildProviderHomeItemsRpcArgs,
-    hasAssignedProviderHomeItemsContext,
+    getProviderHomeItemsReadStrategy,
 } from '../../../lib/providerHomeItems';
 import { isStarterHomeItemShell } from '../../../lib/starterHomeSetup';
 import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
@@ -147,13 +147,30 @@ export default function SystemAreasScreen() {
         let loadErrorMessage = '';
 
         if (providerModeContext) {
-            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+            const readStrategy = getProviderHomeItemsReadStrategy(
+                providerModeContext,
+                activeProperty.membershipRole
+            );
+
+            if (readStrategy === 'denied') {
                 loadErrorMessage = 'Provider context is missing the assigned request, visit, or job. Use Back to Current Job and reopen Client HomeOS.';
-            } else {
+            } else if (readStrategy === 'assigned_rpc') {
                 const { data, error } = await supabase.rpc(
                     'get_provider_homeos_items',
                     buildProviderHomeItemsRpcArgs(providerModeContext)
                 );
+
+                if (error) {
+                    loadErrorMessage = error.message;
+                } else {
+                    rows = (data || []) as SystemAreaItem[];
+                }
+            } else {
+                const { data, error } = await supabase
+                    .from('home_items')
+                    .select('id, name, item_slug, status, install_state, system, location, parent_area, category')
+                    .eq('property_id', activeProperty.propertyId)
+                    .or('archived.eq.false,archived.is.null');
 
                 if (error) {
                     loadErrorMessage = error.message;

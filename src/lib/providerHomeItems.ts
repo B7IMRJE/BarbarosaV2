@@ -65,12 +65,30 @@ export type ProviderHomeItemsReadContext = Pick<
     'companyId' | 'propertyId' | 'serviceRequestId' | 'scheduleSlotId' | 'jobId'
 >;
 
+export type ProviderHomeItemsReadStrategy =
+    | 'assigned_rpc'
+    | 'platform_admin_direct'
+    | 'denied';
+
 export function hasAssignedProviderHomeItemsContext(context: ProviderHomeItemsReadContext) {
     return Boolean(
         cleanOptionalText(context.serviceRequestId) ||
         cleanOptionalText(context.scheduleSlotId) ||
         cleanOptionalText(context.jobId)
     );
+}
+
+export function getProviderHomeItemsReadStrategy(
+    context: ProviderHomeItemsReadContext,
+    membershipRole?: string | null
+): ProviderHomeItemsReadStrategy {
+    if (hasAssignedProviderHomeItemsContext(context)) {
+        return 'assigned_rpc';
+    }
+
+    return cleanRequiredText(membershipRole || '').toLowerCase() === 'provider_platform_admin'
+        ? 'platform_admin_direct'
+        : 'denied';
 }
 
 export function buildProviderHomeItemsRpcArgs(

@@ -59,6 +59,7 @@ import {
 import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
+    getProviderHomeItemsReadStrategy,
     hasAssignedProviderHomeItemsContext,
     type ProviderHomeItemRpcRow,
 } from '../../lib/providerHomeItems';
@@ -1493,9 +1494,14 @@ export default function ItemScreen() {
         let loadErrorMessage = '';
 
         if (providerModeContext) {
-            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+            const readStrategy = getProviderHomeItemsReadStrategy(
+                providerModeContext,
+                activeProperty.membershipRole
+            );
+
+            if (readStrategy === 'denied') {
                 loadErrorMessage = 'Client HomeOS requires an assigned request, visit, or job context.';
-            } else {
+            } else if (readStrategy === 'assigned_rpc') {
                 const { data, error } = await supabase.rpc(
                     'get_provider_homeos_items',
                     buildProviderHomeItemsRpcArgs(providerModeContext, { itemSlug: String(slug) })
@@ -1505,6 +1511,19 @@ export default function ItemScreen() {
                     loadErrorMessage = error.message;
                 } else {
                     itemRow = ((data || []) as HomeItemRow[])[0] || null;
+                }
+            } else {
+                const { data, error } = await supabase
+                    .from('home_items')
+                    .select('*')
+                    .eq('item_slug', String(slug))
+                    .eq('property_id', activeProperty.propertyId)
+                    .maybeSingle();
+
+                if (error) {
+                    loadErrorMessage = error.message;
+                } else {
+                    itemRow = (data || null) as HomeItemRow | null;
                 }
             }
         } else {
@@ -1542,6 +1561,7 @@ export default function ItemScreen() {
             await loadLifetimeHistory(String(itemRow.id || ''));
             const nextRelatedItems = await loadRelatedItemsForCurrentItem({
                 propertyId: activeProperty.propertyId,
+                membershipRole: activeProperty.membershipRole,
                 parentItem: itemRow,
             });
             setRelatedItems(nextRelatedItems);
@@ -1641,27 +1661,47 @@ export default function ItemScreen() {
 
     async function loadRelatedItemsForCurrentItem({
         propertyId,
+        membershipRole,
         parentItem,
     }: {
         propertyId: string;
+        membershipRole: string;
         parentItem: HomeItemHierarchyRecord;
     }) {
         let rows: HomeItemHierarchyRecord[] = [];
 
         if (providerModeContext) {
-            if (!hasAssignedProviderHomeItemsContext(providerModeContext)) return [];
+            const readStrategy = getProviderHomeItemsReadStrategy(providerModeContext, membershipRole);
 
-            const { data, error } = await supabase.rpc(
-                'get_provider_homeos_items',
-                buildProviderHomeItemsRpcArgs(providerModeContext)
-            );
+            if (readStrategy === 'denied') return [];
 
-            if (error) {
-                setMessage(`Related item load failed: ${error.message}`);
-                return [];
+            if (readStrategy === 'assigned_rpc') {
+                const { data, error } = await supabase.rpc(
+                    'get_provider_homeos_items',
+                    buildProviderHomeItemsRpcArgs(providerModeContext)
+                );
+
+                if (error) {
+                    setMessage(`Related item load failed: ${error.message}`);
+                    return [];
+                }
+
+                rows = (data || []) as HomeItemHierarchyRecord[];
+            } else {
+                const { data, error } = await supabase
+                    .from('home_items')
+                    .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived')
+                    .eq('property_id', propertyId)
+                    .or('archived.eq.false,archived.is.null')
+                    .order('name', { ascending: true });
+
+                if (error) {
+                    setMessage(`Related item load failed: ${error.message}`);
+                    return [];
+                }
+
+                rows = (data || []) as HomeItemHierarchyRecord[];
             }
-
-            rows = (data || []) as HomeItemHierarchyRecord[];
         } else {
             const { data, error } = await supabase
                 .from('home_items')

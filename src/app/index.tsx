@@ -54,7 +54,7 @@ import {
 } from '../lib/providerMode';
 import {
   buildProviderHomeItemsRpcArgs,
-  hasAssignedProviderHomeItemsContext,
+  getProviderHomeItemsReadStrategy,
 } from '../lib/providerHomeItems';
 import { getProviderReturnActionLabel } from '../lib/techosClientAccess';
 import { supabase } from '../lib/supabase';
@@ -284,13 +284,30 @@ export default function HomeScreen() {
     let itemLoadMessage = '';
 
     if (providerModeContext) {
-      if (!hasAssignedProviderHomeItemsContext(providerModeContext)) {
+      const readStrategy = getProviderHomeItemsReadStrategy(
+        providerModeContext,
+        activeProperty.membershipRole
+      );
+
+      if (readStrategy === 'denied') {
         itemLoadMessage = 'Provider context is missing the assigned request, visit, or job. Use Back to Current Job and reopen Client HomeOS.';
-      } else {
+      } else if (readStrategy === 'assigned_rpc') {
         const { data, error } = await supabase.rpc(
           'get_provider_homeos_items',
           buildProviderHomeItemsRpcArgs(providerModeContext)
         );
+
+        if (error) {
+          itemLoadMessage = `Client HomeOS items could not be loaded: ${error.message}`;
+        } else {
+          items = (data || []) as HomeDashboardItem[];
+        }
+      } else {
+        const { data, error } = await supabase
+          .from('home_items')
+          .select('*')
+          .eq('property_id', activeProperty.propertyId)
+          .or('archived.eq.false,archived.is.null');
 
         if (error) {
           itemLoadMessage = `Client HomeOS items could not be loaded: ${error.message}`;

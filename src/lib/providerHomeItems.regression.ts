@@ -1,6 +1,7 @@
 import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
+    getProviderHomeItemsReadStrategy,
     hasAssignedProviderHomeItemsContext,
 } from './providerHomeItems';
 
@@ -9,10 +10,34 @@ runProviderHomeItemsRegressions();
 export function runProviderHomeItemsRegressions() {
     assignedProviderContextBuildsScopedRpcArgs();
     providerContextRequiresAssignmentIdentifier();
+    platformAdminCanReadDirectClientHomeWithoutAssignment();
+    ordinaryProviderCannotReadDirectClientHomeWithoutAssignment();
+    assignedPlatformAdminKeepsAssignedRpcBoundary();
     providerItemReadKeepsSingleItemSlugScope();
     emptyOptionalIdsBecomeNullRpcArgs();
     providerItemCreateUsesAssignedContextAndCustomerHomeFields();
     providerItemCreateKeepsCustomGasValvePayload();
+}
+
+function platformAdminCanReadDirectClientHomeWithoutAssignment() {
+    assert(
+        getProviderHomeItemsReadStrategy(createUnassignedContext(), 'provider_platform_admin') === 'platform_admin_direct',
+        'A validated platform admin should use the direct read path when no assignment exists.'
+    );
+}
+
+function ordinaryProviderCannotReadDirectClientHomeWithoutAssignment() {
+    assert(
+        getProviderHomeItemsReadStrategy(createUnassignedContext(), 'provider_company_admin') === 'denied',
+        'An ordinary provider should still require an assigned request, visit, or job.'
+    );
+}
+
+function assignedPlatformAdminKeepsAssignedRpcBoundary() {
+    assert(
+        getProviderHomeItemsReadStrategy(createContext(), 'provider_platform_admin') === 'assigned_rpc',
+        'A platform admin with assignment context should keep using the assignment-scoped RPC.'
+    );
 }
 
 function assignedProviderContextBuildsScopedRpcArgs() {
@@ -27,15 +52,19 @@ function assignedProviderContextBuildsScopedRpcArgs() {
 }
 
 function providerContextRequiresAssignmentIdentifier() {
-    const unassignedContext = {
+    const unassignedContext = createUnassignedContext();
+
+    assert(!hasAssignedProviderHomeItemsContext(unassignedContext), 'Provider item reads should require request, slot, or job context.');
+}
+
+function createUnassignedContext() {
+    return {
         companyId: 'company-1',
         propertyId: 'property-1',
         serviceRequestId: '',
         scheduleSlotId: '',
         jobId: '',
     };
-
-    assert(!hasAssignedProviderHomeItemsContext(unassignedContext), 'Provider item reads should require request, slot, or job context.');
 }
 
 function providerItemReadKeepsSingleItemSlugScope() {
