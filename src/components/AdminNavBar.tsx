@@ -7,6 +7,7 @@ import {
     LEAD_ALERT_REFRESH_MS,
     type CompanyLeadCounts,
 } from '../lib/companyLeadAlerts';
+import { formatCompanyName, getCompanyIdentityPresentation } from '../lib/companyDisplayName';
 import { BUILD_DISPLAY } from '../lib/appVersion';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import { safeBack } from '../lib/navigation';
@@ -21,6 +22,7 @@ type AdminNavBarProps = {
     companyId?: string | string[] | null;
     backFallback?: Href;
     showBack?: boolean;
+    showSuperOS?: boolean;
 };
 
 type ManagementIdentity = {
@@ -37,6 +39,7 @@ export default function AdminNavBar({
     companyId,
     backFallback = '/super-admin',
     showBack = true,
+    showSuperOS = true,
 }: AdminNavBarProps) {
     const { theme } = useTheme();
     const normalizedCompanyId = normalizeCompanyId(companyId);
@@ -77,8 +80,12 @@ export default function AdminNavBar({
 
                 setLeadCounts(counts);
                 setLeadCountError('');
-            } catch {
+            } catch (error) {
                 if (!active) return;
+
+                if (__DEV__) {
+                    console.warn('ManagementOS lead-count refresh failed.', error);
+                }
 
                 setLeadCounts(null);
                 setLeadCountError('Lead count unavailable.');
@@ -168,7 +175,7 @@ export default function AdminNavBar({
                     loadCurrentUserPlatformAdmin(),
                     supabase
                         .from('companies')
-                        .select('name, public_name')
+                        .select('name, public_name, dba_name')
                         .eq('id', normalizedCompanyId)
                         .maybeSingle(),
                     supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
@@ -178,11 +185,15 @@ export default function AdminNavBar({
 
                 const matchingAccess = accessResult.data.find((access) => access.company_id === normalizedCompanyId);
 
+                const companyIdentity = getCompanyIdentityPresentation(companyResult.data);
+
                 setIdentity({
                     userId: user.id,
                     email: user.email || null,
                     fullName: profileResult.data?.full_name || matchingAccess?.full_name || String(user.user_metadata?.full_name || '').trim() || null,
-                    companyName: companyResult.data?.public_name || companyResult.data?.name || null,
+                    companyName: companyResult.data
+                        ? companyIdentity.legalName || companyIdentity.publicName
+                        : null,
                     companyUserId: matchingAccess?.id || null,
                     role: matchingAccess?.role || null,
                     status: matchingAccess?.status || (matchingAccess ? null : 'no company row'),
@@ -294,7 +305,7 @@ export default function AdminNavBar({
                     borderColor={theme.colors.border}
                     textColor={theme.colors.text}
                 />
-                {isPlatformAdmin && (
+                {showSuperOS && isPlatformAdmin && (
                     <NavButton
                         label="SuperOS"
                         onPress={() => router.replace('/super-admin' as Href)}
@@ -350,7 +361,7 @@ function ManagementIdentityBadge({
     const role = identity.role ? formatTinyLabel(identity.role) : 'No company role';
     const status = identity.status ? formatTinyLabel(identity.status) : 'Unknown access';
     const welcomeRole = identity.role ? formatWelcomeLabel(identity.role) : 'Team Member';
-    const welcomeName = identity.fullName || identity.email?.split('@')[0] || 'Team Member';
+    const welcomeName = formatCompanyName(identity.fullName || identity.email?.split('@')[0], 'Team Member');
     return (
         <View style={identityBadgeRowStyle}>
             <TouchableOpacity
@@ -372,9 +383,11 @@ function ManagementIdentityBadge({
                         <Text style={[identityTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
                             {welcomeRole}{identity.companyName ? ` · ${identity.companyName}` : ''}
                         </Text>
-                        <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
-                            {formatTinyLabel(status)} · {BUILD_DISPLAY}
-                        </Text>
+                        {__DEV__ && (
+                            <Text style={[identityDetailsTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
+                                {formatTinyLabel(status)} · {BUILD_DISPLAY}
+                            </Text>
+                        )}
                     </View>
                     <Text style={[identityDetailsToggleTextStyle, { color: theme.colors.primary }]} numberOfLines={1}>
                         {showDetails ? 'Hide' : 'Account'}
@@ -468,35 +481,7 @@ function LeadAlertBadges({
 }) {
     const { theme } = useTheme();
 
-    if (error) {
-        return (
-            <View style={leadBadgeRowStyle}>
-                <Text
-                    style={[
-                        leadStatusTextStyle,
-                        { color: theme.colors.danger, backgroundColor: theme.colors.dangerBackground },
-                    ]}
-                >
-                    Lead count unavailable
-                </Text>
-            </View>
-        );
-    }
-
-    if (loading && !counts) {
-        return (
-            <View style={leadBadgeRowStyle}>
-                <Text
-                    style={[
-                        leadStatusTextStyle,
-                        { color: theme.colors.mutedText, backgroundColor: theme.colors.surfaceAlt },
-                    ]}
-                >
-                    Checking leads...
-                </Text>
-            </View>
-        );
-    }
+    if (error || (loading && !counts)) return null;
 
     if (!counts || counts.newLeads === 0) return null;
 
@@ -612,8 +597,8 @@ function formatWelcomeLabel(value: string) {
 }
 
 const navShellStyle = {
-    marginTop: 16,
-    marginBottom: 18,
+    marginTop: 8,
+    marginBottom: 12,
 };
 
 const navWrapStyle = {
@@ -623,10 +608,13 @@ const navWrapStyle = {
 };
 
 const navButtonStyle = {
-    borderRadius: 14,
+    alignItems: 'center' as const,
+    borderRadius: 12,
     borderWidth: 1,
+    justifyContent: 'center' as const,
+    minHeight: 44,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 8,
 };
 
 const navButtonTextStyle = {
@@ -653,15 +641,6 @@ const leadBadgeTextStyle = {
     fontWeight: '900' as const,
 };
 
-const leadStatusTextStyle = {
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: '900' as const,
-    overflow: 'hidden' as const,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-};
-
 const identityBadgeRowStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
@@ -686,13 +665,12 @@ const identityActionRowStyle = {
 };
 
 const identityPillStyle = {
-    borderRadius: 16,
+    borderRadius: 14,
     borderWidth: 1,
-    boxShadow: '0 7px 16px rgba(7, 27, 51, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.75)',
     maxWidth: 620,
     minWidth: 0,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
     width: '100%' as const,
 };
 

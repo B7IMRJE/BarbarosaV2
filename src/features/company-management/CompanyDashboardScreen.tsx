@@ -1,8 +1,9 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { AppState, Image, Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { AppState, Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import { logCompanyAuditEvent, safeAuditRecord } from '../../lib/companyAuditLogs';
 import {
@@ -10,7 +11,12 @@ import {
     getVisibleCompanyDashboardModules,
     type CompanyDashboardModule,
 } from '../../lib/companyDashboardModules';
-import { getCompanyDisplayName } from '../../lib/companyDisplayName';
+import { getCompanyDisplayName, getCompanyIdentityPresentation } from '../../lib/companyDisplayName';
+import {
+    formatCombinedExperience,
+    getValidCombinedExperienceYears,
+    normalizeCombinedExperienceInput,
+} from '../../lib/companyExperience';
 import {
     getCompanyLeadCounts,
     LEAD_ALERT_REFRESH_MS,
@@ -84,7 +90,7 @@ const defaultBrandForm: CompanyBrandForm = {
     serviceCategories: 'Plumbing',
     homeosRating: '0',
     homeosRatingCount: '0',
-    combinedExperienceYears: '0',
+    combinedExperienceYears: '',
     licenseNumber: '',
     phone: '',
     website: '',
@@ -182,7 +188,7 @@ export default function CompanyDashboardScreen() {
     const responsiveLayout = resolveCompanyManagementResponsiveLayout(viewportWidth);
     const isPhoneLayout = responsiveLayout.isPhoneLayout;
     const pagePadding = isPhoneLayout ? 16 : 20;
-    const heroLogoSize = isPhoneLayout ? 64 : 86;
+    const heroLogoSize = isPhoneLayout ? 84 : 88;
     const previewLogoSize = isPhoneLayout ? 112 : 96;
     const [company, setCompany] = useState<Company | null>(null);
     const [brandForm, setBrandForm] = useState<CompanyBrandForm>(defaultBrandForm);
@@ -191,6 +197,7 @@ export default function CompanyDashboardScreen() {
     const [extractedLogoColors, setExtractedLogoColors] = useState<string[]>([]);
     const [expandedConfigSection, setExpandedConfigSection] = useState<ConfigSectionKey | null>(null);
     const [isConfigEditorOpen, setIsConfigEditorOpen] = useState(false);
+    const [descriptionExpanded, setDescriptionExpanded] = useState(false);
     const [leadCounts, setLeadCounts] = useState<CompanyLeadCounts | null>(null);
     const [leadCountMessage, setLeadCountMessage] = useState('');
     const [leadCountLoading, setLeadCountLoading] = useState(false);
@@ -207,6 +214,7 @@ export default function CompanyDashboardScreen() {
     useEffect(() => {
         setIsConfigEditorOpen(false);
         setExpandedConfigSection(null);
+        setDescriptionExpanded(false);
         setCompanyPermissions(null);
         void loadCompanyEvent();
         void loadCurrentUserPlatformAdmin().then(setIsPlatformAdmin);
@@ -342,7 +350,10 @@ export default function CompanyDashboardScreen() {
 
             setLeadCounts(counts);
             setLeadCountMessage(counts.newLeads === 0 ? 'No new leads.' : '');
-        } catch {
+        } catch (error) {
+            if (__DEV__) {
+                console.warn('ManagementOS lead-count refresh failed.', error);
+            }
             setLeadCounts(null);
             setLeadCountMessage('Lead count unavailable.');
         } finally {
@@ -357,6 +368,14 @@ export default function CompanyDashboardScreen() {
     ) {
         if (!company) {
             setMessage('Load a company before saving.');
+            return false;
+        }
+
+        const experienceInput = nextBrandForm.combinedExperienceYears.trim();
+        const combinedExperienceYears = getValidCombinedExperienceYears(experienceInput);
+
+        if (experienceInput && combinedExperienceYears === null) {
+            setMessage('Combined experience must be a whole number from 1 to 999, or left blank.');
             return false;
         }
 
@@ -387,7 +406,7 @@ export default function CompanyDashboardScreen() {
                 p_service_categories: parseCategories(nextBrandForm.serviceCategories),
                 p_homeos_rating: parseNumber(nextBrandForm.homeosRating),
                 p_homeos_rating_count: parseInteger(nextBrandForm.homeosRatingCount),
-                p_combined_experience_years: parseInteger(nextBrandForm.combinedExperienceYears),
+                p_combined_experience_years: combinedExperienceYears || 0,
                 p_license_number: nextBrandForm.licenseNumber.trim(),
                 p_phone: nextBrandForm.phone.trim(),
                 p_website: nextBrandForm.website.trim(),
@@ -703,13 +722,18 @@ export default function CompanyDashboardScreen() {
         setExpandedConfigSection((current) => (current === section ? null : section));
     }
 
-    const previewName = getCompanyDisplayName({
-        dba_name: null,
+    const previewIdentity = getCompanyIdentityPresentation({
+        dba_name: brandForm.dbaName || company?.dba_name,
         public_name: brandForm.publicName || company?.public_name,
         name: company?.name,
     });
-    const previewMotto = brandForm.dbaName || 'Add a short company motto';
+    const previewName = previewIdentity.publicName;
+    const legalCompanyName = previewIdentity.legalName;
     const previewCategories = parseCategories(brandForm.serviceCategories);
+    const companyStatus = formatCompanyStatus(company?.status);
+    const companyDescription = brandForm.shortDescription.trim();
+    const descriptionNeedsToggle = companyDescription.length > 150;
+    const experienceLabel = formatCombinedExperience(brandForm.combinedExperienceYears);
     const logoCanPreview = brandForm.logoUrl.trim().startsWith('http');
     const brandPrimary = brandForm.primaryColor || '#071B33';
     const brandSecondary = brandForm.secondaryColor || '#FFFFFF';
@@ -725,6 +749,7 @@ export default function CompanyDashboardScreen() {
         <CompanyGlassDepthProvider value={Number(brandForm.glassDepth) || 70}>
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
+            contentInsetAdjustmentBehavior="automatic"
             contentContainerStyle={{
                 padding: pagePadding,
                 paddingBottom: 40,
@@ -736,7 +761,26 @@ export default function CompanyDashboardScreen() {
                     companyId={activeCompanyId}
                     backFallback="/super-admin/companies"
                     showBack={false}
+                    showSuperOS={false}
                 />
+
+                <TouchableOpacity
+                    accessibilityLabel="Back to companies"
+                    accessibilityRole="button"
+                    activeOpacity={0.82}
+                    onPress={() => router.push('/super-admin/companies' as never)}
+                    style={{
+                        alignSelf: 'flex-start',
+                        minHeight: 44,
+                        justifyContent: 'center',
+                        marginBottom: 8,
+                        paddingHorizontal: 2,
+                    }}
+                >
+                    <Text style={{ color: '#36566F', fontSize: 14, fontWeight: '900' }}>
+                        {'← Companies'}
+                    </Text>
+                </TouchableOpacity>
 
                 <View
                     style={{
@@ -744,206 +788,163 @@ export default function CompanyDashboardScreen() {
                         maxWidth: '100%',
                         minWidth: 0,
                         backgroundColor: brandPrimary,
-                        borderRadius: 28,
-                        borderWidth: 2,
-                        borderTopColor: 'rgba(255,255,255,0.48)',
-                        borderColor: mixHexColors(brandAccent, '#FFFFFF', 0.24),
-                        borderBottomColor: brandAccent,
-                        borderBottomWidth: 7,
-                        boxShadow: '0 16px 30px rgba(7, 27, 51, 0.28), inset 0 2px 0 rgba(255,255,255,0.22)',
-                        padding: isPhoneLayout ? 18 : 22,
-                        marginTop: 16,
-                        marginBottom: 22,
+                        borderRadius: 24,
+                        borderCurve: 'continuous',
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.28)',
+                        boxShadow: '0 10px 24px rgba(7, 27, 51, 0.18)',
+                        padding: isPhoneLayout ? 16 : 20,
+                        marginBottom: 16,
                     }}
                 >
+                    <Text
+                        style={{
+                            color: brandHeaderText,
+                            fontSize: 12,
+                            fontWeight: '900',
+                            marginBottom: 12,
+                            opacity: 0.76,
+                        }}
+                    >
+                        ManagementOS
+                    </Text>
+
                     <View
                         style={{
-                            flexDirection: isPhoneLayout ? 'column' : 'row',
-                            flexWrap: isPhoneLayout ? 'nowrap' : 'wrap',
-                            justifyContent: 'space-between',
+                            width: '100%',
+                            flexDirection: 'row',
                             alignItems: 'flex-start',
-                            gap: isPhoneLayout ? 14 : 18,
-                            marginBottom: 22,
+                            flexWrap: 'nowrap',
+                            gap: isPhoneLayout ? 12 : 16,
                             minWidth: 0,
                         }}
                     >
-                        <View
-                            style={{
-                                flex: isPhoneLayout ? undefined : 1,
-                                width: isPhoneLayout ? '100%' : undefined,
-                                minWidth: 0,
-                                maxWidth: '100%',
-                            }}
-                        >
-                            <Text
-                                style={{
-                                    color: brandHeaderText,
-                                    fontSize: 13,
-                                    fontWeight: '900',
-                                    marginBottom: 8,
-                                    opacity: 0.78,
-                                }}
-                            >
-                                ManagementOS
-                            </Text>
-
+                        {logoCanPreview ? (
                             <View
                                 style={{
-                                    width: '100%',
-                                    flexDirection: 'row',
+                                    width: heroLogoSize,
+                                    height: heroLogoSize,
+                                    borderRadius: 18,
+                                    borderCurve: 'continuous',
+                                    backgroundColor: '#FFFFFF',
+                                    borderColor: 'rgba(255,255,255,0.52)',
+                                    borderWidth: 1,
                                     alignItems: 'center',
-                                    flexWrap: 'nowrap',
-                                    gap: isPhoneLayout ? 12 : 16,
-                                    minWidth: 0,
+                                    justifyContent: 'center',
+                                    flexShrink: 0,
+                                    overflow: 'hidden',
                                 }}
                             >
-                                {logoCanPreview ? (
-                                    <Image
-                                        source={{ uri: brandForm.logoUrl.trim() }}
-                                        style={{
-                                            width: heroLogoSize,
-                                            height: heroLogoSize,
-                                            borderRadius: 24,
-                                            backgroundColor: brandSecondary,
-                                            borderColor: 'rgba(255,255,255,0.72)',
-                                            borderWidth: 2,
-                                            flexShrink: 0,
-                                        }}
-                                    />
-                                ) : (
-                                    <View
-                                        style={{
-                                            width: heroLogoSize,
-                                            height: heroLogoSize,
-                                            borderRadius: 24,
-                                            backgroundColor: brandSecondary,
-                                            borderColor: 'rgba(255,255,255,0.72)',
-                                            borderWidth: 2,
-                                            boxShadow: '0 9px 18px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.75)',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            flexShrink: 0,
-                                        }}
-                                    >
-                                        <Text
-                                            style={{
-                                                color: getReadableColor(brandSecondary),
-                                                fontSize: 38,
-                                                fontWeight: '900',
-                                            }}
-                                        >
-                                            {previewName.slice(0, 1).toUpperCase()}
-                                        </Text>
-                                    </View>
-                                )}
+                                <Image
+                                    source={{ uri: brandForm.logoUrl.trim() }}
+                                    contentFit="contain"
+                                    style={{ width: '100%', height: '100%' }}
+                                />
+                            </View>
+                        ) : (
+                            <Text
+                                style={{
+                                    width: heroLogoSize,
+                                    height: heroLogoSize,
+                                    borderRadius: 18,
+                                    borderCurve: 'continuous',
+                                    backgroundColor: 'rgba(255,255,255,0.14)',
+                                    borderColor: 'rgba(255,255,255,0.40)',
+                                    borderWidth: 1,
+                                    color: brandHeaderText,
+                                    fontSize: 32,
+                                    fontWeight: '900',
+                                    lineHeight: heroLogoSize,
+                                    textAlign: 'center',
+                                    flexShrink: 0,
+                                }}
+                            >
+                                {previewName.slice(0, 1).toUpperCase()}
+                            </Text>
+                        )}
 
-                                <View style={{ flex: 1, maxWidth: '100%', minWidth: isPhoneLayout ? 0 : 260 }}>
+                        <View style={{ flex: 1, maxWidth: '100%', minWidth: 0 }}>
+                            <Text
+                                numberOfLines={2}
+                                style={{
+                                    color: brandHeaderText,
+                                    fontSize: isPhoneLayout ? 22 : 30,
+                                    lineHeight: isPhoneLayout ? 27 : 36,
+                                    fontWeight: '900',
+                                }}
+                            >
+                                {previewName}
+                            </Text>
+                            {!!legalCompanyName && (
+                                <Text
+                                    numberOfLines={2}
+                                    style={{
+                                        color: brandHeaderText,
+                                        fontSize: 14,
+                                        fontWeight: '800',
+                                        lineHeight: 19,
+                                        marginTop: 3,
+                                        opacity: 0.78,
+                                    }}
+                                >
+                                    {legalCompanyName}
+                                </Text>
+                            )}
+                            {!!companyDescription && (
+                                <>
                                     <Text
-                                        numberOfLines={2}
-                                        style={{
-                                            color: brandHeaderText,
-                                            fontSize: isPhoneLayout ? 24 : 36,
-                                            lineHeight: isPhoneLayout ? 29 : 43,
-                                            fontWeight: '900',
-                                            flexShrink: 1,
-                                        }}
-                                    >
-                                        {previewName}
-                                    </Text>
-                                    <Text
-                                        numberOfLines={2}
-                                        style={{
-                                            color: brandAccent,
-                                            fontSize: 16,
-                                            fontWeight: '900',
-                                            marginTop: 4,
-                                            flexShrink: 1,
-                                        }}
-                                    >
-                                        {previewMotto}
-                                    </Text>
-                                    <Text
-                                        numberOfLines={2}
+                                        numberOfLines={descriptionExpanded ? undefined : 3}
                                         style={{
                                             color: brandHeaderText,
                                             fontSize: 14,
                                             fontWeight: '700',
                                             lineHeight: 20,
                                             marginTop: 8,
-                                            opacity: 0.84,
+                                            opacity: 0.86,
                                         }}
                                     >
-                                        {brandForm.shortDescription || 'Company workspace for customers, requests, estimates, jobs, team, and permissions.'}
+                                        {companyDescription}
                                     </Text>
-                                </View>
-                            </View>
+                                    {descriptionNeedsToggle && (
+                                        <TouchableOpacity
+                                            accessibilityRole="button"
+                                            activeOpacity={0.8}
+                                            onPress={() => setDescriptionExpanded((current) => !current)}
+                                            style={{
+                                                alignSelf: 'flex-start',
+                                                minHeight: 44,
+                                                justifyContent: 'center',
+                                                paddingRight: 12,
+                                            }}
+                                        >
+                                            <Text style={{ color: brandHeaderText, fontSize: 13, fontWeight: '900' }}>
+                                                {descriptionExpanded ? 'Less' : 'More'}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </>
+                            )}
                         </View>
-
-                        <TouchableOpacity
-                            onPress={() => router.push('/super-admin/companies' as any)}
-                            activeOpacity={0.82}
-                            style={{
-                                alignSelf: 'flex-start',
-                                maxWidth: '100%',
-                                backgroundColor: brandSecondary,
-                                borderColor: 'rgba(255,255,255,0.72)',
-                                borderRadius: 14,
-                                borderWidth: 2,
-                                borderBottomColor: brandAccent,
-                                borderBottomWidth: 5,
-                                boxShadow: '0 7px 14px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.78)',
-                                paddingHorizontal: isPhoneLayout ? 14 : 18,
-                                paddingVertical: isPhoneLayout ? 10 : 12,
-                            }}
-                        >
-                            <Text
-                                numberOfLines={1}
-                                style={{
-                                    color: getReadableColor(brandSecondary),
-                                    fontSize: 14,
-                                    fontWeight: '900',
-                                }}
-                            >
-                                Back to Companies
-                            </Text>
-                        </TouchableOpacity>
                     </View>
 
                     <View
                         style={{
                             flexDirection: 'row',
                             flexWrap: 'wrap',
-                            gap: 10,
+                            gap: 8,
+                            marginTop: 14,
                             maxWidth: '100%',
                             minWidth: 0,
                         }}
                     >
-                        <BrandInfoPill label="Status" value={company?.status || 'Active'} textColor={brandHeaderText} />
-                        <BrandInfoPill label="License" value={brandForm.licenseNumber || 'Not set'} textColor={brandHeaderText} />
-                        <BrandInfoPill
-                            label="Experience"
-                            value={`${brandForm.combinedExperienceYears || '0'} years`}
-                            textColor={brandHeaderText}
-                        />
-                        {(previewCategories.length ? previewCategories.slice(0, 4) : ['Services not set']).map((category) => (
-                            <BrandInfoPill key={category} label="Service" value={category} textColor={brandHeaderText} />
+                        {!!companyStatus && <CompanyInfoChip text={companyStatus} textColor={brandHeaderText} />}
+                        {!!brandForm.licenseNumber.trim() && (
+                            <CompanyInfoChip text={`License ${brandForm.licenseNumber.trim()}`} textColor={brandHeaderText} />
+                        )}
+                        {previewCategories.slice(0, 4).map((category) => (
+                            <CompanyInfoChip key={category} text={category} textColor={brandHeaderText} />
                         ))}
-                    </View>
-
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 18, maxWidth: '100%', minWidth: 0 }}>
-                        {[brandPrimary, brandSecondary, brandAccent].map((color) => (
-                            <View
-                                key={color}
-                                style={{
-                                    width: 34,
-                                    height: 34,
-                                    borderRadius: 999,
-                                    backgroundColor: color,
-                                    borderColor: 'rgba(255,255,255,0.7)',
-                                    borderWidth: 1,
-                                }}
-                            />
-                        ))}
+                        {!!experienceLabel && <CompanyInfoChip text={experienceLabel} textColor={brandHeaderText} />}
                     </View>
                 </View>
 
@@ -1213,7 +1214,7 @@ export default function CompanyDashboardScreen() {
                                 {logoCanPreview ? (
                                     <Image
                                         source={{ uri: brandForm.logoUrl.trim() }}
-                                        resizeMode="contain"
+                                        contentFit="contain"
                                         style={{
                                             width: previewLogoSize,
                                             height: previewLogoSize,
@@ -1268,17 +1269,19 @@ export default function CompanyDashboardScreen() {
                                     >
                                         {previewName}
                                     </Text>
-                                    <Text
-                                        style={{
-                                            color: brandForm.accentColor || '#0B5FFF',
-                                            marginTop: 4,
-                                            fontSize: 14,
-                                            fontWeight: '900',
-                                            textAlign: isPhoneLayout ? 'center' : 'left',
-                                        }}
-                                    >
-                                        {previewMotto}
-                                    </Text>
+                                    {!!legalCompanyName && (
+                                        <Text
+                                            style={{
+                                                color: brandForm.accentColor || '#0B5FFF',
+                                                marginTop: 4,
+                                                fontSize: 14,
+                                                fontWeight: '900',
+                                                textAlign: isPhoneLayout ? 'center' : 'left',
+                                            }}
+                                        >
+                                            {legalCompanyName}
+                                        </Text>
+                                    )}
                                     <Text
                                         numberOfLines={2}
                                         style={{
@@ -1367,9 +1370,11 @@ export default function CompanyDashboardScreen() {
                                     <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', marginTop: 4 }}>
                                         {brandForm.homeosRatingCount || '0'} ratings
                                     </Text>
-                                    <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', marginTop: 4 }}>
-                                        {brandForm.combinedExperienceYears || '0'} years combined
-                                    </Text>
+                                    {!!experienceLabel && (
+                                        <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', marginTop: 4 }}>
+                                            {experienceLabel}
+                                        </Text>
+                                    )}
                                 </View>
                             </View>
                         </View>
@@ -1384,15 +1389,25 @@ export default function CompanyDashboardScreen() {
                         >
                         <CollapsibleConfigSection
                             title="Company Profile / Identity"
-                            description="Public-facing company name, motto, logo, and company description."
+                            description="Public brand or DBA, legal identity, logo, and company description."
                             expanded={expandedConfigSection === 'identity'}
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('identity')}
                             compact
                         >
-                            <Field label="Public Name" value={brandForm.publicName} onChangeText={(value) => updateBrandField('publicName', value)} />
-                            <Field label="Company Motto" value={brandForm.dbaName} onChangeText={(value) => updateBrandField('dbaName', value)} />
+                            <Field
+                                label="Public brand / DBA name"
+                                value={brandForm.dbaName}
+                                onChangeText={(value) => updateBrandField('dbaName', value)}
+                                supportingText="Shown first to homeowners and company staff."
+                            />
+                            <Field
+                                label="Public display name (fallback)"
+                                value={brandForm.publicName}
+                                onChangeText={(value) => updateBrandField('publicName', value)}
+                                supportingText={`Legal company: ${legalCompanyName || getCompanyDisplayName({ name: company?.name })}`}
+                            />
                             <Field label="Logo URL" value={brandForm.logoUrl} onChangeText={(value) => updateBrandField('logoUrl', value)} />
                             <View style={{ width: '100%', maxWidth: '100%', minWidth: 0, flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                                 <TouchableOpacity
@@ -1595,7 +1610,17 @@ export default function CompanyDashboardScreen() {
                             />
                             <Field label="Company Rating" value={brandForm.homeosRating} onChangeText={(value) => updateBrandField('homeosRating', value)} />
                             <Field label="Rating Count" value={brandForm.homeosRatingCount} onChangeText={(value) => updateBrandField('homeosRatingCount', value)} />
-                            <Field label="Combined Experience Years" value={brandForm.combinedExperienceYears} onChangeText={(value) => updateBrandField('combinedExperienceYears', value)} />
+                            <Field
+                                label="Combined team experience (years)"
+                                value={brandForm.combinedExperienceYears}
+                                onChangeText={(value) => updateBrandField(
+                                    'combinedExperienceYears',
+                                    normalizeCombinedExperienceInput(value),
+                                )}
+                                keyboardType="number-pad"
+                                maxLength={3}
+                                supportingText="Optional. Shown as combined experience; enter 1 to 999."
+                            />
                             <Field label="License Number" value={brandForm.licenseNumber} onChangeText={(value) => updateBrandField('licenseNumber', value)} />
                         </CollapsibleConfigSection>
 
@@ -1709,7 +1734,7 @@ function LeadAlertPanel({
             testID="lead-alert-panel"
             style={{
                 backgroundColor: hasLeads ? '#F8FAFC' : '#FFFFFF',
-                borderColor: unavailable ? '#DC2626' : hasLeads ? accentColor : '#E3E8EF',
+                borderColor: hasLeads ? accentColor : '#E3E8EF',
                 borderRadius: 18,
                 borderWidth: 1,
                 marginBottom: 16,
@@ -1736,17 +1761,17 @@ function LeadAlertPanel({
                         minWidth: stackContent ? 0 : 220,
                     }}
                 >
-                    <Text style={{ color: unavailable ? '#DC2626' : primaryColor, fontSize: 13, fontWeight: '900' }}>
+                    <Text style={{ color: primaryColor, fontSize: 13, fontWeight: '900' }}>
                         Lead Alerts
                     </Text>
                     <Text style={{ color: '#64748B', fontSize: 13, fontWeight: '700', lineHeight: 19, marginTop: 4 }}>
                         {unavailable
-                            ? 'Lead count unavailable.'
+                            ? 'Lead totals are temporarily unavailable. Dispatch remains available.'
                             : checking
-                                ? 'Checking leads...'
+                                ? 'Checking lead totals…'
                                 : hasLeads
                                 ? 'New company-visible service requests are waiting in Dispatch.'
-                                : message || 'No new leads.'}
+                                : '0 leads'}
                     </Text>
                 </View>
 
@@ -1763,20 +1788,14 @@ function LeadAlertPanel({
                         justifyContent: constrainActions ? 'flex-start' : 'flex-end',
                     }}
                 >
-                    <LeadAlertPill
-                        label={
-                            unavailable
-                                ? 'Lead count unavailable.'
-                                : checking
-                                    ? 'Checking leads...'
-                                    : hasLeads
-                                        ? `New Leads: ${counts?.newLeads || 0}`
-                                        : 'No new leads.'
-                        }
-                        backgroundColor={unavailable ? '#FEE2E2' : '#EEF4FF'}
-                        textColor={unavailable ? '#DC2626' : accentColor}
-                        onPress={hasLeads ? onOpen : undefined}
-                    />
+                    {!unavailable && (
+                        <LeadAlertPill
+                            label={checking ? 'Checking…' : hasLeads ? `${counts?.newLeads || 0} new leads` : '0 leads'}
+                            backgroundColor="#EEF4FF"
+                            textColor={accentColor}
+                            onPress={hasLeads ? onOpen : undefined}
+                        />
+                    )}
                     {!!counts && counts.emergencyLeads > 0 && (
                         <LeadAlertPill
                             label={`Emergency Leads: ${counts.emergencyLeads}`}
@@ -1821,8 +1840,10 @@ function LeadAlertPill({
                 flexShrink: 1,
                 backgroundColor,
                 borderRadius: 999,
+                minHeight: 44,
+                justifyContent: 'center',
                 paddingHorizontal: 12,
-                paddingVertical: 8,
+                paddingVertical: 6,
             }}
         >
             <Text numberOfLines={1} style={{ color: textColor, fontSize: 12, fontWeight: '900' }}>
@@ -1839,35 +1860,31 @@ function LeadAlertPill({
             accessibilityRole="button"
             activeOpacity={0.84}
             onPress={onPress}
-            style={{ maxWidth: '100%', flexShrink: 1 }}
+            style={{ maxWidth: '100%', minHeight: 44, flexShrink: 1 }}
         >
             {content}
         </TouchableOpacity>
     );
 }
 
-function BrandInfoPill({ label, value, textColor }: { label: string; value: string; textColor: string }) {
+function CompanyInfoChip({ text, textColor }: { text: string; textColor: string }) {
     return (
         <View
             style={{
                 maxWidth: '100%',
                 flexShrink: 1,
-                backgroundColor: 'rgba(255,255,255,0.14)',
-                borderColor: 'rgba(255,255,255,0.48)',
+                minHeight: 34,
+                justifyContent: 'center',
+                backgroundColor: 'rgba(255,255,255,0.12)',
+                borderColor: 'rgba(255,255,255,0.34)',
                 borderRadius: 999,
-                borderWidth: 2,
-                borderBottomColor: 'rgba(0,0,0,0.28)',
-                borderBottomWidth: 4,
-                boxShadow: '0 6px 12px rgba(0,0,0,0.20), inset 0 1px 0 rgba(255,255,255,0.38)',
+                borderWidth: 1,
                 paddingHorizontal: 12,
-                paddingVertical: 8,
+                paddingVertical: 6,
             }}
         >
-            <Text style={{ color: textColor, fontSize: 11, fontWeight: '800', opacity: 0.72 }}>
-                {label}
-            </Text>
-            <Text numberOfLines={1} style={{ color: textColor, fontSize: 13, fontWeight: '900', marginTop: 2 }}>
-                {value}
+            <Text numberOfLines={1} style={{ color: textColor, fontSize: 12, fontWeight: '900' }}>
+                {text}
             </Text>
         </View>
     );
@@ -1917,6 +1934,7 @@ function CompanyTechOSThemePreview({
                     {logoCanPreview ? (
                         <Image
                             source={{ uri: logoUrl }}
+                            contentFit="contain"
                             style={{
                                 width: 40,
                                 height: 40,
@@ -2270,6 +2288,18 @@ function getErrorMessage(error: unknown) {
     if (typeof error === 'string') return error;
 
     return HOMEOS_SERVICE_ERROR_MESSAGE;
+}
+
+function formatCompanyStatus(value?: string | null) {
+    const normalized = String(value || '')
+        .trim()
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .toLowerCase();
+
+    if (!normalized) return null;
+
+    return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function normalizeRouteParam(value?: string | string[]) {
@@ -2833,12 +2863,18 @@ function Field({
     onChangeText,
     onEndEditing,
     multiline,
+    keyboardType,
+    maxLength,
+    supportingText,
 }: {
     label: string;
     value: string;
     onChangeText: (value: string) => void;
     onEndEditing?: (value: string) => void;
     multiline?: boolean;
+    keyboardType?: 'number-pad';
+    maxLength?: number;
+    supportingText?: string;
 }) {
     const { width: viewportWidth } = useWindowDimensions();
     const isPhoneLayout = viewportWidth <= 640;
@@ -2859,6 +2895,8 @@ function Field({
                 onChangeText={onChangeText}
                 onEndEditing={(event) => onEndEditing?.(event.nativeEvent.text)}
                 multiline={multiline}
+                keyboardType={keyboardType}
+                maxLength={maxLength}
                 style={{
                     backgroundColor: '#F3F6FA',
                     borderRadius: 16,
@@ -2870,11 +2908,18 @@ function Field({
                     minWidth: 0,
                 }}
             />
+            {!!supportingText && (
+                <Text style={{ color: '#64748B', fontSize: 12, fontWeight: '700', lineHeight: 17, marginTop: 6 }}>
+                    {supportingText}
+                </Text>
+            )}
         </View>
     );
 }
 
 function companyToBrandForm(company: Company): CompanyBrandForm {
+    const combinedExperienceYears = getValidCombinedExperienceYears(company.combined_experience_years);
+
     return {
         publicName: company.public_name || company.name || '',
         dbaName: company.dba_name || '',
@@ -2885,7 +2930,7 @@ function companyToBrandForm(company: Company): CompanyBrandForm {
         serviceCategories: (company.service_categories || []).join(', '),
         homeosRating: valueToString(company.homeos_rating),
         homeosRatingCount: valueToString(company.homeos_rating_count),
-        combinedExperienceYears: valueToString(company.combined_experience_years),
+        combinedExperienceYears: combinedExperienceYears ? String(combinedExperienceYears) : '',
         licenseNumber: company.license_number || '',
         phone: company.phone || '',
         website: company.website || '',
