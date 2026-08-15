@@ -34,8 +34,9 @@ export function CompactMasterCatalogCard({
     onBeginOffering,
 }: CompactMasterCatalogCardProps) {
     const { scaleFont, scaleIcon, theme } = useTheme();
-    const productName = [item.brand, item.familyName, item.modelNumber].filter(Boolean).join(' ') || 'Master product';
-    const title = [item.brand, item.familyName].filter(Boolean).join(' ') || item.manufacturer || 'Master product';
+    const displayName = typeof item.specifications.product_name === 'string' ? item.specifications.product_name.trim() : '';
+    const productName = displayName || [item.brand, item.familyName, item.modelNumber].filter(Boolean).join(' ') || 'Master product';
+    const title = displayName || [item.brand, item.familyName].filter(Boolean).join(' ') || item.manufacturer || 'Master product';
     const modelSummary = item.modelNumber ? `Model ${item.modelNumber}` : 'Model not supplied';
     const packageLabel = item.entitled
         ? 'In company package'
@@ -164,7 +165,8 @@ export function MasterCatalogProductDetailsModal({
     }, [item]);
 
     const productName = item
-        ? [item.brand, item.familyName, item.modelNumber].filter(Boolean).join(' ') || 'Master product'
+        ? (typeof item.specifications.product_name === 'string' ? item.specifications.product_name.trim() : '')
+            || [item.brand, item.familyName, item.modelNumber].filter(Boolean).join(' ') || 'Master product'
         : 'Master product';
     const specifications = item ? catalogSpecificationDisplays(item.specifications) : [];
     const identityRows = item ? [

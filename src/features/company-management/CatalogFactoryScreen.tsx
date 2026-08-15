@@ -1,5 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -13,6 +14,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
+import ProductCardImage from '../../components/catalog/product-card-image';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
@@ -20,12 +22,25 @@ import {
     importCatalogDrafts,
     loadCatalogFactory,
     reviewCatalogDraft,
+    saveCatalogFactoryProduct,
     saveCatalogTemplate,
     searchCatalogDuplicates,
+    updateCatalogFactoryMedia,
+    uploadCatalogFactoryDocument,
+    uploadCatalogFactoryPhoto,
+    type CatalogFactoryAsset,
+    type CatalogFactoryAssetType,
     type CatalogFactoryFilters,
     type CatalogFactoryRecord,
     type CatalogImportSummary,
+    type CatalogSourceDraft,
 } from '../../lib/catalogFactory';
+import {
+    catalogFactoryEditorPayload,
+    catalogFactoryEditorSpecifications,
+    createCatalogFactoryEditorDraft,
+    type CatalogFactoryEditorDraft,
+} from '../../lib/catalogFactoryEditorCore';
 import {
     CATALOG_STATUSES,
     canBulkApproveCatalogRecord,
@@ -88,7 +103,10 @@ export default function CatalogFactoryScreen() {
     const [importOriginal, setImportOriginal] = useState('');
     const [importSummary, setImportSummary] = useState<CatalogImportSummary | null>(null);
     const [editing, setEditing] = useState<CatalogFactoryRecord | null>(null);
+    const [editDraft, setEditDraft] = useState<CatalogFactoryEditorDraft | null>(null);
     const [editJson, setEditJson] = useState('{}');
+    const [showAdvancedJson, setShowAdvancedJson] = useState(false);
+    const [advancedJsonDirty, setAdvancedJsonDirty] = useState(false);
     const [mergeTargetId, setMergeTargetId] = useState('');
     const [seedResearch, setSeedResearch] = useState<CatalogProductResearch | null>(null);
     const [researchingSeed, setResearchingSeed] = useState(false);
@@ -331,15 +349,38 @@ export default function CatalogFactoryScreen() {
     }
 
     async function saveEdit() {
-        if (!editing) return;
+        if (!editing || !editDraft) return;
+        if (!editDraft.templateId || !editDraft.manufacturer.trim() || !editDraft.brand.trim() || !editDraft.familyName.trim() || !editDraft.modelNumber.trim()) {
+            setMessage('Category, manufacturer, brand, family, and model are required.');
+            return;
+        }
+        let advanced: Record<string, unknown> = {};
+        if (advancedJsonDirty) {
+            try { advanced = parseObject(editJson, 'Advanced product data'); }
+            catch (error) { setMessage(errorMessage(error)); return; }
+        }
         let payload: Record<string, unknown>;
-        try { payload = parseObject(editJson, 'Edited product'); }
-        catch (error) { setMessage(errorMessage(error)); return; }
+        try {
+            payload = catalogFactoryEditorPayload(editDraft, {
+                confidence: advancedJsonDirty ? nullableNumber(advanced.confidence) : editing.confidence,
+                validationWarnings: advancedJsonDirty ? textArray(advanced.validation_warnings) : editing.validationWarnings,
+                duplicateWarnings: advancedJsonDirty ? textArray(advanced.duplicate_warnings) : editing.duplicateWarnings,
+                missingFields: advancedJsonDirty ? textArray(advanced.missing_fields) : editing.missingFields,
+                specifications: advancedJsonDirty ? parseRecordValue(advanced.specifications, 'Advanced specifications') : undefined,
+                sources: advancedJsonDirty ? parseAdvancedSources(advanced.sources) : undefined,
+            });
+        } catch (error) {
+            setMessage(errorMessage(error));
+            return;
+        }
         setBusy(true);
         try {
-            await reviewCatalogDraft(editing.id, 'edit', payload);
+            await saveCatalogFactoryProduct(editing.id, payload);
             setEditing(null);
-            setMessage('Draft changes saved.');
+            setEditDraft(null);
+            setShowAdvancedJson(false);
+            setAdvancedJsonDirty(false);
+            setMessage('Master product changes saved.');
             await refresh();
         } catch (error) { setMessage(errorMessage(error)); }
         finally { setBusy(false); }
@@ -377,23 +418,87 @@ export default function CatalogFactoryScreen() {
     }
 
     function beginEdit(record: CatalogFactoryRecord) {
+        const nextDraft = createCatalogFactoryEditorDraft(record);
         setEditing(record);
+        setEditDraft(nextDraft);
         setMergeTargetId('');
+        setShowAdvancedJson(false);
+        setAdvancedJsonDirty(false);
         setEditJson(JSON.stringify({
-            model_number: record.modelNumber,
-            manufacturer_part_number: record.manufacturerPartNumber || null,
-            upc_gtin: record.upcGtin || null,
-            color: record.color || null,
-            finish: record.finish || null,
-            size: record.size || null,
-            capacity: record.capacity || null,
-            description: record.description || null,
-            specifications: record.specifications,
+            specifications: catalogFactoryEditorSpecifications(nextDraft),
+            sources: nextDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })),
             confidence: record.confidence,
             validation_warnings: record.validationWarnings,
             duplicate_warnings: record.duplicateWarnings,
             missing_fields: record.missingFields,
         }, null, 2));
+    }
+
+    async function pickMasterPhoto() {
+        if (!editing) return;
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+            setMessage('Photo library permission is required to upload a master product photo.');
+            return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: false,
+            quality: 0.9,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        setBusy(true);
+        setMessage('Uploading the master product photo...');
+        try {
+            const asset = await uploadCatalogFactoryPhoto({ variantId: editing.id, asset: result.assets[0] });
+            replaceEditingAsset(asset);
+            setMessage('Product photo uploaded and selected as the primary card image.');
+        } catch (error) { setMessage(errorMessage(error)); }
+        finally { setBusy(false); }
+    }
+
+    async function pickMasterDocument(assetType: Exclude<CatalogFactoryAssetType, 'image'>) {
+        if (!editing) return;
+        const result = await DocumentPicker.getDocumentAsync({
+            type: ['application/pdf', 'image/*'],
+            multiple: false,
+            copyToCacheDirectory: true,
+        });
+        if (result.canceled || !result.assets[0]) return;
+        setBusy(true);
+        setMessage('Uploading the master product reference...');
+        try {
+            const asset = await uploadCatalogFactoryDocument({ variantId: editing.id, assetType, asset: result.assets[0] });
+            replaceEditingAsset(asset);
+            setMessage('Master product reference uploaded.');
+        } catch (error) { setMessage(errorMessage(error)); }
+        finally { setBusy(false); }
+    }
+
+    async function changeMasterMedia(asset: CatalogFactoryAsset, patch: { isPrimary?: boolean; homeownerVisible?: boolean; active?: boolean }) {
+        if (!editing) return;
+        setBusy(true);
+        try {
+            const updated = await updateCatalogFactoryMedia({ variantId: editing.id, assetId: asset.id, ...patch });
+            replaceEditingAsset(updated);
+            setMessage('Master media settings saved.');
+        } catch (error) { setMessage(errorMessage(error)); }
+        finally { setBusy(false); }
+    }
+
+    function replaceEditingAsset(asset: CatalogFactoryAsset) {
+        const apply = (record: CatalogFactoryRecord) => {
+            const assets = record.assets.some((item) => item.id === asset.id)
+                ? record.assets.map((item) => item.id === asset.id
+                    ? asset
+                    : asset.isPrimary && asset.assetType === 'image' && item.assetType === 'image' ? { ...item, isPrimary: false } : item)
+                : [asset, ...record.assets.map((item) => asset.isPrimary && asset.assetType === 'image' && item.assetType === 'image' ? { ...item, isPrimary: false } : item)];
+            const primary = assets.find((item) => item.active && item.assetType === 'image' && item.isPrimary)
+                || assets.find((item) => item.active && item.assetType === 'image');
+            return { ...record, assets, primaryImageUrl: primary?.displayUrl || '' };
+        };
+        setEditing((current) => current && current.id === asset.productVariantId ? apply(current) : current);
+        setRecords((current) => current.map((record) => record.id === asset.productVariantId ? apply(record) : record));
     }
 
     const displayedRecords = useMemo(() => {
@@ -458,7 +563,7 @@ export default function CatalogFactoryScreen() {
                     </>
                 )}
 
-                {editing && <EditPanel record={editing} json={editJson} setJson={setEditJson} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onCancel={() => setEditing(null)} />}
+                {editing && editDraft && <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />}
 
                 {!!imports.length && mode === 'overview' && (
                     <ThemedCard><Text selectable style={{ color: textColor, fontWeight: '900', fontSize: scaleFont(20) }}>Recent import batches</Text>{imports.slice(0, 8).map((item) => <Text selectable key={String(item.id)} style={{ color: mutedColor, marginTop: 8 }}>{String(item.file_name || 'Structured import')} · {String(item.created_count || 0)} created · {String(item.duplicate_count || 0)} duplicate · {String(item.failed_count || 0)} failed</Text>)}</ThemedCard>
@@ -789,12 +894,241 @@ function DisclosureButton({ expanded, label, onPress }: { expanded: boolean; lab
     );
 }
 
-function EditPanel({ record, json, setJson, mergeTargetId, setMergeTargetId, candidates, busy, onSave, onMerge, onCancel }: { record: CatalogFactoryRecord; json: string; setJson: (value: string) => void; mergeTargetId: string; setMergeTargetId: (value: string) => void; candidates: CatalogFactoryRecord[]; busy: boolean; onSave: () => void; onMerge: () => void; onCancel: () => void }) {
-    return <ThemedCard><Title>Edit or merge {record.brand} {record.modelNumber}</Title><Field label="Product and warning fields JSON" value={json} onChangeText={setJson} multiline monospace /><Text style={{ fontWeight: '900' }}>Merge this duplicate into</Text><ChoiceWrap>{candidates.slice(0, 50).map((candidate) => <Chip key={candidate.id} label={`${candidate.brand} ${candidate.modelNumber}`} selected={mergeTargetId === candidate.id} onPress={() => setMergeTargetId(candidate.id)} />)}</ChoiceWrap><ButtonRow><ThemedButton title="Save Edit" disabled={busy} onPress={onSave} style={{ flex: 1 }} /><ThemedButton title="Merge" variant="danger" disabled={busy || !mergeTargetId} onPress={onMerge} style={{ flex: 1 }} /><ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={onCancel} style={{ flex: 1 }} /></ButtonRow></ThemedCard>;
+function EditPanel({
+    record,
+    draft,
+    setDraft,
+    templates,
+    json,
+    setJson,
+    showAdvancedJson,
+    setShowAdvancedJson,
+    mergeTargetId,
+    setMergeTargetId,
+    candidates,
+    busy,
+    onSave,
+    onMerge,
+    onUploadPhoto,
+    onUploadDocument,
+    onChangeMedia,
+    onCancel,
+}: {
+    record: CatalogFactoryRecord;
+    draft: CatalogFactoryEditorDraft;
+    setDraft: (draft: CatalogFactoryEditorDraft) => void;
+    templates: CatalogTemplateDefinition[];
+    json: string;
+    setJson: (value: string) => void;
+    showAdvancedJson: boolean;
+    setShowAdvancedJson: (value: boolean) => void;
+    mergeTargetId: string;
+    setMergeTargetId: (value: string) => void;
+    candidates: CatalogFactoryRecord[];
+    busy: boolean;
+    onSave: () => void;
+    onMerge: () => void;
+    onUploadPhoto: () => void;
+    onUploadDocument: (type: Exclude<CatalogFactoryAssetType, 'image'>) => void;
+    onChangeMedia: (asset: CatalogFactoryAsset, patch: { isPrimary?: boolean; homeownerVisible?: boolean; active?: boolean }) => void;
+    onCancel: () => void;
+}) {
+    const { width } = useWindowDimensions();
+    const phone = width < 720;
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const [newSpecificationKey, setNewSpecificationKey] = useState('');
+    const [newSpecificationValue, setNewSpecificationValue] = useState('');
+    const productName = draft.productTitle || [draft.brand, draft.familyName, draft.modelNumber].filter(Boolean).join(' ');
+    const specificationEntries = Object.entries(draft.specifications);
+
+    function updateSpecification(key: string, value: string) {
+        setDraft({ ...draft, specifications: { ...draft.specifications, [key]: value } });
+    }
+
+    function addSpecification() {
+        const key = newSpecificationKey.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+        if (!key) return;
+        setDraft({ ...draft, specifications: { ...draft.specifications, [key]: newSpecificationValue.trim() } });
+        setNewSpecificationKey('');
+        setNewSpecificationValue('');
+    }
+
+    return (
+        <ThemedCard style={{ padding: phone ? scaleIcon(14) : scaleIcon(20) }}>
+            <View style={{ gap: scaleIcon(18) }}>
+                <View style={{ gap: scaleIcon(6) }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(phone ? 25 : 30), fontWeight: '900' }}>Edit Master Product</Text>
+                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(16), lineHeight: scaleFont(23) }}>
+                        Clear visual fields cover the product card and its reference details. Changes here do not add service history, job photos, or pricing.
+                    </Text>
+                </View>
+
+                <EditorSection title="Product identity" description="This information identifies the exact manufacturer product shown across entitled catalogs and HomeOS references.">
+                    <Field label="Product title / name *" value={draft.productTitle} onChangeText={(productTitle) => setDraft({ ...draft, productTitle })} placeholder="Example: Acme Flow 100 Kitchen Faucet" />
+                    <View style={{ gap: 7 }}>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>Category / product type *</Text>
+                        <ChoiceWrap>
+                            {templates.filter((template) => template.status === 'approved' || template.id === draft.templateId).map((template) => (
+                                <Chip key={template.id} label={template.categoryName} selected={draft.templateId === template.id} onPress={() => setDraft({ ...draft, templateId: template.id, productType: draft.productType || template.categoryName })} />
+                            ))}
+                        </ChoiceWrap>
+                    </View>
+                    <Field label="Product type" value={draft.productType} onChangeText={(productType) => setDraft({ ...draft, productType })} placeholder="Example: Kitchen faucet" />
+                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12) }}>
+                        <FieldBox label="Manufacturer *" value={draft.manufacturer} onChangeText={(manufacturer) => setDraft({ ...draft, manufacturer })} />
+                        <FieldBox label="Brand *" value={draft.brand} onChangeText={(brand) => setDraft({ ...draft, brand })} />
+                    </View>
+                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12) }}>
+                        <FieldBox label="Product family *" value={draft.familyName} onChangeText={(familyName) => setDraft({ ...draft, familyName })} />
+                        <FieldBox label="Exact model number *" value={draft.modelNumber} onChangeText={(modelNumber) => setDraft({ ...draft, modelNumber })} />
+                    </View>
+                    <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12) }}>
+                        <FieldBox label="Manufacturer part number / MPN" value={draft.manufacturerPartNumber} onChangeText={(manufacturerPartNumber) => setDraft({ ...draft, manufacturerPartNumber })} />
+                        <FieldBox label="UPC / GTIN" value={draft.upcGtin} onChangeText={(upcGtin) => setDraft({ ...draft, upcGtin })} />
+                    </View>
+                    <Field label="Product description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
+                </EditorSection>
+
+                <EditorSection title="Appearance & sizing" description="Use the exact manufacturer values where they apply.">
+                    <View style={{ flexDirection: phone ? 'column' : 'row', flexWrap: 'wrap', gap: scaleIcon(12) }}>
+                        <FieldBox label="Finish" value={draft.finish} onChangeText={(finish) => setDraft({ ...draft, finish })} />
+                        <FieldBox label="Color" value={draft.color} onChangeText={(color) => setDraft({ ...draft, color })} />
+                        <FieldBox label="Size" value={draft.size} onChangeText={(size) => setDraft({ ...draft, size })} />
+                        <FieldBox label="Capacity" value={draft.capacity} onChangeText={(capacity) => setDraft({ ...draft, capacity })} />
+                    </View>
+                </EditorSection>
+
+                <EditorSection title="Compatibility, applications & warranty" description="Enter one part, application, or compatibility note per line so the reference remains easy to scan.">
+                    <Field label="Compatibility" value={draft.compatibility} onChangeText={(compatibility) => setDraft({ ...draft, compatibility })} multiline placeholder="One compatibility note per line" />
+                    <Field label="Compatible parts / accessories" value={draft.compatibleParts} onChangeText={(compatibleParts) => setDraft({ ...draft, compatibleParts })} multiline placeholder="One part or accessory per line" />
+                    <Field label="Applications / suitable uses" value={draft.applications} onChangeText={(applications) => setDraft({ ...draft, applications })} multiline placeholder="One application per line" />
+                    <Field label="Manufacturer warranty" value={draft.warranty} onChangeText={(warranty) => setDraft({ ...draft, warranty })} multiline />
+                </EditorSection>
+
+                <EditorSection title="Specifications" description="Every stored specification stays editable. Add uncommon manufacturer metadata with a plainly labeled field below.">
+                    {specificationEntries.map(([key, value]) => (
+                        <View key={key} style={{ gap: 7 }}>
+                            <Field label={catalogFieldLabel(key)} value={specificationEditorValue(value)} onChangeText={(next) => updateSpecification(key, next)} />
+                            <TouchableOpacity accessibilityRole="button" disabled={busy} onPress={() => { const next = { ...draft.specifications }; delete next[key]; setDraft({ ...draft, specifications: next }); }} style={{ alignSelf: 'flex-start', paddingVertical: 5 }}>
+                                <Text style={{ color: theme.colors.danger, fontWeight: '900' }}>Remove {catalogFieldLabel(key)}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ))}
+                    {!specificationEntries.length && <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(15) }}>No additional specifications yet.</Text>}
+                    <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, padding: scaleIcon(12), gap: scaleIcon(10), backgroundColor: theme.colors.surfaceAlt }}>
+                        <Text style={{ color: theme.colors.text, fontSize: scaleFont(17), fontWeight: '900' }}>Add a specification</Text>
+                        <Field label="Specification label" value={newSpecificationKey} onChangeText={setNewSpecificationKey} placeholder="Example: Max flow rate" />
+                        <Field label="Specification value" value={newSpecificationValue} onChangeText={setNewSpecificationValue} placeholder="Example: 1.5 GPM" />
+                        <ThemedButton title="Add Specification" variant="secondary" disabled={busy || !newSpecificationKey.trim()} onPress={addSpecification} />
+                    </View>
+                </EditorSection>
+
+                <EditorSection title="Manufacturer links & manuals" description="Add verified web references. Uploaded manuals and documents are managed separately in Product media below.">
+                    {draft.sources.map((source, index) => (
+                        <View key={source.id || `source-${index}`} style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, padding: scaleIcon(12), gap: scaleIcon(10) }}>
+                            <Text style={{ color: theme.colors.text, fontSize: scaleFont(17), fontWeight: '900' }}>Reference {index + 1}</Text>
+                            <ChoiceWrap>
+                                {SOURCE_TYPES.map((type) => <Chip key={type.value} label={type.label} selected={source.sourceType === type.value} onPress={() => setDraft({ ...draft, sources: draft.sources.map((item, itemIndex) => itemIndex === index ? { ...item, sourceType: type.value } : item) })} />)}
+                            </ChoiceWrap>
+                            <Field label="Link title" value={source.title} onChangeText={(title) => setDraft({ ...draft, sources: draft.sources.map((item, itemIndex) => itemIndex === index ? { ...item, title } : item) })} placeholder="Example: Manufacturer product page" />
+                            <Field label="Source URL" value={source.sourceUrl} onChangeText={(sourceUrl) => setDraft({ ...draft, sources: draft.sources.map((item, itemIndex) => itemIndex === index ? { ...item, sourceUrl } : item) })} placeholder="https://manufacturer.example/product" />
+                            <ThemedButton title="Remove Reference" variant="secondary" disabled={busy} onPress={() => setDraft({ ...draft, sources: draft.sources.filter((_, itemIndex) => itemIndex !== index) })} />
+                        </View>
+                    ))}
+                    <ThemedButton title="Add Manufacturer or Manual Link" variant="secondary" disabled={busy} onPress={() => setDraft({ ...draft, sources: [...draft.sources, { sourceType: 'manufacturer_page', sourceUrl: '', title: '' }] })} />
+                </EditorSection>
+
+                <EditorSection title="Product media" description="Master reference media is separate from HomeOS service history and job photos. The primary image appears on compact master cards after save.">
+                    <View style={{ flexDirection: phone ? 'column' : 'row', flexWrap: 'wrap', gap: scaleIcon(9) }}>
+                        <ThemedButton title="Upload Product Photo" disabled={busy} onPress={onUploadPhoto} style={{ flexGrow: 1 }} />
+                        <ThemedButton title="Upload Manual" variant="secondary" disabled={busy} onPress={() => onUploadDocument('installation_manual')} style={{ flexGrow: 1 }} />
+                        <ThemedButton title="Upload Spec Sheet" variant="secondary" disabled={busy} onPress={() => onUploadDocument('specification_sheet')} style={{ flexGrow: 1 }} />
+                        <ThemedButton title="Upload Warranty" variant="secondary" disabled={busy} onPress={() => onUploadDocument('warranty_document')} style={{ flexGrow: 1 }} />
+                    </View>
+                    {!!record.primaryImageUrl && <ProductCardImage imageUrl={record.primaryImageUrl} productName={productName} style={{ width: '100%', maxWidth: 420, height: 210, alignSelf: 'center' }} />}
+                    {record.assets.map((asset) => (
+                        <View key={asset.id} style={{ borderWidth: 1, borderColor: asset.isPrimary ? theme.colors.primary : theme.colors.border, borderRadius: 12, padding: scaleIcon(12), gap: scaleIcon(9), opacity: asset.active ? 1 : 0.58 }}>
+                            <View style={{ flexDirection: 'row', gap: scaleIcon(11), alignItems: 'center' }}>
+                                {asset.assetType === 'image' && asset.displayUrl
+                                    ? <ProductCardImage compact imageUrl={asset.displayUrl} productName={productName} style={{ width: 72, height: 72 }} />
+                                    : <View style={{ width: 72, height: 72, borderRadius: 10, backgroundColor: theme.colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>FILE</Text></View>}
+                                <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+                                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{asset.fileName}</Text>
+                                    <Text selectable style={{ color: theme.colors.mutedText }}>{catalogAssetTypeLabel(asset.assetType)}{asset.isPrimary ? ' · Primary card image' : ''}</Text>
+                                    <Text selectable style={{ color: asset.homeownerVisible ? theme.colors.primary : theme.colors.mutedText, fontWeight: '800' }}>{asset.homeownerVisible ? 'Visible in linked HomeOS product details' : 'Company staff only'}</Text>
+                                </View>
+                            </View>
+                            <View style={{ flexDirection: phone ? 'column' : 'row', flexWrap: 'wrap', gap: scaleIcon(8) }}>
+                                {!!asset.displayUrl && <ThemedButton title="Open" variant="secondary" disabled={busy} onPress={() => void Linking.openURL(asset.displayUrl)} style={{ flexGrow: 1 }} />}
+                                {asset.assetType === 'image' && !asset.isPrimary && <ThemedButton title="Use as Primary Image" variant="secondary" disabled={busy || !asset.active} onPress={() => onChangeMedia(asset, { isPrimary: true })} style={{ flexGrow: 1 }} />}
+                                <ThemedButton title={asset.homeownerVisible ? 'Make Staff-Only' : 'Show in HomeOS'} variant="secondary" disabled={busy || !asset.active} onPress={() => onChangeMedia(asset, { homeownerVisible: !asset.homeownerVisible })} style={{ flexGrow: 1 }} />
+                                <ThemedButton title={asset.active ? 'Hide Reference' : 'Restore Reference'} variant="secondary" disabled={busy} onPress={() => onChangeMedia(asset, { active: !asset.active })} style={{ flexGrow: 1 }} />
+                            </View>
+                        </View>
+                    ))}
+                    {!record.assets.length && <Text selectable style={{ color: theme.colors.mutedText }}>No master product media yet. Upload a product photo to give the compact card an image.</Text>}
+                </EditorSection>
+
+                <EditorSection title="Advanced JSON" description="Uncommon structured metadata and workflow warnings remain available here without blocking the visual editor.">
+                    <DisclosureButton expanded={showAdvancedJson} label={showAdvancedJson ? 'Hide Advanced JSON' : 'Show Advanced JSON'} onPress={() => setShowAdvancedJson(!showAdvancedJson)} />
+                    {showAdvancedJson && <Field label="Advanced product data JSON" value={json} onChangeText={setJson} multiline monospace />}
+                </EditorSection>
+
+                <EditorSection title="Duplicate merge" description="Use only when this record duplicates another master product. Saving normal edits does not merge records.">
+                    <ChoiceWrap>{candidates.slice(0, 50).map((candidate) => <Chip key={candidate.id} label={`${candidate.brand} ${candidate.modelNumber}`} selected={mergeTargetId === candidate.id} onPress={() => setMergeTargetId(candidate.id)} />)}</ChoiceWrap>
+                    <ThemedButton title="Merge Selected Duplicate" variant="danger" disabled={busy || !mergeTargetId} onPress={onMerge} />
+                </EditorSection>
+
+                <ButtonRow>
+                    <ThemedButton title={busy ? 'Saving...' : 'Save Master Product'} disabled={busy} onPress={onSave} style={{ flex: 1 }} />
+                    <ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={onCancel} style={{ flex: 1 }} />
+                </ButtonRow>
+            </View>
+        </ThemedCard>
+    );
+}
+
+function EditorSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 15, padding: scaleIcon(14), backgroundColor: theme.colors.surface, gap: scaleIcon(12) }}>
+            <View style={{ gap: 4 }}>
+                <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>{title}</Text>
+                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(15), lineHeight: scaleFont(21) }}>{description}</Text>
+            </View>
+            {children}
+        </View>
+    );
+}
+
+const SOURCE_TYPES = [
+    { value: 'manufacturer_page', label: 'Manufacturer page' },
+    { value: 'installation_manual', label: 'Installation manual' },
+    { value: 'specification_sheet', label: 'Specification sheet' },
+    { value: 'warranty_document', label: 'Warranty' },
+    { value: 'retailer_page', label: 'Retailer page' },
+    { value: 'other', label: 'Other' },
+];
+
+function specificationEditorValue(value: unknown) {
+    if (value == null) return '';
+    if (Array.isArray(value)) return value.map(String).join(', ');
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+}
+
+function catalogAssetTypeLabel(type: CatalogFactoryAssetType) {
+    return ({
+        image: 'Product photo',
+        installation_manual: 'Installation manual',
+        specification_sheet: 'Specification sheet',
+        warranty_document: 'Warranty document',
+        other: 'Product reference',
+    } as const)[type];
 }
 
 function StatusChoices({ value, onChange }: { value: CatalogStatus; onChange: (status: CatalogStatus) => void }) { return <ChoiceWrap>{CATALOG_STATUSES.map((status) => <Chip key={status} label={status.replace('_', ' ')} selected={value === status} onPress={() => onChange(status)} />)}</ChoiceWrap>; }
-function Field({ label, value, onChangeText, placeholder, multiline, monospace, keyboardType }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean; monospace?: boolean; keyboardType?: 'default' | 'decimal-pad' }) { return <View style={{ gap: 6 }}><Text style={{ fontWeight: '800' }}>{label}</Text><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} multiline={multiline} keyboardType={keyboardType} autoCapitalize="sentences" style={{ minHeight: multiline ? 110 : 50, borderWidth: 1, borderColor: '#AAB7C5', borderRadius: 12, padding: 12, backgroundColor: '#FFFFFF', fontFamily: monospace ? 'monospace' : undefined, textAlignVertical: multiline ? 'top' : 'center' }} /></View>; }
+function Field({ label, value, onChangeText, placeholder, multiline, monospace, keyboardType }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean; monospace?: boolean; keyboardType?: 'default' | 'decimal-pad' }) { return <View style={{ gap: 7 }}><Text style={{ fontSize: 16, fontWeight: '900' }}>{label}</Text><TextInput accessibilityLabel={label} value={value} onChangeText={onChangeText} placeholder={placeholder} multiline={multiline} keyboardType={keyboardType} autoCapitalize="sentences" style={{ minHeight: multiline ? 126 : 54, borderWidth: 1, borderColor: '#8EA0B2', borderRadius: 12, padding: 13, backgroundColor: '#FFFFFF', fontSize: 16, lineHeight: 22, fontFamily: monospace ? 'monospace' : undefined, textAlignVertical: multiline ? 'top' : 'center' }} /></View>; }
 function FieldBox(props: Parameters<typeof Field>[0]) { return <View style={{ flex: 1, minWidth: 180 }}><Field {...props} /></View>; }
 function Title({ children }: { children: React.ReactNode }) { return <Text selectable style={{ fontSize: 22, fontWeight: '900' }}>{children}</Text>; }
 function ButtonRow({ children }: { children: React.ReactNode }) { return <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>{children}</View>; }
@@ -810,5 +1144,9 @@ function fieldList(value: string) { return csvList(value).map((key) => ({ key, l
 function csvList(value: string) { return value.split(',').map((item) => item.trim().toLowerCase().replace(/\s+/g, '_')).filter(Boolean); }
 function parseObject(value: string, label: string) { const parsed = JSON.parse(value) as unknown; if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object.`); return parsed as Record<string, unknown>; }
 function parseArray(value: string, label: string) { const parsed = JSON.parse(value) as unknown; if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array.`); return parsed; }
+function parseRecordValue(value: unknown, label: string) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be a JSON object.`); return value as Record<string, unknown>; }
+function parseAdvancedSources(value: unknown): CatalogSourceDraft[] { if (!Array.isArray(value)) throw new Error('Advanced sources must be a JSON array.'); return value.map((entry) => { const source = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry as Record<string, unknown> : {}; return { id: typeof source.id === 'string' ? source.id : undefined, sourceType: typeof source.type === 'string' ? source.type : 'other', sourceUrl: typeof source.url === 'string' ? source.url : '', title: typeof source.title === 'string' ? source.title : '' }; }); }
+function nullableNumber(value: unknown) { if (value == null || value === '') return null; const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
+function textArray(value: unknown) { return Array.isArray(value) ? value.map((entry) => String(entry).trim()).filter(Boolean) : []; }
 function money(value: number | null) { return value == null ? 'not listed' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value); }
 function errorMessage(error: unknown) { if (error instanceof Error && error.message) return error.message; if (error && typeof error === 'object' && 'message' in error) return String((error as { message?: unknown }).message || 'Catalog Factory action failed.'); return 'Catalog Factory action failed.'; }

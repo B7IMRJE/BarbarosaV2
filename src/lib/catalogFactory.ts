@@ -1,3 +1,5 @@
+import type * as DocumentPicker from 'expo-document-picker';
+import type * as ImagePicker from 'expo-image-picker';
 import { supabase } from './supabase';
 import type {
     CatalogDuplicateMatch,
@@ -15,6 +17,33 @@ export type CatalogSource = {
     verifiedAt: string | null;
     confidence: number | null;
 };
+
+export type CatalogSourceDraft = {
+    id?: string;
+    sourceType: string;
+    sourceUrl: string;
+    title: string;
+};
+
+export type CatalogFactoryAssetType = 'image' | 'installation_manual' | 'specification_sheet' | 'warranty_document' | 'other';
+
+export type CatalogFactoryAsset = {
+    id: string;
+    productVariantId: string;
+    assetType: CatalogFactoryAssetType;
+    sourceUrl: string;
+    bucket: string;
+    storagePath: string;
+    fileName: string;
+    mimeType: string | null;
+    sizeBytes: number | null;
+    isPrimary: boolean;
+    homeownerVisible: boolean;
+    active: boolean;
+    displayUrl: string;
+};
+
+export const CATALOG_FACTORY_MEDIA_BUCKET = 'catalog-factory-media';
 
 export type CatalogRetailObservation = {
     id: string;
@@ -59,6 +88,7 @@ export type CatalogFactoryRecord = {
     lastVerifiedAt: string | null;
     updatedAt: string | null;
     primaryImageUrl: string;
+    assets: CatalogFactoryAsset[];
     sources: CatalogSource[];
     retailListings: CatalogRetailListing[];
 };
@@ -84,6 +114,8 @@ export type ApprovedMasterCatalogItem = {
     description: string;
     specifications: Record<string, unknown>;
     primaryImageUrl: string;
+    primaryImageBucket: string;
+    primaryImagePath: string;
     entitled: boolean;
     offering: CompanyCatalogOffering | null;
 };
@@ -138,9 +170,11 @@ export async function loadCatalogFactory(filters: CatalogFactoryFilters = {}) {
     });
     if (error) throw error;
     const payload = record(data);
+    const parsedRecords = array(payload.records).map(parseFactoryRecord).filter(Boolean) as CatalogFactoryRecord[];
+    const records = await Promise.all(parsedRecords.map(resolveFactoryRecordMedia));
     return {
         templates: array(payload.templates).map(parseTemplate).filter(Boolean) as CatalogTemplateDefinition[],
-        records: array(payload.records).map(parseFactoryRecord).filter(Boolean) as CatalogFactoryRecord[],
+        records,
         imports: array(payload.imports).map(record),
     };
 }
@@ -224,6 +258,74 @@ export async function reviewCatalogDraft(
     return data;
 }
 
+export async function saveCatalogFactoryProduct(variantId: string, payload: Record<string, unknown>) {
+    const { data, error } = await supabase.rpc('save_catalog_factory_product', {
+        p_variant_id: variantId,
+        p_payload: payload,
+    });
+    if (error) throw error;
+    return data;
+}
+
+export async function uploadCatalogFactoryPhoto(input: {
+    variantId: string;
+    asset: ImagePicker.ImagePickerAsset;
+}) {
+    const mimeType = input.asset.mimeType || 'image/jpeg';
+    if (!mimeType.startsWith('image/')) throw new Error('Choose an image for the master product card.');
+    return uploadCatalogFactoryMedia({
+        variantId: input.variantId,
+        assetType: 'image',
+        uri: input.asset.uri,
+        fileName: input.asset.fileName || `master-product-${Date.now()}.jpg`,
+        mimeType,
+        sizeBytes: input.asset.fileSize || null,
+        isPrimary: true,
+        homeownerVisible: true,
+    });
+}
+
+export async function uploadCatalogFactoryDocument(input: {
+    variantId: string;
+    assetType: Exclude<CatalogFactoryAssetType, 'image'>;
+    asset: DocumentPicker.DocumentPickerAsset;
+}) {
+    const mimeType = input.asset.mimeType || 'application/pdf';
+    if (mimeType !== 'application/pdf' && !mimeType.startsWith('image/')) {
+        throw new Error('Master product documents must be a PDF or image.');
+    }
+    return uploadCatalogFactoryMedia({
+        variantId: input.variantId,
+        assetType: input.assetType,
+        uri: input.asset.uri,
+        fileName: input.asset.name || `master-reference-${Date.now()}.pdf`,
+        mimeType,
+        sizeBytes: input.asset.size || null,
+        isPrimary: false,
+        homeownerVisible: true,
+    });
+}
+
+export async function updateCatalogFactoryMedia(input: {
+    variantId: string;
+    assetId: string;
+    isPrimary?: boolean;
+    homeownerVisible?: boolean;
+    active?: boolean;
+}) {
+    const { data, error } = await supabase.rpc('update_catalog_factory_media', {
+        p_variant_id: input.variantId,
+        p_asset_id: input.assetId,
+        p_is_primary: input.isPrimary ?? null,
+        p_homeowner_visible: input.homeownerVisible ?? null,
+        p_active: input.active ?? null,
+    });
+    if (error) throw error;
+    const parsed = parseFactoryAsset(data);
+    if (!parsed) throw new Error('Master media settings were saved, but the response was invalid.');
+    return resolveFactoryAssetUrl(parsed);
+}
+
 export async function bulkApproveCatalogDrafts(variantIds: string[]) {
     const { data, error } = await supabase.rpc('bulk_approve_catalog_drafts', { p_variant_ids: variantIds });
     if (error) throw error;
@@ -233,7 +335,8 @@ export async function bulkApproveCatalogDrafts(variantIds: string[]) {
 export async function loadApprovedMasterCatalogForCompany(companyId: string) {
     const { data, error } = await supabase.rpc('get_approved_master_catalog_for_company', { p_company_id: companyId });
     if (error) throw error;
-    return array(data).map(parseApprovedMaster).filter(Boolean) as ApprovedMasterCatalogItem[];
+    const items = array(data).map(parseApprovedMaster).filter(Boolean) as ApprovedMasterCatalogItem[];
+    return Promise.all(items.map(resolveApprovedMasterMedia));
 }
 
 export async function loadApprovedMasterCatalogDetail(variantId: string): Promise<ApprovedMasterCatalogDetail> {
@@ -245,8 +348,9 @@ export async function loadApprovedMasterCatalogDetail(variantId: string): Promis
             .order('created_at', { ascending: true }),
         supabase
             .from('catalog_source_assets')
-            .select('id, asset_type, source_url')
+            .select('id, asset_type, source_url, copied_bucket, copied_storage_path, file_name, active')
             .eq('product_variant_id', variantId)
+            .eq('active', true)
             .order('is_primary', { ascending: false })
             .order('created_at', { ascending: true }),
     ]);
@@ -268,10 +372,10 @@ export async function loadApprovedMasterCatalogDetail(variantId: string): Promis
                 url,
             } satisfies ApprovedMasterCatalogReference;
         }),
-        ...array(assetsResult.data).map((value) => {
+        ...(await Promise.all(array(assetsResult.data).map(async (value) => {
             const row = record(value);
             const id = text(row.id);
-            const url = text(row.source_url);
+            const url = await catalogMediaUrl(text(row.copied_bucket), text(row.copied_storage_path), text(row.source_url));
             if (!id || !url) return null;
             const kind = text(row.asset_type) || 'other';
             return {
@@ -280,7 +384,7 @@ export async function loadApprovedMasterCatalogDetail(variantId: string): Promis
                 title: catalogReferenceLabel(kind),
                 url,
             } satisfies ApprovedMasterCatalogReference;
-        }),
+        }))),
     ].filter(Boolean) as ApprovedMasterCatalogReference[];
 
     return {
@@ -306,6 +410,48 @@ export async function saveCompanyCatalogOffering(companyId: string, variantId: s
     });
     if (error) throw error;
     return parseOffering(data);
+}
+
+async function uploadCatalogFactoryMedia(input: {
+    variantId: string;
+    assetType: CatalogFactoryAssetType;
+    uri: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number | null;
+    isPrimary: boolean;
+    homeownerVisible: boolean;
+}) {
+    const assetId = createId();
+    const fileName = sanitizeFileName(input.fileName);
+    const storagePath = ['variants', input.variantId, assetId, fileName].join('/');
+    const response = await fetch(input.uri);
+    if (!response.ok) throw new Error(`Could not read the selected file (${response.status}).`);
+    const body = await response.blob();
+    const { error: uploadError } = await supabase.storage.from(CATALOG_FACTORY_MEDIA_BUCKET).upload(storagePath, body, {
+        contentType: input.mimeType,
+        upsert: false,
+    });
+    if (uploadError) throw uploadError;
+
+    const { data, error } = await supabase.rpc('record_catalog_factory_media', {
+        p_variant_id: input.variantId,
+        p_asset_id: assetId,
+        p_asset_type: input.assetType,
+        p_storage_path: storagePath,
+        p_file_name: fileName,
+        p_mime_type: input.mimeType,
+        p_size_bytes: input.sizeBytes,
+        p_homeowner_visible: input.homeownerVisible,
+        p_is_primary: input.isPrimary,
+    });
+    if (error) {
+        await supabase.storage.from(CATALOG_FACTORY_MEDIA_BUCKET).remove([storagePath]);
+        throw error;
+    }
+    const parsed = parseFactoryAsset(data);
+    if (!parsed) throw new Error('Master media uploaded, but its response was invalid.');
+    return resolveFactoryAssetUrl(parsed);
 }
 
 function parseTemplate(value: unknown): CatalogTemplateDefinition | null {
@@ -355,6 +501,7 @@ function parseFactoryRecord(value: unknown): CatalogFactoryRecord | null {
         lastVerifiedAt: nullableText(row.last_verified_at),
         updatedAt: nullableText(row.updated_at),
         primaryImageUrl: text(row.primary_image_url),
+        assets: array(row.assets).map(parseFactoryAsset).filter(Boolean) as CatalogFactoryAsset[],
         sources: array(row.sources).map((source) => {
             const item = record(source);
             return {
@@ -386,9 +533,72 @@ function parseApprovedMaster(value: unknown): ApprovedMasterCatalogItem | null {
         id, category: text(row.category), manufacturer: text(row.manufacturer), brand: text(row.brand), familyName: text(row.family_name),
         modelNumber: text(row.model_number), manufacturerPartNumber: text(row.manufacturer_part_number), upcGtin: text(row.upc_gtin),
         description: text(row.description), specifications: record(row.specifications), primaryImageUrl: text(row.primary_image_url),
+        primaryImageBucket: text(row.primary_image_bucket), primaryImagePath: text(row.primary_image_path),
         entitled: row.entitled === true,
         offering: row.offering ? parseOffering(row.offering) : null,
     };
+}
+
+function parseFactoryAsset(value: unknown): CatalogFactoryAsset | null {
+    const row = record(value);
+    const id = text(row.id);
+    const productVariantId = text(row.product_variant_id);
+    if (!id || !productVariantId) return null;
+    const assetType = text(row.asset_type);
+    return {
+        id,
+        productVariantId,
+        assetType: ['image', 'installation_manual', 'specification_sheet', 'warranty_document'].includes(assetType)
+            ? assetType as CatalogFactoryAssetType
+            : 'other',
+        sourceUrl: text(row.source_url),
+        bucket: text(row.copied_bucket),
+        storagePath: text(row.copied_storage_path),
+        fileName: text(row.file_name) || catalogReferenceLabel(assetType),
+        mimeType: nullableText(row.mime_type),
+        sizeBytes: numberValue(row.size_bytes),
+        isPrimary: row.is_primary === true,
+        homeownerVisible: row.homeowner_visible !== false,
+        active: row.active !== false,
+        displayUrl: '',
+    };
+}
+
+async function resolveFactoryRecordMedia(recordValue: CatalogFactoryRecord) {
+    const assets = await Promise.all(recordValue.assets.map(resolveFactoryAssetUrl));
+    const primary = assets.find((asset) => asset.active && asset.assetType === 'image' && asset.isPrimary)
+        || assets.find((asset) => asset.active && asset.assetType === 'image');
+    return {
+        ...recordValue,
+        assets,
+        primaryImageUrl: primary?.displayUrl || externalCatalogUrl(recordValue.primaryImageUrl),
+    };
+}
+
+async function resolveFactoryAssetUrl(asset: CatalogFactoryAsset) {
+    return {
+        ...asset,
+        displayUrl: await catalogMediaUrl(asset.bucket, asset.storagePath, asset.sourceUrl),
+    };
+}
+
+async function resolveApprovedMasterMedia(item: ApprovedMasterCatalogItem) {
+    return {
+        ...item,
+        primaryImageUrl: await catalogMediaUrl(item.primaryImageBucket, item.primaryImagePath, item.primaryImageUrl),
+    };
+}
+
+async function catalogMediaUrl(bucket: string, storagePath: string, fallbackUrl: string) {
+    if (bucket && storagePath) {
+        const { data, error } = await supabase.storage.from(bucket).createSignedUrl(storagePath, 60 * 30);
+        if (!error && data?.signedUrl) return data.signedUrl;
+    }
+    return externalCatalogUrl(fallbackUrl);
+}
+
+function externalCatalogUrl(value: string) {
+    return /^https?:\/\//i.test(value) ? value : '';
 }
 
 function parseOffering(value: unknown): CompanyCatalogOffering {
@@ -417,6 +627,20 @@ function catalogReferenceLabel(kind: string) {
         image: 'Product image',
         other: 'Product reference',
     } as Record<string, string>)[kind] || 'Product reference';
+}
+
+function createId() {
+    const cryptoValue = globalThis.crypto as { randomUUID?: () => string } | undefined;
+    return cryptoValue?.randomUUID?.() || 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
+        const random = Math.floor(Math.random() * 16);
+        const value = character === 'x' ? random : (random & 0x3) | 0x8;
+        return value.toString(16);
+    });
+}
+
+function sanitizeFileName(value: string) {
+    const cleaned = value.trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').slice(0, 140);
+    return cleaned || `master-reference-${Date.now()}`;
 }
 
 function parseField(value: unknown): CatalogTemplateField | null {
