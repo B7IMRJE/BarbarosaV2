@@ -23,6 +23,7 @@ export type CompanyCatalogFile = {
     sizeBytes: number | null;
     altText: string | null;
     active: boolean;
+    homeownerVisible: boolean;
 };
 
 export type CompanyCatalogItem = {
@@ -179,6 +180,25 @@ export async function createCompanyCatalogFileUrl(file: CompanyCatalogFile) {
     return data.signedUrl;
 }
 
+export async function setCompanyCatalogFileHomeownerVisibility(input: {
+    companyId: string;
+    productId: string;
+    fileId: string;
+    visible: boolean;
+}) {
+    const { data, error } = await supabase.rpc('set_company_catalog_file_homeowner_visibility', {
+        p_company_id: input.companyId,
+        p_product_id: input.productId,
+        p_file_id: input.fileId,
+        p_visible: input.visible,
+    });
+    if (error) throw error;
+
+    const file = parseCatalogFile(data);
+    if (!file) throw new Error('Catalog file visibility was saved, but its response was invalid.');
+    return file;
+}
+
 async function uploadCompanyCatalogFile(input: {
     companyId: string;
     productId: string;
@@ -283,6 +303,7 @@ function parseCatalogFile(value: unknown): CompanyCatalogFile | null {
         sizeBytes: nullableNumber(row.size_bytes),
         altText: nullableText(row.alt_text),
         active: row.active !== false,
+        homeownerVisible: row.homeowner_visible === true,
     };
 }
 

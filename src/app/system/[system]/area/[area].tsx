@@ -50,6 +50,7 @@ import {
 import { supabase } from '../../../../lib/supabase';
 import { useStableCallback } from '../../../../hooks/useStableCallback';
 import { useTheme } from '../../../../theme/useTheme';
+import ProductReferenceModal from '../../../../features/homeos-items/product-reference-modal';
 
 type AreaHomeItem = {
     id?: string;
@@ -61,6 +62,8 @@ type AreaHomeItem = {
     install_state: string | null;
     location: string | null;
     parent_area: string | null;
+    catalog_product_id?: string | null;
+    master_product_variant_id?: string | null;
 };
 
 export default function AreaScreen() {
@@ -114,6 +117,7 @@ export default function AreaScreen() {
     const [homeItemsQueryFailed, setHomeItemsQueryFailed] = useState(false);
     const [loading, setLoading] = useState(true);
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
+    const [productReferenceItem, setProductReferenceItem] = useState<AreaHomeItem | null>(null);
     const [message, setMessage] = useState('');
     const starterRecoverySubmittingRef = useRef(false);
     const starterAutofillAttemptedRef = useRef(false);
@@ -273,7 +277,7 @@ export default function AreaScreen() {
         } else {
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, name, system, item_slug, category, status, install_state, location, parent_area')
+                .select('id, name, system, item_slug, category, status, install_state, location, parent_area, catalog_product_id, master_product_variant_id')
                 .eq('property_id', activeProperty.propertyId)
                 .or('archived.eq.false,archived.is.null')
                 .order('system', { ascending: true })
@@ -866,6 +870,11 @@ export default function AreaScreen() {
                                                                     }
                                                                 }}
                                                                 onArchive={() => confirmArchiveItem(item)}
+                                                                onShowProductReference={
+                                                                    !providerModeContext && item.id && (item.catalog_product_id || item.master_product_variant_id)
+                                                                        ? () => setProductReferenceItem(item)
+                                                                        : undefined
+                                                                }
                                                                 archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
                                                                 archiveDisabled={!!archivingRecordId}
                                                             />
@@ -940,6 +949,13 @@ export default function AreaScreen() {
                     </ThemedCard>
                 </View>
             </Modal>
+
+            <ProductReferenceModal
+                visible={Boolean(productReferenceItem)}
+                homeItemId={productReferenceItem?.id || ''}
+                itemName={productReferenceItem?.name || 'HomeOS item'}
+                onClose={() => setProductReferenceItem(null)}
+            />
         </>
     );
 }
@@ -1098,6 +1114,7 @@ function AreaItemCard({
     onOpen,
     onActivate,
     onArchive,
+    onShowProductReference,
     archiveTitle = 'Archive',
     archiveDisabled = false,
 }: {
@@ -1105,6 +1122,7 @@ function AreaItemCard({
     onOpen: () => void;
     onActivate?: () => void;
     onArchive?: () => void;
+    onShowProductReference?: () => void;
     archiveTitle?: string;
     archiveDisabled?: boolean;
 }) {
@@ -1171,6 +1189,17 @@ function AreaItemCard({
                     </Text>
                 )}
             </TouchableOpacity>
+
+            {onShowProductReference ? (
+                <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`Product details for ${itemName}`}
+                    onPress={onShowProductReference}
+                    style={productDetailsButtonStyle}
+                >
+                    <Text style={[productDetailsButtonTextStyle, { color: theme.colors.primary }]}>Product Details</Text>
+                </TouchableOpacity>
+            ) : null}
 
             {onActivate ? (
                 <ThemedButton
@@ -1523,6 +1552,18 @@ const itemOverflowTextStyle = {
     fontWeight: '900' as const,
     letterSpacing: 1,
     lineHeight: 13,
+};
+
+const productDetailsButtonStyle = {
+    alignSelf: 'center' as const,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginTop: 5,
+};
+
+const productDetailsButtonTextStyle = {
+    fontSize: 12,
+    fontWeight: '900' as const,
 };
 
 const iconCircleStyle = {

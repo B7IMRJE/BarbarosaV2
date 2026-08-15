@@ -1,9 +1,8 @@
-import DictationTextInput from '@/components/input/DictationTextInput';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Linking, ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { Linking, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import ProductCardImage from '../../components/catalog/product-card-image';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -21,6 +20,7 @@ import {
     emptyCompanyCatalogDraft,
     loadCompanyProductCatalog,
     saveCompanyProductCatalogItem,
+    setCompanyCatalogFileHomeownerVisibility,
     uploadCompanyCatalogDocument,
     uploadCompanyCatalogPhoto,
     validateCompanyCatalogDraft,
@@ -268,6 +268,32 @@ export default function CompanyCatalogScreen() {
         catch (error) { setMessage(errorMessage(error)); }
     }
 
+    async function toggleHomeownerVisibility(item: CompanyCatalogItem, fileId: string) {
+        if (!companyId || busy) return;
+        const file = item.files.find((candidate) => candidate.id === fileId);
+        if (!file) return;
+
+        setBusy(true);
+        setMessage(file.homeownerVisible ? 'Removing file from the HomeOS product reference...' : 'Publishing file to the HomeOS product reference...');
+        try {
+            await setCompanyCatalogFileHomeownerVisibility({
+                companyId,
+                productId: item.id,
+                fileId: file.id,
+                visible: !file.homeownerVisible,
+            });
+            await refresh(item.id);
+            setMessage(file.homeownerVisible
+                ? `${file.fileName} is now company-only.`
+                : `${file.fileName} is now visible in linked HomeOS product references.`
+            );
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
     function beginOffering(item: ApprovedMasterCatalogItem) {
         setOfferingItem(item);
         setOfferingDraft(item.offering || emptyOffering());
@@ -371,7 +397,7 @@ export default function CompanyCatalogScreen() {
                             </View>
                         </ThemedCard>}
                         <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
-                            <DictationTextInput value={search} onChangeText={setSearch} placeholder="Search brand, model, category, or SKU" style={{ flex: 1, minHeight: 52, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, color: textColor }} />
+                            <TextInput value={search} onChangeText={setSearch} placeholder="Search brand, model, category, or SKU" placeholderTextColor={theme.colors.mutedText} style={{ flex: 1, minHeight: 52, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, color: textColor }} />
                             {canManage && items.length > 0 && <ThemedButton title="Create Catalog Card" onPress={() => { setSaveFeedback(''); setDraft(emptyCompanyCatalogDraft()); }} />}
                         </View>
                         <View style={{ gap: 14 }}>
@@ -485,7 +511,7 @@ export default function CompanyCatalogScreen() {
                                 onChange={(patch) => setDraft({ ...draft, ...patch })}
                             />
                             <Field label="Specifications (one Key: Value per line)" value={specificationsText(draft.specifications)} onChangeText={(value) => setDraft({ ...draft, specifications: parseSpecifications(value) })} multiline />
-                            <Field label="Compatible applications (comma separated)" value={draft.compatibleApplications.join(', ')} onChangeText={(value) => setDraft({ ...draft, compatibleApplications: parseList(value) })} multiline />
+                            <Field label="Compatible parts & applications (comma separated)" value={draft.compatibleApplications.join(', ')} onChangeText={(value) => setDraft({ ...draft, compatibleApplications: parseList(value) })} multiline />
                             <Field label="Installation requirements (one per line)" value={draft.installationRequirements.join('\n')} onChangeText={(value) => setDraft({ ...draft, installationRequirements: parseLines(value) })} multiline />
                             <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
                                 <View style={{ flex: 1 }}><Field label="Workmanship warranty" value={draft.workmanshipWarranty} onChangeText={(workmanshipWarranty) => setDraft({ ...draft, workmanshipWarranty })} placeholder="Lifetime" /></View>
@@ -506,10 +532,23 @@ export default function CompanyCatalogScreen() {
                                     <ThemedButton title="Add Spec Sheet" variant="secondary" disabled={!draft.id || busy} onPress={() => void addDocument('specification')} />
                                 </View>
                                 {!!editingItem?.files.length && <View style={{ gap: 8 }}>{editingItem.files.map((file) => (
-                                    <TouchableOpacity key={file.id} onPress={() => void openFile(editingItem, file.id)} style={{ padding: 12, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10 }}>
-                                        <Text style={{ color: textColor, fontWeight: '800' }}>{fileKindLabel(file.kind)} · {file.fileName}</Text>
-                                        <Text style={{ color: mutedColor }}>Tap to open securely</Text>
-                                    </TouchableOpacity>
+                                    <View key={file.id} style={{ padding: 12, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, gap: 9 }}>
+                                        <TouchableOpacity onPress={() => void openFile(editingItem, file.id)} style={{ gap: 3 }}>
+                                            <Text style={{ color: textColor, fontWeight: '800' }}>{fileKindLabel(file.kind)} · {file.fileName}</Text>
+                                            <Text style={{ color: mutedColor }}>Tap to open securely</Text>
+                                        </TouchableOpacity>
+                                        <View style={{ flexDirection: phone ? 'column' : 'row', alignItems: phone ? 'stretch' : 'center', justifyContent: 'space-between', gap: 8 }}>
+                                            <Text style={{ color: file.homeownerVisible ? theme.colors.primary : mutedColor, fontWeight: '800', flex: 1 }}>
+                                                {file.homeownerVisible ? 'Visible in linked HomeOS product details' : 'Company-only file'}
+                                            </Text>
+                                            <ThemedButton
+                                                title={file.homeownerVisible ? 'Make Company-Only' : 'Show in HomeOS'}
+                                                variant="secondary"
+                                                disabled={busy}
+                                                onPress={() => void toggleHomeownerVisibility(editingItem, file.id)}
+                                            />
+                                        </View>
+                                    </View>
                                 ))}</View>}
                             </View>
                             <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
@@ -540,7 +579,7 @@ export default function CompanyCatalogScreen() {
 
 function Field({ label, value, onChangeText, placeholder = '', multiline = false }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean }) {
     const { scaleFont, theme } = useTheme();
-    return <View style={{ gap: 6 }}><Text style={{ color: theme.colors.text, fontWeight: '800' }}>{label}</Text><DictationTextInput value={value} onChangeText={onChangeText} placeholder={placeholder} multiline={multiline} style={{ minHeight: multiline ? 92 : 50, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 12, padding: 12, color: theme.colors.text, fontSize: scaleFont(15), textAlignVertical: multiline ? 'top' : 'center' }} /></View>;
+    return <View style={{ gap: 6 }}><Text style={{ color: theme.colors.text, fontWeight: '800' }}>{label}</Text><TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} placeholderTextColor={theme.colors.mutedText} multiline={multiline} style={{ minHeight: multiline ? 92 : 50, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 12, padding: 12, color: theme.colors.text, fontSize: scaleFont(15), textAlignVertical: multiline ? 'top' : 'center' }} /></View>;
 }
 
 function NumberField({ label, value, onChange }: { label: string; value: number | null; onChange: (value: number | null) => void }) {
