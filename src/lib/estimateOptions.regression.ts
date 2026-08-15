@@ -44,7 +44,7 @@ import {
 } from './estimateOptions';
 import { plumbingPriceBookCatalogItems } from './plumbingPriceBookCatalog';
 import { findEstimatePriceBookCatalogItem } from './estimatePriceBookTarget';
-import { mapApprovedProductRecord } from './companyApprovedProducts';
+import { mapApprovedProductRecord } from './company-approved-products-core';
 
 runEstimateOptionsRegressions();
 
@@ -464,12 +464,24 @@ function approvedProductRecordsMapWithoutTrustingInvalidRows() {
         installation_requirements: ['Install per manufacturer instructions'],
         warranty: '12-year manufacturer warranty',
         extended_warranty_eligible: true,
+        main_media: {
+            id: 'media-a',
+            company_id: 'company-a',
+            product_id: 'product-a',
+            bucket: 'company-product-catalog',
+            storage_path: 'companies/company-a/catalog/product-a/media-a/product.jpg',
+            alt_text: 'Approved product photo',
+            active: true,
+        },
+        master_primary_image_url: 'https://manufacturer.example/product-a.jpg',
         approved: true,
         active: true,
     });
 
     assert(mapped?.approvedSellingPrice === 3450, 'Approved product prices returned by Supabase should map to numeric selling prices.');
     assert(mapped?.tier === 'Premium', 'The saved approved product tier should be preserved.');
+    assert(mapped?.mainMedia?.storagePath.endsWith('/product.jpg') === true, 'The uploaded product photo should map into estimate card media.');
+    assert(mapped?.masterPrimaryImageUrl === 'https://manufacturer.example/product-a.jpg', 'The master product image should remain available as the card fallback.');
     assert(mapApprovedProductRecord({ id: 'missing-company' }) === null, 'Incomplete product rows must not become estimate choices.');
 }
 
@@ -1499,6 +1511,7 @@ function presentationLayoutCoversPhoneTabletDesktop() {
 function productImagesHaveLoadingStates() {
     assert(resolveProductImageState(product('company-a', 'with-image', true, true)) === 'available', 'Approved image should be available.');
     assert(resolveProductImageState({ ...product('company-a', 'missing-image', true, true), mainMedia: null }) === 'missing', 'Missing image should have a missing state.');
+    assert(resolveProductImageState({ ...product('company-a', 'master-image', true, true), mainMedia: null, masterPrimaryImageUrl: 'https://manufacturer.example/product.jpg' }) === 'available', 'A verified master product image should be available when no upload exists.');
 }
 
 function homeownerPresentationHidesInternalPricing() {

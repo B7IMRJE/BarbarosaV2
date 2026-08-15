@@ -1,4 +1,5 @@
 import {
+    resolveCompanyCatalogCardImageUrl,
     validateCompanyCatalogDraft,
     type CompanyCatalogDraftValidationInput,
 } from './companyProductCatalogCore';
@@ -22,6 +23,19 @@ draft.maximumSellingPrice = 500;
 assert(validateCompanyCatalogDraft(draft) === 'Minimum selling price cannot exceed the maximum.', 'Invalid minimum and maximum price order must be rejected.');
 draft.maximumSellingPrice = 900;
 assert(validateCompanyCatalogDraft(draft) === '', 'A complete approved catalog card should validate.');
+
+assert(
+    resolveCompanyCatalogCardImageUrl('https://storage.example/actual-product.jpg', 'https://manufacturer.example/product.jpg') === 'https://storage.example/actual-product.jpg',
+    'A directly uploaded product photo must take priority on the front card.'
+);
+assert(
+    resolveCompanyCatalogCardImageUrl('', 'https://manufacturer.example/product.jpg') === 'https://manufacturer.example/product.jpg',
+    'The verified master-product image should be used when no direct upload exists.'
+);
+assert(
+    resolveCompanyCatalogCardImageUrl('  ', '  ') === null,
+    'Products without a usable photo should keep the neutral fallback.'
+);
 
 console.log('companyProductCatalog regression checks passed');
 

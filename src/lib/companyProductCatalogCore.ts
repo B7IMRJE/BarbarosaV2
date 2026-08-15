@@ -8,6 +8,13 @@ export type CompanyCatalogDraftValidationInput = {
     maximumSellingPrice: number | null;
 };
 
+export function resolveCompanyCatalogCardImageUrl(
+    uploadedPhotoUrl?: string | null,
+    masterProductImageUrl?: string | null,
+) {
+    return uploadedPhotoUrl?.trim() || masterProductImageUrl?.trim() || null;
+}
+
 export function validateCompanyCatalogDraft(draft: CompanyCatalogDraftValidationInput) {
     if (!draft.category.trim()) return 'Choose a product category.';
     if (!draft.brand.trim()) return 'Enter the product brand.';

@@ -1,11 +1,11 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import * as DocumentPicker from 'expo-document-picker';
-import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
+import ProductCardImage from '../../components/catalog/product-card-image';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { canManageCompanyCatalog, canManageCompanyCatalogPricing } from '../../lib/companyCatalogAccess';
@@ -31,6 +31,7 @@ import {
     type CompanyCatalogTier,
 } from '../../lib/companyProductCatalog';
 import { loadCompanyPriceBook, type CompanyPriceBookItem } from '../../lib/companyPriceBook';
+import { resolveCompanyCatalogCardImageUrl } from '../../lib/companyProductCatalogCore';
 import { researchCatalogProduct } from '../../lib/catalogProductResearch';
 import {
     applyCatalogProductResearch,
@@ -333,7 +334,11 @@ export default function CompanyCatalogScreen() {
                                 {showMasterCatalog && <View style={{ gap: 12 }}>
                                     {masterItems.map((item) => <View key={item.id} style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, padding: 12, gap: 8 }}>
                                         <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
-                                            {!!item.primaryImageUrl && <Image source={item.primaryImageUrl} contentFit="contain" style={{ width: phone ? '100%' : 130, height: 110, borderRadius: 10, backgroundColor: theme.colors.surface }} />}
+                                            <ProductCardImage
+                                                imageUrl={item.primaryImageUrl}
+                                                productName={`${item.brand} ${item.familyName} ${item.modelNumber}`.trim()}
+                                                style={{ width: phone ? '100%' : 130, height: 110 }}
+                                            />
                                             <View style={{ flex: 1, gap: 5 }}>
                                                 <Text style={{ color: textColor, fontSize: scaleFont(18), fontWeight: '900' }}>{item.brand} {item.familyName} {item.modelNumber}</Text>
                                                 <Text style={{ color: mutedColor }}>{item.category} · {item.manufacturer}</Text>
@@ -372,10 +377,18 @@ export default function CompanyCatalogScreen() {
                         <View style={{ gap: 14 }}>
                             {visibleItems.map((item) => {
                                 const photo = item.files.find((file) => file.kind === 'photo');
+                                const cardImageUrl = resolveCompanyCatalogCardImageUrl(
+                                    photo ? photoUrls[photo.id] : null,
+                                    item.masterPrimaryImageUrl,
+                                );
                                 return (
                                     <ThemedCard key={item.id}>
                                         <View style={{ flexDirection: phone ? 'column' : 'row', gap: 16 }}>
-                                            {photo && photoUrls[photo.id] ? <Image source={photoUrls[photo.id]} contentFit="cover" style={{ width: phone ? '100%' : 180, height: 150, borderRadius: 14, backgroundColor: theme.colors.surface }} /> : null}
+                                            <ProductCardImage
+                                                imageUrl={cardImageUrl}
+                                                productName={item.productName}
+                                                style={{ width: phone ? '100%' : 180, height: 150 }}
+                                            />
                                             <View style={{ flex: 1, minWidth: 0, gap: 7 }}>
                                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                                                     <Text style={{ color: textColor, fontWeight: '900', fontSize: scaleFont(20), flexShrink: 1 }}>{item.productName}</Text>
@@ -547,7 +560,7 @@ function Pill({ label, selected, onPress }: { label: string; selected: boolean; 
 }
 
 function toDraft(item: CompanyCatalogItem): CompanyCatalogDraft {
-    const { companyId: _companyId, priceBookItemName: _priceBookItemName, files: _files, createdAt: _createdAt, updatedAt: _updatedAt, ...draft } = item;
+    const { companyId: _companyId, priceBookItemName: _priceBookItemName, masterPrimaryImageUrl: _masterPrimaryImageUrl, files: _files, createdAt: _createdAt, updatedAt: _updatedAt, ...draft } = item;
     return draft;
 }
 function emptyOffering(): CompanyCatalogOffering {

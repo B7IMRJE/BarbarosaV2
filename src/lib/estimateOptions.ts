@@ -241,6 +241,7 @@ export type EstimateApprovedProduct = {
     maximumSellingPrice: number | null;
     mainMedia: EstimateProductMedia | null;
     additionalMedia: EstimateProductMedia[];
+    masterPrimaryImageUrl?: string | null;
     specifications: Record<string, string>;
     compatibleApplications: string[];
     requiredAccessoryIds: string[];
@@ -1689,10 +1690,11 @@ export function resolveEstimatePresentationLayout(width: number) {
 }
 
 export function resolveProductImageState(product: EstimateApprovedProduct) {
-    if (!product.mainMedia) return 'missing' as const;
-    if (!product.mainMedia.active || !product.mainMedia.bucket || !product.mainMedia.storagePath) return 'error' as const;
+    if (product.mainMedia?.active && product.mainMedia.bucket && product.mainMedia.storagePath) return 'available' as const;
+    if (product.masterPrimaryImageUrl?.trim()) return 'available' as const;
+    if (product.mainMedia) return 'error' as const;
 
-    return 'available' as const;
+    return 'missing' as const;
 }
 
 export function toHomeownerPresentationChoice(choice: EstimateChoice): HomeownerPresentationChoice {

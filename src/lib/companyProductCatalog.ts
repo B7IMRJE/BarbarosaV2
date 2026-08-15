@@ -51,12 +51,13 @@ export type CompanyCatalogItem = {
     availabilityNote: string;
     manufacturerReference: string;
     companyNotes: string;
+    masterPrimaryImageUrl: string;
     files: CompanyCatalogFile[];
     createdAt: string | null;
     updatedAt: string | null;
 };
 
-export type CompanyCatalogDraft = Omit<CompanyCatalogItem, 'id' | 'companyId' | 'priceBookItemName' | 'files' | 'createdAt' | 'updatedAt'> & {
+export type CompanyCatalogDraft = Omit<CompanyCatalogItem, 'id' | 'companyId' | 'priceBookItemName' | 'masterPrimaryImageUrl' | 'files' | 'createdAt' | 'updatedAt'> & {
     id?: string;
 };
 
@@ -254,6 +255,7 @@ function parseCatalogItem(value: unknown): CompanyCatalogItem | null {
         availabilityNote: text(row.availability_note),
         manufacturerReference: text(row.manufacturer_reference),
         companyNotes: text(row.company_notes),
+        masterPrimaryImageUrl: text(row.master_primary_image_url),
         files,
         createdAt: nullableText(row.created_at),
         updatedAt: nullableText(row.updated_at),

@@ -1,5 +1,6 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
+import ProductCardImage from '../../components/catalog/product-card-image';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
@@ -60,7 +61,10 @@ import {
     loadCompanyPriceBook,
     type CompanyPriceBookItem,
 } from '../../lib/companyPriceBook';
-import { loadCompanyApprovedProducts } from '../../lib/companyApprovedProducts';
+import {
+    createCompanyApprovedProductCardImageUrl,
+    loadCompanyApprovedProducts,
+} from '../../lib/companyApprovedProducts';
 import { findEstimatePriceBookCatalogItem } from '../../lib/estimatePriceBookTarget';
 import { BUILD_DISPLAY } from '../../lib/appVersion';
 import {
@@ -285,6 +289,7 @@ export default function EstimateScreen() {
     const [priceBookItems, setPriceBookItems] = useState<CompanyPriceBookItem[]>([]);
     const [priceBookMessage, setPriceBookMessage] = useState('Price book loading...');
     const [approvedProducts, setApprovedProducts] = useState<EstimateApprovedProduct[]>([]);
+    const [approvedProductPhotoUrls, setApprovedProductPhotoUrls] = useState<Record<string, string>>({});
     const [approvedProductMessage, setApprovedProductMessage] = useState('Approved products loading...');
     const [selectedWorkType, setSelectedWorkType] = useState<EstimateWorkType | null>(null);
     const [estimateCategoryChosen, setEstimateCategoryChosen] = useState(false);
@@ -453,6 +458,16 @@ export default function EstimateScreen() {
                         ? [requestedProduct, ...products.filter((product) => product.id !== requestedProduct.id)]
                         : products;
                     setApprovedProducts(orderedProducts);
+                    void Promise.all(orderedProducts.map(async (product) => {
+                        const imageUrl = await createCompanyApprovedProductCardImageUrl(product);
+                        return imageUrl ? [product.id, imageUrl] as const : null;
+                    })).then((entries) => {
+                        if (!active) return;
+                        setApprovedProductPhotoUrls(entries.reduce<Record<string, string>>((result, entry) => {
+                            if (entry) result[entry[0]] = entry[1];
+                            return result;
+                        }, {}));
+                    });
                     setApprovedProductMessage(products.length > 0
                         ? `${products.length} approved product${products.length === 1 ? '' : 's'} available.`
                         : 'No approved products are configured for this company yet.'
@@ -477,6 +492,7 @@ export default function EstimateScreen() {
                 .catch((error) => {
                     if (!active) return;
                     setApprovedProducts([]);
+                    setApprovedProductPhotoUrls({});
                     setApprovedProductMessage(
                         `Approved products unavailable: ${error instanceof Error ? error.message : 'Unknown error'}`
                     );
@@ -2737,6 +2753,9 @@ export default function EstimateScreen() {
     const estimateChoices = estimateScopeSelected || hasPersistedCustomChoice
         ? allEstimateChoices.filter((choice) => !removedChoiceIds.includes(choice.id))
         : [];
+    const productImageUrlForChoice = (choice: Phase1EstimateChoice) => choice.productIds
+        .map((productId) => approvedProductPhotoUrls[productId])
+        .find(Boolean) || null;
     const optionChoices = estimateChoices.filter((choice) => choice.kind === 'individual');
     const bundleChoices = estimateChoices.filter((choice) => choice.kind === 'package');
     const selectedChoice = estimateChoices.find((choice) => choice.id === selectedChoiceId) || null;
@@ -2837,6 +2856,7 @@ export default function EstimateScreen() {
         saveGuidedOptionEdits,
         phase1Workspace,
         approvedProductMessage,
+        approvedProductPhotoUrls,
         photoPreviewByKey,
         priceBookItems,
         priceBookMessage,
@@ -3678,7 +3698,7 @@ export default function EstimateScreen() {
                                 </View>
                             ) : (
                                 <View style={presentationGridStyle}>
-                                    {estimateChoices.map((choice) => renderPresentationChoice(choice))}
+                                    {estimateChoices.map((choice) => renderPresentationChoice(choice, productImageUrlForChoice(choice)))}
                                 </View>
                             )}
                         </View>
@@ -3798,7 +3818,7 @@ export default function EstimateScreen() {
                         </View>
                     ) : (
                         <View style={presentationGridStyle}>
-                            {estimateChoices.map((choice) => renderPresentationChoice(choice))}
+                            {estimateChoices.map((choice) => renderPresentationChoice(choice, productImageUrlForChoice(choice)))}
                         </View>
                     )}
                 </View>
@@ -3826,6 +3846,7 @@ export default function EstimateScreen() {
 type GuidedEstimateBuilderProps = {
     activeDraftItem: EstimateDraftItem | null;
     approvedProductMessage: string;
+    approvedProductPhotoUrls: Record<string, string>;
     aiDrafting: boolean;
     answers: EstimateAnswerSet;
     approveForPresentation: (choices: Phase1EstimateChoice[]) => Promise<void>;
@@ -3940,6 +3961,7 @@ type GuidedEstimateBuilderProps = {
 function renderGuidedEstimateBuilder({
     activeDraftItem,
     approvedProductMessage,
+    approvedProductPhotoUrls,
     aiDrafting,
     answers,
     approveForPresentation,
@@ -4444,6 +4466,13 @@ function renderGuidedEstimateBuilder({
                                                                 onPress={() => selectCandidateChoice(choice.id)}
                                                                 style={selected ? guidedProductChoiceSelectedStyle : guidedProductChoiceStyle}
                                                             >
+                                                                {choice.productIds.length > 0 && (
+                                                                    <ProductCardImage
+                                                                        imageUrl={choice.productIds.map((productId) => approvedProductPhotoUrls[productId]).find(Boolean)}
+                                                                        productName={choice.title}
+                                                                        style={{ width: '100%', height: 140, marginBottom: 10 }}
+                                                                    />
+                                                                )}
                                                                 <Text style={selected ? guidedProductChoiceTitleSelectedStyle : guidedProductChoiceTitleStyle}>
                                                                     {choice.title}
                                                                 </Text>
@@ -4733,6 +4762,13 @@ function renderGuidedEstimateBuilder({
 
                                 return (
                                     <View key={choice.id} style={guidedReviewCardStyle}>
+                                        {choice.productIds.length > 0 && (
+                                            <ProductCardImage
+                                                imageUrl={choice.productIds.map((productId) => approvedProductPhotoUrls[productId]).find(Boolean)}
+                                                productName={choice.title}
+                                                style={{ width: '100%', height: 190, marginBottom: 14 }}
+                                            />
+                                        )}
                                         <View style={guidedReviewHeaderStyle}>
                                             <View style={{ flex: 1, minWidth: 0 }}>
                                                 <Text style={guidedRelationshipStyle}>OPTION {index + 1}</Text>
@@ -5615,11 +5651,18 @@ function renderMeasurementRequirementCard(input: {
     );
 }
 
-function renderPresentationChoice(choice: Phase1EstimateChoice) {
+function renderPresentationChoice(choice: Phase1EstimateChoice, productImageUrl?: string | null) {
     const presentationChoice = toHomeownerPresentationChoice(choice);
 
     return (
         <View key={presentationChoice.id} style={presentationCardStyle}>
+            {presentationChoice.productIds.length > 0 && (
+                <ProductCardImage
+                    imageUrl={productImageUrl}
+                    productName={presentationChoice.title}
+                    style={{ width: '100%', height: 170, marginBottom: 12 }}
+                />
+            )}
             <View style={choiceTitleRowStyle}>
                 <Text style={presentationTitleStyle}>{presentationChoice.title}</Text>
                 {presentationChoice.recommended && <Text style={recommendedPillStyle}>Recommended</Text>}
