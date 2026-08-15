@@ -6,6 +6,7 @@ import {
   hasSessionTimedOut,
   recordSessionActivity,
 } from '../lib/sessionSecurity';
+import { resolveAuthUserVerification } from '../lib/authRouteGuard';
 import {
   FIRST_HOME_ONBOARDING_ROUTE,
   HOME_ROUTE,
@@ -200,17 +201,8 @@ export default function Layout() {
     setRouteGuardError('');
 
     try {
-      const sessionResult = await supabase.auth.getSession();
-      if (runId !== checkRunRef.current) return;
-
-      if (sessionResult.error) {
-        showRouteGuardServiceError(runId, sessionResult.error.message);
-        return;
-      }
-
       const currentPath = normalizePath(currentPathname);
       const isPublicAuthPage = isPublicAuthPath(currentPath);
-      const isLoggedIn = !!sessionResult.data.session;
 
       if (isPublicAuthPage || currentPath === COMPANY_INVITE_ROUTE || currentPath === CUSTOMER_INVITE_ROUTE) {
         finishCheck(runId);
@@ -222,30 +214,37 @@ export default function Layout() {
         return;
       }
 
-      if (isLoggedIn) {
-        const timedOut = await hasSessionTimedOut();
+      const userResult = await supabase.auth.getUser();
+      if (runId !== checkRunRef.current) return;
 
-        if (runId !== checkRunRef.current) return;
+      const verifiedAuth = resolveAuthUserVerification(userResult.data.user, userResult.error);
 
-        if (timedOut) {
-          await supabase.auth.signOut();
-          await clearSessionActivity();
-          replaceIfNeeded(LOGIN_ROUTE, currentPath);
-          return;
-        }
-
-        if (!isAuthPath(currentPath)) {
-          await recordSessionActivity();
-        }
+      if (verifiedAuth.status === 'service-unavailable') {
+        showRouteGuardServiceError(runId, verifiedAuth.message);
+        return;
       }
 
-      if (!isLoggedIn) {
+      if (verifiedAuth.status === 'unauthenticated') {
         replaceIfNeeded(LOGIN_ROUTE, currentPath);
         return;
       }
 
-      const sessionUserId = sessionResult.data.session?.user.id || '';
-      const routeDecision = await resolveLoggedInUserRoute(sessionUserId);
+      const timedOut = await hasSessionTimedOut();
+
+      if (runId !== checkRunRef.current) return;
+
+      if (timedOut) {
+        await supabase.auth.signOut();
+        await clearSessionActivity();
+        replaceIfNeeded(LOGIN_ROUTE, currentPath);
+        return;
+      }
+
+      if (!isAuthPath(currentPath)) {
+        await recordSessionActivity();
+      }
+
+      const routeDecision = await resolveLoggedInUserRoute(verifiedAuth.userId);
 
       if (runId !== checkRunRef.current) return;
 
