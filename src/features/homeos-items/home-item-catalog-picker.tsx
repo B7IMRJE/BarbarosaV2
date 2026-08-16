@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { router } from 'expo-router';
 import { ActivityIndicator, Text, View } from 'react-native';
 import CompactCatalogProductTile from '../../components/catalog/compact-catalog-product-tile';
 import ProductCardImage from '../../components/catalog/product-card-image';
@@ -23,6 +24,9 @@ import {
 import { useTheme } from '../../theme/useTheme';
 import { loadCompanyHomeOSStarterCatalogVariantIds } from '../../lib/homeosStarterCatalog';
 import { resolveCompleteRoomStarterTemplate } from '../../lib/roomStarterTemplates';
+import { loadCurrentCompanyPermissionAccess } from '../../lib/companyPermissions';
+import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
+import { companyCatalogPricingRoute } from '../../lib/companyCatalogPricingNavigation';
 
 type HomeItemCatalogPickerProps = HomeItemCatalogRouteContext & {
     active: boolean;
@@ -56,6 +60,7 @@ export default function HomeItemCatalogPicker({
     const [addingVariantId, setAddingVariantId] = useState('');
     const [addingSelected, setAddingSelected] = useState(false);
     const [message, setMessage] = useState('');
+    const [canManageCompanyPricing, setCanManageCompanyPricing] = useState(false);
     const itemName = itemContext.name;
     const itemSystem = itemContext.system;
     const itemCategory = itemContext.category;
@@ -127,15 +132,48 @@ export default function HomeItemCatalogPicker({
         starterTemplateKey,
     ]);
 
+    useEffect(() => {
+        let current = true;
+
+        if (!active || !companyId) {
+            setCanManageCompanyPricing(false);
+            return () => { current = false; };
+        }
+
+        void Promise.all([
+            loadCurrentUserPlatformAdmin(),
+            loadCurrentCompanyPermissionAccess('can_manage_price_book', { companyId }),
+        ])
+            .then(([isPlatformAdmin, permission]) => {
+                if (current) setCanManageCompanyPricing(isPlatformAdmin || Boolean(permission.access));
+            })
+            .catch(() => {
+                if (current) setCanManageCompanyPricing(false);
+            });
+
+        return () => { current = false; };
+    }, [active, companyId]);
+
     const selectedProposal = selectedItem
         ? proposals.find((proposal) => proposal.productVariantId === selectedItem.id && proposal.status === 'proposed') || null
         : null;
     const selectedEligibility = selectedItem
         ? quoteEligibility(selectedItem, quoteAuthorized, quotePermissionMessage)
-        : { allowed: false, message: '' };
+        : { allowed: false, reason: 'not_selected' as const, message: '' };
+    const selectedNeedsCompanyPricing = selectedItem ? companyPricingRequired(selectedItem) : false;
     const selectedItems = items.filter((item) => selectedVariantIds.includes(item.id));
     const selectedItemsToAdd = selectedItems.filter((item) => !proposals.some((proposal) => proposal.productVariantId === item.id && proposal.status === 'proposed'));
     const selectedBatchBlocked = selectedItemsToAdd.find((item) => !quoteEligibility(item, quoteAuthorized, quotePermissionMessage).allowed);
+    const selectedBatchBlockedEligibility = selectedBatchBlocked
+        ? quoteEligibility(selectedBatchBlocked, quoteAuthorized, quotePermissionMessage)
+        : null;
+    const selectedBatchNeedsCompanyPricing = selectedBatchBlocked
+        ? companyPricingRequired(selectedBatchBlocked)
+        : false;
+
+    function openCompanyPricing(item: ApprovedMasterCatalogItem) {
+        router.push(companyCatalogPricingRoute(companyId, item.id) as never);
+    }
 
     async function addSelectedProductToQuote() {
         if (!selectedItem || !selectedEligibility.allowed || addingVariantId) return;
@@ -256,7 +294,22 @@ export default function HomeItemCatalogPicker({
                                 textStyle={{ fontSize: scaleFont(13) }}
                             />
                         </View>
-                        {!!selectedBatchBlocked && <Text selectable style={{ color: theme.colors.danger, fontSize: scaleFont(13), fontWeight: '800' }}>{quoteEligibility(selectedBatchBlocked, quoteAuthorized, quotePermissionMessage).message}</Text>}
+                        {!!selectedBatchBlocked && selectedBatchBlockedEligibility && (
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: scaleIcon(8) }}>
+                                <Text selectable style={{ flex: 1, minWidth: scaleIcon(180), color: theme.colors.danger, fontSize: scaleFont(13), fontWeight: '800' }}>
+                                    {selectedBatchBlockedEligibility.message}
+                                </Text>
+                                {canManageCompanyPricing && selectedBatchNeedsCompanyPricing && (
+                                    <ThemedButton
+                                        title="Set Company Pricing"
+                                        variant="secondary"
+                                        onPress={() => openCompanyPricing(selectedBatchBlocked)}
+                                        style={{ minHeight: scaleIcon(44), minWidth: scaleIcon(160) }}
+                                        textStyle={{ fontSize: scaleFont(13) }}
+                                    />
+                                )}
+                            </View>
+                        )}
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), alignItems: 'stretch' }}>
                         {items.map((item) => {
                             const productName = catalogProductName(item);
@@ -301,13 +354,23 @@ export default function HomeItemCatalogPicker({
                 primaryAction={selectedItem ? {
                     title: selectedProposal
                         ? 'Open Quote'
+                        : canManageCompanyPricing && selectedNeedsCompanyPricing
+                            ? 'Set Company Pricing'
                         : addingVariantId === selectedItem.id ? 'Adding to Quote...' : 'Add to Quote',
-                    disabled: selectedProposal ? false : !selectedEligibility.allowed || Boolean(addingVariantId),
+                    disabled: selectedProposal
+                        ? false
+                        : canManageCompanyPricing && selectedNeedsCompanyPricing
+                            ? false
+                            : !selectedEligibility.allowed || Boolean(addingVariantId),
                     message: selectedProposal
                         ? `${selectedProposal.productName} is proposed in ${selectedProposal.quoteNumber || 'the quote'}. Installed HomeOS facts will not change until completed job closeout.`
+                        : canManageCompanyPricing && selectedNeedsCompanyPricing
+                            ? 'Open this company offering to add private company cost, labor, and installed price. Master product and HomeOS data will not change.'
                         : selectedEligibility.message,
                     onPress: selectedProposal
                         ? () => onOpenQuote(selectedProposal)
+                        : canManageCompanyPricing && selectedNeedsCompanyPricing
+                            ? () => openCompanyPricing(selectedItem)
                         : () => void addSelectedProductToQuote(),
                 } : undefined}
             />
@@ -323,19 +386,30 @@ function quoteEligibility(
     if (!quoteAuthorized) {
         return {
             allowed: false,
+            reason: 'not_authorized' as const,
             message: quotePermissionMessage || 'This work account is not authorized to create estimates for this company.',
         };
     }
     if (!item.offering?.active || !item.offering.companyCatalogProductId) {
-        return { allowed: false, message: 'This catalog item does not have an active company offering.' };
+        return { allowed: false, reason: 'inactive_offering' as const, message: 'This catalog item does not have an active company offering.' };
     }
     if (item.offering.installedPrice === null || item.offering.installedPrice < 0) {
-        return { allowed: false, message: 'Management must add an installed price before this product can be added to a quote.' };
+        return { allowed: false, reason: 'missing_price' as const, message: 'Management must add an installed price before this product can be added to a quote.' };
     }
     return {
         allowed: true,
+        reason: 'ready' as const,
         message: 'Adds this product as a proposed quote option. The installed HomeOS item will not change at quote time.',
     };
+}
+
+function companyPricingRequired(item: ApprovedMasterCatalogItem) {
+    return (
+        !item.offering?.active ||
+        !item.offering.companyCatalogProductId ||
+        item.offering.installedPrice === null ||
+        item.offering.installedPrice < 0
+    );
 }
 
 function errorMessage(error: unknown) {

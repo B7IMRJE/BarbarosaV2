@@ -1,7 +1,7 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Linking, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
 import ProductCardImage from '../../components/catalog/product-card-image';
@@ -59,8 +59,12 @@ import {
 import PlumbingCatalogSuggestionsPanel from './PlumbingCatalogSuggestionsPanel';
 
 export default function CompanyCatalogScreen() {
-    const { id } = useLocalSearchParams<{ id?: string | string[] }>();
+    const { id, productVariantId } = useLocalSearchParams<{
+        id?: string | string[];
+        productVariantId?: string | string[];
+    }>();
     const companyId = firstParam(id);
+    const requestedProductVariantId = firstParam(productVariantId);
     const { width } = useWindowDimensions();
     const { scaleFont, scaleIcon, theme } = useTheme();
     const phone = width < 700;
@@ -85,6 +89,7 @@ export default function CompanyCatalogScreen() {
     const [offeringDraft, setOfferingDraft] = useState<CompanyCatalogOffering>(emptyOffering());
     const [researching, setResearching] = useState(false);
     const [researchResult, setResearchResult] = useState<CatalogProductResearch | null>(null);
+    const openedPricingRequestRef = useRef('');
 
     useEffect(() => {
         if (!companyId) {
@@ -92,9 +97,9 @@ export default function CompanyCatalogScreen() {
             return;
         }
         void refresh();
-        // refresh is scoped to companyId; setters and imported loaders are stable.
+        // refresh is scoped to the company and optional company-pricing deep link.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [companyId]);
+    }, [companyId, requestedProductVariantId]);
 
     async function refresh(preferredItemId?: string) {
         if (!companyId) return;
@@ -131,6 +136,7 @@ export default function CompanyCatalogScreen() {
             if (catalogResult.status === 'rejected') throw catalogResult.reason;
             const catalog = catalogResult.value;
             const priceBook = priceBookResult.status === 'fulfilled' ? priceBookResult.value : null;
+            const approvedMasterItems = masterResult.status === 'fulfilled' ? masterResult.value : [];
             setIsPlatformAdmin(platformAdmin);
             setCanManage(mayManage);
             setCanManagePricing(mayManagePricing);
@@ -142,7 +148,7 @@ export default function CompanyCatalogScreen() {
             });
             setItems(catalog);
             setPriceBookItems(priceBook?.items.filter((item) => item.active) || []);
-            setMasterItems(masterResult.status === 'fulfilled' ? masterResult.value : []);
+            setMasterItems(approvedMasterItems);
             setMessage(!catalogEntitlement.active
                 ? platformAdmin
                     ? 'Catalog access is inactive. Existing catalog records and installed HomeOS history are preserved.'
@@ -152,6 +158,23 @@ export default function CompanyCatalogScreen() {
                     : mayManage
                     ? 'No catalog cards yet. Create the first approved product card.'
                     : 'No catalog cards yet. Catalog management access is required to create one.');
+            const pricingRequestKey = requestedProductVariantId
+                ? `${companyId}:${requestedProductVariantId}`
+                : '';
+            if (pricingRequestKey && openedPricingRequestRef.current !== pricingRequestKey) {
+                openedPricingRequestRef.current = pricingRequestKey;
+                setShowMasterCatalog(true);
+                const requestedProduct = approvedMasterItems.find((item) => item.id === requestedProductVariantId) || null;
+                if (!requestedProduct) {
+                    setMessage('The requested approved catalog product is not available to this company.');
+                } else if (!mayManagePricing) {
+                    setMessage('Manage Price Book permission and active catalog access are required to change company offering prices.');
+                } else {
+                    setOfferingItem(requestedProduct);
+                    setOfferingDraft(requestedProduct.offering || emptyOffering());
+                    setMessage(`Company pricing is ready for ${requestedProduct.brand} ${requestedProduct.modelNumber}.`);
+                }
+            }
             if (preferredItemId) {
                 const saved = catalog.find((item) => item.id === preferredItemId);
                 if (saved) setDraft(toDraft(saved));
@@ -534,6 +557,28 @@ export default function CompanyCatalogScreen() {
 
                 {!draft && (
                     <>
+                        {offeringItem && <ThemedCard style={{ borderWidth: 2, borderColor: theme.colors.primary }}>
+                            <View style={{ gap: 12 }}>
+                                <Text style={{ color: mutedColor, fontSize: scaleFont(12), fontWeight: '900', letterSpacing: 0.7 }}>COMPANY-PRIVATE PRICING</Text>
+                                <Text style={{ color: textColor, fontSize: scaleFont(21), fontWeight: '900' }}>Company Offering · {offeringItem.brand} {offeringItem.modelNumber}</Text>
+                                <Text selectable style={{ color: mutedColor, lineHeight: scaleFont(21) }}>
+                                    Set this company&apos;s cost and installed selling price. This does not edit the master product, a homeowner&apos;s HomeOS card, or service history.
+                                </Text>
+                                <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
+                                    <View style={{ flex: 1 }}><NumberField label="Material cost" value={offeringDraft.materialCost} onChange={(materialCost) => setOfferingDraft({ ...offeringDraft, materialCost })} /></View>
+                                    <View style={{ flex: 1 }}><NumberField label="Markup" value={offeringDraft.markup} onChange={(markup) => setOfferingDraft({ ...offeringDraft, markup })} /></View>
+                                    <View style={{ flex: 1 }}><NumberField label="Labor amount" value={offeringDraft.laborAmount} onChange={(laborAmount) => setOfferingDraft({ ...offeringDraft, laborAmount })} /></View>
+                                    <View style={{ flex: 1 }}><NumberField label="Installed price" value={offeringDraft.installedPrice} onChange={(installedPrice) => setOfferingDraft({ ...offeringDraft, installedPrice })} /></View>
+                                </View>
+                                <Field label="Preferred supplier" value={offeringDraft.preferredSupplier} onChangeText={(preferredSupplier) => setOfferingDraft({ ...offeringDraft, preferredSupplier })} />
+                                <Field label="Company warranty" value={offeringDraft.companyWarranty} onChangeText={(companyWarranty) => setOfferingDraft({ ...offeringDraft, companyWarranty })} multiline />
+                                <ChoiceRow label="Offering status" values={['active', 'inactive']} selected={offeringDraft.active ? 'active' : 'inactive'} onSelect={(value) => setOfferingDraft({ ...offeringDraft, active: value === 'active' })} />
+                                <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
+                                    <ThemedButton title={busy ? 'Saving...' : 'Save Company Offering'} disabled={busy} onPress={() => void saveOffering()} style={{ flex: 1 }} />
+                                    <ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={() => setOfferingItem(null)} style={{ flex: 1 }} />
+                                </View>
+                            </View>
+                        </ThemedCard>}
                         <ThemedCard>
                             <View style={{ gap: 12 }}>
                                 <Text style={{ color: textColor, fontSize: scaleFont(21), fontWeight: '900' }}>Approved Master Products</Text>
@@ -566,24 +611,6 @@ export default function CompanyCatalogScreen() {
                                 </View>}
                             </View>
                         </ThemedCard>
-                        {offeringItem && <ThemedCard>
-                            <View style={{ gap: 12 }}>
-                                <Text style={{ color: textColor, fontSize: scaleFont(21), fontWeight: '900' }}>Company Offering · {offeringItem.brand} {offeringItem.modelNumber}</Text>
-                                <View style={{ flexDirection: phone ? 'column' : 'row', gap: 12 }}>
-                                    <View style={{ flex: 1 }}><NumberField label="Material cost" value={offeringDraft.materialCost} onChange={(materialCost) => setOfferingDraft({ ...offeringDraft, materialCost })} /></View>
-                                    <View style={{ flex: 1 }}><NumberField label="Markup" value={offeringDraft.markup} onChange={(markup) => setOfferingDraft({ ...offeringDraft, markup })} /></View>
-                                    <View style={{ flex: 1 }}><NumberField label="Labor amount" value={offeringDraft.laborAmount} onChange={(laborAmount) => setOfferingDraft({ ...offeringDraft, laborAmount })} /></View>
-                                    <View style={{ flex: 1 }}><NumberField label="Installed price" value={offeringDraft.installedPrice} onChange={(installedPrice) => setOfferingDraft({ ...offeringDraft, installedPrice })} /></View>
-                                </View>
-                                <Field label="Preferred supplier" value={offeringDraft.preferredSupplier} onChangeText={(preferredSupplier) => setOfferingDraft({ ...offeringDraft, preferredSupplier })} />
-                                <Field label="Company warranty" value={offeringDraft.companyWarranty} onChangeText={(companyWarranty) => setOfferingDraft({ ...offeringDraft, companyWarranty })} multiline />
-                                <ChoiceRow label="Offering status" values={['active', 'inactive']} selected={offeringDraft.active ? 'active' : 'inactive'} onSelect={(value) => setOfferingDraft({ ...offeringDraft, active: value === 'active' })} />
-                                <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
-                                    <ThemedButton title={busy ? 'Saving...' : 'Save Company Offering'} disabled={busy} onPress={() => void saveOffering()} style={{ flex: 1 }} />
-                                    <ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={() => setOfferingItem(null)} style={{ flex: 1 }} />
-                                </View>
-                            </View>
-                        </ThemedCard>}
                         <View style={{ flexDirection: phone ? 'column' : 'row', gap: 10 }}>
                             <TextInput value={search} onChangeText={setSearch} placeholder="Search brand, model, category, or SKU" placeholderTextColor={theme.colors.mutedText} style={{ flex: 1, minHeight: 52, backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, color: textColor }} />
                             {canManage && items.length > 0 && <ThemedButton title="Create Catalog Card" onPress={() => { setSaveFeedback(''); setDraft(emptyCompanyCatalogDraft()); }} />}
