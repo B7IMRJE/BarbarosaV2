@@ -15,6 +15,8 @@ type ThemedButtonProps = {
     title?: string;
     children?: ReactNode;
     onPress?: () => void;
+    accessibilityLabel?: string;
+    testID?: string;
     disabled?: boolean;
     variant?: ButtonVariant;
     style?: StyleProp<ViewStyle>;
@@ -25,6 +27,8 @@ export default function ThemedButton({
     title,
     children,
     onPress,
+    accessibilityLabel,
+    testID,
     disabled,
     variant = 'primary',
     style,
@@ -67,7 +71,9 @@ export default function ThemedButton({
     return (
         <Pressable
             accessibilityRole="button"
+            accessibilityLabel={accessibilityLabel}
             accessibilityState={{ disabled: Boolean(disabled) }}
+            testID={testID}
             disabled={disabled}
             onPress={onPress}
             style={({ pressed }) => [

@@ -533,6 +533,7 @@ export default function CatalogFactoryScreen() {
         setEditingStarterCard(null);
         setEditing(record);
         setEditDraft(nextDraft);
+        setMessage(`Editing ${record.shortCode ? `${record.shortCode} · ` : ''}${factoryProductName(record)}.`);
         setMergeTargetId('');
         setShowAdvancedJson(false);
         setAdvancedJsonDirty(false);
@@ -723,19 +724,21 @@ export default function CatalogFactoryScreen() {
                     onClose={() => setEditingStarterCard(null)}
                 />
 
+                {!!imports.length && mode === 'overview' && (
+                    <ThemedCard><Text selectable style={{ color: textColor, fontWeight: '900', fontSize: scaleFont(20) }}>Recent import batches</Text>{imports.slice(0, 8).map((item) => <Text selectable key={String(item.id)} style={{ color: mutedColor, marginTop: 8 }}>{String(item.file_name || 'Structured import')} · {String(item.created_count || 0)} created · {String(item.duplicate_count || 0)} duplicate · {String(item.failed_count || 0)} failed</Text>)}</ThemedCard>
+                )}
+            </ScrollView>
+            {editing && editDraft && (
                 <CatalogFactoryEditModal
+                    key={editing.id}
                     record={editing}
                     busy={busy}
                     message={message}
                     onClose={() => { setEditing(null); setEditDraft(null); }}
                 >
-                    {editing && editDraft && <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} records={deckRecords} starterCards={starterCards} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).id} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />}
+                    <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} records={deckRecords} starterCards={starterCards} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).id} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />
                 </CatalogFactoryEditModal>
-
-                {!!imports.length && mode === 'overview' && (
-                    <ThemedCard><Text selectable style={{ color: textColor, fontWeight: '900', fontSize: scaleFont(20) }}>Recent import batches</Text>{imports.slice(0, 8).map((item) => <Text selectable key={String(item.id)} style={{ color: mutedColor, marginTop: 8 }}>{String(item.file_name || 'Structured import')} · {String(item.created_count || 0)} created · {String(item.duplicate_count || 0)} duplicate · {String(item.failed_count || 0)} failed</Text>)}</ThemedCard>
-                )}
-            </ScrollView>
+            )}
         </View>
     );
 }
@@ -936,8 +939,13 @@ function StarterMappedVariant({ record, busy, onEdit, onDetails }: { record: Cat
             model={record.modelNumber ? `Model ${record.modelNumber}` : ''}
             identity={[record.brand, record.status].filter(Boolean).join(' · ')}
             disabled={busy}
-            onOpen={onDetails}
-            primaryAction={{ title: 'Edit', onPress: onEdit }}
+            onOpen={onEdit}
+            primaryAction={{
+                title: 'Edit',
+                accessibilityLabel: `Edit master product ${productName}`,
+                testID: `catalog-deck-edit-${record.id}`,
+                onPress: onEdit,
+            }}
             secondaryAction={{ title: 'Details', onPress: onDetails }}
         />
     );
@@ -1308,7 +1316,7 @@ function FactoryRecordCard({ record, phone, selected, busy, onToggle, onEdit, on
                 </View>
 
                 <View style={{ flexDirection: 'row', gap: scaleIcon(7), marginTop: 'auto' }}>
-                    <FactoryTileAction title="Edit" variant="secondary" disabled={busy} onPress={onEdit} />
+                    <FactoryTileAction title="Edit" accessibilityLabel={`Edit master product ${productName}`} testID={`catalog-list-edit-${record.id}`} variant="secondary" disabled={busy} onPress={onEdit} />
                     <FactoryTileAction title="Details / Reference" variant="secondary" disabled={busy} onPress={onDetails} />
                 </View>
 
@@ -1407,9 +1415,9 @@ function FactoryRecordDetailsModal({ record, onClose }: { record: CatalogFactory
     );
 }
 
-function FactoryTileAction({ title, variant, disabled, onPress }: { title: string; variant?: 'primary' | 'secondary' | 'danger'; disabled: boolean; onPress: () => void }) {
+function FactoryTileAction({ title, accessibilityLabel, testID, variant, disabled, onPress }: { title: string; accessibilityLabel?: string; testID?: string; variant?: 'primary' | 'secondary' | 'danger'; disabled: boolean; onPress: () => void }) {
     const { scaleFont, scaleIcon } = useTheme();
-    return <ThemedButton title={title} variant={variant} disabled={disabled} onPress={onPress} style={{ flexGrow: 1, flexBasis: scaleIcon(92), minHeight: scaleIcon(44), paddingHorizontal: scaleIcon(9), paddingVertical: scaleIcon(8) }} textStyle={{ fontSize: scaleFont(13), lineHeight: scaleFont(16) }} />;
+    return <ThemedButton title={title} accessibilityLabel={accessibilityLabel} testID={testID} variant={variant} disabled={disabled} onPress={onPress} style={{ flexGrow: 1, flexBasis: scaleIcon(92), minHeight: scaleIcon(44), paddingHorizontal: scaleIcon(9), paddingVertical: scaleIcon(8) }} textStyle={{ fontSize: scaleFont(13), lineHeight: scaleFont(16) }} />;
 }
 
 function FactoryTileBadge({ label, tone }: { label: string; tone: 'green' | 'red' | 'amber' }) {
@@ -1451,7 +1459,7 @@ function CatalogFactoryEditModal({
     onClose,
     children,
 }: {
-    record: CatalogFactoryRecord | null;
+    record: CatalogFactoryRecord;
     busy: boolean;
     message: string;
     onClose: () => void;
@@ -1459,12 +1467,13 @@ function CatalogFactoryEditModal({
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     return (
-        <Modal animationType="slide" transparent visible={Boolean(record)} onRequestClose={() => { if (!busy) onClose(); }}>
+        <Modal animationType="slide" transparent visible onRequestClose={() => { if (!busy) onClose(); }} testID="catalog-factory-editor-modal">
             <View style={{ flex: 1, backgroundColor: 'rgba(8, 18, 31, 0.64)', justifyContent: 'center', padding: scaleIcon(10) }}>
                 <ThemedCard style={{ width: '100%', maxWidth: 980, maxHeight: '96%', alignSelf: 'center', padding: 0, overflow: 'hidden' }}>
                     <View style={{ paddingHorizontal: scaleIcon(16), paddingVertical: scaleIcon(12), borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}>
                         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(19), fontWeight: '900' }}>Edit {record ? [record.shortCode, factoryProductName(record)].filter(Boolean).join(' · ') : 'Master Product'}</Text>
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(12), fontWeight: '900', letterSpacing: 0.8 }}>MASTER PRODUCT EDITOR</Text>
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(19), fontWeight: '900' }}>Edit {[record.shortCode, factoryProductName(record)].filter(Boolean).join(' · ')}</Text>
                             <Text selectable numberOfLines={2} style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(18), fontWeight: '700' }}>{message}</Text>
                         </View>
                         <ThemedButton title="Close" variant="secondary" disabled={busy} onPress={onClose} style={{ minWidth: scaleIcon(94), minHeight: scaleIcon(46) }} />

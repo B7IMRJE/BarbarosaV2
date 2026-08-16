@@ -8,6 +8,8 @@ import ProductCardImage from './product-card-image';
 type TileAction = {
     title: string;
     onPress: () => void;
+    accessibilityLabel?: string;
+    testID?: string;
     selected?: boolean;
     disabled?: boolean;
 };
@@ -83,6 +85,8 @@ export default function CompactCatalogProductTile({
                         <ThemedButton
                             key={action.title}
                             title={action.title}
+                            accessibilityLabel={action.accessibilityLabel}
+                            testID={action.testID}
                             variant={action.selected ? undefined : 'secondary'}
                             disabled={disabled || action.disabled}
                             onPress={action.onPress}
