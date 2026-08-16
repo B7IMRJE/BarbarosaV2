@@ -69,9 +69,8 @@ import {
 } from '../../lib/catalogFactorySuggestions';
 import { researchCatalogProduct } from '../../lib/catalogProductResearch';
 import {
-    mapCatalogResearchSpecifications,
+    applyCatalogResearchToSeedDraft,
     type CatalogProductResearch,
-    type CatalogResearchSourceType,
 } from '../../lib/catalogProductResearchCore';
 import {
     catalogFactoryDeckFilterOptions,
@@ -137,6 +136,7 @@ export default function CatalogFactoryScreen() {
     const [seedResearch, setSeedResearch] = useState<CatalogProductResearch | null>(null);
     const [researchingSeed, setResearchingSeed] = useState(false);
     const [seedSaveError, setSeedSaveError] = useState('');
+    const [seedResearchApplyMessage, setSeedResearchApplyMessage] = useState('');
     const [editingStarterCard, setEditingStarterCard] = useState<HomeOSStarterDeckCard | null>(null);
     const [starterVariantIds, setStarterVariantIds] = useState<string[]>([]);
     const [starterReadiness, setStarterReadiness] = useState<HomeOSStarterDeckReadiness>('unbuilt');
@@ -322,6 +322,7 @@ export default function CatalogFactoryScreen() {
             }
             setSeedDraft(emptySeed);
             setSeedResearch(null);
+            setSeedResearchApplyMessage('');
             setSeedSaveError('');
             setMode('review');
             setMessage(`Seed draft created. ${summary.warning} warning${summary.warning === 1 ? '' : 's'} require review.`);
@@ -338,6 +339,7 @@ export default function CatalogFactoryScreen() {
         if (researchingSeed) return;
         setResearchingSeed(true);
         setSeedResearch(null);
+        setSeedResearchApplyMessage('');
         setMessage('Searching manufacturer product pages, manuals, specifications, and warranty information...');
         try {
             const result = await researchCatalogProduct({
@@ -360,34 +362,20 @@ export default function CatalogFactoryScreen() {
 
     function useResearchInSeed() {
         if (!seedResearch) return;
-        const confidence = seedResearch.confidence === 'high' ? '0.95' : seedResearch.confidence === 'medium' ? '0.75' : '0.5';
         const template = templates.find((candidate) =>
             candidate.status === 'approved'
             && (candidate.templateKey.toLowerCase() === seedDraft.category.trim().toLowerCase()
                 || candidate.categoryName.toLowerCase() === seedDraft.category.trim().toLowerCase())
         );
-        const specifications = mapCatalogResearchSpecifications(seedResearch, template);
-        const verifiedAt = new Date().toISOString();
-        setSeedDraft((current) => ({
-            ...current,
-            manufacturer: seedResearch.manufacturer || seedResearch.brand || current.manufacturer,
-            brand: seedResearch.brand || current.brand,
-            family_name: seedResearch.familyName || seedResearch.productName || current.family_name,
-            model_number: seedResearch.modelNumber || current.model_number,
-            manufacturer_part_number: seedResearch.manufacturerPartNumber || current.manufacturer_part_number,
-            description: seedResearch.description || current.description,
-            specifications: JSON.stringify(specifications, null, 2),
-            sources: JSON.stringify(seedResearch.sources.map((source) => ({
-                type: catalogSourceType(source.sourceType),
-                url: source.url,
-                title: source.title,
-                verified_at: verifiedAt,
-                confidence,
-            })), null, 2),
-            confidence,
-        }));
+        const result = applyCatalogResearchToSeedDraft(seedDraft, seedResearch, template);
+        setSeedDraft(result.draft);
+        setSeedResearch(null);
         setSeedSaveError('');
-        setMessage('Sourced manufacturer details applied to the master seed. Review every field, then create the draft seed.');
+        const confirmation = result.appliedFieldCount > 0
+            ? `Research applied to ${result.appliedFieldCount} blank or new seed field${result.appliedFieldCount === 1 ? '' : 's'}. ${result.preservedFieldCount} existing value${result.preservedFieldCount === 1 ? ' was' : 's were'} preserved.`
+            : 'Research was already represented in this seed. All existing values were preserved.';
+        setSeedResearchApplyMessage(confirmation);
+        setMessage(`${confirmation} Review the Seed Draft before creating it.`);
     }
 
     async function pickImportFile() {
@@ -659,7 +647,7 @@ export default function CatalogFactoryScreen() {
                 </View>
 
                 {mode === 'template' && <TemplateEditor draft={templateDraft} setDraft={setTemplateDraft} busy={busy} onSave={() => void createTemplate()} onCancel={() => setMode('overview')} />}
-                {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={(next) => { setSeedDraft(next); setSeedSaveError(''); }} templates={templates} records={deckRecords} starterCards={starterCards} busy={busy} researching={researchingSeed} research={seedResearch} saveError={seedSaveError} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).templateKey} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => setSeedResearch(null)} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setSeedSaveError(''); setMode('overview'); }} />}
+                {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={(next) => { setSeedDraft(next); setSeedSaveError(''); setSeedResearchApplyMessage(''); }} templates={templates} records={deckRecords} starterCards={starterCards} busy={busy} researching={researchingSeed} research={seedResearch} researchApplyMessage={seedResearchApplyMessage} saveError={seedSaveError} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).templateKey} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => { setSeedResearch(null); setSeedResearchApplyMessage(''); }} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setSeedResearchApplyMessage(''); setSeedSaveError(''); setMode('overview'); }} />}
                 {mode === 'import' && <ImportPanel busy={busy} preview={importPreview} summary={importSummary} fileName={importFileName} onPick={() => void pickImportFile()} onImport={() => void commitImport()} />}
 
                 {mode === 'overview' && (
@@ -1062,6 +1050,7 @@ function SeedEditor({
     busy,
     researching,
     research,
+    researchApplyMessage,
     saveError,
     onAddCategory,
     onResearch,
@@ -1078,6 +1067,7 @@ function SeedEditor({
     busy: boolean;
     researching: boolean;
     research: CatalogProductResearch | null;
+    researchApplyMessage: string;
     saveError: string;
     onAddCategory: (categoryName: string) => Promise<string>;
     onResearch: () => void;
@@ -1157,6 +1147,12 @@ function SeedEditor({
                 {research && (
                     <FactoryResearchReview research={research} onUse={onUseResearch} onClear={onClearResearch} />
                 )}
+                {!!researchApplyMessage && (
+                    <View accessibilityRole="alert" style={{ backgroundColor: '#E9F8F1', borderColor: '#4B9A72', borderWidth: 1, borderRadius: 10, padding: 11 }}>
+                        <Text selectable style={{ color: '#075B39', fontWeight: '900', lineHeight: 20 }}>{researchApplyMessage}</Text>
+                        <Text selectable style={{ color: '#315466', marginTop: 3, lineHeight: 19 }}>Research remains in this unsaved Seed Draft only. Review the fields below; no product, price, offer, or HomeOS mapping was created.</Text>
+                    </View>
+                )}
             </View>
             <Field label="UPC / GTIN" value={draft.upc_gtin} onChangeText={(upc_gtin) => setDraft({ ...draft, upc_gtin })} />
             <ButtonRow>
@@ -1216,28 +1212,13 @@ function FactoryResearchReview({ research, onUse, onClear }: { research: Catalog
                     <Text selectable style={{ color: '#087D78', textDecorationLine: 'underline', fontWeight: '800' }}>{source.title}</Text>
                 </TouchableOpacity>
             ))}
+            {!research.sources.length && <Text selectable style={{ color: '#8A1020', fontWeight: '800' }}>No verified source was returned, so this result cannot be transferred into the Seed Draft. Refine the model or part number and research again.</Text>}
             <ButtonRow>
-                <ThemedButton title="Use Research in Seed Draft" disabled={!research.sources.length} onPress={onUse} style={{ flex: 1 }} />
+                <ThemedButton title={research.sources.length ? 'Use Research in Seed Draft' : 'Research Has No Verified Sources'} accessibilityLabel="Use manufacturer research in Seed Draft" testID="catalog-use-research" disabled={!research.sources.length} onPress={onUse} style={{ flex: 1 }} />
                 <ThemedButton title="Clear" variant="secondary" onPress={onClear} style={{ flex: 1 }} />
             </ButtonRow>
         </View>
     );
-}
-
-function catalogSourceType(sourceType: CatalogResearchSourceType) {
-    switch (sourceType) {
-        case 'manufacturer_product':
-        case 'manufacturer_support':
-            return 'manufacturer_page';
-        case 'manufacturer_manual':
-            return 'installation_manual';
-        case 'manufacturer_warranty':
-            return 'warranty_document';
-        case 'distributor':
-            return 'retailer_page';
-        default:
-            return 'other';
-    }
 }
 
 function safeParseObject(value: string): Record<string, unknown> {

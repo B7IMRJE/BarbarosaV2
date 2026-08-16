@@ -87,6 +87,24 @@ export type CatalogResearchApplyGroup =
     | 'requirements'
     | 'warranty';
 
+export type CatalogSeedResearchDraft = {
+    manufacturer: string;
+    brand: string;
+    family_name: string;
+    model_number: string;
+    manufacturer_part_number: string;
+    description: string;
+    specifications: string;
+    sources: string;
+    confidence: string;
+};
+
+export type CatalogSeedResearchApplyResult<T extends CatalogSeedResearchDraft> = {
+    draft: T;
+    appliedFieldCount: number;
+    preservedFieldCount: number;
+};
+
 const MAX_SHORT_TEXT = 240;
 const MAX_DESCRIPTION = 2_000;
 const MAX_LIST_ITEMS = 40;
@@ -209,6 +227,91 @@ export function applyCatalogProductResearch<T extends CatalogResearchDraft>(
     return next;
 }
 
+export function applyCatalogResearchToSeedDraft<T extends CatalogSeedResearchDraft>(
+    draft: T,
+    research: CatalogProductResearch,
+    template?: Pick<CatalogTemplateShape, 'universalFields' | 'specificationFields' | 'requiredFields'>,
+    verifiedAt = new Date().toISOString(),
+): CatalogSeedResearchApplyResult<T> {
+    const next = { ...draft };
+    let appliedFieldCount = 0;
+    let preservedFieldCount = 0;
+
+    const fillBlank = (key: 'manufacturer' | 'brand' | 'family_name' | 'model_number' | 'manufacturer_part_number' | 'description' | 'confidence', researchedValue: string) => {
+        if (!researchedValue.trim()) return;
+        if (next[key].trim()) {
+            preservedFieldCount += 1;
+            return;
+        }
+        next[key] = researchedValue;
+        appliedFieldCount += 1;
+    };
+
+    fillBlank('manufacturer', research.manufacturer || research.brand);
+    fillBlank('brand', research.brand);
+    fillBlank('family_name', research.familyName || research.productName);
+    fillBlank('model_number', research.modelNumber);
+    fillBlank('manufacturer_part_number', research.manufacturerPartNumber);
+    fillBlank('description', research.description);
+    fillBlank('confidence', research.confidence === 'high' ? '0.95' : research.confidence === 'medium' ? '0.75' : '0.5');
+
+    const existingSpecifications = parseJsonObject(draft.specifications);
+    if (existingSpecifications) {
+        const researchedSpecifications = mapCatalogResearchSpecifications(research, template);
+        const mergedSpecifications = { ...existingSpecifications };
+        Object.entries(researchedSpecifications).forEach(([key, value]) => {
+            const currentValue = mergedSpecifications[key];
+            if (currentValue != null && String(currentValue).trim()) {
+                preservedFieldCount += 1;
+                return;
+            }
+            mergedSpecifications[key] = value;
+            appliedFieldCount += 1;
+        });
+        next.specifications = JSON.stringify(mergedSpecifications, null, 2);
+    } else if (research.specifications.length) {
+        preservedFieldCount += research.specifications.length;
+    }
+
+    const existingSources = parseJsonArray(draft.sources);
+    if (existingSources) {
+        const sourceUrls = new Set(existingSources.map((source) => record(source).url).filter((url): url is string => typeof url === 'string' && Boolean(url)));
+        const confidence = research.confidence === 'high' ? '0.95' : research.confidence === 'medium' ? '0.75' : '0.5';
+        const researchedSources = research.sources
+            .filter((source) => !sourceUrls.has(source.url))
+            .map((source) => ({
+                type: catalogResearchSourceKind(source.sourceType),
+                url: source.url,
+                title: source.title,
+                verified_at: verifiedAt,
+                confidence,
+            }));
+        appliedFieldCount += researchedSources.length;
+        preservedFieldCount += research.sources.length - researchedSources.length;
+        next.sources = JSON.stringify([...existingSources, ...researchedSources], null, 2);
+    } else if (research.sources.length) {
+        preservedFieldCount += research.sources.length;
+    }
+
+    return { draft: next, appliedFieldCount, preservedFieldCount };
+}
+
+export function catalogResearchSourceKind(sourceType: CatalogResearchSourceType) {
+    switch (sourceType) {
+        case 'manufacturer_product':
+        case 'manufacturer_support':
+            return 'manufacturer_page';
+        case 'manufacturer_manual':
+            return 'installation_manual';
+        case 'manufacturer_warranty':
+            return 'warranty_document';
+        case 'distributor':
+            return 'retailer_page';
+        default:
+            return 'other';
+    }
+}
+
 export function researchSourceForValue(research: CatalogProductResearch, value: string) {
     const normalized = value.trim().toLowerCase();
     return research.specifications.find((item) => item.value.toLowerCase() === normalized)?.sourceUrl
@@ -223,6 +326,24 @@ function readSpecification(value: unknown): CatalogResearchSpecification | null 
     const specificationValue = cleanText(item.value, MAX_SHORT_TEXT);
     if (!key || !specificationValue) return null;
     return { key, value: specificationValue, sourceUrl: safeUrl(item.source_url) };
+}
+
+function parseJsonObject(value: string): Record<string, unknown> | null {
+    try {
+        const parsed = JSON.parse(value || '{}') as unknown;
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+    } catch {
+        return null;
+    }
+}
+
+function parseJsonArray(value: string): unknown[] | null {
+    try {
+        const parsed = JSON.parse(value || '[]') as unknown;
+        return Array.isArray(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
 }
 
 function readApplication(value: unknown): CatalogResearchApplication | null {

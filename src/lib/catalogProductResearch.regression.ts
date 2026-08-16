@@ -1,4 +1,5 @@
 import {
+    applyCatalogResearchToSeedDraft,
     applyCatalogProductResearch,
     mapCatalogResearchSpecifications,
     readCatalogProductResearchResponse,
@@ -91,6 +92,41 @@ assert(applied.specifications.Finish === 'Chrome', 'Applying research must merge
 assert(applied.specifications['Valve type'] === 'Pressure-balancing', 'Researched specifications should be added to the draft.');
 assert(applied.description === 'Field description', 'Unselected research groups must not overwrite draft fields.');
 assert(applied.compatibleApplications.includes('Shower only') && applied.compatibleApplications.includes('Remodel / retrofit opening'), 'Applications should merge without removing field selections.');
+
+const seedDraft = {
+    category: 'shower_valve',
+    manufacturer: 'Field-entered manufacturer',
+    brand: 'Moen',
+    family_name: '',
+    model_number: 'TEST-VALVE-1',
+    manufacturer_part_number: '',
+    description: 'Keep this field-entered description.',
+    specifications: JSON.stringify({ valve_type: 'Technician-confirmed valve type' }),
+    sources: JSON.stringify([{ type: 'other', url: 'https://example.com/existing', title: 'Existing source' }]),
+    confidence: '0.8',
+    retail_listings: '[]',
+    approvedSellingPrice: 925,
+};
+const appliedSeed = applyCatalogResearchToSeedDraft(seedDraft, response, {
+    universalFields: [],
+    specificationFields: [{ key: 'application' }, { key: 'valve_type' }],
+    requiredFields: ['application'],
+}, '2026-08-16T12:00:00.000Z');
+const appliedSeedSpecifications = JSON.parse(appliedSeed.draft.specifications) as Record<string, unknown>;
+const appliedSeedSources = JSON.parse(appliedSeed.draft.sources) as Record<string, unknown>[];
+assert(appliedSeed.draft.manufacturer === 'Field-entered manufacturer', 'Seed research must not overwrite a non-empty manufacturer.');
+assert(appliedSeed.draft.description === 'Keep this field-entered description.', 'Seed research must not overwrite a non-empty description.');
+assert(appliedSeed.draft.family_name === 'Posi-Temp', 'Seed research should fill blank identity fields.');
+assert(appliedSeed.draft.manufacturer_part_number === 'TEST-VALVE-1', 'Seed research should fill a blank manufacturer part number.');
+assert(appliedSeedSpecifications.valve_type === 'Technician-confirmed valve type', 'Seed research must preserve conflicting existing specifications.');
+assert(appliedSeedSpecifications.application === 'Remodel / retrofit opening', 'Seed research should merge new category specifications into blank fields.');
+assert(appliedSeedSources.length === 2 && appliedSeedSources[0]?.url === 'https://example.com/existing', 'Seed research should retain existing sources and append new unique sources.');
+assert(appliedSeed.draft.confidence === '0.8', 'Seed research must preserve an existing confidence value.');
+assert(appliedSeed.draft.retail_listings === '[]' && appliedSeed.draft.approvedSellingPrice === 925, 'Applying research must not create pricing, offers, or other side effects.');
+assert(appliedSeed.appliedFieldCount > 0 && appliedSeed.preservedFieldCount > 0, 'The seed transfer should report both applied and preserved values for visible click confirmation.');
+
+const invalidJsonSeed = applyCatalogResearchToSeedDraft({ ...seedDraft, specifications: '{keep invalid', sources: '[keep invalid' }, response);
+assert(invalidJsonSeed.draft.specifications === '{keep invalid' && invalidJsonSeed.draft.sources === '[keep invalid', 'Invalid existing advanced JSON must be preserved instead of overwritten by research.');
 
 const showerSuggestions = getPlumbingCatalogSuggestions({ category: 'Shower Valve', brand: 'Moen', productName: 'Retrofit kit' });
 assert(showerSuggestions.profileLabel === 'Shower or tub valve', 'Moen shower products should receive shower-valve field options.');
