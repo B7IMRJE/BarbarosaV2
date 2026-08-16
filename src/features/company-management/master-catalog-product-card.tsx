@@ -95,6 +95,7 @@ export function CompactMasterCatalogCard({
                 </View>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(6) }}>
+                    {!!item.shortCode && <CompactStatusBadge label={item.shortCode} highlighted />}
                     <CompactStatusBadge label={packageLabel} highlighted={item.entitled || includedInDraftPackage} />
                     <CompactStatusBadge
                         label={item.offering ? `Offering ${item.offering.active ? 'active' : 'inactive'}` : 'No company offering'}
@@ -177,6 +178,7 @@ export function MasterCatalogProductDetailsModal({
         : 'Master product';
     const specifications = item ? catalogSpecificationDisplays(item.specifications) : [];
     const identityRows = item ? [
+        { label: 'Card code', value: item.shortCode },
         { label: 'Manufacturer', value: item.manufacturer },
         { label: 'Brand', value: item.brand },
         { label: 'Model', value: item.modelNumber },
@@ -214,7 +216,7 @@ export function MasterCatalogProductDetailsModal({
                             {productName}
                         </Text>
                         <Text selectable style={{ color: item?.entitled ? theme.colors.primary : theme.colors.mutedText, fontWeight: '800' }}>
-                            {packageLabel}
+                            {[item?.shortCode, packageLabel].filter(Boolean).join(' · ')}
                         </Text>
                     </View>
 

@@ -68,11 +68,33 @@ export async function addHomeItemCatalogProductToQuote(input: HomeItemCatalogRou
     });
     if (error) throw error;
 
-    const row = record(data);
+    return parseQuoteResult(data);
+}
+
+export async function addHomeItemCatalogProductsToQuote(input: HomeItemCatalogRouteContext & {
+    products: { productVariantId: string; estimateCategory: EstimateOptionCategory }[];
+    source: EstimateSessionSource;
+}) {
+    const { data, error } = await supabase.rpc('add_home_item_catalog_products_to_quote', {
+        p_company_id: input.companyId,
+        p_property_id: input.propertyId,
+        p_home_item_id: input.homeItemId,
+        p_product_variant_ids: input.products.map((product) => product.productVariantId),
+        p_estimate_categories: input.products.map((product) => product.estimateCategory),
+        p_service_request_id: input.serviceRequestId || null,
+        p_schedule_slot_id: input.scheduleSlotId || null,
+        p_job_id: input.jobId || null,
+        p_source: input.source,
+    });
+    if (error) throw error;
+    return array(data).map(parseQuoteResult);
+}
+
+function parseQuoteResult(value: unknown) {
+    const row = record(value);
     const proposal = parseProposal(row.proposal);
     const estimateOptionId = text(row.estimate_option_id);
     if (!proposal || !estimateOptionId) throw new Error('The catalog product was not added to the quote.');
-
     return { proposal, estimateOptionId } satisfies HomeItemCatalogQuoteResult;
 }
 

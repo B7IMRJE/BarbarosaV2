@@ -14,6 +14,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
+import CompactCatalogProductTile from '../../components/catalog/compact-catalog-product-tile';
 import ProductCardImage from '../../components/catalog/product-card-image';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -64,7 +65,10 @@ import {
     type CatalogResearchSourceType,
 } from '../../lib/catalogProductResearchCore';
 import {
+    catalogFactoryDeckFilterOptions,
+    catalogFactoryDeckGroupLabel,
     catalogFactoryStarterOptionsLabel,
+    filterAndSortCatalogFactoryDeckCards,
     filterUnmappedCatalogFactoryRecords,
 } from '../../lib/catalogFactoryDeckCore';
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
@@ -73,6 +77,7 @@ import CompactHomeOSCard from '../homeos-items/compact-homeos-card';
 import {
     loadHomeOSStarterCardDeck,
     saveHomeOSStarterCardDeckEntry,
+    setHomeOSStarterCardReadiness,
     type HomeOSStarterDeckCard,
     type HomeOSStarterDeckReadiness,
 } from '../../lib/homeosStarterCatalog';
@@ -189,6 +194,24 @@ export default function CatalogFactoryScreen() {
             setEditingStarterCard(null);
             setMessage(`${editingStarterCard.name} now has ${starterVariantIds.length} mapped product option${starterVariantIds.length === 1 ? '' : 's'}.`);
             await refresh();
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function changeStarterCardReadiness(card: HomeOSStarterDeckCard, readinessStatus: HomeOSStarterDeckReadiness) {
+        setBusy(true);
+        setMessage(`${readinessStatus === 'ready' ? 'Completing' : 'Reopening'} ${card.shortCode || card.name}...`);
+        try {
+            await setHomeOSStarterCardReadiness(card.templateKey, readinessStatus);
+            setStarterCards((current) => current.map((candidate) => candidate.templateKey === card.templateKey
+                ? { ...candidate, readinessStatus }
+                : candidate));
+            setMessage(readinessStatus === 'ready'
+                ? `${card.shortCode || card.name} marked complete and sent behind unfinished starter cards. Product mappings and card data were not changed.`
+                : `${card.shortCode || card.name} moved back into the in-progress work queue. Product mappings and card data were not changed.`);
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
@@ -609,6 +632,7 @@ export default function CatalogFactoryScreen() {
                         phone={phone}
                         busy={busy}
                         onMap={beginStarterCardMapping}
+                        onSetReadiness={(card, readiness) => void changeStarterCardReadiness(card, readiness)}
                         onEditProduct={(record) => beginEdit(record)}
                         onDetails={setDetailRecord}
                     />
@@ -686,6 +710,7 @@ function StarterCardDeck({
     phone,
     busy,
     onMap,
+    onSetReadiness,
     onEditProduct,
     onDetails,
 }: {
@@ -694,34 +719,98 @@ function StarterCardDeck({
     phone: boolean;
     busy: boolean;
     onMap: (card: HomeOSStarterDeckCard) => void;
+    onSetReadiness: (card: HomeOSStarterDeckCard, readiness: HomeOSStarterDeckReadiness) => void;
     onEditProduct: (record: CatalogFactoryRecord) => void;
     onDetails: (record: CatalogFactoryRecord) => void;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
-    const roomLabels: Record<HomeOSStarterDeckCard['roomKind'], string> = {
-        bathroom: 'Bathroom',
-        kitchen: 'Kitchen',
-        garage: 'Garage',
-    };
+    const [query, setQuery] = useState('');
+    const [filterKey, setFilterKey] = useState('all');
+    const [showMoreFilters, setShowMoreFilters] = useState(false);
+    const searchableCards = cards.map((card) => ({
+        ...card,
+        aliases: [
+            ...card.aliases,
+            ...card.mappedVariantIds.flatMap((id) => {
+                const record = records.find((candidate) => candidate.id === id);
+                return record ? [record.shortCode, factoryProductName(record), record.brand, record.modelNumber] : [];
+            }),
+        ],
+    }));
+    const visibleCards = filterAndSortCatalogFactoryDeckCards(searchableCards, query, filterKey);
+    const filters = catalogFactoryDeckFilterOptions(searchableCards);
+    const areaFilters = filters.filter((option) => option.kind === 'area');
+    const familyFilters = filters.filter((option) => option.kind === 'family');
+    const moreFilters = filters.filter((option) => !['area', 'family'].includes(option.kind));
+    const workRoomKinds = [...new Set(visibleCards.filter((card) => card.readinessStatus !== 'ready').map((card) => card.roomKind))];
+    const completedRoomKinds = [...new Set(visibleCards.filter((card) => card.readinessStatus === 'ready').map((card) => card.roomKind))];
+    const visibleGroups = [
+        ...workRoomKinds.map((roomKind) => ({ roomKind, completed: false })),
+        ...completedRoomKinds.map((roomKind) => ({ roomKind, completed: true })),
+    ];
+    const firstCompletedGroupIndex = visibleGroups.findIndex((group) => group.completed);
+    const readyCount = cards.filter((card) => card.readinessStatus === 'ready').length;
+    const unfinishedCount = cards.length - readyCount;
 
     return (
         <View style={{ gap: scaleIcon(14) }}>
             <View style={{ gap: scaleIcon(4) }}>
                 <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(25), fontWeight: '900' }}>HomeOS Deck of Cards</Text>
                 <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(15), lineHeight: scaleFont(21), fontWeight: '700' }}>
-                    Every generic HomeOS starter card is shown here. Its real, selectable catalog products appear immediately beside it; an empty option list means the product deck still needs to be built.
+                    Work the generic starter deck from top to bottom. In-progress and unfinished cards stay first; completed cards remain searchable and move behind them without changing mappings or HomeOS data.
                 </Text>
             </View>
 
-            {(['bathroom', 'kitchen', 'garage'] as const).map((roomKind) => {
-                const roomCards = cards.filter((card) => card.roomKind === roomKind);
-                const readyCount = roomCards.filter((card) => card.readinessStatus === 'ready' && card.approvedOptionCount > 0).length;
+            <ThemedCard style={{ padding: scaleIcon(phone ? 12 : 14), gap: scaleIcon(11), borderWidth: 1, borderCurve: 'continuous' }}>
+                <View style={{ flexDirection: phone ? 'column' : 'row', alignItems: phone ? 'stretch' : 'center', gap: scaleIcon(9) }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                        <CompactField label="Search starter cards or short codes" value={query} onChangeText={setQuery} placeholder="Shower, A01, Moen, faucet, pool..." />
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(6), alignItems: 'center' }}>
+                        <FactoryTileBadge label={`${unfinishedCount} unfinished`} tone={unfinishedCount ? 'amber' : 'green'} />
+                        <FactoryTileBadge label={`${readyCount} complete`} tone="green" />
+                    </View>
+                </View>
+                <View style={{ gap: scaleIcon(6) }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>Areas</Text>
+                    <ChoiceWrap>
+                        <Chip label="All areas" selected={filterKey === 'all'} onPress={() => setFilterKey('all')} />
+                        {areaFilters.map((option) => <Chip key={option.key} label={`${option.label} (${option.count})`} selected={filterKey === option.key} onPress={() => setFilterKey(option.key)} />)}
+                    </ChoiceWrap>
+                </View>
+                {!!familyFilters.length && (
+                    <View style={{ gap: scaleIcon(6) }}>
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>Starter families</Text>
+                        <ChoiceWrap>
+                            {familyFilters.map((option) => <Chip key={option.key} label={`${option.label} (${option.count})`} selected={filterKey === option.key} onPress={() => setFilterKey(option.key)} />)}
+                        </ChoiceWrap>
+                    </View>
+                )}
+                <CompactDisclosureCard title="More taxonomy filters" summary="Systems, categories, and readiness from live starter metadata" expanded={showMoreFilters} onToggle={() => setShowMoreFilters(!showMoreFilters)}>
+                    <ChoiceWrap>
+                        {moreFilters.map((option) => <Chip key={option.key} label={`${option.label} (${option.count})`} selected={filterKey === option.key} onPress={() => setFilterKey(option.key)} />)}
+                    </ChoiceWrap>
+                </CompactDisclosureCard>
+                {(query || filterKey !== 'all') && <CompactButton title="Clear Search & Filters" disabled={busy} onPress={() => { setQuery(''); setFilterKey('all'); }} />}
+            </ThemedCard>
+
+            {visibleGroups.map((group, groupIndex) => {
+                const roomKind = group.roomKind;
+                const roomCards = visibleCards.filter((card) => card.roomKind === roomKind && (card.readinessStatus === 'ready') === group.completed);
+                const roomReadyCount = roomCards.filter((card) => card.readinessStatus === 'ready').length;
 
                 return (
-                    <ThemedCard key={roomKind} style={{ padding: scaleIcon(phone ? 12 : 16), gap: scaleIcon(12), borderWidth: 1, borderCurve: 'continuous' }}>
+                    <View key={`${roomKind}-${group.completed ? 'complete' : 'work'}`} style={{ gap: scaleIcon(10) }}>
+                    {group.completed && groupIndex === firstCompletedGroupIndex && (
+                        <View style={{ marginTop: scaleIcon(8), gap: scaleIcon(3) }}>
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(23), fontWeight: '900' }}>Completed · Sent to Bottom</Text>
+                            <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20), fontWeight: '700' }}>Completed starter archetypes remain intact and searchable. Mark one in progress to return it to the active work queue.</Text>
+                        </View>
+                    )}
+                    <ThemedCard style={{ padding: scaleIcon(phone ? 12 : 16), gap: scaleIcon(12), borderWidth: 1, borderCurve: 'continuous' }}>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: scaleIcon(8) }}>
-                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(21), fontWeight: '900' }}>{roomLabels[roomKind]} starter deck</Text>
-                            <FactoryTileBadge label={`${readyCount}/${roomCards.length} ready`} tone={readyCount === roomCards.length && roomCards.length > 0 ? 'green' : 'amber'} />
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(21), fontWeight: '900' }}>{catalogFactoryDeckGroupLabel(roomKind)} starter deck{group.completed ? ' · Completed' : ''}</Text>
+                            <FactoryTileBadge label={group.completed ? `${roomReadyCount} complete` : `${roomCards.length} unfinished`} tone={group.completed ? 'green' : 'amber'} />
                         </View>
 
                         <View style={{ gap: scaleIcon(12) }}>
@@ -737,7 +826,7 @@ function StarterCardDeck({
                                     <View key={card.templateKey} style={{ flexDirection: phone ? 'column' : 'row', alignItems: phone ? 'stretch' : 'flex-start', gap: scaleIcon(12), borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: scaleIcon(12) }}>
                                         <CompactHomeOSCard
                                             title={card.name}
-                                            subtitle={parentName ? `Part of ${parentName}` : card.system}
+                                            subtitle={[card.shortCode, parentName ? `Part of ${parentName}` : card.system].filter(Boolean).join(' · ')}
                                             icon={starterCardIcon(card)}
                                             onOpen={() => onMap(card)}
                                             actionTitle={`${card.mappedCount} option${card.mappedCount === 1 ? '' : 's'}`}
@@ -753,25 +842,35 @@ function StarterCardDeck({
                                                 {catalogFactoryStarterOptionsLabel(card)}
                                             </Text>
                                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(6), alignItems: 'center' }}>
+                                                {!!card.shortCode && <ShortCodeBadge code={card.shortCode} />}
                                                 <FactoryTileBadge label={card.readinessStatus} tone={card.readinessStatus === 'ready' ? 'green' : 'amber'} />
                                                 <FactoryTileBadge label={`${card.approvedOptionCount} approved`} tone={card.approvedOptionCount > 0 ? 'green' : 'amber'} />
                                             </View>
-                                            {mappedRecords.length > 0 ? mappedRecords.map((record) => (
-                                                <StarterMappedVariant key={record.id} record={record} busy={busy} onEdit={() => onEditProduct(record)} onDetails={() => onDetails(record)} />
-                                            )) : card.mappedCount === 0 ? (
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), alignItems: 'stretch' }}>
+                                                {mappedRecords.map((record) => (
+                                                    <StarterMappedVariant key={record.id} record={record} busy={busy} onEdit={() => onEditProduct(record)} onDetails={() => onDetails(record)} />
+                                                ))}
+                                            </View>
+                                            {mappedRecords.length === 0 && card.mappedCount === 0 ? (
                                                 <TouchableOpacity accessibilityRole="button" onPress={() => onMap(card)} disabled={busy} style={{ minHeight: scaleIcon(86), borderWidth: 2, borderStyle: 'dashed', borderColor: '#C88A12', borderRadius: 13, borderCurve: 'continuous', backgroundColor: '#FFF8E8', alignItems: 'center', justifyContent: 'center', padding: scaleIcon(14), gap: scaleIcon(4) }}>
                                                     <Text selectable style={{ color: '#704B00', fontSize: scaleFont(16), fontWeight: '900', textAlign: 'center' }}>No real product options mapped</Text>
                                                     <Text selectable style={{ color: '#704B00', fontSize: scaleFont(13), fontWeight: '700', textAlign: 'center' }}>Open Map Products to connect approved manufacturer/model variants.</Text>
                                                 </TouchableOpacity>
-                                            ) : (
+                                            ) : mappedRecords.length === 0 ? (
                                                 <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '800' }}>Mapped product options are hidden by the current product filters.</Text>
-                                            )}
+                                            ) : null}
                                             {mappedRecords.length < card.mappedCount && (
                                                 <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '700' }}>
                                                     {card.mappedCount - mappedRecords.length} mapped option{card.mappedCount - mappedRecords.length === 1 ? '' : 's'} hidden by the current product filters.
                                                 </Text>
                                             )}
                                             {!!card.adminNotes && <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(18) }}>{card.adminNotes}</Text>}
+                                            <FactoryTileAction
+                                                title={card.readinessStatus === 'ready' ? 'Mark In Progress' : 'Mark Complete / Send to Bottom'}
+                                                variant="secondary"
+                                                disabled={busy}
+                                                onPress={() => onSetReadiness(card, card.readinessStatus === 'ready' ? 'building' : 'ready')}
+                                            />
                                         </View>
                                     </View>
                                 );
@@ -779,27 +878,32 @@ function StarterCardDeck({
                             {!roomCards.length && <Text selectable style={{ color: theme.colors.mutedText }}>Starter deck is not installed yet.</Text>}
                         </View>
                     </ThemedCard>
+                    </View>
                 );
             })}
+            {!visibleCards.length && (
+                <ThemedCard style={{ minHeight: scaleIcon(120), alignItems: 'center', justifyContent: 'center', padding: scaleIcon(18) }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(17), fontWeight: '900', textAlign: 'center' }}>No starter cards match this search and filter.</Text>
+                </ThemedCard>
+            )}
         </View>
     );
 }
 
 function StarterMappedVariant({ record, busy, onEdit, onDetails }: { record: CatalogFactoryRecord; busy: boolean; onEdit: () => void; onDetails: () => void }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
     const productName = factoryProductName(record);
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: scaleIcon(10), borderWidth: 1, borderColor: theme.colors.border, borderRadius: 13, borderCurve: 'continuous', backgroundColor: theme.colors.surfaceAlt, padding: scaleIcon(10) }}>
-            <ProductCardImage compact imageUrl={record.primaryImageUrl} productName={productName} style={{ width: scaleIcon(58), height: scaleIcon(58), minHeight: scaleIcon(58), flexShrink: 0 }} />
-            <View style={{ flex: 1, minWidth: scaleIcon(150), gap: scaleIcon(2) }}>
-                <Text selectable numberOfLines={2} style={{ color: theme.colors.text, fontSize: scaleFont(15), lineHeight: scaleFont(19), fontWeight: '900' }}>{productName}</Text>
-                <Text selectable numberOfLines={1} style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '800' }}>{[record.brand, record.modelNumber, record.status].filter(Boolean).join(' · ')}</Text>
-            </View>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(7) }}>
-                <FactoryTileAction title="Edit" variant="secondary" disabled={busy} onPress={onEdit} />
-                <FactoryTileAction title="Details" variant="secondary" disabled={busy} onPress={onDetails} />
-            </View>
-        </View>
+        <CompactCatalogProductTile
+            shortCode={record.shortCode}
+            imageUrl={record.primaryImageUrl}
+            productName={productName}
+            model={record.modelNumber ? `Model ${record.modelNumber}` : ''}
+            identity={[record.brand, record.status].filter(Boolean).join(' · ')}
+            disabled={busy}
+            onOpen={onDetails}
+            primaryAction={{ title: 'Edit', onPress: onEdit }}
+            secondaryAction={{ title: 'Details', onPress: onDetails }}
+        />
     );
 }
 
@@ -833,7 +937,7 @@ function StarterCardMappingModal({
     useEffect(() => setQuery(''), [card?.templateKey]);
     const normalizedQuery = query.trim().toLowerCase();
     const visibleRecords = records.filter((record) => !normalizedQuery || [
-        factoryProductName(record), record.category, record.manufacturer, record.brand, record.modelNumber,
+        record.shortCode, factoryProductName(record), record.category, record.manufacturer, record.brand, record.modelNumber,
     ].join(' ').toLowerCase().includes(normalizedQuery));
 
     function toggleVariant(id: string) {
@@ -848,7 +952,7 @@ function StarterCardMappingModal({
                 <ThemedCard style={{ width: '100%', maxWidth: 820, maxHeight: '94%', alignSelf: 'center', padding: 0, overflow: 'hidden' }}>
                     <View style={{ padding: scaleIcon(18), borderBottomWidth: 1, borderBottomColor: theme.colors.border, gap: scaleIcon(5) }}>
                         <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '900', letterSpacing: 0.7 }}>HOMEOS STARTER ARCHETYPE</Text>
-                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(24), lineHeight: scaleFont(29), fontWeight: '900' }}>{card?.name || 'Starter card'}</Text>
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(24), lineHeight: scaleFont(29), fontWeight: '900' }}>{[card?.shortCode, card?.name || 'Starter card'].filter(Boolean).join(' · ')}</Text>
                         <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20), fontWeight: '700' }}>Choose only real products that are valid options for this exact card. Company entitlement and active offerings are enforced later for TechOS.</Text>
                     </View>
                     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: scaleIcon(18), gap: scaleIcon(14) }}>
@@ -869,7 +973,7 @@ function StarterCardMappingModal({
                                         <ProductCardImage compact imageUrl={record.primaryImageUrl} productName={factoryProductName(record)} style={{ width: scaleIcon(48), height: scaleIcon(48), minHeight: scaleIcon(48) }} />
                                         <View style={{ flex: 1, minWidth: 0 }}>
                                             <Text selectable numberOfLines={2} style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>{factoryProductName(record)}</Text>
-                                            <Text selectable numberOfLines={1} style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '700' }}>{[record.category, record.brand, record.modelNumber, record.status].filter(Boolean).join(' · ')}</Text>
+                                            <Text selectable numberOfLines={1} style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '700' }}>{[record.shortCode, record.category, record.brand, record.modelNumber, record.status].filter(Boolean).join(' · ')}</Text>
                                         </View>
                                         <View style={{ width: scaleIcon(44), height: scaleIcon(44), borderRadius: 12, backgroundColor: checked ? theme.colors.primary : theme.colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
                                             <Text style={{ color: checked ? theme.colors.primaryText : theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>{checked ? '✓' : '+'}</Text>
@@ -1123,6 +1227,7 @@ function FactoryRecordCard({ record, phone, selected, busy, onToggle, onEdit, on
                 </View>
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(6) }}>
+                    {!!record.shortCode && <ShortCodeBadge code={record.shortCode} />}
                     <FactoryTileBadge label={record.status.replaceAll('_', ' ')} tone={record.status === 'approved' ? 'green' : record.status === 'rejected' ? 'red' : 'amber'} />
                     {warnings.length > 0 && <FactoryTileBadge label={`${warnings.length} review flag${warnings.length === 1 ? '' : 's'}`} tone="amber" />}
                     {selected && <FactoryTileBadge label="Selected" tone="green" />}
@@ -1149,6 +1254,7 @@ function FactoryRecordDetailsModal({ record, onClose }: { record: CatalogFactory
     const specifications = record ? catalogSpecificationDisplays(record.specifications) : [];
     const warnings = record ? [...record.validationWarnings, ...record.duplicateWarnings, ...record.missingFields] : [];
     const identityRows = record ? [
+        { label: 'Card code', value: record.shortCode },
         { label: 'Manufacturer', value: record.manufacturer },
         { label: 'Brand', value: record.brand },
         { label: 'Model', value: record.modelNumber },
@@ -1167,7 +1273,7 @@ function FactoryRecordDetailsModal({ record, onClose }: { record: CatalogFactory
                     <View style={{ padding: scaleIcon(18), borderBottomWidth: 1, borderBottomColor: theme.colors.border, gap: scaleIcon(5) }}>
                         <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '900', letterSpacing: 0.7 }}>MASTER PRODUCT · DETAILS / REFERENCE</Text>
                         <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(24), lineHeight: scaleFont(29), fontWeight: '900' }}>{productName}</Text>
-                        {!!record && <Text selectable style={{ color: theme.colors.mutedText, fontWeight: '800' }}>{record.status.replaceAll('_', ' ')} · Read-only master reference</Text>}
+                        {!!record && <Text selectable style={{ color: theme.colors.mutedText, fontWeight: '800' }}>{[record.shortCode, record.status.replaceAll('_', ' '), 'Read-only master reference'].filter(Boolean).join(' · ')}</Text>}
                     </View>
 
                     <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: scaleIcon(18), gap: scaleIcon(16) }}>
@@ -1238,6 +1344,11 @@ function FactoryTileBadge({ label, tone }: { label: string; tone: 'green' | 'red
     return <View style={{ backgroundColor: colors[0], borderRadius: 999, paddingHorizontal: scaleIcon(9), paddingVertical: scaleIcon(5) }}><Text selectable numberOfLines={1} style={{ color: colors[1], fontSize: scaleFont(11), fontWeight: '900', textTransform: 'capitalize' }}>{label}</Text></View>;
 }
 
+function ShortCodeBadge({ code }: { code: string }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return <View style={{ backgroundColor: theme.colors.surfaceAlt, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 999, paddingHorizontal: scaleIcon(9), paddingVertical: scaleIcon(5) }}><Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(11), fontWeight: '900', letterSpacing: 0.7 }}>{code}</Text></View>;
+}
+
 function FactoryDetailSection({ title, children }: { title: string; children: React.ReactNode }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     return <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, borderCurve: 'continuous', padding: scaleIcon(13), gap: scaleIcon(9) }}><Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(17), fontWeight: '900' }}>{title}</Text>{children}</View>;
@@ -1279,7 +1390,7 @@ function CatalogFactoryEditModal({
                 <ThemedCard style={{ width: '100%', maxWidth: 980, maxHeight: '96%', alignSelf: 'center', padding: 0, overflow: 'hidden' }}>
                     <View style={{ paddingHorizontal: scaleIcon(16), paddingVertical: scaleIcon(12), borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}>
                         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(19), fontWeight: '900' }}>Edit {record ? factoryProductName(record) : 'Master Product'}</Text>
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(19), fontWeight: '900' }}>Edit {record ? [record.shortCode, factoryProductName(record)].filter(Boolean).join(' · ') : 'Master Product'}</Text>
                             <Text selectable numberOfLines={2} style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(18), fontWeight: '700' }}>{message}</Text>
                         </View>
                         <ThemedButton title="Close" variant="secondary" disabled={busy} onPress={onClose} style={{ minWidth: scaleIcon(94), minHeight: scaleIcon(46) }} />
@@ -1372,7 +1483,7 @@ function EditPanel({
         <ThemedCard style={{ padding: phone ? scaleIcon(12) : scaleIcon(16) }}>
             <View style={{ gap: scaleIcon(12) }}>
                 <View style={{ gap: scaleIcon(6) }}>
-                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(phone ? 23 : 27), fontWeight: '900' }}>Edit Master Product</Text>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(phone ? 23 : 27), fontWeight: '900' }}>Edit Master Product{record.shortCode ? ` · ${record.shortCode}` : ''}</Text>
                     <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(15), lineHeight: scaleFont(21) }}>
                         Edit the compact master reference card. Pricing, service history, and job photos stay separate.
                     </Text>

@@ -11,7 +11,7 @@ function assert(condition: unknown, message: string) {
 }
 
 const record: CatalogFactoryRecord = {
-    id: 'variant-1', familyId: 'family-1', templateId: 'template-1', category: 'Faucet', manufacturer: 'Acme', brand: 'Acme',
+    id: 'variant-1', shortCode: 'F01', familyId: 'family-1', templateId: 'template-1', category: 'Faucet', manufacturer: 'Acme', brand: 'Acme',
     familyName: 'Flow', modelNumber: 'F-100', manufacturerPartNumber: 'MPN-1', upcGtin: '', color: 'Chrome', finish: 'Polished',
     size: '4 inch', capacity: '', description: 'Fixture', specifications: {
         product_name: 'Acme Flow Faucet', product_type: 'Faucet', compatibility: ['Deck mount', 'Three hole'], max_flow: '1.5 GPM', finish: 'Chrome', warranty: 'Old value',

@@ -1,5 +1,6 @@
 import type * as DocumentPicker from 'expo-document-picker';
 import type * as ImagePicker from 'expo-image-picker';
+import { loadCatalogCardCodeMaps, loadVisibleCatalogProductShortCodes } from './catalogCardCodes';
 import { supabase } from './supabase';
 import type {
     CatalogDuplicateMatch,
@@ -65,6 +66,7 @@ export type CatalogRetailListing = {
 
 export type CatalogFactoryRecord = {
     id: string;
+    shortCode: string;
     familyId: string;
     templateId: string;
     category: string;
@@ -104,6 +106,7 @@ export type CatalogImportSummary = {
 
 export type ApprovedMasterCatalogItem = {
     id: string;
+    shortCode: string;
     category: string;
     manufacturer: string;
     brand: string;
@@ -157,21 +160,27 @@ export type CatalogFactoryFilters = {
 };
 
 export async function loadCatalogFactory(filters: CatalogFactoryFilters = {}) {
-    const { data, error } = await supabase.rpc('get_catalog_factory_records', {
-        p_filters: {
-            category: filters.category || null,
-            manufacturer: filters.manufacturer || null,
-            brand: filters.brand || null,
-            status: filters.status || null,
-            retailer: filters.retailer || null,
-            missing: Boolean(filters.missing),
-            duplicates: Boolean(filters.duplicates),
-            last_verified_before: filters.lastVerifiedBefore || null,
-        },
-    });
+    const [{ data, error }, codes] = await Promise.all([
+        supabase.rpc('get_catalog_factory_records', {
+            p_filters: {
+                category: filters.category || null,
+                manufacturer: filters.manufacturer || null,
+                brand: filters.brand || null,
+                status: filters.status || null,
+                retailer: filters.retailer || null,
+                missing: Boolean(filters.missing),
+                duplicates: Boolean(filters.duplicates),
+                last_verified_before: filters.lastVerifiedBefore || null,
+            },
+        }),
+        loadCatalogCardCodeMaps(),
+    ]);
     if (error) throw error;
     const payload = record(data);
-    const parsedRecords = array(payload.records).map(parseFactoryRecord).filter(Boolean) as CatalogFactoryRecord[];
+    const parsedRecords = array(payload.records).map(parseFactoryRecord).filter((factoryRecord): factoryRecord is CatalogFactoryRecord => Boolean(factoryRecord)).map((factoryRecord) => ({
+        ...factoryRecord,
+        shortCode: codes.productVariants.get(factoryRecord.id) || '',
+    })) as CatalogFactoryRecord[];
     const records = await Promise.all(parsedRecords.map(resolveFactoryRecordMedia));
     return {
         templates: array(payload.templates).map(parseTemplate).filter(Boolean) as CatalogTemplateDefinition[],
@@ -338,8 +347,10 @@ export async function bulkApproveCatalogDrafts(variantIds: string[]) {
 export async function loadApprovedMasterCatalogForCompany(companyId: string) {
     const { data, error } = await supabase.rpc('get_approved_master_catalog_for_company', { p_company_id: companyId });
     if (error) throw error;
-    const items = array(data).map(parseApprovedMaster).filter(Boolean) as ApprovedMasterCatalogItem[];
-    return Promise.all(items.map(resolveApprovedMasterMedia));
+    const items = array(data).map(parseApprovedMaster).filter((item): item is ApprovedMasterCatalogItem => Boolean(item));
+    const shortCodes = await loadVisibleCatalogProductShortCodes(items.map((item) => item.id));
+    const codedItems = items.map((item, index) => ({ ...item, shortCode: shortCodes[index] || '' }));
+    return Promise.all(codedItems.map(resolveApprovedMasterMedia));
 }
 
 export async function loadApprovedMasterCatalogDetail(variantId: string): Promise<ApprovedMasterCatalogDetail> {
@@ -481,6 +492,7 @@ function parseFactoryRecord(value: unknown): CatalogFactoryRecord | null {
     if (!id) return null;
     return {
         id,
+        shortCode: '',
         familyId: text(row.family_id),
         templateId: text(row.template_id),
         category: text(row.category),
@@ -533,7 +545,7 @@ function parseApprovedMaster(value: unknown): ApprovedMasterCatalogItem | null {
     const id = text(row.id);
     if (!id) return null;
     return {
-        id, category: text(row.category), manufacturer: text(row.manufacturer), brand: text(row.brand), familyName: text(row.family_name),
+        id, shortCode: '', category: text(row.category), manufacturer: text(row.manufacturer), brand: text(row.brand), familyName: text(row.family_name),
         modelNumber: text(row.model_number), manufacturerPartNumber: text(row.manufacturer_part_number), upcGtin: text(row.upc_gtin),
         description: text(row.description), specifications: record(row.specifications), primaryImageUrl: text(row.primary_image_url),
         primaryImageBucket: text(row.primary_image_bucket), primaryImagePath: text(row.primary_image_path),

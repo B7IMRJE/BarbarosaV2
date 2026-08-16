@@ -67,6 +67,7 @@ assert(
 function product(overrides: Partial<ApprovedMasterCatalogItem>): ApprovedMasterCatalogItem {
     return {
         id: 'product',
+        shortCode: 'P01',
         category: 'Fixture',
         manufacturer: 'Manufacturer',
         brand: 'Brand',

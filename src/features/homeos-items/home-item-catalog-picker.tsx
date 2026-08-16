@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
+import CompactCatalogProductTile from '../../components/catalog/compact-catalog-product-tile';
 import ProductCardImage from '../../components/catalog/product-card-image';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
@@ -10,6 +11,7 @@ import {
 } from '../../lib/catalogFactory';
 import {
     addHomeItemCatalogProductToQuote,
+    addHomeItemCatalogProductsToQuote,
     catalogProductName,
     estimateCategoryForHomeItemCatalog,
     filterCatalogItemsForHomeItem,
@@ -47,8 +49,10 @@ export default function HomeItemCatalogPicker({
     const [items, setItems] = useState<ApprovedMasterCatalogItem[]>([]);
     const [proposals, setProposals] = useState<HomeItemCatalogProposal[]>([]);
     const [selectedItem, setSelectedItem] = useState<ApprovedMasterCatalogItem | null>(null);
+    const [selectedVariantIds, setSelectedVariantIds] = useState<string[]>([]);
     const [loading, setLoading] = useState(false);
     const [addingVariantId, setAddingVariantId] = useState('');
+    const [addingSelected, setAddingSelected] = useState(false);
     const [message, setMessage] = useState('');
     const itemName = itemContext.name;
     const itemSystem = itemContext.system;
@@ -79,7 +83,7 @@ export default function HomeItemCatalogPicker({
         ])
             .then(([catalogItems, catalogProposals, mappedVariantIds]) => {
                 if (!current) return;
-                setItems(filterCatalogItemsForHomeItem(catalogItems, {
+                const nextItems = filterCatalogItemsForHomeItem(catalogItems, {
                     name: itemName,
                     system: itemSystem,
                     category: itemCategory,
@@ -88,7 +92,9 @@ export default function HomeItemCatalogPicker({
                 }, {
                     mappedVariantIds,
                     requireMappedVariants: Boolean(starterTemplateKey),
-                }));
+                });
+                setItems(nextItems);
+                setSelectedVariantIds((current) => current.filter((id) => nextItems.some((item) => item.id === id)));
                 setProposals(catalogProposals);
             })
             .catch((error) => {
@@ -125,6 +131,9 @@ export default function HomeItemCatalogPicker({
     const selectedEligibility = selectedItem
         ? quoteEligibility(selectedItem, quoteAuthorized, quotePermissionMessage)
         : { allowed: false, message: '' };
+    const selectedItems = items.filter((item) => selectedVariantIds.includes(item.id));
+    const selectedItemsToAdd = selectedItems.filter((item) => !proposals.some((proposal) => proposal.productVariantId === item.id && proposal.status === 'proposed'));
+    const selectedBatchBlocked = selectedItemsToAdd.find((item) => !quoteEligibility(item, quoteAuthorized, quotePermissionMessage).allowed);
 
     async function addSelectedProductToQuote() {
         if (!selectedItem || !selectedEligibility.allowed || addingVariantId) return;
@@ -147,11 +156,44 @@ export default function HomeItemCatalogPicker({
                 result.proposal,
                 ...current.filter((proposal) => proposal.id !== result.proposal.id),
             ]);
+            setSelectedVariantIds((current) => current.filter((id) => id !== selectedItem.id));
             setMessage(`${result.proposal.productName} was added to ${result.proposal.quoteNumber || 'the quote'} as a proposed product.`);
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
             setAddingVariantId('');
+        }
+    }
+
+    async function addSelectedProductsToQuote() {
+        if (!selectedItemsToAdd.length || selectedBatchBlocked || addingSelected || addingVariantId) return;
+        setAddingSelected(true);
+        setMessage(`Adding ${selectedItemsToAdd.length} selected product option${selectedItemsToAdd.length === 1 ? '' : 's'} to the quote...`);
+        try {
+            const results = await addHomeItemCatalogProductsToQuote({
+                companyId,
+                propertyId,
+                homeItemId,
+                serviceRequestId,
+                scheduleSlotId,
+                jobId,
+                products: selectedItemsToAdd.map((item) => ({
+                    productVariantId: item.id,
+                    estimateCategory: estimateCategoryForHomeItemCatalog(itemContext, item),
+                })),
+                source: 'provider_mode',
+            });
+            const nextProposals = results.map((result) => result.proposal);
+            setProposals((current) => [
+                ...nextProposals,
+                ...current.filter((proposal) => !nextProposals.some((candidate) => candidate.id === proposal.id)),
+            ]);
+            setSelectedVariantIds([]);
+            setMessage(`${nextProposals.length} product option${nextProposals.length === 1 ? '' : 's'} added atomically to ${nextProposals[0]?.quoteNumber || 'the quote'} as proposed choices. The installed HomeOS item remains unchanged until completed job closeout.`);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setAddingSelected(false);
         }
     }
 
@@ -199,22 +241,47 @@ export default function HomeItemCatalogPicker({
                         </Text>
                     </View>
                 ) : (
-                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10) }}>
+                    <View style={{ gap: scaleIcon(10) }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: scaleIcon(8) }}>
+                            <Text selectable style={{ flex: 1, minWidth: scaleIcon(170), color: theme.colors.text, fontSize: scaleFont(14), lineHeight: scaleFont(19), fontWeight: '800' }}>
+                                Select one or more product choices, then add them as separate proposed quote options. Tap a tile to read details.
+                            </Text>
+                            <ThemedButton
+                                title={addingSelected ? 'Adding Selected...' : `Add Selected to Quote (${selectedItemsToAdd.length})`}
+                                disabled={!selectedItemsToAdd.length || Boolean(selectedBatchBlocked) || addingSelected || Boolean(addingVariantId)}
+                                onPress={() => void addSelectedProductsToQuote()}
+                                style={{ minHeight: scaleIcon(46), minWidth: scaleIcon(190) }}
+                                textStyle={{ fontSize: scaleFont(13) }}
+                            />
+                        </View>
+                        {!!selectedBatchBlocked && <Text selectable style={{ color: theme.colors.danger, fontSize: scaleFont(13), fontWeight: '800' }}>{quoteEligibility(selectedBatchBlocked, quoteAuthorized, quotePermissionMessage).message}</Text>}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), alignItems: 'stretch' }}>
                         {items.map((item) => {
                             const productName = catalogProductName(item);
+                            const proposed = proposals.some((proposal) => proposal.productVariantId === item.id && proposal.status === 'proposed');
+                            const selected = selectedVariantIds.includes(item.id);
                             return (
-                                <ThemedCard key={item.id} style={{ width: '47%', minWidth: scaleIcon(180), maxWidth: scaleIcon(250), minHeight: scaleIcon(214), padding: scaleIcon(12), borderWidth: 2, borderCurve: 'continuous', alignItems: 'center', justifyContent: 'space-between', gap: scaleIcon(8) }}>
-                                    <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${productName} product details`} activeOpacity={0.82} onPress={() => setSelectedItem(item)} style={{ width: '100%', alignItems: 'center', gap: scaleIcon(7) }}>
-                                        <ProductCardImage imageUrl={item.primaryImageUrl} productName={productName} compact style={{ width: scaleIcon(68), height: scaleIcon(68), minHeight: scaleIcon(68) }} />
-                                        <Text selectable numberOfLines={2} style={{ color: theme.colors.text, fontSize: scaleFont(15), lineHeight: scaleFont(19), fontWeight: '900', textAlign: 'center' }}>{productName}</Text>
-                                        <Text selectable numberOfLines={2} style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16), fontWeight: '800', textAlign: 'center' }}>
-                                            {[item.brand, item.modelNumber, item.category].filter(Boolean).join(' · ')}
-                                        </Text>
-                                    </TouchableOpacity>
-                                    <ThemedButton title="Details" variant="secondary" onPress={() => setSelectedItem(item)} style={{ minHeight: scaleIcon(42), width: '100%' }} textStyle={{ fontSize: scaleFont(13) }} />
-                                </ThemedCard>
+                                <CompactCatalogProductTile
+                                    key={item.id}
+                                    shortCode={item.shortCode}
+                                    imageUrl={item.primaryImageUrl}
+                                    productName={productName}
+                                    model={item.modelNumber ? `Model ${item.modelNumber}` : ''}
+                                    identity={[item.brand, item.category].filter(Boolean).join(' · ')}
+                                    selected={selected}
+                                    disabled={addingSelected || Boolean(addingVariantId)}
+                                    onOpen={() => setSelectedItem(item)}
+                                    primaryAction={{
+                                        title: proposed ? 'In Quote' : selected ? 'Selected' : 'Select',
+                                        selected,
+                                        disabled: proposed,
+                                        onPress: () => setSelectedVariantIds((current) => current.includes(item.id) ? current.filter((id) => id !== item.id) : [...current, item.id]),
+                                    }}
+                                    secondaryAction={{ title: 'Details', onPress: () => setSelectedItem(item) }}
+                                />
                             );
                         })}
+                        </View>
                     </View>
                 )}
 

@@ -1,11 +1,12 @@
 import { supabase } from './supabase';
-import type { CompleteRoomStarterKind } from './roomStarterTemplates';
+import { loadCatalogCardCodeMaps } from './catalogCardCodes';
 
 export type HomeOSStarterDeckReadiness = 'unbuilt' | 'building' | 'ready';
 
 export type HomeOSStarterDeckCard = {
     templateKey: string;
-    roomKind: CompleteRoomStarterKind;
+    shortCode: string;
+    roomKind: string;
     name: string;
     system: string;
     category: string;
@@ -21,13 +22,17 @@ export type HomeOSStarterDeckCard = {
 };
 
 export async function loadHomeOSStarterCardDeck() {
-    const { data, error } = await supabase.rpc('get_homeos_starter_card_deck');
+    const [{ data, error }, codes] = await Promise.all([
+        supabase.rpc('get_homeos_starter_card_deck'),
+        loadCatalogCardCodeMaps(),
+    ]);
 
     if (error) throw error;
 
     return array(data)
         .map(parseStarterDeckCard)
-        .filter((card): card is HomeOSStarterDeckCard => Boolean(card));
+        .filter((card): card is HomeOSStarterDeckCard => Boolean(card))
+        .map((card) => ({ ...card, shortCode: codes.starterTemplates.get(card.templateKey) || '' }));
 }
 
 export async function saveHomeOSStarterCardDeckEntry(input: {
@@ -50,6 +55,17 @@ export async function saveHomeOSStarterCardDeckEntry(input: {
     return parsed;
 }
 
+export async function setHomeOSStarterCardReadiness(
+    templateKey: string,
+    readinessStatus: HomeOSStarterDeckReadiness,
+) {
+    const { error } = await supabase.rpc('set_homeos_starter_card_readiness', {
+        p_template_key: templateKey,
+        p_readiness_status: readinessStatus,
+    });
+    if (error) throw error;
+}
+
 export async function loadCompanyHomeOSStarterCatalogVariantIds(
     companyId: string,
     templateKey: string,
@@ -69,11 +85,12 @@ function parseStarterDeckCard(value: unknown): HomeOSStarterDeckCard | null {
     const templateKey = text(row.template_key);
     const roomKind = text(row.room_kind);
 
-    if (!templateKey || !['bathroom', 'kitchen', 'garage'].includes(roomKind)) return null;
+    if (!templateKey || !roomKind) return null;
 
     return {
         templateKey,
-        roomKind: roomKind as CompleteRoomStarterKind,
+        shortCode: '',
+        roomKind,
         name: text(row.name) || 'Starter card',
         system: text(row.system),
         category: text(row.category),
