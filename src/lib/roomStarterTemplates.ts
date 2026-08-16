@@ -1,5 +1,7 @@
 export type CompleteRoomStarterKind = 'bathroom' | 'kitchen' | 'garage';
 
+export type LocationNeutralStarterKind = 'whole_home';
+
 export type CompleteRoomStarterItem = {
     name: string;
     system: string;
@@ -120,6 +122,24 @@ const ROOM_STARTER_ITEMS: Record<CompleteRoomStarterKind, readonly CompleteRoomS
     ],
 };
 
+const LOCATION_NEUTRAL_STARTER_ITEMS: readonly (CompleteRoomStarterItem & {
+    templateKey: string;
+    kind: LocationNeutralStarterKind;
+})[] = [
+    {
+        templateKey: 'whole_home:smart_water_shutoff',
+        kind: 'whole_home',
+        name: 'Smart Water Shutoff',
+        system: 'Plumbing',
+        category: 'Equipment',
+        aliases: [
+            'Smart Water Monitor and Shutoff',
+            'Automatic Smart Water Shutoff',
+            'Whole Home Smart Water Shutoff',
+        ],
+    },
+];
+
 export function getCompleteRoomStarterKind(areaName?: string | null): CompleteRoomStarterKind | null {
     const normalized = normalizeRoomStarterIdentity(areaName);
 
@@ -152,6 +172,19 @@ export function resolveCompleteRoomStarterTemplate(input: {
     location?: string | null;
     parentArea?: string | null;
 }) {
+    const locationNeutralItem = LOCATION_NEUTRAL_STARTER_ITEMS.find((itemDefinition) =>
+        roomStarterItemNames(itemDefinition).some((name) => sameRoomStarterIdentity(name, input.name))
+    );
+
+    if (locationNeutralItem) {
+        return {
+            templateKey: locationNeutralItem.templateKey,
+            kind: locationNeutralItem.kind,
+            areaName: '',
+            item: locationNeutralItem,
+        };
+    }
+
     const areaName = getCompleteRoomStarterKind(input.parentArea)
         ? String(input.parentArea || '').trim()
         : getCompleteRoomStarterKind(input.location)

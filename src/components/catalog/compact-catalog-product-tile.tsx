@@ -25,6 +25,7 @@ export default function CompactCatalogProductTile({
     onOpen,
     primaryAction,
     secondaryAction,
+    tertiaryAction,
     style,
 }: {
     shortCode?: string;
@@ -37,10 +38,11 @@ export default function CompactCatalogProductTile({
     onOpen: () => void;
     primaryAction?: TileAction;
     secondaryAction?: TileAction;
+    tertiaryAction?: TileAction;
     style?: StyleProp<ViewStyle>;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
-    const actions = [primaryAction, secondaryAction].filter((action): action is TileAction => Boolean(action));
+    const actions = [primaryAction, secondaryAction, tertiaryAction].filter((action): action is TileAction => Boolean(action));
 
     return (
         <ThemedCard style={[{

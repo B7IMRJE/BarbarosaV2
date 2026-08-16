@@ -20,6 +20,7 @@ import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
     bulkApproveCatalogDrafts,
+    duplicateCatalogFactoryProduct,
     importCatalogDrafts,
     loadCatalogFactory,
     reviewCatalogDraft,
@@ -44,6 +45,11 @@ import {
     createCatalogFactoryEditorDraft,
     type CatalogFactoryEditorDraft,
 } from '../../lib/catalogFactoryEditorCore';
+import {
+    catalogFactoryDuplicatePayload,
+    createCatalogFactoryDuplicateDraft,
+    type CatalogFactoryDuplicateDraft,
+} from '../../lib/catalogFactoryDuplicateCore';
 import {
     CATALOG_STATUSES,
     canBulkApproveCatalogRecord,
@@ -127,6 +133,8 @@ export default function CatalogFactoryScreen() {
     const [importOriginal, setImportOriginal] = useState('');
     const [importSummary, setImportSummary] = useState<CatalogImportSummary | null>(null);
     const [editing, setEditing] = useState<CatalogFactoryRecord | null>(null);
+    const [duplicateSource, setDuplicateSource] = useState<CatalogFactoryRecord | null>(null);
+    const [duplicateDraft, setDuplicateDraft] = useState<CatalogFactoryDuplicateDraft | null>(null);
     const [detailRecord, setDetailRecord] = useState<CatalogFactoryRecord | null>(null);
     const [editDraft, setEditDraft] = useState<CatalogFactoryEditorDraft | null>(null);
     const [editJson, setEditJson] = useState('{}');
@@ -535,6 +543,44 @@ export default function CatalogFactoryScreen() {
         }, null, 2));
     }
 
+    function beginDuplicate(record: CatalogFactoryRecord) {
+        setDetailRecord(null);
+        setEditingStarterCard(null);
+        setDuplicateSource(record);
+        setDuplicateDraft(createCatalogFactoryDuplicateDraft(record));
+        setMessage(`Preparing an unsaved copy of ${record.shortCode ? `${record.shortCode} · ` : ''}${factoryProductName(record)}. No catalog record has been created yet.`);
+    }
+
+    async function createDuplicateDraft() {
+        if (!duplicateSource || !duplicateDraft) return;
+        if (!duplicateDraft.modelNumber.trim()) {
+            setMessage('Enter the exact model for the duplicate before creating its draft.');
+            return;
+        }
+        setBusy(true);
+        setMessage(`Creating a private draft copy of ${factoryProductName(duplicateSource)}...`);
+        try {
+            const result = await duplicateCatalogFactoryProduct(
+                duplicateSource.id,
+                catalogFactoryDuplicatePayload(duplicateDraft),
+            );
+            setDuplicateSource(null);
+            setDuplicateDraft(null);
+            const nextCatalog = await loadCatalogFactory({});
+            setTemplates(nextCatalog.templates);
+            setRecords(nextCatalog.records);
+            setDeckRecords(nextCatalog.records);
+            setImports(nextCatalog.imports);
+            const createdRecord = nextCatalog.records.find((record) => record.id === result.variantId);
+            if (createdRecord) beginEdit(createdRecord);
+            setMessage(`Draft copy created with ${result.copiedAssetCount} media file${result.copiedAssetCount === 1 ? '' : 's'} and ${result.copiedReferenceCount} reference${result.copiedReferenceCount === 1 ? '' : 's'}. It is not approved, mapped, offered, activated, or priced.`);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
     async function pickMasterPhoto() {
         if (!editing) return;
         const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -659,6 +705,7 @@ export default function CatalogFactoryScreen() {
                         onMap={beginStarterCardMapping}
                         onSetReadiness={(card, readiness) => void changeStarterCardReadiness(card, readiness)}
                         onEditProduct={(record) => beginEdit(record)}
+                        onDuplicateProduct={(record) => beginDuplicate(record)}
                         onDetails={setDetailRecord}
                     />
                 )}
@@ -685,6 +732,7 @@ export default function CatalogFactoryScreen() {
                                     busy={busy}
                                     onToggle={() => setSelected((current) => current.includes(record.id) ? current.filter((id) => id !== record.id) : [...current, record.id])}
                                     onEdit={() => beginEdit(record)}
+                                    onDuplicate={() => beginDuplicate(record)}
                                     onDetails={() => setDetailRecord(record)}
                                     onApprove={() => void act(record, 'approve')}
                                     onReject={() => void act(record, 'reject')}
@@ -697,6 +745,15 @@ export default function CatalogFactoryScreen() {
                 )}
 
                 <FactoryRecordDetailsModal record={detailRecord} onClose={() => setDetailRecord(null)} />
+
+                <CatalogFactoryDuplicateModal
+                    record={duplicateSource}
+                    draft={duplicateDraft}
+                    setDraft={setDuplicateDraft}
+                    busy={busy}
+                    onCreate={() => void createDuplicateDraft()}
+                    onClose={() => { setDuplicateSource(null); setDuplicateDraft(null); setMessage('Duplicate canceled. No draft or production data was created.'); }}
+                />
 
                 <StarterCardMappingModal
                     card={editingStarterCard}
@@ -739,6 +796,7 @@ function StarterCardDeck({
     onMap,
     onSetReadiness,
     onEditProduct,
+    onDuplicateProduct,
     onDetails,
 }: {
     cards: HomeOSStarterDeckCard[];
@@ -748,6 +806,7 @@ function StarterCardDeck({
     onMap: (card: HomeOSStarterDeckCard) => void;
     onSetReadiness: (card: HomeOSStarterDeckCard, readiness: HomeOSStarterDeckReadiness) => void;
     onEditProduct: (record: CatalogFactoryRecord) => void;
+    onDuplicateProduct: (record: CatalogFactoryRecord) => void;
     onDetails: (record: CatalogFactoryRecord) => void;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
@@ -875,7 +934,7 @@ function StarterCardDeck({
                                             </View>
                                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), alignItems: 'stretch' }}>
                                                 {mappedRecords.map((record) => (
-                                                    <StarterMappedVariant key={record.id} record={record} busy={busy} onEdit={() => onEditProduct(record)} onDetails={() => onDetails(record)} />
+                                                    <StarterMappedVariant key={record.id} record={record} busy={busy} onEdit={() => onEditProduct(record)} onDuplicate={() => onDuplicateProduct(record)} onDetails={() => onDetails(record)} />
                                                 ))}
                                             </View>
                                             {mappedRecords.length === 0 && card.mappedCount === 0 ? (
@@ -917,7 +976,7 @@ function StarterCardDeck({
     );
 }
 
-function StarterMappedVariant({ record, busy, onEdit, onDetails }: { record: CatalogFactoryRecord; busy: boolean; onEdit: () => void; onDetails: () => void }) {
+function StarterMappedVariant({ record, busy, onEdit, onDuplicate, onDetails }: { record: CatalogFactoryRecord; busy: boolean; onEdit: () => void; onDuplicate: () => void; onDetails: () => void }) {
     const productName = factoryProductName(record);
     return (
         <CompactCatalogProductTile
@@ -935,6 +994,7 @@ function StarterMappedVariant({ record, busy, onEdit, onDetails }: { record: Cat
                 onPress: onEdit,
             }}
             secondaryAction={{ title: 'Details', onPress: onDetails }}
+            tertiaryAction={{ title: 'Duplicate', accessibilityLabel: `Duplicate master product ${productName}`, testID: `catalog-deck-duplicate-${record.id}`, onPress: onDuplicate }}
         />
     );
 }
@@ -1239,7 +1299,7 @@ function Filters({ filters, setFilters, templates, busy, onApply }: { filters: C
     return <ThemedCard><Title>Catalog filters</Title><ChoiceWrap><Chip label="All categories" selected={!filters.category} onPress={() => setFilters({ ...filters, category: '' })} />{templates.map((template) => <Chip key={template.id} label={template.categoryName} selected={filters.category === template.categoryName} onPress={() => setFilters({ ...filters, category: template.categoryName })} />)}</ChoiceWrap><ButtonRow><FieldBox label="Manufacturer" value={filters.manufacturer || ''} onChangeText={(manufacturer) => setFilters({ ...filters, manufacturer })} /><FieldBox label="Brand" value={filters.brand || ''} onChangeText={(brand) => setFilters({ ...filters, brand })} /><FieldBox label="Retailer" value={filters.retailer || ''} onChangeText={(retailer) => setFilters({ ...filters, retailer })} /><FieldBox label="Verified before (YYYY-MM-DD)" value={filters.lastVerifiedBefore || ''} onChangeText={(lastVerifiedBefore) => setFilters({ ...filters, lastVerifiedBefore })} /></ButtonRow><ChoiceWrap><Chip label="Any status" selected={!filters.status} onPress={() => setFilters({ ...filters, status: '' })} />{CATALOG_STATUSES.map((value) => <Chip key={value} label={value.replace('_', ' ')} selected={filters.status === value} onPress={() => setFilters({ ...filters, status: value })} />)}</ChoiceWrap><View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 18 }}><Toggle label="Missing information" value={Boolean(filters.missing)} onChange={(missing) => setFilters({ ...filters, missing })} /><Toggle label="Possible duplicates" value={Boolean(filters.duplicates)} onChange={(duplicates) => setFilters({ ...filters, duplicates })} /></View><ThemedButton title={busy ? 'Loading...' : 'Apply Filters'} disabled={busy} onPress={onApply} /></ThemedCard>;
 }
 
-function FactoryRecordCard({ record, phone, selected, busy, onToggle, onEdit, onDetails, onApprove, onReject, onNeedsReview }: { record: CatalogFactoryRecord; phone: boolean; selected: boolean; busy: boolean; onToggle: () => void; onEdit: () => void; onDetails: () => void; onApprove: () => void; onReject: () => void; onNeedsReview: () => void }) {
+function FactoryRecordCard({ record, phone, selected, busy, onToggle, onEdit, onDuplicate, onDetails, onApprove, onReject, onNeedsReview }: { record: CatalogFactoryRecord; phone: boolean; selected: boolean; busy: boolean; onToggle: () => void; onEdit: () => void; onDuplicate: () => void; onDetails: () => void; onApprove: () => void; onReject: () => void; onNeedsReview: () => void }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const warnings = [...record.validationWarnings, ...record.duplicateWarnings, ...record.missingFields];
     const productName = factoryProductName(record);
@@ -1300,6 +1360,8 @@ function FactoryRecordCard({ record, phone, selected, busy, onToggle, onEdit, on
                     <FactoryTileAction title="Edit" accessibilityLabel={`Edit master product ${productName}`} testID={`catalog-list-edit-${record.id}`} variant="secondary" disabled={busy} onPress={onEdit} />
                     <FactoryTileAction title="Details / Reference" variant="secondary" disabled={busy} onPress={onDetails} />
                 </View>
+
+                <FactoryTileAction title="Duplicate" accessibilityLabel={`Duplicate master product ${productName}`} testID={`catalog-list-duplicate-${record.id}`} variant="secondary" disabled={busy} onPress={onDuplicate} />
 
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(7) }}>
                     {record.status !== 'approved' && <FactoryTileAction title="Approve" disabled={busy || warnings.length > 0} onPress={onApprove} />}
@@ -1431,6 +1493,74 @@ function FactoryReferenceLink({ title, subtitle, url }: { title: string; subtitl
 function factoryProductName(record: CatalogFactoryRecord) {
     const displayName = typeof record.specifications.product_name === 'string' ? record.specifications.product_name.trim() : '';
     return displayName || [record.brand, record.familyName, record.modelNumber].filter(Boolean).join(' ') || 'Master product';
+}
+
+function CatalogFactoryDuplicateModal({
+    record,
+    draft,
+    setDraft,
+    busy,
+    onCreate,
+    onClose,
+}: {
+    record: CatalogFactoryRecord | null;
+    draft: CatalogFactoryDuplicateDraft | null;
+    setDraft: (draft: CatalogFactoryDuplicateDraft | null) => void;
+    busy: boolean;
+    onCreate: () => void;
+    onClose: () => void;
+}) {
+    const { width } = useWindowDimensions();
+    const phone = width < 720;
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    if (!record || !draft) return null;
+
+    const productName = factoryProductName(record);
+    const activeMediaCount = record.assets.filter((asset) => asset.active).length;
+
+    return (
+        <Modal animationType="slide" transparent visible onRequestClose={() => { if (!busy) onClose(); }} testID="catalog-duplicate-modal">
+            <View style={{ flex: 1, backgroundColor: 'rgba(8, 18, 31, 0.64)', justifyContent: 'center', padding: scaleIcon(10) }}>
+                <ThemedCard style={{ width: '100%', maxWidth: 760, maxHeight: '94%', alignSelf: 'center', padding: 0, overflow: 'hidden' }}>
+                    <View style={{ paddingHorizontal: scaleIcon(16), paddingVertical: scaleIcon(12), borderBottomWidth: 1, borderBottomColor: theme.colors.border, gap: scaleIcon(4) }}>
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(12), fontWeight: '900', letterSpacing: 0.8 }}>UNSAVED DUPLICATE</Text>
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(phone ? 22 : 26), fontWeight: '900' }}>Duplicate {record.shortCode ? `${record.shortCode} · ` : ''}{productName}</Text>
+                        <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20), fontWeight: '700' }}>Nothing is created until you press Create Draft Copy. Cancel safely discards this form.</Text>
+                    </View>
+                    <ScrollView keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: scaleIcon(14), gap: scaleIcon(12) }}>
+                        <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12), alignItems: phone ? 'stretch' : 'center' }}>
+                            <ProductCardImage compact imageUrl={record.primaryImageUrl} productName={productName} style={{ width: phone ? '100%' : scaleIcon(116), height: scaleIcon(116), minHeight: scaleIcon(116) }} />
+                            <View style={{ flex: 1, gap: scaleIcon(5) }}>
+                                <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(17), fontWeight: '900' }}>{record.manufacturer} · {record.brand} · {record.familyName}</Text>
+                                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20) }}>{activeMediaCount} active media file{activeMediaCount === 1 ? '' : 's'}, {record.sources.length} reference{record.sources.length === 1 ? '' : 's'}, and all specifications will receive independent draft rows.</Text>
+                            </View>
+                        </View>
+
+                        <View style={{ borderWidth: 1, borderColor: '#C88A12', borderRadius: 12, borderCurve: 'continuous', backgroundColor: '#FFF8E8', padding: scaleIcon(11), gap: scaleIcon(4) }}>
+                            <Text selectable style={{ color: '#704B00', fontSize: scaleFont(15), fontWeight: '900' }}>Safe-copy rules</Text>
+                            <Text selectable style={{ color: '#704B00', fontSize: scaleFont(13), lineHeight: scaleFont(19), fontWeight: '700' }}>The new record stays draft. Model, MPN, and UPC are not copied. Company costs, selling prices, offerings, activation, approval, and HomeOS mappings are never copied.</Text>
+                        </View>
+
+                        <CompactField label="Draft product title" value={draft.productTitle} onChangeText={(productTitle) => setDraft({ ...draft, productTitle })} placeholder="Copy of product name" />
+                        <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(9) }}>
+                            <CompactFieldBox label="New exact model *" value={draft.modelNumber} onChangeText={(modelNumber) => setDraft({ ...draft, modelNumber })} placeholder="Required" />
+                            <CompactFieldBox label="New MPN / part number" value={draft.manufacturerPartNumber} onChangeText={(manufacturerPartNumber) => setDraft({ ...draft, manufacturerPartNumber })} placeholder="Enter if available" />
+                        </View>
+                        <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(9) }}>
+                            <CompactFieldBox label="New UPC / GTIN" value={draft.upcGtin} onChangeText={(upcGtin) => setDraft({ ...draft, upcGtin })} placeholder="Leave blank if not confirmed" />
+                            <CompactFieldBox label="Size / connection" value={draft.size} onChangeText={(size) => setDraft({ ...draft, size })} placeholder="Example: 1 in" />
+                        </View>
+                        <CompactField label="Finish" value={draft.finish} onChangeText={(finish) => setDraft({ ...draft, finish })} placeholder="Copied finish or new finish" />
+
+                        <ButtonRow>
+                            <ThemedButton title={busy ? 'Creating Draft...' : 'Create Draft Copy'} disabled={busy || !draft.modelNumber.trim()} onPress={onCreate} style={{ flex: 1, minWidth: 190 }} />
+                            <ThemedButton title="Cancel / Discard" variant="secondary" disabled={busy} onPress={onClose} style={{ flex: 1, minWidth: 160 }} />
+                        </ButtonRow>
+                    </ScrollView>
+                </ThemedCard>
+            </View>
+        </Modal>
+    );
 }
 
 function CatalogFactoryEditModal({

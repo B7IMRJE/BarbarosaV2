@@ -104,6 +104,13 @@ export type CatalogImportSummary = {
     failed: number;
 };
 
+export type CatalogFactoryDuplicateResult = {
+    variantId: string;
+    status: string;
+    copiedReferenceCount: number;
+    copiedAssetCount: number;
+};
+
 export type ApprovedMasterCatalogItem = {
     id: string;
     shortCode: string;
@@ -275,6 +282,23 @@ export async function saveCatalogFactoryProduct(variantId: string, payload: Reco
     });
     if (error) throw error;
     return data;
+}
+
+export async function duplicateCatalogFactoryProduct(sourceVariantId: string, payload: Record<string, unknown>) {
+    const { data, error } = await supabase.rpc('duplicate_catalog_factory_product', {
+        p_source_variant_id: sourceVariantId,
+        p_payload: payload,
+    });
+    if (error) throw error;
+    const row = record(data);
+    const variantId = text(row.variant_id);
+    if (!variantId) throw new Error('The duplicate draft was created without a usable product identifier.');
+    return {
+        variantId,
+        status: text(row.status) || 'draft',
+        copiedReferenceCount: numberValue(row.copied_reference_count) || 0,
+        copiedAssetCount: numberValue(row.copied_asset_count) || 0,
+    } satisfies CatalogFactoryDuplicateResult;
 }
 
 export async function uploadCatalogFactoryPhoto(input: {

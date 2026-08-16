@@ -45,6 +45,9 @@ assert(new Set(keys).size === keys.length, 'Every Catalog Factory starter archet
 
 const showerValve = resolveCompleteRoomStarterTemplate({ name: 'Shower Valve', location: 'Shower / Tub', parentArea: 'Bathroom 2' });
 assert(showerValve?.templateKey === 'bathroom:shower_valve', 'The HomeOS Catalog action must resolve Shower Valve to the same Catalog Factory mapping key.');
+const smartWaterShutoff = resolveCompleteRoomStarterTemplate({ name: 'Smart Water Monitor and Shutoff', location: null, parentArea: null });
+assert(smartWaterShutoff?.templateKey === 'whole_home:smart_water_shutoff', 'Location-neutral Smart Water Shutoff items must resolve to the Catalog Factory archetype without claiming an area.');
+assert(smartWaterShutoff?.areaName === '', 'Location-neutral Smart Water Shutoff matching must not invent a Garage or Front Yard placement.');
 assert(isCompleteRoomStarterRelation({ areaName: 'Bathroom 1', parentName: 'Toilet', candidateName: 'Flapper' }), 'Toilet aliases should remain related to the Toilet parent.');
 assert(isCompleteRoomStarterRelation({ areaName: 'Kitchen', parentName: 'RO System', candidateName: 'Sediment Filter' }), 'RO aliases should remain related to the RO parent.');
 
