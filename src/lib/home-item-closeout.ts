@@ -8,15 +8,18 @@ import type {
 export * from './home-item-closeout-core';
 
 export async function loadCompanyJobHomeItemCloseout(workflowId: string) {
-    const [closeoutResult, catalogResult] = await Promise.all([
+    const [closeoutResult, catalogResult, catalogPublicationResult] = await Promise.all([
         supabase.rpc('get_company_job_homeos_closeout', { p_workflow_id: workflowId }),
         supabase.rpc('get_company_job_selected_catalog_product', { p_workflow_id: workflowId }),
+        supabase.rpc('get_company_job_catalog_publication_review', { p_workflow_id: workflowId }),
     ]);
     if (closeoutResult.error) throw closeoutResult.error;
     if (catalogResult.error) throw catalogResult.error;
+    if (catalogPublicationResult.error) throw catalogPublicationResult.error;
     return {
         ...(closeoutResult.data as HomeItemCloseoutContext),
-        catalog_product: catalogResult.data || null,
+        catalog_product: catalogPublicationResult.data?.product || catalogResult.data || null,
+        catalog_publication: catalogPublicationResult.data || null,
     } as HomeItemCloseoutContext;
 }
 
@@ -27,6 +30,18 @@ export async function saveCompanyJobHomeItemCloseout(workflowId: string, draft: 
     });
     if (error) throw error;
     return data as HomeItemCloseoutContext;
+}
+
+export async function saveCompanyJobCatalogPublicationReview(
+    workflowId: string,
+    resolutions: HomeItemCloseoutDraft['catalog_conflict_resolutions'],
+) {
+    const { data, error } = await supabase.rpc('save_company_job_catalog_publication_review', {
+        p_workflow_id: workflowId,
+        p_resolutions: resolutions,
+    });
+    if (error) throw error;
+    return data;
 }
 
 export async function loadHomeItemLifetimeHistory(input: {

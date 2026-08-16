@@ -3,6 +3,7 @@ import {
     buildHomeItemCloseoutDraft,
     defaultHomeItemCloseoutType,
     isInactiveHomeItemStatus,
+    unresolvedCatalogPublicationConflicts,
     warrantyExpirationDate,
     type HomeItemCloseoutContext,
 } from './home-item-closeout-core';
@@ -90,6 +91,35 @@ assert(
 assert(
     draft.warranties[2]?.verification_status === 'verify_later',
     'Unknown manufacturer coverage must remain explicitly unverified.'
+);
+assert(
+    Object.keys(draft.catalog_conflict_resolutions).length === 0,
+    'A new closeout draft should not invent catalog conflict decisions.'
+);
+
+const conflicts = unresolvedCatalogPublicationConflicts({
+    proposal_id: 'proposal-1',
+    reviewed_at: null,
+    resolutions: {},
+    existing_facts: { brand: 'Delta' },
+    catalog_facts: { brand: 'Moen' },
+    conflicts: [{ field: 'brand', label: 'Brand', existing_value: 'Delta', catalog_value: 'Moen' }],
+    product: {
+        id: 'product-1', product_name: 'Moen Faucet', category: 'Faucet', brand: 'Moen', model: 'M1',
+        manufacturer_part_number: null, workmanship_warranty: null, labor_warranty: null, manufacturer_warranty: null,
+    },
+}, {});
+assert(conflicts.length === 1, 'A conflicting non-empty installed fact must require an explicit closeout choice.');
+assert(
+    unresolvedCatalogPublicationConflicts({
+        proposal_id: 'proposal-1', reviewed_at: null, resolutions: {}, existing_facts: {}, catalog_facts: {},
+        conflicts: [{ field: 'brand', label: 'Brand', existing_value: 'Delta', catalog_value: 'Moen' }],
+        product: {
+            id: 'product-1', product_name: 'Moen Faucet', category: 'Faucet', brand: 'Moen', model: 'M1',
+            manufacturer_part_number: null, workmanship_warranty: null, labor_warranty: null, manufacturer_warranty: null,
+        },
+    }, { brand: 'existing' }).length === 0,
+    'Choosing the existing value should resolve the catalog conflict without overwriting it.'
 );
 
 function assert(condition: unknown, message: string): asserts condition {

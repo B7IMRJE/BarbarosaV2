@@ -135,6 +135,7 @@ export type CompanyCatalogOffering = {
     id?: string;
     companyId?: string;
     productVariantId?: string;
+    companyCatalogProductId?: string;
     materialCost: number | null;
     markup: number | null;
     laborAmount: number | null;
@@ -607,6 +608,7 @@ function parseOffering(value: unknown): CompanyCatalogOffering {
         id: text(row.id) || undefined,
         companyId: text(row.company_id) || undefined,
         productVariantId: text(row.product_variant_id) || undefined,
+        companyCatalogProductId: text(row.company_catalog_product_id) || undefined,
         materialCost: numberValue(row.material_cost),
         markup: numberValue(row.markup),
         laborAmount: numberValue(row.labor_amount),

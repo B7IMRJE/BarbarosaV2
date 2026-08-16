@@ -49,6 +49,26 @@ export type HomeItemCloseoutDraft = {
     work_performed: string;
     installation_notes: string;
     warranties: HomeItemCloseoutWarranty[];
+    catalog_conflict_resolutions: Record<string, HomeItemCatalogConflictResolution>;
+};
+
+export type HomeItemCatalogConflictResolution = 'existing' | 'catalog';
+
+export type HomeItemCatalogPublicationConflict = {
+    field: string;
+    label: string;
+    existing_value: string;
+    catalog_value: string;
+};
+
+export type HomeItemCatalogPublicationReview = {
+    proposal_id: string;
+    reviewed_at: string | null;
+    resolutions: Record<string, HomeItemCatalogConflictResolution>;
+    existing_facts: Record<string, string | null>;
+    catalog_facts: Record<string, unknown>;
+    conflicts: HomeItemCatalogPublicationConflict[];
+    product: NonNullable<HomeItemCloseoutContext['catalog_product']>;
 };
 
 export type HomeItemCloseoutContext = {
@@ -85,7 +105,11 @@ export type HomeItemCloseoutContext = {
         workmanship_warranty: string | null;
         labor_warranty: string | null;
         manufacturer_warranty: string | null;
+        finish?: string | null;
+        product_type?: string | null;
+        specifications?: Record<string, unknown>;
     } | null;
+    catalog_publication?: HomeItemCatalogPublicationReview | null;
 };
 
 export type HomeItemLifetimeHistoryMedia = {
@@ -221,6 +245,7 @@ export function buildHomeItemCloseoutDraft(input: {
     workPerformed: string;
     installationNotes?: string;
     warranties: HomeItemCloseoutWarranty[];
+    catalogConflictResolutions?: Record<string, HomeItemCatalogConflictResolution>;
 }): HomeItemCloseoutDraft {
     return {
         completion_type: input.completionType,
@@ -236,7 +261,17 @@ export function buildHomeItemCloseoutDraft(input: {
         work_performed: input.workPerformed.trim(),
         installation_notes: input.installationNotes?.trim() || '',
         warranties: input.warranties,
+        catalog_conflict_resolutions: input.catalogConflictResolutions || {},
     };
+}
+
+export function unresolvedCatalogPublicationConflicts(
+    review: HomeItemCatalogPublicationReview | null | undefined,
+    resolutions: Record<string, HomeItemCatalogConflictResolution>,
+) {
+    return (review?.conflicts || []).filter((conflict) => (
+        !['existing', 'catalog'].includes(resolutions[conflict.field] || '')
+    ));
 }
 
 function cleanOptional(value?: string | null) {

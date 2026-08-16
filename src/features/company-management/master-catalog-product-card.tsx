@@ -127,10 +127,17 @@ export function MasterCatalogProductDetailsModal({
     item,
     includedInDraftPackage,
     onClose,
+    primaryAction,
 }: {
     item: ApprovedMasterCatalogItem | null;
     includedInDraftPackage: boolean;
     onClose: () => void;
+    primaryAction?: {
+        title: string;
+        disabled?: boolean;
+        message?: string;
+        onPress: () => void;
+    };
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const [detail, setDetail] = useState<ApprovedMasterCatalogDetail | null>(null);
@@ -276,8 +283,28 @@ export function MasterCatalogProductDetailsModal({
                         )}
                     </ScrollView>
 
-                    <View style={{ padding: scaleIcon(14), borderTopWidth: 1, borderTopColor: theme.colors.border }}>
-                        <ThemedButton title="Close Details" variant="secondary" onPress={onClose} />
+                    <View style={{ padding: scaleIcon(14), borderTopWidth: 1, borderTopColor: theme.colors.border, gap: scaleIcon(8) }}>
+                        {!!primaryAction?.message && (
+                            <Text selectable style={{ color: primaryAction.disabled ? theme.colors.mutedText : theme.colors.text, fontSize: scaleFont(13), lineHeight: scaleFont(18), fontWeight: '800' }}>
+                                {primaryAction.message}
+                            </Text>
+                        )}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8) }}>
+                            {primaryAction && (
+                                <ThemedButton
+                                    title={primaryAction.title}
+                                    disabled={primaryAction.disabled}
+                                    onPress={primaryAction.onPress}
+                                    style={{ flexGrow: 1, minWidth: scaleIcon(180) }}
+                                />
+                            )}
+                            <ThemedButton
+                                title="Close Details"
+                                variant="secondary"
+                                onPress={onClose}
+                                style={{ flexGrow: 1, minWidth: scaleIcon(150) }}
+                            />
+                        </View>
                     </View>
                 </ThemedCard>
             </View>

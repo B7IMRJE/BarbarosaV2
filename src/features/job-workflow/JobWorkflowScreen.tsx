@@ -40,8 +40,10 @@ import {
     HOME_ITEM_CONDITIONS,
     HOME_ITEM_WARRANTY_CHOICES,
     loadCompanyJobHomeItemCloseout,
+    saveCompanyJobCatalogPublicationReview,
     saveCompanyJobHomeItemCloseout,
     todayDateInput,
+    unresolvedCatalogPublicationConflicts,
     warrantyChoiceFromText,
     warrantyChoiceLabel,
     type HomeItemCloseoutContext,
@@ -418,8 +420,8 @@ export default function JobWorkflowScreen() {
             await closeJobWorkflow(bundle.workflow.id, paymentHandling);
             await refresh();
             setMessage(paymentHandling === 'paid_externally'
-                ? 'Job closed out and payment recorded.'
-                : 'Job closed out. The balance is now with the office.');
+                ? 'Job closed out and payment recorded. Any accepted catalog product is now published to HomeOS.'
+                : 'Job closed out. The balance is now with the office, and any accepted catalog product is now published to HomeOS.');
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
@@ -560,21 +562,28 @@ export default function JobWorkflowScreen() {
                         customLabel: choice === 'custom' ? warrantyText : '',
                     });
                 });
-            const draft = context.draft || buildHomeItemCloseoutDraft({
+            const catalogPublication = context.catalog_publication || null;
+            const draft = context.draft ? {
+                ...context.draft,
+                catalog_conflict_resolutions: catalogPublication?.resolutions
+                    || context.draft.catalog_conflict_resolutions
+                    || {},
+            } : buildHomeItemCloseoutDraft({
                 completionType,
-                itemName: context.catalog_product?.product_name || context.item.name,
+                itemName: catalogPublication ? context.item.name : context.catalog_product?.product_name || context.item.name,
                 condition: completionType === 'repaired' ? 'Good' : 'Newly Installed',
                 completionDate: date,
                 installedOn: completionType === 'repaired' && context.item.installed_on
                     ? context.item.installed_on
                     : date,
-                brand: context.catalog_product?.brand || context.item.brand || '',
-                model: context.catalog_product?.model || context.item.model || '',
+                brand: catalogPublication ? context.item.brand || '' : context.catalog_product?.brand || context.item.brand || '',
+                model: catalogPublication ? context.item.model || '' : context.catalog_product?.model || context.item.model || '',
                 serialNumber: context.item.serial_number || '',
-                partNumber: context.catalog_product?.manufacturer_part_number || context.item.part_number || '',
+                partNumber: catalogPublication ? context.item.part_number || '' : context.catalog_product?.manufacturer_part_number || context.item.part_number || '',
                 workPerformed: approvedWorkSummary,
                 installationNotes: context.item.installation_notes || '',
                 warranties,
+                catalogConflictResolutions: catalogPublication?.resolutions || {},
             });
             setHomeItemCloseout({ context, draft });
             setMessage('');
@@ -611,14 +620,30 @@ export default function JobWorkflowScreen() {
             setMessage('Describe the work performed before completing the job.');
             return;
         }
+        const unresolvedConflicts = unresolvedCatalogPublicationConflicts(
+            homeItemCloseout.context.catalog_publication,
+            homeItemCloseout.draft.catalog_conflict_resolutions,
+        );
+        if (unresolvedConflicts.length > 0) {
+            setMessage('Choose whether to keep the existing value or use the catalog value for every product conflict.');
+            return;
+        }
         setBusy(true);
-        setMessage('Updating the permanent HomeOS item and completing the work...');
+        setMessage('Saving the HomeOS closeout review and completing the work...');
         try {
+            if (homeItemCloseout.context.catalog_publication) {
+                await saveCompanyJobCatalogPublicationReview(
+                    bundle.workflow.id,
+                    homeItemCloseout.draft.catalog_conflict_resolutions,
+                );
+            }
             await saveCompanyJobHomeItemCloseout(bundle.workflow.id, homeItemCloseout.draft);
             await advanceJobWorkflow(bundle.workflow.id, 'complete_work');
             setHomeItemCloseout(null);
             await refresh();
-            setMessage('Work completed. The linked HomeOS item and lifetime history were updated.');
+            setMessage(homeItemCloseout.context.catalog_publication
+                ? 'Work completed. Service history was saved; the proposed product will publish only when the job is closed.'
+                : 'Work completed. The linked HomeOS item and lifetime history were updated.');
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
@@ -1498,6 +1523,11 @@ function HomeItemCloseoutModal({
 }) {
     if (!closeout) return null;
     const { context, draft } = closeout;
+    const catalogPublication = context.catalog_publication || null;
+    const unresolvedConflicts = unresolvedCatalogPublicationConflicts(
+        catalogPublication,
+        draft.catalog_conflict_resolutions,
+    );
 
     return (
         <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -1516,6 +1546,66 @@ function HomeItemCloseoutModal({
                     <Text style={closeoutSummaryValueStyle}>Installed</Text>
                     <Text style={mutedStyle}>The job remains the service transaction. This item becomes the permanent equipment record.</Text>
                 </View>
+
+                {catalogPublication && (
+                    <View style={closeoutSummaryStyle}>
+                        <Text style={closeoutSummaryLabelStyle}>PROPOSED CATALOG PRODUCT</Text>
+                        <Text selectable style={closeoutSummaryValueStyle}>
+                            {catalogPublication.product.product_name || [catalogPublication.product.brand, catalogPublication.product.model].filter(Boolean).join(' ')}
+                        </Text>
+                        <Text selectable style={mutedStyle}>
+                            {[catalogPublication.product.brand, catalogPublication.product.model, catalogPublication.product.finish, catalogPublication.product.product_type].filter(Boolean).join(' · ')}
+                        </Text>
+                        <Text selectable style={mutedStyle}>
+                            This remains a quote proposal during the job. The catalog photo, reference, finish, type, and specifications publish only after the completed job is closed.
+                        </Text>
+                    </View>
+                )}
+
+                {catalogPublication && catalogPublication.conflicts.length > 0 && (
+                    <View style={{ gap: 10 }}>
+                        <Text style={legalTitleStyle}>Review existing product facts</Text>
+                        <Text selectable style={mutedStyle}>
+                            Choose explicitly for each non-empty conflict. Nothing is overwritten silently.
+                        </Text>
+                        {catalogPublication.conflicts.map((conflict) => (
+                            <View key={conflict.field} style={legalDocumentCardStyle}>
+                                <Text selectable style={optionTitleStyle}>{conflict.label}</Text>
+                                <View style={mediaActionRowStyle}>
+                                    <ChoiceButton
+                                        selected={draft.catalog_conflict_resolutions[conflict.field] === 'existing'}
+                                        title={`Keep: ${conflict.existing_value}`}
+                                        onPress={() => onUpdate({
+                                            catalog_conflict_resolutions: {
+                                                ...draft.catalog_conflict_resolutions,
+                                                [conflict.field]: 'existing',
+                                            },
+                                        })}
+                                    />
+                                    <ChoiceButton
+                                        selected={draft.catalog_conflict_resolutions[conflict.field] === 'catalog'}
+                                        title={`Use Catalog: ${conflict.catalog_value}`}
+                                        onPress={() => onUpdate({
+                                            catalog_conflict_resolutions: {
+                                                ...draft.catalog_conflict_resolutions,
+                                                [conflict.field]: 'catalog',
+                                            },
+                                        })}
+                                    />
+                                </View>
+                            </View>
+                        ))}
+                    </View>
+                )}
+
+                {catalogPublication && catalogPublication.conflicts.length === 0 && (
+                    <View style={closeoutSummaryStyle}>
+                        <Text style={optionTitleStyle}>No conflicting installed facts</Text>
+                        <Text selectable style={mutedStyle}>
+                            Blank brand, model, and part-number fields will be filled from the accepted catalog product when this job closes.
+                        </Text>
+                    </View>
+                )}
 
                 <Text style={legalTitleStyle}>What happened to this item?</Text>
                 <View style={mediaActionRowStyle}>
@@ -1558,7 +1648,13 @@ function HomeItemCloseoutModal({
                     <Text style={mutedStyle}>Before, diagnostic, during-work, product, label, and after photos already on this job will follow the item into HomeOS history.</Text>
                 </View>
 
-                <PrimaryButton title="Confirm HomeOS Update & Complete Work" disabled={busy || !draft.work_performed.trim()} onPress={onConfirm} />
+                <PrimaryButton
+                    title={unresolvedConflicts.length > 0
+                        ? `Resolve ${unresolvedConflicts.length} Product Conflict${unresolvedConflicts.length === 1 ? '' : 's'}`
+                        : 'Confirm HomeOS Update & Complete Work'}
+                    disabled={busy || !draft.work_performed.trim() || unresolvedConflicts.length > 0}
+                    onPress={onConfirm}
+                />
                 <SecondaryButton title="Return to Job" disabled={busy} onPress={onClose} />
             </ScrollView>
         </Modal>

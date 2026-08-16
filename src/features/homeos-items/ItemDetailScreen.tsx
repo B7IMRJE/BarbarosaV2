@@ -102,7 +102,9 @@ import {
     type HomeItemLifetimeHistoryEntry,
     type HomeItemLifetimeHistoryMedia,
 } from '../../lib/home-item-closeout';
+import type { HomeItemCatalogProposal } from '../../lib/home-item-catalog';
 import { useTheme } from '../../theme/useTheme';
+import HomeItemCatalogPicker from './home-item-catalog-picker';
 
 declare const __DEV__: boolean;
 
@@ -141,7 +143,7 @@ type ProviderNoteDestination = 'company_only' | 'client_update';
 
 type ProviderFindingSeverity = 'low' | 'medium' | 'high' | 'urgent';
 
-type ItemActionGroupKey = 'components' | 'maintenance' | 'estimate' | 'provider' | 'media' | 'item';
+type ItemActionGroupKey = 'components' | 'maintenance' | 'estimate' | 'provider' | 'catalog' | 'media' | 'item';
 
 type ItemFocusedView = 'management' | 'edit-information';
 
@@ -153,6 +155,7 @@ const itemSectionTilePalettes: Record<
     maintenance: { background: '#ECFBF5', border: '#BFEEDC', accent: '#0A7458', text: '#102D27', mutedText: '#3D5F57' },
     estimate: { background: '#EEF4FF', border: '#C8DAFF', accent: '#1958B8', text: '#102A50', mutedText: '#405979' },
     provider: { background: '#E9F8F7', border: '#B8E7E2', accent: '#087C78', text: '#113A39', mutedText: '#416563' },
+    catalog: { background: '#F2F0FF', border: '#D7D0FF', accent: '#5C48B7', text: '#282047', mutedText: '#5D5676' },
     media: { background: '#EAF9FF', border: '#BCEBFA', accent: '#176D9C', text: '#13364A', mutedText: '#456576' },
     item: { background: '#FFF7E8', border: '#F0D49C', accent: '#9A6500', text: '#392B11', mutedText: '#6C5B3B' },
 };
@@ -627,6 +630,7 @@ export default function ItemScreen() {
         maintenance: false,
         estimate: false,
         provider: false,
+        catalog: false,
         media: false,
         item: false,
     });
@@ -2627,6 +2631,20 @@ export default function ItemScreen() {
                         companyId: estimateAccess?.companyId || managementCompanyId || '',
                         propertyId: item.property_id || managementPropertyId || '',
                     }),
+            },
+        } as never);
+    }
+
+    function openCatalogQuote(proposal: HomeItemCatalogProposal) {
+        if (!providerModeContext) return;
+
+        router.push({
+            pathname: '/estimate/workspace',
+            params: {
+                itemSlug: item.item_slug || String(slug),
+                estimateSessionId: proposal.estimateSessionId,
+                catalogItemId: proposal.companyCatalogProductId,
+                ...providerModeQueryParams(providerModeContext),
             },
         } as never);
     }
@@ -5080,6 +5098,11 @@ export default function ItemScreen() {
                             'Provider Updates',
                             'Notes, findings, photos, and client updates.'
                         ) : null}
+                        {providerModeContext ? renderSectionTile(
+                            'catalog',
+                            'Catalog',
+                            'Browse matching company products and quote proposals.'
+                        ) : null}
                         {renderSectionTile(
                             'media',
                             'Photos & Docs',
@@ -5560,6 +5583,30 @@ export default function ItemScreen() {
                                 textStyle={scaleStyle(buttonTextStyle)}
                             />
                         </>
+                    ) : null}
+
+                    {providerModeContext && expandedActionGroups.catalog ? (
+                        <HomeItemCatalogPicker
+                            active
+                            companyId={providerModeContext.companyId}
+                            propertyId={providerModeContext.propertyId}
+                            homeItemId={String(item.id || '')}
+                            serviceRequestId={providerModeContext.serviceRequestId}
+                            scheduleSlotId={providerModeContext.scheduleSlotId}
+                            jobId={providerModeContext.jobId}
+                            itemContext={{
+                                name: item.name,
+                                system: item.system,
+                                category: item.category,
+                                location: item.location,
+                                parentArea: item.parent_area,
+                            }}
+                            quoteAuthorized={Boolean(estimateAccess)}
+                            quotePermissionMessage={checkingEstimateAccess
+                                ? 'Checking quote permission...'
+                                : estimatePermissionMessage}
+                            onOpenQuote={openCatalogQuote}
+                        />
                     ) : null}
 
                     {renderActionGroup(
