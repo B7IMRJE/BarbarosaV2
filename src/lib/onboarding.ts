@@ -23,6 +23,7 @@ export {
     buildAuthorizedWorkspaces,
     isSuperAdminProfile,
     resolveAuthorizedWorkspaceRoute,
+    resolveSuperOSAccessRedirect,
     type AuthorizedWorkspace,
     type AuthorizedWorkspaceKind,
     type AuthorizedWorkspaceResolutionInput,

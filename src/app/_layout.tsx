@@ -14,6 +14,7 @@ import {
   TECHOS_ROUTE,
   WORKSPACE_CHOOSER_ROUTE,
   resolveLoggedInUserRoute,
+  resolveSuperOSAccessRedirect,
   type AuthorizedWorkspace,
   type LoggedInUserRouteDecision,
 } from '../lib/onboarding';
@@ -553,6 +554,14 @@ function resolveRedirectForPath(
 
   if (pathname === COMPANY_INVITE_ROUTE || pathname === CUSTOMER_INVITE_ROUTE) {
     return null;
+  }
+
+  if (isAdminShellPath(pathname)) {
+    const authorizedWorkspaceRoute = resolveSuperOSAccessRedirect(routeDecision);
+
+    if (authorizedWorkspaceRoute) {
+      return authorizedWorkspaceRoute;
+    }
   }
 
   if (pathname === WORKSPACE_CHOOSER_ROUTE) {

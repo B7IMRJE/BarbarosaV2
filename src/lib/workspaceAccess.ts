@@ -126,6 +126,21 @@ export function resolveAuthorizedWorkspaceRoute(
     return serviceUnavailableRouteDecision();
 }
 
+export function resolveSuperOSAccessRedirect(
+    decision: LoggedInUserRouteDecision
+): string | null {
+    const hasAdministrationWorkspace = (
+        decision.reason === 'super-admin' ||
+        decision.workspaces?.some((workspace) => workspace.kind === 'administration') === true
+    );
+
+    if (hasAdministrationWorkspace) return null;
+
+    return decision.reason === 'multiple-workspaces'
+        ? WORKSPACE_CHOOSER_ROUTE
+        : decision.route;
+}
+
 export function buildAuthorizedWorkspaces(
     input: AuthorizedWorkspaceResolutionInput
 ): AuthorizedWorkspace[] {

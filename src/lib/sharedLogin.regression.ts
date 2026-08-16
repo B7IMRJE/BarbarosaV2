@@ -10,6 +10,7 @@ import {
 import {
     buildAuthorizedWorkspaces,
     resolveAuthorizedWorkspaceRoute,
+    resolveSuperOSAccessRedirect,
     type AuthorizedWorkspaceResolutionInput,
     type CompanyRouteAccessRow,
 } from './workspaceAccess';
@@ -21,6 +22,7 @@ export function runSharedLoginRegressions() {
     singleAuthorizedWorkspaceRoutesDirectly();
     multipleAuthorizedWorkspacesUseChooser();
     unauthorizedAndInactiveWorkspacesAreExcluded();
+    superOSShellRequiresPlatformAdministration();
     inviteContextRemainsAvailable();
     authSessionAndWorkspaceFailuresStayDistinct();
 }
@@ -80,6 +82,52 @@ function multipleAuthorizedWorkspacesUseChooser() {
     const ownerLabels = (ownerDecision.workspaces || []).map((workspace) => workspace.label).sort();
     assert(ownerDecision.route === '/workspace', 'A SuperOS owner with HomeOS access should use the chooser.');
     assert(ownerLabels.join(',') === 'HomeOS,SuperOS', 'The chooser must label the platform destination SuperOS without inventing TechOS access.');
+}
+
+function superOSShellRequiresPlatformAdministration() {
+    const technician = resolveAuthorizedWorkspaceRoute(input({
+        profile: { role: 'WORK' },
+        companyAccess: [companyAccess({ role: 'technician', can_view_techos: true })],
+    }));
+    assert(
+        resolveSuperOSAccessRedirect(technician) === '/techos?companyId=company-1',
+        'A company technician who reaches the SuperOS shell must be sent to company-scoped TechOS.',
+    );
+
+    const management = resolveAuthorizedWorkspaceRoute(input({
+        profile: { role: 'WORK' },
+        companyAccess: [companyAccess({ role: 'manager' })],
+    }));
+    assert(
+        resolveSuperOSAccessRedirect(management) === '/super-admin/company/company-1',
+        'A company manager who reaches the SuperOS shell must be sent to scoped ManagementOS.',
+    );
+
+    const multipleCompanyWorkspaces = resolveAuthorizedWorkspaceRoute(input({
+        profile: { role: 'WORK' },
+        companyAccess: [companyAccess({ role: 'manager', can_view_techos: true })],
+    }));
+    assert(
+        resolveSuperOSAccessRedirect(multipleCompanyWorkspaces) === '/workspace',
+        'A non-platform user with several company workspaces must choose an authorized workspace.',
+    );
+
+    const administration = resolveAuthorizedWorkspaceRoute(input({
+        profile: { role: 'SUPER_ADMIN' },
+    }));
+    assert(
+        resolveSuperOSAccessRedirect(administration) === null,
+        'A platform administrator must retain direct SuperOS access.',
+    );
+
+    const administrationAndHome = resolveAuthorizedWorkspaceRoute(input({
+        profile: { role: 'SUPER_ADMIN' },
+        activePropertyMembershipCount: 1,
+    }));
+    assert(
+        resolveSuperOSAccessRedirect(administrationAndHome) === null,
+        'A platform administrator with several workspaces must still be allowed to open SuperOS directly.',
+    );
 }
 
 function unauthorizedAndInactiveWorkspacesAreExcluded() {

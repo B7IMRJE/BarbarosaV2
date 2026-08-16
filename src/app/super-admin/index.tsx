@@ -1,38 +1,9 @@
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
+import { resolveLoggedInUserRoute, resolveSuperOSAccessRedirect } from '../../lib/onboarding';
 import { supabase } from '../../lib/supabase';
-
-function isSuperAdminProfile(profile?: { role?: string | null; is_platform_admin?: boolean | null } | null) {
-    return (
-        String(profile?.role || '').trim().toUpperCase() === 'SUPER_ADMIN' ||
-        profile?.is_platform_admin === true
-    );
-}
-
-async function loadSuperAdminProfile(userId: string) {
-    const primaryQuery = await supabase
-        .from('profiles')
-        .select('full_name, role')
-        .eq('id', userId)
-        .maybeSingle();
-
-    if (!primaryQuery.error) {
-        return primaryQuery;
-    }
-
-    const fallbackQuery = await supabase
-        .from('profiles')
-        .select('full_name, role')
-        .eq('id', userId)
-        .maybeSingle();
-
-    return {
-        data: fallbackQuery.data ? { ...fallbackQuery.data, is_platform_admin: null } : null,
-        error: fallbackQuery.error,
-    };
-}
 
 const cards = [
     'Companies',
@@ -55,61 +26,65 @@ export default function SuperAdminDashboard() {
     const [name, setName] = useState('SUPER_ADMIN');
     const [guardResolved, setGuardResolved] = useState(false);
     const [guardAllowed, setGuardAllowed] = useState(false);
-    const [guardDebug, setGuardDebug] = useState<{
-        userId: string | null;
-        email: string | null;
-        profile: unknown;
-        profileError: string | null;
-        decision: 'pending' | 'allow' | 'deny' | 'login';
-    }>({
-        userId: null,
-        email: null,
-        profile: null,
-        profileError: null,
-        decision: 'pending',
-    });
+    const [guardIssue, setGuardIssue] = useState<'denied' | 'service-unavailable' | null>(null);
+    const [fallbackRoute, setFallbackRoute] = useState('/');
 
     useEffect(() => {
-        loadProfile();
+        void loadProfile();
     }, []);
 
     async function loadProfile() {
-        const { data: sessionData } = await supabase.auth.getSession();
+        setGuardResolved(false);
+        setGuardAllowed(false);
+        setGuardIssue(null);
 
-        const sessionUser = sessionData.session?.user || null;
-        const userId = sessionUser?.id || null;
+        try {
+            const userResult = await supabase.auth.getUser();
+            const user = userResult.data.user;
 
-        if (!userId) {
-            setGuardAllowed(false);
+            if (!user) {
+                setFallbackRoute('/auth/login');
+                setGuardIssue('denied');
+                setGuardResolved(true);
+                router.replace('/auth/login' as any);
+                return;
+            }
+
+            if (userResult.error) {
+                throw userResult.error;
+            }
+
+            const [profileQuery, routeDecision] = await Promise.all([
+                supabase
+                    .from('profiles')
+                    .select('full_name')
+                    .eq('id', user.id)
+                    .maybeSingle(),
+                resolveLoggedInUserRoute(user.id),
+            ]);
+            if (routeDecision.reason === 'service-unavailable') {
+                setGuardIssue('service-unavailable');
+                setGuardResolved(true);
+                return;
+            }
+
+            const authorizedWorkspaceRoute = resolveSuperOSAccessRedirect(routeDecision);
+
+            if (authorizedWorkspaceRoute) {
+                setFallbackRoute(authorizedWorkspaceRoute);
+                setGuardIssue('denied');
+                setGuardResolved(true);
+                router.replace(authorizedWorkspaceRoute as any);
+                return;
+            }
+
+            setName(profileQuery.data?.full_name || 'SUPER_ADMIN');
+            setGuardAllowed(true);
             setGuardResolved(true);
-            setGuardDebug({
-                userId: null,
-                email: null,
-                profile: null,
-                profileError: 'No active session user.',
-                decision: 'login',
-            });
-            return;
+        } catch {
+            setGuardIssue('service-unavailable');
+            setGuardResolved(true);
         }
-
-        const { data: profile, error } = await loadSuperAdminProfile(userId);
-        const allowed = !!profile && isSuperAdminProfile(profile);
-
-        setGuardDebug({
-            userId,
-            email: sessionUser?.email || null,
-            profile: profile ?? null,
-            profileError: error?.message ?? null,
-            decision: allowed ? 'allow' : 'deny',
-        });
-        setGuardAllowed(allowed);
-        setGuardResolved(true);
-
-        if (!allowed) {
-            return;
-        }
-
-        setName(profile.full_name || 'SUPER_ADMIN');
     }
 
     async function handleLogout() {
@@ -149,69 +124,50 @@ export default function SuperAdminDashboard() {
         Alert.alert(card, 'This module will connect to real data next.');
     }
 
-    if (guardResolved && !guardAllowed) {
+    if (!guardResolved) {
+        return (
+            <View
+                accessibilityLabel="Verifying SuperOS access"
+                accessibilityRole="progressbar"
+                style={{ flex: 1, backgroundColor: '#F3F6FA', alignItems: 'center', justifyContent: 'center', padding: pagePadding }}
+            >
+                <ActivityIndicator size="large" color="#56C9B1" />
+                <Text style={{ marginTop: 16, fontSize: 20, fontWeight: '900', color: '#071B33' }}>
+                    Verifying SuperOS access
+                </Text>
+            </View>
+        );
+    }
+
+    if (!guardAllowed) {
+        const serviceUnavailable = guardIssue === 'service-unavailable';
+
         return (
             <ScrollView
+                contentInsetAdjustmentBehavior="automatic"
                 style={{ flex: 1, backgroundColor: '#F3F6FA' }}
                 contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: 'center' }}
             >
                 <View style={{ width: '100%', maxWidth: 900, minWidth: 0 }}>
                     <Text style={{ marginTop: 20, fontSize: isPhoneLayout ? 28 : 34, fontWeight: '900', color: '#071B33' }}>
-                        SuperOS access unavailable
+                        {serviceUnavailable ? 'Unable to verify SuperOS access' : 'SuperOS access unavailable'}
                     </Text>
 
                     <Text style={{ color: '#637083', marginTop: 8, marginBottom: 24, lineHeight: 22 }}>
-                        Access was denied. This screen shows the actual guard inputs before any redirect.
+                        {serviceUnavailable
+                            ? 'We could not load your permissions. Check your connection and try again.'
+                            : 'This account does not have platform-administrator access. Open its assigned workspace instead.'}
                     </Text>
 
-                    <View
-                        style={{
-                            backgroundColor: '#FFFFFF',
-                            borderRadius: 20,
-                            padding: 18,
-                            borderWidth: 1,
-                            borderColor: '#E3E8EF',
-                            marginBottom: 20,
-                        }}
-                    >
-                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginBottom: 8 }}>
-                            Auth User ID
-                        </Text>
-                        <Text style={{ color: '#637083', lineHeight: 22 }}>
-                            {guardDebug.userId || 'null'}
-                        </Text>
-
-                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginTop: 16, marginBottom: 8 }}>
-                            Auth Email
-                        </Text>
-                        <Text style={{ color: '#637083', lineHeight: 22 }}>
-                            {guardDebug.email || 'null'}
-                        </Text>
-
-                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginTop: 16, marginBottom: 8 }}>
-                            Profile Query Result
-                        </Text>
-                        <Text style={{ color: '#637083', lineHeight: 22 }}>
-                            {JSON.stringify(guardDebug.profile, null, 2) || 'null'}
-                        </Text>
-
-                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginTop: 16, marginBottom: 8 }}>
-                            Profile Query Error
-                        </Text>
-                        <Text style={{ color: '#637083', lineHeight: 22 }}>
-                            {guardDebug.profileError || 'none'}
-                        </Text>
-
-                        <Text style={{ fontSize: 16, fontWeight: '900', color: '#071B33', marginTop: 16, marginBottom: 8 }}>
-                            Final Decision
-                        </Text>
-                        <Text style={{ color: '#637083', lineHeight: 22 }}>
-                            {guardDebug.decision}
-                        </Text>
-                    </View>
-
                     <TouchableOpacity
-                        onPress={() => router.replace('/' as any)}
+                        onPress={() => {
+                            if (serviceUnavailable) {
+                                void loadProfile();
+                                return;
+                            }
+
+                            router.replace(fallbackRoute as any);
+                        }}
                         style={{
                             backgroundColor: '#071B33',
                             padding: 16,
@@ -220,7 +176,7 @@ export default function SuperAdminDashboard() {
                         }}
                     >
                         <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '900' }}>
-                            Back Home
+                            {serviceUnavailable ? 'Try Again' : 'Open My Workspace'}
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -230,6 +186,7 @@ export default function SuperAdminDashboard() {
 
     return (
         <ScrollView
+            contentInsetAdjustmentBehavior="automatic"
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
             contentContainerStyle={{ padding: pagePadding, paddingBottom: 40, alignItems: 'center' }}
         >
