@@ -271,6 +271,8 @@ export async function saveCatalogFactoryProduct(variantId: string, payload: Reco
 export async function uploadCatalogFactoryPhoto(input: {
     variantId: string;
     asset: ImagePicker.ImagePickerAsset;
+    isPrimary?: boolean;
+    homeownerVisible?: boolean;
 }) {
     const mimeType = input.asset.mimeType || 'image/jpeg';
     if (!mimeType.startsWith('image/')) throw new Error('Choose an image for the master product card.');
@@ -281,8 +283,8 @@ export async function uploadCatalogFactoryPhoto(input: {
         fileName: input.asset.fileName || `master-product-${Date.now()}.jpg`,
         mimeType,
         sizeBytes: input.asset.fileSize || null,
-        isPrimary: true,
-        homeownerVisible: true,
+        isPrimary: input.isPrimary ?? true,
+        homeownerVisible: input.homeownerVisible ?? true,
     });
 }
 

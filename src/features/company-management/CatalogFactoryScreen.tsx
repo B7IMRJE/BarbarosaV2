@@ -63,6 +63,10 @@ import {
     type CatalogProductResearch,
     type CatalogResearchSourceType,
 } from '../../lib/catalogProductResearchCore';
+import {
+    catalogFactoryStarterOptionsLabel,
+    filterUnmappedCatalogFactoryRecords,
+} from '../../lib/catalogFactoryDeckCore';
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 import CompactHomeOSCard from '../homeos-items/compact-homeos-card';
@@ -94,6 +98,7 @@ export default function CatalogFactoryScreen() {
     const [mode, setMode] = useState<FactoryMode>('overview');
     const [templates, setTemplates] = useState<CatalogTemplateDefinition[]>([]);
     const [records, setRecords] = useState<CatalogFactoryRecord[]>([]);
+    const [deckRecords, setDeckRecords] = useState<CatalogFactoryRecord[]>([]);
     const [starterCards, setStarterCards] = useState<HomeOSStarterDeckCard[]>([]);
     const [imports, setImports] = useState<Record<string, unknown>[]>([]);
     const [filters, setFilters] = useState<CatalogFactoryFilters>({});
@@ -143,12 +148,15 @@ export default function CatalogFactoryScreen() {
         setBusy(true);
         setMessage('Refreshing Catalog Factory...');
         try {
-            const [result, nextStarterCards] = await Promise.all([
+            const hasActiveFilters = Object.values(nextFilters).some((value) => Boolean(value));
+            const [result, unfilteredResult, nextStarterCards] = await Promise.all([
                 loadCatalogFactory(nextFilters),
+                hasActiveFilters ? loadCatalogFactory({}) : Promise.resolve(null),
                 loadHomeOSStarterCardDeck(),
             ]);
             setTemplates(result.templates);
             setRecords(result.records);
+            setDeckRecords(unfilteredResult?.records || result.records);
             setImports(result.imports);
             setStarterCards(nextStarterCards);
             setSelected((current) => current.filter((id) => result.records.some((record) => record.id === id)));
@@ -462,6 +470,8 @@ export default function CatalogFactoryScreen() {
 
     function beginEdit(record: CatalogFactoryRecord) {
         const nextDraft = createCatalogFactoryEditorDraft(record);
+        setDetailRecord(null);
+        setEditingStarterCard(null);
         setEditing(record);
         setEditDraft(nextDraft);
         setMergeTargetId('');
@@ -487,15 +497,24 @@ export default function CatalogFactoryScreen() {
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ['images'],
             allowsEditing: false,
+            allowsMultipleSelection: true,
+            selectionLimit: 0,
             quality: 0.9,
         });
-        if (result.canceled || !result.assets[0]) return;
+        if (result.canceled || !result.assets.length) return;
         setBusy(true);
-        setMessage('Uploading the master product photo...');
+        setMessage(`Uploading ${result.assets.length} master product photo${result.assets.length === 1 ? '' : 's'}...`);
         try {
-            const asset = await uploadCatalogFactoryPhoto({ variantId: editing.id, asset: result.assets[0] });
-            replaceEditingAsset(asset);
-            setMessage('Product photo uploaded and selected as the primary card image.');
+            for (const [index, selectedAsset] of result.assets.entries()) {
+                const asset = await uploadCatalogFactoryPhoto({
+                    variantId: editing.id,
+                    asset: selectedAsset,
+                    isPrimary: index === 0,
+                    homeownerVisible: true,
+                });
+                replaceEditingAsset(asset);
+            }
+            setMessage(`${result.assets.length} product photo${result.assets.length === 1 ? '' : 's'} uploaded. The first selected photo is now primary and each photo is visible in HomeOS until changed below.`);
         } catch (error) { setMessage(errorMessage(error)); }
         finally { setBusy(false); }
     }
@@ -542,13 +561,15 @@ export default function CatalogFactoryScreen() {
         };
         setEditing((current) => current && current.id === asset.productVariantId ? apply(current) : current);
         setRecords((current) => current.map((record) => record.id === asset.productVariantId ? apply(record) : record));
+        setDeckRecords((current) => current.map((record) => record.id === asset.productVariantId ? apply(record) : record));
     }
 
     const displayedRecords = useMemo(() => {
         if (mode === 'prices' || mode === 'history') return records.filter((record) => record.retailListings.length > 0);
         if (mode === 'review') return records.filter((record) => record.status !== 'approved' && record.status !== 'archived');
+        if (mode === 'overview') return filterUnmappedCatalogFactoryRecords(records, starterCards);
         return records;
-    }, [mode, records]);
+    }, [mode, records, starterCards]);
 
     if (allowed === false) return <Denied />;
     const textColor = theme.colors.text;
@@ -584,7 +605,7 @@ export default function CatalogFactoryScreen() {
                 {mode === 'overview' && (
                     <StarterCardDeck
                         cards={starterCards}
-                        records={records}
+                        records={deckRecords}
                         phone={phone}
                         busy={busy}
                         onMap={beginStarterCardMapping}
@@ -595,7 +616,14 @@ export default function CatalogFactoryScreen() {
 
                 {(mode === 'overview' || mode === 'review' || mode === 'prices' || mode === 'history') && (
                     <>
-                        {mode === 'overview' && <Title>All real product variants</Title>}
+                        {mode === 'overview' && (
+                            <View style={{ gap: scaleIcon(4) }}>
+                                <Title>Unmapped Master Products</Title>
+                                <Text selectable style={{ color: mutedColor, fontSize: scaleFont(14), lineHeight: scaleFont(20), fontWeight: '700' }}>
+                                    Products already mapped to a HomeOS starter card appear only inside that card above. This list is for real master products that still need an archetype relationship.
+                                </Text>
+                            </View>
+                        )}
                         <Filters filters={filters} setFilters={setFilters} templates={templates} busy={busy} onApply={() => void refresh(filters)} />
                         {mode === 'review' && <Text selectable style={{ color: mutedColor }}>Select warning-free drafts for bulk approval. Records with unresolved warnings can only be reviewed individually.</Text>}
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12), alignItems: 'stretch' }}>
@@ -614,7 +642,7 @@ export default function CatalogFactoryScreen() {
                                     onNeedsReview={() => void act(record, 'needs_review')}
                                 />
                             ))}
-                            {!displayedRecords.length && <Text selectable style={{ color: mutedColor }}>No catalog records match this view.</Text>}
+                            {!displayedRecords.length && <Text selectable style={{ color: mutedColor }}>{mode === 'overview' ? 'Every product in this view is already mapped inside the HomeOS deck above.' : 'No catalog records match this view.'}</Text>}
                         </View>
                     </>
                 )}
@@ -623,7 +651,7 @@ export default function CatalogFactoryScreen() {
 
                 <StarterCardMappingModal
                     card={editingStarterCard}
-                    records={records}
+                    records={deckRecords}
                     selectedVariantIds={starterVariantIds}
                     setSelectedVariantIds={setStarterVariantIds}
                     readiness={starterReadiness}
@@ -635,7 +663,14 @@ export default function CatalogFactoryScreen() {
                     onClose={() => setEditingStarterCard(null)}
                 />
 
-                {editing && editDraft && <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />}
+                <CatalogFactoryEditModal
+                    record={editing}
+                    busy={busy}
+                    message={message}
+                    onClose={() => { setEditing(null); setEditDraft(null); }}
+                >
+                    {editing && editDraft && <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />}
+                </CatalogFactoryEditModal>
 
                 {!!imports.length && mode === 'overview' && (
                     <ThemedCard><Text selectable style={{ color: textColor, fontWeight: '900', fontSize: scaleFont(20) }}>Recent import batches</Text>{imports.slice(0, 8).map((item) => <Text selectable key={String(item.id)} style={{ color: mutedColor, marginTop: 8 }}>{String(item.file_name || 'Structured import')} · {String(item.created_count || 0)} created · {String(item.duplicate_count || 0)} duplicate · {String(item.failed_count || 0)} failed</Text>)}</ThemedCard>
@@ -714,6 +749,9 @@ function StarterCardDeck({
                                         />
 
                                         <View style={{ flex: 1, minWidth: 0, gap: scaleIcon(8) }}>
+                                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(17), lineHeight: scaleFont(21), fontWeight: '900' }}>
+                                                {catalogFactoryStarterOptionsLabel(card)}
+                                            </Text>
                                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(6), alignItems: 'center' }}>
                                                 <FactoryTileBadge label={card.readinessStatus} tone={card.readinessStatus === 'ready' ? 'green' : 'amber'} />
                                                 <FactoryTileBadge label={`${card.approvedOptionCount} approved`} tone={card.approvedOptionCount > 0 ? 'green' : 'amber'} />
@@ -1221,6 +1259,40 @@ function factoryProductName(record: CatalogFactoryRecord) {
     return displayName || [record.brand, record.familyName, record.modelNumber].filter(Boolean).join(' ') || 'Master product';
 }
 
+function CatalogFactoryEditModal({
+    record,
+    busy,
+    message,
+    onClose,
+    children,
+}: {
+    record: CatalogFactoryRecord | null;
+    busy: boolean;
+    message: string;
+    onClose: () => void;
+    children: React.ReactNode;
+}) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <Modal animationType="slide" transparent visible={Boolean(record)} onRequestClose={() => { if (!busy) onClose(); }}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(8, 18, 31, 0.64)', justifyContent: 'center', padding: scaleIcon(10) }}>
+                <ThemedCard style={{ width: '100%', maxWidth: 980, maxHeight: '96%', alignSelf: 'center', padding: 0, overflow: 'hidden' }}>
+                    <View style={{ paddingHorizontal: scaleIcon(16), paddingVertical: scaleIcon(12), borderBottomWidth: 1, borderBottomColor: theme.colors.border, flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10) }}>
+                        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(19), fontWeight: '900' }}>Edit {record ? factoryProductName(record) : 'Master Product'}</Text>
+                            <Text selectable numberOfLines={2} style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(18), fontWeight: '700' }}>{message}</Text>
+                        </View>
+                        <ThemedButton title="Close" variant="secondary" disabled={busy} onPress={onClose} style={{ minWidth: scaleIcon(94), minHeight: scaleIcon(46) }} />
+                    </View>
+                    <ScrollView keyboardShouldPersistTaps="handled" contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: scaleIcon(12) }}>
+                        {children}
+                    </ScrollView>
+                </ThemedCard>
+            </View>
+        </Modal>
+    );
+}
+
 function EditPanel({
     record,
     draft,
@@ -1266,7 +1338,7 @@ function EditPanel({
     const [newSpecificationKey, setNewSpecificationKey] = useState('');
     const [newSpecificationValue, setNewSpecificationValue] = useState('');
     const [addingSpecification, setAddingSpecification] = useState(false);
-    const [showMediaLibrary, setShowMediaLibrary] = useState(false);
+    const [showReferenceMedia, setShowReferenceMedia] = useState(false);
     const [showCategoryPicker, setShowCategoryPicker] = useState(false);
     const [showDescription, setShowDescription] = useState(false);
     const [showReferences, setShowReferences] = useState(false);
@@ -1278,8 +1350,10 @@ function EditPanel({
     const specificationEntries = Object.entries(draft.specifications);
     const finishOption = catalogFinishOption(draft.finish);
     const selectedTemplate = templates.find((template) => template.id === draft.templateId);
-    const primaryAsset = record.assets.find((asset) => asset.active && asset.assetType === 'image' && asset.isPrimary)
-        || record.assets.find((asset) => asset.active && asset.assetType === 'image');
+    const photoAssets = record.assets.filter((asset) => asset.assetType === 'image');
+    const referenceAssets = record.assets.filter((asset) => asset.assetType !== 'image');
+    const activePhotos = photoAssets.filter((asset) => asset.active);
+    const primaryAsset = activePhotos.find((asset) => asset.isPrimary) || activePhotos[0];
 
     function updateSpecification(key: string, value: string) {
         setDraft({ ...draft, specifications: { ...draft.specifications, [key]: value } });
@@ -1304,7 +1378,7 @@ function EditPanel({
                     </Text>
                 </View>
 
-                <CompactEditorCard title="Product Media" description="The primary photo appears first on compact catalog cards. Master reference media stays separate from HomeOS service and job photos.">
+                <CompactEditorCard title={`Product Photos (${photoAssets.length})`} description="Add multiple actual product photos here. One active photo is primary, and every photo can be HomeOS-visible or staff-only. These master reference photos stay separate from installed-item, service, and job media.">
                     <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(12), alignItems: phone ? 'stretch' : 'center' }}>
                         <ProductCardImage
                             compact
@@ -1313,21 +1387,33 @@ function EditPanel({
                             style={{ width: phone ? '100%' : 116, height: 116, minHeight: 116, alignSelf: 'center' }}
                         />
                         <View style={{ flex: 1, gap: scaleIcon(8) }}>
-                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{primaryAsset ? primaryAsset.fileName : 'No primary product photo'}</Text>
-                            <Text selectable style={{ color: theme.colors.mutedText, lineHeight: scaleFont(19) }}>{primaryAsset ? 'Primary card image' : 'Upload a product photo to replace the placeholder.'}</Text>
-                            <ThemedButton title="Upload Product Photo" disabled={busy} onPress={onUploadPhoto} />
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{primaryAsset ? primaryAsset.fileName : 'No uploaded primary product photo'}</Text>
+                            <Text selectable style={{ color: theme.colors.mutedText, lineHeight: scaleFont(19) }}>{primaryAsset ? 'Primary image on compact catalog and eligible HomeOS reference cards.' : 'Add product photos to replace the placeholder or imported source image.'}</Text>
+                            <ThemedButton title="Add Product Photos" disabled={busy} onPress={onUploadPhoto} />
                         </View>
+                    </View>
+                    <View style={{ borderRadius: 11, borderCurve: 'continuous', padding: scaleIcon(10), backgroundColor: theme.colors.surfaceAlt, gap: scaleIcon(3) }}>
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>{activePhotos.length} active photo{activePhotos.length === 1 ? '' : 's'} · {photoAssets.length - activePhotos.length} hidden</Text>
+                        <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(18) }}>No fixed photo-count limit. Select one or several images per upload; each file can be up to 25 MB. The first newly selected image becomes primary.</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(9), alignItems: 'stretch' }}>
+                        {photoAssets.map((asset) => (
+                            <View key={asset.id} style={{ width: phone ? '100%' : '48%', minWidth: phone ? 0 : 280, flexGrow: 1 }}>
+                                <MediaTile asset={asset} productName={productName} busy={busy} phone={phone} onChange={(patch) => onChangeMedia(asset, patch)} />
+                            </View>
+                        ))}
+                        {!photoAssets.length && <Text selectable style={{ color: theme.colors.mutedText }}>No product photos have been uploaded yet.</Text>}
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(7) }}>
                         <CompactButton title="Upload Manual" onPress={() => onUploadDocument('installation_manual')} disabled={busy} />
                         <CompactButton title="Upload Spec Sheet" onPress={() => onUploadDocument('specification_sheet')} disabled={busy} />
                         <CompactButton title="Upload Warranty" onPress={() => onUploadDocument('warranty_document')} disabled={busy} />
                     </View>
-                    <CompactDisclosureCard title={`Media Library (${record.assets.length})`} summary="Primary image, HomeOS visibility, and active reference controls" expanded={showMediaLibrary} onToggle={() => setShowMediaLibrary(!showMediaLibrary)}>
-                        {record.assets.map((asset) => (
+                    <CompactDisclosureCard title={`Manuals & Reference Files (${referenceAssets.length})`} summary="Uploaded manuals, specification sheets, warranties, and other reference files" expanded={showReferenceMedia} onToggle={() => setShowReferenceMedia(!showReferenceMedia)}>
+                        {referenceAssets.map((asset) => (
                             <MediaTile key={asset.id} asset={asset} productName={productName} busy={busy} phone={phone} onChange={(patch) => onChangeMedia(asset, patch)} />
                         ))}
-                        {!record.assets.length && <Text selectable style={{ color: theme.colors.mutedText }}>No media files have been added.</Text>}
+                        {!referenceAssets.length && <Text selectable style={{ color: theme.colors.mutedText }}>No reference files have been uploaded yet.</Text>}
                     </CompactDisclosureCard>
                 </CompactEditorCard>
 
