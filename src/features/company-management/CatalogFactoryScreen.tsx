@@ -58,6 +58,15 @@ import {
     catalogFieldLabel,
     catalogSpecificationDisplays,
 } from '../../lib/catalogFactoryPresentation';
+import {
+    catalogBrandSuggestions,
+    catalogCategorySuggestions,
+    catalogFamilySuggestions,
+    catalogQuickStartGroupsForDeck,
+    catalogQuickStartIsReady,
+    type CatalogQuickStartSuggestion,
+    type CatalogSuggestionOption,
+} from '../../lib/catalogFactorySuggestions';
 import { researchCatalogProduct } from '../../lib/catalogProductResearch';
 import {
     mapCatalogResearchSpecifications,
@@ -241,6 +250,33 @@ export default function CatalogFactoryScreen() {
             await refresh();
         } catch (error) { setMessage(errorMessage(error)); }
         finally { setBusy(false); }
+    }
+
+    async function addAuthoringCategory(categoryName: string) {
+        const cleanName = categoryName.trim();
+        if (!cleanName) throw new Error('Enter a category name first.');
+        const existing = templates.find((template) => template.categoryName.toLowerCase() === cleanName.toLowerCase());
+        if (existing) return existing;
+
+        setBusy(true);
+        setMessage(`Adding ${cleanName} to the authoring categories...`);
+        try {
+            const created = await saveCatalogTemplate(null, {
+                templateKey: uniqueCatalogTemplateKey(cleanName, templates),
+                categoryName: cleanName,
+                description: 'Catalog Factory authoring category added explicitly from the searchable product editor.',
+                universalFields: fieldList(emptyTemplate.universalFields),
+                specificationFields: [],
+                requiredFields: [],
+                status: 'approved',
+            });
+            if (!created) throw new Error('The category was saved, but its response was invalid.');
+            setTemplates((current) => [...current.filter((template) => template.id !== created.id), created]);
+            setMessage(`${created.categoryName} is ready for authoring. No product, company offering, or price was published.`);
+            return created;
+        } finally {
+            setBusy(false);
+        }
     }
 
     async function createSeedRecord() {
@@ -622,7 +658,7 @@ export default function CatalogFactoryScreen() {
                 </View>
 
                 {mode === 'template' && <TemplateEditor draft={templateDraft} setDraft={setTemplateDraft} busy={busy} onSave={() => void createTemplate()} onCancel={() => setMode('overview')} />}
-                {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={(next) => { setSeedDraft(next); setSeedSaveError(''); }} templates={templates} busy={busy} researching={researchingSeed} research={seedResearch} saveError={seedSaveError} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => setSeedResearch(null)} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setSeedSaveError(''); setMode('overview'); }} />}
+                {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={(next) => { setSeedDraft(next); setSeedSaveError(''); }} templates={templates} records={deckRecords} starterCards={starterCards} busy={busy} researching={researchingSeed} research={seedResearch} saveError={seedSaveError} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).templateKey} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => setSeedResearch(null)} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setSeedSaveError(''); setMode('overview'); }} />}
                 {mode === 'import' && <ImportPanel busy={busy} preview={importPreview} summary={importSummary} fileName={importFileName} onPick={() => void pickImportFile()} onImport={() => void commitImport()} />}
 
                 {mode === 'overview' && (
@@ -693,7 +729,7 @@ export default function CatalogFactoryScreen() {
                     message={message}
                     onClose={() => { setEditing(null); setEditDraft(null); }}
                 >
-                    {editing && editDraft && <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />}
+                    {editing && editDraft && <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} records={deckRecords} starterCards={starterCards} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onAddCategory={async (categoryName) => (await addAuthoringCategory(categoryName)).id} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />}
                 </CatalogFactoryEditModal>
 
                 {!!imports.length && mode === 'overview' && (
@@ -1013,10 +1049,13 @@ function SeedEditor({
     draft,
     setDraft,
     templates,
+    records,
+    starterCards,
     busy,
     researching,
     research,
     saveError,
+    onAddCategory,
     onResearch,
     onUseResearch,
     onClearResearch,
@@ -1026,10 +1065,13 @@ function SeedEditor({
     draft: typeof emptySeed;
     setDraft: (draft: typeof emptySeed) => void;
     templates: CatalogTemplateDefinition[];
+    records: CatalogFactoryRecord[];
+    starterCards: HomeOSStarterDeckCard[];
     busy: boolean;
     researching: boolean;
     research: CatalogProductResearch | null;
     saveError: string;
+    onAddCategory: (categoryName: string) => Promise<string>;
     onResearch: () => void;
     onUseResearch: () => void;
     onClearResearch: () => void;
@@ -1042,6 +1084,19 @@ function SeedEditor({
         && (template.templateKey.toLowerCase() === draft.category.trim().toLowerCase()
             || template.categoryName.toLowerCase() === draft.category.trim().toLowerCase())
     );
+    const categoryOptions = catalogCategorySuggestions(templates.filter((template) => template.status === 'approved'), starterCards).map((option) => ({
+        ...option,
+        value: templates.find((template) => template.id === option.value)?.templateKey || option.value,
+    }));
+    const context = selectedTemplate?.categoryName || draft.category;
+    const manufacturerOptions = catalogBrandSuggestions(context, records, 'manufacturer');
+    const brandOptions = catalogBrandSuggestions(context, records, 'brand');
+    const familyOptions = catalogFamilySuggestions(records, {
+        templateId: selectedTemplate?.id,
+        category: selectedTemplate?.categoryName,
+        manufacturer: draft.manufacturer,
+        brand: draft.brand,
+    });
     const specificationValues = safeParseObject(draft.specifications);
     const updateSpecification = (key: string, value: string) => {
         setDraft({
@@ -1055,15 +1110,34 @@ function SeedEditor({
             <Text selectable style={{ color: '#58697A' }}>
                 This creates a draft only. Product facts, sources, external image URLs, and retail observations remain pending until review.
             </Text>
-            <ChoiceWrap>
-                {templates.filter((template) => template.status === 'approved').map((template) => (
-                    <Chip key={template.id} label={template.categoryName} selected={draft.category === template.templateKey} onPress={() => setDraft({ ...draft, category: template.templateKey })} />
-                ))}
-            </ChoiceWrap>
-            <Field label="Category *" value={draft.category} onChangeText={(category) => setDraft({ ...draft, category })} />
-            <Field label="Manufacturer *" value={draft.manufacturer} onChangeText={(manufacturer) => setDraft({ ...draft, manufacturer })} />
-            <Field label="Brand *" value={draft.brand} onChangeText={(brand) => setDraft({ ...draft, brand })} />
-            <Field label="Family name *" value={draft.family_name} onChangeText={(family_name) => setDraft({ ...draft, family_name })} />
+            <CatalogQuickStartLibrary
+                starterCards={starterCards}
+                busy={busy || researching}
+                onUse={(suggestion) => setDraft({
+                    ...draft,
+                    category: suggestion.seed.category,
+                    manufacturer: suggestion.seed.manufacturer,
+                    brand: suggestion.seed.brand,
+                    family_name: suggestion.seed.family_name,
+                    model_number: suggestion.seed.model_number,
+                    manufacturer_part_number: suggestion.seed.manufacturer_part_number,
+                    upc_gtin: '',
+                    color: '',
+                    finish: suggestion.seed.finish,
+                    size: '',
+                    capacity: '',
+                    description: suggestion.seed.description,
+                    specifications: JSON.stringify(suggestion.seed.specifications, null, 2),
+                    confidence: suggestion.seed.confidence,
+                    primary_image_url: '',
+                    sources: JSON.stringify(suggestion.seed.sources, null, 2),
+                    retail_listings: '[]',
+                })}
+            />
+            <SearchableCombobox label="Category *" value={draft.category} options={categoryOptions} onChange={(category) => setDraft({ ...draft, category })} onAddNew={onAddCategory} placeholder="Choose a HomeOS-informed category" helperText="Suggestions come from the current HomeOS Deck taxonomy and approved Catalog Factory categories." disabled={busy || researching} />
+            <SearchableCombobox label="Manufacturer *" value={draft.manufacturer} options={manufacturerOptions} onChange={(manufacturer) => setDraft({ ...draft, manufacturer })} placeholder="Choose or add a manufacturer" helperText="Common plumbing manufacturers are prioritized for the selected category." disabled={busy || researching} />
+            <SearchableCombobox label="Brand *" value={draft.brand} options={brandOptions} onChange={(brand) => setDraft({ ...draft, brand })} placeholder="Choose or add a brand" helperText="The list includes practical US plumbing brands plus brands already in this catalog." disabled={busy || researching} />
+            <SearchableCombobox label="Family name *" value={draft.family_name} options={familyOptions} onChange={(family_name) => setDraft({ ...draft, family_name })} placeholder="Choose or add a product family" helperText="Existing families for the selected category and brand appear first." disabled={busy || researching} />
             <Field label="Exact model number *" value={draft.model_number} onChangeText={(model_number) => setDraft({ ...draft, model_number })} />
             <Field label="Manufacturer part number" value={draft.manufacturer_part_number} onChangeText={(manufacturer_part_number) => setDraft({ ...draft, manufacturer_part_number })} />
             <View style={{ gap: 8, borderWidth: 1, borderColor: '#AAB7C5', borderRadius: 12, padding: 12 }}>
@@ -1409,6 +1483,8 @@ function EditPanel({
     draft,
     setDraft,
     templates,
+    records,
+    starterCards,
     json,
     setJson,
     showAdvancedJson,
@@ -1417,6 +1493,7 @@ function EditPanel({
     setMergeTargetId,
     candidates,
     busy,
+    onAddCategory,
     onSave,
     onMerge,
     onUploadPhoto,
@@ -1428,6 +1505,8 @@ function EditPanel({
     draft: CatalogFactoryEditorDraft;
     setDraft: (draft: CatalogFactoryEditorDraft) => void;
     templates: CatalogTemplateDefinition[];
+    records: CatalogFactoryRecord[];
+    starterCards: HomeOSStarterDeckCard[];
     json: string;
     setJson: (value: string) => void;
     showAdvancedJson: boolean;
@@ -1436,6 +1515,7 @@ function EditPanel({
     setMergeTargetId: (value: string) => void;
     candidates: CatalogFactoryRecord[];
     busy: boolean;
+    onAddCategory: (categoryName: string) => Promise<string>;
     onSave: () => void;
     onMerge: () => void;
     onUploadPhoto: () => void;
@@ -1450,7 +1530,6 @@ function EditPanel({
     const [newSpecificationValue, setNewSpecificationValue] = useState('');
     const [addingSpecification, setAddingSpecification] = useState(false);
     const [showReferenceMedia, setShowReferenceMedia] = useState(false);
-    const [showCategoryPicker, setShowCategoryPicker] = useState(false);
     const [showDescription, setShowDescription] = useState(false);
     const [showReferences, setShowReferences] = useState(false);
     const [showCompatibility, setShowCompatibility] = useState(false);
@@ -1461,6 +1540,15 @@ function EditPanel({
     const specificationEntries = Object.entries(draft.specifications);
     const finishOption = catalogFinishOption(draft.finish);
     const selectedTemplate = templates.find((template) => template.id === draft.templateId);
+    const categoryOptions = catalogCategorySuggestions(templates, starterCards);
+    const context = selectedTemplate?.categoryName || record.category;
+    const manufacturerOptions = catalogBrandSuggestions(context, records, 'manufacturer');
+    const brandOptions = catalogBrandSuggestions(context, records, 'brand');
+    const familyOptions = catalogFamilySuggestions(records, {
+        templateId: draft.templateId,
+        manufacturer: draft.manufacturer,
+        brand: draft.brand,
+    });
     const photoAssets = record.assets.filter((asset) => asset.assetType === 'image');
     const referenceAssets = record.assets.filter((asset) => asset.assetType !== 'image');
     const activePhotos = photoAssets.filter((asset) => asset.active);
@@ -1531,20 +1619,18 @@ function EditPanel({
                 <CompactEditorCard title="Product Information" description="Canonical card identity and finish.">
                     <CompactField label="Product title / name *" value={draft.productTitle} onChangeText={(productTitle) => setDraft({ ...draft, productTitle })} placeholder="Example: Acme Flow 100 Kitchen Faucet" />
                     <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(9) }}>
-                        <CompactFieldBox label="Manufacturer *" value={draft.manufacturer} onChangeText={(manufacturer) => setDraft({ ...draft, manufacturer })} />
-                        <CompactFieldBox label="Brand *" value={draft.brand} onChangeText={(brand) => setDraft({ ...draft, brand })} />
+                        <View style={{ flex: 1, minWidth: phone ? 0 : 220 }}><SearchableCombobox label="Manufacturer *" value={draft.manufacturer} options={manufacturerOptions} onChange={(manufacturer) => setDraft({ ...draft, manufacturer })} placeholder="Choose or add manufacturer" helperText="Prioritized for this category." disabled={busy} compact /></View>
+                        <View style={{ flex: 1, minWidth: phone ? 0 : 220 }}><SearchableCombobox label="Brand *" value={draft.brand} options={brandOptions} onChange={(brand) => setDraft({ ...draft, brand })} placeholder="Choose or add brand" helperText="Existing and curated plumbing brands." disabled={busy} compact /></View>
                     </View>
                     <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(9) }}>
-                        <CompactFieldBox label="Product family *" value={draft.familyName} onChangeText={(familyName) => setDraft({ ...draft, familyName })} />
+                        <View style={{ flex: 1, minWidth: phone ? 0 : 220 }}><SearchableCombobox label="Product family *" value={draft.familyName} options={familyOptions} onChange={(familyName) => setDraft({ ...draft, familyName })} placeholder="Choose or add family" helperText="Matching existing families appear first." disabled={busy} compact /></View>
                         <CompactFieldBox label="Exact model *" value={draft.modelNumber} onChangeText={(modelNumber) => setDraft({ ...draft, modelNumber })} />
                     </View>
                     <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(9) }}>
                         <CompactFieldBox label="MPN" value={draft.manufacturerPartNumber} onChangeText={(manufacturerPartNumber) => setDraft({ ...draft, manufacturerPartNumber })} />
                         <CompactFieldBox label="UPC / GTIN" value={draft.upcGtin} onChangeText={(upcGtin) => setDraft({ ...draft, upcGtin })} />
                     </View>
-                    <CompactDisclosureCard title="Category / Type" summary={selectedTemplate?.categoryName || record.category || 'Choose a category'} expanded={showCategoryPicker} onToggle={() => setShowCategoryPicker(!showCategoryPicker)}>
-                        <ChoiceWrap>{templates.filter((template) => template.status === 'approved' || template.id === draft.templateId).map((template) => <Chip key={template.id} label={template.categoryName} selected={draft.templateId === template.id} onPress={() => { setDraft({ ...draft, templateId: template.id }); setShowCategoryPicker(false); }} />)}</ChoiceWrap>
-                    </CompactDisclosureCard>
+                    <SearchableCombobox label="Category / Type *" value={draft.templateId} options={categoryOptions} onChange={(templateId) => setDraft({ ...draft, templateId })} onAddNew={onAddCategory} placeholder="Choose a HomeOS-informed category" helperText="Suggestions are derived from the current HomeOS Deck taxonomy. Adding a category does not publish this product." disabled={busy} compact />
                     <View style={{ gap: scaleIcon(7) }}>
                         <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>Finish</Text>
                         <ChoiceWrap>
@@ -1610,6 +1696,191 @@ function EditPanel({
                 </ButtonRow>
             </View>
         </ThemedCard>
+    );
+}
+
+function CatalogQuickStartLibrary({ starterCards, busy, onUse }: {
+    starterCards: HomeOSStarterDeckCard[];
+    busy: boolean;
+    onUse: (suggestion: CatalogQuickStartSuggestion) => void;
+}) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const groups = catalogQuickStartGroupsForDeck(starterCards);
+    const [selectedGroupId, setSelectedGroupId] = useState(groups.find((group) => group.suggestions.length)?.id || groups[0]?.id || '');
+    const selectedGroup = groups.find((group) => group.id === selectedGroupId) || groups[0];
+    const groupOptions = groups.map((group) => ({
+        value: group.id,
+        label: group.label,
+        description: group.suggestions.length
+            ? `${group.suggestions.length} verified editable draft${group.suggestions.length === 1 ? '' : 's'}`
+            : 'Research structure ready · no exact sourced draft yet',
+        searchText: [...group.archetypeTerms, ...group.matchedStarterNames].join(' '),
+    }));
+
+    if (!selectedGroup) return null;
+
+    return (
+        <View style={{ gap: scaleIcon(10), borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, borderCurve: 'continuous', padding: scaleIcon(12), backgroundColor: theme.colors.surfaceAlt }}>
+            <View style={{ gap: scaleIcon(3) }}>
+                <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>Retailer-verified quick start</Text>
+                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20) }}>
+                    Optional authoring help only. Loading a suggestion fills this editable seed form; it never approves a product, activates a company catalog, or sets a selling price.
+                </Text>
+            </View>
+            <SearchableCombobox label="Quick-start category" value={selectedGroup.id} options={groupOptions} onChange={setSelectedGroupId} placeholder="Choose a research category" helperText="Categories are matched to the current HomeOS starter taxonomy where an archetype exists." disabled={busy} allowCustom={false} compact />
+            {!!selectedGroup.matchedStarterNames.length && (
+                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '800' }}>
+                    HomeOS match: {selectedGroup.matchedStarterNames.join(', ')}
+                </Text>
+            )}
+            <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(19) }}>{selectedGroup.authoringNote}</Text>
+            {!!selectedGroup.suggestions.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(9), alignItems: 'stretch' }}>
+                    {selectedGroup.suggestions.map((suggestion) => {
+                        const ready = catalogQuickStartIsReady(suggestion);
+                        return (
+                            <View key={suggestion.id} style={{ flexGrow: 1, flexBasis: 260, minWidth: 0, maxWidth: 390, gap: scaleIcon(7), borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, borderCurve: 'continuous', padding: scaleIcon(11), backgroundColor: theme.colors.surface }}>
+                                <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), lineHeight: scaleFont(21), fontWeight: '900' }}>{suggestion.productName}</Text>
+                                <Text selectable style={{ color: '#0B6A65', fontSize: scaleFont(13), fontWeight: '900' }}>Retail reference tier: {suggestion.tier}</Text>
+                                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(19) }}>{suggestion.fitSummary}</Text>
+                                <TouchableOpacity accessibilityRole="link" onPress={() => void Linking.openURL(suggestion.retailerUrl)} style={{ minHeight: scaleIcon(44), justifyContent: 'center' }}>
+                                    <Text selectable style={{ color: theme.colors.primary, fontSize: scaleFont(14), fontWeight: '900', textDecorationLine: 'underline' }}>{suggestion.retailerName} source · verified {suggestion.verifiedOn}</Text>
+                                </TouchableOpacity>
+                                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(18) }}>Required facts checked: installation, size/capacity, fuel/energy, connection, flow/pressure, compatibility, and retail source.</Text>
+                                <ThemedButton title="Load Editable Seed" disabled={busy || !ready} onPress={() => onUse(suggestion)} />
+                            </View>
+                        );
+                    })}
+                </View>
+            ) : (
+                <View style={{ gap: scaleIcon(5), borderWidth: 1, borderColor: theme.colors.border, borderRadius: 11, padding: scaleIcon(10), backgroundColor: theme.colors.surface }}>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900' }}>No source-verified quick starts yet</Text>
+                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(19) }}>No placeholder product will be created. Before a product can appear here, research must capture:</Text>
+                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(19) }}>• {selectedGroup.requiredFacts.map(catalogFieldLabel).join('  • ')}</Text>
+                </View>
+            )}
+        </View>
+    );
+}
+
+function SearchableCombobox({
+    label,
+    value,
+    options,
+    onChange,
+    onAddNew,
+    placeholder,
+    helperText,
+    disabled = false,
+    allowCustom = true,
+    compact = false,
+}: {
+    label: string;
+    value: string;
+    options: CatalogSuggestionOption[];
+    onChange: (value: string) => void;
+    onAddNew?: (value: string) => Promise<string | void> | string | void;
+    placeholder?: string;
+    helperText?: string;
+    disabled?: boolean;
+    allowCustom?: boolean;
+    compact?: boolean;
+}) {
+    const { width } = useWindowDimensions();
+    const phone = width < 720;
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [adding, setAdding] = useState(false);
+    const [error, setError] = useState('');
+    const selectedOption = options.find((option) => option.value.toLowerCase() === value.trim().toLowerCase());
+    const selectedLabel = selectedOption?.label || value;
+    const normalizedQuery = query.trim().toLowerCase();
+    const visibleOptions = options
+        .filter((option) => !normalizedQuery || [option.label, option.value, option.description, option.searchText].filter(Boolean).join(' ').toLowerCase().includes(normalizedQuery))
+        .slice(0, 60);
+    const exactOption = options.find((option) => option.label.trim().toLowerCase() === normalizedQuery || option.value.trim().toLowerCase() === normalizedQuery);
+
+    function showPicker() {
+        if (disabled) return;
+        setQuery('');
+        setError('');
+        setOpen(true);
+    }
+
+    async function choose(option: CatalogSuggestionOption) {
+        if (option.addNewValue && onAddNew) {
+            setAdding(true);
+            setError('');
+            try {
+                const nextValue = await onAddNew(option.addNewValue);
+                onChange(typeof nextValue === 'string' && nextValue ? nextValue : option.addNewValue);
+                setOpen(false);
+            } catch (nextError) {
+                setError(errorMessage(nextError));
+            } finally {
+                setAdding(false);
+            }
+            return;
+        }
+        onChange(option.value);
+        setOpen(false);
+    }
+
+    async function addNew() {
+        const clean = query.trim();
+        if (!clean || adding) return;
+        setAdding(true);
+        setError('');
+        try {
+            const nextValue = onAddNew ? await onAddNew(clean) : clean;
+            onChange(typeof nextValue === 'string' && nextValue ? nextValue : clean);
+            setOpen(false);
+        } catch (nextError) {
+            setError(errorMessage(nextError));
+        } finally {
+            setAdding(false);
+        }
+    }
+
+    return (
+        <View style={{ gap: scaleIcon(compact ? 5 : 7) }}>
+            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{label}</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${label}. ${selectedLabel || placeholder || 'No selection'}`} accessibilityState={{ disabled }} disabled={disabled} onPress={showPicker} style={{ minHeight: scaleIcon(compact ? 48 : 54), borderWidth: 1, borderColor: '#8EA0B2', borderRadius: 12, borderCurve: 'continuous', paddingHorizontal: scaleIcon(13), paddingVertical: scaleIcon(9), backgroundColor: disabled ? theme.colors.surfaceAlt : theme.colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: scaleIcon(8) }}>
+                <Text numberOfLines={2} style={{ color: selectedLabel ? theme.colors.text : theme.colors.mutedText, fontSize: scaleFont(16), lineHeight: scaleFont(20), fontWeight: selectedLabel ? '800' : '600', flex: 1 }}>{selectedLabel || placeholder || 'Choose an option'}</Text>
+                <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(17), fontWeight: '900' }}>⌄</Text>
+            </TouchableOpacity>
+            {!!helperText && <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(17) }}>{helperText}</Text>}
+            <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+                <View style={{ flex: 1, backgroundColor: 'rgba(5, 20, 32, 0.56)', justifyContent: phone ? 'flex-end' : 'center', alignItems: 'center', padding: phone ? 0 : scaleIcon(18) }}>
+                    <View style={{ width: '100%', maxWidth: 680, maxHeight: phone ? '90%' : '82%', borderTopLeftRadius: 18, borderTopRightRadius: 18, borderBottomLeftRadius: phone ? 0 : 18, borderBottomRightRadius: phone ? 0 : 18, borderCurve: 'continuous', backgroundColor: theme.colors.surface, overflow: 'hidden' }}>
+                        <View style={{ padding: scaleIcon(14), gap: scaleIcon(9), borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: scaleIcon(8) }}>
+                                <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(21), fontWeight: '900', flex: 1 }}>{label}</Text>
+                                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close suggestions" onPress={() => setOpen(false)} style={{ minWidth: scaleIcon(44), minHeight: scaleIcon(44), alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: theme.colors.text, fontSize: scaleFont(24), fontWeight: '900' }}>×</Text></TouchableOpacity>
+                            </View>
+                            <TextInput accessibilityLabel={`Search ${label}`} value={query} onChangeText={setQuery} placeholder={`Search ${label.toLowerCase()} or type a new value`} autoFocus autoCapitalize="words" style={{ minHeight: scaleIcon(52), borderWidth: 1, borderColor: '#8EA0B2', borderRadius: 12, paddingHorizontal: scaleIcon(13), backgroundColor: '#FFFFFF', color: '#09223A', fontSize: scaleFont(16) }} />
+                            {!!error && <Text accessibilityRole="alert" selectable style={{ color: '#8E1F2D', fontSize: scaleFont(13), fontWeight: '800' }}>{error}</Text>}
+                        </View>
+                        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: scaleIcon(10), gap: scaleIcon(6) }}>
+                            {visibleOptions.map((option) => (
+                                <TouchableOpacity key={`${option.value}-${option.label}`} accessibilityRole="button" accessibilityState={{ selected: option.value === value, disabled: adding }} disabled={adding} onPress={() => void choose(option)} style={{ minHeight: scaleIcon(54), justifyContent: 'center', borderWidth: 1, borderColor: option.value === value ? theme.colors.primary : theme.colors.border, borderRadius: 11, borderCurve: 'continuous', paddingHorizontal: scaleIcon(12), paddingVertical: scaleIcon(9), backgroundColor: option.value === value ? theme.colors.surfaceAlt : theme.colors.surface, opacity: adding ? 0.6 : 1 }}>
+                                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{option.label}</Text>
+                                    {!!option.description && <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(18), marginTop: scaleIcon(2) }}>{option.description}</Text>}
+                                </TouchableOpacity>
+                            ))}
+                            {!visibleOptions.length && <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), padding: scaleIcon(8) }}>No existing suggestion matches.</Text>}
+                            {allowCustom && !!query.trim() && !exactOption && (
+                                <TouchableOpacity accessibilityRole="button" disabled={adding} onPress={() => void addNew()} style={{ minHeight: scaleIcon(52), justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.primary, borderRadius: 11, borderCurve: 'continuous', paddingHorizontal: scaleIcon(12), paddingVertical: scaleIcon(9), backgroundColor: theme.colors.surfaceAlt }}>
+                                    <Text selectable style={{ color: theme.colors.primary, fontSize: scaleFont(16), fontWeight: '900' }}>{adding ? 'Adding...' : `Add new “${query.trim()}”`}</Text>
+                                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(17), marginTop: scaleIcon(2) }}>{onAddNew ? 'Creates this authoring category only; no product or price is published.' : 'Uses this custom value without changing existing catalog data.'}</Text>
+                                </TouchableOpacity>
+                            )}
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
+        </View>
     );
 }
 
@@ -1786,6 +2057,7 @@ function Denied() { return <ScrollView contentInsetAdjustmentBehavior="automatic
 
 function fieldList(value: string) { return csvList(value).map((key) => ({ key, label: key.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()) })); }
 function csvList(value: string) { return value.split(',').map((item) => item.trim().toLowerCase().replace(/\s+/g, '_')).filter(Boolean); }
+function uniqueCatalogTemplateKey(categoryName: string, templates: CatalogTemplateDefinition[]) { const base = categoryName.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'catalog_category'; const keys = new Set(templates.map((template) => template.templateKey.toLowerCase())); if (!keys.has(base)) return base; let suffix = 2; while (keys.has(`${base}_${suffix}`)) suffix += 1; return `${base}_${suffix}`; }
 function parseObject(value: string, label: string) { const parsed = JSON.parse(value) as unknown; if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object.`); return parsed as Record<string, unknown>; }
 function parseArray(value: string, label: string) { const parsed = JSON.parse(value) as unknown; if (!Array.isArray(parsed)) throw new Error(`${label} must be a JSON array.`); return parsed; }
 function parseRecordValue(value: unknown, label: string) { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be a JSON object.`); return value as Record<string, unknown>; }
