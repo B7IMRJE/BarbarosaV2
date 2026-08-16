@@ -27,6 +27,7 @@ import { resolveCompleteRoomStarterTemplate } from '../../lib/roomStarterTemplat
 type HomeItemCatalogPickerProps = HomeItemCatalogRouteContext & {
     active: boolean;
     itemContext: HomeItemCatalogContext;
+    starterTemplateKey?: string | null;
     quoteAuthorized: boolean;
     quotePermissionMessage: string;
     onOpenQuote: (proposal: HomeItemCatalogProposal) => void;
@@ -41,6 +42,7 @@ export default function HomeItemCatalogPicker({
     scheduleSlotId,
     jobId,
     itemContext,
+    starterTemplateKey: persistedStarterTemplateKey,
     quoteAuthorized,
     quotePermissionMessage,
     onOpenQuote,
@@ -64,7 +66,7 @@ export default function HomeItemCatalogPicker({
         location: itemLocation,
         parentArea: itemParentArea,
     });
-    const starterTemplateKey = starterTemplate?.templateKey || '';
+    const starterTemplateKey = String(persistedStarterTemplateKey || '').trim() || starterTemplate?.templateKey || '';
 
     useEffect(() => {
         let current = true;

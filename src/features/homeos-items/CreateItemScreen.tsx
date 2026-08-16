@@ -10,6 +10,7 @@ import {
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import CompactHomeOSCard from './compact-homeos-card';
 import {
     activePropertyErrorMessage,
     isActivePropertyResolutionError,
@@ -30,8 +31,18 @@ import {
 import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
+    createProviderHomeOSStarterItemFromDeck,
     type ProviderHomeItemRpcRow,
 } from '../../lib/providerHomeItems';
+import {
+    loadHomeOSStarterCardChoices,
+    type HomeOSStarterCardChoice,
+} from '../../lib/homeosStarterCatalog';
+import {
+    filterHomeOSStarterCardChoices,
+    homeOSStarterCardGroupLabel,
+    homeOSStarterCardGroups,
+} from '../../lib/homeosStarterCardPickerCore';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -117,6 +128,7 @@ export default function CreateItemScreen() {
         category?: string;
         name?: string;
         rootItem?: string;
+        deckPicker?: string;
         providerMode?: string | string[];
         companyId?: string | string[];
         propertyId?: string | string[];
@@ -130,6 +142,7 @@ export default function CreateItemScreen() {
     const initialArea = decodeParam(params.area);
     const initialParentArea = decodeParam(params.parentArea).trim();
     const isRootSystemItem = sameItemText(decodeParam(params.rootItem), 'true');
+    const openDeckPickerInitially = sameItemText(decodeParam(params.deckPicker), 'true');
     const hasAreaContext = !!initialSystem && !!initialArea;
     const initialCategoryParam = typeof params.category === 'string' ? params.category.trim() : '';
     const initialCategory = initialCategoryParam
@@ -166,12 +179,38 @@ export default function CreateItemScreen() {
     const [about, setAbout] = useState('');
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
+    const [deckCards, setDeckCards] = useState<HomeOSStarterCardChoice[]>([]);
+    const [deckLoading, setDeckLoading] = useState(true);
+    const [deckMessage, setDeckMessage] = useState('');
+    const [deckPickerOpen, setDeckPickerOpen] = useState(openDeckPickerInitially);
+    const [deckQuery, setDeckQuery] = useState('');
+    const [deckGroup, setDeckGroup] = useState('all');
+    const [selectedDeckCard, setSelectedDeckCard] = useState<HomeOSStarterCardChoice | null>(null);
 
     useEffect(() => {
         if (initialName && !name.trim()) {
             setName(initialName);
         }
     }, [initialName, name]);
+    useEffect(() => {
+        let current = true;
+        setDeckLoading(true);
+        void loadHomeOSStarterCardChoices()
+            .then((cards) => {
+                if (!current) return;
+                setDeckCards(cards);
+                setDeckMessage('');
+            })
+            .catch((error) => {
+                if (!current) return;
+                setDeckCards([]);
+                setDeckMessage(`Could not load the HomeOS Deck: ${unknownErrorMessage(error)}`);
+            })
+            .finally(() => {
+                if (current) setDeckLoading(false);
+            });
+        return () => { current = false; };
+    }, []);
     const selectedSystemValue = system === CUSTOM_SYSTEM_CHOICE
         ? customSystem.trim() || OTHER_HOME_SYSTEM
         : system;
@@ -215,6 +254,8 @@ export default function CreateItemScreen() {
     const showCategoryStep = isSystemSelected;
     const showItemSections = isCategorySelected;
     const showOptionalDetails = showItemSections && !!name.trim();
+    const deckGroups = homeOSStarterCardGroups(deckCards);
+    const visibleDeckCards = filterHomeOSStarterCardChoices(deckCards, deckQuery, deckGroup);
 
     function chooseSystem(nextSystem: string) {
         const isCustomSystem = nextSystem === CUSTOM_SYSTEM_CHOICE;
@@ -222,6 +263,7 @@ export default function CreateItemScreen() {
         const nextArea = nextDefaults.areas[0] || 'Custom';
 
         setSystem(nextSystem);
+        setSelectedDeckCard(null);
         setLocationChoice(nextArea);
         setCustomLocation('');
         if (!isCustomSystem) {
@@ -234,12 +276,34 @@ export default function CreateItemScreen() {
     }
 
     function chooseCategory(nextCategory: string) {
+        setSelectedDeckCard(null);
         if (nextCategory !== CUSTOM_CATEGORY_CHOICE) {
             setCustomCategory('');
         }
         setCategory(nextCategory);
         setIsCategorySelected(true);
         setIsCategoryOpen(nextCategory === CUSTOM_CATEGORY_CHOICE);
+    }
+
+    function chooseDeckCard(card: HomeOSStarterCardChoice) {
+        const nextSystem = getSystemDefinition(card.system)?.key || card.system;
+        const nextCategory = categoryOptionValues.includes(card.category) ? card.category : CUSTOM_CATEGORY_CHOICE;
+
+        setSelectedDeckCard(card);
+        setName(card.name);
+        setSystem(nextSystem);
+        setCustomSystem('');
+        setIsSystemSelected(true);
+        setIsSystemOpen(false);
+        setCategory(nextCategory);
+        setCustomCategory(nextCategory === CUSTOM_CATEGORY_CHOICE ? card.category : '');
+        setIsCategorySelected(true);
+        setIsCategoryOpen(false);
+        setInstallState('Unknown');
+        setStatus('Missing Information');
+        setAbout('');
+        setDeckPickerOpen(false);
+        setMessage(`${card.name} will be added to ${initialArea || finalLocation()}. No installed product facts or physical location beyond this selected container are assumed.`);
     }
 
     function finalSystem() {
@@ -326,9 +390,10 @@ export default function CreateItemScreen() {
             status,
             location: savedLocation,
             about: about.trim(),
-            brand: 'Unknown',
-            model: 'Unknown',
-            serial: 'Unknown',
+            brand: selectedDeckCard ? null : 'Unknown',
+            model: selectedDeckCard ? null : 'Unknown',
+            serial: selectedDeckCard ? null : 'Unknown',
+            starter_template_key: selectedDeckCard?.templateKey || null,
             archived: false,
         };
 
@@ -375,8 +440,22 @@ export default function CreateItemScreen() {
             system: insertPayload.system,
         });
 
-        const providerCreateResult = providerModeContext
-            ? await supabase.rpc(
+        let error: unknown = null;
+        let savedSlug = slug;
+
+        if (providerModeContext && selectedDeckCard) {
+            try {
+                const created = await createProviderHomeOSStarterItemFromDeck(providerModeContext, {
+                    templateKey: selectedDeckCard.templateKey,
+                    location: insertPayload.location,
+                    parentArea: insertPayload.parent_area,
+                });
+                savedSlug = created.itemSlug || slug;
+            } catch (createError) {
+                error = createError;
+            }
+        } else if (providerModeContext) {
+            const providerCreateResult = await supabase.rpc(
                 'create_provider_homeos_item',
                 buildProviderHomeItemCreateRpcArgs(providerModeContext, {
                     itemSlug: insertPayload.item_slug,
@@ -392,16 +471,14 @@ export default function CreateItemScreen() {
                     model: insertPayload.model,
                     serial: insertPayload.serial,
                 })
-            )
-            : null;
-        const insertResult = providerModeContext
-            ? providerCreateResult
-            : await supabase.from('home_items').insert(insertPayload);
-        const error = insertResult?.error || null;
-        const createdProviderItem = providerModeContext
-            ? ((providerCreateResult?.data || []) as ProviderHomeItemRpcRow[])[0] || null
-            : null;
-        const savedSlug = createdProviderItem?.item_slug || slug;
+            );
+            error = providerCreateResult.error;
+            const createdProviderItem = ((providerCreateResult.data || []) as ProviderHomeItemRpcRow[])[0] || null;
+            savedSlug = createdProviderItem?.item_slug || slug;
+        } else {
+            const insertResult = await supabase.from('home_items').insert(insertPayload);
+            error = insertResult.error;
+        }
 
         logCreateItemDebug('insert result', {
             ok: !error,
@@ -411,7 +488,9 @@ export default function CreateItemScreen() {
         setSaving(false);
 
         if (error) {
-            setMessage(getCreateItemErrorMessage(error, itemName));
+            setMessage(selectedDeckCard
+                ? `Could not add ${selectedDeckCard.name} from the HomeOS Deck: ${unknownErrorMessage(error)}`
+                : getCreateItemErrorMessage(error, itemName));
             return;
         }
 
@@ -470,6 +549,59 @@ export default function CreateItemScreen() {
                         </Text>
                     </ThemedCard>
                 )}
+
+                <ThemedCard style={scaleStyle(formCardStyle)}>
+                    <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>HomeOS Deck</Text>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Add a standard HomeOS card</Text>
+                    <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>Search the master Deck and add one generic card directly to this area or container. This adds no catalog product, installed brand/model, service history, or unverified location.</Text>
+                    {selectedDeckCard && !deckPickerOpen ? (
+                        <View style={{ gap: scaleIcon(10), marginTop: scaleIcon(12) }}>
+                            <CompactHomeOSCard
+                                title={selectedDeckCard.name}
+                                subtitle={[selectedDeckCard.shortCode, selectedDeckCard.system, selectedDeckCard.category].filter(Boolean).join(' · ')}
+                                icon={starterCardIcon(selectedDeckCard)}
+                                onOpen={() => setDeckPickerOpen(true)}
+                                actionTitle="Change Deck Card"
+                                onAction={() => setDeckPickerOpen(true)}
+                                style={{ width: '100%', maxWidth: scaleIcon(250), alignSelf: 'flex-start' }}
+                            />
+                            <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>Placement selected here: {initialArea || finalLocation()}{initialParentArea ? ` inside ${initialParentArea}` : ''}.</Text>
+                        </View>
+                    ) : (
+                        <ThemedButton
+                            title={deckPickerOpen ? 'Hide HomeOS Deck' : deckLoading ? 'Loading HomeOS Deck...' : 'Search HomeOS Deck'}
+                            variant="secondary"
+                            disabled={deckLoading}
+                            onPress={() => setDeckPickerOpen((current) => !current)}
+                            style={{ marginTop: scaleIcon(12), alignSelf: 'flex-start' }}
+                        />
+                    )}
+                    {!!deckMessage && <Text style={[scaleStyle(messageTextStyle), { color: theme.colors.mutedText, marginTop: scaleIcon(10) }]}>{deckMessage}</Text>}
+                    {deckPickerOpen && !deckLoading && (
+                        <View style={{ gap: scaleIcon(12), marginTop: scaleIcon(14) }}>
+                            <ThemedInput label="Search HomeOS Deck" placeholder="Smart water, shower valve, faucet, S01..." value={deckQuery} onChangeText={setDeckQuery} />
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8) }}>
+                                <DeckGroupChip label="All Deck Cards" selected={deckGroup === 'all'} onPress={() => setDeckGroup('all')} />
+                                {deckGroups.map((group) => <DeckGroupChip key={group.key} label={`${group.label} (${group.count})`} selected={deckGroup === group.key} onPress={() => setDeckGroup(group.key)} />)}
+                            </View>
+                            <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>Deck groups describe the archetype’s master taxonomy only. You choose its actual home location here.</Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(10), alignItems: 'stretch' }}>
+                                {visibleDeckCards.slice(0, 80).map((card) => (
+                                    <CompactHomeOSCard
+                                        key={card.templateKey}
+                                        title={card.name}
+                                        subtitle={[card.shortCode, homeOSStarterCardGroupLabel(card.roomKind)].filter(Boolean).join(' · ')}
+                                        icon={starterCardIcon(card)}
+                                        onOpen={() => chooseDeckCard(card)}
+                                        actionTitle="Add This Card"
+                                        onAction={() => chooseDeckCard(card)}
+                                    />
+                                ))}
+                            </View>
+                            {!visibleDeckCards.length && <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>No HomeOS Deck cards match this search.</Text>}
+                        </View>
+                    )}
+                </ThemedCard>
 
                 <StepCard
                     step="1"
@@ -541,8 +673,8 @@ export default function CreateItemScreen() {
                         <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
                             Tap one to fill the item name, or type your own below.
                         </Text>
-                        <CustomItemChoice onPress={() => setName('')} />
-                        <ChoiceCardGrid choices={suggestionChoices} value={name} onChange={setName} />
+                        <CustomItemChoice onPress={() => { setSelectedDeckCard(null); setName(''); }} />
+                        <ChoiceCardGrid choices={suggestionChoices} value={name} onChange={(nextName) => { setSelectedDeckCard(null); setName(nextName); }} />
                     </ThemedCard>
                 )}
 
@@ -555,7 +687,7 @@ export default function CreateItemScreen() {
                             label="Item Name"
                             placeholder="Kitchen Faucet"
                             value={name}
-                            onChangeText={setName}
+                            onChangeText={(nextName) => { setSelectedDeckCard(null); setName(nextName); }}
                         />
 
                         <ThemedInput
@@ -600,7 +732,7 @@ export default function CreateItemScreen() {
 
                 {showItemSections ? (
                     <ThemedButton
-                        title={saving ? 'Saving...' : 'Save Item'}
+                        title={saving ? 'Saving...' : selectedDeckCard ? `Add ${selectedDeckCard.name}` : 'Save Item'}
                         onPress={saveItem}
                         disabled={saving}
                         style={scaleStyle(saveButtonStyle)}
@@ -627,6 +759,33 @@ function logCreateItemDebug(label: string, details: unknown) {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
         console.info(`[CreateItem] ${label}`, details);
     }
+}
+
+function starterCardIcon(card: Pick<HomeOSStarterCardChoice, 'name' | 'system' | 'category'>) {
+    const identity = `${card.name} ${card.system} ${card.category}`.toLowerCase();
+    if (identity.includes('smart water')) return '🛡️';
+    if (identity.includes('shower') || identity.includes('tub')) return '🚿';
+    if (identity.includes('toilet')) return '🚽';
+    if (identity.includes('faucet') || identity.includes('sink')) return '🚰';
+    if (identity.includes('water heater')) return '🔥';
+    if (identity.includes('drain') || identity.includes('trap')) return '🌀';
+    if (identity.includes('valve') || identity.includes('stop')) return '🔧';
+    return card.category.toLowerCase() === 'fixture' ? '🏠' : '🧰';
+}
+
+function unknownErrorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === 'object' && 'message' in error) return String(error.message || 'Try again.');
+    return String(error || 'Try again.');
+}
+
+function DeckGroupChip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    return (
+        <TouchableOpacity accessibilityRole="button" accessibilityState={{ selected }} onPress={onPress} style={{ minHeight: scaleIcon(44), justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: selected ? theme.colors.primary : theme.colors.border, backgroundColor: selected ? theme.colors.primary : theme.colors.surfaceAlt, paddingHorizontal: scaleIcon(14), paddingVertical: scaleIcon(8) }}>
+            <Text style={{ color: selected ? theme.colors.primaryText : theme.colors.text, fontSize: scaleFont(13), fontWeight: '900' }}>{label}</Text>
+        </TouchableOpacity>
+    );
 }
 
 function makeManualItemSlug(area: string, system: string, itemName: string, parentArea = '') {

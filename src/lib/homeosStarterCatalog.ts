@@ -21,6 +21,20 @@ export type HomeOSStarterDeckCard = {
     readinessIssues: string[];
 };
 
+export type HomeOSStarterCardChoice = Pick<
+    HomeOSStarterDeckCard,
+    'templateKey' | 'shortCode' | 'roomKind' | 'name' | 'system' | 'category' | 'parentTemplateKey' | 'aliases' | 'displayOrder'
+>;
+
+export async function loadHomeOSStarterCardChoices() {
+    const { data, error } = await supabase.rpc('get_homeos_starter_card_picker');
+    if (error) throw error;
+
+    return array(data)
+        .map(parseStarterCardChoice)
+        .filter((card): card is HomeOSStarterCardChoice => Boolean(card));
+}
+
 export async function loadHomeOSStarterCardDeck() {
     const [{ data, error }, codes] = await Promise.all([
         supabase.rpc('get_homeos_starter_card_deck'),
@@ -103,6 +117,25 @@ function parseStarterDeckCard(value: unknown): HomeOSStarterDeckCard | null {
         mappedCount: numberValue(row.mapped_count),
         approvedOptionCount: numberValue(row.approved_option_count),
         readinessIssues: array(row.readiness_issues).map(text).filter(Boolean),
+    };
+}
+
+function parseStarterCardChoice(value: unknown): HomeOSStarterCardChoice | null {
+    const row = record(value);
+    const templateKey = text(row.template_key);
+    const roomKind = text(row.room_kind);
+    if (!templateKey || !roomKind) return null;
+
+    return {
+        templateKey,
+        shortCode: text(row.short_code).toUpperCase(),
+        roomKind,
+        name: text(row.name) || 'Starter card',
+        system: text(row.system),
+        category: text(row.category),
+        parentTemplateKey: nullableText(row.parent_template_key),
+        aliases: array(row.aliases).map(text).filter(Boolean),
+        displayOrder: numberValue(row.display_order),
     };
 }
 

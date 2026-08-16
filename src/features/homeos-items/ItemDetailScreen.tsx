@@ -1694,7 +1694,7 @@ export default function ItemScreen() {
             } else {
                 const { data, error } = await supabase
                     .from('home_items')
-                    .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived')
+                    .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived, starter_template_key')
                     .eq('property_id', propertyId)
                     .or('archived.eq.false,archived.is.null')
                     .order('name', { ascending: true });
@@ -1709,7 +1709,7 @@ export default function ItemScreen() {
         } else {
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived')
+                .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived, starter_template_key')
                 .eq('property_id', propertyId)
                 .or('archived.eq.false,archived.is.null')
                 .order('name', { ascending: true });
@@ -1790,7 +1790,7 @@ export default function ItemScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, property_id, name, item_slug, system, location, parent_area, category, status, condition, install_state, installed_on, install_date, brand, model, serial, part_number, installation_notes, created_at')
+            .select('id, property_id, name, item_slug, system, location, parent_area, category, status, condition, install_state, installed_on, install_date, brand, model, serial, part_number, installation_notes, created_at, starter_template_key')
             .eq('item_slug', slug)
             .eq('property_id', targetPropertyId)
             .maybeSingle();
@@ -5601,6 +5601,7 @@ export default function ItemScreen() {
                                 location: item.location,
                                 parentArea: item.parent_area,
                             }}
+                            starterTemplateKey={typeof item.starter_template_key === 'string' ? item.starter_template_key : null}
                             quoteAuthorized={Boolean(estimateAccess)}
                             quotePermissionMessage={checkingEstimateAccess
                                 ? 'Checking quote permission...'

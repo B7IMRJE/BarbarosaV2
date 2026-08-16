@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useEffectEvent, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ServiceRequestMediaGallery from '../../components/serviceRequests/ServiceRequestMediaGallery';
@@ -8,6 +8,7 @@ import ThemedCard from '../../components/theme/ThemedCard';
 import { getCompanyDisplayName } from '../../lib/companyDisplayName';
 import { supabase } from '../../lib/supabase';
 import { getTechnicianAssignmentDisplayName } from '../../lib/technicianDisplay';
+import { loadTechOSJobWithStableAuth } from '../../lib/techosJobOpen';
 import { resolveCompanyTechOSTheme } from '../../lib/techosAppearance';
 import {
     getJobAssignmentRoleLabel,
@@ -145,6 +146,7 @@ export default function TechOSJobDetailScreen() {
     const [selectedAssignmentRole, setSelectedAssignmentRole] = useState<JobAssignmentRole>('primary');
     const [assignmentMessage, setAssignmentMessage] = useState('');
     const [message, setMessage] = useState('Loading job...');
+    const jobLoadRunRef = useRef(0);
     const techOSTheme = useMemo(() => resolveCompanyTechOSTheme({
         primaryColor: company?.primary_color,
         secondaryColor: company?.secondary_color,
@@ -154,9 +156,15 @@ export default function TechOSJobDetailScreen() {
 
     useEffect(() => {
         void loadJobDetailEvent();
+
+        return () => {
+            jobLoadRunRef.current += 1;
+        };
     }, [requestedJobId, requestedCompanyId]);
 
     async function loadJobDetail() {
+        const runId = jobLoadRunRef.current + 1;
+        jobLoadRunRef.current = runId;
         setCheckingAccess(true);
         setMessage('Loading job...');
         setMembership(null);
@@ -178,33 +186,44 @@ export default function TechOSJobDetailScreen() {
             return;
         }
 
-        const {
-            data: { user },
-            error: userError,
-        } = await supabase.auth.getUser();
+        const openResult = await loadTechOSJobWithStableAuth({
+            getAuthSnapshot: async () => {
+                const { data, error } = await supabase.auth.getUser();
+                return { userId: data.user?.id || '', error };
+            },
+            loadJob: async () => {
+                const result = await supabase.rpc('get_techos_job_detail', {
+                    p_job_id: requestedJobId,
+                    p_company_id: requestedCompanyId || null,
+                });
+                return { data: result.data, error: result.error };
+            },
+        });
 
-        if (userError || !user) {
+        if (runId !== jobLoadRunRef.current) return;
+
+        if (openResult.status === 'unauthenticated') {
             router.replace('/auth/login' as any);
             return;
         }
 
-        const { data: jobData, error: jobError } = await supabase.rpc('get_techos_job_detail', {
-            p_job_id: requestedJobId,
-            p_company_id: requestedCompanyId || null,
-        });
-
-        if (jobError) {
-            console.error('Could not load TechOS job detail', {
-                message: jobError.message,
-                code: jobError.code,
-                details: jobError.details,
-                hint: jobError.hint,
-            });
+        if (openResult.status === 'session-changing') {
             setCheckingAccess(false);
-            setMessage(getFriendlyJobAccessMessage(jobError.message));
+            setMessage('Your account changed while this job was opening. Select the job again after TechOS finishes loading the new workspace.');
             return;
         }
 
+        if (openResult.status === 'error') {
+            const jobErrorMessage = errorMessage(openResult.error);
+            console.error('Could not load TechOS job detail', {
+                message: jobErrorMessage,
+            });
+            setCheckingAccess(false);
+            setMessage(getFriendlyJobAccessMessage(jobErrorMessage));
+            return;
+        }
+
+        const jobData = openResult.data;
         const loadedJob = (((jobData || []) as TechOSJobDetail[])[0] || null) as TechOSJobDetail | null;
         if (!loadedJob) {
             setCheckingAccess(false);
@@ -221,7 +240,7 @@ export default function TechOSJobDetailScreen() {
         const isPlatformPreview = loadedJob.access_mode === 'platform_preview';
         const activeMembership = isPlatformPreview
             ? null
-            : buildAccessMembership(loadedJob, user.id);
+            : buildAccessMembership(loadedJob, openResult.userId);
 
         setMembership(activeMembership);
         setIsPlatformAdminAccess(isPlatformPreview);
@@ -788,6 +807,12 @@ function getFriendlyJobAccessMessage(message?: string | null) {
     }
 
     return message ? `Could not load job: ${message}` : 'Could not load this TechOS job right now.';
+}
+
+function errorMessage(error: unknown) {
+    if (error instanceof Error) return error.message;
+    if (error && typeof error === 'object' && 'message' in error) return String(error.message || '');
+    return String(error || 'Could not load this TechOS job right now.');
 }
 
 function getFriendlyAssignmentMessage(message?: string | null) {

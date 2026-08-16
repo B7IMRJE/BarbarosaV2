@@ -13,6 +13,8 @@ export type CatalogFactoryDeckWorkCard = CatalogFactoryStarterMapping & {
     aliases: readonly string[];
     displayOrder: number;
     readinessStatus: string;
+    /** Human-readable categories from real products mapped to this archetype. */
+    catalogCategories?: readonly string[];
 };
 
 export type CatalogFactoryDeckFilterKind = 'area' | 'family' | 'system' | 'category' | 'readiness';
@@ -42,21 +44,21 @@ export function catalogFactoryStarterOptionsLabel(card: Pick<CatalogFactoryStart
 
 export function catalogFactoryDeckFilterOptions(cards: readonly CatalogFactoryDeckWorkCard[]) {
     const options: CatalogFactoryDeckFilterOption[] = [];
-    const facets: { kind: Exclude<CatalogFactoryDeckFilterKind, 'family'>; value: (card: CatalogFactoryDeckWorkCard) => string }[] = [
-        { kind: 'area', value: (card) => card.roomKind },
-        { kind: 'system', value: (card) => card.system },
-        { kind: 'category', value: (card) => card.category },
-        { kind: 'readiness', value: (card) => card.readinessStatus },
+    const facets: { kind: Exclude<CatalogFactoryDeckFilterKind, 'family'>; values: (card: CatalogFactoryDeckWorkCard) => readonly string[] }[] = [
+        { kind: 'area', values: (card) => [card.roomKind] },
+        { kind: 'system', values: (card) => [card.system] },
+        { kind: 'category', values: (card) => [card.category, ...(card.catalogCategories || [])] },
+        { kind: 'readiness', values: (card) => [card.readinessStatus] },
     ];
 
     for (const facet of facets) {
-        const values = uniqueMetadata(cards.map(facet.value));
+        const values = uniqueMetadata(cards.flatMap((card) => facet.values(card)));
         for (const value of values) {
             options.push({
                 key: `${facet.kind}:${normalizeDeckTerm(value)}`,
-                label: facet.kind === 'area' || facet.kind === 'readiness' ? metadataLabel(value) : value,
+                label: facet.kind === 'system' ? value : metadataLabel(value),
                 kind: facet.kind,
-                count: cards.filter((card) => normalizeDeckTerm(facet.value(card)) === normalizeDeckTerm(value)).length,
+                count: cards.filter((card) => facet.values(card).some((candidate) => normalizeDeckTerm(candidate) === normalizeDeckTerm(value))).length,
             });
         }
     }
@@ -93,11 +95,8 @@ export function filterAndSortCatalogFactoryDeckCards<T extends CatalogFactoryDec
                 const familyKey = option.key.slice('family:'.length);
                 return card.templateKey === familyKey || deckCardBelongsToFamily(card, familyKey, cards);
             }
-            const value = option.kind === 'area' ? card.roomKind
-                : option.kind === 'system' ? card.system
-                    : option.kind === 'category' ? card.category
-                        : card.readinessStatus;
-            return `${option.kind}:${normalizeDeckTerm(value)}` === option.key;
+            return deckCardFacetValues(card, option.kind)
+                .some((value) => `${option.kind}:${normalizeDeckTerm(value)}` === option.key);
         })
         .sort((left, right) => readinessWeight(left.readinessStatus) - readinessWeight(right.readinessStatus)
             || left.roomKind.localeCompare(right.roomKind)
@@ -118,11 +117,19 @@ function deckCardSearchText(card: CatalogFactoryDeckWorkCard, parents: ReadonlyM
         card.name,
         card.system,
         card.category,
+        ...(card.catalogCategories || []),
         card.readinessStatus,
         ...card.aliases,
         parent?.name || '',
         ...(parent?.aliases || []),
     ].join(' '));
+}
+
+function deckCardFacetValues(card: CatalogFactoryDeckWorkCard, kind: Exclude<CatalogFactoryDeckFilterKind, 'family'>) {
+    if (kind === 'area') return [card.roomKind];
+    if (kind === 'system') return [card.system];
+    if (kind === 'category') return [card.category, ...(card.catalogCategories || [])];
+    return [card.readinessStatus];
 }
 
 function deckCardBelongsToFamily(card: CatalogFactoryDeckWorkCard, familyKey: string, cards: readonly CatalogFactoryDeckWorkCard[]) {

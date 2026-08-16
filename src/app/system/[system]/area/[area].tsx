@@ -9,7 +9,7 @@ import {
     requireActivePropertyMembership,
 } from '../../../../lib/activeProperty';
 import { getStarterItemsForAreaSystem } from '../../../../lib/areaTemplates';
-import { getSystemDefinition, getSystemLabel } from '../../../../lib/homeSystems';
+import { getSystemLabel } from '../../../../lib/homeSystems';
 import {
     providerModeItemPath,
     providerModeQueryParams,
@@ -453,7 +453,7 @@ export default function AreaScreen() {
         });
     }
 
-    function createSuggestedItem(category: string, name?: string) {
+    function createSuggestedItem(category: string, name?: string, openDeckPicker = false) {
         router.push({
             pathname: '/item/create',
             params: {
@@ -462,6 +462,7 @@ export default function AreaScreen() {
                 ...(parentAreaName ? { parentArea: parentAreaName } : {}),
                 category,
                 name: name || '',
+                ...(openDeckPicker ? { deckPicker: 'true' } : {}),
                 ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
@@ -736,13 +737,20 @@ export default function AreaScreen() {
 
                     <ThemedCard style={areaQuickActionCardStyle}>
                         <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
-                            Add Item
+                            Add HomeOS Card
                         </Text>
                         <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
-                            {getAreaAddItemDescription(systemName)}
+                            Search the reusable HomeOS Deck, or create a one-off custom item.
                         </Text>
                         <ThemedButton
-                            title="+ Add Item"
+                            title="+ From HomeOS Deck"
+                            onPress={() => createSuggestedItem('Equipment', '', true)}
+                            style={areaQuickActionButtonStyle}
+                            textStyle={areaQuickActionButtonTextStyle}
+                        />
+                        <ThemedButton
+                            title="Manual Custom Item"
+                            variant="glass"
                             onPress={() => createSuggestedItem('Equipment')}
                             style={areaQuickActionButtonStyle}
                             textStyle={areaQuickActionButtonTextStyle}
@@ -1257,19 +1265,6 @@ function groupItemsBySystem(items: AreaHomeItem[]) {
 
 function getItemGroupHeading(sectionTitle: string) {
     return `${sectionTitle} items`;
-}
-
-function getAreaAddItemDescription(systemName: string) {
-    const system = normalize(getSystemDefinition(systemName)?.key || systemName);
-
-    if (system === 'electrical') return 'Outlet, switch, light, fan, panel, or circuit.';
-    if (system === 'gas') return 'Meter, shutoff, connector, appliance line, or safety device.';
-    if (system === 'drains / sewer') return 'Drain, trap, cleanout, vent, sewer line, or fixture.';
-    if (system === 'hvac') return 'Unit, thermostat, register, disconnect, duct, or component.';
-    if (system === 'irrigation') return 'Controller, valve, station, sprinkler, drip line, or sensor.';
-    if (system === 'pool') return 'Pump, filter, heater, light, control, or safety component.';
-
-    return 'Faucet, valve, supply line, appliance, equipment, or fixture.';
 }
 
 function getAreaItemSectionTitle(item: AreaHomeItem) {

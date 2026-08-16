@@ -1,4 +1,5 @@
 import type { ProviderModeParams } from './providerMode';
+import { supabase } from './supabase';
 
 export type ProviderHomeItemsRpcArgs = {
     p_company_id: string;
@@ -58,7 +59,29 @@ export type ProviderHomeItemRpcRow = {
     photo_url: string | null;
     archived: boolean | null;
     property_id: string;
+    starter_template_key?: string | null;
 };
+
+export async function createProviderHomeOSStarterItemFromDeck(
+    context: ProviderHomeItemsReadContext,
+    input: { templateKey: string; location: string; parentArea?: string | null },
+) {
+    const { data, error } = await supabase.rpc('create_provider_homeos_starter_item_from_deck', {
+        ...buildProviderHomeItemsRpcArgs(context),
+        p_template_key: cleanRequiredText(input.templateKey),
+        p_location: cleanRequiredText(input.location),
+        p_parent_area: cleanOptionalText(input.parentArea),
+    });
+    if (error) throw error;
+    const row = (Array.isArray(data) ? data[0] : data) as { id?: unknown; item_slug?: unknown; starter_template_key?: unknown } | null;
+    const id = cleanRequiredText(String(row?.id || ''));
+    if (!id) throw new Error('The HomeOS Deck card was not created.');
+    return {
+        id,
+        itemSlug: cleanRequiredText(String(row?.item_slug || '')),
+        templateKey: cleanRequiredText(String(row?.starter_template_key || '')),
+    };
+}
 
 export type ProviderHomeItemsReadContext = Pick<
     ProviderModeParams,

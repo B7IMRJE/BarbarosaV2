@@ -815,11 +815,15 @@ function StarterCardDeck({
     const [showMoreFilters, setShowMoreFilters] = useState(false);
     const searchableCards = cards.map((card) => ({
         ...card,
+        catalogCategories: [...new Set(card.mappedVariantIds.flatMap((id) => {
+            const record = records.find((candidate) => candidate.id === id);
+            return record?.category ? [record.category] : [];
+        }))],
         aliases: [
             ...card.aliases,
             ...card.mappedVariantIds.flatMap((id) => {
                 const record = records.find((candidate) => candidate.id === id);
-                return record ? [record.shortCode, factoryProductName(record), record.brand, record.modelNumber] : [];
+                return record ? [record.shortCode, factoryProductName(record), record.category, record.manufacturer, record.brand, record.familyName, record.modelNumber] : [];
             }),
         ],
     }));
@@ -850,7 +854,7 @@ function StarterCardDeck({
             <ThemedCard style={{ padding: scaleIcon(phone ? 12 : 14), gap: scaleIcon(11), borderWidth: 1, borderCurve: 'continuous' }}>
                 <View style={{ flexDirection: phone ? 'column' : 'row', alignItems: phone ? 'stretch' : 'center', gap: scaleIcon(9) }}>
                     <View style={{ flex: 1, minWidth: 0 }}>
-                        <CompactField label="Search starter cards or short codes" value={query} onChangeText={setQuery} placeholder="Shower, A01, Moen, faucet, pool..." />
+                        <CompactField label="Search starter cards, products, or short codes" value={query} onChangeText={setQuery} placeholder="Smart water, shutoff, Whole Home, S01, Moen..." />
                     </View>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(6), alignItems: 'center' }}>
                         <FactoryTileBadge label={`${unfinishedCount} unfinished`} tone={unfinishedCount ? 'amber' : 'green'} />
@@ -858,9 +862,10 @@ function StarterCardDeck({
                     </View>
                 </View>
                 <View style={{ gap: scaleIcon(6) }}>
-                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>Areas</Text>
+                    <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>Deck groups</Text>
+                    <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(17), fontWeight: '700' }}>Room-based and location-neutral equipment groups from the live starter taxonomy.</Text>
                     <ChoiceWrap>
-                        <Chip label="All areas" selected={filterKey === 'all'} onPress={() => setFilterKey('all')} />
+                        <Chip label="All deck groups" selected={filterKey === 'all'} onPress={() => setFilterKey('all')} />
                         {areaFilters.map((option) => <Chip key={option.key} label={`${option.label} (${option.count})`} selected={filterKey === option.key} onPress={() => setFilterKey(option.key)} />)}
                     </ChoiceWrap>
                 </View>
@@ -898,6 +903,11 @@ function StarterCardDeck({
                             <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(21), fontWeight: '900' }}>{catalogFactoryDeckGroupLabel(roomKind)} starter deck{group.completed ? ' · Completed' : ''}</Text>
                             <FactoryTileBadge label={group.completed ? `${roomReadyCount} complete` : `${roomCards.length} unfinished`} tone={group.completed ? 'green' : 'amber'} />
                         </View>
+                        {roomKind === 'whole_home' && (
+                            <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(19), fontWeight: '700' }}>
+                                Location-neutral master equipment. An installed location is assigned only after technician verification.
+                            </Text>
+                        )}
 
                         <View style={{ gap: scaleIcon(12) }}>
                             {roomCards.map((card) => {
