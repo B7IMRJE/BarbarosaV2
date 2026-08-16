@@ -19,6 +19,8 @@ import {
     type HomeItemCatalogRouteContext,
 } from '../../lib/home-item-catalog';
 import { useTheme } from '../../theme/useTheme';
+import { loadCompanyHomeOSStarterCatalogVariantIds } from '../../lib/homeosStarterCatalog';
+import { resolveCompleteRoomStarterTemplate } from '../../lib/roomStarterTemplates';
 
 type HomeItemCatalogPickerProps = HomeItemCatalogRouteContext & {
     active: boolean;
@@ -53,6 +55,12 @@ export default function HomeItemCatalogPicker({
     const itemCategory = itemContext.category;
     const itemLocation = itemContext.location;
     const itemParentArea = itemContext.parentArea;
+    const starterTemplate = resolveCompleteRoomStarterTemplate({
+        name: itemName,
+        location: itemLocation,
+        parentArea: itemParentArea,
+    });
+    const starterTemplateKey = starterTemplate?.templateKey || '';
 
     useEffect(() => {
         let current = true;
@@ -65,8 +73,11 @@ export default function HomeItemCatalogPicker({
         void Promise.all([
             loadApprovedMasterCatalogForCompany(companyId),
             quoteAuthorized ? loadHomeItemCatalogProposals(routeContext) : Promise.resolve([]),
+            starterTemplateKey
+                ? loadCompanyHomeOSStarterCatalogVariantIds(companyId, starterTemplateKey)
+                : Promise.resolve([]),
         ])
-            .then(([catalogItems, catalogProposals]) => {
+            .then(([catalogItems, catalogProposals, mappedVariantIds]) => {
                 if (!current) return;
                 setItems(filterCatalogItemsForHomeItem(catalogItems, {
                     name: itemName,
@@ -74,6 +85,9 @@ export default function HomeItemCatalogPicker({
                     category: itemCategory,
                     location: itemLocation,
                     parentArea: itemParentArea,
+                }, {
+                    mappedVariantIds,
+                    requireMappedVariants: Boolean(starterTemplateKey),
                 }));
                 setProposals(catalogProposals);
             })
@@ -102,6 +116,7 @@ export default function HomeItemCatalogPicker({
         itemCategory,
         itemLocation,
         itemParentArea,
+        starterTemplateKey,
     ]);
 
     const selectedProposal = selectedItem
@@ -148,7 +163,9 @@ export default function HomeItemCatalogPicker({
                         Matching company catalog
                     </Text>
                     <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(19), fontWeight: '700' }}>
-                        Products are filtered to this item and the company’s active catalog package. Product references do not include service history.
+                        {starterTemplateKey
+                            ? 'These are the real product options mapped to this starter card and included in the company’s active catalog package. Product references do not include service history.'
+                            : 'Products are filtered to this item and the company’s active catalog package. Product references do not include service history.'}
                     </Text>
                 </View>
 

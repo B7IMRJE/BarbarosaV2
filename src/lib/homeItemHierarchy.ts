@@ -1,3 +1,8 @@
+import {
+    getCompleteRoomStarterKind,
+    isCompleteRoomStarterRelation,
+} from './roomStarterTemplates';
+
 export type HomeItemHierarchyRecord = {
     id?: string | null;
     item_slug?: string | null;
@@ -37,6 +42,25 @@ export function isChildHomeItem(candidate: HomeItemHierarchyRecord, parent: Home
     const candidateParentArea = cleanHierarchyText(candidate.parent_area);
 
     if (sameHierarchyText(candidateLocation, parentName) && sameHierarchyText(candidateParentArea, parentArea || '')) {
+        return true;
+    }
+
+    const directRoomName = getCompleteRoomStarterKind(parent.location)
+        ? cleanHierarchyText(parent.location)
+        : getCompleteRoomStarterKind(parent.parent_area)
+            ? cleanHierarchyText(parent.parent_area)
+            : '';
+
+    if (
+        directRoomName &&
+        sameHierarchyText(candidateLocation, directRoomName) &&
+        sameHierarchyText(candidateParentArea, cleanHierarchyText(parent.parent_area)) &&
+        isCompleteRoomStarterRelation({
+            areaName: directRoomName,
+            parentName,
+            candidateName: cleanHierarchyText(candidate.name),
+        })
+    ) {
         return true;
     }
 

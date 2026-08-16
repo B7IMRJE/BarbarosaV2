@@ -47,6 +47,18 @@ const genericKitchenMatches = filterCatalogItemsForHomeItem(
     { name: 'Kitchen', category: 'Area', location: 'Kitchen' },
 );
 assert(genericKitchenMatches[0]?.id === 'kitchen-faucet', 'A generic Kitchen context should require a Kitchen application match.');
+
+const mappedShowerValveMatches = filterCatalogItemsForHomeItem(
+    [kitchenFaucet, showerTrim, unentitledKitchenFaucet],
+    { name: 'Shower Valve', category: 'Component', location: 'Shower / Tub', parentArea: 'Bathroom 1' },
+    { mappedVariantIds: ['shower-trim', 'unentitled-kitchen-faucet'], requireMappedVariants: true },
+);
+assert(mappedShowerValveMatches.length === 1, 'Exact starter mapping must still enforce entitlement and active company offerings.');
+assert(mappedShowerValveMatches[0]?.id === 'shower-trim', 'A starter card must return only its explicitly mapped real variants.');
+assert(
+    filterCatalogItemsForHomeItem([showerTrim], { name: 'Shower Valve' }, { mappedVariantIds: [], requireMappedVariants: true }).length === 0,
+    'A starter archetype with no mapped variants must show an empty catalog state instead of fuzzy fallbacks.',
+);
 assert(
     estimateCategoryForHomeItemCatalog({ name: 'Kitchen Faucet' }, kitchenFaucet) === 'faucet_replacement',
     'A faucet catalog choice should open the faucet replacement estimate category.',

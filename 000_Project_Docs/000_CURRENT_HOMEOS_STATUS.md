@@ -87,6 +87,7 @@ This file is the compact onboarding package for future Codex sessions. Read it b
 - Storage policy hardening remains open and must be handled carefully.
 - `maintenance_records` remains missing or inconsistent in some environments and needs a later product/schema decision.
 - Multi-home switching is not implemented yet. Current active-home logic expects exactly one active membership.
+- Future Front Yard/irrigation templates must never claim a Water Main/Shutoff physical location without explicit technician confirmation. Unverified entries must say `Location not confirmed`, include emergency contact guidance, and must not be mapped to Garage or Front Yard. Once confirmed, the shutoff belongs in exactly one verified area with photo/note evidence; do not create ambiguous duplicates.
 
 ## Validation Standard
 

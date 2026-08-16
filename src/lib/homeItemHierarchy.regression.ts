@@ -13,6 +13,23 @@ export function runHomeItemHierarchyRegressions() {
     childFilteringRejectsSiblingAndArchivedRecords();
     sameRecordIsNeverItsOwnChild();
     legacyParentOnlyChildShapeStillLoadsUnderItem();
+    legacyBathroomPartsLoadUnderTheirStarterParent();
+    legacyKitchenAndGaragePartsLoadUnderTheirStarterParents();
+}
+
+function legacyBathroomPartsLoadUnderTheirStarterParent() {
+    const parent: HomeItemHierarchyRecord = { id: 'toilet', name: 'Toilet', location: 'Bathroom 1', parent_area: '', archived: false };
+    const child: HomeItemHierarchyRecord = { id: 'flapper', name: 'Toilet Flapper', location: 'Bathroom 1', parent_area: '', archived: false };
+    assert(isChildHomeItem(child, parent), 'A legacy top-level Toilet Flapper should appear as a related part under Toilet without moving or duplicating it.');
+}
+
+function legacyKitchenAndGaragePartsLoadUnderTheirStarterParents() {
+    const roParent: HomeItemHierarchyRecord = { id: 'ro', name: 'Reverse Osmosis System', location: 'Kitchen', parent_area: '', archived: false };
+    const roFilter: HomeItemHierarchyRecord = { id: 'ro-filter', name: 'RO Sediment Filter', location: 'Kitchen', parent_area: '', archived: false };
+    const heater: HomeItemHierarchyRecord = { id: 'heater', name: 'Water Heater', location: 'Garage', parent_area: '', archived: false };
+    const tpr: HomeItemHierarchyRecord = { id: 'tpr', name: 'TPR Valve', location: 'Garage', parent_area: '', archived: false };
+    assert(isChildHomeItem(roFilter, roParent), 'Legacy RO filter cards should appear under Reverse Osmosis System.');
+    assert(isChildHomeItem(tpr, heater), 'Legacy water-heater parts should appear under Water Heater.');
 }
 
 function stoveChildrenUseTheStoveAsTheirImmediateLocation() {

@@ -65,6 +65,13 @@ import {
 } from '../../lib/catalogProductResearchCore';
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
+import CompactHomeOSCard from '../homeos-items/compact-homeos-card';
+import {
+    loadHomeOSStarterCardDeck,
+    saveHomeOSStarterCardDeckEntry,
+    type HomeOSStarterDeckCard,
+    type HomeOSStarterDeckReadiness,
+} from '../../lib/homeosStarterCatalog';
 
 type FactoryMode = 'overview' | 'template' | 'seed' | 'import' | 'review' | 'prices' | 'history';
 
@@ -87,6 +94,7 @@ export default function CatalogFactoryScreen() {
     const [mode, setMode] = useState<FactoryMode>('overview');
     const [templates, setTemplates] = useState<CatalogTemplateDefinition[]>([]);
     const [records, setRecords] = useState<CatalogFactoryRecord[]>([]);
+    const [starterCards, setStarterCards] = useState<HomeOSStarterDeckCard[]>([]);
     const [imports, setImports] = useState<Record<string, unknown>[]>([]);
     const [filters, setFilters] = useState<CatalogFactoryFilters>({});
     const [busy, setBusy] = useState(false);
@@ -110,6 +118,10 @@ export default function CatalogFactoryScreen() {
     const [seedResearch, setSeedResearch] = useState<CatalogProductResearch | null>(null);
     const [researchingSeed, setResearchingSeed] = useState(false);
     const [seedSaveError, setSeedSaveError] = useState('');
+    const [editingStarterCard, setEditingStarterCard] = useState<HomeOSStarterDeckCard | null>(null);
+    const [starterVariantIds, setStarterVariantIds] = useState<string[]>([]);
+    const [starterReadiness, setStarterReadiness] = useState<HomeOSStarterDeckReadiness>('unbuilt');
+    const [starterNotes, setStarterNotes] = useState('');
 
     useEffect(() => {
         void initialize();
@@ -131,12 +143,44 @@ export default function CatalogFactoryScreen() {
         setBusy(true);
         setMessage('Refreshing Catalog Factory...');
         try {
-            const result = await loadCatalogFactory(nextFilters);
+            const [result, nextStarterCards] = await Promise.all([
+                loadCatalogFactory(nextFilters),
+                loadHomeOSStarterCardDeck(),
+            ]);
             setTemplates(result.templates);
             setRecords(result.records);
             setImports(result.imports);
+            setStarterCards(nextStarterCards);
             setSelected((current) => current.filter((id) => result.records.some((record) => record.id === id)));
             setMessage(`${result.records.length} master variant${result.records.length === 1 ? '' : 's'} in this view.`);
+        } catch (error) {
+            setMessage(errorMessage(error));
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function beginStarterCardMapping(card: HomeOSStarterDeckCard) {
+        setEditingStarterCard(card);
+        setStarterVariantIds(card.mappedVariantIds);
+        setStarterReadiness(card.readinessStatus);
+        setStarterNotes(card.adminNotes);
+    }
+
+    async function saveStarterCardMapping() {
+        if (!editingStarterCard) return;
+        setBusy(true);
+        setMessage(`Saving ${editingStarterCard.name} product options...`);
+        try {
+            await saveHomeOSStarterCardDeckEntry({
+                templateKey: editingStarterCard.templateKey,
+                variantIds: starterVariantIds,
+                readinessStatus: starterReadiness,
+                adminNotes: starterNotes,
+            });
+            setEditingStarterCard(null);
+            setMessage(`${editingStarterCard.name} now has ${starterVariantIds.length} mapped product option${starterVariantIds.length === 1 ? '' : 's'}.`);
+            await refresh();
         } catch (error) {
             setMessage(errorMessage(error));
         } finally {
@@ -537,8 +581,21 @@ export default function CatalogFactoryScreen() {
                 {mode === 'seed' && <SeedEditor draft={seedDraft} setDraft={(next) => { setSeedDraft(next); setSeedSaveError(''); }} templates={templates} busy={busy} researching={researchingSeed} research={seedResearch} saveError={seedSaveError} onResearch={() => void researchSeedProduct()} onUseResearch={useResearchInSeed} onClearResearch={() => setSeedResearch(null)} onSave={() => void createSeedRecord()} onCancel={() => { setSeedResearch(null); setSeedSaveError(''); setMode('overview'); }} />}
                 {mode === 'import' && <ImportPanel busy={busy} preview={importPreview} summary={importSummary} fileName={importFileName} onPick={() => void pickImportFile()} onImport={() => void commitImport()} />}
 
+                {mode === 'overview' && (
+                    <StarterCardDeck
+                        cards={starterCards}
+                        records={records}
+                        phone={phone}
+                        busy={busy}
+                        onMap={beginStarterCardMapping}
+                        onEditProduct={(record) => beginEdit(record)}
+                        onDetails={setDetailRecord}
+                    />
+                )}
+
                 {(mode === 'overview' || mode === 'review' || mode === 'prices' || mode === 'history') && (
                     <>
+                        {mode === 'overview' && <Title>All real product variants</Title>}
                         <Filters filters={filters} setFilters={setFilters} templates={templates} busy={busy} onApply={() => void refresh(filters)} />
                         {mode === 'review' && <Text selectable style={{ color: mutedColor }}>Select warning-free drafts for bulk approval. Records with unresolved warnings can only be reviewed individually.</Text>}
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12), alignItems: 'stretch' }}>
@@ -564,6 +621,20 @@ export default function CatalogFactoryScreen() {
 
                 <FactoryRecordDetailsModal record={detailRecord} onClose={() => setDetailRecord(null)} />
 
+                <StarterCardMappingModal
+                    card={editingStarterCard}
+                    records={records}
+                    selectedVariantIds={starterVariantIds}
+                    setSelectedVariantIds={setStarterVariantIds}
+                    readiness={starterReadiness}
+                    setReadiness={setStarterReadiness}
+                    notes={starterNotes}
+                    setNotes={setStarterNotes}
+                    busy={busy}
+                    onSave={() => void saveStarterCardMapping()}
+                    onClose={() => setEditingStarterCard(null)}
+                />
+
                 {editing && editDraft && <EditPanel record={editing} draft={editDraft} setDraft={setEditDraft} templates={templates} json={editJson} setJson={(value) => { setEditJson(value); setAdvancedJsonDirty(true); }} showAdvancedJson={showAdvancedJson} setShowAdvancedJson={(visible) => { if (visible && !showAdvancedJson && !advancedJsonDirty) setEditJson(JSON.stringify({ specifications: catalogFactoryEditorSpecifications(editDraft), sources: editDraft.sources.map((source) => ({ type: source.sourceType, url: source.sourceUrl, title: source.title || null })), confidence: editing.confidence, validation_warnings: editing.validationWarnings, duplicate_warnings: editing.duplicateWarnings, missing_fields: editing.missingFields }, null, 2)); setShowAdvancedJson(visible); }} mergeTargetId={mergeTargetId} setMergeTargetId={setMergeTargetId} candidates={records.filter((record) => record.id !== editing.id)} busy={busy} onSave={() => void saveEdit()} onMerge={() => void mergeRecord()} onUploadPhoto={() => void pickMasterPhoto()} onUploadDocument={(type) => void pickMasterDocument(type)} onChangeMedia={(asset, patch) => void changeMasterMedia(asset, patch)} onCancel={() => { setEditing(null); setEditDraft(null); }} />}
 
                 {!!imports.length && mode === 'overview' && (
@@ -572,6 +643,224 @@ export default function CatalogFactoryScreen() {
             </ScrollView>
         </View>
     );
+}
+
+function StarterCardDeck({
+    cards,
+    records,
+    phone,
+    busy,
+    onMap,
+    onEditProduct,
+    onDetails,
+}: {
+    cards: HomeOSStarterDeckCard[];
+    records: CatalogFactoryRecord[];
+    phone: boolean;
+    busy: boolean;
+    onMap: (card: HomeOSStarterDeckCard) => void;
+    onEditProduct: (record: CatalogFactoryRecord) => void;
+    onDetails: (record: CatalogFactoryRecord) => void;
+}) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const roomLabels: Record<HomeOSStarterDeckCard['roomKind'], string> = {
+        bathroom: 'Bathroom',
+        kitchen: 'Kitchen',
+        garage: 'Garage',
+    };
+
+    return (
+        <View style={{ gap: scaleIcon(14) }}>
+            <View style={{ gap: scaleIcon(4) }}>
+                <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(25), fontWeight: '900' }}>HomeOS Deck of Cards</Text>
+                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(15), lineHeight: scaleFont(21), fontWeight: '700' }}>
+                    Every generic HomeOS starter card is shown here. Its real, selectable catalog products appear immediately beside it; an empty option list means the product deck still needs to be built.
+                </Text>
+            </View>
+
+            {(['bathroom', 'kitchen', 'garage'] as const).map((roomKind) => {
+                const roomCards = cards.filter((card) => card.roomKind === roomKind);
+                const readyCount = roomCards.filter((card) => card.readinessStatus === 'ready' && card.approvedOptionCount > 0).length;
+
+                return (
+                    <ThemedCard key={roomKind} style={{ padding: scaleIcon(phone ? 12 : 16), gap: scaleIcon(12), borderWidth: 1, borderCurve: 'continuous' }}>
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: scaleIcon(8) }}>
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(21), fontWeight: '900' }}>{roomLabels[roomKind]} starter deck</Text>
+                            <FactoryTileBadge label={`${readyCount}/${roomCards.length} ready`} tone={readyCount === roomCards.length && roomCards.length > 0 ? 'green' : 'amber'} />
+                        </View>
+
+                        <View style={{ gap: scaleIcon(12) }}>
+                            {roomCards.map((card) => {
+                                const mappedRecords = card.mappedVariantIds
+                                    .map((id) => records.find((record) => record.id === id))
+                                    .filter((record): record is CatalogFactoryRecord => Boolean(record));
+                                const parentName = card.parentTemplateKey
+                                    ? cards.find((candidate) => candidate.templateKey === card.parentTemplateKey)?.name || ''
+                                    : '';
+
+                                return (
+                                    <View key={card.templateKey} style={{ flexDirection: phone ? 'column' : 'row', alignItems: phone ? 'stretch' : 'flex-start', gap: scaleIcon(12), borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: scaleIcon(12) }}>
+                                        <CompactHomeOSCard
+                                            title={card.name}
+                                            subtitle={parentName ? `Part of ${parentName}` : card.system}
+                                            icon={starterCardIcon(card)}
+                                            onOpen={() => onMap(card)}
+                                            actionTitle={`${card.mappedCount} option${card.mappedCount === 1 ? '' : 's'}`}
+                                            onAction={() => onMap(card)}
+                                            secondaryActionTitle="Map Products"
+                                            onSecondaryAction={() => onMap(card)}
+                                            disabled={busy}
+                                            style={{ width: phone ? '100%' : scaleIcon(210), minWidth: phone ? 0 : scaleIcon(210), maxWidth: phone ? '100%' : scaleIcon(210), flexShrink: 0 }}
+                                        />
+
+                                        <View style={{ flex: 1, minWidth: 0, gap: scaleIcon(8) }}>
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(6), alignItems: 'center' }}>
+                                                <FactoryTileBadge label={card.readinessStatus} tone={card.readinessStatus === 'ready' ? 'green' : 'amber'} />
+                                                <FactoryTileBadge label={`${card.approvedOptionCount} approved`} tone={card.approvedOptionCount > 0 ? 'green' : 'amber'} />
+                                            </View>
+                                            {mappedRecords.length > 0 ? mappedRecords.map((record) => (
+                                                <StarterMappedVariant key={record.id} record={record} busy={busy} onEdit={() => onEditProduct(record)} onDetails={() => onDetails(record)} />
+                                            )) : card.mappedCount === 0 ? (
+                                                <TouchableOpacity accessibilityRole="button" onPress={() => onMap(card)} disabled={busy} style={{ minHeight: scaleIcon(86), borderWidth: 2, borderStyle: 'dashed', borderColor: '#C88A12', borderRadius: 13, borderCurve: 'continuous', backgroundColor: '#FFF8E8', alignItems: 'center', justifyContent: 'center', padding: scaleIcon(14), gap: scaleIcon(4) }}>
+                                                    <Text selectable style={{ color: '#704B00', fontSize: scaleFont(16), fontWeight: '900', textAlign: 'center' }}>No real product options mapped</Text>
+                                                    <Text selectable style={{ color: '#704B00', fontSize: scaleFont(13), fontWeight: '700', textAlign: 'center' }}>Open Map Products to connect approved manufacturer/model variants.</Text>
+                                                </TouchableOpacity>
+                                            ) : (
+                                                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), fontWeight: '800' }}>Mapped product options are hidden by the current product filters.</Text>
+                                            )}
+                                            {mappedRecords.length < card.mappedCount && (
+                                                <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '700' }}>
+                                                    {card.mappedCount - mappedRecords.length} mapped option{card.mappedCount - mappedRecords.length === 1 ? '' : 's'} hidden by the current product filters.
+                                                </Text>
+                                            )}
+                                            {!!card.adminNotes && <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(13), lineHeight: scaleFont(18) }}>{card.adminNotes}</Text>}
+                                        </View>
+                                    </View>
+                                );
+                            })}
+                            {!roomCards.length && <Text selectable style={{ color: theme.colors.mutedText }}>Starter deck is not installed yet.</Text>}
+                        </View>
+                    </ThemedCard>
+                );
+            })}
+        </View>
+    );
+}
+
+function StarterMappedVariant({ record, busy, onEdit, onDetails }: { record: CatalogFactoryRecord; busy: boolean; onEdit: () => void; onDetails: () => void }) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const productName = factoryProductName(record);
+    return (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: scaleIcon(10), borderWidth: 1, borderColor: theme.colors.border, borderRadius: 13, borderCurve: 'continuous', backgroundColor: theme.colors.surfaceAlt, padding: scaleIcon(10) }}>
+            <ProductCardImage compact imageUrl={record.primaryImageUrl} productName={productName} style={{ width: scaleIcon(58), height: scaleIcon(58), minHeight: scaleIcon(58), flexShrink: 0 }} />
+            <View style={{ flex: 1, minWidth: scaleIcon(150), gap: scaleIcon(2) }}>
+                <Text selectable numberOfLines={2} style={{ color: theme.colors.text, fontSize: scaleFont(15), lineHeight: scaleFont(19), fontWeight: '900' }}>{productName}</Text>
+                <Text selectable numberOfLines={1} style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '800' }}>{[record.brand, record.modelNumber, record.status].filter(Boolean).join(' · ')}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(7) }}>
+                <FactoryTileAction title="Edit" variant="secondary" disabled={busy} onPress={onEdit} />
+                <FactoryTileAction title="Details" variant="secondary" disabled={busy} onPress={onDetails} />
+            </View>
+        </View>
+    );
+}
+
+function StarterCardMappingModal({
+    card,
+    records,
+    selectedVariantIds,
+    setSelectedVariantIds,
+    readiness,
+    setReadiness,
+    notes,
+    setNotes,
+    busy,
+    onSave,
+    onClose,
+}: {
+    card: HomeOSStarterDeckCard | null;
+    records: CatalogFactoryRecord[];
+    selectedVariantIds: string[];
+    setSelectedVariantIds: (ids: string[]) => void;
+    readiness: HomeOSStarterDeckReadiness;
+    setReadiness: (readiness: HomeOSStarterDeckReadiness) => void;
+    notes: string;
+    setNotes: (notes: string) => void;
+    busy: boolean;
+    onSave: () => void;
+    onClose: () => void;
+}) {
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const [query, setQuery] = useState('');
+    useEffect(() => setQuery(''), [card?.templateKey]);
+    const normalizedQuery = query.trim().toLowerCase();
+    const visibleRecords = records.filter((record) => !normalizedQuery || [
+        factoryProductName(record), record.category, record.manufacturer, record.brand, record.modelNumber,
+    ].join(' ').toLowerCase().includes(normalizedQuery));
+
+    function toggleVariant(id: string) {
+        setSelectedVariantIds(selectedVariantIds.includes(id)
+            ? selectedVariantIds.filter((candidate) => candidate !== id)
+            : [...selectedVariantIds, id]);
+    }
+
+    return (
+        <Modal animationType="slide" transparent visible={Boolean(card)} onRequestClose={onClose}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(8, 18, 31, 0.58)', justifyContent: 'center', padding: scaleIcon(14) }}>
+                <ThemedCard style={{ width: '100%', maxWidth: 820, maxHeight: '94%', alignSelf: 'center', padding: 0, overflow: 'hidden' }}>
+                    <View style={{ padding: scaleIcon(18), borderBottomWidth: 1, borderBottomColor: theme.colors.border, gap: scaleIcon(5) }}>
+                        <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '900', letterSpacing: 0.7 }}>HOMEOS STARTER ARCHETYPE</Text>
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(24), lineHeight: scaleFont(29), fontWeight: '900' }}>{card?.name || 'Starter card'}</Text>
+                        <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20), fontWeight: '700' }}>Choose only real products that are valid options for this exact card. Company entitlement and active offerings are enforced later for TechOS.</Text>
+                    </View>
+                    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: scaleIcon(18), gap: scaleIcon(14) }}>
+                        <View style={{ gap: scaleIcon(7) }}>
+                            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(15), fontWeight: '900' }}>Deck readiness</Text>
+                            <ChoiceWrap>
+                                {(['unbuilt', 'building', 'ready'] as const).map((value) => <Chip key={value} label={value} selected={readiness === value} onPress={() => setReadiness(value)} />)}
+                            </ChoiceWrap>
+                        </View>
+                        <Field label="Super Admin notes" value={notes} onChangeText={setNotes} multiline placeholder="What still needs to be researched or built?" />
+                        <Field label="Find a real product variant" value={query} onChangeText={setQuery} placeholder="Brand, model, category, or product name" />
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>{selectedVariantIds.length} mapped option{selectedVariantIds.length === 1 ? '' : 's'}</Text>
+                        <View style={{ gap: scaleIcon(8) }}>
+                            {visibleRecords.map((record) => {
+                                const checked = selectedVariantIds.includes(record.id);
+                                return (
+                                    <TouchableOpacity key={record.id} accessibilityRole="checkbox" accessibilityState={{ checked }} accessibilityLabel={`${checked ? 'Remove' : 'Map'} ${factoryProductName(record)}`} disabled={busy} onPress={() => toggleVariant(record.id)} style={{ minHeight: scaleIcon(64), flexDirection: 'row', alignItems: 'center', gap: scaleIcon(10), borderWidth: 2, borderColor: checked ? theme.colors.primary : theme.colors.border, borderRadius: 12, borderCurve: 'continuous', padding: scaleIcon(9), backgroundColor: checked ? theme.colors.surfaceAlt : theme.colors.surface }}>
+                                        <ProductCardImage compact imageUrl={record.primaryImageUrl} productName={factoryProductName(record)} style={{ width: scaleIcon(48), height: scaleIcon(48), minHeight: scaleIcon(48) }} />
+                                        <View style={{ flex: 1, minWidth: 0 }}>
+                                            <Text selectable numberOfLines={2} style={{ color: theme.colors.text, fontSize: scaleFont(14), fontWeight: '900' }}>{factoryProductName(record)}</Text>
+                                            <Text selectable numberOfLines={1} style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '700' }}>{[record.category, record.brand, record.modelNumber, record.status].filter(Boolean).join(' · ')}</Text>
+                                        </View>
+                                        <View style={{ width: scaleIcon(44), height: scaleIcon(44), borderRadius: 12, backgroundColor: checked ? theme.colors.primary : theme.colors.surfaceAlt, alignItems: 'center', justifyContent: 'center' }}>
+                                            <Text style={{ color: checked ? theme.colors.primaryText : theme.colors.text, fontSize: scaleFont(20), fontWeight: '900' }}>{checked ? '✓' : '+'}</Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
+                            {!visibleRecords.length && <Text selectable style={{ color: theme.colors.mutedText }}>No product variants match this search.</Text>}
+                        </View>
+                    </ScrollView>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(9), padding: scaleIcon(14), borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+                        <ThemedButton title={busy ? 'Saving...' : 'Save Starter Mapping'} disabled={busy} onPress={onSave} style={{ flex: 1, minWidth: scaleIcon(180), minHeight: scaleIcon(48) }} />
+                        <ThemedButton title="Cancel" variant="secondary" disabled={busy} onPress={onClose} style={{ flex: 1, minWidth: scaleIcon(130), minHeight: scaleIcon(48) }} />
+                    </View>
+                </ThemedCard>
+            </View>
+        </Modal>
+    );
+}
+
+function starterCardIcon(card: HomeOSStarterDeckCard) {
+    if (card.name.toLowerCase().includes('toilet')) return '🚽';
+    if (card.name.toLowerCase().includes('shower') || card.name.toLowerCase().includes('tub')) return '🚿';
+    if (card.name.toLowerCase().includes('sink') || card.name.toLowerCase().includes('faucet')) return '🚰';
+    if (card.name.toLowerCase().includes('water heater')) return '🔥';
+    if (card.name.toLowerCase().includes('dishwasher')) return '🍽️';
+    if (card.name.toLowerCase().includes('filter') || card.name.toLowerCase().includes('osmosis')) return '💧';
+    if (card.category === 'Equipment') return '⚙️';
+    return '🔧';
 }
 
 function TemplateEditor({ draft, setDraft, busy, onSave, onCancel }: { draft: typeof emptyTemplate; setDraft: (draft: typeof emptyTemplate) => void; busy: boolean; onSave: () => void; onCancel: () => void }) {

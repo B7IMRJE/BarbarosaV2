@@ -51,6 +51,7 @@ import { supabase } from '../../../../lib/supabase';
 import { useStableCallback } from '../../../../hooks/useStableCallback';
 import { useTheme } from '../../../../theme/useTheme';
 import ProductReferenceModal from '../../../../features/homeos-items/product-reference-modal';
+import CompactHomeOSCard from '../../../../features/homeos-items/compact-homeos-card';
 
 type AreaHomeItem = {
     id?: string;
@@ -1145,101 +1146,25 @@ function AreaItemCard({
     archiveTitle?: string;
     archiveDisabled?: boolean;
 }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
     const itemName = item.name || 'Unnamed Item';
     const systemLabel = item.system ? getSystemLabel(item.system) : '';
     const itemSlug = item.item_slug || '';
 
     return (
-        <ThemedCard style={[itemCardStyle, {
-            minWidth: scaleIcon(180),
-            maxWidth: scaleIcon(250),
-            minHeight: scaleIcon(166),
-            padding: scaleIcon(12),
-        }]}>
-            <TouchableOpacity
-                onPress={onOpen}
-                activeOpacity={0.82}
-                disabled={!itemSlug}
-                style={cardOpenAreaStyle}
-            >
-                <View
-                    style={[
-                        iconCircleStyle,
-                        {
-                            backgroundColor: theme.colors.iconBackground,
-                            width: scaleIcon(60),
-                            height: scaleIcon(60),
-                            marginBottom: scaleIcon(10),
-                        },
-                    ]}
-                >
-                    <Text style={[iconTextStyle, { fontSize: scaleIcon(30) }]}>{getItemIcon(item)}</Text>
-                </View>
-
-                <Text
-                    style={[
-                        itemTitleStyle,
-                        {
-                            color: theme.colors.text,
-                            fontSize: scaleFont(15),
-                            lineHeight: scaleFont(19),
-                        },
-                    ]}
-                    numberOfLines={2}
-                    ellipsizeMode="tail"
-                >
-                    {itemName}
-                </Text>
-
-                {!!systemLabel && (
-                    <Text
-                        style={[
-                            systemLabelStyle,
-                            {
-                                color: theme.colors.mutedText,
-                                marginTop: scaleIcon(6),
-                                fontSize: scaleFont(12),
-                            },
-                        ]}
-                        numberOfLines={1}
-                    >
-                        {systemLabel}
-                    </Text>
-                )}
-            </TouchableOpacity>
-
-            {onShowProductReference ? (
-                <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel={`Product details for ${itemName}`}
-                    onPress={onShowProductReference}
-                    style={productDetailsButtonStyle}
-                >
-                    <Text style={[productDetailsButtonTextStyle, { color: theme.colors.primary }]}>Product Details</Text>
-                </TouchableOpacity>
-            ) : null}
-
-            {onActivate ? (
-                <ThemedButton
-                    title="Activate Card"
-                    disabled={archiveDisabled}
-                    onPress={onActivate}
-                    style={smallArchiveButtonStyle}
-                    textStyle={smallArchiveButtonTextStyle}
-                />
-            ) : onArchive ? (
-                <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel={`${archiveTitle}: ${itemName}`}
-                    disabled={archiveDisabled}
-                    onPress={onArchive}
-                    style={itemOverflowButtonStyle}
-                >
-                    <Text style={[itemOverflowTextStyle, { color: theme.colors.text }]}>•••</Text>
-                </TouchableOpacity>
-            ) : null}
-        </ThemedCard>
+        <CompactHomeOSCard
+            title={itemName}
+            subtitle={systemLabel}
+            icon={getItemIcon(item)}
+            onOpen={onOpen}
+            openDisabled={!itemSlug}
+            actionTitle={onShowProductReference ? 'Product Details' : undefined}
+            onAction={onShowProductReference}
+            secondaryActionTitle={onActivate ? 'Activate Card' : undefined}
+            onSecondaryAction={onActivate}
+            menuTitle={archiveTitle}
+            onMenu={onActivate ? undefined : onArchive}
+            disabled={archiveDisabled}
+        />
     );
 }
 
@@ -1543,17 +1468,6 @@ const childAreaSubtitleStyle = {
     textAlign: 'center' as const,
 };
 
-const itemCardStyle = {
-    width: '47%' as const,
-    minWidth: 132,
-    maxWidth: 170,
-    minHeight: 166,
-    borderWidth: 2,
-    borderCurve: 'continuous' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-};
-
 const itemOverflowButtonStyle = {
     position: 'absolute' as const,
     top: 7,
@@ -1571,18 +1485,6 @@ const itemOverflowTextStyle = {
     fontWeight: '900' as const,
     letterSpacing: 1,
     lineHeight: 13,
-};
-
-const productDetailsButtonStyle = {
-    alignSelf: 'center' as const,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    marginTop: 5,
-};
-
-const productDetailsButtonTextStyle = {
-    fontSize: 12,
-    fontWeight: '900' as const,
 };
 
 const iconCircleStyle = {
@@ -1603,13 +1505,6 @@ const itemTitleStyle = {
     fontWeight: '900' as const,
     textAlign: 'center' as const,
     lineHeight: 19,
-};
-
-const systemLabelStyle = {
-    marginTop: 6,
-    fontSize: 12,
-    fontWeight: '800' as const,
-    textAlign: 'center' as const,
 };
 
 const loadingCardStyle = {

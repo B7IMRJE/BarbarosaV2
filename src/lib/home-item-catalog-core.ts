@@ -9,6 +9,11 @@ export type HomeItemCatalogContext = {
     parentArea?: string | null;
 };
 
+export type HomeItemCatalogFilterOptions = {
+    mappedVariantIds?: readonly string[];
+    requireMappedVariants?: boolean;
+};
+
 const AREA_TERMS = [
     'kitchen',
     'bathroom',
@@ -49,7 +54,21 @@ export function catalogProductName(item: ApprovedMasterCatalogItem) {
 export function filterCatalogItemsForHomeItem(
     items: ApprovedMasterCatalogItem[],
     context: HomeItemCatalogContext,
+    options: HomeItemCatalogFilterOptions = {},
 ) {
+    const entitledItems = items.filter((item) => (
+        item.entitled
+        && item.offering?.active
+        && item.offering.companyCatalogProductId
+    ));
+    const mappedVariantIds = new Set(options.mappedVariantIds || []);
+
+    if (options.requireMappedVariants) {
+        return entitledItems
+            .filter((item) => mappedVariantIds.has(item.id))
+            .sort((left, right) => catalogProductName(left).localeCompare(catalogProductName(right)));
+    }
+
     const contextText = normalizeText([
         context.name,
         context.category,
@@ -60,8 +79,7 @@ export function filterCatalogItemsForHomeItem(
     const contextConcepts = productConceptKeys(contextText);
     const contextAreas = matchingTerms(contextText, AREA_TERMS);
 
-    return items
-        .filter((item) => item.entitled && item.offering?.active && item.offering.companyCatalogProductId)
+    return entitledItems
         .map((item) => {
             const productText = normalizeText([
                 catalogProductName(item),

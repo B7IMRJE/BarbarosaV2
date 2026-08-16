@@ -15,6 +15,7 @@ runStarterHomeSetupRegressions();
 export function runStarterHomeSetupRegressions() {
     newlyInitializedHomeCreatesKitchenStarterCards();
     kitchenIncludesRequiredCards();
+    bathroomAndGarageIncludeCompleteStarterCards();
     starterItemsBeginActiveAndReadyForDetails();
     starterShellsHaveAnExplicitActivationBoundary();
     repeatedStarterCreationDoesNotDuplicateRows();
@@ -23,6 +24,19 @@ export function runStarterHomeSetupRegressions() {
     starterItemsAreScopedToTheRequestedProperty();
     existingHomeRecoveryCreatesOnlyMissingCards();
     kitchenHasDirectItemsAfterSetup();
+    existingBathroomGapFillPreservesCurrentCards();
+}
+
+function bathroomAndGarageIncludeCompleteStarterCards() {
+    const rows = previewWith([]).rowsToInsert;
+    [
+        'Bathroom Sink', 'Shower / Tub', 'Shower Valve', 'Toilet', 'Toilet Flapper', 'Toilet Fill Valve', 'Toilet Wax Ring',
+        'Water Heater', 'Expansion Tank', 'TPR Valve', 'Water Heater Drain Pan', 'Garage Hose Bibb', 'Washer Box / Laundry Connections',
+    ].forEach((name) => assert(rows.some((row) => row.name === name), `Default home starter plan should include ${name}.`));
+    assert(
+        rows.some((row) => row.name === 'Toilet Flapper' && row.location === 'Toilet' && row.parent_area === 'Bathroom 1'),
+        'Bathroom subcomponents should be usable HomeOS rows nested under their parent card.',
+    );
 }
 
 function starterShellsHaveAnExplicitActivationBoundary() {
@@ -66,9 +80,10 @@ function kitchenIncludesRequiredCards() {
         'Garbage Disposal',
         'Dishwasher',
         'Dishwasher Supply Line',
-        'Dishwasher Drain Line',
+        'Dishwasher Drain Hose',
         'Dishwasher Air Gap',
-        'Kitchen Drain / P-Trap',
+        'Kitchen Sink Drain',
+        'Kitchen Sink P-Trap',
         'Kitchen Hot Angle Stop',
         'Kitchen Cold Angle Stop',
         'Refrigerator Water Line',
@@ -180,6 +195,27 @@ function kitchenHasDirectItemsAfterSetup() {
     );
 
     assert(directKitchenItems.length > 0, 'Kitchen area should not be empty after starter setup.');
+    assert(
+        previewWith([]).rowsToInsert.some((row) => row.name === 'RO Sediment Filter' && row.location === 'Reverse Osmosis System' && row.parent_area === 'Kitchen'),
+        'New Kitchen component cards should retain their parent relationship while remaining normal HomeOS rows.',
+    );
+}
+
+function existingBathroomGapFillPreservesCurrentCards() {
+    const existingToilet = {
+        name: 'Toilet',
+        system: 'Plumbing',
+        category: 'Fixture',
+        location: 'Bathroom 1',
+        parent_area: '',
+        item_slug: 'bathroom-1-toilet',
+        status: 'Good',
+        install_state: 'Installed',
+    };
+    const recovery = previewWith([existingToilet]);
+
+    assert(!recovery.rowsToInsert.some((row) => row.name === 'Toilet' && row.location === 'Bathroom 1'), 'Existing Bathroom 1 Toilet must not be duplicated or overwritten.');
+    assert(recovery.rowsToInsert.some((row) => row.name === 'Toilet Flapper' && row.location === 'Toilet'), 'Bathroom 1 gap fill should add missing related cards under the existing Toilet.');
 }
 
 function previewWith(existingItems: Parameters<typeof buildStarterHomeSetupPreview>[0]['existingItems']) {

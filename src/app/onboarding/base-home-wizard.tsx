@@ -9,33 +9,24 @@ import {
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
 import {
-    buildAreaRow,
-    duplicateKey,
-    existingDuplicateKeys,
-    makeSlug,
     type ExistingAreaItem,
-    type HomeItemInsert,
     type StarterItemCategory,
 } from '../../lib/areaTemplates';
+import { getCompleteRoomStarterItems, type CompleteRoomStarterKind } from '../../lib/roomStarterTemplates';
 import { supabase } from '../../lib/supabase';
-import { ACTIVATED_ITEM_INSTALL_STATE } from '../../lib/starterHomeSetup';
+import {
+    buildStarterHomeSetupPreview,
+    type StarterHomeArea,
+    type StarterHomeItem,
+} from '../../lib/starterHomeSetup';
 import { useTheme } from '../../theme/useTheme';
 
 type BathroomCount = '1' | '2' | '3' | '4+';
 type YesNo = 'yes' | 'no';
 type YesNoNotSure = 'yes' | 'no' | 'not_sure';
 
-type StarterArea = {
-    name: string;
-    system: string;
-    starterItems: StarterCard[];
-};
-
-type StarterCard = {
-    name: string;
-    system: string;
-    category: StarterItemCategory;
-};
+type StarterArea = StarterHomeArea;
+type StarterCard = StarterHomeItem;
 
 type ExistingWizardItem = ExistingAreaItem & {
     item_slug?: string | null;
@@ -130,42 +121,13 @@ export default function BaseHomeWizardScreen() {
         }
 
         const existingItems = (existingRows || []) as ExistingWizardItem[];
-        const existingKeys = existingDuplicateKeys(existingItems);
-        const existingSlugs = new Set(
-            existingItems
-                .map((item) => normalizeSlug(item.item_slug))
-                .filter((itemSlug) => itemSlug.length > 0)
-        );
-        const rowsToInsert: HomeItemInsert[] = [];
-
-        for (const area of starterAreas) {
-            const areaRow = buildAreaRow(activeProperty.userId, activeProperty.propertyId, area.name, area.system);
-            const areaKey = duplicateKey(areaRow.system, area.name, area.name);
-            const areaSlug = normalizeSlug(areaRow.item_slug);
-
-            if (!existingKeys.has(areaKey) && !existingSlugs.has(areaSlug)) {
-                rowsToInsert.push(areaRow);
-                existingKeys.add(areaKey);
-                existingSlugs.add(areaSlug);
-            }
-
-            for (const starterItem of area.starterItems) {
-                const itemRow = buildStarterItemRow(
-                    activeProperty.userId,
-                    activeProperty.propertyId,
-                    area.name,
-                    starterItem
-                );
-                const itemKey = duplicateKey(itemRow.system, area.name, itemRow.name);
-                const itemSlug = normalizeSlug(itemRow.item_slug);
-
-                if (!existingKeys.has(itemKey) && !existingSlugs.has(itemSlug)) {
-                    rowsToInsert.push(itemRow);
-                    existingKeys.add(itemKey);
-                    existingSlugs.add(itemSlug);
-                }
-            }
-        }
+        const preview = buildStarterHomeSetupPreview({
+            userId: activeProperty.userId,
+            propertyId: activeProperty.propertyId,
+            existingItems,
+            plan: starterAreas,
+        });
+        const rowsToInsert = preview.rowsToInsert;
 
         if (rowsToInsert.length > 0) {
             const { error: insertError } = await supabase.from('home_items').insert(rowsToInsert);
@@ -485,23 +447,20 @@ function area(name: string, system: string, starterItems: StarterCard[]): Starte
     return { name, system, starterItems };
 }
 
-function starterItem(name: string, system: string, category: StarterItemCategory): StarterCard {
-    return { name, system, category };
+function starterItem(
+    name: string,
+    system: string,
+    category: StarterItemCategory,
+    aliases: string[] = [],
+    parentName?: string,
+    parentAliases: string[] = [],
+): StarterCard {
+    return { name, system, category, aliases, parentName, parentAliases };
 }
 
 function kitchenStarterCards(): StarterCard[] {
     return [
-        starterItem('Kitchen Faucet', 'Plumbing', 'Fixture'),
-        starterItem('Kitchen Sink', 'Plumbing', 'Fixture'),
-        starterItem('Garbage Disposal', 'Plumbing', 'Equipment'),
-        starterItem('Dishwasher', 'Appliances', 'Equipment'),
-        starterItem('Dishwasher Supply Line', 'Plumbing', 'Component'),
-        starterItem('Dishwasher Drain Line', 'Drains / Sewer', 'Component'),
-        starterItem('Dishwasher Air Gap', 'Plumbing', 'Component'),
-        starterItem('Kitchen Drain / P-Trap', 'Drains / Sewer', 'Fixture'),
-        starterItem('Kitchen Hot Angle Stop', 'Plumbing', 'Component'),
-        starterItem('Kitchen Cold Angle Stop', 'Plumbing', 'Component'),
-        starterItem('Refrigerator Water Line', 'Plumbing', 'Component'),
+        ...completeRoomStarterCards('kitchen'),
         starterItem('Stove / Range', 'Appliances', 'Equipment'),
         starterItem('Kitchen GFCI / Outlets', 'Electrical', 'Fixture'),
     ];
@@ -509,27 +468,7 @@ function kitchenStarterCards(): StarterCard[] {
 
 function bathroomStarterCards(): StarterCard[] {
     return [
-        starterItem('Bathroom Vanity', 'Plumbing', 'Fixture'),
-        starterItem('Bathroom Sink', 'Plumbing', 'Fixture'),
-        starterItem('Bathroom Faucet', 'Plumbing', 'Fixture'),
-        starterItem('Toilet', 'Plumbing', 'Fixture'),
-        starterItem('Tub / Shower Combination', 'Plumbing', 'Fixture'),
-        starterItem('Shower Valve', 'Plumbing', 'Component'),
-        starterItem('Shower Cartridge', 'Plumbing', 'Component'),
-        starterItem('Tub / Shower Diverter', 'Plumbing', 'Component'),
-        starterItem('Tub Spout', 'Plumbing', 'Fixture'),
-        starterItem('Shower Head', 'Plumbing', 'Fixture'),
-        starterItem('Hot Angle Stop', 'Plumbing', 'Component'),
-        starterItem('Cold Angle Stop', 'Plumbing', 'Component'),
-        starterItem('Hot Supply Line', 'Plumbing', 'Component'),
-        starterItem('Cold Supply Line', 'Plumbing', 'Component'),
-        starterItem('Toilet Shutoff Valve', 'Plumbing', 'Component'),
-        starterItem('Toilet Supply Line', 'Plumbing', 'Component'),
-        starterItem('Pop-Up Assembly', 'Drains / Sewer', 'Component'),
-        starterItem('Bathroom P-Trap', 'Drains / Sewer', 'Component'),
-        starterItem('Toilet Drain', 'Drains / Sewer', 'Fixture'),
-        starterItem('Shower / Tub Drain', 'Drains / Sewer', 'Fixture'),
-        starterItem('Tub Waste and Overflow', 'Drains / Sewer', 'Component'),
+        ...completeRoomStarterCards('bathroom'),
         starterItem('Bathroom GFCI Outlet', 'Electrical', 'Fixture'),
         starterItem('Bathroom Lights', 'Electrical', 'Fixture'),
         starterItem('Lighted Mirror', 'Electrical', 'Fixture'),
@@ -546,23 +485,26 @@ function laundryStarterCards(): StarterCard[] {
 }
 
 function garageMechanicalStarterCards(hasWaterHeater: YesNoNotSure): StarterCard[] {
-    if (hasWaterHeater === 'no') {
-        return [
-            starterItem('Main Water Shutoff', 'Plumbing', 'Equipment'),
-            starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment'),
-            starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment'),
-        ];
-    }
+    const completeGarageCards = completeRoomStarterCards('garage').filter((starterCard) => (
+        hasWaterHeater !== 'no' || (starterCard.name !== 'Water Heater' && starterCard.parentName !== 'Water Heater')
+    ));
 
     return [
-        starterItem('Water Heater', 'Plumbing', 'Equipment'),
-        starterItem('Expansion Tank', 'Plumbing', 'Equipment'),
-        starterItem('T&P Valve', 'Plumbing', 'Component'),
-        starterItem('Water Heater Drain Pan', 'Plumbing', 'Component'),
-        starterItem('Main Water Shutoff', 'Plumbing', 'Equipment'),
+        ...completeGarageCards,
         starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment'),
-        starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment'),
+        starterItem('Utility Sink', 'Plumbing', 'Fixture'),
     ];
+}
+
+function completeRoomStarterCards(kind: CompleteRoomStarterKind): StarterCard[] {
+    return getCompleteRoomStarterItems(kind).map((starterDefinition) => starterItem(
+        starterDefinition.name,
+        starterDefinition.system,
+        starterDefinition.category,
+        [...(starterDefinition.aliases || [])],
+        starterDefinition.parentName,
+        [...(starterDefinition.parentAliases || [])],
+    ));
 }
 
 function mechanicalStarterCards(hasWaterHeater: YesNoNotSure, hasHvac: YesNoNotSure): StarterCard[] {
@@ -609,29 +551,4 @@ function poolStarterCards(): StarterCard[] {
         starterItem('Pool Pump', 'Pool', 'Equipment'),
         starterItem('Pool Filter', 'Pool', 'Equipment'),
     ];
-}
-
-function buildStarterItemRow(
-    userId: string,
-    propertyId: string,
-    areaName: string,
-    starterCard: StarterCard
-): HomeItemInsert {
-    return {
-        user_id: userId,
-        property_id: propertyId,
-        item_slug: makeSlug(`${areaName}-${starterCard.name}`),
-        name: starterCard.name,
-        system: starterCard.system,
-        category: starterCard.category,
-        location: areaName,
-        parent_area: '',
-        status: 'Missing Information',
-        install_state: ACTIVATED_ITEM_INSTALL_STATE,
-        archived: false,
-    };
-}
-
-function normalizeSlug(value?: string | null) {
-    return String(value || '').trim().toLowerCase();
 }

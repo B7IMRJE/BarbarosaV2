@@ -1,4 +1,9 @@
 import { getSystemDefinition } from './homeSystems';
+import {
+    getCompleteRoomStarterItems,
+    getCompleteRoomStarterKind,
+    type CompleteRoomStarterKind,
+} from './roomStarterTemplates';
 
 export type StarterItemCategory = 'Area' | 'Fixture' | 'Equipment' | 'Component';
 export type StarterItemStatus = 'Missing Information' | 'Not Inspected';
@@ -9,6 +14,9 @@ export type AreaStarterItem = {
     category: StarterItemCategory;
     status: StarterItemStatus;
     install_state: 'Unknown' | 'Installed';
+    aliases?: string[];
+    parentName?: string;
+    parentAliases?: string[];
 };
 
 export type AreaTemplate = {
@@ -49,7 +57,10 @@ function item(
     name: string,
     system: string,
     category: StarterItemCategory,
-    status: StarterItemStatus = missingInfo
+    status: StarterItemStatus = missingInfo,
+    aliases: string[] = [],
+    parentName?: string,
+    parentAliases: string[] = [],
 ): AreaStarterItem {
     return {
         name,
@@ -57,36 +68,17 @@ function item(
         category,
         status,
         install_state: installed,
+        aliases,
+        parentName,
+        parentAliases,
     };
 }
 
 function bathroomStarterItems(): Record<string, AreaStarterItem[]> {
+    const completeItems = completeRoomStarterGroups('bathroom');
+
     return {
-        Plumbing: [
-            item('Bathroom Vanity', 'Plumbing', 'Fixture'),
-            item('Bathroom Sink', 'Plumbing', 'Fixture'),
-            item('Bathroom Faucet', 'Plumbing', 'Fixture'),
-            item('Toilet', 'Plumbing', 'Fixture'),
-            item('Tub / Shower Combination', 'Plumbing', 'Fixture'),
-            item('Shower Valve', 'Plumbing', 'Component'),
-            item('Shower Cartridge', 'Plumbing', 'Component'),
-            item('Tub / Shower Diverter', 'Plumbing', 'Component'),
-            item('Tub Spout', 'Plumbing', 'Fixture'),
-            item('Shower Head', 'Plumbing', 'Fixture'),
-            item('Hot Angle Stop', 'Plumbing', 'Component'),
-            item('Cold Angle Stop', 'Plumbing', 'Component'),
-            item('Hot Supply Line', 'Plumbing', 'Component'),
-            item('Cold Supply Line', 'Plumbing', 'Component'),
-            item('Toilet Shutoff Valve', 'Plumbing', 'Component'),
-            item('Toilet Supply Line', 'Plumbing', 'Component'),
-        ],
-        'Drains / Sewer': [
-            item('Pop-Up Assembly', 'Drains / Sewer', 'Component'),
-            item('Bathroom P-Trap', 'Drains / Sewer', 'Component'),
-            item('Toilet Drain', 'Drains / Sewer', 'Fixture'),
-            item('Shower / Tub Drain', 'Drains / Sewer', 'Fixture'),
-            item('Tub Waste and Overflow', 'Drains / Sewer', 'Component'),
-        ],
+        ...completeItems,
         Electrical: [
             item('Bathroom GFCI Outlet', 'Electrical', 'Fixture'),
             item('Bathroom Fan', 'Electrical', 'Equipment', notInspected),
@@ -97,56 +89,67 @@ function bathroomStarterItems(): Record<string, AreaStarterItem[]> {
     };
 }
 
+function kitchenStarterItems(): Record<string, AreaStarterItem[]> {
+    const completeItems = completeRoomStarterGroups('kitchen');
+
+    return {
+        ...completeItems,
+        Appliances: [
+            ...(completeItems.Appliances || []),
+            item('Stove / Range', 'Appliances', 'Equipment'),
+            item('Refrigerator', 'Appliances', 'Equipment'),
+        ],
+        Electrical: [
+            item('Counter GFCI - Left of Sink', 'Electrical', 'Fixture', notInspected),
+            item('Counter GFCI - Right of Sink', 'Electrical', 'Fixture', notInspected),
+            item('Countertop Outlet Circuit 1', 'Electrical', 'Fixture', notInspected),
+            item('Countertop Outlet Circuit 2', 'Electrical', 'Fixture', notInspected),
+            item('Island / Peninsula Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Refrigerator Dedicated Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Dishwasher Dedicated Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Microwave Dedicated Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Garbage Disposal Dedicated Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Garbage Disposal Switch', 'Electrical', 'Component', notInspected),
+            item('Range / Oven Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Range Hood Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Under-Cabinet LED Lighting', 'Electrical', 'Fixture', notInspected),
+            item('Ceiling LED Lighting', 'Electrical', 'Fixture', notInspected),
+            item('Kitchen Exhaust Fan', 'Electrical', 'Equipment', notInspected),
+            item('USB Outlet', 'Electrical', 'Fixture', notInspected),
+            item('USB-C Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Ethernet / Data Outlet', 'Electrical', 'Fixture', notInspected),
+            item('Kitchen Subpanel if Present', 'Electrical', 'Equipment', notInspected),
+        ],
+    };
+}
+
+function completeRoomStarterGroups(kind: CompleteRoomStarterKind) {
+    return getCompleteRoomStarterItems(kind).reduce<Record<string, AreaStarterItem[]>>((groups, starterDefinition) => {
+        const starter = item(
+            starterDefinition.name,
+            starterDefinition.system,
+            starterDefinition.category,
+            missingInfo,
+            [...(starterDefinition.aliases || [])],
+            starterDefinition.parentName,
+            [...(starterDefinition.parentAliases || [])],
+        );
+
+        groups[starter.system] = [...(groups[starter.system] || []), starter];
+        return groups;
+    }, {});
+}
+
+function completeRoomStarterGroup(kind: CompleteRoomStarterKind, system: string) {
+    return completeRoomStarterGroups(kind)[system] || [];
+}
+
 export const areaTemplates: AreaTemplate[] = [
     {
         id: 'kitchen',
         name: 'Kitchen',
         icon: '🍳',
-        starterItems: {
-            Plumbing: [
-                item('Kitchen Faucet', 'Plumbing', 'Fixture'),
-                item('Kitchen Sink', 'Plumbing', 'Fixture'),
-                item('Garbage Disposal', 'Plumbing', 'Equipment'),
-                item('Dishwasher Supply Line', 'Plumbing', 'Component'),
-                item('Dishwasher Air Gap', 'Plumbing', 'Component'),
-                item('Kitchen Hot Angle Stop', 'Plumbing', 'Component'),
-                item('Kitchen Cold Angle Stop', 'Plumbing', 'Component'),
-                item('Refrigerator Water Line', 'Plumbing', 'Component'),
-            ],
-            'Water Quality': [
-                item('Reverse Osmosis', 'Water Quality', 'Equipment'),
-            ],
-            'Drains / Sewer': [
-                item('Dishwasher Drain Line', 'Drains / Sewer', 'Component'),
-                item('Kitchen Drain / P-Trap', 'Drains / Sewer', 'Fixture'),
-            ],
-            Appliances: [
-                item('Stove / Range', 'Appliances', 'Equipment'),
-                item('Dishwasher', 'Appliances', 'Equipment'),
-                item('Refrigerator', 'Appliances', 'Equipment'),
-            ],
-            Electrical: [
-                item('Counter GFCI - Left of Sink', 'Electrical', 'Fixture', notInspected),
-                item('Counter GFCI - Right of Sink', 'Electrical', 'Fixture', notInspected),
-                item('Countertop Outlet Circuit 1', 'Electrical', 'Fixture', notInspected),
-                item('Countertop Outlet Circuit 2', 'Electrical', 'Fixture', notInspected),
-                item('Island / Peninsula Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Refrigerator Dedicated Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Dishwasher Dedicated Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Microwave Dedicated Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Garbage Disposal Dedicated Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Garbage Disposal Switch', 'Electrical', 'Component', notInspected),
-                item('Range / Oven Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Range Hood Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Under-Cabinet LED Lighting', 'Electrical', 'Fixture', notInspected),
-                item('Ceiling LED Lighting', 'Electrical', 'Fixture', notInspected),
-                item('Kitchen Exhaust Fan', 'Electrical', 'Equipment', notInspected),
-                item('USB Outlet', 'Electrical', 'Fixture', notInspected),
-                item('USB-C Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Ethernet / Data Outlet', 'Electrical', 'Fixture', notInspected),
-                item('Kitchen Subpanel if Present', 'Electrical', 'Equipment', notInspected),
-            ],
-        },
+        starterItems: kitchenStarterItems(),
     },
     {
         id: 'laundry',
@@ -190,13 +193,17 @@ export const areaTemplates: AreaTemplate[] = [
         icon: '🚗',
         starterItems: {
             Plumbing: [
+                ...completeRoomStarterGroup('garage', 'Plumbing').filter((starterItem) => starterItem.name !== 'Garage Hose Bibb'),
                 item('Utility Sink', 'Plumbing', 'Fixture'),
                 item('Hose Bib', 'Plumbing', 'Fixture'),
             ],
             Gas: [
+                ...completeRoomStarterGroup('garage', 'Gas'),
                 item('Gas Shutoff', 'Gas', 'Component', notInspected),
                 item('Furnace Gas Connection', 'Gas', 'Component', notInspected),
             ],
+            'Drains / Sewer': completeRoomStarterGroup('garage', 'Drains / Sewer'),
+            'Water Quality': completeRoomStarterGroup('garage', 'Water Quality'),
             Electrical: [
                 item('Garage GFCI Outlet', 'Electrical', 'Fixture', notInspected),
                 item('Garage Door Opener Outlet', 'Electrical', 'Fixture', notInspected),
@@ -473,7 +480,15 @@ export function getAreaTemplateByName(name?: string | null) {
 
     if (!normalizedName) return null;
 
-    return areaTemplates.find((template) => normalize(template.name) === normalizedName) || null;
+    const exactTemplate = areaTemplates.find((template) => normalize(template.name) === normalizedName);
+
+    if (exactTemplate) return exactTemplate;
+
+    const completeRoomKind = getCompleteRoomStarterKind(name);
+
+    return completeRoomKind
+        ? areaTemplates.find((template) => template.id === completeRoomKind) || null
+        : null;
 }
 
 export function getStarterItemsForAreaSystem(areaName: string, systemName: string) {
@@ -508,7 +523,7 @@ export function makeAreaSlug(areaName: string, system: string, parentArea = '') 
 }
 
 export function makeStarterItemSlug(areaName: string, item: AreaStarterItem, parentArea = '') {
-    return makeSlug([parentArea, areaName, item.system, item.name].filter(Boolean).join('-'));
+    return makeSlug([parentArea, areaName, item.parentName, item.system, item.name].filter(Boolean).join('-'));
 }
 
 export function duplicateKey(system: string, areaName: string, itemName: string, parentArea = '') {
@@ -564,8 +579,8 @@ export function buildStarterRows(
         name: starterItem.name,
         system: starterItem.system,
         category: starterItem.category,
-        location: areaName,
-        parent_area: parentArea,
+        location: starterItem.parentName || areaName,
+        parent_area: starterItem.parentName ? areaName : parentArea,
         status: starterItem.status,
         install_state: starterItem.install_state,
         archived: false,

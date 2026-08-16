@@ -6,7 +6,12 @@ import {
     type StarterItemCategory,
 } from './areaTemplates';
 import { getSystemDefinition } from './homeSystems';
-import { supabase } from './supabase';
+import {
+    getCompleteRoomStarterItems,
+    getCompleteRoomStarterKind,
+    roomStarterItemNames,
+    type CompleteRoomStarterItem,
+} from './roomStarterTemplates';
 
 export type StarterHomeArea = {
     name: string;
@@ -20,6 +25,8 @@ export type StarterHomeItem = {
     system: string;
     category: StarterItemCategory;
     aliases?: string[];
+    parentName?: string;
+    parentAliases?: string[];
 };
 
 export type ExistingStarterHomeItem = ExistingAreaItem & {
@@ -46,24 +53,17 @@ export const STARTER_ITEM_INSTALL_STATE = 'Unknown' as const;
 export const ACTIVATED_ITEM_STATUS = 'Not Inspected' as const;
 export const ACTIVATED_ITEM_INSTALL_STATE = 'Installed' as const;
 
-const KITCHEN_ESSENTIAL_NAME_GROUPS = [
-    ['Kitchen Faucet', 'Faucet'],
-    ['Kitchen Sink', 'Sink'],
-    ['Garbage Disposal'],
-    ['Dishwasher Supply Line', 'Dishwasher Connection', 'Supply Lines'],
-    ['Dishwasher Air Gap', 'Air Gap'],
-    ['Refrigerator Water Line', 'Ice Maker Line', 'Refrigerator Line'],
-] as const;
-
 export function areEquivalentStarterItemNames(areaName: string, firstName: string, secondName: string) {
     const normalizedFirstName = normalizeIdentity(firstName);
     const normalizedSecondName = normalizeIdentity(secondName);
 
     if (normalizedFirstName === normalizedSecondName) return true;
-    if (normalizeIdentity(areaName) !== 'kitchen') return false;
+    const roomKind = getCompleteRoomStarterKind(areaName);
 
-    return KITCHEN_ESSENTIAL_NAME_GROUPS.some((names) => {
-        const normalizedNames = names.map(normalizeIdentity);
+    if (!roomKind) return false;
+
+    return getCompleteRoomStarterItems(roomKind).some((starterDefinition) => {
+        const normalizedNames = roomStarterItemNames(starterDefinition).map(normalizeIdentity);
         return normalizedNames.includes(normalizedFirstName) && normalizedNames.includes(normalizedSecondName);
     });
 }
@@ -188,7 +188,12 @@ export function buildStarterHomeSetupPreview({
         addAll(plannedSlugs, areaSlugs);
 
         area.starterItems.forEach((starterItem) => {
-            const itemRow = buildStarterItemRow(userId, propertyId, area, starterItem);
+            const resolvedParentName = resolvePlannedStarterParentName(
+                [...existingItems, ...rowsToInsert],
+                area,
+                starterItem,
+            );
+            const itemRow = buildStarterItemRow(userId, propertyId, area, starterItem, resolvedParentName);
             const itemIdentityKeys = identityKeysForPlannedItem(area, starterItem);
             const itemSlugs = slugKeysForPlannedItem(area, starterItem);
             const plannedItemIdentityKeys = identityKeysForPlannedPrimaryItem(area, starterItem);
@@ -224,6 +229,7 @@ export async function createMissingStarterHomeItems(
     scope: StarterHomeSetupScope,
     plan: StarterHomeArea[]
 ): Promise<StarterHomeSetupPlanResult> {
+    const { supabase } = await import('./supabase');
     const { data, error } = await supabase
         .from('home_items')
         .select('name, system, category, location, parent_area, item_slug, archived')
@@ -282,24 +288,16 @@ function starterItem(
     name: string,
     system: string,
     category: StarterItemCategory,
-    aliases: string[] = []
+    aliases: string[] = [],
+    parentName?: string,
+    parentAliases: string[] = [],
 ): StarterHomeItem {
-    return { name, system, category, aliases };
+    return { name, system, category, aliases, parentName, parentAliases };
 }
 
 function kitchenStarterItems(): StarterHomeItem[] {
     return [
-        starterItem('Kitchen Faucet', 'Plumbing', 'Fixture'),
-        starterItem('Kitchen Sink', 'Plumbing', 'Fixture', ['Sink']),
-        starterItem('Garbage Disposal', 'Plumbing', 'Equipment'),
-        starterItem('Dishwasher', 'Appliances', 'Equipment'),
-        starterItem('Dishwasher Supply Line', 'Plumbing', 'Component', ['Dishwasher Connection']),
-        starterItem('Dishwasher Drain Line', 'Drains / Sewer', 'Component', ['Dishwasher Drain Hose', 'Dishwasher Drain']),
-        starterItem('Dishwasher Air Gap', 'Plumbing', 'Component', ['Air Gap']),
-        starterItem('Kitchen Drain / P-Trap', 'Drains / Sewer', 'Fixture', ['Sink Drain', 'P-Trap', 'Kitchen Drain']),
-        starterItem('Kitchen Hot Angle Stop', 'Plumbing', 'Component', ['Hot Angle Stop', 'Kitchen Angle Stops', 'Angle Stops']),
-        starterItem('Kitchen Cold Angle Stop', 'Plumbing', 'Component', ['Cold Angle Stop', 'Kitchen Angle Stops', 'Angle Stops']),
-        starterItem('Refrigerator Water Line', 'Plumbing', 'Component', ['Ice Maker Line']),
+        ...completeRoomStarterItems('kitchen'),
         starterItem('Stove / Range', 'Appliances', 'Equipment', ['Stove', 'Range']),
         starterItem('Kitchen GFCI / Outlets', 'Electrical', 'Fixture', ['GFCI Outlet', 'Kitchen GFCI Outlet']),
     ];
@@ -307,27 +305,7 @@ function kitchenStarterItems(): StarterHomeItem[] {
 
 function bathroomStarterItems(): StarterHomeItem[] {
     return [
-        starterItem('Bathroom Vanity', 'Plumbing', 'Fixture'),
-        starterItem('Bathroom Sink', 'Plumbing', 'Fixture', ['Vanity Sink']),
-        starterItem('Bathroom Faucet', 'Plumbing', 'Fixture', ['Bathroom Sink / Faucet']),
-        starterItem('Toilet', 'Plumbing', 'Fixture'),
-        starterItem('Tub / Shower Combination', 'Plumbing', 'Fixture', ['Shower / Tub', 'Shower / Tub Valve', 'Shower', 'Tub']),
-        starterItem('Shower Valve', 'Plumbing', 'Component'),
-        starterItem('Shower Cartridge', 'Plumbing', 'Component'),
-        starterItem('Tub / Shower Diverter', 'Plumbing', 'Component', ['Shower Diverter', 'Tub Diverter']),
-        starterItem('Tub Spout', 'Plumbing', 'Fixture'),
-        starterItem('Shower Head', 'Plumbing', 'Fixture'),
-        starterItem('Hot Angle Stop', 'Plumbing', 'Component', ['Bathroom Hot Angle Stop']),
-        starterItem('Cold Angle Stop', 'Plumbing', 'Component', ['Bathroom Cold Angle Stop']),
-        starterItem('Hot Supply Line', 'Plumbing', 'Component', ['Bathroom Hot Supply Line']),
-        starterItem('Cold Supply Line', 'Plumbing', 'Component', ['Bathroom Cold Supply Line']),
-        starterItem('Toilet Shutoff Valve', 'Plumbing', 'Component'),
-        starterItem('Toilet Supply Line', 'Plumbing', 'Component'),
-        starterItem('Pop-Up Assembly', 'Drains / Sewer', 'Component', ['Bathroom Pop-Up Assembly']),
-        starterItem('Bathroom P-Trap', 'Drains / Sewer', 'Component', ['Bathroom Drain', 'Lavatory Drain']),
-        starterItem('Toilet Drain', 'Drains / Sewer', 'Fixture'),
-        starterItem('Shower / Tub Drain', 'Drains / Sewer', 'Fixture'),
-        starterItem('Tub Waste and Overflow', 'Drains / Sewer', 'Component'),
+        ...completeRoomStarterItems('bathroom'),
         starterItem('Bathroom GFCI Outlet', 'Electrical', 'Fixture', ['Bathroom GFCI / Outlets', 'GFCI Outlet']),
         starterItem('Bathroom Lights', 'Electrical', 'Fixture', ['Vanity Lights']),
         starterItem('Lighted Mirror', 'Electrical', 'Fixture'),
@@ -344,20 +322,13 @@ function laundryStarterItems(): StarterHomeItem[] {
 }
 
 function garageStarterItems(includeWaterHeater: boolean): StarterHomeItem[] {
-    const items = [
-        starterItem('Main Water Shutoff', 'Plumbing', 'Equipment'),
-        starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment', ['Pressure Regulator Valve']),
-        starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment', ['Whole House Filter']),
-    ];
-
-    if (!includeWaterHeater) return items;
-
     return [
-        starterItem('Water Heater', 'Plumbing', 'Equipment'),
-        starterItem('Expansion Tank', 'Plumbing', 'Equipment'),
-        starterItem('T&P Valve', 'Plumbing', 'Component', ['T&P Discharge Line']),
-        starterItem('Water Heater Drain Pan', 'Plumbing', 'Component'),
-        ...items,
+        ...completeRoomStarterItems('garage').filter((starterItem) => (
+            includeWaterHeater
+            || (starterItem.name !== 'Water Heater' && starterItem.parentName !== 'Water Heater')
+        )),
+        starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment', ['Pressure Regulator Valve']),
+        starterItem('Utility Sink', 'Plumbing', 'Fixture'),
     ];
 }
 
@@ -418,17 +389,20 @@ function buildStarterItemRow(
     userId: string,
     propertyId: string,
     area: StarterHomeArea,
-    starterCard: StarterHomeItem
+    starterCard: StarterHomeItem,
+    resolvedParentName = '',
 ): HomeItemInsert {
+    const parentItemName = resolvedParentName || starterCard.parentName || '';
+
     return {
         user_id: userId,
         property_id: propertyId,
-        item_slug: makeSlug([area.parentArea, area.name, starterCard.system, starterCard.name].filter(Boolean).join('-')),
+        item_slug: makeSlug([area.parentArea, area.name, parentItemName, starterCard.system, starterCard.name].filter(Boolean).join('-')),
         name: starterCard.name,
         system: starterCard.system,
         category: starterCard.category,
-        location: area.name,
-        parent_area: area.parentArea || '',
+        location: parentItemName || area.name,
+        parent_area: parentItemName ? area.name : area.parentArea || '',
         status: STARTER_ITEM_STATUS,
         install_state: ACTIVATED_ITEM_INSTALL_STATE,
         archived: false,
@@ -457,13 +431,24 @@ function identityKeysForPlannedArea(area: StarterHomeArea) {
 }
 
 function identityKeysForPlannedItem(area: StarterHomeArea, item: StarterHomeItem) {
-    return [item.name, ...(item.aliases || [])].flatMap((name) =>
-        identityKeysForItem(item.system, area.name, name, area.parentArea || '')
-    );
+    const names = [item.name, ...(item.aliases || [])];
+
+    if (!item.parentName) {
+        return names.flatMap((name) => identityKeysForItem(item.system, area.name, name, area.parentArea || ''));
+    }
+
+    const parentNames = [item.parentName, ...(item.parentAliases || [])];
+
+    return names.flatMap((name) => [
+        ...parentNames.flatMap((parentName) => identityKeysForItem(item.system, parentName, name, area.name)),
+        ...identityKeysForItem(item.system, area.name, name, area.parentArea || ''),
+    ]);
 }
 
 function identityKeysForPlannedPrimaryItem(area: StarterHomeArea, item: StarterHomeItem) {
-    return identityKeysForItem(item.system, area.name, item.name, area.parentArea || '');
+    return item.parentName
+        ? identityKeysForItem(item.system, item.parentName, item.name, area.name)
+        : identityKeysForItem(item.system, area.name, item.name, area.parentArea || '');
 }
 
 function identityKeysForArea(system: string, areaName: string, parentArea = '') {
@@ -486,19 +471,55 @@ function slugKeysForPlannedArea(area: StarterHomeArea) {
 }
 
 function slugKeysForPlannedItem(area: StarterHomeArea, item: StarterHomeItem) {
-    return new Set(
-        [item.name, ...(item.aliases || [])].flatMap((name) => [
+    const names = [item.name, ...(item.aliases || [])];
+    const parentNames = item.parentName ? [item.parentName, ...(item.parentAliases || [])] : [''];
+
+    return new Set(names.flatMap((name) => [
+        ...parentNames.flatMap((parentName) => [
+            makeSlug([area.parentArea, area.name, parentName, item.system, name].filter(Boolean).join('-')),
+            makeSlug([area.parentArea, area.name, parentName, name].filter(Boolean).join('-')),
+        ]),
+        ...(item.parentName ? [
             makeSlug([area.parentArea, area.name, item.system, name].filter(Boolean).join('-')),
             makeSlug([area.parentArea, area.name, name].filter(Boolean).join('-')),
-        ]).map(normalizeSlug)
-    );
+        ] : []),
+    ]).map(normalizeSlug));
 }
 
 function slugKeysForPlannedPrimaryItem(area: StarterHomeArea, item: StarterHomeItem) {
     return new Set([
-        makeSlug([area.parentArea, area.name, item.system, item.name].filter(Boolean).join('-')),
-        makeSlug([area.parentArea, area.name, item.name].filter(Boolean).join('-')),
+        makeSlug([area.parentArea, area.name, item.parentName, item.system, item.name].filter(Boolean).join('-')),
+        makeSlug([area.parentArea, area.name, item.parentName, item.name].filter(Boolean).join('-')),
     ].map(normalizeSlug));
+}
+
+function completeRoomStarterItems(kind: 'bathroom' | 'kitchen' | 'garage'): StarterHomeItem[] {
+    return getCompleteRoomStarterItems(kind).map((starterDefinition: CompleteRoomStarterItem) => starterItem(
+        starterDefinition.name,
+        starterDefinition.system,
+        starterDefinition.category,
+        [...(starterDefinition.aliases || [])],
+        starterDefinition.parentName,
+        [...(starterDefinition.parentAliases || [])],
+    ));
+}
+
+function resolvePlannedStarterParentName(
+    existingItems: ExistingStarterHomeItem[],
+    area: StarterHomeArea,
+    starterItemDefinition: StarterHomeItem,
+) {
+    if (!starterItemDefinition.parentName) return '';
+
+    const parentNames = [starterItemDefinition.parentName, ...(starterItemDefinition.parentAliases || [])];
+    const parent = existingItems.find((candidate) => (
+        !sameIdentity(candidate.category, 'Area') &&
+        parentNames.some((parentName) => sameIdentity(candidate.name, parentName)) &&
+        sameIdentity(candidate.location, area.name) &&
+        sameIdentity(candidate.parent_area, area.parentArea || '')
+    ));
+
+    return String(parent?.name || starterItemDefinition.parentName).trim();
 }
 
 function canonicalSystem(system: string) {
