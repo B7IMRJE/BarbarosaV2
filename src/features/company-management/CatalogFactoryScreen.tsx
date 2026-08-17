@@ -905,7 +905,7 @@ function StarterCardDeck({
                             <Text selectable style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20), fontWeight: '700' }}>Completed starter archetypes remain intact and searchable. Mark one in progress to return it to the active work queue.</Text>
                         </View>
                     )}
-                    <ThemedCard style={{ padding: scaleIcon(phone ? 12 : 16), gap: scaleIcon(12), borderWidth: 1, borderCurve: 'continuous' }}>
+                    <View style={{ gap: scaleIcon(phone ? 14 : 16) }}>
                         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: scaleIcon(8) }}>
                             <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(21), fontWeight: '900' }}>{catalogFactoryDeckGroupLabel(roomKind)} starter deck{group.completed ? ' · Completed' : ''}</Text>
                             <FactoryTileBadge label={group.completed ? `${roomReadyCount} complete` : `${roomCards.length} unfinished`} tone={group.completed ? 'green' : 'amber'} />
@@ -916,7 +916,7 @@ function StarterCardDeck({
                             </Text>
                         )}
 
-                        <View style={{ gap: scaleIcon(12) }}>
+                        <View style={{ gap: scaleIcon(phone ? 14 : 16) }}>
                             {roomCards.map((card) => {
                                 const mappedRecords = card.mappedVariantIds
                                     .map((id) => records.find((record) => record.id === id))
@@ -926,7 +926,17 @@ function StarterCardDeck({
                                     : '';
 
                                 return (
-                                    <View key={card.templateKey} style={{ flexDirection: phone ? 'column' : 'row', alignItems: phone ? 'stretch' : 'flex-start', gap: scaleIcon(12), borderTopWidth: 1, borderTopColor: theme.colors.border, paddingTop: scaleIcon(12) }}>
+                                    <ThemedCard
+                                        key={card.templateKey}
+                                        style={{
+                                            flexDirection: phone ? 'column' : 'row',
+                                            alignItems: phone ? 'stretch' : 'flex-start',
+                                            gap: scaleIcon(phone ? 14 : 16),
+                                            padding: scaleIcon(phone ? 12 : 16),
+                                            borderWidth: 1,
+                                            borderCurve: 'continuous',
+                                        }}
+                                    >
                                         <CompactHomeOSCard
                                             title={card.name}
                                             subtitle={[card.shortCode, parentName ? `Part of ${parentName}` : card.system].filter(Boolean).join(' · ')}
@@ -975,12 +985,12 @@ function StarterCardDeck({
                                                 onPress={() => onSetReadiness(card, card.readinessStatus === 'ready' ? 'building' : 'ready')}
                                             />
                                         </View>
-                                    </View>
+                                    </ThemedCard>
                                 );
                             })}
                             {!roomCards.length && <Text selectable style={{ color: theme.colors.mutedText }}>Starter deck is not installed yet.</Text>}
                         </View>
-                    </ThemedCard>
+                    </View>
                     </View>
                 );
             })}
