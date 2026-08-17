@@ -10,6 +10,11 @@ import {
 
 export type HomeAreaCreationStage = 'access' | 'existing_items' | 'create';
 
+export type HomeAreaCreationWriteSummary = {
+    created: number;
+    skipped: number;
+};
+
 export type ActivePropertyMemberForHomeArea = {
     user_id?: string | null;
     role?: string | null;
@@ -57,7 +62,43 @@ export function getHomeAreaCreationErrorMessage(error: unknown) {
 
     const message = String((error as { message?: unknown } | null)?.message || '').trim();
 
+    if (isHomeAreaDuplicateWriteError(error)) {
+        return 'Those HomeOS records already exist in this area. Try again to reuse the area and fill only anything still missing.';
+    }
+
     return message || 'The HomeOS area could not be created. Check your connection and try again.';
+}
+
+export function orderHomeAreaCreationRows(rows: HomeItemInsert[]) {
+    return [...rows].sort((left, right) => {
+        const leftIsArea = left.category === 'Area' ? 1 : 0;
+        const rightIsArea = right.category === 'Area' ? 1 : 0;
+
+        return leftIsArea - rightIsArea;
+    });
+}
+
+export function isHomeAreaDuplicateWriteError(error: unknown) {
+    const candidate = error as { code?: unknown; message?: unknown } | null;
+    const code = String(candidate?.code || '').trim();
+    const message = String(candidate?.message || '').toLowerCase();
+
+    return code === '23505'
+        || message.includes('home_items_property_placement_identity_key')
+        || message.includes('home_items_property_placement_slug_key')
+        || message.includes('home_items_property_id_item_slug_key');
+}
+
+export function formatHomeAreaCreationSummary(summary: HomeAreaCreationWriteSummary) {
+    const createdLabel = `${summary.created} new item${summary.created === 1 ? '' : 's'}`;
+
+    if (summary.skipped === 0) return `Created ${createdLabel}.`;
+
+    const skippedLabel = `${summary.skipped} existing item${summary.skipped === 1 ? '' : 's'} safely skipped`;
+
+    return summary.created > 0
+        ? `Created ${createdLabel}; ${skippedLabel}.`
+        : `No duplicates were created; ${skippedLabel}.`;
 }
 
 export function pickHomeAreaRecordOwnerUserId(rows: ActivePropertyMemberForHomeArea[]) {

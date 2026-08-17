@@ -1,5 +1,6 @@
 import { getSystemDefinition } from './homeSystems';
 import {
+    completeRoomStarterTemplateKey,
     getCompleteRoomStarterItems,
     getCompleteRoomStarterKind,
     type CompleteRoomStarterKind,
@@ -17,6 +18,7 @@ export type AreaStarterItem = {
     aliases?: string[];
     parentName?: string;
     parentAliases?: string[];
+    templateKey?: string;
 };
 
 export type AreaTemplate = {
@@ -46,6 +48,7 @@ export type HomeItemInsert = {
     status: StarterItemStatus;
     install_state: 'Unknown' | 'Installed';
     archived: boolean;
+    starter_template_key?: string | null;
 };
 
 const missingInfo = 'Missing Information' as const;
@@ -134,6 +137,7 @@ function completeRoomStarterGroups(kind: CompleteRoomStarterKind) {
             starterDefinition.parentName,
             [...(starterDefinition.parentAliases || [])],
         );
+        starter.templateKey = completeRoomStarterTemplateKey(kind, starterDefinition.name);
 
         groups[starter.system] = [...(groups[starter.system] || []), starter];
         return groups;
@@ -590,6 +594,7 @@ export function buildStarterRows(
         status: starterItem.status,
         install_state: starterItem.install_state,
         archived: false,
+        starter_template_key: starterItem.templateKey || null,
     }));
 }
 

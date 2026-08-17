@@ -1,7 +1,10 @@
 import { areaTemplates, buildAreaRow, buildStarterRows } from './areaTemplates';
 import {
     HomeAreaCreationTimeoutError,
+    formatHomeAreaCreationSummary,
     getHomeAreaCreationErrorMessage,
+    isHomeAreaDuplicateWriteError,
+    orderHomeAreaCreationRows,
     pickHomeAreaRecordOwnerUserId,
     planHomeAreaCreation,
     withHomeAreaCreationTimeout,
@@ -14,9 +17,69 @@ runHomeAreaCreationRegressions().catch((error) => {
 export async function runHomeAreaCreationRegressions() {
     wholeHomeIsAnExplicitLocationNeutralChoice();
     retryReusesTheExistingAreaAndFillsOnlyMissingStarterItems();
+    separateBathroomsCanUseTheSameCanonicalStarterCards();
     nestedStarterRowsAreNotDuplicatedOnRetry();
+    starterRowsAreWrittenBeforeTheAreaTriggerRuns();
+    concurrentDuplicateWritesBecomeSafeSkips();
+    existingRowsAreNeverMutatedByThePlanner();
     platformAdminDirectWriteKeepsTheHomeownerAsRecordOwner();
     await accessConfirmationTimeoutHasRecoveryCopy();
+}
+
+function separateBathroomsCanUseTheSameCanonicalStarterCards() {
+    const template = requiredTemplate('bathroom');
+    const bathroomOne = buildStarterRows('user-1', 'property-1', 'Bathroom 1', template);
+    const bathroomTwo = buildStarterRows('user-1', 'property-1', 'Bathroom 2', template);
+    const repeatedNames = ['Toilet', 'Bathroom Sink'];
+
+    for (const name of repeatedNames) {
+        const first = bathroomOne.find((row) => row.name === name);
+        const second = bathroomTwo.find((row) => row.name === name);
+
+        assert(first && second, `Both bathroom fixtures should include ${name}.`);
+        assert(first.location !== second.location, `${name} must keep its selected bathroom placement.`);
+        assert(first.item_slug !== second.item_slug, `${name} route slugs should remain placement-qualified.`);
+        assert(first.starter_template_key === second.starter_template_key, `${name} must retain the same reusable Catalog Deck archetype across rooms.`);
+    }
+}
+
+function starterRowsAreWrittenBeforeTheAreaTriggerRuns() {
+    const template = requiredTemplate('bathroom');
+    const area = buildAreaRow('user-1', 'property-1', 'Bathroom 2', 'Plumbing');
+    const starters = buildStarterRows('user-1', 'property-1', 'Bathroom 2', template);
+    const ordered = orderHomeAreaCreationRows([area, ...starters]);
+
+    assert(ordered.at(-1)?.category === 'Area', 'The area row must be written last so its starter trigger sees the already-created cards.');
+    assert(ordered.slice(0, -1).every((row) => row.category !== 'Area'), 'Every starter card should be written before the triggering area row.');
+}
+
+function concurrentDuplicateWritesBecomeSafeSkips() {
+    assert(isHomeAreaDuplicateWriteError({ code: '23505' }), 'Concurrent unique conflicts should be recognized as idempotent skips.');
+    assert(
+        formatHomeAreaCreationSummary({ created: 2, skipped: 2 }) === 'Created 2 new items; 2 existing items safely skipped.',
+        'The UI should report both created and skipped records without exposing a database error.'
+    );
+}
+
+function existingRowsAreNeverMutatedByThePlanner() {
+    const template = requiredTemplate('bathroom');
+    const existingArea = buildAreaRow('user-1', 'property-1', 'Bathroom 1', 'Plumbing');
+    const existingToilet = buildStarterRows('user-1', 'property-1', 'Bathroom 1', template)
+        .find((row) => row.name === 'Toilet');
+    assert(existingToilet, 'Bathroom regression fixture should include Toilet.');
+    const before = JSON.stringify([existingArea, existingToilet]);
+
+    planHomeAreaCreation({
+        userId: 'user-1',
+        propertyId: 'property-1',
+        areaName: 'Bathroom 1',
+        system: 'Plumbing',
+        template,
+        includeStarterItems: true,
+        existingRows: [existingArea, existingToilet],
+    });
+
+    assert(JSON.stringify([existingArea, existingToilet]) === before, 'Gap filling must not update or overwrite existing installed records or their history links.');
 }
 
 function platformAdminDirectWriteKeepsTheHomeownerAsRecordOwner() {

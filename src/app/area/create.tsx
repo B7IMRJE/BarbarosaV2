@@ -18,10 +18,14 @@ import {
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
 import {
+    formatHomeAreaCreationSummary,
     getHomeAreaCreationErrorMessage,
+    isHomeAreaDuplicateWriteError,
+    orderHomeAreaCreationRows,
     pickHomeAreaRecordOwnerUserId,
     planHomeAreaCreation,
     withHomeAreaCreationTimeout,
+    type HomeAreaCreationWriteSummary,
 } from '../../lib/homeAreaCreation';
 import { getSystemDefinition, getSystemLabel } from '../../lib/homeSystems';
 import { providerModeQueryParams, readProviderModeParams } from '../../lib/providerMode';
@@ -190,22 +194,20 @@ export default function CreateAreaScreen() {
                     : 'Creating area...'
             );
 
+            let writeSummary: HomeAreaCreationWriteSummary = { created: 0, skipped: 0 };
+
             if (plan.rowsToInsert.length > 0) {
-                const insertError = await withHomeAreaCreationTimeout(
+                writeSummary = await withHomeAreaCreationTimeout(
                     providerModeContext && writeStrategy === 'assigned_rpc'
                         ? createProviderRows(providerModeContext, plan.rowsToInsert)
                         : insertDirectRows(plan.rowsToInsert),
                     'create',
                     30_000
                 );
-
-                if (insertError) {
-                    throw new Error(`Create failed: ${getSupabaseErrorMessage(insertError)}`);
-                }
             }
 
             setMessage(plan.rowsToInsert.length > 0
-                ? `Created ${plan.rowsToInsert.length} new item${plan.rowsToInsert.length === 1 ? '' : 's'}.`
+                ? formatHomeAreaCreationSummary(writeSummary)
                 : 'This area already exists. Opening it now.'
             );
             router.replace({
@@ -367,7 +369,9 @@ async function createProviderRows(
     providerModeContext: NonNullable<ReturnType<typeof readProviderModeParams>>,
     rowsToInsert: HomeItemInsert[]
 ) {
-    for (const row of rowsToInsert) {
+    const summary: HomeAreaCreationWriteSummary = { created: 0, skipped: 0 };
+
+    for (const row of orderHomeAreaCreationRows(rowsToInsert)) {
         const { error } = await supabase.rpc(
             'create_provider_homeos_item',
             buildProviderHomeItemCreateRpcArgs(providerModeContext, {
@@ -382,14 +386,40 @@ async function createProviderRows(
             })
         );
 
-        if (error) return error;
+        if (isHomeAreaDuplicateWriteError(error)) {
+            summary.skipped += 1;
+            continue;
+        }
+
+        if (error) {
+            throw new Error(`The HomeOS records could not be saved. ${getSupabaseErrorMessage(error)}`);
+        }
+
+        summary.created += 1;
     }
 
-    return null;
+    return summary;
 }
 
 async function insertDirectRows(rowsToInsert: HomeItemInsert[]) {
-    return (await supabase.from('home_items').insert(rowsToInsert)).error;
+    const summary: HomeAreaCreationWriteSummary = { created: 0, skipped: 0 };
+
+    for (const row of orderHomeAreaCreationRows(rowsToInsert)) {
+        const { error } = await supabase.from('home_items').insert(row);
+
+        if (isHomeAreaDuplicateWriteError(error)) {
+            summary.skipped += 1;
+            continue;
+        }
+
+        if (error) {
+            throw new Error(`The HomeOS records could not be saved. ${getSupabaseErrorMessage(error)}`);
+        }
+
+        summary.created += 1;
+    }
+
+    return summary;
 }
 
 function getSupabaseErrorMessage(error: unknown) {
