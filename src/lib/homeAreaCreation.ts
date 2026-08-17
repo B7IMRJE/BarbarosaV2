@@ -86,7 +86,9 @@ export function isHomeAreaDuplicateWriteError(error: unknown) {
     return code === '23505'
         || message.includes('home_items_property_placement_identity_key')
         || message.includes('home_items_property_placement_slug_key')
-        || message.includes('home_items_property_id_item_slug_key');
+        || message.includes('home_items_property_id_item_slug_key')
+        || message.includes('already exists in this location')
+        || message.includes('open the existing card instead of creating a duplicate');
 }
 
 export function formatHomeAreaCreationSummary(summary: HomeAreaCreationWriteSummary) {

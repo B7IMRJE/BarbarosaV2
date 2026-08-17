@@ -21,6 +21,8 @@ export function isProviderHomeOsRouteAllowed(pathname: string) {
         pathname === '/equipment' ||
         pathname === '/documents' ||
         pathname === '/area/create' ||
+        pathname === '/area/add-missing' ||
+        pathname === '/area/duplicate' ||
         pathname === '/item/create' ||
         pathname === '/item/edit' ||
         pathname === '/maintenance/wizard' ||

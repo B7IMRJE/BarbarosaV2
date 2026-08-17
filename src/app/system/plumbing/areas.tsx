@@ -66,18 +66,6 @@ function isBathroomArea(area: AreaItem) {
     return getAreaLabel(area).toLowerCase().includes('bathroom');
 }
 
-function nextBathroomName(areas: AreaItem[]) {
-    const usedNumbers = areas
-        .map((area) => getAreaLabel(area).match(/^bathroom\s+(\d+)$/i))
-        .filter((match): match is RegExpMatchArray => !!match)
-        .map((match) => Number(match[1]));
-    let number = 1;
-
-    while (usedNumbers.includes(number)) number += 1;
-
-    return `Bathroom ${number}`;
-}
-
 export default function PlumbingAreasScreen() {
     const { theme } = useTheme();
     const [areas, setAreas] = useState<AreaItem[]>(fallbackAreas);
@@ -151,14 +139,13 @@ export default function PlumbingAreasScreen() {
         } as any);
     }
 
-    function openBathroomTemplate(area: AreaItem, duplicate: boolean) {
+    function openBathroomStructureAction(area: AreaItem, action: 'add-missing' | 'duplicate') {
         router.push({
-            pathname: '/area/create',
+            pathname: `/area/${action}`,
             params: {
                 system: 'Plumbing',
                 templateId: 'bathroom',
-                areaName: duplicate ? nextBathroomName(areas) : getAreaLabel(area),
-                ...(duplicate ? {} : { fillExisting: 'true' }),
+                sourceArea: getAreaLabel(area),
             },
         } as any);
     }
@@ -232,8 +219,8 @@ export default function PlumbingAreasScreen() {
                                 area={area}
                                 status={statusForCard(scoreAreaHealth(homeItems, getAreaLabel(area)))}
                                 onPress={() => openArea(area)}
-                                onAddMissingCards={isBathroomArea(area) ? () => openBathroomTemplate(area, false) : undefined}
-                                onDuplicate={isBathroomArea(area) ? () => openBathroomTemplate(area, true) : undefined}
+                                onAddMissingCards={isBathroomArea(area) ? () => openBathroomStructureAction(area, 'add-missing') : undefined}
+                                onDuplicate={isBathroomArea(area) ? () => openBathroomStructureAction(area, 'duplicate') : undefined}
                             />
                         );
                     })}

@@ -8,8 +8,21 @@ runSalesProviderHomeOsRouteRegressions();
 export function runSalesProviderHomeOsRouteRegressions() {
     assignedSalesCanOpenHomeOsAndItemCreation();
     assignedProviderMaintenanceWizardDoesNotRedirect();
+    authorizedProvidersCanOpenAreaStructureActions();
     salesCannotOpenHomeOsWithoutAssignedWorkContext();
     salesCannotOpenInstalledItemEditor();
+    salesCannotChangeAreaStructure();
+}
+
+function authorizedProvidersCanOpenAreaStructureActions() {
+    assert(
+        isProviderHomeOsRouteAllowed('/area/add-missing'),
+        'Authorized provider routes must keep the in-place missing-card preview inside HomeOS.'
+    );
+    assert(
+        isProviderHomeOsRouteAllowed('/area/duplicate'),
+        'Authorized provider routes must keep the structure-only duplicate flow inside HomeOS.'
+    );
 }
 
 function assignedProviderMaintenanceWizardDoesNotRedirect() {
@@ -57,6 +70,17 @@ function salesCannotOpenInstalledItemEditor() {
     assert(
         !isSalesProviderHomeOsRouteAllowed('/item/edit', true),
         'Sales Tech card creation must not unlock installed-item editing.'
+    );
+}
+
+function salesCannotChangeAreaStructure() {
+    assert(
+        !isSalesProviderHomeOsRouteAllowed('/area/add-missing', true),
+        'Sales Tech must not modify an area starter-card structure.'
+    );
+    assert(
+        !isSalesProviderHomeOsRouteAllowed('/area/duplicate', true),
+        'Sales Tech must not duplicate HomeOS areas.'
     );
 }
 

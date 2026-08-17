@@ -1,6 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import ThemedButton from '../../../../components/theme/ThemedButton';
 import ThemedCard from '../../../../components/theme/ThemedCard';
 import {
@@ -8,7 +8,7 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../../../lib/activeProperty';
-import { getStarterItemsForAreaSystem } from '../../../../lib/areaTemplates';
+import { getAreaTemplateByName, getStarterItemsForAreaSystem } from '../../../../lib/areaTemplates';
 import { getSystemLabel } from '../../../../lib/homeSystems';
 import {
     providerModeItemPath,
@@ -16,7 +16,6 @@ import {
     readProviderModeParams,
 } from '../../../../lib/providerMode';
 import {
-    buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     getProviderHomeItemsReadStrategy,
     getProviderHomeItemsRpcName,
@@ -35,6 +34,10 @@ import {
     type HomeOSTradeContext,
 } from '../../../../lib/homeosTradeCapabilitiesCore';
 import {
+    canonicalAreaTemplateForTrades,
+    planAddMissingAreaCards,
+} from '../../../../lib/homeAreaCardActions';
+import {
     loadHomeOSTradeContext,
     startCompanyRepipeWizard,
 } from '../../../../lib/homeosTradeCapabilities';
@@ -44,23 +47,7 @@ import {
     getSuggestedChildAreas,
     normalizeAreaName,
 } from '../../../../lib/systemDefaults';
-import {
-    buildDefaultStarterHomePlan,
-    buildStarterHomeSetupPreview,
-    areEquivalentStarterItemNames,
-    createMissingStarterHomeItems,
-    starterPlanContainsArea,
-    starterSetupHasMissingRecords,
-    type StarterHomeArea,
-    type StarterHomeSetupPlanResult,
-} from '../../../../lib/starterHomeSetup';
-import {
-    STARTER_RECOVERY_CONFIRMATION_BODY,
-    STARTER_RECOVERY_CONFIRMATION_TITLE,
-    STARTER_RECOVERY_CREATING_MESSAGE,
-    resolveStarterRecoveryOpenAction,
-    runStarterRecoverySubmission,
-} from '../../../../lib/starterRecoveryConfirmation';
+import { areEquivalentStarterItemNames } from '../../../../lib/starterHomeSetup';
 import { supabase } from '../../../../lib/supabase';
 import { useStableCallback } from '../../../../hooks/useStableCallback';
 import { useTheme } from '../../../../theme/useTheme';
@@ -125,10 +112,7 @@ export default function AreaScreen() {
     const [childAreas, setChildAreas] = useState<AreaHomeItem[]>([]);
     const [currentAreaRecord, setCurrentAreaRecord] = useState<AreaHomeItem | null>(null);
     const [suggestedChildAreas, setSuggestedChildAreas] = useState<string[]>([]);
-    const [starterRecoveryPlan, setStarterRecoveryPlan] = useState<StarterHomeArea[]>([]);
-    const [starterRecoveryPreview, setStarterRecoveryPreview] = useState<StarterHomeSetupPlanResult | null>(null);
-    const [starterRecoveryConfirmationVisible, setStarterRecoveryConfirmationVisible] = useState(false);
-    const [recoveringStarterSetup, setRecoveringStarterSetup] = useState(false);
+    const [starterRecoveryPreview, setStarterRecoveryPreview] = useState<{ missing: number; present: number } | null>(null);
     const [returnedHomeItemRowCount, setReturnedHomeItemRowCount] = useState<number | null>(null);
     const [homeItemsQueryFailed, setHomeItemsQueryFailed] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -138,8 +122,6 @@ export default function AreaScreen() {
     const [tradeContext, setTradeContext] = useState<HomeOSTradeContext | null>(null);
     const [tradeMessage, setTradeMessage] = useState('');
     const [startingRepipe, setStartingRepipe] = useState(false);
-    const starterRecoverySubmittingRef = useRef(false);
-    const starterAutofillAttemptedRef = useRef(false);
     const loadAreaItemsStable = useStableCallback(loadAreaItems);
     const itemSections = groupItemsBySystem(items);
     const currentTradeKey = tradeKeyForHomeOSSystem(systemName);
@@ -213,43 +195,6 @@ export default function AreaScreen() {
         loadAreaItemsStable,
     ]);
 
-    useEffect(() => {
-        if (!starterRecoveryPreview) setStarterRecoveryConfirmationVisible(false);
-    }, [starterRecoveryPreview]);
-
-    useEffect(() => {
-        if (
-            providerModeContext ||
-            !currentTradeEnabled ||
-            starterAutofillAttemptedRef.current ||
-            !starterRecoveryPreview ||
-            !starterSetupHasMissingRecords(starterRecoveryPreview)
-        ) {
-            return;
-        }
-
-        starterAutofillAttemptedRef.current = true;
-
-        void (async () => {
-            try {
-                const activeProperty = await requireActivePropertyMembership();
-                await createMissingStarterHomeItems(
-                    {
-                        userId: activeProperty.userId,
-                        propertyId: activeProperty.propertyId,
-                    },
-                    starterRecoveryPlan
-                );
-                await loadAreaItemsStable({ preserveMessage: true });
-            } catch (error) {
-                setMessage(error instanceof Error
-                    ? error.message
-                    : 'The standard home cards could not be prepared.'
-                );
-            }
-        })();
-    }, [currentTradeEnabled, loadAreaItemsStable, providerModeContext, starterRecoveryPlan, starterRecoveryPreview]);
-
     async function loadAreaItems(options: { preserveMessage?: boolean } = {}) {
         let activeProperty;
 
@@ -265,7 +210,6 @@ export default function AreaScreen() {
             setChildAreas([]);
             setCurrentAreaRecord(null);
             setSuggestedChildAreas([]);
-            setStarterRecoveryPlan([]);
             setStarterRecoveryPreview(null);
             setReturnedHomeItemRowCount(null);
             setHomeItemsQueryFailed(true);
@@ -355,7 +299,6 @@ export default function AreaScreen() {
             setChildAreas([]);
             setCurrentAreaRecord(null);
             setSuggestedChildAreas([]);
-            setStarterRecoveryPlan([]);
             setStarterRecoveryPreview(null);
             setReturnedHomeItemRowCount(null);
             setHomeItemsQueryFailed(true);
@@ -379,24 +322,32 @@ export default function AreaScreen() {
         const nextSuggestedChildAreas = nextBroadZoneMode
             ? getSuggestedChildAreas(areaName).filter((childArea) => !savedChildNames.has(normalizeAreaName(childArea)))
             : [];
-        const propertyType = await loadPropertyType(activeProperty.propertyId);
-        const nextStarterRecoveryPlan = buildDefaultStarterHomePlan(propertyType);
-        const nextStarterRecoveryPreview = buildStarterHomeSetupPreview({
-            userId: activeProperty.userId,
-            propertyId: activeProperty.propertyId,
-            plan: nextStarterRecoveryPlan,
-            existingItems: rows,
-        });
-        const showStarterRecovery =
-            starterPlanContainsArea(nextStarterRecoveryPlan, areaName, parentAreaName) &&
-            starterSetupHasMissingRecords(nextStarterRecoveryPreview) &&
-            isHomeOSTradeEnabled(loadedTradeContext?.enabledTradeKeys || [], tradeKeyForHomeOSSystem(systemName));
+        const areaTemplate = getAreaTemplateByName(areaName);
+        const areaStarterPlan = areaTemplate && areaTemplate.id !== 'custom-area'
+            ? planAddMissingAreaCards({
+                userId: activeProperty.userId,
+                propertyId: activeProperty.propertyId,
+                areaName,
+                system: systemName,
+                parentArea: parentAreaName,
+                template: canonicalAreaTemplateForTrades(
+                    areaTemplate,
+                    loadedTradeContext?.enabledTradeKeys || [],
+                ),
+                existingRows: rows,
+            })
+            : null;
+        const showStarterRecovery = Boolean(
+            areaStarterPlan?.areaExists && areaStarterPlan.rowsToInsert.length > 0
+        );
 
         setChildAreas(sortAreaRecords(savedChildAreas));
         setCurrentAreaRecord(visibleRows.currentAreaRecord);
         setSuggestedChildAreas(nextSuggestedChildAreas);
-        setStarterRecoveryPlan(showStarterRecovery ? nextStarterRecoveryPlan : []);
-        setStarterRecoveryPreview(showStarterRecovery ? nextStarterRecoveryPreview : null);
+        setStarterRecoveryPreview(showStarterRecovery && areaStarterPlan ? {
+            missing: areaStarterPlan.rowsToInsert.length,
+            present: areaStarterPlan.alreadyPresent,
+        } : null);
         setReturnedHomeItemRowCount(rows.length);
         setHomeItemsQueryFailed(false);
         setItems(
@@ -409,89 +360,24 @@ export default function AreaScreen() {
         setLoading(false);
     }
 
-    function confirmAddMissingStarterEquipment() {
-        const action = resolveStarterRecoveryOpenAction({
-            hasPreview: !!starterRecoveryPreview,
-            providerMode: !!providerModeContext,
-            recovering: starterRecoverySubmittingRef.current || recoveringStarterSetup,
-        });
+    function openAddMissingStarterEquipment() {
+        const template = getAreaTemplateByName(areaName);
 
-        if (action.type === 'open_confirmation') {
-            setMessage('');
-            setStarterRecoveryConfirmationVisible(true);
+        if (!template || template.id === 'custom-area') {
+            setMessage('This area does not have a reusable canonical starter-card template.');
+            return;
         }
-    }
 
-    async function addMissingStarterEquipment() {
-        await runStarterRecoverySubmission({
-            closeConfirmation: () => setStarterRecoveryConfirmationVisible(false),
-            create: async () => {
-                let activeProperty;
-
-                try {
-                    activeProperty = await requireActivePropertyMembership({
-                        propertyIdOverride: providerModeContext?.propertyId,
-                        companyId: providerModeContext?.companyId,
-                    });
-                } catch (error) {
-                    const errorMessage = activePropertyErrorMessage(error);
-
-                    if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
-                        router.replace('/auth/login' as any);
-                    } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
-                        router.replace('/onboarding/create-home' as any);
-                    }
-
-                    throw new Error(errorMessage);
-                }
-
-                setMessage(STARTER_RECOVERY_CREATING_MESSAGE);
-
-                if (providerModeContext) {
-                    if (!starterRecoveryPreview) {
-                        throw new Error('The missing starter cards must be checked again.');
-                    }
-
-                    for (const row of starterRecoveryPreview.rowsToInsert) {
-                        const { error } = await supabase.rpc(
-                            'create_provider_homeos_item',
-                            buildProviderHomeItemCreateRpcArgs(providerModeContext, {
-                                itemSlug: row.item_slug,
-                                name: row.name,
-                                system: row.system,
-                                category: row.category,
-                                location: row.location,
-                                parentArea: row.parent_area,
-                                status: row.status,
-                                installState: row.install_state,
-                            })
-                        );
-
-                        if (error) {
-                            throw new Error(`Starter equipment could not be created: ${error.message}`);
-                        }
-                    }
-
-                    return starterRecoveryPreview;
-                }
-
-                return createMissingStarterHomeItems(
-                    {
-                        userId: activeProperty.userId,
-                        propertyId: activeProperty.propertyId,
-                    },
-                    starterRecoveryPlan
-                );
+        router.push({
+            pathname: '/area/add-missing',
+            params: {
+                system: systemName,
+                sourceArea: areaName,
+                templateId: template.id,
+                ...(parentAreaName ? { parentArea: parentAreaName } : {}),
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
-            isSubmitting: () => starterRecoverySubmittingRef.current,
-            planCount: starterRecoveryPlan.length,
-            reload: () => loadAreaItems({ preserveMessage: true }),
-            setMessage,
-            setSubmitting: (submitting) => {
-                starterRecoverySubmittingRef.current = submitting;
-                setRecoveringStarterSetup(submitting);
-            },
-        });
+        } as any);
     }
 
     function createSuggestedItem(category: string, name?: string, openDeckPicker = false) {
@@ -923,17 +809,14 @@ export default function AreaScreen() {
                                 Starter Equipment
                             </Text>
                             <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
-                                Missing now: {starterRecoveryPreview.createdItemRows} card{starterRecoveryPreview.createdItemRows === 1 ? '' : 's'} and {starterRecoveryPreview.createdAreaRows} area{starterRecoveryPreview.createdAreaRows === 1 ? '' : 's'}.
+                                Missing now: {starterRecoveryPreview.missing} canonical card{starterRecoveryPreview.missing === 1 ? '' : 's'} · {starterRecoveryPreview.present} already present.
                             </Text>
                         </View>
                         <View style={starterRecoveryBannerActionStyle}>
                             <ThemedButton
-                                title={recoveringStarterSetup
-                                    ? 'Adding Missing Cards...'
-                                    : 'Add Missing Starter Equipment'}
+                                title="Review Missing Cards"
                                 variant="secondary"
-                                disabled={recoveringStarterSetup}
-                                onPress={confirmAddMissingStarterEquipment}
+                                onPress={openAddMissingStarterEquipment}
                                 style={starterRecoveryButtonStyle}
                                 textStyle={areaQuickActionButtonTextStyle}
                             />
@@ -1067,57 +950,6 @@ export default function AreaScreen() {
             </View>
             </ScrollView>
 
-            <Modal
-                animationType="fade"
-                transparent
-                visible={starterRecoveryConfirmationVisible}
-                onRequestClose={() => {
-                    if (!recoveringStarterSetup) setStarterRecoveryConfirmationVisible(false);
-                }}
-            >
-                <View style={starterRecoveryModalBackdropStyle}>
-                    <ThemedCard style={starterRecoveryModalCardStyle}>
-                        <Text style={[sectionHeaderStyle, { color: theme.colors.text }]}>
-                            {STARTER_RECOVERY_CONFIRMATION_TITLE}
-                        </Text>
-                        <Text style={[starterRecoveryModalBodyStyle, { color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20) }]}>
-                            {STARTER_RECOVERY_CONFIRMATION_BODY}
-                        </Text>
-                        {!!starterRecoveryPreview && (
-                            <Text style={[starterRecoveryModalMetaStyle, { color: theme.colors.mutedText, fontSize: scaleFont(13) }]}>
-                                Missing now: {starterRecoveryPreview.createdItemRows} card{starterRecoveryPreview.createdItemRows === 1 ? '' : 's'} and {starterRecoveryPreview.createdAreaRows} area{starterRecoveryPreview.createdAreaRows === 1 ? '' : 's'}.
-                            </Text>
-                        )}
-                        {!!message && (
-                            <View style={[starterRecoveryModalMessageStyle, { borderColor: theme.colors.border }]}>
-                                <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '900', lineHeight: scaleFont(18) }}>
-                                    {message}
-                                </Text>
-                            </View>
-                        )}
-                        <View style={starterRecoveryModalActionsStyle}>
-                            <ThemedButton
-                                title="Cancel"
-                                variant="secondary"
-                                disabled={recoveringStarterSetup}
-                                onPress={() => setStarterRecoveryConfirmationVisible(false)}
-                                style={starterRecoveryModalButtonStyle}
-                                textStyle={{ fontSize: scaleFont(14) }}
-                            />
-                            <ThemedButton
-                                title={recoveringStarterSetup ? 'Creating Starter Equipment...' : 'Add Missing Cards'}
-                                disabled={recoveringStarterSetup}
-                                onPress={() => {
-                                    void addMissingStarterEquipment();
-                                }}
-                                style={starterRecoveryModalButtonStyle}
-                                textStyle={{ fontSize: scaleFont(14) }}
-                            />
-                        </View>
-                    </ThemedCard>
-                </View>
-            </Modal>
-
             <ProductReferenceModal
                 visible={Boolean(productReferenceItem)}
                 homeItemId={productReferenceItem?.id || ''}
@@ -1143,22 +975,6 @@ function decodeRouteParam(value?: string | string[] | null) {
     } catch {
         return text;
     }
-}
-
-async function loadPropertyType(propertyId: string) {
-    const cleanPropertyId = propertyId.trim();
-
-    if (!cleanPropertyId) return null;
-
-    const { data, error } = await supabase
-        .from('properties')
-        .select('property_type')
-        .eq('id', cleanPropertyId)
-        .maybeSingle();
-
-    if (error) return null;
-
-    return String((data as { property_type?: string | null } | null)?.property_type || '').trim() || null;
 }
 
 function isChildOfAreaRecord(item: AreaHomeItem, areaName: string, parentAreaName: string) {
@@ -1654,48 +1470,4 @@ const emptyStateCardStyle = {
     maxWidth: 280,
     paddingVertical: 12,
     paddingHorizontal: 16,
-};
-
-const starterRecoveryModalBackdropStyle = {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.42)',
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    padding: 18,
-};
-
-const starterRecoveryModalCardStyle = {
-    width: '100%' as const,
-    maxWidth: 520,
-};
-
-const starterRecoveryModalBodyStyle = {
-    marginTop: 12,
-    fontWeight: '800' as const,
-};
-
-const starterRecoveryModalMetaStyle = {
-    marginTop: 12,
-    fontWeight: '900' as const,
-};
-
-const starterRecoveryModalMessageStyle = {
-    marginTop: 14,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-};
-
-const starterRecoveryModalActionsStyle = {
-    flexDirection: 'row' as const,
-    flexWrap: 'wrap' as const,
-    justifyContent: 'flex-end' as const,
-    gap: 12,
-    marginTop: 18,
-};
-
-const starterRecoveryModalButtonStyle = {
-    minWidth: 150,
-    paddingVertical: 11,
 };
