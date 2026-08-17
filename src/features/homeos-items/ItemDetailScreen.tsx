@@ -49,6 +49,16 @@ import {
     type RecurrenceUnit,
 } from '../../lib/maintenanceTimers';
 import {
+    isMaintenanceGuideStep,
+    maintenanceSafetyNotice,
+    type MaintenanceGuideStep,
+} from '../../lib/maintenanceWizardCore';
+import {
+    completeProviderMaintenanceTask,
+    loadProviderMaintenance,
+    saveProviderMaintenanceTask,
+} from '../../lib/providerMaintenance';
+import {
     providerModePath,
     providerModeItemPath,
     providerModeQueryParams,
@@ -540,6 +550,7 @@ export default function ItemScreen() {
         jobId?: string | string[];
         itemView?: string | string[];
         saved?: string | string[];
+        maintenanceGuide?: string | string[];
     }>();
     const slug = firstParam(routeParams.slug);
     const managementCompanyId = firstParam(routeParams.companyId);
@@ -549,6 +560,7 @@ export default function ItemScreen() {
     const providerContextIncomplete = hasProviderModeRouteSignal(routeParams) && !providerModeContext;
     const itemFocusedView = firstParam(routeParams.itemView) as ItemFocusedView | '';
     const focusedSaveComplete = firstParam(routeParams.saved) === '1';
+    const requestedMaintenanceGuideStep = firstParam(routeParams.maintenanceGuide);
     const [item, setItem] = useState<any>(null);
     const [relatedItems, setRelatedItems] = useState<HomeItemHierarchyRecord[]>([]);
     const [files, setFiles] = useState<ItemFile[]>([]);
@@ -586,6 +598,10 @@ export default function ItemScreen() {
     const [removingMaintenanceCompletionId, setRemovingMaintenanceCompletionId] = useState<string | null>(null);
     const [showMaintenanceRecord, setShowMaintenanceRecord] = useState(false);
     const [showCustomMaintenanceForm, setShowCustomMaintenanceForm] = useState(false);
+    const [editingMaintenanceTaskId, setEditingMaintenanceTaskId] = useState<string | null>(null);
+    const [maintenanceGuideStep, setMaintenanceGuideStep] = useState<MaintenanceGuideStep | null>(
+        isMaintenanceGuideStep(requestedMaintenanceGuideStep) ? requestedMaintenanceGuideStep : null
+    );
     const [savingCustomMaintenance, setSavingCustomMaintenance] = useState(false);
     const [customReminderTitle, setCustomReminderTitle] = useState('');
     const [customReminderDescription, setCustomReminderDescription] = useState('');
@@ -691,6 +707,12 @@ export default function ItemScreen() {
 
         setCustomReminderNextDueDate(calculateNextDueDate(startDate, interval, customReminderUnit));
     }, [customReminderInterval, customReminderStartDate, customReminderUnit, showCustomMaintenanceForm]);
+
+    useEffect(() => {
+        setMaintenanceGuideStep(
+            isMaintenanceGuideStep(requestedMaintenanceGuideStep) ? requestedMaintenanceGuideStep : null
+        );
+    }, [requestedMaintenanceGuideStep, slug]);
 
     useEffect(() => {
         if (itemFocusedView !== 'edit-information' || !isProviderMode || !hasItem) return;
@@ -1584,8 +1606,10 @@ export default function ItemScreen() {
             });
             if (providerModeContext) {
                 setFiles([]);
-                setMaintenanceTasks([]);
-                setMaintenanceCompletions([]);
+                await loadMaintenanceTasks({
+                    propertyId: activeProperty.propertyId,
+                    homeItemId: String(itemRow.id || ''),
+                });
             } else {
                 await loadFiles({
                     propertyId: activeProperty.propertyId,
@@ -1888,6 +1912,20 @@ export default function ItemScreen() {
         if (homeItemIdQueryFailed && !resolvedItemSlug) {
             setMessage('Files could not be loaded. Please try again.');
             setFiles([]);
+            return;
+        }
+
+        if (providerModeContext) {
+            try {
+                const result = await loadProviderMaintenance(providerModeContext, resolvedHomeItemId);
+                setMaintenanceTasks(result.tasks.filter((task) => task.reminder_status !== 'archived'));
+                setMaintenanceCompletions(result.completions);
+            } catch (error) {
+                logMaintenanceTimerError('load-provider-maintenance', error);
+                setMaintenanceTasks([]);
+                setMaintenanceCompletions([]);
+                setMessage(error instanceof Error ? error.message : 'Maintenance reminders could not be loaded for this assigned home.');
+            }
             return;
         }
 
@@ -2872,8 +2910,26 @@ export default function ItemScreen() {
         }
     }
 
+    function setMaintenanceGuide(step: MaintenanceGuideStep | null) {
+        setMaintenanceGuideStep(step);
+        router.setParams({ maintenanceGuide: step || '' } as any);
+    }
+
+    function finishMaintenanceGuide() {
+        if (!maintenanceGuideStep) return;
+        setMaintenanceGuide(null);
+        setMessage('Maintenance guide complete. Your existing HomeOS card remains the source of truth.');
+    }
+
+    function returnToMaintenanceWizard() {
+        router.push(providerModeContext
+            ? providerModePath('/maintenance/wizard', providerModeContext)
+            : '/maintenance/wizard' as any);
+    }
+
     function resetCustomMaintenanceForm() {
         const today = toDateInputValue(new Date());
+        setEditingMaintenanceTaskId(null);
         setCustomReminderTitle('');
         setCustomReminderDescription('');
         setCustomReminderInterval('1');
@@ -2885,10 +2941,19 @@ export default function ItemScreen() {
     function handleShowCustomMaintenanceForm() {
         resetCustomMaintenanceForm();
         setShowCustomMaintenanceForm(true);
-        setMessage(providerModeContext
-            ? 'Custom reminders are staged for provider review in provider mode.'
-            : ''
-        );
+        setMessage('');
+    }
+
+    function handleEditMaintenanceTask(task: MaintenanceTask) {
+        setEditingMaintenanceTaskId(task.id);
+        setCustomReminderTitle(task.title);
+        setCustomReminderDescription(task.description || '');
+        setCustomReminderInterval(String(task.recurrence_interval));
+        setCustomReminderUnit(task.recurrence_unit);
+        setCustomReminderStartDate(task.start_date || toDateInputValue(new Date()));
+        setCustomReminderNextDueDate(task.next_due_date);
+        setShowCustomMaintenanceForm(true);
+        setMessage('Edit the maintenance plan, then save your changes.');
     }
 
     function handleCancelCustomMaintenanceForm() {
@@ -2932,38 +2997,31 @@ export default function ItemScreen() {
 
         if (providerModeContext) {
             setSavingCustomMaintenance(true);
-
             try {
-                const saved = await saveProviderStagedEntry(
-                    'note',
-                    {
-                        source: 'custom_reminder',
-                        destination: 'provider_staged',
-                        details: `Custom reminder requested: ${title}`,
-                        reminder_title: title,
-                        reminder_text: title,
-                        reminder_description: description,
-                        recurrence_interval: recurrenceInterval,
-                        recurrence_unit: customReminderUnit,
-                        start_date: startDateText,
-                        next_due_date: nextDueDateText,
-                        item_id: item?.id ? String(item.id) : null,
-                        item_slug: item?.item_slug || String(slug),
-                        item_name: item?.name || 'Unknown Item',
-                        system: item?.system || null,
-                        location: item?.location || item?.parent_area || null,
-                        category: item?.category || null,
-                        homeowner_visible_when_published: true,
-                    },
-                    'Custom reminder staged for provider review. It is not published to the client HomeOS yet.'
-                );
-
-                if (saved) {
-                    setMessage('Custom reminder staged for provider review. It is not published to the client HomeOS yet.');
-                    setShowCustomMaintenanceForm(false);
-                    setProviderReviewExpanded(true);
-                    resetCustomMaintenanceForm();
-                }
+                if (!item?.id) throw new Error('Item must be loaded before adding reminders.');
+                await saveProviderMaintenanceTask(providerModeContext, {
+                    taskId: editingMaintenanceTaskId,
+                    homeItemId: String(item.id),
+                    itemSlug: item.item_slug || String(slug),
+                    system: item.system || null,
+                    taskKey: editingMaintenanceTaskId
+                        ? maintenanceTasks.find((task) => task.id === editingMaintenanceTaskId)?.task_key
+                        : null,
+                    title,
+                    description,
+                    recurrenceInterval,
+                    recurrenceUnit: customReminderUnit,
+                    startDate: startDateText,
+                    nextDueDate: nextDueDateText,
+                });
+                setMessage(editingMaintenanceTaskId ? 'Maintenance plan updated.' : 'Maintenance reminder added.');
+                setShowCustomMaintenanceForm(false);
+                resetCustomMaintenanceForm();
+                await loadMaintenanceTasks({ homeItemId: String(item.id) });
+                finishMaintenanceGuide();
+            } catch (error) {
+                logMaintenanceTimerError('save-provider-maintenance', error);
+                setMessage(error instanceof Error ? error.message : 'Maintenance reminder could not be saved.');
             } finally {
                 setSavingCustomMaintenance(false);
             }
@@ -2986,9 +3044,7 @@ export default function ItemScreen() {
         try {
             const activeProperty = await requireActivePropertyMembership();
 
-            const { error } = await supabase
-                .from('home_item_maintenance_tasks')
-                .insert({
+            const taskValues = {
                     user_id: activeProperty.userId,
                     property_id: activeProperty.propertyId,
                     home_item_id: item.id,
@@ -3004,7 +3060,15 @@ export default function ItemScreen() {
                     reminder_status: 'active',
                     notes: null,
                     created_by: activeProperty.userId,
-                });
+                };
+            const { error } = editingMaintenanceTaskId
+                ? await supabase
+                    .from('home_item_maintenance_tasks')
+                    .update(taskValues)
+                    .eq('id', editingMaintenanceTaskId)
+                    .eq('property_id', activeProperty.propertyId)
+                    .eq('home_item_id', item.id)
+                : await supabase.from('home_item_maintenance_tasks').insert(taskValues);
 
             if (error) {
                 logMaintenanceTimerError('add-custom-task', error);
@@ -3012,13 +3076,14 @@ export default function ItemScreen() {
                 return;
             }
 
-            setMessage('Custom reminder added.');
+            setMessage(editingMaintenanceTaskId ? 'Maintenance plan updated.' : 'Custom reminder added.');
             setShowCustomMaintenanceForm(false);
             resetCustomMaintenanceForm();
             await loadMaintenanceTasks({
                 propertyId: activeProperty.propertyId,
                 homeItemId: String(item.id),
             });
+            finishMaintenanceGuide();
         } catch (error) {
             logMaintenanceTimerError('add-custom-task', error);
             setMessage(error instanceof Error ? error.message : 'Custom reminder could not be added. Please try again.');
@@ -3034,11 +3099,6 @@ export default function ItemScreen() {
     }
 
     async function handleAddMaintenancePreset(preset: MaintenancePreset) {
-        if (providerModeContext) {
-            setMessage('Provider mode reminder changes are staged only. Nothing was written to the customer HomeOS.');
-            return;
-        }
-
         if (!item?.id) {
             setMessage('Item must be loaded before adding reminders.');
             return;
@@ -3057,13 +3117,33 @@ export default function ItemScreen() {
         setMessage('Adding reminder...');
 
         try {
-            const activeProperty = await requireActivePropertyMembership();
             const today = toDateInputValue(new Date());
             const nextDueDate = calculateNextDueDate(
                 new Date(),
                 preset.recurrenceInterval,
                 preset.recurrenceUnit
             );
+
+            if (providerModeContext) {
+                await saveProviderMaintenanceTask(providerModeContext, {
+                    homeItemId: String(item.id),
+                    itemSlug: item.item_slug || String(slug),
+                    system: item.system || null,
+                    taskKey: preset.key,
+                    title: preset.title,
+                    description: preset.description,
+                    recurrenceInterval: preset.recurrenceInterval,
+                    recurrenceUnit: preset.recurrenceUnit,
+                    startDate: today,
+                    nextDueDate,
+                });
+                setMessage('Reminder added.');
+                await loadMaintenanceTasks({ homeItemId: String(item.id) });
+                finishMaintenanceGuide();
+                return;
+            }
+
+            const activeProperty = await requireActivePropertyMembership();
 
             const { error } = await supabase
                 .from('home_item_maintenance_tasks')
@@ -3095,6 +3175,7 @@ export default function ItemScreen() {
                 propertyId: activeProperty.propertyId,
                 homeItemId: String(item.id),
             });
+            finishMaintenanceGuide();
         } catch (error) {
             logMaintenanceTimerError('add-task', error);
             setMessage(error instanceof Error ? error.message : 'Reminder could not be added. Please try again.');
@@ -3110,11 +3191,6 @@ export default function ItemScreen() {
     }
 
     async function handleCompleteMaintenanceTask(task: MaintenanceTask) {
-        if (providerModeContext) {
-            setMessage('Provider mode reminder completion is staged only. Nothing was written to the customer HomeOS.');
-            return;
-        }
-
         if (!item?.id) {
             setMessage('Item must be loaded before adding maintenance to the record.');
             return;
@@ -3124,6 +3200,14 @@ export default function ItemScreen() {
         setMessage('Adding maintenance to the record...');
 
         try {
+            if (providerModeContext) {
+                await completeProviderMaintenanceTask(providerModeContext, String(item.id), task.id);
+                setMessage('Maintenance added to the record.');
+                setShowMaintenanceRecord(true);
+                await loadMaintenanceTasks({ homeItemId: String(item.id) });
+                return;
+            }
+
             const activeProperty = await requireActivePropertyMembership();
             const today = toDateInputValue(new Date());
             const nextDueDate = calculateNextDueDate(
@@ -3679,17 +3763,42 @@ export default function ItemScreen() {
     ) {
         const expanded = onOpen ? false : expandedActionGroups[group];
         const palette = itemSectionTilePalettes[group];
+        const guideSpotlightActive = maintenanceGuideStep === 'spotlight';
+        const isGuideTarget = group === 'maintenance';
+        const guideDisabled = guideSpotlightActive && !isGuideTarget;
+
+        function handleOpenTile() {
+            if (guideDisabled) return;
+            if (isGuideTarget && guideSpotlightActive) {
+                setExpandedActionGroups((currentGroups) => ({ ...currentGroups, maintenance: true }));
+                setMaintenanceGuide('section');
+                return;
+            }
+            (onOpen || (() => toggleActionGroup(group)))();
+        }
 
         return (
             <TouchableOpacity
                 key={group}
-                onPress={onOpen || (() => toggleActionGroup(group))}
+                accessibilityRole="button"
+                accessibilityLabel={`${title}${isGuideTarget && guideSpotlightActive ? ', highlighted next step' : ''}`}
+                accessibilityHint={isGuideTarget && guideSpotlightActive
+                    ? 'Opens the existing Maintenance section and continues the guide'
+                    : guideDisabled ? 'Unavailable while the Maintenance guide highlights the next action' : subtitle}
+                accessibilityState={{ disabled: guideDisabled, selected: isGuideTarget && guideSpotlightActive }}
+                disabled={guideDisabled}
+                onPress={handleOpenTile}
                 activeOpacity={0.84}
                 style={[
                     scaleStyle(sectionTileStyle),
                     {
                         backgroundColor: expanded ? palette.accent : palette.background,
-                        borderColor: expanded ? palette.accent : palette.border,
+                        borderColor: isGuideTarget && guideSpotlightActive
+                            ? theme.colors.primary
+                            : expanded ? palette.accent : palette.border,
+                        borderWidth: isGuideTarget && guideSpotlightActive ? scaleIcon(5) : scaleIcon(2),
+                        opacity: guideDisabled ? 0.28 : 1,
+                        transform: isGuideTarget && guideSpotlightActive ? [{ scale: 1.02 }] : undefined,
                     },
                 ]}
             >
@@ -5081,6 +5190,25 @@ export default function ItemScreen() {
                     </View>
 
                     <View style={scaleStyle(sectionTileGridStyle)}>
+                        {maintenanceGuideStep === 'spotlight' ? (
+                            <ThemedCard
+                                style={{ width: '100%', borderColor: theme.colors.primary, borderWidth: scaleIcon(3), marginBottom: scaleIcon(8) }}
+                            >
+                                <Text style={{ color: theme.colors.primary, fontSize: scaleFont(14), fontWeight: '900', textTransform: 'uppercase' }}>
+                                    Maintenance guide · Next step
+                                </Text>
+                                <Text style={{ color: theme.colors.text, fontSize: scaleFont(20), fontWeight: '900', marginTop: scaleIcon(5) }}>
+                                    Tap the highlighted Maintenance card
+                                </Text>
+                                <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20), marginTop: scaleIcon(6) }}>
+                                    Other actions are temporarily dimmed so you can learn the existing HomeOS workflow. Nothing happens until you tap.
+                                </Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginTop: scaleIcon(12) }}>
+                                    <ThemedButton title="Back to Item List" variant="secondary" onPress={returnToMaintenanceWizard} />
+                                    <ThemedButton title="Exit Guide" variant="ghost" onPress={() => setMaintenanceGuide(null)} />
+                                </View>
+                            </ThemedCard>
+                        ) : null}
                         {renderSectionTile(
                             'components',
                             'Components',
@@ -5183,6 +5311,33 @@ export default function ItemScreen() {
 
                     {expandedActionGroups.maintenance ? (
                     <ThemedCard style={scaleStyle(maintenanceCardStyle)}>
+                        {maintenanceGuideStep === 'section' ? (
+                            <View
+                                accessibilityRole="summary"
+                                style={{ backgroundColor: theme.colors.surfaceAlt, borderColor: theme.colors.primary, borderWidth: scaleIcon(3), borderRadius: theme.radii.card, padding: scaleIcon(14), marginBottom: scaleIcon(16) }}
+                            >
+                                <Text style={{ color: theme.colors.primary, fontSize: scaleFont(14), fontWeight: '900', textTransform: 'uppercase' }}>
+                                    Maintenance guide · Set the plan
+                                </Text>
+                                <Text style={{ color: theme.colors.text, fontSize: scaleFont(18), fontWeight: '900', marginTop: scaleIcon(5) }}>
+                                    Choose a recommended task or create a custom reminder
+                                </Text>
+                                <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20), marginTop: scaleIcon(6) }}>
+                                    {maintenanceSafetyNotice(item)}
+                                </Text>
+                                <Text style={{ color: theme.colors.mutedText, fontSize: scaleFont(14), lineHeight: scaleFont(20), marginTop: scaleIcon(6) }}>
+                                    When professional service is needed, use this item’s existing Request Service workflow. Saving a reminder does not request service automatically.
+                                </Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginTop: scaleIcon(12) }}>
+                                    <ThemedButton title="Back" variant="secondary" onPress={() => {
+                                        setExpandedActionGroups((currentGroups) => ({ ...currentGroups, maintenance: false }));
+                                        setMaintenanceGuide('spotlight');
+                                    }} />
+                                    <ThemedButton title="Exit Guide" variant="ghost" onPress={() => setMaintenanceGuide(null)} />
+                                    <ThemedButton title="Skip Guide" variant="ghost" onPress={() => setMaintenanceGuide(null)} />
+                                </View>
+                            </View>
+                        ) : null}
                         <View style={scaleStyle(maintenanceSectionHeaderStyle)}>
                             <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text, marginTop: 0, marginBottom: 0 }]}>
                                 Maintenance Reminders
@@ -5197,6 +5352,10 @@ export default function ItemScreen() {
                                 textStyle={scaleStyle(fileActionButtonTextStyle)}
                             />
                         </View>
+
+                        <Text style={[scaleStyle(maintenanceDescriptionStyle), { color: theme.colors.mutedText, marginBottom: scaleIcon(14) }]}>
+                            {maintenanceSafetyNotice(item)}
+                        </Text>
 
                         {showMaintenanceRecord && (
                             <View
@@ -5241,14 +5400,16 @@ export default function ItemScreen() {
                                                             Added {formatDateLabel(completion.completed_on)}
                                                         </Text>
                                                     </View>
-                                                    <ThemedButton
-                                                        title={removingMaintenanceCompletionId === completion.id ? 'Removing...' : 'Remove Entry'}
-                                                        variant="danger"
-                                                        onPress={() => handleRemoveMaintenanceCompletion(completion)}
-                                                        disabled={!!removingMaintenanceCompletionId}
-                                                        style={scaleStyle(maintenanceRecordRemoveStyle)}
-                                                        textStyle={scaleStyle(fileActionButtonTextStyle)}
-                                                    />
+                                                    {!providerModeContext ? (
+                                                        <ThemedButton
+                                                            title={removingMaintenanceCompletionId === completion.id ? 'Removing...' : 'Remove Entry'}
+                                                            variant="danger"
+                                                            onPress={() => handleRemoveMaintenanceCompletion(completion)}
+                                                            disabled={!!removingMaintenanceCompletionId}
+                                                            style={scaleStyle(maintenanceRecordRemoveStyle)}
+                                                            textStyle={scaleStyle(fileActionButtonTextStyle)}
+                                                        />
+                                                    ) : null}
                                                 </View>
                                             );
                                         })}
@@ -5309,13 +5470,23 @@ export default function ItemScreen() {
                                                 </Text>
                                             )}
 
-                                            <ThemedButton
-                                                title={completingMaintenanceId === task.id ? 'Adding...' : 'Add to Record'}
-                                                onPress={() => handleCompleteMaintenanceTask(task)}
-                                                disabled={!!completingMaintenanceId}
-                                                style={scaleStyle(maintenanceCompleteButtonStyle)}
-                                                textStyle={scaleStyle(fileActionButtonTextStyle)}
-                                            />
+                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginTop: scaleIcon(10) }}>
+                                                <ThemedButton
+                                                    title="Edit Plan"
+                                                    variant="secondary"
+                                                    onPress={() => handleEditMaintenanceTask(task)}
+                                                    disabled={!!completingMaintenanceId}
+                                                    style={scaleStyle(maintenanceCompleteButtonStyle)}
+                                                    textStyle={scaleStyle(fileActionButtonTextStyle)}
+                                                />
+                                                <ThemedButton
+                                                    title={completingMaintenanceId === task.id ? 'Adding...' : 'Add to Record'}
+                                                    onPress={() => handleCompleteMaintenanceTask(task)}
+                                                    disabled={!!completingMaintenanceId}
+                                                    style={scaleStyle(maintenanceCompleteButtonStyle)}
+                                                    textStyle={scaleStyle(fileActionButtonTextStyle)}
+                                                />
+                                            </View>
                                         </View>
                                     );
                                 })}
@@ -5364,7 +5535,7 @@ export default function ItemScreen() {
                                 ]}
                             >
                                 <Text style={[scaleStyle(maintenanceCustomTitleStyle), { color: theme.colors.text }]}>
-                                    Custom reminder
+                                    {editingMaintenanceTaskId ? 'Edit maintenance plan' : 'Custom reminder'}
                                 </Text>
 
                                 <Text style={[scaleStyle(maintenanceFieldLabelStyle), { color: theme.colors.mutedText }]}>
@@ -5484,7 +5655,7 @@ export default function ItemScreen() {
 
                                 <View style={scaleStyle(maintenanceFormActionsStyle)}>
                                     <ThemedButton
-                                        title={savingCustomMaintenance ? 'Saving...' : 'Save'}
+                                        title={savingCustomMaintenance ? 'Saving...' : editingMaintenanceTaskId ? 'Save Changes' : 'Save'}
                                         onPress={handleSaveCustomMaintenanceReminder}
                                         disabled={savingCustomMaintenance}
                                         style={scaleStyle(maintenanceFormActionButtonStyle)}

@@ -2,6 +2,7 @@ import {
     completeRoomStarterTemplateKey,
     getCompleteRoomStarterItems,
     getCompleteRoomStarterKind,
+    getLocationNeutralStarterItems,
     isCompleteRoomStarterRelation,
     resolveCompleteRoomStarterTemplate,
 } from './roomStarterTemplates';
@@ -10,6 +11,7 @@ const bathroom = getCompleteRoomStarterItems('bathroom');
 const kitchen = getCompleteRoomStarterItems('kitchen');
 const garage = getCompleteRoomStarterItems('garage');
 const all = [...bathroom, ...kitchen, ...garage];
+const locationNeutral = getLocationNeutralStarterItems();
 
 assert(getCompleteRoomStarterKind('Bathroom 1') === 'bathroom', 'Numbered existing bathrooms must receive the complete bathroom deck.');
 assert(getCompleteRoomStarterKind('Primary Bath') === 'bathroom', 'Renamed primary bathrooms must receive the complete bathroom deck.');
@@ -48,6 +50,18 @@ assert(showerValve?.templateKey === 'bathroom:shower_valve', 'The HomeOS Catalog
 const smartWaterShutoff = resolveCompleteRoomStarterTemplate({ name: 'Smart Water Monitor and Shutoff', location: null, parentArea: null });
 assert(smartWaterShutoff?.templateKey === 'whole_home:smart_water_shutoff', 'Location-neutral Smart Water Shutoff items must resolve to the Catalog Factory archetype without claiming an area.');
 assert(smartWaterShutoff?.areaName === '', 'Location-neutral Smart Water Shutoff matching must not invent a Garage or Front Yard placement.');
+[
+    'Main Electrical Panel', 'Electrical Subpanel', 'Electrical Meter / Service Entrance', 'Receptacle / Outlet',
+    'GFCI / AFCI Protection', 'Switch / Dimmer', 'Interior Light Fixture', 'Exterior Light Fixture',
+    'Ceiling Fan', 'Bathroom Exhaust Fan', 'Smoke / Carbon Monoxide Alarm', 'Doorbell / Low-Voltage System',
+    'Dedicated Electrical Circuit', 'EV Charger', 'Whole-Home Surge Protector', 'Electric Heater',
+    'Generator / Transfer Switch',
+].forEach((name) => assert(locationNeutral.some((item) => item.name === name), `Reusable Electrical Deck is missing ${name}.`));
+const outlet = locationNeutral.find((item) => item.name === 'Receptacle / Outlet');
+assert(outlet?.placementTags?.includes('kitchen') && outlet.placementTags.includes('bathroom'), 'Reusable electrical archetypes must expose metadata-driven placement filters without duplicating or auto-installing cards.');
+const electricalPanel = resolveCompleteRoomStarterTemplate({ name: 'Breaker Panel', location: null, parentArea: null });
+assert(electricalPanel?.templateKey === 'electrical_whole_home:main_electrical_panel', 'Electrical aliases must resolve to the same reusable HomeOS archetype from any selected container.');
+assert(electricalPanel?.areaName === '', 'Reusable electrical archetypes must not invent a physical installed location.');
 assert(isCompleteRoomStarterRelation({ areaName: 'Bathroom 1', parentName: 'Toilet', candidateName: 'Flapper' }), 'Toilet aliases should remain related to the Toilet parent.');
 assert(isCompleteRoomStarterRelation({ areaName: 'Kitchen', parentName: 'RO System', candidateName: 'Sediment Filter' }), 'RO aliases should remain related to the RO parent.');
 

@@ -204,7 +204,7 @@ export default function MaintenanceCenterScreen() {
 
                 <ThemedButton
                     title="Add Reminder From Item"
-                    onPress={() => setMessage('Open an item, then add a maintenance reminder from that item.')}
+                    onPress={() => router.push('/maintenance/wizard' as any)}
                     style={{ marginBottom: scaleIcon(18) }}
                 />
 

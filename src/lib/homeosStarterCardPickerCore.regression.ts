@@ -16,7 +16,7 @@ assert(filterHomeOSStarterCardChoices(cards, 'shower valve', 'bathroom')[0]?.tem
 console.log('HomeOS Add from Deck picker regression checks passed.');
 
 function card(templateKey: string, roomKind: string, name: string, aliases: string[], displayOrder: number): HomeOSStarterCardChoice {
-    return { templateKey, shortCode: '', roomKind, name, system: 'Plumbing', category: 'Equipment', parentTemplateKey: null, aliases, displayOrder };
+    return { templateKey, shortCode: '', roomKind, placementTags: [], name, system: 'Plumbing', category: 'Equipment', parentTemplateKey: null, aliases, displayOrder };
 }
 
 function assert(condition: unknown, message: string): asserts condition {

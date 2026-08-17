@@ -9,6 +9,7 @@ export function isSalesProviderHomeOsRouteAllowed(
     }
 
     if (pathname === '/item/create') return true;
+    if (pathname === '/maintenance/wizard') return true;
     if (pathname === '/item/edit') return false;
 
     return pathname.startsWith('/item/');

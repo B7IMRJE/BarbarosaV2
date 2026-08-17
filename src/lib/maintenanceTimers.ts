@@ -216,7 +216,13 @@ export function getMaintenancePresets(item: {
         }
 
         if (matchesAny(text, ['shutoff', 'shut off', 'valve', 'water service', 'water main'])) {
-            presets.push(preset('shutoff_valve_check', 'Check shutoff valves', 1, 'years', 'Operate accessible shutoff valves and check for leaks.'));
+            presets.push(preset(
+                'shutoff_valve_check',
+                'Exercise accessible shutoff valves',
+                6,
+                'months',
+                'Have accessible shutoff valves exercised and checked for leaks. Follow manufacturer guidance and use a qualified professional when a valve is stuck, corroded, leaking, or controls a hazardous system.'
+            ));
         }
 
         if (matchesAny(text, ['water meter', 'meter', 'water service'])) {

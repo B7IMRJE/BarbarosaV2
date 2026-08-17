@@ -1006,12 +1006,9 @@ export default function HomeScreen() {
             router.push('/system/create' as any);
           }}
           onOpenMaintenance={() => {
-            if (providerModeContext) {
-              setServiceRequestMessage('Provider mode maintenance editing is staged only. Client publishing is coming next.');
-              return;
-            }
-
-            router.push('/maintenance' as any);
+            router.push(providerModeContext
+              ? providerModePath('/maintenance/wizard', providerModeContext)
+              : '/maintenance/wizard' as any);
           }}
           onOpenSystemTile={openSystemTile}
           onOpenIssueItem={(item) => {
@@ -1116,9 +1113,9 @@ export default function HomeScreen() {
             </Text>
 
             <ThemedButton
-              title="Open Maintenance Center"
+              title="Open Maintenance Wizard"
               variant="secondary"
-              onPress={() => router.push('/maintenance' as any)}
+              onPress={() => router.push('/maintenance/wizard' as any)}
               style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
               textStyle={{ fontSize: scaleFont(14) }}
             />

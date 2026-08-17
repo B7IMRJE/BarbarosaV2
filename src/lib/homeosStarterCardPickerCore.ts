@@ -9,8 +9,8 @@ export type HomeOSStarterCardGroup = {
 export function homeOSStarterCardGroups(cards: readonly HomeOSStarterCardChoice[]): HomeOSStarterCardGroup[] {
     const counts = new Map<string, number>();
     for (const card of cards) {
-        const key = normalize(card.roomKind);
-        if (key) counts.set(key, (counts.get(key) || 0) + 1);
+        const keys = new Set([card.roomKind, ...(card.placementTags || [])].map(normalize).filter(Boolean));
+        for (const key of keys) counts.set(key, (counts.get(key) || 0) + 1);
     }
     return [...counts.entries()]
         .map(([key, count]) => ({ key, label: metadataLabel(key), count }))
@@ -26,11 +26,12 @@ export function filterHomeOSStarterCardChoices(
     const parentNames = new Map(cards.map((card) => [card.templateKey, card.name]));
 
     return cards
-        .filter((card) => groupKey === 'all' || normalize(card.roomKind) === normalize(groupKey))
+        .filter((card) => groupKey === 'all' || [card.roomKind, ...(card.placementTags || [])].some((value) => normalize(value) === normalize(groupKey)))
         .filter((card) => !normalizedQuery || normalize([
             card.templateKey,
             card.shortCode,
             card.roomKind,
+            ...(card.placementTags || []),
             card.name,
             card.system,
             card.category,

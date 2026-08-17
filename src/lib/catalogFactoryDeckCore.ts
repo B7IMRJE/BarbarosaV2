@@ -8,6 +8,7 @@ export type CatalogFactoryDeckWorkCard = CatalogFactoryStarterMapping & {
     templateKey: string;
     shortCode?: string;
     roomKind: string;
+    placementTags?: readonly string[];
     category: string;
     parentTemplateKey: string | null;
     aliases: readonly string[];
@@ -45,7 +46,7 @@ export function catalogFactoryStarterOptionsLabel(card: Pick<CatalogFactoryStart
 export function catalogFactoryDeckFilterOptions(cards: readonly CatalogFactoryDeckWorkCard[]) {
     const options: CatalogFactoryDeckFilterOption[] = [];
     const facets: { kind: Exclude<CatalogFactoryDeckFilterKind, 'family'>; values: (card: CatalogFactoryDeckWorkCard) => readonly string[] }[] = [
-        { kind: 'area', values: (card) => [card.roomKind] },
+        { kind: 'area', values: (card) => [card.roomKind, ...(card.placementTags || [])] },
         { kind: 'system', values: (card) => [card.system] },
         { kind: 'category', values: (card) => [card.category, ...(card.catalogCategories || [])] },
         { kind: 'readiness', values: (card) => [card.readinessStatus] },
@@ -114,6 +115,7 @@ function deckCardSearchText(card: CatalogFactoryDeckWorkCard, parents: ReadonlyM
         card.templateKey,
         card.shortCode || '',
         card.roomKind,
+        ...(card.placementTags || []),
         card.name,
         card.system,
         card.category,
@@ -126,7 +128,7 @@ function deckCardSearchText(card: CatalogFactoryDeckWorkCard, parents: ReadonlyM
 }
 
 function deckCardFacetValues(card: CatalogFactoryDeckWorkCard, kind: Exclude<CatalogFactoryDeckFilterKind, 'family'>) {
-    if (kind === 'area') return [card.roomKind];
+    if (kind === 'area') return [card.roomKind, ...(card.placementTags || [])];
     if (kind === 'system') return [card.system];
     if (kind === 'category') return [card.category, ...(card.catalogCategories || [])];
     return [card.readinessStatus];

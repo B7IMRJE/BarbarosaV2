@@ -1,6 +1,14 @@
 export type CompleteRoomStarterKind = 'bathroom' | 'kitchen' | 'garage';
 
-export type LocationNeutralStarterKind = 'whole_home';
+export type LocationNeutralStarterKind =
+    | 'whole_home'
+    | 'electrical_whole_home'
+    | 'electrical_living_room'
+    | 'electrical_hall'
+    | 'electrical_kitchen'
+    | 'electrical_bathroom'
+    | 'electrical_exterior'
+    | 'electrical_garage';
 
 export type CompleteRoomStarterItem = {
     name: string;
@@ -125,6 +133,7 @@ const ROOM_STARTER_ITEMS: Record<CompleteRoomStarterKind, readonly CompleteRoomS
 const LOCATION_NEUTRAL_STARTER_ITEMS: readonly (CompleteRoomStarterItem & {
     templateKey: string;
     kind: LocationNeutralStarterKind;
+    placementTags?: readonly string[];
 })[] = [
     {
         templateKey: 'whole_home:smart_water_shutoff',
@@ -138,7 +147,32 @@ const LOCATION_NEUTRAL_STARTER_ITEMS: readonly (CompleteRoomStarterItem & {
             'Whole Home Smart Water Shutoff',
         ],
     },
+    electrical('electrical_whole_home:main_electrical_panel', 'electrical_whole_home', 'Main Electrical Panel', 'Equipment', ['Main Panel', 'Breaker Panel', 'Service Panel'], ['whole_home']),
+    electrical('electrical_whole_home:electrical_subpanel', 'electrical_whole_home', 'Electrical Subpanel', 'Equipment', ['Subpanel', 'Sub Panel'], ['whole_home', 'garage']),
+    electrical('electrical_exterior:meter_service_entrance', 'electrical_exterior', 'Electrical Meter / Service Entrance', 'Equipment', ['Electrical Meter', 'Service Entrance', 'Utility Service'], ['whole_home', 'exterior']),
+    electrical('electrical_living_room:receptacle_outlet', 'electrical_living_room', 'Receptacle / Outlet', 'Component', ['Electrical Outlet', 'Wall Outlet', 'Receptacle'], ['living_room', 'hall', 'kitchen', 'bathroom', 'exterior', 'garage']),
+    electrical('electrical_whole_home:gfci_afci_protection', 'electrical_whole_home', 'GFCI / AFCI Protection', 'Component', ['GFCI', 'AFCI', 'Ground Fault Protection', 'Arc Fault Protection'], ['whole_home', 'kitchen', 'bathroom', 'exterior', 'garage']),
+    electrical('electrical_living_room:switch_dimmer', 'electrical_living_room', 'Switch / Dimmer', 'Component', ['Light Switch', 'Dimmer Switch'], ['living_room', 'hall', 'kitchen', 'bathroom', 'exterior', 'garage']),
+    electrical('electrical_living_room:interior_light_fixture', 'electrical_living_room', 'Interior Light Fixture', 'Fixture', ['Interior Light', 'Ceiling Light', 'Wall Light'], ['living_room', 'hall', 'kitchen', 'bathroom', 'garage']),
+    electrical('electrical_exterior:exterior_light_fixture', 'electrical_exterior', 'Exterior Light Fixture', 'Fixture', ['Outdoor Light', 'Exterior Lighting'], ['exterior', 'garage']),
+    electrical('electrical_living_room:ceiling_fan', 'electrical_living_room', 'Ceiling Fan', 'Equipment', ['Ceiling Light Fan'], ['living_room']),
+    electrical('electrical_bathroom:bathroom_exhaust_fan', 'electrical_bathroom', 'Bathroom Exhaust Fan', 'Equipment', ['Exhaust Fan', 'Ventilation Fan'], ['bathroom']),
+    electrical('electrical_hall:smoke_carbon_monoxide_alarm', 'electrical_hall', 'Smoke / Carbon Monoxide Alarm', 'Equipment', ['Smoke Alarm', 'CO Alarm', 'Carbon Monoxide Alarm', 'Combination Alarm'], ['whole_home', 'living_room', 'hall', 'kitchen', 'garage']),
+    electrical('electrical_exterior:doorbell_low_voltage', 'electrical_exterior', 'Doorbell / Low-Voltage System', 'Equipment', ['Doorbell', 'Low Voltage', 'Chime'], ['whole_home', 'living_room', 'exterior']),
+    electrical('electrical_kitchen:dedicated_electrical_circuit', 'electrical_kitchen', 'Dedicated Electrical Circuit', 'Component', ['Dedicated Circuit', 'Appliance Circuit'], ['whole_home', 'kitchen', 'bathroom', 'garage']),
+    electrical('electrical_garage:ev_charger', 'electrical_garage', 'EV Charger', 'Equipment', ['Electric Vehicle Charger', 'EVSE'], ['garage', 'exterior']),
+    electrical('electrical_whole_home:whole_home_surge_protector', 'electrical_whole_home', 'Whole-Home Surge Protector', 'Equipment', ['Surge Protection Device', 'Whole House Surge Protector'], ['whole_home']),
+    electrical('electrical_garage:electric_heater', 'electrical_garage', 'Electric Heater', 'Equipment', ['Electric Space Heater', 'Wall Heater'], ['garage', 'living_room', 'bathroom']),
+    electrical('electrical_garage:generator_transfer_switch', 'electrical_garage', 'Generator / Transfer Switch', 'Equipment', ['Standby Generator', 'Portable Generator Connection', 'Transfer Switch'], ['whole_home', 'garage', 'exterior']),
 ];
+
+export function getLocationNeutralStarterItems() {
+    return LOCATION_NEUTRAL_STARTER_ITEMS.map((starterItem) => ({
+        ...starterItem,
+        aliases: starterItem.aliases ? [...starterItem.aliases] : undefined,
+        placementTags: starterItem.placementTags ? [...starterItem.placementTags] : undefined,
+    }));
+}
 
 export function getCompleteRoomStarterKind(areaName?: string | null): CompleteRoomStarterKind | null {
     const normalized = normalizeRoomStarterIdentity(areaName);
@@ -278,4 +312,15 @@ function child(
     const parent = ROOM_PARENT_ALIASES[parentName] || [];
 
     return { name, system, category, aliases, parentName, parentAliases: parent };
+}
+
+function electrical(
+    templateKey: string,
+    kind: LocationNeutralStarterKind,
+    name: string,
+    category: CompleteRoomStarterItem['category'],
+    aliases: readonly string[],
+    placementTags: readonly string[],
+) {
+    return { templateKey, kind, name, system: 'Electrical', category, aliases, placementTags };
 }

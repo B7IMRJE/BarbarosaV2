@@ -7,6 +7,7 @@ export type HomeOSStarterDeckCard = {
     templateKey: string;
     shortCode: string;
     roomKind: string;
+    placementTags?: string[];
     name: string;
     system: string;
     category: string;
@@ -23,7 +24,7 @@ export type HomeOSStarterDeckCard = {
 
 export type HomeOSStarterCardChoice = Pick<
     HomeOSStarterDeckCard,
-    'templateKey' | 'shortCode' | 'roomKind' | 'name' | 'system' | 'category' | 'parentTemplateKey' | 'aliases' | 'displayOrder'
+    'templateKey' | 'shortCode' | 'roomKind' | 'placementTags' | 'name' | 'system' | 'category' | 'parentTemplateKey' | 'aliases' | 'displayOrder'
 >;
 
 export async function loadHomeOSStarterCardChoices() {
@@ -113,6 +114,7 @@ function parseStarterDeckCard(value: unknown): HomeOSStarterDeckCard | null {
         templateKey,
         shortCode: '',
         roomKind,
+        placementTags: array(row.placement_tags).map(text).filter(Boolean),
         name: text(row.name) || 'Starter card',
         system: text(row.system),
         category: text(row.category),
@@ -138,6 +140,7 @@ function parseStarterCardChoice(value: unknown): HomeOSStarterCardChoice | null 
         templateKey,
         shortCode: text(row.short_code).toUpperCase(),
         roomKind,
+        placementTags: array(row.placement_tags).map(text).filter(Boolean),
         name: text(row.name) || 'Starter card',
         system: text(row.system),
         category: text(row.category),

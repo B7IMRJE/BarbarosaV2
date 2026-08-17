@@ -21,6 +21,10 @@ function assignedSalesCanOpenHomeOsAndItemCreation() {
         isSalesProviderHomeOsRouteAllowed('/item/main-water-shutoff/catalog', true),
         'Assigned Sales Tech should be allowed to open the item-scoped catalog.'
     );
+    assert(
+        isSalesProviderHomeOsRouteAllowed('/maintenance/wizard', true),
+        'Assigned Sales Tech should be allowed to use the guided maintenance workflow.'
+    );
 }
 
 function salesCannotOpenHomeOsWithoutAssignedWorkContext() {
@@ -31,6 +35,10 @@ function salesCannotOpenHomeOsWithoutAssignedWorkContext() {
     assert(
         !isSalesProviderHomeOsRouteAllowed('/item/main-water-shutoff/catalog', false),
         'Sales Tech must not browse an unassigned customer HomeOS catalog.'
+    );
+    assert(
+        !isSalesProviderHomeOsRouteAllowed('/maintenance/wizard', false),
+        'Sales Tech must not maintain an unassigned customer HomeOS.'
     );
 }
 
