@@ -55,6 +55,8 @@ import {
 import {
   buildProviderHomeItemsRpcArgs,
   getProviderHomeItemsReadStrategy,
+  getProviderHomeItemsRpcName,
+  usesProviderHomeItemsRpc,
 } from '../lib/providerHomeItems';
 import { getProviderReturnActionLabel } from '../lib/techosClientAccess';
 import { supabase } from '../lib/supabase';
@@ -291,9 +293,9 @@ export default function HomeScreen() {
 
       if (readStrategy === 'denied') {
         itemLoadMessage = 'Provider context is missing the assigned request, visit, or job. Use Back to Current Job and reopen Client HomeOS.';
-      } else if (readStrategy === 'assigned_rpc') {
+      } else if (usesProviderHomeItemsRpc(readStrategy)) {
         const { data, error } = await supabase.rpc(
-          'get_provider_homeos_items',
+          getProviderHomeItemsRpcName(readStrategy),
           buildProviderHomeItemsRpcArgs(providerModeContext)
         );
 

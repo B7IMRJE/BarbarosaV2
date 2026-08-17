@@ -34,6 +34,7 @@ export function normalizeCompanyRoleValue(role?: string | null) {
     const normalizedRole = String(role || '').trim().toLowerCase();
 
     if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
+    if (['sales tech', 'sales_tech', 'sales-tech', 'sales technician', 'sales representative', 'sales rep'].includes(normalizedRole)) return 'sales';
     if (normalizedRole === 'dispatch') return 'dispatcher';
     return normalizedRole;
 }

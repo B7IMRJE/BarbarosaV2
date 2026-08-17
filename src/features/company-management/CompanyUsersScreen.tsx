@@ -32,11 +32,13 @@ import {
     COMPANY_PERMISSION_LABELS,
     canAccessTechOS as canAccessCompanyTechOS,
     getRoleDefaultPermissions,
+    isSalesCompanyRole,
     isTechnicianCompanyRole,
     loadCurrentCompanyPermissionAccess,
     normalizeCompanyRole,
     normalizeCompanyStatus,
     resolveCompanyPermissions,
+    SALES_TECH_RESTRICTED_PERMISSION_KEYS,
     type CompanyPermissionKey,
     type CompanyPermissionSet,
 } from '../../lib/companyPermissions';
@@ -112,7 +114,7 @@ type ManualInviteResult = {
 };
 
 type SubmitStage = 'idle' | 'creating' | 'sending';
-type SectionKey = 'owners' | 'adminManagerStaff' | 'technicians' | 'members' | 'invitations';
+type SectionKey = 'owners' | 'adminManagerStaff' | 'sales' | 'technicians' | 'members' | 'invitations';
 type CompanyUserManagementAccessResult = {
     canManage: boolean;
     canView: boolean;
@@ -201,6 +203,7 @@ export default function CompanyUsersScreen() {
     const [collapsedSections, setCollapsedSections] = useState<Record<SectionKey, boolean>>({
         owners: false,
         adminManagerStaff: false,
+        sales: false,
         technicians: false,
         members: true,
         invitations: true,
@@ -252,16 +255,18 @@ export default function CompanyUsersScreen() {
     useEffect(() => {
         const hasOwners = members.some((member) => isCompanyOwnerRole(member.role));
         const hasAdminManagerStaff = members.some((member) => isAdminManagerStaffRole(member.role));
+        const hasSales = members.some((member) => isSalesRole(member.role));
         const hasTechnicians = members.some((member) => isTechnicianRole(member.role));
         const hasMembers = members.length > 0;
         const hasPendingInvitations = invitations.some(
             (invitation) => normalizeStatus(invitation.status) === 'pending' && !isInvitationExpired(invitation, nowMs)
         );
-        const hasCategorizedMembers = hasOwners || hasAdminManagerStaff || hasTechnicians;
+        const hasCategorizedMembers = hasOwners || hasAdminManagerStaff || hasSales || hasTechnicians;
 
         setCollapsedSections((current) => ({
             owners: touchedSections.owners ? current.owners : false,
             adminManagerStaff: touchedSections.adminManagerStaff ? current.adminManagerStaff : !hasAdminManagerStaff,
+            sales: touchedSections.sales ? current.sales : false,
             technicians: touchedSections.technicians ? current.technicians : false,
             members: touchedSections.members ? current.members : hasCategorizedMembers && hasMembers,
             invitations: touchedSections.invitations ? current.invitations : !hasPendingInvitations,
@@ -432,6 +437,13 @@ export default function CompanyUsersScreen() {
     }
 
     function toggleRolePermission(permissionKey: CompanyPermissionKey, enabled: boolean) {
+        if (
+            selectedPermissionRole === 'sales' &&
+            SALES_TECH_RESTRICTED_PERMISSION_KEYS.includes(permissionKey)
+        ) {
+            return;
+        }
+
         setRolePermissions((current) => ({
             ...current,
             [selectedPermissionRole]: {
@@ -630,6 +642,50 @@ export default function CompanyUsersScreen() {
 
         await loadCompanyUsers(false);
         setMessage(`Member ${statusResult(nextStatus)}.`);
+    }
+
+    async function updateMemberRole(memberId: string, nextRole: CompanyRole) {
+        if (!canManageUsers) {
+            setMessage('Company user management requires owner, admin, or manager access.');
+            return;
+        }
+
+        const member = members.find((candidate) => candidate.id === memberId) || null;
+
+        if (!member || isCompanyOwnerRole(member.role) || nextRole === 'owner') {
+            setMessage('Company Owner role changes require the dedicated ownership transfer workflow.');
+            return;
+        }
+
+        if (normalizeRole(member.role) === nextRole) return;
+
+        setActionLoadingKey(`${memberId}:role`);
+        setMessage(`Changing ${getMemberDisplayName(member, member.email || 'team member')} to ${formatRole(nextRole)}...`);
+
+        const { error } = await supabase.rpc('update_company_user_role', {
+            p_company_user_id: memberId,
+            p_role: nextRole,
+        });
+
+        setActionLoadingKey(null);
+
+        if (error) {
+            setMessage(`Role update failed: ${error.message}`);
+            return;
+        }
+
+        await recordCompanyAuditEvent({
+            companyId: member.company_id,
+            action: 'company_user_role_changed',
+            targetType: 'company_user',
+            targetId: member.id,
+            targetLabel: getMemberDisplayName(member, member.email || member.id),
+            beforeData: safeAuditRecord({ role: member.role }),
+            afterData: safeAuditRecord({ role: nextRole, permissions: getRoleDefaultPermissions(nextRole) }),
+        });
+
+        await loadCompanyUsers(false);
+        setMessage(`${getMemberDisplayName(member, member.email || 'Team member')} is now ${formatRole(nextRole)}.`);
     }
 
     async function revokeInvitation(invitationId: string) {
@@ -923,9 +979,12 @@ export default function CompanyUsersScreen() {
     const allOwnerMembers = members.filter((member) => isCompanyOwnerRole(member.role));
     const ownerMembers = filteredMembers.filter((member) => isCompanyOwnerRole(member.role));
     const adminManagerStaffMembers = filteredMembers.filter((member) => isAdminManagerStaffRole(member.role));
+    const allSalesMembers = members.filter((member) => isSalesRole(member.role));
+    const salesMembers = filteredMembers.filter((member) => isSalesRole(member.role));
     const allTechnicianMembers = members.filter((member) => isTechnicianRole(member.role));
     const technicianMembers = filteredMembers.filter((member) => isTechnicianRole(member.role));
     const activeOwners = allOwnerMembers.filter((member) => normalizeStatus(member.status) === 'active');
+    const activeSales = allSalesMembers.filter((member) => normalizeStatus(member.status) === 'active');
     const activeTechnicians = allTechnicianMembers.filter((member) => normalizeStatus(member.status) === 'active');
     const activeMembers = members.filter((member) => normalizeStatus(member.status) === 'active');
     const pendingOwnerInvitations = invitations.filter(
@@ -973,7 +1032,7 @@ export default function CompanyUsersScreen() {
                         <ThemedCard style={heroCardStyle}>
                             <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Company Ownership & TechOS Access</Text>
                             <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                                Invite the real company owner first, then add admins, managers, Dispatch staff, and technicians.
+                                Invite the real company owner first, then add admins, managers, Dispatch staff, Sales Techs, and technicians.
                                 Invited users become active only after accepting with their own work account.
                             </Text>
                             <Text style={[helperTextStyle, { color: theme.colors.mutedText }]}>
@@ -982,6 +1041,7 @@ export default function CompanyUsersScreen() {
                             <View style={metricGridStyle}>
                                 <MetricCard label="Active Company Owners" value={activeOwners.length.toString()} />
                                 <MetricCard label="Pending Owner Invites" value={pendingOwnerInvitations.length.toString()} />
+                                <MetricCard label="Active Sales Techs" value={activeSales.length.toString()} />
                                 <MetricCard label="Active Technicians" value={activeTechnicians.length.toString()} />
                                 <MetricCard label="Pending Technician Invites" value={pendingTechnicianInvitations.length.toString()} />
                                 <MetricCard label="Active Team Members" value={activeMembers.length.toString()} />
@@ -1095,6 +1155,8 @@ export default function CompanyUsersScreen() {
                                     <View style={permissionToggleGridStyle}>
                                         {COMPANY_PERMISSION_KEYS.map((permissionKey) => {
                                             const enabled = rolePermissions[selectedPermissionRole][permissionKey];
+                                            const salesRestricted = selectedPermissionRole === 'sales' &&
+                                                SALES_TECH_RESTRICTED_PERMISSION_KEYS.includes(permissionKey);
 
                                             return (
                                                 <View
@@ -1113,10 +1175,12 @@ export default function CompanyUsersScreen() {
                                                         </Text>
                                                         <Text style={[permissionToggleHintStyle, { color: theme.colors.mutedText }]}>
                                                             {COMPANY_PERMISSION_DESCRIPTIONS[permissionKey]}
+                                                            {salesRestricted ? ' Sales Techs are always denied this management capability.' : ''}
                                                         </Text>
                                                     </View>
                                                     <Switch
                                                         value={enabled}
+                                                        disabled={salesRestricted}
                                                         onValueChange={(value) => toggleRolePermission(permissionKey, value)}
                                                         trackColor={{
                                                             false: theme.colors.border,
@@ -1302,6 +1366,7 @@ export default function CompanyUsersScreen() {
                                         professionalContact={professionalContactsByMemberId[member.id]}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
+                                        onRoleChange={updateMemberRole}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1330,6 +1395,36 @@ export default function CompanyUsersScreen() {
                                         professionalContact={professionalContactsByMemberId[member.id]}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
+                                        onRoleChange={updateMemberRole}
+                                        onSavePublicProfile={saveTechnicianProfile}
+                                        onSaveProfessionalContact={saveProfessionalContact}
+                                    />
+                                ))
+                            )}
+                        </CompactSection>
+
+                        <CompactSection
+                            title="Sales Techs (Sales)"
+                            count={salesMembers.length}
+                            collapsed={collapsedSections.sales}
+                            onToggle={() => toggleSection('sales')}
+                        >
+                            {salesMembers.length === 0 ? (
+                                <EmptyListMessage message="No Sales Techs match this view. Invite or assign the Sales role for repipe and proposal visits." />
+                            ) : (
+                                salesMembers.map((member) => (
+                                    <TeamMemberRow
+                                        key={member.id}
+                                        member={member}
+                                        expanded={!!expandedRows[`member:${member.id}`]}
+                                        actionLoadingKey={actionLoadingKey}
+                                        canManage={canManageUsers}
+                                        companyName={companyName}
+                                        publicProfile={technicianProfilesByMemberId[member.id]}
+                                        professionalContact={professionalContactsByMemberId[member.id]}
+                                        onToggle={() => toggleRow(`member:${member.id}`)}
+                                        onStatusChange={updateMemberStatus}
+                                        onRoleChange={updateMemberRole}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1358,6 +1453,7 @@ export default function CompanyUsersScreen() {
                                         professionalContact={professionalContactsByMemberId[member.id]}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
+                                        onRoleChange={updateMemberRole}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1386,6 +1482,7 @@ export default function CompanyUsersScreen() {
                                         professionalContact={professionalContactsByMemberId[member.id]}
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
+                                        onRoleChange={updateMemberRole}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1552,6 +1649,7 @@ function TeamMemberRow({
     professionalContact,
     onToggle,
     onStatusChange,
+    onRoleChange,
     onSavePublicProfile,
     onSaveProfessionalContact,
 }: {
@@ -1564,6 +1662,7 @@ function TeamMemberRow({
     professionalContact?: StaffProfessionalContact;
     onToggle: () => void;
     onStatusChange: (memberId: string, nextStatus: MemberActionStatus) => void;
+    onRoleChange: (memberId: string, nextRole: CompanyRole) => Promise<void> | void;
     onSavePublicProfile: (memberId: string, draft: TechnicianProfileDraft) => Promise<void>;
     onSaveProfessionalContact: (memberId: string, draft: StaffProfessionalContactDraft) => Promise<void>;
 }) {
@@ -1577,6 +1676,11 @@ function TeamMemberRow({
     const [recoveryCode, setRecoveryCode] = useState('');
     const [recoveryMessage, setRecoveryMessage] = useState('');
     const [creatingRecoveryCode, setCreatingRecoveryCode] = useState(false);
+    const [pendingRole, setPendingRole] = useState<CompanyRole>(() => normalizeAssignableRole(member.role));
+
+    useEffect(() => {
+        setPendingRole(normalizeAssignableRole(member.role));
+    }, [member.role]);
 
     async function createRecoveryCode() {
         if (creatingRecoveryCode) return;
@@ -1687,6 +1791,55 @@ function TeamMemberRow({
 
                     <DetailPanelSection title="Role & Permissions">
                         <DetailLine label="Role" value={formatRole(member.role)} />
+                        {!companyOwner && (
+                            <>
+                                <Text style={[fieldLabelStyle, { color: theme.colors.text }]}>Assigned role</Text>
+                                <View style={permissionRoleTabsStyle}>
+                                    {ROLE_OPTIONS.filter((option) => option.value !== 'owner').map((option) => {
+                                        const selected = pendingRole === option.value;
+
+                                        return (
+                                            <Pressable
+                                                key={option.value}
+                                                accessibilityRole="radio"
+                                                accessibilityState={{ selected }}
+                                                onPress={() => setPendingRole(option.value)}
+                                                style={[
+                                                    permissionRoleTabStyle,
+                                                    {
+                                                        backgroundColor: selected
+                                                            ? theme.colors.primary
+                                                            : theme.colors.background,
+                                                        borderColor: selected
+                                                            ? theme.colors.primary
+                                                            : theme.colors.border,
+                                                    },
+                                                ]}
+                                            >
+                                                <Text
+                                                    style={[
+                                                        permissionRoleTabTextStyle,
+                                                        { color: selected ? theme.colors.primaryText : theme.colors.text },
+                                                    ]}
+                                                >
+                                                    {option.label}
+                                                </Text>
+                                            </Pressable>
+                                        );
+                                    })}
+                                </View>
+                                <ThemedButton
+                                    title={actionLoadingKey === `${member.id}:role` ? 'Saving Role...' : 'Save Assigned Role'}
+                                    variant="secondary"
+                                    disabled={
+                                        actionLoadingKey === `${member.id}:role` ||
+                                        pendingRole === normalizeAssignableRole(member.role)
+                                    }
+                                    onPress={() => void onRoleChange(member.id, pendingRole)}
+                                    style={actionButtonStyle}
+                                />
+                            </>
+                        )}
                         <View style={permissionGridStyle}>
                             {COMPANY_PERMISSION_KEYS.map((permissionKey) => {
                                 const allowed = permissions[permissionKey];
@@ -1715,7 +1868,7 @@ function TeamMemberRow({
                             })}
                         </View>
                         <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
-                            Permissions currently come from role and active status. Explicit permission overrides will be saved after the database foundation is applied.
+                            Permissions come from the assigned role, company role profile, and active status. Sales Tech always excludes Dispatch, closeout, Price Book, team administration, and company administration.
                         </Text>
                     </DetailPanelSection>
 
@@ -3118,6 +3271,18 @@ function isTechnicianRole(role?: string | null) {
     return isTechnicianCompanyRole(role);
 }
 
+function isSalesRole(role?: string | null) {
+    return isSalesCompanyRole(role);
+}
+
+function normalizeAssignableRole(role?: string | null): CompanyRole {
+    const normalizedRole = normalizeRole(role);
+
+    return ROLE_OPTIONS.some((option) => option.value === normalizedRole)
+        ? normalizedRole as CompanyRole
+        : 'technician';
+}
+
 function isCompanyOwnerRole(role?: string | null) {
     return normalizeRole(role) === 'owner';
 }
@@ -3137,6 +3302,7 @@ function formatRole(role?: string | null) {
     if (normalizedRole === 'office') return 'Office';
     if (normalizedRole === 'dispatcher') return 'Dispatcher';
     if (normalizedRole === 'supervisor') return 'Supervisor';
+    if (normalizedRole === 'sales') return 'Sales Tech (Sales)';
     if (normalizedRole === 'technician') return 'Technician';
 
     return formatLabel(role || null);

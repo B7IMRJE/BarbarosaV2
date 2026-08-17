@@ -19,6 +19,8 @@ import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     getProviderHomeItemsReadStrategy,
+    getProviderHomeItemsRpcName,
+    usesProviderHomeItemsRpc,
 } from '../../../../lib/providerHomeItems';
 import {
     formatDirectItemsEmptyMessage,
@@ -268,9 +270,9 @@ export default function AreaScreen() {
 
             if (readStrategy === 'denied') {
                 loadErrorMessage = 'Client HomeOS requires an assigned request, visit, or job context.';
-            } else if (readStrategy === 'assigned_rpc') {
+            } else if (usesProviderHomeItemsRpc(readStrategy)) {
                 const { data, error } = await supabase.rpc(
-                    'get_provider_homeos_items',
+                    getProviderHomeItemsRpcName(readStrategy),
                     buildProviderHomeItemsRpcArgs(providerModeContext)
                 );
 

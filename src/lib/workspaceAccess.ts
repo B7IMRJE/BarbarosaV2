@@ -7,8 +7,8 @@ export const WORKSPACE_CHOOSER_ROUTE = '/workspace' as const;
 export const WORKSPACE_ACCESS_ERROR_MESSAGE = 'You are signed in, but we could not load your authorized workspace. Please try again.';
 
 const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
-const TECHOS_COMPANY_ROLES = ['technician'];
-const STAFF_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD-TECH', 'FIELD TECHNICIAN', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER', 'DISPATCH', 'SUPERVISOR'];
+const TECHOS_COMPANY_ROLES = ['technician', 'sales'];
+const STAFF_PROFILE_ROLES = ['TECH', 'TECHNICIAN', 'FIELD_TECH', 'FIELD-TECH', 'FIELD TECHNICIAN', 'SALES', 'SALES_TECH', 'SALES-TECH', 'SALES TECH', 'OFFICE', 'MANAGER', 'ADMIN', 'OWNER', 'DISPATCHER', 'DISPATCH', 'SUPERVISOR'];
 
 export type ProfileRouteFields = {
     id?: string | null;
@@ -36,6 +36,7 @@ export type AuthorizedWorkspace = {
     description: string;
     route: string;
     companyId?: string;
+    companyRole?: string;
 };
 
 export type LoggedInUserRouteReason =
@@ -157,6 +158,7 @@ export function buildAuthorizedWorkspaces(
                 description: `Manage ${companyName}`,
                 route: companyManagementRoute(companyId),
                 companyId,
+                companyRole: role,
             });
         }
 
@@ -165,9 +167,12 @@ export function buildAuthorizedWorkspaces(
                 id: `technician:${companyId}`,
                 kind: 'technician',
                 label: 'TechOS',
-                description: `Open field work for ${companyName}`,
+                description: role === 'sales'
+                    ? `Open sales visits and proposals for ${companyName}`
+                    : `Open field work for ${companyName}`,
                 route: techOSRoute(companyId),
                 companyId,
+                companyRole: role,
             });
         }
     }
@@ -202,6 +207,7 @@ export function normalizeCompanyUserRole(role?: string | null) {
     const normalizedRole = String(role || '').trim().toLowerCase();
 
     if (['tech', 'field_tech', 'field-tech', 'field technician'].includes(normalizedRole)) return 'technician';
+    if (['sales tech', 'sales_tech', 'sales-tech', 'sales technician', 'sales representative', 'sales rep'].includes(normalizedRole)) return 'sales';
     if (normalizedRole === 'dispatch') return 'dispatcher';
     return normalizedRole;
 }

@@ -15,6 +15,7 @@ import {
     canAccessDispatch,
     canAccessTechOS,
     isActiveCompanyStatus,
+    isSalesCompanyRole,
     isTechnicianCompanyRole,
     normalizeCompanyStatus,
 } from '../../lib/companyPermissions';
@@ -306,7 +307,7 @@ type PlatformProfile = {
     is_platform_admin?: boolean | null;
 };
 
-type TechOSMode = 'technician' | 'management-preview' | 'platform-preview';
+type TechOSMode = 'technician' | 'sales' | 'management-preview' | 'platform-preview';
 type TechDashboardView = 'jobs' | 'schedule' | 'history' | 'estimates' | 'sales' | 'messages' | 'time-clock' | 'van-inventory';
 type TechOSTimeClockStep = 'overview' | 'lunch' | 'overtime' | 'clock-out' | 'correction' | 'day-submit' | 'history';
 
@@ -569,6 +570,11 @@ export default function TechOSScreen() {
     }, [workflowStatusBySlotId]);
 
     useEffect(() => {
+        if (techOSMode === 'sales') {
+            if (selectedAssignedJobId) setSelectedAssignedJobId('');
+            return;
+        }
+
         const nextSelection = resolveTechOSRouteSelection({
             availableSlotIds: assignedScheduleJobs.map((job) => job.slot.id),
             dismissedSlotId: dismissedAssignedJobId,
@@ -586,7 +592,7 @@ export default function TechOSScreen() {
         if (nextSelection.routeOpenedSlotId !== routeOpenedAssignedJobId) {
             setRouteOpenedAssignedJobId(nextSelection.routeOpenedSlotId);
         }
-    }, [assignedScheduleJobs, dismissedAssignedJobId, requestedSlotId, routeOpenedAssignedJobId, selectedAssignedJobId]);
+    }, [assignedScheduleJobs, dismissedAssignedJobId, requestedSlotId, routeOpenedAssignedJobId, selectedAssignedJobId, techOSMode]);
 
     useEffect(() => {
         void loadAssignedEstimateDraftCounts();
@@ -882,7 +888,11 @@ export default function TechOSScreen() {
         }
 
         setMembership(activeMembership);
-        const nextMode: TechOSMode = isTechnicianRole(activeMembership.role) ? 'technician' : 'management-preview';
+        const nextMode: TechOSMode = isTechnicianRole(activeMembership.role)
+            ? 'technician'
+            : isSalesRole(activeMembership.role)
+                ? 'sales'
+                : 'management-preview';
         setTechOSMode(nextMode);
         setActiveCompanyId(activeMembership.company_id);
         const nextTechnicianCompanyUserIds = nextMode === 'technician'
@@ -891,7 +901,9 @@ export default function TechOSScreen() {
                 eligibleCompanyUsers: activeTechOSMemberships,
                 primaryCompanyUserId: activeMembership.id,
             })
-            : [];
+            : nextMode === 'sales'
+                ? [activeMembership.id]
+                : [];
         setTechnicianCompanyUserIds(nextTechnicianCompanyUserIds);
         logTechOSDebug('resolved technician profile', {
             auth_user_id: userId,
@@ -914,6 +926,18 @@ export default function TechOSScreen() {
                     status: activeMembership.status,
                 }),
                 loadAssignedTechnicianJobs(activeMembership.company_id),
+            ]);
+        } else if (nextMode === 'sales') {
+            await Promise.all([
+                loadCompanyBrand(activeMembership.company_id),
+                loadCompanyClients(activeMembership.company_id),
+                loadAssignedScheduleJobs(activeMembership.company_id, nextTechnicianCompanyUserIds, {
+                    announceNewAssignments: false,
+                    authEmail: userEmail,
+                    authUserId: userId,
+                    role: activeMembership.role,
+                    status: activeMembership.status,
+                }),
             ]);
         } else {
             await Promise.all([
@@ -1500,6 +1524,28 @@ export default function TechOSScreen() {
         } as any);
     }
 
+    function handleOpenSalesClientHomeOS(client: CompanyClient) {
+        const companyId = activeCompanyId || membership?.company_id || requestedCompanyId;
+
+        if (!companyId || !client.property_id) return;
+
+        router.push(buildTechOSProviderHomeRoute({
+            companyId,
+            propertyId: client.property_id,
+        }) as any);
+    }
+
+    function handleOpenSalesClientEstimate(client: CompanyClient) {
+        const companyId = activeCompanyId || membership?.company_id || requestedCompanyId;
+
+        if (!companyId || !client.property_id) return;
+
+        router.push(buildTechOSEstimateRoute({
+            companyId,
+            propertyId: client.property_id,
+        }) as any);
+    }
+
     async function handleCompleteAssignedMeeting(meeting: CompanyScheduleMeeting) {
         setScheduleMessage(`Completing ${meeting.title}...`);
         const { error } = await supabase.rpc('complete_company_schedule_meeting', {
@@ -2028,19 +2074,20 @@ export default function TechOSScreen() {
     const logoUrl = company?.logo_url?.trim() || '';
     const canPreviewLogo = logoUrl.startsWith('http');
     const isTechnicianWorkspace = techOSMode === 'technician';
+    const isSalesWorkspace = techOSMode === 'sales';
     const jobBoardTitle = isTechnicianWorkspace ? 'Assigned Jobs' : 'Company Jobs Preview';
     const jobBoardDescription = isTechnicianWorkspace
         ? 'Only jobs assigned to the signed-in technician belong here.'
         : 'Company-level jobs shown for setup and dispatch preview. This is not one technician workload.';
     const canOpenDispatch = isPlatformAdminAccess || canAccessDispatch(membership || undefined);
     const dispatchCompanyId = canOpenDispatch ? activeCompanyId || membership?.company_id || requestedCompanyId : '';
-    const dashboardTodayCount = isTechnicianWorkspace ? todayAssignedScheduleJobs.length : 0;
-    const dashboardFutureCount = isTechnicianWorkspace ? futureAssignedScheduleJobs.length : 0;
-    const dashboardJobsCount = isTechnicianWorkspace ? currentFutureAssignedScheduleJobs.length : visibleJobs.length;
-    const dashboardHistoryCount = isTechnicianWorkspace ? historyScheduleJobs.length : closedJobs.length;
-    const dashboardOpenCount = isTechnicianWorkspace ? assignedOpenScheduleJobs.length : openJobs.length;
-    const dashboardPausedCount = isTechnicianWorkspace ? assignedPausedScheduleJobs.length : pausedJobs.length;
-    const dashboardClosedCount = isTechnicianWorkspace ? assignedClosedScheduleJobs.length : closedJobs.length;
+    const dashboardTodayCount = isTechnicianWorkspace || isSalesWorkspace ? todayAssignedScheduleJobs.length : 0;
+    const dashboardFutureCount = isTechnicianWorkspace || isSalesWorkspace ? futureAssignedScheduleJobs.length : 0;
+    const dashboardJobsCount = isTechnicianWorkspace || isSalesWorkspace ? currentFutureAssignedScheduleJobs.length : visibleJobs.length;
+    const dashboardHistoryCount = isTechnicianWorkspace || isSalesWorkspace ? historyScheduleJobs.length : closedJobs.length;
+    const dashboardOpenCount = isTechnicianWorkspace || isSalesWorkspace ? assignedOpenScheduleJobs.length : openJobs.length;
+    const dashboardPausedCount = isTechnicianWorkspace || isSalesWorkspace ? assignedPausedScheduleJobs.length : pausedJobs.length;
+    const dashboardClosedCount = isTechnicianWorkspace || isSalesWorkspace ? assignedClosedScheduleJobs.length : closedJobs.length;
     const technicianName = isPlatformAdminAccess
         ? 'Platform Admin'
         : membership?.full_name || authEmail || membership?.email || 'Technician';
@@ -2151,10 +2198,19 @@ export default function TechOSScreen() {
                     </View>
                 )}
 
-                {!isTechnicianWorkspace && !selectedAssignedJob && !isTimeClockFocused && (
+                {!isTechnicianWorkspace && !isSalesWorkspace && !selectedAssignedJob && !isTimeClockFocused && (
                     <ThemedCard style={messageCardStyle}>
                         <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
                             This is not a technician login. Select or assign a technician from ManagementOS to preview their workload.
+                        </Text>
+                    </ThemedCard>
+                )}
+
+                {isSalesWorkspace && !selectedAssignedJob && (
+                    <ThemedCard style={messageCardStyle}>
+                        <Text style={[sectionTitleStyle, { color: theme.colors.text }]}>Sales Tech workspace</Text>
+                        <Text style={[bodyTextStyle, { color: theme.colors.mutedText, marginTop: 6 }]}>
+                            Open company client HomeOS records and build estimates or proposals for authorized visits. Dispatch controls, technician closeout, installed-item publication, Price Book editing, and team administration remain unavailable.
                         </Text>
                     </ThemedCard>
                 )}
@@ -2188,7 +2244,7 @@ export default function TechOSScreen() {
                     />
                 )}
 
-                {!selectedAssignedJob && !isTimeClockFocused && (
+                {!isSalesWorkspace && !selectedAssignedJob && !isTimeClockFocused && (
                     <TechOSDashboardCards
                         activeView={dashboardView}
                         historyCount={dashboardHistoryCount}
@@ -2265,6 +2321,16 @@ export default function TechOSScreen() {
                         workflowMessageBySlotId={workflowMessageBySlotId}
                         workflowStatusBySlotId={workflowStatusBySlotId}
                         technicianCompanyUserId={assignedTechnicianCompanyUserIds[0] || ''}
+                    />
+                ) : isSalesWorkspace ? (
+                    <SalesTechWorkspace
+                        jobs={currentFutureAssignedScheduleJobs}
+                        loading={scheduleLoading}
+                        message={scheduleMessage}
+                        onOpenClientHomeOS={handleOpenClientHomeOS}
+                        onOpenEstimate={(job) => {
+                            void handleOpenEstimateForAssignedJob(job);
+                        }}
                     />
                 ) : (
                     <>
@@ -2346,6 +2412,9 @@ export default function TechOSScreen() {
                         expanded={showAssignedClients}
                         jobs={visibleJobs}
                         message={clientMessage}
+                        salesMode={isSalesWorkspace}
+                        onOpenClientHomeOS={handleOpenSalesClientHomeOS}
+                        onOpenClientEstimate={handleOpenSalesClientEstimate}
                         onStartServiceJob={handleStartServiceJob}
                         onToggleExpanded={() => setShowAssignedClients((current) => !current)}
                         propertiesById={propertiesById}
@@ -5792,6 +5861,90 @@ function TechOSJobCard({
     );
 }
 
+function SalesTechWorkspace({
+    jobs,
+    loading,
+    message,
+    onOpenClientHomeOS,
+    onOpenEstimate,
+}: {
+    jobs: TechAssignedScheduleJob[];
+    loading: boolean;
+    message: string;
+    onOpenClientHomeOS: (job: TechAssignedScheduleJob) => void;
+    onOpenEstimate: (job: TechAssignedScheduleJob) => void;
+}) {
+    const { theme } = useTheme();
+
+    return (
+        <View style={{ gap: 12, marginTop: 16 }}>
+            <View>
+                <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>Assigned Sales Visits</Text>
+                <Text style={[bodyTextStyle, { color: theme.colors.mutedText, marginTop: 4 }]}>
+                    Existing sales or repipe visits already linked to this account. These cards open read-only HomeOS context and estimate authoring only.
+                </Text>
+            </View>
+
+            {loading ? (
+                <ThemedCard>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>Loading assigned sales visits...</Text>
+                </ThemedCard>
+            ) : jobs.length === 0 ? (
+                <ThemedCard>
+                    <Text style={[clientNameStyle, { color: theme.colors.text }]}>No assigned sales visits</Text>
+                    <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText, marginTop: 4 }]}>
+                        No linked visits are available. Company client access remains available below for authorized HomeOS review and proposal work.
+                    </Text>
+                </ThemedCard>
+            ) : (
+                <View style={clientListStyle}>
+                    {jobs.map((job) => {
+                        const hasHome = hasTechOSClientHomeContext(getTechOSClientJobContext(job));
+
+                        return (
+                            <ThemedCard key={job.slot.id} style={clientRowStyle}>
+                                <Text style={[clientNameStyle, { color: theme.colors.text }]}>
+                                    {getAssignedJobLocation(job)}
+                                </Text>
+                                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                    {formatScheduleRange(job.slot)} · {formatStatus(job.slot.status)}
+                                </Text>
+                                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
+                                    {job.request?.issue_summary || job.slot.notes || 'Sales visit'}
+                                </Text>
+                                <View style={buttonRowStyle}>
+                                    <ThemedButton
+                                        title="Open Client HomeOS"
+                                        variant="secondary"
+                                        disabled={!hasHome}
+                                        onPress={() => onOpenClientHomeOS(job)}
+                                        style={clientActionButtonStyle}
+                                    />
+                                    <ThemedButton
+                                        title="Create / Edit Proposal"
+                                        disabled={!hasHome}
+                                        onPress={() => onOpenEstimate(job)}
+                                        style={clientActionButtonStyle}
+                                    />
+                                </View>
+                                {!hasHome && (
+                                    <Text style={[testActionNoteStyle, { color: theme.colors.mutedText }]}>
+                                        This visit needs a linked client property before HomeOS or proposal access can open.
+                                    </Text>
+                                )}
+                            </ThemedCard>
+                        );
+                    })}
+                </View>
+            )}
+
+            {!!message && (
+                <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>{message}</Text>
+            )}
+        </View>
+    );
+}
+
 function AssignedClientsCard({
     clients,
     creatingJobClientId,
@@ -5799,6 +5952,9 @@ function AssignedClientsCard({
     jobs,
     propertiesById,
     message,
+    salesMode,
+    onOpenClientHomeOS,
+    onOpenClientEstimate,
     onStartServiceJob,
     onToggleExpanded,
 }: {
@@ -5808,6 +5964,9 @@ function AssignedClientsCard({
     jobs: TechOSJob[];
     propertiesById: Record<string, PropertyRecord>;
     message: string;
+    salesMode?: boolean;
+    onOpenClientHomeOS?: (client: CompanyClient) => void;
+    onOpenClientEstimate?: (client: CompanyClient) => void;
     onStartServiceJob: (client: CompanyClient, property?: PropertyRecord) => void;
     onToggleExpanded: () => void;
 }) {
@@ -5819,7 +5978,9 @@ function AssignedClientsCard({
                 <View style={{ flex: 1, minWidth: 0 }}>
                     <Text style={[workflowTitleStyle, { color: theme.colors.text }]}>Assigned Clients</Text>
                     <Text style={[bodyTextStyle, { color: theme.colors.mutedText }]}>
-                        Secondary view with safe basic client and home profile details.
+                        {salesMode
+                            ? 'Company client homes available for HomeOS review and proposal authoring.'
+                            : 'Secondary view with safe basic client and home profile details.'}
                     </Text>
                 </View>
                 <ThemedButton
@@ -5837,7 +5998,9 @@ function AssignedClientsCard({
             {!expanded ? (
                 <View style={[emptyClientStateStyle, { borderColor: theme.colors.border }]}>
                     <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
-                        Client list and test job creation are collapsed to keep the technician board focused on jobs.
+                        {salesMode
+                            ? 'Client homes are collapsed. Open the list to review HomeOS or create a proposal.'
+                            : 'Client list and test job creation are collapsed to keep the technician board focused on jobs.'}
                     </Text>
                 </View>
             ) : clients.length === 0 ? (
@@ -5859,6 +6022,9 @@ function AssignedClientsCard({
                             disabled={creatingJobClientId !== null}
                             openJobCount={countOpenJobsForClient(jobs, client)}
                             property={propertiesById[client.property_id]}
+                            salesMode={salesMode}
+                            onOpenClientHomeOS={onOpenClientHomeOS}
+                            onOpenClientEstimate={onOpenClientEstimate}
                             onStartServiceJob={onStartServiceJob}
                         />
                     ))}
@@ -5874,6 +6040,9 @@ function ClientRow({
     disabled,
     openJobCount,
     property,
+    salesMode,
+    onOpenClientHomeOS,
+    onOpenClientEstimate,
     onStartServiceJob,
 }: {
     client: CompanyClient;
@@ -5881,6 +6050,9 @@ function ClientRow({
     disabled: boolean;
     openJobCount: number;
     property?: PropertyRecord;
+    salesMode?: boolean;
+    onOpenClientHomeOS?: (client: CompanyClient) => void;
+    onOpenClientEstimate?: (client: CompanyClient) => void;
     onStartServiceJob: (client: CompanyClient, property?: PropertyRecord) => void;
 }) {
     const { theme } = useTheme();
@@ -5906,22 +6078,44 @@ function ClientRow({
             <Text style={[clientMetaTextStyle, { color: theme.colors.mutedText }]}>
                 Open jobs: {openJobCount}
             </Text>
-            <ThemedButton
-                title={openJobCount > 0 ? 'Existing Job Open' : creating ? 'Creating Test Job...' : 'Create Test Job'}
-                variant="secondary"
-                disabled={disabled || openJobCount > 0}
-                onPress={() => onStartServiceJob(client, property)}
-                style={clientActionButtonStyle}
-            />
-            <Text style={[testActionNoteStyle, { color: theme.colors.mutedText }]}>
-                Test/admin action until ManagementOS dispatch creates production jobs.
-            </Text>
+            {salesMode ? (
+                <View style={buttonRowStyle}>
+                    <ThemedButton
+                        title="Open HomeOS"
+                        variant="secondary"
+                        onPress={() => onOpenClientHomeOS?.(client)}
+                        style={clientActionButtonStyle}
+                    />
+                    <ThemedButton
+                        title="Create Estimate / Proposal"
+                        onPress={() => onOpenClientEstimate?.(client)}
+                        style={clientActionButtonStyle}
+                    />
+                </View>
+            ) : (
+                <>
+                    <ThemedButton
+                        title={openJobCount > 0 ? 'Existing Job Open' : creating ? 'Creating Test Job...' : 'Create Test Job'}
+                        variant="secondary"
+                        disabled={disabled || openJobCount > 0}
+                        onPress={() => onStartServiceJob(client, property)}
+                        style={clientActionButtonStyle}
+                    />
+                    <Text style={[testActionNoteStyle, { color: theme.colors.mutedText }]}>
+                        Test/admin action until ManagementOS dispatch creates production jobs.
+                    </Text>
+                </>
+            )}
         </View>
     );
 }
 
 function isTechnicianRole(role?: string | null) {
     return isTechnicianCompanyRole(role);
+}
+
+function isSalesRole(role?: string | null) {
+    return isSalesCompanyRole(role);
 }
 
 function isAssignableTechnicianRole(role?: string | null) {

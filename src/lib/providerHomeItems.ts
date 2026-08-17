@@ -90,6 +90,7 @@ export type ProviderHomeItemsReadContext = Pick<
 
 export type ProviderHomeItemsReadStrategy =
     | 'assigned_rpc'
+    | 'sales_company_rpc'
     | 'platform_admin_direct'
     | 'denied';
 
@@ -105,6 +106,10 @@ export function getProviderHomeItemsReadStrategy(
     context: ProviderHomeItemsReadContext,
     membershipRole?: string | null
 ): ProviderHomeItemsReadStrategy {
+    if (normalizeProviderCompanyRole(membershipRole) === 'sales') {
+        return 'sales_company_rpc';
+    }
+
     if (hasAssignedProviderHomeItemsContext(context)) {
         return 'assigned_rpc';
     }
@@ -112,6 +117,16 @@ export function getProviderHomeItemsReadStrategy(
     return cleanRequiredText(membershipRole || '').toLowerCase() === 'provider_platform_admin'
         ? 'platform_admin_direct'
         : 'denied';
+}
+
+export function usesProviderHomeItemsRpc(strategy: ProviderHomeItemsReadStrategy) {
+    return strategy === 'assigned_rpc' || strategy === 'sales_company_rpc';
+}
+
+export function getProviderHomeItemsRpcName(strategy: ProviderHomeItemsReadStrategy) {
+    return strategy === 'sales_company_rpc'
+        ? 'get_sales_company_homeos_items'
+        : 'get_provider_homeos_items';
 }
 
 export function buildProviderHomeItemsRpcArgs(
@@ -162,4 +177,15 @@ function cleanOptionalText(value?: string | null) {
     const text = String(value || '').trim();
 
     return text || null;
+}
+
+function normalizeProviderCompanyRole(role?: string | null) {
+    const normalized = cleanRequiredText(role || '').toLowerCase();
+    const companyRole = normalized.startsWith('provider_') ? normalized.slice('provider_'.length) : normalized;
+
+    if (['sales tech', 'sales_tech', 'sales-tech', 'sales technician', 'sales representative', 'sales rep'].includes(companyRole)) {
+        return 'sales';
+    }
+
+    return companyRole;
 }

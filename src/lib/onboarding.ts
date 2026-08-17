@@ -35,7 +35,7 @@ export {
 export const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 
 const MANAGEMENT_COMPANY_ROLES = ['owner', 'admin', 'manager', 'office', 'dispatcher', 'supervisor'];
-const TECHOS_COMPANY_ROLES = ['technician'];
+const TECHOS_COMPANY_ROLES = ['technician', 'sales'];
 
 type ResolveLoggedInUserRouteOptions = {
     preferredCompanyId?: string | null;

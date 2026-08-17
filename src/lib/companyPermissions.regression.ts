@@ -15,6 +15,8 @@ export function runCompanyPermissionsRegressions() {
     unrelatedCompanyRolesCannotUseEstimateWorkflow();
     activeDispatcherCanUseDispatchWithoutManagementFlags();
     inactiveDispatcherCannotUseDispatch();
+    salesTechCanAuthorProposalsWithoutOperationalControl();
+    salesTechRestrictionsCannotBeOverridden();
 }
 
 function activeTechnicianCanUseEstimateWorkflow() {
@@ -105,6 +107,33 @@ function inactiveDispatcherCannotUseDispatch() {
         role: 'dispatcher',
         status: 'suspended',
     }), 'Suspended dispatcher memberships should be denied Dispatch access.');
+}
+
+function salesTechCanAuthorProposalsWithoutOperationalControl() {
+    const sales = { role: 'sales', status: 'active' };
+
+    assert(canUseCompanyEstimateWorkflow(sales), 'Sales Tech should create estimates and proposals.');
+    assert(hasCompanyPermission(sales, 'can_view_techos'), 'Sales Tech should open the scoped TechOS sales workspace.');
+    assert(hasCompanyPermission(sales, 'can_view_customers'), 'Sales Tech should read company clients.');
+    assert(hasCompanyPermission(sales, 'can_view_jobs'), 'Sales Tech should read authorized company work.');
+    assert(!canAccessDispatch(sales), 'Sales Tech must not control Dispatch.');
+    assert(!hasCompanyPermission(sales, 'can_manage_price_book'), 'Sales Tech must not manage the Price Book.');
+}
+
+function salesTechRestrictionsCannotBeOverridden() {
+    const sales = {
+        role: 'sales',
+        status: 'active',
+        permissions: {
+            can_manage_price_book: true,
+            can_manage_company_users: true,
+            can_manage_company_profile: true,
+        },
+    };
+
+    assert(!hasCompanyPermission(sales, 'can_manage_price_book'), 'Sales Tech Price Book denial must override a saved profile flag.');
+    assert(!hasCompanyPermission(sales, 'can_manage_company_users'), 'Sales Tech team-admin denial must override a saved profile flag.');
+    assert(!hasCompanyPermission(sales, 'can_manage_company_profile'), 'Sales Tech company-admin denial must override a saved profile flag.');
 }
 
 function assert(condition: unknown, message: string): asserts condition {

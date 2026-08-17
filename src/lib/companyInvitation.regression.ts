@@ -25,7 +25,7 @@ export function runCompanyInvitationRegressions() {
 function everyTeamRoleRemainsSelectable() {
     assert(
         COMPANY_ROLE_OPTIONS.map((option) => option.value).join(',') ===
-            'owner,admin,manager,office,dispatcher,supervisor,technician',
+            'owner,admin,manager,office,dispatcher,supervisor,sales,technician',
         'The invitation form should expose every approved company role exactly once.'
     );
 }
@@ -38,6 +38,7 @@ function permissionFractionsRemainCoverageSummaries() {
         office: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
         dispatcher: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
         supervisor: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
+        sales: ['can_view_techos', 'can_create_estimates', 'can_add_item_to_estimate', 'can_view_customers', 'can_view_jobs'],
         technician: ['can_view_techos', 'can_view_jobs'],
     };
 
@@ -100,6 +101,15 @@ function workspaceDerivationKeepsRolesAndCompaniesIsolated() {
         activePropertyMembershipCount: 0,
     });
     assert(technician.length === 1 && technician[0]?.label === 'TechOS', 'Technicians should not inherit ManagementOS access.');
+
+    const sales = buildAuthorizedWorkspaces({
+        profile: { role: 'WORK' },
+        companyAccess: [companyAccess({ role: 'sales', can_view_techos: true })],
+        activePropertyMembershipCount: 0,
+    });
+    assert(sales.length === 1 && sales[0]?.label === 'TechOS', 'Sales Tech should receive only the scoped TechOS workspace.');
+    assert(sales[0]?.companyRole === 'sales', 'Sales workspace routing should retain the role boundary.');
+    assert(!sales.some((workspace) => workspace.label === 'ManagementOS'), 'Sales Tech must not inherit ManagementOS.');
 
     const suspended = buildAuthorizedWorkspaces({
         profile: { role: 'WORK' },

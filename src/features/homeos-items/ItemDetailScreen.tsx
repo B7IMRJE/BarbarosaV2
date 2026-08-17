@@ -60,7 +60,9 @@ import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     getProviderHomeItemsReadStrategy,
+    getProviderHomeItemsRpcName,
     hasAssignedProviderHomeItemsContext,
+    usesProviderHomeItemsRpc,
     type ProviderHomeItemRpcRow,
 } from '../../lib/providerHomeItems';
 import {
@@ -576,6 +578,7 @@ export default function ItemScreen() {
     const [estimateAccess, setEstimateAccess] = useState<CompanyPermissionAccess | null>(null);
     const [checkingEstimateAccess, setCheckingEstimateAccess] = useState(false);
     const [estimatePermissionMessage, setEstimatePermissionMessage] = useState('');
+    const [providerMembershipRole, setProviderMembershipRole] = useState('');
     const [removingFileId, setRemovingFileId] = useState<string | null>(null);
     const [pendingFileRemoveId, setPendingFileRemoveId] = useState<string | null>(null);
     const [addingMaintenanceKey, setAddingMaintenanceKey] = useState<string | null>(null);
@@ -638,6 +641,10 @@ export default function ItemScreen() {
     const refreshProviderStagedEntriesEvent = useEffectEvent(refreshProviderStagedEntries);
     const openProviderEditEvent = useEffectEvent(() => openProviderPanel('edit'));
     const isProviderMode = Boolean(providerModeContext);
+    const isSalesProviderReadOnly = Boolean(providerModeContext) && getProviderHomeItemsReadStrategy(
+        providerModeContext!,
+        providerMembershipRole
+    ) === 'sales_company_rpc';
     const hasItem = Boolean(item);
 
     useEffect(() => {
@@ -1440,6 +1447,7 @@ export default function ItemScreen() {
         setEstimateAccess(null);
         setEstimatePermissionMessage('');
         setCheckingEstimateAccess(false);
+        setProviderMembershipRole('');
         setRelatedItems([]);
         setFiles([]);
         setMaintenanceTasks([]);
@@ -1491,6 +1499,7 @@ export default function ItemScreen() {
         }
 
         if (providerModeContext) {
+            setProviderMembershipRole(activeProperty.membershipRole);
             await loadEstimateAccessForCurrentContext();
         }
 
@@ -1505,9 +1514,9 @@ export default function ItemScreen() {
 
             if (readStrategy === 'denied') {
                 loadErrorMessage = 'Client HomeOS requires an assigned request, visit, or job context.';
-            } else if (readStrategy === 'assigned_rpc') {
+            } else if (usesProviderHomeItemsRpc(readStrategy)) {
                 const { data, error } = await supabase.rpc(
-                    'get_provider_homeos_items',
+                    getProviderHomeItemsRpcName(readStrategy),
                     buildProviderHomeItemsRpcArgs(providerModeContext, { itemSlug: String(slug) })
                 );
 
@@ -1679,9 +1688,9 @@ export default function ItemScreen() {
 
             if (readStrategy === 'denied') return [];
 
-            if (readStrategy === 'assigned_rpc') {
+            if (usesProviderHomeItemsRpc(readStrategy)) {
                 const { data, error } = await supabase.rpc(
-                    'get_provider_homeos_items',
+                    getProviderHomeItemsRpcName(readStrategy),
                     buildProviderHomeItemsRpcArgs(providerModeContext)
                 );
 
@@ -5093,7 +5102,7 @@ export default function ItemScreen() {
                             'Estimate',
                             'Quote, view draft, or start the job thread.'
                         ) : null}
-                        {providerModeContext ? renderSectionTile(
+                        {providerModeContext && !isSalesProviderReadOnly ? renderSectionTile(
                             'provider',
                             'Provider Updates',
                             'Notes, findings, photos, and client updates.'
@@ -5103,13 +5112,13 @@ export default function ItemScreen() {
                             'Catalog',
                             'Browse matching company products and quote proposals.'
                         ) : null}
-                        {renderSectionTile(
+                        {!isSalesProviderReadOnly && renderSectionTile(
                             'media',
                             'Photos & Docs',
                             'Photos, documents, and main item media.',
                             `${galleryPhotos.length + documents.length}`
                         )}
-                        {renderSectionTile(
+                        {!isSalesProviderReadOnly && renderSectionTile(
                             'item',
                             'Item Management',
                             'Edit, add components, request service, or archive.',
@@ -5532,16 +5541,18 @@ export default function ItemScreen() {
                                 textStyle={scaleStyle(buttonTextStyle)}
                             />
 
-                            <ThemedButton
-                                title="Start Job Thread"
-                                onPress={handleStartJobThread}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
+                            {!isSalesProviderReadOnly && (
+                                <ThemedButton
+                                    title="Start Job Thread"
+                                    onPress={handleStartJobThread}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                            )}
                         </>
                     ) : null}
 
-                    {providerModeContext ? renderActionGroup(
+                    {providerModeContext && !isSalesProviderReadOnly ? renderActionGroup(
                         'provider',
                         'Provider updates',
                         'Stage notes, findings, and client-update work without changing private HomeOS media.',
@@ -5594,6 +5605,10 @@ export default function ItemScreen() {
                             serviceRequestId={providerModeContext.serviceRequestId}
                             scheduleSlotId={providerModeContext.scheduleSlotId}
                             jobId={providerModeContext.jobId}
+                            salesAccess={getProviderHomeItemsReadStrategy(
+                                providerModeContext,
+                                providerMembershipRole
+                            ) === 'sales_company_rpc'}
                             itemContext={{
                                 name: item.name,
                                 system: item.system,
@@ -5610,7 +5625,7 @@ export default function ItemScreen() {
                         />
                     ) : null}
 
-                    {renderActionGroup(
+                    {!isSalesProviderReadOnly && renderActionGroup(
                         'media',
                         'Photos & documents',
                         providerModeContext
@@ -5731,7 +5746,7 @@ export default function ItemScreen() {
                         </>
                     )}
 
-                    {renderActionGroup(
+                    {!isSalesProviderReadOnly && renderActionGroup(
                         'item',
                         'Item management',
                         'Edit this item, add components inside it, or request/archive work.',
@@ -5767,8 +5782,8 @@ export default function ItemScreen() {
                         </>
                     )}
 
-                    {renderProviderWorkPanel()}
-                    {renderProviderStagedUpdatesPanel()}
+                    {!isSalesProviderReadOnly && renderProviderWorkPanel()}
+                    {!isSalesProviderReadOnly && renderProviderStagedUpdatesPanel()}
 
                     {!!message && (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>

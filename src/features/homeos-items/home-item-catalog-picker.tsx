@@ -45,6 +45,7 @@ export default function HomeItemCatalogPicker({
     serviceRequestId,
     scheduleSlotId,
     jobId,
+    salesAccess,
     itemContext,
     starterTemplateKey: persistedStarterTemplateKey,
     quoteAuthorized,
@@ -80,7 +81,7 @@ export default function HomeItemCatalogPicker({
 
         setLoading(true);
         setMessage('');
-        const routeContext = { companyId, propertyId, homeItemId, serviceRequestId, scheduleSlotId, jobId };
+        const routeContext = { companyId, propertyId, homeItemId, serviceRequestId, scheduleSlotId, jobId, salesAccess };
         void Promise.all([
             loadApprovedMasterCatalogForCompany(companyId),
             quoteAuthorized ? loadHomeItemCatalogProposals(routeContext) : Promise.resolve([]),
@@ -123,6 +124,7 @@ export default function HomeItemCatalogPicker({
         serviceRequestId,
         scheduleSlotId,
         jobId,
+        salesAccess,
         quoteAuthorized,
         itemName,
         itemSystem,
@@ -188,6 +190,7 @@ export default function HomeItemCatalogPicker({
                 serviceRequestId,
                 scheduleSlotId,
                 jobId,
+                salesAccess,
                 productVariantId: selectedItem.id,
                 estimateCategory: estimateCategoryForHomeItemCatalog(itemContext, selectedItem),
                 source: 'provider_mode',
@@ -217,6 +220,7 @@ export default function HomeItemCatalogPicker({
                 serviceRequestId,
                 scheduleSlotId,
                 jobId,
+                salesAccess,
                 products: selectedItemsToAdd.map((item) => ({
                     productVariantId: item.id,
                     estimateCategory: estimateCategoryForHomeItemCatalog(itemContext, item),

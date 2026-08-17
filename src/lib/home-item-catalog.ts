@@ -32,10 +32,13 @@ export type HomeItemCatalogRouteContext = {
     serviceRequestId?: string | null;
     scheduleSlotId?: string | null;
     jobId?: string | null;
+    salesAccess?: boolean;
 };
 
 export async function loadHomeItemCatalogProposals(context: HomeItemCatalogRouteContext) {
-    const { data, error } = await supabase.rpc('get_home_item_catalog_proposals', {
+    const { data, error } = await supabase.rpc(context.salesAccess
+        ? 'get_sales_home_item_catalog_proposals'
+        : 'get_home_item_catalog_proposals', {
         p_company_id: context.companyId,
         p_property_id: context.propertyId,
         p_home_item_id: context.homeItemId,
@@ -55,7 +58,9 @@ export async function addHomeItemCatalogProductToQuote(input: HomeItemCatalogRou
     estimateCategory: EstimateOptionCategory;
     source: EstimateSessionSource;
 }) {
-    const { data, error } = await supabase.rpc('add_home_item_catalog_product_to_quote_v2', {
+    const { data, error } = await supabase.rpc(input.salesAccess
+        ? 'add_sales_home_item_catalog_product_to_quote_v2'
+        : 'add_home_item_catalog_product_to_quote_v2', {
         p_company_id: input.companyId,
         p_property_id: input.propertyId,
         p_home_item_id: input.homeItemId,
@@ -75,7 +80,9 @@ export async function addHomeItemCatalogProductsToQuote(input: HomeItemCatalogRo
     products: { productVariantId: string; estimateCategory: EstimateOptionCategory }[];
     source: EstimateSessionSource;
 }) {
-    const { data, error } = await supabase.rpc('add_home_item_catalog_products_to_quote_v2', {
+    const { data, error } = await supabase.rpc(input.salesAccess
+        ? 'add_sales_home_item_catalog_products_to_quote_v2'
+        : 'add_home_item_catalog_products_to_quote_v2', {
         p_company_id: input.companyId,
         p_property_id: input.propertyId,
         p_home_item_id: input.homeItemId,

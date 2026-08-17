@@ -614,18 +614,22 @@ function resolveRedirectForPath(
   }
 
   if (routeDecision.reason === 'company-technician') {
-    if (isAdminShellPath(pathname)) {
+    const salesTech = isSalesTechRole(routeDecision.companyRole);
+
+    if (isAdminShellPath(pathname) && !salesTech) {
       return null;
     }
 
     if (
       isAllowedCompanyClientPath(pathname, routeDecision.allowedCompanyIds) ||
-      isAllowedCompanyPriceBookPath(pathname, routeDecision.allowedCompanyIds) ||
-      isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds) ||
+      (!salesTech && isAllowedCompanyPriceBookPath(pathname, routeDecision.allowedCompanyIds)) ||
+      (salesTech
+        ? isSalesProviderModeHomeOsReadPath(pathname, routeParams, routeDecision.allowedCompanyIds)
+        : isProviderModeHomeOsPath(pathname, routeParams, routeDecision.allowedCompanyIds)) ||
       isTechOSPath(pathname) ||
       isEstimatePath(pathname) ||
-      isJobWorkflowPath(pathname) ||
-      pathname === COMPANY_INVITATIONS_ROUTE ||
+      (!salesTech && isJobWorkflowPath(pathname)) ||
+      (!salesTech && pathname === COMPANY_INVITATIONS_ROUTE) ||
       pathname === PROFILE_CHANGE_PASSWORD_ROUTE
     ) {
       return null;
@@ -724,20 +728,49 @@ function isAuthorizedWorkspacePath(
     }
 
     if (workspace.kind === 'technician') {
+      const salesTech = isSalesTechRole(workspace.companyRole);
+
       return (
         isAllowedCompanyClientPath(pathname, companyIds) ||
-        isAllowedCompanyPriceBookPath(pathname, companyIds) ||
-        isProviderModeHomeOsPath(pathname, routeParams, companyIds) ||
+        (!salesTech && isAllowedCompanyPriceBookPath(pathname, companyIds)) ||
+        (salesTech
+          ? isSalesProviderModeHomeOsReadPath(pathname, routeParams, companyIds)
+          : isProviderModeHomeOsPath(pathname, routeParams, companyIds)) ||
         isTechOSPath(pathname) ||
         isEstimatePath(pathname) ||
-        isJobWorkflowPath(pathname) ||
-        pathname === COMPANY_INVITATIONS_ROUTE ||
+        (!salesTech && isJobWorkflowPath(pathname)) ||
+        (!salesTech && pathname === COMPANY_INVITATIONS_ROUTE) ||
         pathname === PROFILE_CHANGE_PASSWORD_ROUTE
       );
     }
 
     return isHomeWorkspacePath(pathname);
   });
+}
+
+function isSalesTechRole(role?: string | null) {
+  const normalizedRole = String(role || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+
+  return ['sales', 'sales_tech', 'sales_technician', 'sales_representative', 'sales_rep'].includes(normalizedRole);
+}
+
+function isSalesProviderModeHomeOsReadPath(
+  pathname: string,
+  routeParams: ProviderModeRouteParams,
+  allowedCompanyIds?: string[]
+) {
+  if (!hasValidProviderModeRouteParams(routeParams, allowedCompanyIds)) return false;
+
+  return (
+    pathname === HOME_ROUTE ||
+    pathname === '/equipment' ||
+    pathname.startsWith('/system/') ||
+    (
+      pathname.startsWith('/item/') &&
+      pathname !== '/item/create' &&
+      pathname !== '/item/edit'
+    )
+  );
 }
 
 function isHomeWorkspacePath(pathname: string) {

@@ -2,6 +2,7 @@ import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     getProviderHomeItemsReadStrategy,
+    getProviderHomeItemsRpcName,
     hasAssignedProviderHomeItemsContext,
 } from './providerHomeItems';
 
@@ -17,6 +18,7 @@ export function runProviderHomeItemsRegressions() {
     emptyOptionalIdsBecomeNullRpcArgs();
     providerItemCreateUsesAssignedContextAndCustomerHomeFields();
     providerItemCreateKeepsCustomGasValvePayload();
+    salesTechUsesReadOnlyCompanyClientRpc();
 }
 
 function platformAdminCanReadDirectClientHomeWithoutAssignment() {
@@ -31,6 +33,15 @@ function ordinaryProviderCannotReadDirectClientHomeWithoutAssignment() {
         getProviderHomeItemsReadStrategy(createUnassignedContext(), 'provider_company_admin') === 'denied',
         'An ordinary provider should still require an assigned request, visit, or job.'
     );
+}
+
+function salesTechUsesReadOnlyCompanyClientRpc() {
+    const directStrategy = getProviderHomeItemsReadStrategy(createUnassignedContext(), 'provider_sales');
+    const assignedStrategy = getProviderHomeItemsReadStrategy(createContext(), 'sales tech');
+
+    assert(directStrategy === 'sales_company_rpc', 'Sales Tech should read an active company client home without an arbitrary historical assignment.');
+    assert(assignedStrategy === 'sales_company_rpc', 'Sales Tech should remain on the dedicated read-only RPC even when route context exists.');
+    assert(getProviderHomeItemsRpcName(directStrategy) === 'get_sales_company_homeos_items', 'Sales reads must not reuse the provider write authorization helper.');
 }
 
 function assignedPlatformAdminKeepsAssignedRpcBoundary() {

@@ -72,6 +72,23 @@ const TECHNICIAN_PERMISSIONS: CompanyPermissionSet = {
     can_manage_company_profile: false,
 };
 
+const SALES_TECH_PERMISSIONS: CompanyPermissionSet = {
+    can_view_techos: true,
+    can_create_estimates: true,
+    can_add_item_to_estimate: true,
+    can_manage_price_book: false,
+    can_view_customers: true,
+    can_view_jobs: true,
+    can_manage_company_users: false,
+    can_manage_company_profile: false,
+};
+
+export const SALES_TECH_RESTRICTED_PERMISSION_KEYS: CompanyPermissionKey[] = [
+    'can_manage_price_book',
+    'can_manage_company_users',
+    'can_manage_company_profile',
+];
+
 const DISPATCH_PERMISSIONS: CompanyPermissionSet = {
     can_view_techos: true,
     can_create_estimates: false,
@@ -132,6 +149,10 @@ export function isTechnicianCompanyRole(role?: string | null) {
     return normalizeCompanyRole(role) === 'technician';
 }
 
+export function isSalesCompanyRole(role?: string | null) {
+    return normalizeCompanyRole(role) === 'sales';
+}
+
 export function isDispatchCompanyRole(role?: string | null) {
     return ['office', 'dispatcher', 'supervisor'].includes(normalizeCompanyRole(role));
 }
@@ -140,6 +161,7 @@ export function getRoleDefaultPermissions(role?: string | null): CompanyPermissi
     const normalizedRole = normalizeCompanyRole(role);
 
     if (normalizedRole === 'technician') return { ...TECHNICIAN_PERMISSIONS };
+    if (normalizedRole === 'sales') return { ...SALES_TECH_PERMISSIONS };
     if (isDispatchCompanyRole(normalizedRole)) return { ...DISPATCH_PERMISSIONS };
     if (normalizedRole === 'manager') return { ...MANAGER_PERMISSIONS };
     if (normalizedRole === 'admin') return { ...ADMIN_PERMISSIONS };
@@ -153,10 +175,10 @@ export function resolveCompanyPermissions(subject: CompanyAccessSubject): Compan
         return { ...EMPTY_PERMISSIONS };
     }
 
-    return {
+    return enforceCompanyRoleRestrictions(subject.role, {
         ...getRoleDefaultPermissions(subject.role),
         ...sanitizePermissionOverrides(subject.permissions),
-    };
+    });
 }
 
 export function hasCompanyPermission(
@@ -176,6 +198,11 @@ export function canAccessDispatch(subject?: CompanyAccessSubject | null) {
 
 export function canUseCompanyEstimateWorkflow(subject?: CompanyAccessSubject | null) {
     if (!subject || !isActiveCompanyStatus(subject.status)) return false;
+
+    if (isSalesCompanyRole(subject.role)) {
+        const permissions = resolveCompanyPermissions(subject);
+        return permissions.can_create_estimates && permissions.can_add_item_to_estimate;
+    }
 
     return ['owner', 'admin', 'manager', 'technician'].includes(normalizeCompanyRole(subject.role));
 }
@@ -484,7 +511,7 @@ function hasResolvedPermissionBooleans(row: CompanyPermissionRow) {
 function readResolvedPermissionBooleans(row: CompanyPermissionRow): CompanyPermissionSet {
     const defaults = getRoleDefaultPermissions(row.role);
 
-    return {
+    return enforceCompanyRoleRestrictions(row.role, {
         can_view_techos: typeof row.can_view_techos === 'boolean' ? row.can_view_techos : defaults.can_view_techos,
         can_create_estimates: typeof row.can_create_estimates === 'boolean' ? row.can_create_estimates : defaults.can_create_estimates,
         can_add_item_to_estimate: typeof row.can_add_item_to_estimate === 'boolean' ? row.can_add_item_to_estimate : defaults.can_add_item_to_estimate,
@@ -493,6 +520,20 @@ function readResolvedPermissionBooleans(row: CompanyPermissionRow): CompanyPermi
         can_view_jobs: typeof row.can_view_jobs === 'boolean' ? row.can_view_jobs : defaults.can_view_jobs,
         can_manage_company_users: typeof row.can_manage_company_users === 'boolean' ? row.can_manage_company_users : defaults.can_manage_company_users,
         can_manage_company_profile: typeof row.can_manage_company_profile === 'boolean' ? row.can_manage_company_profile : defaults.can_manage_company_profile,
+    });
+}
+
+function enforceCompanyRoleRestrictions(
+    role: string | null | undefined,
+    permissions: CompanyPermissionSet
+): CompanyPermissionSet {
+    if (!isSalesCompanyRole(role)) return permissions;
+
+    return {
+        ...permissions,
+        can_manage_price_book: false,
+        can_manage_company_users: false,
+        can_manage_company_profile: false,
     };
 }
 

@@ -21,6 +21,8 @@ import {
 import {
     buildProviderHomeItemsRpcArgs,
     getProviderHomeItemsReadStrategy,
+    getProviderHomeItemsRpcName,
+    usesProviderHomeItemsRpc,
 } from '../../../lib/providerHomeItems';
 import { isStarterHomeItemShell } from '../../../lib/starterHomeSetup';
 import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
@@ -154,9 +156,9 @@ export default function SystemAreasScreen() {
 
             if (readStrategy === 'denied') {
                 loadErrorMessage = 'Provider context is missing the assigned request, visit, or job. Use Back to Current Job and reopen Client HomeOS.';
-            } else if (readStrategy === 'assigned_rpc') {
+            } else if (usesProviderHomeItemsRpc(readStrategy)) {
                 const { data, error } = await supabase.rpc(
-                    'get_provider_homeos_items',
+                    getProviderHomeItemsRpcName(readStrategy),
                     buildProviderHomeItemsRpcArgs(providerModeContext)
                 );
 

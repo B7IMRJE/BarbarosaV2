@@ -7,6 +7,7 @@ export type CompanyRole =
     | 'office'
     | 'dispatcher'
     | 'supervisor'
+    | 'sales'
     | 'technician';
 
 export type CustomizableCompanyRole = Exclude<CompanyRole, 'owner'>;
@@ -18,6 +19,7 @@ export const COMPANY_ROLE_OPTIONS: { label: string; value: CompanyRole }[] = [
     { label: 'Office', value: 'office' },
     { label: 'Dispatcher', value: 'dispatcher' },
     { label: 'Supervisor', value: 'supervisor' },
+    { label: 'Sales Tech (Sales)', value: 'sales' },
     { label: 'Technician', value: 'technician' },
 ];
 
