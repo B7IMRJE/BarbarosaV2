@@ -215,6 +215,12 @@ export type EstimateCategoryTemplate = {
     hiddenFromPicker?: boolean;
 };
 
+export type RepipeIncludedScopeItem = {
+    id: string;
+    label: string;
+    detail: string | null;
+};
+
 export type EstimateProductTier = 'Essential' | 'Professional' | 'Premium';
 
 export type EstimateProductMedia = {
@@ -780,10 +786,21 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             yesNoQuestion('attic_access', 'Attic access', true),
             selectQuestion('existing_pipe_material', 'Existing pipe material', true, ['copper', 'PEX', 'CPVC', 'galvanized', 'polybutylene', 'mixed / unknown']),
             selectQuestion('proposed_pipe_material', 'Proposed pipe material', true, ['PEX', 'copper', 'management selected']),
+            selectQuestion('repipe_stub_material', 'Fixture stub material', true, ['copper', 'PEX']),
+            yesNoQuestion('repipe_angle_stops_included', 'Angle stops included', true),
+            counterQuestion('repipe_angle_stop_count', 'Angle stop quantity', true, 0, 100),
+            yesNoQuestion('repipe_valves_included', 'Other valves included', true),
+            counterQuestion('repipe_valve_count', 'Other valve quantity', true, 0, 100),
+            yesNoQuestion('repipe_water_heater_included', 'Water heater included', true),
+            yesNoQuestion('repipe_expansion_tank_included', 'Expansion tank included', true),
+            yesNoQuestion('repipe_halo_5_included', 'HALO 5 included', true),
+            yesNoQuestion('repipe_flo_included', 'Flo by Moen smart shutoff included', true),
+            yesNoQuestion('repipe_water_main_riser_included', 'Water main riser included', true),
             yesNoQuestion('occupied', 'Occupied during work', true),
             yesNoQuestion('permit', 'Permit', true),
             selectQuestion('patching', 'Patching', true, ['included', 'excluded', 'allowance / separate']),
             selectQuestion('routing_access_difficulty', 'Routing / access difficulty', true, ['standard', 'moderate', 'difficult']),
+            noteQuestion('repipe_scope_notes', 'Additional repipe scope notes', false),
         ],
     },
     scopedEstimateTemplate({
@@ -1380,6 +1397,69 @@ function formatPriceKeyLabel(priceKey: string) {
 
 export function getEstimateCategoryTemplate(category: EstimateOptionCategory) {
     return estimateCategoryTemplates.find((template) => template.id === category) || estimateCategoryTemplates[0];
+}
+
+export function getInitialEstimateAnswers(category: EstimateOptionCategory): EstimateAnswerSet {
+    if (category !== 'whole_home_repipe') return {};
+
+    return {
+        repipe_angle_stops_included: 'no',
+        repipe_angle_stop_count: 0,
+        repipe_valves_included: 'no',
+        repipe_valve_count: 0,
+        repipe_water_heater_included: 'no',
+        repipe_expansion_tank_included: 'no',
+        repipe_halo_5_included: 'no',
+        repipe_flo_included: 'no',
+        repipe_water_main_riser_included: 'yes',
+    };
+}
+
+export function buildRepipeIncludedScopeSummary(answers: EstimateAnswerSet): RepipeIncludedScopeItem[] {
+    const included: RepipeIncludedScopeItem[] = [];
+    const angleStopCount = readPositiveEstimateQuantity(answers.repipe_angle_stop_count);
+    const valveCount = readPositiveEstimateQuantity(answers.repipe_valve_count);
+    const stubMaterial = readAnswerText(answers.repipe_stub_material);
+
+    if (stubMaterial) {
+        included.push({
+            id: 'fixture-stubs',
+            label: 'Fixture stubs',
+            detail: formatAnswerLabel(stubMaterial),
+        });
+    }
+    if (answerIsYes(answers.repipe_angle_stops_included)) {
+        included.push({
+            id: 'angle-stops',
+            label: 'Angle stops',
+            detail: `${angleStopCount} included`,
+        });
+    }
+    if (answerIsYes(answers.repipe_valves_included)) {
+        included.push({
+            id: 'other-valves',
+            label: 'Other valves',
+            detail: `${valveCount} included`,
+        });
+    }
+
+    for (const item of [
+        ['water-heater', 'Water heater', answers.repipe_water_heater_included],
+        ['expansion-tank', 'Expansion tank', answers.repipe_expansion_tank_included],
+        ['halo-5', 'HALO 5', answers.repipe_halo_5_included],
+        ['flo-by-moen', 'Flo by Moen smart shutoff', answers.repipe_flo_included],
+        ['water-main-riser', 'Water main riser', answers.repipe_water_main_riser_included],
+    ] as const) {
+        if (answerIsYes(item[2])) included.push({ id: item[0], label: item[1], detail: null });
+    }
+
+    return included;
+}
+
+export function formatRepipeIncludedScopeSummary(answers: EstimateAnswerSet) {
+    return buildRepipeIncludedScopeSummary(answers).map((item) =>
+        item.detail ? `${item.label}: ${item.detail}` : item.label
+    );
 }
 
 export function readEstimateOptionCategory(value: unknown): EstimateOptionCategory | null {
@@ -2400,6 +2480,15 @@ function buildDeterministicChoices(input: {
         );
     }
 
+    if (input.category === 'whole_home_repipe') {
+        return buildRepipeDeterministicChoices(
+            validPricingResults,
+            input.answers,
+            input.template,
+            input.draftContext
+        );
+    }
+
     const prebuiltChoices = input.category === 'faucet_replacement'
         ? buildFaucetDeterministicChoices(validPricingResults, input.products)
         : [];
@@ -2447,6 +2536,48 @@ function buildDeterministicChoices(input: {
     ];
 
     return choices.slice(0, 4);
+}
+
+function buildRepipeDeterministicChoices(
+    pricingResults: EstimatePricingResult[],
+    answers: EstimateAnswerSet,
+    template: EstimateCategoryTemplate,
+    draftContext: EstimateDraftContextLike | null
+) {
+    const homeownerName = preferredHomeownerFirstName(draftContext);
+    const includedScope = formatRepipeIncludedScopeSummary(answers);
+    const customerSelections = uniqueText([
+        ...includedScope.map((item) => `Included: ${item}`),
+        ...buildEstimateCustomerSelections(template, answers),
+    ]);
+
+    return pricingResults.slice(0, 4).map((pricingResult, index): EstimateChoice => {
+        const lineNames = pricingResult.lineItems.map((line) => line.name);
+        const baseTitle = lineNames.length === 1 ? lineNames[0] : 'Whole-Home Repipe — Confirmed Scope';
+        const title = homeownerName ? `${homeownerName}'s ${baseTitle}` : baseTitle;
+
+        return {
+            id: `individual-repipe-${index + 1}`,
+            kind: 'individual',
+            title,
+            shortSummary: includedScope.slice(0, 3).join(' · ') || 'Repipe scope captured for review',
+            homeownerExplanation: includedScope.length > 0
+                ? `What's Included in Your Repipe: ${includedScope.join('; ')}. The detailed option records the selected structure, access, material, permit, and patching conditions. Pricing uses only the company's active price book and remains editable by authorized staff.`
+                : 'Repipe scope is being documented. No included item is assumed until it is selected in the wizard.',
+            keyBenefits: ['Included scope listed plainly', 'Field selections preserved in the quote audit', 'No unselected add-ons assumed'],
+            whyItDiffers: 'This option reflects only the inclusions and quantities selected in the Repipe Wizard.',
+            recommendedReason: pricingResults.length === 1 ? 'Matches the documented repipe scope and active company price book.' : null,
+            productIds: [],
+            scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+            warrantyIds: [],
+            inclusionIds: pricingResult.lineItems.map((line) => line.code),
+            exclusionIds: [],
+            pricingResult,
+            recommended: pricingResults.length === 1,
+            displayOrder: index + 1,
+            customerSelections,
+        };
+    });
 }
 
 function buildExteriorPipeDeterministicChoices(
@@ -3368,6 +3499,10 @@ export function isEstimateQuestionAnswerComplete(
         if (!Number.isFinite(amount)) return false;
         if (question.min !== undefined && amount < question.min) return false;
         if (question.max !== undefined && amount > question.max) return false;
+
+        const controllingToggle = repipeCounterToggle(question.id);
+        if (controllingToggle && answerIsYes(answers[controllingToggle]) && amount < 1) return false;
+        if (controllingToggle && !answerIsYes(answers[controllingToggle]) && amount !== 0) return false;
     }
 
     if (question.type === 'single_select' || question.type === 'yes_no') {
@@ -3379,6 +3514,17 @@ export function isEstimateQuestionAnswerComplete(
     }
 
     return true;
+}
+
+function repipeCounterToggle(questionId: string) {
+    if (questionId === 'repipe_angle_stop_count') return 'repipe_angle_stops_included';
+    if (questionId === 'repipe_valve_count') return 'repipe_valves_included';
+
+    return null;
+}
+
+function answerIsYes(value: EstimateAnswerValue | undefined) {
+    return value === true || normalizeText(typeof value === 'string' ? value : '') === 'yes';
 }
 
 export function toggleEstimateMultiSelectAnswer(
@@ -3589,6 +3735,16 @@ function measurementQuestion(
     max?: number
 ): EstimateQuestionDefinition {
     return { id, label, type: 'measurement', required, min, max };
+}
+
+function counterQuestion(
+    id: string,
+    label: string,
+    required: boolean,
+    min = 0,
+    max?: number
+): EstimateQuestionDefinition {
+    return { id, label, type: 'counter', required, min, max };
 }
 
 function noteQuestion(id: string, label: string, required: boolean): EstimateQuestionDefinition {

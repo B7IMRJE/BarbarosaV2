@@ -41,6 +41,7 @@ const DISPATCH_WALL_ROUTE = '/dispatch-wall';
 const SCHEDULE_ROUTE = '/schedule';
 const ESTIMATE_ROUTE = '/estimate';
 const JOB_WORKFLOW_ROUTE = '/job-workflow';
+const PRESENTATION_ROUTE = '/presentation';
 const HOMEOS_SERVICE_ERROR_MESSAGE = 'Could not reach HomeOS services. Check connection and try again.';
 const PUBLIC_AUTH_ROUTES = new Set<string>([
   LOGIN_ROUTE,
@@ -74,6 +75,7 @@ export default function Layout() {
   const [routeGuardError, setRouteGuardError] = useState('');
   const currentRouteKey = routeRenderKey(pathname, routeParams);
   const routeIsSettled = approvedRouteKey === currentRouteKey && !initializing;
+  const publicPresentation = isPresentationPath(normalizePath(pathname));
   const checkLoginEvent = useEffectEvent(checkLogin);
 
   useEffect(() => {
@@ -204,7 +206,7 @@ export default function Layout() {
       const currentPath = normalizePath(currentPathname);
       const isPublicAuthPage = isPublicAuthPath(currentPath);
 
-      if (isPublicAuthPage || currentPath === COMPANY_INVITE_ROUTE || currentPath === CUSTOMER_INVITE_ROUTE) {
+      if (isPublicAuthPage || isPresentationPath(currentPath) || currentPath === COMPANY_INVITE_ROUTE || currentPath === CUSTOMER_INVITE_ROUTE) {
         finishCheck(runId);
         return;
       }
@@ -279,10 +281,12 @@ export default function Layout() {
           </View>
         ) : (
           <View style={{ flex: 1 }}>
-            <GlobalNavigation>
-              <Slot />
-            </GlobalNavigation>
-            {routeIsSettled && (
+            {publicPresentation ? <Slot /> : (
+              <GlobalNavigation>
+                <Slot />
+              </GlobalNavigation>
+            )}
+            {routeIsSettled && !publicPresentation && (
               <GlobalDispatchChatOverlay
                 pathname={pathname}
                 preferredCompanyId={firstRouteParam(routeParams.companyId)}
@@ -408,6 +412,10 @@ function isAuthPath(pathname: string) {
 
 function isPublicAuthPath(pathname: string) {
   return PUBLIC_AUTH_ROUTES.has(pathname);
+}
+
+function isPresentationPath(pathname: string) {
+  return pathname === PRESENTATION_ROUTE || pathname.startsWith(`${PRESENTATION_ROUTE}/`);
 }
 
 function isAllowedFirstHomeOnboardingPath(pathname: string) {
@@ -548,6 +556,10 @@ function resolveRedirectForPath(
   routeParams: ProviderModeRouteParams
 ) {
   if (isPublicAuthPath(pathname)) {
+    return null;
+  }
+
+  if (isPresentationPath(pathname)) {
     return null;
   }
 

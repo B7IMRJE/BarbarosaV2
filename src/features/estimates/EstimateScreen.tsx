@@ -1,6 +1,7 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
 import ProductCardImage from '../../components/catalog/product-card-image';
+import EstimatePresentationSessionPanel from './EstimatePresentationSessionPanel';
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
@@ -13,9 +14,11 @@ import {
     createEstimateRequirementSkipAnswer,
     estimateRequirementId,
     formatMoney,
+    formatRepipeIncludedScopeSummary,
     getEstimateCategoriesForWorkType,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
+    getInitialEstimateAnswers,
     getEstimateWorkTypeForCategory,
     getEstimateQuestionAllowedAnswers,
     getMeasurementRequirementPrompt,
@@ -769,7 +772,7 @@ export default function EstimateScreen() {
         setSelectedCategory(activeCategory);
         setSelectedWorkType(restoredCategory ? getEstimateWorkTypeForCategory(restoredCategory) : null);
         setEstimateCategoryChosen(Boolean(restoredCategory));
-        setAnswers({});
+        setAnswers(getInitialEstimateAnswers(activeCategory));
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
         setMeasurementDraftByKey({});
@@ -808,7 +811,7 @@ export default function EstimateScreen() {
 
         if (persistedSessionId && restoredCategory) {
             await Promise.all([
-                loadPersistedAnswers(persistedSessionId, persistedBuilderState?.measurementDraftByKey),
+                loadPersistedAnswers(persistedSessionId, activeCategory, persistedBuilderState?.measurementDraftByKey),
                 loadPersistedOptionSet(persistedSessionId, Boolean(persistedBuilderState)),
             ]);
         }
@@ -827,7 +830,10 @@ export default function EstimateScreen() {
                 draftItems,
                 draftContext: nextDraftContext,
                 category: activeCategory,
-                answers: persistedBuilderState?.answers || {},
+                answers: {
+                    ...getInitialEstimateAnswers(activeCategory),
+                    ...(persistedBuilderState?.answers || {}),
+                },
                 priceBookItems: priceBook.items,
                 technicianApproved: false,
             });
@@ -856,7 +862,10 @@ export default function EstimateScreen() {
         setSelectedWorkType(state.selectedWorkType);
         setEstimateCategoryChosen(state.estimateCategoryChosen);
         setSelectedCategory(state.selectedCategory);
-        setAnswers(state.answers);
+        setAnswers({
+            ...getInitialEstimateAnswers(state.selectedCategory),
+            ...state.answers,
+        });
         setMeasurementDraftByKey(state.measurementDraftByKey);
         setTechnicianApproved(state.technicianApproved);
         setAiDraftsByChoiceId(state.aiDraftsByChoiceId);
@@ -891,17 +900,22 @@ export default function EstimateScreen() {
 
     async function loadPersistedAnswers(
         sessionId: string,
+        category: EstimateOptionCategory,
         unsavedMeasurementDrafts: Record<string, string> = {},
     ) {
         try {
             const persistedAnswers = await loadEstimateSessionAnswers(sessionId);
+            const restoredAnswers = {
+                ...getInitialEstimateAnswers(category),
+                ...persistedAnswers,
+            };
 
-            setAnswers(persistedAnswers);
+            setAnswers(restoredAnswers);
             setMeasurementDraftByKey({
-                ...createMeasurementDrafts(persistedAnswers),
+                ...createMeasurementDrafts(restoredAnswers),
                 ...unsavedMeasurementDrafts,
             });
-            await loadPhotoPreviews(persistedAnswers);
+            await loadPhotoPreviews(restoredAnswers);
         } catch (error) {
             setMessage(`Estimate requirements could not be restored: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -1098,10 +1112,12 @@ export default function EstimateScreen() {
             ? categories.find((category) => category.serviceCategory === currentServiceCategory) || null
             : null;
 
+        const nextCategory = matchingCategory?.id || categories[0]?.id || 'faucet_replacement';
+
         setSelectedWorkType(workType);
         setCustomQuoteMode(false);
-        setSelectedCategory(matchingCategory?.id || categories[0]?.id || 'faucet_replacement');
-        resetEstimateChecklist();
+        setSelectedCategory(nextCategory);
+        resetEstimateChecklist(nextCategory);
         setEstimateCategoryChosen(Boolean(matchingCategory));
         setMessage(matchingCategory
             ? `${estimateWorkTypeOptions.find((option) => option.id === workType)?.label || 'Work type'} selected for ${matchingCategory.label}.`
@@ -1114,13 +1130,13 @@ export default function EstimateScreen() {
         setSelectedCategory(category);
         setCustomQuoteMode(false);
         setEstimateCategoryChosen(true);
-        resetEstimateChecklist();
+        resetEstimateChecklist(category);
         setMessage(`${getEstimateCategoryTemplate(category).label} checklist ready.`);
     }
 
-    function resetEstimateChecklist() {
+    function resetEstimateChecklist(category: EstimateOptionCategory = 'faucet_replacement') {
         setEstimateSession(null);
-        setAnswers({});
+        setAnswers(getInitialEstimateAnswers(category));
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
         setMeasurementDraftByKey({});
@@ -1162,7 +1178,7 @@ export default function EstimateScreen() {
         setExpandedCategory(null);
         setExpandedWorkspaceSection(null);
         setReadinessExpanded(false);
-        resetEstimateChecklist();
+        resetEstimateChecklist(category);
         setMessage(`${item.name} checklist opened.`);
     }
 
@@ -1320,9 +1336,23 @@ export default function EstimateScreen() {
                 delete next.exterior_pipe_size;
             }
 
+            if (question.id === 'repipe_angle_stops_included' && value === 'no') {
+                next.repipe_angle_stop_count = 0;
+            }
+            if (question.id === 'repipe_valves_included' && value === 'no') {
+                next.repipe_valve_count = 0;
+            }
+
             return next;
         });
         void persistAnswerIfSessionReady(question.id, value);
+
+        if (question.id === 'repipe_angle_stops_included' && value === 'no') {
+            void persistAnswerIfSessionReady('repipe_angle_stop_count', 0);
+        }
+        if (question.id === 'repipe_valves_included' && value === 'no') {
+            void persistAnswerIfSessionReady('repipe_valve_count', 0);
+        }
 
         if (question.id === 'exterior_pipe_utility') {
             const sessionId = estimateSession?.category === selectedCategory ? estimateSession.id : null;
@@ -2395,7 +2425,11 @@ export default function EstimateScreen() {
                         setEstimateSession(mapBuilderDraftToEstimateSession(serverDraft));
                         hydratedDraftSessionIdRef.current = serverDraft.id;
                         await Promise.all([
-                            loadPersistedAnswers(serverDraft.id, restoredState.measurementDraftByKey),
+                            loadPersistedAnswers(
+                                serverDraft.id,
+                                restoredState.selectedCategory,
+                                restoredState.measurementDraftByKey
+                            ),
                             loadPersistedOptionSet(serverDraft.id, true),
                         ]);
                         setDraftSaveStatus('saved');
@@ -2820,6 +2854,7 @@ export default function EstimateScreen() {
         estimateAccess,
         estimateChoiceBases,
         estimateChoices,
+        estimateSessionId: estimateSession?.id || activeDraftSessionId || '',
         estimateScopeSelected,
         getCategoriesForWorkType: getEstimateCategoriesForWorkType,
         goBackFromEstimate,
@@ -2855,6 +2890,7 @@ export default function EstimateScreen() {
         cancelGuidedOptionEdit,
         saveGuidedOptionEdits,
         phase1Workspace,
+        preferredChoiceId: selectedChoiceId,
         approvedProductMessage,
         approvedProductPhotoUrls,
         photoPreviewByKey,
@@ -3087,6 +3123,7 @@ export default function EstimateScreen() {
                     {estimateScopeSelected ? (
                         <>
                             <Text style={estimateStepLabelStyle}>3. Complete the {phase1Workspace.template.label} questions.</Text>
+                            {selectedCategory === 'whole_home_repipe' && renderRepipeWizardSummary(answers)}
                             <View style={questionGridStyle}>
                                 {phase1Workspace.template.questions.map((question) => renderQuestion(question, answers, updateAnswer, toggleMultiAnswer))}
                             </View>
@@ -3873,6 +3910,7 @@ type GuidedEstimateBuilderProps = {
     estimateAccess: CompanyPermissionAccess;
     estimateChoiceBases: Phase1EstimateChoice[];
     estimateChoices: Phase1EstimateChoice[];
+    estimateSessionId: string;
     estimateScopeSelected: boolean;
     getCategoriesForWorkType: typeof getEstimateCategoriesForWorkType;
     goBackFromEstimate: () => void;
@@ -3906,6 +3944,7 @@ type GuidedEstimateBuilderProps = {
     ) => Promise<void>;
     persistRemoveOption: (choiceId: string) => Promise<void>;
     phase1Workspace: ReturnType<typeof buildEstimateOptionWorkspace>;
+    preferredChoiceId: string;
     photoPreviewByKey: Record<string, string>;
     priceBookItems: CompanyPriceBookItem[];
     priceBookMessage: string;
@@ -3987,6 +4026,7 @@ function renderGuidedEstimateBuilder({
     eligibleRecommendations,
     estimateChoiceBases,
     estimateChoices,
+    estimateSessionId,
     estimateScopeSelected,
     getCategoriesForWorkType,
     goBackFromEstimate,
@@ -4014,6 +4054,7 @@ function renderGuidedEstimateBuilder({
     persistAddSearchResult,
     persistRemoveOption,
     phase1Workspace,
+    preferredChoiceId,
     photoPreviewByKey,
     priceBookMessage,
     providerModeContext,
@@ -4287,6 +4328,7 @@ function renderGuidedEstimateBuilder({
                                     <Text style={guidedSectionDescriptionStyle}>
                                         Tap the findings that apply. Only this service is shown—unrelated price-book work stays out of the page.
                                     </Text>
+                                    {selectedCategory === 'whole_home_repipe' && renderRepipeWizardSummary(answers)}
                                     <View style={guidedQuestionGridStyle}>
                                         {phase1Workspace.template.questions.map((question) =>
                                             renderQuestion(question, answers, updateAnswer, toggleMultiAnswer)
@@ -5011,6 +5053,13 @@ function renderGuidedEstimateBuilder({
                                 </TouchableOpacity>
                             </View>
                         )}
+                        {technicianApproved && !!estimateSessionId && (
+                            <EstimatePresentationSessionPanel
+                                choices={estimateChoices}
+                                estimateSessionId={estimateSessionId}
+                                preferredChoiceId={preferredChoiceId}
+                            />
+                        )}
                     </View>
                 )}
 
@@ -5292,6 +5341,30 @@ function applyEditableChoiceCopy(
         whyItDiffers: aiDraft?.whyItDiffers || choice.whyItDiffers,
         recommendedReason: aiDraft?.recommendedReason || choice.recommendedReason,
     };
+}
+
+function renderRepipeWizardSummary(answers: EstimateAnswerSet) {
+    const includedScope = formatRepipeIncludedScopeSummary(answers);
+
+    return (
+        <View style={guidedServiceSummaryStyle}>
+            <Text style={guidedServiceSummaryLabelStyle}>REPIPE WIZARD</Text>
+            <Text style={guidedServiceSummaryTitleStyle}>What&apos;s Included in Your Repipe</Text>
+            <Text style={guidedSectionDescriptionStyle}>
+                These choices are saved with the estimate and become the homeowner-facing included-scope summary. Prices are never created here.
+            </Text>
+            <View style={chipRowStyle}>
+                {includedScope.length > 0 ? includedScope.map((item) => (
+                    <Text key={item} style={itemChipStyle}>✓ {item}</Text>
+                )) : (
+                    <Text style={guidedSectionDescriptionStyle}>Choose the included work below.</Text>
+                )}
+            </View>
+            <Text style={guidedFieldHelpStyle}>
+                Water main riser starts included, as requested, and remains visible so staff can explicitly change it before presenting.
+            </Text>
+        </View>
+    );
 }
 
 function renderQuestion(
