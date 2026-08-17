@@ -9,12 +9,12 @@ import { Alert, Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'r
 import {
     buildApprovedAiReferenceContext,
     buildEstimateOptionWorkspace,
+    buildRepipeIncludedScopeSummary,
     canManageEstimatePricing,
     canUseEstimatePricing,
     createEstimateRequirementSkipAnswer,
     estimateRequirementId,
     formatMoney,
-    formatRepipeIncludedScopeSummary,
     getEstimateCategoriesForWorkType,
     getEstimateRequirementState,
     getEstimateCategoryTemplate,
@@ -52,6 +52,7 @@ import {
     type EstimateRequirementSkipReason,
     type EstimateWorkType,
 } from '../../lib/estimateOptions';
+import { repipeHomeownerGuideSections } from '../../lib/repipeHomeownerContent';
 import {
     createEstimateRequirementPhotoPreview,
     deleteEstimateSessionAnswer,
@@ -5344,7 +5345,7 @@ function applyEditableChoiceCopy(
 }
 
 function renderRepipeWizardSummary(answers: EstimateAnswerSet) {
-    const includedScope = formatRepipeIncludedScopeSummary(answers);
+    const includedScope = buildRepipeIncludedScopeSummary(answers);
 
     return (
         <View style={guidedServiceSummaryStyle}>
@@ -5355,10 +5356,30 @@ function renderRepipeWizardSummary(answers: EstimateAnswerSet) {
             </Text>
             <View style={chipRowStyle}>
                 {includedScope.length > 0 ? includedScope.map((item) => (
-                    <Text key={item} style={itemChipStyle}>✓ {item}</Text>
+                    <Text key={item.id} style={itemChipStyle}>✓ {item.detail ? `${item.label}: ${item.detail}` : item.label}</Text>
                 )) : (
                     <Text style={guidedSectionDescriptionStyle}>Choose the included work below.</Text>
                 )}
+            </View>
+            {includedScope.length > 0 && (
+                <View style={repipeIncludedCardGridStyle}>
+                    {includedScope.map((item) => (
+                        <View key={`detail-${item.id}`} style={repipeIncludedCardStyle}>
+                            <Text style={repipeIncludedCardTitleStyle}>{item.label}</Text>
+                            {!!item.detail && <Text style={repipeIncludedCardDetailStyle}>{item.detail}</Text>}
+                            <Text style={repipeIncludedCardBodyStyle}>{item.description}</Text>
+                        </View>
+                    ))}
+                </View>
+            )}
+            <Text style={repipeGuideLabelStyle}>HOMEOWNER EXPLANATION PREVIEW</Text>
+            <View style={repipeGuideGridStyle}>
+                {repipeHomeownerGuideSections.map((section) => (
+                    <View key={section.id} style={repipeGuideCardStyle}>
+                        <Text style={repipeGuideCardTitleStyle}>{section.title}</Text>
+                        <Text style={repipeGuideCardBodyStyle}>{section.body}</Text>
+                    </View>
+                ))}
             </View>
             <Text style={guidedFieldHelpStyle}>
                 Water main riser starts included, as requested, and remains visible so staff can explicitly change it before presenting.
@@ -6150,6 +6171,7 @@ const guidedServiceSummaryStyle = {
     padding: 14,
     borderRadius: 16,
     backgroundColor: '#F2F6F9',
+    gap: 12,
 };
 
 const guidedServiceSummaryLabelStyle = {
@@ -6164,6 +6186,83 @@ const guidedServiceSummaryTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
     marginTop: 3,
+};
+
+const repipeIncludedCardGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const repipeIncludedCardStyle = {
+    flexGrow: 1,
+    flexBasis: 220,
+    minWidth: 210,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#CFE0E7',
+    backgroundColor: '#FFFFFF',
+};
+
+const repipeIncludedCardTitleStyle = {
+    color: '#0A2B43',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900' as const,
+};
+
+const repipeIncludedCardDetailStyle = {
+    color: '#0B7565',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900' as const,
+    marginTop: 3,
+};
+
+const repipeIncludedCardBodyStyle = {
+    color: '#526B78',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600' as const,
+    marginTop: 5,
+};
+
+const repipeGuideLabelStyle = {
+    color: '#0B8196',
+    fontSize: 11,
+    fontWeight: '900' as const,
+    letterSpacing: 0.8,
+};
+
+const repipeGuideGridStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    gap: 10,
+};
+
+const repipeGuideCardStyle = {
+    flexGrow: 1,
+    flexBasis: 230,
+    minWidth: 220,
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: '#E4F4F2',
+};
+
+const repipeGuideCardTitleStyle = {
+    color: '#0B4D45',
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '900' as const,
+};
+
+const repipeGuideCardBodyStyle = {
+    color: '#285D58',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '600' as const,
+    marginTop: 4,
 };
 
 const guidedQuestionGridStyle = {

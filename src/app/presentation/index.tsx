@@ -8,6 +8,11 @@ import {
     type EstimatePresentationMedia,
     type JoinedEstimatePresentation,
 } from '../../lib/estimatePresentation';
+import {
+    describeRepipeCustomerSelection,
+    isRepipePresentationService,
+    repipeHomeownerGuideSections,
+} from '../../lib/repipeHomeownerContent';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -167,6 +172,7 @@ export default function HomeownerPresentationScreen() {
 
     const signed = presentation.status === 'signed';
     const payload = presentation.payload;
+    const repipePresentation = isRepipePresentationService(payload.serviceType);
 
     return (
         <ScrollView style={pageStyle} contentContainerStyle={contentStyle}>
@@ -191,6 +197,23 @@ export default function HomeownerPresentationScreen() {
                 </View>
             )}
 
+            {repipePresentation && (
+                <View style={sectionStyle}>
+                    <Text style={sectionTitleStyle}>Understanding Your Repipe</Text>
+                    <Text style={bodyStyle}>
+                        The written selections below control what is included for this home. This explanation does not add unselected work, products, warranties, testing, or credentials.
+                    </Text>
+                    <View style={repipeGuideGridStyle}>
+                        {repipeHomeownerGuideSections.map((section) => (
+                            <View key={section.id} style={repipeGuideCardStyle}>
+                                <Text style={repipeGuideTitleStyle}>{section.title}</Text>
+                                <Text style={repipeGuideBodyStyle}>{section.body}</Text>
+                            </View>
+                        ))}
+                    </View>
+                </View>
+            )}
+
             <View style={sectionStyle}>
                 <Text style={sectionTitleStyle}>Estimate Options</Text>
                 <View style={optionGridStyle}>
@@ -208,9 +231,16 @@ export default function HomeownerPresentationScreen() {
                             {option.customerSelections.length > 0 && (
                                 <View style={includedStyle}>
                                     <Text style={includedTitleStyle}>What&apos;s included</Text>
-                                    {option.customerSelections.map((selection) => (
-                                        <Text key={selection} style={includedTextStyle}>✓ {selection.replace(/^Included:\s*/i, '')}</Text>
-                                    ))}
+                                    {option.customerSelections.map((selection, index) => {
+                                        const description = repipePresentation ? describeRepipeCustomerSelection(selection) : '';
+
+                                        return (
+                                            <View key={`${selection}-${index}`} style={includedItemStyle}>
+                                                <Text style={includedTextStyle}>✓ {selection.replace(/^Included:\s*/i, '')}</Text>
+                                                {!!description && <Text style={includedDescriptionStyle}>{description}</Text>}
+                                            </View>
+                                        );
+                                    })}
                                 </View>
                             )}
                         </View>
@@ -305,6 +335,10 @@ const statusPillStyle = { color: '#062431', backgroundColor: '#56C9B1', borderRa
 const quoteStyle = { color: '#DCEBF0', fontSize: 18, fontWeight: '900' } as const;
 const sectionStyle = { width: '100%', maxWidth: 1180, gap: 14 } as const;
 const sectionTitleStyle = { color: '#F4FBFD', fontSize: 25, lineHeight: 31, fontWeight: '900' } as const;
+const repipeGuideGridStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 14 } as const;
+const repipeGuideCardStyle = { flexGrow: 1, flexBasis: 250, minWidth: 230, padding: 18, borderRadius: 18, backgroundColor: '#0D2A39', borderWidth: 1, borderColor: '#2B5665' } as const;
+const repipeGuideTitleStyle = { color: '#64D8C2', fontSize: 19, lineHeight: 25, fontWeight: '900' } as const;
+const repipeGuideBodyStyle = { color: '#C8DCE3', fontSize: 16, lineHeight: 24, fontWeight: '600', marginTop: 7 } as const;
 const photoGridStyle = { flexDirection: 'row', flexWrap: 'wrap', gap: 14 } as const;
 const photoCardStyle = { width: 250, maxWidth: '100%', flexGrow: 1, minWidth: 220, borderRadius: 18, overflow: 'hidden', backgroundColor: '#0D2A39', borderWidth: 1, borderColor: '#254B5B' } as const;
 const photoStyle = { width: '100%', height: 220, backgroundColor: '#FFFFFF' } as const;
@@ -320,7 +354,9 @@ const optionSummaryStyle = { color: '#315665', fontSize: 16, lineHeight: 23, fon
 const optionBodyStyle = { color: '#3E5E6A', fontSize: 16, lineHeight: 24 } as const;
 const includedStyle = { gap: 6, padding: 14, borderRadius: 14, backgroundColor: '#EAF5F4' } as const;
 const includedTitleStyle = { color: '#0A403C', fontSize: 17, fontWeight: '900' } as const;
+const includedItemStyle = { gap: 3, paddingVertical: 3 } as const;
 const includedTextStyle = { color: '#1E5551', fontSize: 15, lineHeight: 22, fontWeight: '700' } as const;
+const includedDescriptionStyle = { color: '#486E6B', fontSize: 14, lineHeight: 20, fontWeight: '600', paddingLeft: 18 } as const;
 const signatureSectionStyle = { width: '100%', maxWidth: 780, padding: 22, borderRadius: 20, backgroundColor: '#0D2A39', borderWidth: 1, borderColor: '#254B5B', gap: 14 } as const;
 const signedCardStyle = { padding: 18, borderRadius: 14, backgroundColor: '#123D3B', gap: 6 } as const;
 const signedTitleStyle = { color: '#65E6B2', fontSize: 22, fontWeight: '900' } as const;

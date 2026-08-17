@@ -1,4 +1,5 @@
 import { plumbingPriceBookCatalogItems } from './plumbingPriceBookCatalog';
+import { describeRepipeScopeItem } from './repipeHomeownerContent';
 
 export type EstimateWorkType = 'repair_service' | 'replacement';
 
@@ -219,6 +220,7 @@ export type RepipeIncludedScopeItem = {
     id: string;
     label: string;
     detail: string | null;
+    description: string;
 };
 
 export type EstimateProductTier = 'Essential' | 'Professional' | 'Premium';
@@ -778,28 +780,48 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         ],
         requiredScopeCodes: [],
         recommendedOptionStructures: ['Partial Repipe Scope', 'Essential Repipe', 'Professional Whole-Home Repipe', 'Protection Package'],
-        warnings: ['Generated totals remain editable and auditable; overrides require a reason.'],
-        blockingConditions: ['Structure, access, material, permit, patching, and block totals are required.'],
+        warnings: [
+            'Generated totals remain editable and auditable; overrides require a reason.',
+            'Enter only current, verified warranty, testing, license, and credential language for the company presenting this estimate.',
+        ],
+        blockingConditions: ['Structure, access, material, project protection, testing, permit, patching, and block totals are required.'],
         questions: [
             selectQuestion('stories', 'Number of stories', true, ['1', '2', '3+']),
             selectQuestion('foundation', 'Foundation', true, ['slab', 'crawlspace', 'raised foundation', 'basement']),
             yesNoQuestion('attic_access', 'Attic access', true),
             selectQuestion('existing_pipe_material', 'Existing pipe material', true, ['copper', 'PEX', 'CPVC', 'galvanized', 'polybutylene', 'mixed / unknown']),
             selectQuestion('proposed_pipe_material', 'Proposed pipe material', true, ['PEX', 'copper', 'management selected']),
+            noteQuestion('repipe_pipe_system_brand', 'Pipe system / brand (verified)', false),
             selectQuestion('repipe_stub_material', 'Fixture stub material', true, ['copper', 'PEX']),
+            yesNoQuestion('repipe_pipe_insulation_included', 'Pipe insulation included', true),
+            yesNoQuestion('repipe_pipe_supports_included', 'Pipe supports / isolators included', true),
             yesNoQuestion('repipe_angle_stops_included', 'Angle stops included', true),
             counterQuestion('repipe_angle_stop_count', 'Angle stop quantity', true, 0, 100),
             yesNoQuestion('repipe_valves_included', 'Other valves included', true),
             counterQuestion('repipe_valve_count', 'Other valve quantity', true, 0, 100),
+            yesNoQuestion('repipe_full_port_shutoff_included', 'Full-port main shutoff included', true),
+            yesNoQuestion('repipe_pressure_regulator_included', 'Pressure regulator included', true),
+            yesNoQuestion('repipe_type_k_transition_included', 'Type K copper transition included', true),
+            yesNoQuestion('repipe_red_brass_recirc_included', 'Red-brass recirculation connection included', true),
+            multiQuestion('repipe_water_hammer_protection', 'Water-hammer protection included at', false, ['washing machine box', 'dishwasher', 'ice maker box']),
+            multiQuestion('repipe_braided_connectors', 'Braided connectors included for', false, ['faucets', 'washing machine', 'ice maker', 'toilets']),
+            multiQuestion('repipe_exterior_components', 'Exterior water components included', false, ['quarter-turn hose bibbs', 'hose-bibb vacuum breakers']),
             yesNoQuestion('repipe_water_heater_included', 'Water heater included', true),
             yesNoQuestion('repipe_expansion_tank_included', 'Expansion tank included', true),
             yesNoQuestion('repipe_halo_5_included', 'HALO 5 included', true),
             yesNoQuestion('repipe_flo_included', 'Flo by Moen smart shutoff included', true),
             yesNoQuestion('repipe_water_main_riser_included', 'Water main riser included', true),
+            yesNoQuestion('repipe_walkthrough_included', 'Homeowner walkthrough included', true),
+            yesNoQuestion('repipe_home_protection_included', 'Home protection included', true),
             yesNoQuestion('occupied', 'Occupied during work', true),
             yesNoQuestion('permit', 'Permit', true),
+            selectQuestion('repipe_inspection_plan', 'Permit / inspection plan', true, ['included when required', 'excluded', 'confirm before approval']),
             selectQuestion('patching', 'Patching', true, ['included', 'excluded', 'allowance / separate']),
+            selectQuestion('repipe_testing_scope', 'Lead / asbestos testing', true, ['not included', 'included when required by confirmed project conditions', 'confirm before approval']),
             selectQuestion('routing_access_difficulty', 'Routing / access difficulty', true, ['standard', 'moderate', 'difficult']),
+            noteQuestion('repipe_manufacturer_warranty', 'Manufacturer warranty (verified written term)', false),
+            noteQuestion('repipe_workmanship_warranty', 'Workmanship warranty (verified written term)', false),
+            noteQuestion('repipe_verified_credentials', 'Verified company credentials shown to homeowner', false),
             noteQuestion('repipe_scope_notes', 'Additional repipe scope notes', false),
         ],
     },
@@ -1403,10 +1425,16 @@ export function getInitialEstimateAnswers(category: EstimateOptionCategory): Est
     if (category !== 'whole_home_repipe') return {};
 
     return {
+        repipe_pipe_insulation_included: 'no',
+        repipe_pipe_supports_included: 'no',
         repipe_angle_stops_included: 'no',
         repipe_angle_stop_count: 0,
         repipe_valves_included: 'no',
         repipe_valve_count: 0,
+        repipe_full_port_shutoff_included: 'no',
+        repipe_pressure_regulator_included: 'no',
+        repipe_type_k_transition_included: 'no',
+        repipe_red_brass_recirc_included: 'no',
         repipe_water_heater_included: 'no',
         repipe_expansion_tank_included: 'no',
         repipe_halo_5_included: 'no',
@@ -1420,27 +1448,57 @@ export function buildRepipeIncludedScopeSummary(answers: EstimateAnswerSet): Rep
     const angleStopCount = readPositiveEstimateQuantity(answers.repipe_angle_stop_count);
     const valveCount = readPositiveEstimateQuantity(answers.repipe_valve_count);
     const stubMaterial = readAnswerText(answers.repipe_stub_material);
+    const proposedPipeMaterial = readAnswerText(answers.proposed_pipe_material);
+    const pipeSystemBrand = readAnswerText(answers.repipe_pipe_system_brand);
+    const addIncluded = (id: string, label: string, detail: string | null = null) => included.push({
+        id,
+        label,
+        detail,
+        description: describeRepipeScopeItem(id),
+    });
 
+    if (proposedPipeMaterial) {
+        addIncluded('distribution-piping', 'Distribution piping', formatAnswerLabel(proposedPipeMaterial));
+    }
+    if (pipeSystemBrand) {
+        addIncluded('pipe-system', 'Pipe system / brand', pipeSystemBrand);
+    }
     if (stubMaterial) {
-        included.push({
-            id: 'fixture-stubs',
-            label: 'Fixture stubs',
-            detail: formatAnswerLabel(stubMaterial),
-        });
+        addIncluded('fixture-stubs', 'Fixture stubs', formatAnswerLabel(stubMaterial));
+    }
+    if (answerIsYes(answers.repipe_pipe_insulation_included)) {
+        addIncluded('pipe-insulation', 'Pipe insulation');
+    }
+    if (answerIsYes(answers.repipe_pipe_supports_included)) {
+        addIncluded('pipe-supports', 'Pipe supports / isolators');
     }
     if (answerIsYes(answers.repipe_angle_stops_included)) {
-        included.push({
-            id: 'angle-stops',
-            label: 'Angle stops',
-            detail: `${angleStopCount} included`,
-        });
+        addIncluded('angle-stops', 'Angle stops', `${angleStopCount} included`);
     }
     if (answerIsYes(answers.repipe_valves_included)) {
-        included.push({
-            id: 'other-valves',
-            label: 'Other valves',
-            detail: `${valveCount} included`,
-        });
+        addIncluded('other-valves', 'Other valves', `${valveCount} included`);
+    }
+
+    for (const item of [
+        ['full-port-shutoff', 'Full-port main shutoff', answers.repipe_full_port_shutoff_included],
+        ['pressure-regulator', 'Pressure regulator', answers.repipe_pressure_regulator_included],
+        ['type-k-transition', 'Type K copper transition', answers.repipe_type_k_transition_included],
+        ['red-brass-recirculation', 'Red-brass recirculation connection', answers.repipe_red_brass_recirc_included],
+    ] as const) {
+        if (answerIsYes(item[2])) addIncluded(item[0], item[1]);
+    }
+
+    const waterHammerProtection = readStringArrayAnswer(answers.repipe_water_hammer_protection);
+    if (waterHammerProtection.length > 0) {
+        addIncluded('water-hammer-protection', 'Water-hammer protection', waterHammerProtection.map(formatAnswerLabel).join(', '));
+    }
+    const braidedConnectors = readStringArrayAnswer(answers.repipe_braided_connectors);
+    if (braidedConnectors.length > 0) {
+        addIncluded('braided-connectors', 'Braided connectors', braidedConnectors.map(formatAnswerLabel).join(', '));
+    }
+    const exteriorComponents = readStringArrayAnswer(answers.repipe_exterior_components);
+    if (exteriorComponents.length > 0) {
+        addIncluded('exterior-components', 'Exterior water components', exteriorComponents.map(formatAnswerLabel).join(', '));
     }
 
     for (const item of [
@@ -1450,7 +1508,32 @@ export function buildRepipeIncludedScopeSummary(answers: EstimateAnswerSet): Rep
         ['flo-by-moen', 'Flo by Moen smart shutoff', answers.repipe_flo_included],
         ['water-main-riser', 'Water main riser', answers.repipe_water_main_riser_included],
     ] as const) {
-        if (answerIsYes(item[2])) included.push({ id: item[0], label: item[1], detail: null });
+        if (answerIsYes(item[2])) addIncluded(item[0], item[1]);
+    }
+
+    if (answerIsYes(answers.repipe_walkthrough_included)) {
+        addIncluded('walkthrough', 'Homeowner walkthrough');
+    }
+    if (answerIsYes(answers.repipe_home_protection_included)) {
+        addIncluded('home-protection', 'Home protection');
+    }
+    if (normalizeText(readAnswerText(answers.repipe_inspection_plan)) === 'included when required') {
+        addIncluded('permit-inspections', 'Permit / inspections', 'Included when required');
+    }
+    if (normalizeText(readAnswerText(answers.patching)) === 'included') {
+        addIncluded('patching', 'Patching', 'Included per written scope');
+    }
+    if (normalizeText(readAnswerText(answers.repipe_testing_scope)).startsWith('included')) {
+        addIncluded('testing', 'Lead / asbestos testing', formatAnswerLabel(readAnswerText(answers.repipe_testing_scope)));
+    }
+
+    for (const item of [
+        ['manufacturer-warranty', 'Manufacturer warranty', answers.repipe_manufacturer_warranty],
+        ['workmanship-warranty', 'Workmanship warranty', answers.repipe_workmanship_warranty],
+        ['verified-credentials', 'Verified company credentials', answers.repipe_verified_credentials],
+    ] as const) {
+        const detail = readAnswerText(item[2]);
+        if (detail) addIncluded(item[0], item[1], detail);
     }
 
     return included;
@@ -2548,7 +2631,7 @@ function buildRepipeDeterministicChoices(
     const includedScope = formatRepipeIncludedScopeSummary(answers);
     const customerSelections = uniqueText([
         ...includedScope.map((item) => `Included: ${item}`),
-        ...buildEstimateCustomerSelections(template, answers),
+        ...buildRepipeCustomerContextSelections(template, answers),
     ]);
 
     return pricingResults.slice(0, 4).map((pricingResult, index): EstimateChoice => {
@@ -2577,6 +2660,33 @@ function buildRepipeDeterministicChoices(
             displayOrder: index + 1,
             customerSelections,
         };
+    });
+}
+
+function buildRepipeCustomerContextSelections(
+    template: EstimateCategoryTemplate,
+    answers: EstimateAnswerSet
+) {
+    const contextQuestionIds = [
+        'stories',
+        'foundation',
+        'attic_access',
+        'existing_pipe_material',
+        'occupied',
+        'permit',
+        'repipe_inspection_plan',
+        'patching',
+        'repipe_testing_scope',
+        'routing_access_difficulty',
+        'repipe_scope_notes',
+    ];
+    const questions = new Map(template.questions.map((question) => [question.id, question]));
+
+    return contextQuestionIds.flatMap((questionId) => {
+        const question = questions.get(questionId);
+        const displayValue = formatCustomerSelectionValue(answers[questionId]);
+
+        return question && displayValue ? [`${question.label}: ${displayValue}`] : [];
     });
 }
 
@@ -3459,6 +3569,10 @@ function preferredHomeownerFirstName(context: EstimateDraftContextLike | null) {
 
 function readAnswerText(value: EstimateAnswerValue | undefined) {
     return typeof value === 'string' ? value : '';
+}
+
+function readStringArrayAnswer(value: EstimateAnswerValue | undefined) {
+    return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim())) : [];
 }
 
 function isQuestionOptionSelected(value: EstimateAnswerValue | undefined, optionLabel: string) {

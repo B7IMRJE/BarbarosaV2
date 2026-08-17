@@ -24,6 +24,10 @@ begin
        or has_function_privilege('authenticated', 'public.strip_unselected_estimate_presentation_prices()', 'execute') then
         raise exception 'Presentation payload scrubbing must remain server-only.';
     end if;
+    if has_function_privilege('anon', 'public.attach_estimate_presentation_service_type()', 'execute')
+       or has_function_privilege('authenticated', 'public.attach_estimate_presentation_service_type()', 'execute') then
+        raise exception 'Presentation service-type attachment must remain server-only.';
+    end if;
 end;
 $$;
 

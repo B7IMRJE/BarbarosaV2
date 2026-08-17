@@ -28,6 +28,7 @@ export type EstimatePresentationMediaCandidate = EstimatePresentationMedia;
 export type EstimatePresentationPayload = {
     version: number;
     companyName: string;
+    serviceType: string;
     estimate: {
         quoteNumber: string;
         category: string;
@@ -260,6 +261,7 @@ function mapPayload(value: unknown): EstimatePresentationPayload {
     return {
         version: readNumber(record.version) || 1,
         companyName: readString(record.company_name) || 'Your service company',
+        serviceType: readString(record.service_type) || readString(estimate.category),
         estimate: hasEstimateSummary ? {
             quoteNumber: readString(estimate.quote_number),
             category: readString(estimate.category),
