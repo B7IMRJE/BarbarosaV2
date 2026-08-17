@@ -65,8 +65,9 @@ export type ProviderHomeItemRpcRow = {
 export async function createProviderHomeOSStarterItemFromDeck(
     context: ProviderHomeItemsReadContext,
     input: { templateKey: string; location: string; parentArea?: string | null },
+    strategy: ProviderHomeItemCreateStrategy = 'assigned_rpc',
 ) {
-    const { data, error } = await supabase.rpc('create_provider_homeos_starter_item_from_deck', {
+    const { data, error } = await supabase.rpc(getProviderHomeOSStarterItemCreateRpcName(strategy), {
         ...buildProviderHomeItemsRpcArgs(context),
         p_template_key: cleanRequiredText(input.templateKey),
         p_location: cleanRequiredText(input.location),
@@ -98,6 +99,10 @@ export type ProviderHomeItemsWriteStrategy =
     | 'assigned_rpc'
     | 'platform_admin_direct'
     | 'denied';
+
+export type ProviderHomeItemCreateStrategy =
+    | ProviderHomeItemsWriteStrategy
+    | 'sales_assigned_rpc';
 
 export function hasAssignedProviderHomeItemsContext(context: ProviderHomeItemsReadContext) {
     return Boolean(
@@ -138,6 +143,29 @@ export function getProviderHomeItemsWriteStrategy(
     if (readStrategy === 'platform_admin_direct') return 'platform_admin_direct';
 
     return 'denied';
+}
+
+export function getProviderHomeItemCreateStrategy(
+    context: ProviderHomeItemsReadContext,
+    membershipRole?: string | null
+): ProviderHomeItemCreateStrategy {
+    const readStrategy = getProviderHomeItemsReadStrategy(context, membershipRole);
+
+    if (readStrategy === 'sales_company_rpc') return 'sales_assigned_rpc';
+
+    return getProviderHomeItemsWriteStrategy(context, membershipRole);
+}
+
+export function getProviderHomeItemCreateRpcName(strategy: ProviderHomeItemCreateStrategy) {
+    return strategy === 'sales_assigned_rpc'
+        ? 'create_sales_homeos_item'
+        : 'create_provider_homeos_item';
+}
+
+export function getProviderHomeOSStarterItemCreateRpcName(strategy: ProviderHomeItemCreateStrategy) {
+    return strategy === 'sales_assigned_rpc'
+        ? 'create_sales_homeos_starter_item_from_deck'
+        : 'create_provider_homeos_starter_item_from_deck';
 }
 
 export function getProviderHomeItemsRpcName(strategy: ProviderHomeItemsReadStrategy) {

@@ -3,6 +3,9 @@ import {
     buildProviderHomeItemsRpcArgs,
     getProviderHomeItemsReadStrategy,
     getProviderHomeItemsWriteStrategy,
+    getProviderHomeItemCreateRpcName,
+    getProviderHomeItemCreateStrategy,
+    getProviderHomeOSStarterItemCreateRpcName,
     getProviderHomeItemsRpcName,
     hasAssignedProviderHomeItemsContext,
 } from './providerHomeItems';
@@ -21,6 +24,25 @@ export function runProviderHomeItemsRegressions() {
     providerItemCreateKeepsCustomGasValvePayload();
     salesTechUsesReadOnlyCompanyClientRpc();
     providerAreaWritesKeepExistingAuthorizationBoundaries();
+    assignedSalesCanCreateOneScopedHomeOsCard();
+}
+
+function assignedSalesCanCreateOneScopedHomeOsCard() {
+    const strategy = getProviderHomeItemCreateStrategy(createContext(), 'provider_sales');
+
+    assert(strategy === 'sales_assigned_rpc', 'Assigned Sales Tech should use the dedicated card-create authorization path.');
+    assert(
+        getProviderHomeItemCreateRpcName(strategy) === 'create_sales_homeos_item',
+        'Assigned Sales Tech manual cards must use the Sales assignment-scoped RPC.'
+    );
+    assert(
+        getProviderHomeOSStarterItemCreateRpcName(strategy) === 'create_sales_homeos_starter_item_from_deck',
+        'Assigned Sales Tech Deck cards must use the Sales assignment-scoped RPC.'
+    );
+    assert(
+        getProviderHomeItemCreateStrategy(createUnassignedContext(), 'provider_sales') === 'denied',
+        'Unassigned Sales Tech must remain denied from HomeOS card creation.'
+    );
 }
 
 function providerAreaWritesKeepExistingAuthorizationBoundaries() {

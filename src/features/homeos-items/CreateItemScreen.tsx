@@ -32,6 +32,10 @@ import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     createProviderHomeOSStarterItemFromDeck,
+    getProviderHomeItemCreateRpcName,
+    getProviderHomeItemCreateStrategy,
+    getProviderHomeItemsReadStrategy,
+    getProviderHomeItemsRpcName,
     type ProviderHomeItemRpcRow,
 } from '../../lib/providerHomeItems';
 import {
@@ -397,11 +401,26 @@ export default function CreateItemScreen() {
             archived: false,
         };
 
+        const providerReadStrategy = providerModeContext
+            ? getProviderHomeItemsReadStrategy(providerModeContext, activeProperty.membershipRole)
+            : null;
+        const providerCreateStrategy = providerModeContext
+            ? getProviderHomeItemCreateStrategy(providerModeContext, activeProperty.membershipRole)
+            : null;
+
+        if (providerModeContext && (providerReadStrategy === 'denied' || providerCreateStrategy === 'denied')) {
+            setMessage('This company account can add a HomeOS card only from an assigned request, visit, or job.');
+            return;
+        }
+
         setSaving(true);
         setMessage('Saving item...');
 
         const duplicateCheckResult = providerModeContext
-            ? await supabase.rpc('get_provider_homeos_items', buildProviderHomeItemsRpcArgs(providerModeContext))
+            ? await supabase.rpc(
+                getProviderHomeItemsRpcName(providerReadStrategy!),
+                buildProviderHomeItemsRpcArgs(providerModeContext)
+            )
             : await supabase
                 .from('home_items')
                 .select('name, system, category, location, parent_area')
@@ -449,14 +468,14 @@ export default function CreateItemScreen() {
                     templateKey: selectedDeckCard.templateKey,
                     location: insertPayload.location,
                     parentArea: insertPayload.parent_area,
-                });
+                }, providerCreateStrategy!);
                 savedSlug = created.itemSlug || slug;
             } catch (createError) {
                 error = createError;
             }
         } else if (providerModeContext) {
             const providerCreateResult = await supabase.rpc(
-                'create_provider_homeos_item',
+                getProviderHomeItemCreateRpcName(providerCreateStrategy!),
                 buildProviderHomeItemCreateRpcArgs(providerModeContext, {
                     itemSlug: insertPayload.item_slug,
                     name: insertPayload.name,

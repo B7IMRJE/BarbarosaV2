@@ -23,6 +23,7 @@ import {
   withSecureRouteGuardTimeout,
   type SecureRouteGuardParams,
 } from '../lib/secureRouteGuard';
+import { isSalesProviderHomeOsRouteAllowed } from '../lib/salesProviderHomeOsRoutes';
 import GlobalDispatchChatOverlay from '../components/dispatch/GlobalDispatchChatOverlay';
 import DictationProvider from '../components/input/DictationProvider';
 import GlobalNavigation from '../components/navigation/GlobalNavigation';
@@ -784,14 +785,12 @@ function isSalesProviderModeHomeOsReadPath(
 ) {
   if (!hasValidProviderModeRouteParams(routeParams, allowedCompanyIds)) return false;
 
-  return (
-    pathname === HOME_ROUTE ||
-    pathname === '/equipment' ||
-    pathname.startsWith('/system/') ||
-    (
-      pathname.startsWith('/item/') &&
-      pathname !== '/item/create' &&
-      pathname !== '/item/edit'
+  return isSalesProviderHomeOsRouteAllowed(
+    pathname,
+    Boolean(
+      firstRouteParam(routeParams.serviceRequestId) ||
+      firstRouteParam(routeParams.scheduleSlotId) ||
+      firstRouteParam(routeParams.jobId)
     )
   );
 }
