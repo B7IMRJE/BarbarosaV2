@@ -1894,7 +1894,7 @@ async function loadWallScheduleSlots(
     windowStart.setDate(windowStart.getDate() - 7);
     windowEnd.setDate(windowEnd.getDate() + 14);
 
-    const selectColumns = 'id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, visit_outcome, visit_closed_at, updated_at';
+    const selectColumns = 'id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, updated_at';
     const windowResult = await supabase
         .from('job_schedule_slots')
         .select(selectColumns)
@@ -1988,6 +1988,8 @@ function normalizeWallScheduleSlots(data: unknown): DispatchWallScheduleSlot[] {
                 status: readNullableString(record.status),
                 priority: readNullableString(record.priority),
                 tech_status_note: readNullableString(record.tech_status_note),
+                technician_acknowledged_at: readNullableString(record.technician_acknowledged_at),
+                technician_acknowledged_by_user_id: readNullableString(record.technician_acknowledged_by_user_id),
                 visit_outcome: readNullableString(record.visit_outcome),
                 visit_closed_at: readNullableString(record.visit_closed_at),
                 updated_at: readNullableString(record.updated_at),
@@ -2176,6 +2178,10 @@ function createDemoSlotOffset(
         status,
         priority: 'normal',
         tech_status_note: techStatusNote,
+        technician_acknowledged_at: status === 'scheduled'
+            ? new Date(now.getTime() - 5 * 60 * 1000).toISOString()
+            : start.toISOString(),
+        technician_acknowledged_by_user_id: null,
         visit_outcome: status === 'completed' ? 'completed' : null,
         visit_closed_at: status === 'completed' ? start.toISOString() : null,
         updated_at: new Date(now.getTime() - 4 * 60 * 1000).toISOString(),
@@ -2206,6 +2212,12 @@ function getCardIssueText(item: DispatchWallItem) {
 
     if (item.sectionKey === 'available') {
         return getAvailableTechnicianIssueText(item);
+    }
+
+    if (item.sectionKey === 'emergency' && item.statusLabel === 'Awaiting Tech Acceptance') {
+        const technicianName = item.technician?.full_name?.trim() || 'Assigned technician';
+
+        return `${technicianName} assigned · Acceptance pending`;
     }
 
     if (timingSummary && ['running_late', 'assigned_ready', 'on_my_way'].includes(item.sectionKey)) {

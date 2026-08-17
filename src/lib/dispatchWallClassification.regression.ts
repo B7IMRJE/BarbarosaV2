@@ -23,7 +23,8 @@ runDispatchWallClassificationRegressions();
 
 export function runDispatchWallClassificationRegressions() {
     emergencyUnassignedRequestAppearsInEmergency();
-    futureAssignedEmergencyMovesToAssignedReady();
+    futureAssignedEmergencyWaitsForTechnicianAcceptance();
+    acceptedFutureEmergencyMovesToAssignedReady();
     futureScheduledAssignedRequestStaysOutOfLivePanels();
     futureAssignedOnMyWayMovesForward();
     futureAssignedLiveWorkMovesForward();
@@ -140,22 +141,39 @@ function emergencyUnassignedRequestAppearsInEmergency() {
     assert(item.sectionKey === 'emergency', 'Unassigned emergency request should appear in Emergency.');
 }
 
-function futureAssignedEmergencyMovesToAssignedReady() {
+function futureAssignedEmergencyWaitsForTechnicianAcceptance() {
     const request = createEmergencyScheduledRequest('a0008-future-assigned');
-    const slot = createFutureAssignedSlot(request.id, { id: 'a0008-future-assigned-slot' });
+    const slot = createFutureAssignedSlot(request.id, {
+        id: 'a0008-future-assigned-slot',
+        technician_acknowledged_at: null,
+    });
     const sections = buildDispatchWallSections([request], [slot], [createTechnician('tech-2', 'tech 2')], now);
     const item = getSingleRequestItem(sections, request.id);
 
-    assert(item.sectionKey === 'assigned_ready', 'Future assigned emergency request should appear in Assigned / Ready.');
-    assert(item.statusLabel === 'Scheduled', 'Future assigned emergency status label should remain Scheduled.');
-    assert(item.request.priority === 'Emergency', 'Assigned card should keep Emergency as a priority badge source.');
-    assert(item.technician?.full_name === 'tech 2', 'Future assigned emergency should carry the assigned technician.');
+    assert(item.sectionKey === 'emergency', 'A newly assigned emergency must remain in Emergency until the technician accepts it.');
+    assert(item.statusLabel === 'Awaiting Tech Acceptance', 'A newly assigned emergency must show its pending technician acknowledgement.');
+    assert(item.request.priority === 'Emergency', 'Pending acceptance must retain Emergency priority.');
+    assert(item.technician?.full_name === 'tech 2', 'Pending acceptance must show the assigned technician.');
     assertRequestNotInSections(
         sections,
         request.id,
-        ['emergency', 'running_late', 'unassigned', 'on_my_way', 'in_progress'],
-        'Future assigned emergency should not remain in active emergency or live-state panels.'
+        ['assigned_ready', 'running_late', 'unassigned', 'on_my_way', 'in_progress'],
+        'Pending technician acceptance must not appear in Assigned / Ready or a later workflow section.'
     );
+}
+
+function acceptedFutureEmergencyMovesToAssignedReady() {
+    const request = createEmergencyScheduledRequest('a0008-future-accepted');
+    const slot = createFutureAssignedSlot(request.id, {
+        id: 'a0008-future-accepted-slot',
+        technician_acknowledged_at: localIso(0, 11),
+    });
+    const sections = buildDispatchWallSections([request], [slot], [createTechnician('tech-2', 'tech 2')], now);
+    const item = getSingleRequestItem(sections, request.id);
+
+    assert(item.sectionKey === 'assigned_ready', 'An accepted emergency should move to Assigned / Ready.');
+    assert(item.statusLabel === 'Scheduled', 'Acceptance should not falsely mark the technician On My Way.');
+    assert(item.technician?.full_name === 'tech 2', 'The accepted emergency must retain its technician.');
 }
 
 function futureScheduledAssignedRequestStaysOutOfLivePanels() {
@@ -450,6 +468,8 @@ function createSlot(overrides: Partial<DispatchWallScheduleSlot>): DispatchWallS
         status: 'scheduled',
         priority: null,
         tech_status_note: null,
+        technician_acknowledged_at: null,
+        technician_acknowledged_by_user_id: null,
         visit_outcome: null,
         visit_closed_at: null,
         updated_at: null,
@@ -471,6 +491,7 @@ function createFutureAssignedSlot(
         arrival_window_start: localIso(1, 8),
         arrival_window_end: localIso(1, 9),
         updated_at: localIso(0, 11),
+        technician_acknowledged_at: localIso(0, 10),
         ...overrides,
     });
 }

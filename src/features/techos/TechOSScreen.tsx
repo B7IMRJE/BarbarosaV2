@@ -32,6 +32,7 @@ import {
 } from '../../lib/estimateDraft';
 import { inferEstimateCategoryFromDraft } from '../../lib/estimateOptions';
 import { resolveEstimateOptionSession } from '../../lib/estimateSessions';
+import { isEmergencyAssignmentAwaitingTechnician } from '../../lib/emergencyAssignment';
 import {
     formatServiceRequestReference,
     getServiceRequestDisplayCode,
@@ -235,6 +236,8 @@ type TechScheduleSlot = {
     priority: string | null;
     notes: string | null;
     tech_status_note: string | null;
+    technician_acknowledged_at: string | null;
+    technician_acknowledged_by_user_id: string | null;
     visit_outcome: string | null;
     visit_closed_at: string | null;
     closeout_notes: string | null;
@@ -1030,7 +1033,7 @@ export default function TechOSScreen() {
 
         const slotQuery = supabase
             .from('job_schedule_slots')
-            .select('id, company_id, job_id, service_request_id, technician_company_user_id, assignment_kind, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
+            .select('id, company_id, job_id, service_request_id, technician_company_user_id, assignment_kind, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
             .eq('company_id', companyIdToLoad)
             .gte('start_at', windowStart.toISOString())
             .lte('start_at', windowEnd.toISOString());
@@ -1049,7 +1052,7 @@ export default function TechOSScreen() {
         const additionalResult = additionalSlotIds.length > 0
             ? await supabase
                 .from('job_schedule_slots')
-                .select('id, company_id, job_id, service_request_id, technician_company_user_id, assignment_kind, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
+                .select('id, company_id, job_id, service_request_id, technician_company_user_id, assignment_kind, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, updated_at, created_at')
                 .eq('company_id', companyIdToLoad)
                 .in('id', additionalSlotIds)
                 .order('start_at', { ascending: true })
@@ -1703,6 +1706,66 @@ export default function TechOSScreen() {
         }
     }
 
+    async function handleAcceptEmergencyAssignment(job: TechAssignedScheduleJob) {
+        const slotId = job.slot.id;
+        const serviceRequestId = String(job.request?.id || job.slot.service_request_id || '').trim();
+
+        if (!serviceRequestId) {
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: 'This emergency is missing its service request. Ask Dispatch to refresh the assignment.',
+            }));
+            return;
+        }
+
+        setUpdatingWorkflowSlotId(slotId);
+        setWorkflowMessageBySlotId((current) => ({
+            ...current,
+            [slotId]: 'Accepting emergency assignment...',
+        }));
+
+        try {
+            const { data, error } = await supabase.rpc('accept_emergency_assignment', {
+                p_company_id: job.slot.company_id,
+                p_service_request_id: serviceRequestId,
+                p_schedule_slot_id: slotId,
+            });
+
+            if (error) throw new Error(error.message);
+
+            const resultRecord = Array.isArray(data) && data[0] && typeof data[0] === 'object'
+                ? data[0] as Record<string, unknown>
+                : {};
+            const acknowledgedAt = readStringField(resultRecord, 'technician_acknowledged_at') || new Date().toISOString();
+            const acknowledgedByUserId = readStringField(resultRecord, 'technician_acknowledged_by_user_id');
+
+            setAssignedScheduleSlots((current) => current.map((slot) => (
+                slot.id === slotId
+                    ? {
+                        ...slot,
+                        technician_acknowledged_at: acknowledgedAt,
+                        technician_acknowledged_by_user_id: acknowledgedByUserId,
+                    }
+                    : slot
+            )));
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: 'Emergency accepted. Dispatch and the homeowner were notified. Use On My Way when travel begins.',
+            }));
+
+            if (activeCompanyId && assignedTechnicianCompanyUserIds.length > 0) {
+                await loadAssignedScheduleJobs(activeCompanyId, assignedTechnicianCompanyUserIds, { subtle: true });
+            }
+        } catch (error) {
+            setWorkflowMessageBySlotId((current) => ({
+                ...current,
+                [slotId]: `Emergency acceptance failed: ${normalizeServiceErrorMessage(getErrorMessage(error))}`,
+            }));
+        } finally {
+            setUpdatingWorkflowSlotId('');
+        }
+    }
+
     async function handleTechWorkflowAction(job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) {
         const slotId = job.slot.id;
         const normalizedStatus = normalizeStatus(action.status);
@@ -2322,6 +2385,7 @@ export default function TechOSScreen() {
                         }}
                         onChangeCloseoutForm={updateTechCloseoutForm}
                         onCloseServiceVisit={handleCloseServiceVisit}
+                        onAcceptEmergencyAssignment={handleAcceptEmergencyAssignment}
                         onOpenDetails={handleOpenAssignedJobDetails}
                         onCompleteMeeting={(meeting) => {
                             void handleCompleteAssignedMeeting(meeting);
@@ -3252,6 +3316,7 @@ function TechOSDashboardContent({
     onChangeCloseoutForm,
     onChangeCustomStatusNote,
     onCloseServiceVisit,
+    onAcceptEmergencyAssignment,
     onOpenClientHomeOS,
     onOpenDetails,
     onOpenEstimateForAssignedJob,
@@ -3292,6 +3357,7 @@ function TechOSDashboardContent({
     onChangeCloseoutForm: (slotId: string, updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (slotId: string, note: string) => void;
     onCloseServiceVisit: (job: TechAssignedScheduleJob, outcomeOverride?: ServiceVisitOutcome) => void;
+    onAcceptEmergencyAssignment: (job: TechAssignedScheduleJob) => void;
     onOpenClientHomeOS: (job: TechAssignedScheduleJob) => void;
     onOpenDetails: (job: TechAssignedScheduleJob) => void;
     onOpenEstimateForAssignedJob: (job: TechAssignedScheduleJob) => void;
@@ -3323,6 +3389,7 @@ function TechOSDashboardContent({
                 onChangeCloseoutForm={(updates) => onChangeCloseoutForm(selectedJob.slot.id, updates)}
                 onChangeCustomStatusNote={(note) => onChangeCustomStatusNote(selectedJob.slot.id, note)}
                 onCloseServiceVisit={(outcomeOverride) => onCloseServiceVisit(selectedJob, outcomeOverride)}
+                onAcceptEmergencyAssignment={() => onAcceptEmergencyAssignment(selectedJob)}
                 onOpenClientHomeOS={() => onOpenClientHomeOS(selectedJob)}
                 onOpenEstimate={() => onOpenEstimateForAssignedJob(selectedJob)}
                 onRunWorkflowAction={onRunWorkflowAction}
@@ -4723,6 +4790,7 @@ function AssignedScheduleJobCard({
     const location = getAssignedJobLocation(job);
     const visibleStatus = getAssignedJobVisibleWorkflowStatus(job);
     const codeLabel = getTechOSAssignedJobHeaderLabel(job);
+    const emergencyAcceptancePending = isEmergencyAssignmentAwaitingTechnician(job.request, job.slot);
 
     return (
         <View
@@ -4738,7 +4806,7 @@ function AssignedScheduleJobCard({
             <View style={assignedJobTopRowStyle}>
                 <Text style={[jobNumberStyle, { color: theme.colors.mutedText }]}>{codeLabel}</Text>
                 <Text style={[jobStatusBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
-                    {formatTechWorkflowStatusText(visibleStatus)}
+                    {emergencyAcceptancePending ? 'Awaiting Acceptance' : formatTechWorkflowStatusText(visibleStatus)}
                 </Text>
             </View>
             <Text style={[jobTitleStyle, { color: theme.colors.text }]} numberOfLines={2}>
@@ -4794,6 +4862,7 @@ function TechOSAssignedJobDetail({
     onChangeCloseoutForm,
     onChangeCustomStatusNote,
     onCloseServiceVisit,
+    onAcceptEmergencyAssignment,
     onOpenClientHomeOS,
     onOpenEstimate,
     onRunWorkflowAction,
@@ -4814,6 +4883,7 @@ function TechOSAssignedJobDetail({
     onChangeCloseoutForm: (updates: Partial<TechCloseoutForm>) => void;
     onChangeCustomStatusNote: (note: string) => void;
     onCloseServiceVisit: (outcomeOverride?: ServiceVisitOutcome) => void;
+    onAcceptEmergencyAssignment: () => void;
     onOpenClientHomeOS: () => void;
     onOpenEstimate: () => void;
     onRunWorkflowAction: (job: TechAssignedScheduleJob, action: TechWorkflowAction, statusNote?: string) => void;
@@ -4848,6 +4918,7 @@ function TechOSAssignedJobDetail({
     const canControlWorkflow = canScheduleCrewRoleControlWorkflow(job.slot.crew_role);
     const visitCloseable = canControlWorkflow && isTechOSVisitCloseable(job.slot);
     const chatServiceRequestId = String(job.request?.id || job.slot.service_request_id || '').trim();
+    const emergencyAcceptancePending = isEmergencyAssignmentAwaitingTechnician(job.request, job.slot);
 
     if (salesMode) {
         return (
@@ -4938,9 +5009,32 @@ function TechOSAssignedJobDetail({
                 </View>
 
                 <View style={[techJobWorkspaceIntroStyle, { borderColor: techOSTheme.panelBorderColor }]}>
-                    <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>Travel to Job</Text>
-                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>Update Dispatch and the homeowner while you travel. The worksite tools open after you arrive.</Text>
-                    <Text style={[techJobWorkspaceCurrentStatusStyle, { color: techOSTheme.textColor }]}>Current: {formatTechWorkflowStatusText(workflowStatus)}</Text>
+                    <Text style={[jobAssignmentTitleStyle, { color: techOSTheme.textColor }]}>
+                        {emergencyAcceptancePending ? 'Emergency Assignment — Acceptance Required' : 'Travel to Job'}
+                    </Text>
+                    <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor }]}>
+                        {emergencyAcceptancePending
+                            ? 'Accept this emergency to confirm you received the assignment. Dispatch keeps it in Emergency until you accept; then use On My Way when travel begins.'
+                            : 'Update Dispatch and the homeowner while you travel. The worksite tools open after you arrive.'}
+                    </Text>
+                    <Text style={[techJobWorkspaceCurrentStatusStyle, { color: techOSTheme.textColor }]}>
+                        Current: {emergencyAcceptancePending ? 'Awaiting Your Acceptance' : formatTechWorkflowStatusText(workflowStatus)}
+                    </Text>
+                    {emergencyAcceptancePending && (
+                        <ThemedButton
+                            title={updating ? 'Accepting Emergency...' : 'Accept Emergency'}
+                            variant="primary"
+                            disabled={updating || !canControlWorkflow}
+                            onPress={onAcceptEmergencyAssignment}
+                            style={[assignedJobActionButtonStyle, { marginTop: 12 }]}
+                            textStyle={techWorkflowActionButtonTextStyle}
+                        />
+                    )}
+                    {emergencyAcceptancePending && !canControlWorkflow && (
+                        <Text style={[clientMetaTextStyle, { color: techOSTheme.mutedTextColor, marginTop: 8 }]}>
+                            The lead technician must accept this shared emergency assignment.
+                        </Text>
+                    )}
                 </View>
 
                 <ThemedButton
@@ -4981,7 +5075,9 @@ function TechOSAssignedJobDetail({
 
                 <TechOSDetailSection
                     title="Travel Status"
-                    description="Use the next step below. Arrival opens the job worksite for notes, photos, estimates, and the rest of the visit."
+                    description={emergencyAcceptancePending
+                        ? 'Travel status unlocks after the assigned lead technician accepts the emergency.'
+                        : 'Use the next step below. Arrival opens the job worksite for notes, photos, estimates, and the rest of the visit.'}
                     techOSTheme={techOSTheme}
                     variantKey="workflow"
                 >
@@ -4997,7 +5093,7 @@ function TechOSAssignedJobDetail({
                             <ThemedButton
                                 title={updating ? 'Updating...' : travelWorkflowAction.label}
                                 variant="primary"
-                                disabled={updating || !canControlWorkflow}
+                                disabled={updating || !canControlWorkflow || emergencyAcceptancePending}
                                 onPress={() => onRunWorkflowAction(job, travelWorkflowAction)}
                                 style={techWorkflowActionButtonStyle}
                                 textStyle={techWorkflowActionButtonTextStyle}
@@ -5008,7 +5104,7 @@ function TechOSAssignedJobDetail({
                         <ThemedButton
                             title={updating ? 'Updating...' : 'Running Late'}
                             variant="secondary"
-                            disabled={updating || !canControlWorkflow}
+                            disabled={updating || !canControlWorkflow || emergencyAcceptancePending}
                             onPress={() => onRunWorkflowAction(job, TECH_CUSTOM_STATUS_ACTION, 'Running late. Dispatch has been notified.')}
                             style={techWorkflowActionButtonStyle}
                             textStyle={techWorkflowActionButtonTextStyle}
@@ -6256,6 +6352,8 @@ function normalizeScheduleSlots(data: unknown): TechScheduleSlot[] {
                 priority: readStringField(record, 'priority'),
                 notes: readStringField(record, 'notes'),
                 tech_status_note: readStringField(record, 'tech_status_note'),
+                technician_acknowledged_at: readStringField(record, 'technician_acknowledged_at'),
+                technician_acknowledged_by_user_id: readStringField(record, 'technician_acknowledged_by_user_id'),
                 visit_outcome: readStringField(record, 'visit_outcome'),
                 visit_closed_at: readStringField(record, 'visit_closed_at'),
                 closeout_notes: readStringField(record, 'closeout_notes'),

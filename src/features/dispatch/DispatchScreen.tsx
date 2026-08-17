@@ -36,6 +36,10 @@ import {
 import { calculateDispatchRisk, type DispatchRiskResult } from '../../lib/dispatchRisk';
 import { findConflictingScheduleSlot } from '../../lib/dispatchScheduling';
 import {
+    getEmergencyAssignmentAcceptanceLabel,
+    isEmergencyAssignmentAwaitingTechnician,
+} from '../../lib/emergencyAssignment';
+import {
     buildDispatchWallRoute,
     DISPATCH_WALL_OPEN_SOURCE_DISPATCH_OFFICE,
     shouldOpenDispatchWallInCurrentStack,
@@ -156,6 +160,8 @@ type ScheduleSlot = {
     priority: string | null;
     notes: string | null;
     tech_status_note: string | null;
+    technician_acknowledged_at: string | null;
+    technician_acknowledged_by_user_id: string | null;
     visit_outcome: string | null;
     visit_closed_at: string | null;
     closeout_notes: string | null;
@@ -777,7 +783,7 @@ export default function DispatchBoardScreen() {
 
         const windowResult = await supabase
             .from('job_schedule_slots')
-            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
+            .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
             .eq('company_id', companyIdToLoad)
             .gte('start_at', windowStart.toISOString())
             .lte('start_at', windowEnd.toISOString())
@@ -786,7 +792,7 @@ export default function DispatchBoardScreen() {
         const requestResult = requestIds.length > 0
             ? await supabase
                 .from('job_schedule_slots')
-                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
+                .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, estimated_duration_minutes, priority, notes, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
                 .eq('company_id', companyIdToLoad)
                 .in('service_request_id', requestIds)
                 .order('start_at', { ascending: true })
@@ -3248,10 +3254,14 @@ function DispatchRequestCard({
     const risk = calculateRequestDispatchRisk(request, currentScheduleSlot, allScheduleSlots);
     const attentionReason = getCompactAttentionReason(request, currentScheduleSlot, risk);
     const operationalStatusLabel = formatRequestOperationalStatus(request, currentScheduleSlot);
+    const emergencyAcceptanceLabel = getEmergencyAssignmentAcceptanceLabel(request, currentScheduleSlot);
+    const emergencyAcceptancePending = isEmergencyAssignmentAwaitingTechnician(request, currentScheduleSlot);
     const priorityLabel = formatLabel(request.priority || request.request_type || 'Normal');
-    const statusBadgeLabel = risk.state !== 'ON_TIME' ? risk.label : operationalStatusLabel;
+    const statusBadgeLabel = emergencyAcceptancePending
+        ? 'Awaiting Tech Acceptance'
+        : risk.state !== 'ON_TIME' ? risk.label : operationalStatusLabel;
     const issueLine = request.issue_summary || 'No description provided.';
-    const scheduleLine = `${formatSlotArrivalWindow(currentScheduleSlot)} · ${assignedTechnicianLabel}`;
+    const scheduleLine = `${formatSlotArrivalWindow(currentScheduleSlot)} · ${assignedTechnicianLabel}${emergencyAcceptancePending ? ' · Acceptance pending' : ''}`;
 
     return (
         <ThemedCard
@@ -3398,10 +3408,20 @@ function DispatchRequestCard({
                                 </Text>
                                 <Text style={[countBadgeStyle, { color: theme.colors.secondaryButtonText, backgroundColor: theme.colors.secondaryButton }]}>
                                     {isActiveDispatchRequestForRisk(request, currentScheduleSlot)
-                                        ? formatTechOSStatusLabel(currentScheduleSlot.status)
+                                        ? emergencyAcceptancePending
+                                            ? 'Awaiting Tech Acceptance'
+                                            : formatTechOSStatusLabel(currentScheduleSlot.status)
                                         : formatRequestOperationalStatus(request, currentScheduleSlot)}
                                 </Text>
                             </View>
+                            {!!emergencyAcceptanceLabel && (
+                                <Text style={[metaTextStyle, { color: emergencyAcceptancePending ? theme.colors.danger : theme.colors.primary }]}>
+                                    {emergencyAcceptanceLabel}
+                                    {currentScheduleSlot.technician_acknowledged_at
+                                        ? ` · ${formatDateTime(currentScheduleSlot.technician_acknowledged_at)}`
+                                        : ` · Assigned to ${assignedTechnicianLabel}`}
+                                </Text>
+                            )}
                             {!!currentScheduleSlot.visit_outcome && (
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]} numberOfLines={1}>
                                     Visit outcome: {getServiceVisitOutcomeLabel(currentScheduleSlot.visit_outcome)}
@@ -4154,7 +4174,7 @@ async function loadTechnicianScheduleSlots({
 }) {
     const { data, error } = await supabase
         .from('job_schedule_slots')
-        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
+        .select('id, company_id, service_request_id, technician_company_user_id, start_at, end_at, arrival_window_start, arrival_window_end, status, priority, tech_status_note, technician_acknowledged_at, technician_acknowledged_by_user_id, visit_outcome, visit_closed_at, closeout_notes, homeowner_closeout_note, closeout_metadata, updated_at')
         .eq('company_id', companyId)
         .eq('technician_company_user_id', technicianCompanyUserId)
         .lt('start_at', endAt.toISOString())
@@ -4187,6 +4207,8 @@ function normalizeScheduleSlots(data: unknown): ScheduleSlot[] {
                 priority: readStringField(record, 'priority'),
                 notes: readStringField(record, 'notes'),
                 tech_status_note: readStringField(record, 'tech_status_note'),
+                technician_acknowledged_at: readStringField(record, 'technician_acknowledged_at'),
+                technician_acknowledged_by_user_id: readStringField(record, 'technician_acknowledged_by_user_id'),
                 visit_outcome: readStringField(record, 'visit_outcome'),
                 visit_closed_at: readStringField(record, 'visit_closed_at'),
                 closeout_notes: readStringField(record, 'closeout_notes'),

@@ -5,6 +5,7 @@ import {
     type CompanyDispatchRequest,
 } from './companyLeadAlerts';
 import { calculateDispatchRisk, type DispatchRiskResult } from './dispatchRisk';
+import { isEmergencyAssignmentAwaitingTechnician } from './emergencyAssignment';
 
 export type DispatchWallSectionKey =
     | 'emergency'
@@ -39,6 +40,8 @@ export type DispatchWallScheduleSlot = {
     status: string | null;
     priority: string | null;
     tech_status_note: string | null;
+    technician_acknowledged_at?: string | null;
+    technician_acknowledged_by_user_id?: string | null;
     visit_outcome: string | null;
     visit_closed_at: string | null;
     updated_at: string | null;
@@ -209,6 +212,10 @@ export function classifyDispatchWallRequest(
 
     if (leadCandidate) {
         return 'regular_leads';
+    }
+
+    if (activeAssignedSlot && isEmergencyAssignmentAwaitingTechnician(request, slot)) {
+        return 'emergency';
     }
 
     if (activeAssignedSlot) {
@@ -1090,6 +1097,7 @@ function getWallStatusLabel(
     const explicitOperationalSection = getExplicitWallOperationalSection(slot, operationalStatus);
 
     if (effectiveState.terminalLabel) return effectiveState.terminalLabel;
+    if (isEmergencyAssignmentAwaitingTechnician(request, slot)) return 'Awaiting Tech Acceptance';
     if (workflowStatus === 'store_trip') return 'Store Run';
     if (workflowStatus === 'returning_to_job') return 'Returning to Job';
     if (explicitOperationalSection) return formatWallStatusLabel(operationalStatus);
