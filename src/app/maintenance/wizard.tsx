@@ -9,6 +9,11 @@ import {
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
 import { loadHomeOSStarterCardChoices } from '../../lib/homeosStarterCatalog';
+import { loadHomeOSTradeContext } from '../../lib/homeosTradeCapabilities';
+import {
+    historicalHomeOSTradeNotice,
+    type HomeOSTradeContext,
+} from '../../lib/homeosTradeCapabilitiesCore';
 import {
     maintenanceDeckSuggestions,
     maintenanceWizardItemStatus,
@@ -46,6 +51,7 @@ export default function MaintenanceWizardScreen() {
     const providerContext = useMemo(() => readProviderModeParams(params), [params]);
     const [items, setItems] = useState<MaintenanceWizardItem[]>([]);
     const [suggestions, setSuggestions] = useState<Awaited<ReturnType<typeof loadHomeOSStarterCardChoices>>>([]);
+    const [tradeContext, setTradeContext] = useState<HomeOSTradeContext | null>(null);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
 
@@ -90,17 +96,30 @@ export default function MaintenanceWizardScreen() {
                 ? loadProviderItems(activeProperty.membershipRole)
                 : loadHomeownerItems(activeProperty.propertyId);
 
-            const [loadedItems, deckCards] = await withTimeout(
-                Promise.all([itemPromise, loadHomeOSStarterCardChoices()]),
+            const accessContext = {
+                companyId: providerContext?.companyId,
+                propertyId: activeProperty.propertyId,
+                serviceRequestId: providerContext?.serviceRequestId,
+                scheduleSlotId: providerContext?.scheduleSlotId,
+                jobId: providerContext?.jobId,
+            };
+            const [loadedItems, deckCards, loadedTradeContext] = await withTimeout(
+                Promise.all([
+                    itemPromise,
+                    loadHomeOSStarterCardChoices(accessContext),
+                    loadHomeOSTradeContext(accessContext),
+                ]),
                 'HomeOS items took too long to load. Check your connection and try again.'
             );
 
             const sortedItems = sortMaintenanceWizardItems(loadedItems);
             setItems(sortedItems);
             setSuggestions(maintenanceDeckSuggestions(sortedItems, deckCards).slice(0, 8));
+            setTradeContext(loadedTradeContext);
         } catch (error) {
             setItems([]);
             setSuggestions([]);
+            setTradeContext(null);
             setMessage(errorMessage(error));
         } finally {
             setLoading(false);
@@ -181,7 +200,12 @@ export default function MaintenanceWizardScreen() {
                             </ThemedCard>
                         ) : (
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12), marginTop: scaleIcon(14) }}>
-                                {items.map((item) => (
+                                {items.map((item) => {
+                                    const historicalNotice = historicalHomeOSTradeNotice(
+                                        item.system,
+                                        tradeContext?.enabledTradeKeys || []
+                                    );
+                                    return (
                                     <TouchableOpacity
                                         key={item.id}
                                         accessibilityRole="button"
@@ -201,9 +225,15 @@ export default function MaintenanceWizardScreen() {
                                             <Text style={{ color: theme.colors.primary, fontSize: scaleFont(13), fontWeight: '900', marginTop: scaleIcon(8) }}>
                                                 {maintenanceWizardItemStatus(item)} · Open Maintenance
                                             </Text>
+                                            {!!historicalNotice && (
+                                                <Text accessibilityRole="text" style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(17), fontWeight: '800', marginTop: scaleIcon(6) }}>
+                                                    {historicalNotice}
+                                                </Text>
+                                            )}
                                         </ThemedCard>
                                     </TouchableOpacity>
-                                ))}
+                                    );
+                                })}
                             </View>
                         )}
 

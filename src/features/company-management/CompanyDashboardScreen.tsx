@@ -1595,15 +1595,20 @@ export default function CompanyDashboardScreen() {
                         )}
 
                         <CollapsibleConfigSection
-                            title="Services / Trust Profile"
-                            description="Ratings, service categories, license details, and experience shown to homeowners."
+                            title="Supported Trades / Trust Profile"
+                            description="Enabled trades control which HomeOS Deck cards, catalog options, and maintenance suggestions this company may use."
                             expanded={expandedConfigSection === 'services'}
                             accentColor={brandAccent}
                             primaryColor={brandPrimary}
                             onToggle={() => toggleConfigSection('services')}
                             compact
                         >
-                            <Field label="Service Categories" value={brandForm.serviceCategories} onChangeText={(value) => updateBrandField('serviceCategories', value)} />
+                            <Field
+                                label="Enabled Trades and Services"
+                                value={brandForm.serviceCategories}
+                                onChangeText={(value) => updateBrandField('serviceCategories', value)}
+                                supportingText="Choose only services this company actually supports. Disabling a trade preserves existing customer history but blocks new Deck cards and suggestions."
+                            />
                             <CategoryChipSelector
                                 selectedCategories={parseCategories(brandForm.serviceCategories)}
                                 onToggle={toggleServiceCategory}

@@ -26,6 +26,18 @@ import {
     formatDirectItemsEmptyMessage,
     resolveAreaVisibleItems,
 } from '../../../../lib/providerItemVisibility';
+import { saveEstimateDraftContext } from '../../../../lib/estimateDraft';
+import {
+    historicalHomeOSTradeNotice,
+    isHomeOSTradeEnabled,
+    isWholeHomeRepipePlacement,
+    tradeKeyForHomeOSSystem,
+    type HomeOSTradeContext,
+} from '../../../../lib/homeosTradeCapabilitiesCore';
+import {
+    loadHomeOSTradeContext,
+    startCompanyRepipeWizard,
+} from '../../../../lib/homeosTradeCapabilities';
 import {
     getAreaIcon,
     getBroadZoneDefinition,
@@ -67,6 +79,7 @@ type AreaHomeItem = {
     parent_area: string | null;
     catalog_product_id?: string | null;
     master_product_variant_id?: string | null;
+    starter_template_key?: string | null;
 };
 
 export default function AreaScreen() {
@@ -122,10 +135,18 @@ export default function AreaScreen() {
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [productReferenceItem, setProductReferenceItem] = useState<AreaHomeItem | null>(null);
     const [message, setMessage] = useState('');
+    const [tradeContext, setTradeContext] = useState<HomeOSTradeContext | null>(null);
+    const [tradeMessage, setTradeMessage] = useState('');
+    const [startingRepipe, setStartingRepipe] = useState(false);
     const starterRecoverySubmittingRef = useRef(false);
     const starterAutofillAttemptedRef = useRef(false);
     const loadAreaItemsStable = useStableCallback(loadAreaItems);
     const itemSections = groupItemsBySystem(items);
+    const currentTradeKey = tradeKeyForHomeOSSystem(systemName);
+    const currentTradeEnabled = isHomeOSTradeEnabled(tradeContext?.enabledTradeKeys || [], currentTradeKey);
+    const showDirectRepipeAction = !!providerModeContext
+        && isWholeHomeRepipePlacement(systemName, areaName, parentAreaName)
+        && tradeContext?.repipeTradeEnabled === true;
     const suggestedStarterItems = useMemo(() => {
         return getStarterItemsForAreaSystem(areaName, systemName)
             .filter((item) => !items.some((existingItem) =>
@@ -199,6 +220,7 @@ export default function AreaScreen() {
     useEffect(() => {
         if (
             providerModeContext ||
+            !currentTradeEnabled ||
             starterAutofillAttemptedRef.current ||
             !starterRecoveryPreview ||
             !starterSetupHasMissingRecords(starterRecoveryPreview)
@@ -226,7 +248,7 @@ export default function AreaScreen() {
                 );
             }
         })();
-    }, [loadAreaItemsStable, providerModeContext, starterRecoveryPlan, starterRecoveryPreview]);
+    }, [currentTradeEnabled, loadAreaItemsStable, providerModeContext, starterRecoveryPlan, starterRecoveryPreview]);
 
     async function loadAreaItems(options: { preserveMessage?: boolean } = {}) {
         let activeProperty;
@@ -261,6 +283,22 @@ export default function AreaScreen() {
 
         let rows: AreaHomeItem[] = [];
         let loadErrorMessage = '';
+        let loadedTradeContext: HomeOSTradeContext | null = null;
+
+        try {
+            loadedTradeContext = await loadHomeOSTradeContext({
+                companyId: providerModeContext?.companyId,
+                propertyId: activeProperty.propertyId,
+                serviceRequestId: providerModeContext?.serviceRequestId,
+                scheduleSlotId: providerModeContext?.scheduleSlotId,
+                jobId: providerModeContext?.jobId,
+            });
+            setTradeContext(loadedTradeContext);
+            setTradeMessage('');
+        } catch (error) {
+            setTradeContext(null);
+            setTradeMessage(error instanceof Error ? error.message : 'Company trade access could not be confirmed.');
+        }
 
         if (providerModeContext) {
             const readStrategy = getProviderHomeItemsReadStrategy(
@@ -284,7 +322,7 @@ export default function AreaScreen() {
             } else {
                 const { data, error } = await supabase
                     .from('home_items')
-                    .select('id, name, system, item_slug, category, status, install_state, location, parent_area, catalog_product_id, master_product_variant_id')
+                    .select('id, name, system, item_slug, category, status, install_state, location, parent_area, catalog_product_id, master_product_variant_id, starter_template_key')
                     .eq('property_id', activeProperty.propertyId)
                     .or('archived.eq.false,archived.is.null')
                     .order('system', { ascending: true })
@@ -299,7 +337,7 @@ export default function AreaScreen() {
         } else {
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, name, system, item_slug, category, status, install_state, location, parent_area, catalog_product_id, master_product_variant_id')
+                .select('id, name, system, item_slug, category, status, install_state, location, parent_area, catalog_product_id, master_product_variant_id, starter_template_key')
                 .eq('property_id', activeProperty.propertyId)
                 .or('archived.eq.false,archived.is.null')
                 .order('system', { ascending: true })
@@ -351,7 +389,8 @@ export default function AreaScreen() {
         });
         const showStarterRecovery =
             starterPlanContainsArea(nextStarterRecoveryPlan, areaName, parentAreaName) &&
-            starterSetupHasMissingRecords(nextStarterRecoveryPreview);
+            starterSetupHasMissingRecords(nextStarterRecoveryPreview) &&
+            isHomeOSTradeEnabled(loadedTradeContext?.enabledTradeKeys || [], tradeKeyForHomeOSSystem(systemName));
 
         setChildAreas(sortAreaRecords(savedChildAreas));
         setCurrentAreaRecord(visibleRows.currentAreaRecord);
@@ -492,6 +531,63 @@ export default function AreaScreen() {
                 ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
+    }
+
+    async function openRepipeWizard() {
+        if (!providerModeContext || !tradeContext?.canStartRepipe) {
+            setMessage('This account cannot start a Repipe estimate for this customer. Confirm the assigned visit and company Plumbing / Repipe capability, then retry.');
+            return;
+        }
+
+        setStartingRepipe(true);
+        setMessage('Opening the secure Repipe workspace…');
+
+        try {
+            const activeProperty = await requireActivePropertyMembership({
+                propertyIdOverride: providerModeContext.propertyId,
+                companyId: providerModeContext.companyId,
+            });
+            const result = await startCompanyRepipeWizard({
+                companyId: providerModeContext.companyId,
+                propertyId: providerModeContext.propertyId,
+                serviceRequestId: providerModeContext.serviceRequestId,
+                scheduleSlotId: providerModeContext.scheduleSlotId,
+                jobId: providerModeContext.jobId,
+            });
+
+            await saveEstimateDraftContext({
+                estimate_session_id: result.estimateSessionId,
+                estimate_category: 'whole_home_repipe',
+                company_id: providerModeContext.companyId,
+                property_id: providerModeContext.propertyId,
+                customer_home_name: null,
+                service_request_id: providerModeContext.serviceRequestId || null,
+                job_id: providerModeContext.jobId || null,
+                schedule_slot_id: providerModeContext.scheduleSlotId || null,
+                technician_company_user_id: result.companyUserId,
+                technician_name: null,
+                issue_summary: 'Whole Home Repipe estimate',
+                source: 'provider_mode',
+                updated_at: new Date().toISOString(),
+            }, {
+                userId: activeProperty.userId,
+                companyId: providerModeContext.companyId,
+                propertyId: providerModeContext.propertyId,
+            });
+
+            router.push({
+                pathname: '/estimate/workspace',
+                params: {
+                    ...providerModeQueryParams(providerModeContext),
+                    estimateSessionId: result.estimateSessionId,
+                    step: 'build',
+                },
+            } as any);
+        } catch (error) {
+            setMessage(error instanceof Error ? error.message : 'The Repipe workspace could not be opened. Please retry.');
+        } finally {
+            setStartingRepipe(false);
+        }
     }
 
     function confirmArchiveArea(areaRecord: AreaHomeItem, isCurrentArea = false) {
@@ -721,6 +817,29 @@ export default function AreaScreen() {
                 </Text>
 
                 <View style={areaActionGridStyle}>
+                    {showDirectRepipeAction && (
+                        <ThemedCard style={[areaQuickActionCardStyle, { borderColor: theme.colors.primary, borderWidth: 2 }]}>
+                            <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(17) }]}>
+                                Whole Home Repipe
+                            </Text>
+                            <Text style={[areaQuickActionTextStyle, { color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }]}>
+                                Start the assigned customer’s Repipe scope and estimate without adding a duplicate HomeOS card.
+                            </Text>
+                            <ThemedButton
+                                title={startingRepipe ? 'Opening Repipe Wizard…' : 'Start Repipe Wizard'}
+                                disabled={startingRepipe || !tradeContext?.canStartRepipe}
+                                onPress={() => void openRepipeWizard()}
+                                style={areaQuickActionButtonStyle}
+                                textStyle={areaQuickActionButtonTextStyle}
+                            />
+                            {!tradeContext?.canStartRepipe && (
+                                <Text accessibilityRole="alert" style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), lineHeight: scaleFont(16) }}>
+                                    An assigned visit and estimate permission are required.
+                                </Text>
+                            )}
+                        </ThemedCard>
+                    )}
+
                     <ThemedCard style={areaQuickActionCardStyle}>
                         <Text style={[areaQuickActionTitleStyle, { color: theme.colors.text, fontSize: scaleFont(15) }]}>
                             Add Area / Container
@@ -731,6 +850,7 @@ export default function AreaScreen() {
                         <ThemedButton
                             title="+ Area / Container"
                             variant="glass"
+                            disabled={!currentTradeEnabled}
                             onPress={() => createChildArea()}
                             style={areaQuickActionButtonStyle}
                             textStyle={areaQuickActionButtonTextStyle}
@@ -746,6 +866,7 @@ export default function AreaScreen() {
                         </Text>
                         <ThemedButton
                             title="+ From HomeOS Deck"
+                            disabled={!currentTradeEnabled}
                             onPress={() => createSuggestedItem('Equipment', '', true)}
                             style={areaQuickActionButtonStyle}
                             textStyle={areaQuickActionButtonTextStyle}
@@ -753,6 +874,7 @@ export default function AreaScreen() {
                         <ThemedButton
                             title="Manual Custom Item"
                             variant="glass"
+                            disabled={!currentTradeEnabled}
                             onPress={() => createSuggestedItem('Equipment')}
                             style={areaQuickActionButtonStyle}
                             textStyle={areaQuickActionButtonTextStyle}
@@ -778,6 +900,21 @@ export default function AreaScreen() {
                         </ThemedCard>
                     )}
                 </View>
+
+                {!!tradeContext && !currentTradeEnabled && currentTradeKey && (
+                    <ThemedCard style={{ marginTop: scaleIcon(12), borderColor: theme.colors.primary }}>
+                        <Text accessibilityRole="alert" style={{ color: theme.colors.text, fontSize: scaleFont(14), lineHeight: scaleFont(20), fontWeight: '800' }}>
+                            Existing {systemLabel} records remain visible as history. This company has not enabled {currentTradeKey === 'hvac' ? 'HVAC' : currentTradeKey.charAt(0).toUpperCase() + currentTradeKey.slice(1)}, so new cards and suggestions are unavailable.
+                        </Text>
+                    </ThemedCard>
+                )}
+
+                {!!tradeMessage && (
+                    <ThemedCard style={{ marginTop: scaleIcon(12), borderColor: theme.colors.danger }}>
+                        <Text accessibilityRole="alert" style={{ color: theme.colors.text, fontSize: scaleFont(14), lineHeight: scaleFont(20), fontWeight: '800' }}>{tradeMessage}</Text>
+                        <ThemedButton title="Retry Access Check" variant="secondary" onPress={() => void loadAreaItems()} style={{ alignSelf: 'flex-start', marginTop: scaleIcon(10) }} />
+                    </ThemedCard>
+                )}
 
                 {!!starterRecoveryPreview && (
                     <ThemedCard style={starterRecoveryBannerStyle}>
@@ -892,6 +1029,7 @@ export default function AreaScreen() {
                                                             <AreaItemCard
                                                                 key={archiveKey}
                                                                 item={item}
+                                                                historicalNotice={historicalHomeOSTradeNotice(item.system, tradeContext?.enabledTradeKeys || [])}
                                                                 onOpen={() => {
                                                                     const itemSlug = item.item_slug || '';
 
@@ -1141,6 +1279,7 @@ function ChildAreaCard({
 
 function AreaItemCard({
     item,
+    historicalNotice,
     onOpen,
     onActivate,
     onArchive,
@@ -1149,6 +1288,7 @@ function AreaItemCard({
     archiveDisabled = false,
 }: {
     item: AreaHomeItem;
+    historicalNotice?: string;
     onOpen: () => void;
     onActivate?: () => void;
     onArchive?: () => void;
@@ -1163,7 +1303,7 @@ function AreaItemCard({
     return (
         <CompactHomeOSCard
             title={itemName}
-            subtitle={systemLabel}
+            subtitle={[systemLabel, historicalNotice].filter(Boolean).join(' · ')}
             icon={getItemIcon(item)}
             onOpen={onOpen}
             openDisabled={!itemSlug}

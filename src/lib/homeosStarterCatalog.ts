@@ -1,11 +1,16 @@
 import { supabase } from './supabase';
 import { loadCatalogCardCodeMaps } from './catalogCardCodes';
+import {
+    homeOSTradeContextRpcParams,
+    type HomeOSTradeContextInput,
+} from './homeosTradeCapabilitiesCore';
 
 export type HomeOSStarterDeckReadiness = 'unbuilt' | 'building' | 'ready';
 
 export type HomeOSStarterDeckCard = {
     templateKey: string;
     shortCode: string;
+    tradeKey?: string;
     roomKind: string;
     placementTags?: string[];
     name: string;
@@ -24,11 +29,14 @@ export type HomeOSStarterDeckCard = {
 
 export type HomeOSStarterCardChoice = Pick<
     HomeOSStarterDeckCard,
-    'templateKey' | 'shortCode' | 'roomKind' | 'placementTags' | 'name' | 'system' | 'category' | 'parentTemplateKey' | 'aliases' | 'displayOrder'
+    'templateKey' | 'shortCode' | 'tradeKey' | 'roomKind' | 'placementTags' | 'name' | 'system' | 'category' | 'parentTemplateKey' | 'aliases' | 'displayOrder'
 >;
 
-export async function loadHomeOSStarterCardChoices() {
-    const { data, error } = await supabase.rpc('get_homeos_starter_card_picker');
+export async function loadHomeOSStarterCardChoices(context: HomeOSTradeContextInput = {}) {
+    const { data, error } = await withTimeout(
+        supabase.rpc('get_homeos_starter_card_picker', homeOSTradeContextRpcParams(context)),
+        'The HomeOS Deck took too long to open. Check your connection and try again.',
+    );
     if (error) throw error;
 
     return array(data)
@@ -113,6 +121,7 @@ function parseStarterDeckCard(value: unknown): HomeOSStarterDeckCard | null {
     return {
         templateKey,
         shortCode: '',
+        tradeKey: text(row.trade_key) || 'plumbing',
         roomKind,
         placementTags: array(row.placement_tags).map(text).filter(Boolean),
         name: text(row.name) || 'Starter card',
@@ -139,6 +148,7 @@ function parseStarterCardChoice(value: unknown): HomeOSStarterCardChoice | null 
     return {
         templateKey,
         shortCode: text(row.short_code).toUpperCase(),
+        tradeKey: text(row.trade_key) || 'plumbing',
         roomKind,
         placementTags: array(row.placement_tags).map(text).filter(Boolean),
         name: text(row.name) || 'Starter card',
@@ -165,3 +175,17 @@ function text(value: unknown) { return typeof value === 'string' || typeof value
 function nullableText(value: unknown) { return text(value) || null; }
 function numberValue(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
 function unique(values: string[]) { return [...new Set(values)]; }
+
+async function withTimeout<T>(promise: PromiseLike<T>, message: string) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            Promise.resolve(promise),
+            new Promise<never>((_, reject) => {
+                timeout = setTimeout(() => reject(new Error(message)), 15_000);
+            }),
+        ]);
+    } finally {
+        if (timeout) clearTimeout(timeout);
+    }
+}

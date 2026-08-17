@@ -190,6 +190,7 @@ export default function CreateItemScreen() {
     const [deckQuery, setDeckQuery] = useState('');
     const [deckGroup, setDeckGroup] = useState('all');
     const [selectedDeckCard, setSelectedDeckCard] = useState<HomeOSStarterCardChoice | null>(null);
+    const [deckReloadKey, setDeckReloadKey] = useState(0);
 
     useEffect(() => {
         if (initialName && !name.trim()) {
@@ -199,7 +200,17 @@ export default function CreateItemScreen() {
     useEffect(() => {
         let current = true;
         setDeckLoading(true);
-        void loadHomeOSStarterCardChoices()
+        void requireActivePropertyMembership({
+            propertyIdOverride: providerModeContext?.propertyId,
+            companyId: providerModeContext?.companyId,
+        })
+            .then((activeProperty) => loadHomeOSStarterCardChoices({
+                companyId: providerModeContext?.companyId,
+                propertyId: activeProperty.propertyId,
+                serviceRequestId: providerModeContext?.serviceRequestId,
+                scheduleSlotId: providerModeContext?.scheduleSlotId,
+                jobId: providerModeContext?.jobId,
+            }))
             .then((cards) => {
                 if (!current) return;
                 setDeckCards(cards);
@@ -214,7 +225,14 @@ export default function CreateItemScreen() {
                 if (current) setDeckLoading(false);
             });
         return () => { current = false; };
-    }, []);
+    }, [
+        deckReloadKey,
+        providerModeContext?.companyId,
+        providerModeContext?.jobId,
+        providerModeContext?.propertyId,
+        providerModeContext?.scheduleSlotId,
+        providerModeContext?.serviceRequestId,
+    ]);
     const selectedSystemValue = system === CUSTOM_SYSTEM_CHOICE
         ? customSystem.trim() || OTHER_HOME_SYSTEM
         : system;
@@ -595,7 +613,16 @@ export default function CreateItemScreen() {
                             style={{ marginTop: scaleIcon(12), alignSelf: 'flex-start' }}
                         />
                     )}
-                    {!!deckMessage && <Text style={[scaleStyle(messageTextStyle), { color: theme.colors.mutedText, marginTop: scaleIcon(10) }]}>{deckMessage}</Text>}
+                    {!!deckMessage && (
+                        <View style={{ gap: scaleIcon(8), alignItems: 'flex-start', marginTop: scaleIcon(10) }}>
+                            <Text accessibilityRole="alert" style={[scaleStyle(messageTextStyle), { color: theme.colors.mutedText }]}>{deckMessage}</Text>
+                            <ThemedButton
+                                title="Retry HomeOS Deck"
+                                variant="secondary"
+                                onPress={() => setDeckReloadKey((current) => current + 1)}
+                            />
+                        </View>
+                    )}
                     {deckPickerOpen && !deckLoading && (
                         <View style={{ gap: scaleIcon(12), marginTop: scaleIcon(14) }}>
                             <ThemedInput label="Search HomeOS Deck" placeholder="Smart water, shower valve, faucet, S01..." value={deckQuery} onChangeText={setDeckQuery} />
