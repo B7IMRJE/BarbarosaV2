@@ -6,6 +6,7 @@ import {
     refreshJoinedEstimatePresentation,
     signJoinedEstimatePresentation,
     type EstimatePresentationMedia,
+    type EstimatePresentationOption,
     type JoinedEstimatePresentation,
 } from '../../lib/estimatePresentation';
 import {
@@ -228,7 +229,28 @@ export default function HomeownerPresentationScreen() {
                             )}
                             {!!option.shortSummary && <Text style={optionSummaryStyle}>{option.shortSummary}</Text>}
                             {!!option.homeownerExplanation && <Text style={optionBodyStyle}>{option.homeownerExplanation}</Text>}
-                            {option.customerSelections.length > 0 && (
+                            {option.presentationSections.length > 0 && (
+                                <View style={detailSectionGridStyle}>
+                                    {option.presentationSections.map((section) => (
+                                        <View key={`${option.id}-${section.id}`} style={detailSectionCardStyle}>
+                                            <Text style={detailSectionTitleStyle}>{section.title}</Text>
+                                            {!!section.description && <Text style={detailSectionDescriptionStyle}>{section.description}</Text>}
+                                            {section.items.map((item) => (
+                                                <View key={`${option.id}-${section.id}-${item.id}`} style={detailSectionItemStyle}>
+                                                    <View style={detailSectionItemHeadingStyle}>
+                                                        <Text accessibilityLabel={presentationStatusLabel(item.status)} style={detailSectionStatusStyle}>
+                                                            {presentationStatusSymbol(item.status)}
+                                                        </Text>
+                                                        <Text style={detailSectionItemTitleStyle}>{item.title}</Text>
+                                                    </View>
+                                                    {!!item.detail && <Text style={detailSectionItemDetailStyle}>{item.detail}</Text>}
+                                                </View>
+                                            ))}
+                                        </View>
+                                    ))}
+                                </View>
+                            )}
+                            {option.presentationSections.length === 0 && option.customerSelections.length > 0 && (
                                 <View style={includedStyle}>
                                     <Text style={includedTitleStyle}>What&apos;s included</Text>
                                     {option.customerSelections.map((selection, index) => {
@@ -312,6 +334,22 @@ function formatMoney(value: number) {
     return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function presentationStatusSymbol(status: EstimatePresentationOption['presentationSections'][number]['items'][number]['status']) {
+    if (status === 'conditional' || status === 'not_included') return '△';
+    if (status === 'documented') return '▣';
+
+    return '✓';
+}
+
+function presentationStatusLabel(status: EstimatePresentationOption['presentationSections'][number]['items'][number]['status']) {
+    if (status === 'conditional') return 'Conditional — separate authorization may be required';
+    if (status === 'not_included') return 'Not included';
+    if (status === 'verified') return 'Verified';
+    if (status === 'documented') return 'Documented';
+
+    return 'Included';
+}
+
 function readError(error: unknown, fallback: string) {
     return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -352,6 +390,15 @@ const recommendedStyle = { color: '#0B493E', backgroundColor: '#C7F4E6', borderR
 const priceStyle = { color: '#0A4F63', fontSize: 30, fontWeight: '900' } as const;
 const optionSummaryStyle = { color: '#315665', fontSize: 16, lineHeight: 23, fontWeight: '800' } as const;
 const optionBodyStyle = { color: '#3E5E6A', fontSize: 16, lineHeight: 24 } as const;
+const detailSectionGridStyle = { gap: 12, marginTop: 6 } as const;
+const detailSectionCardStyle = { gap: 7, padding: 15, borderRadius: 15, backgroundColor: '#EEF5F6', borderWidth: 1, borderColor: '#D0E0E3' } as const;
+const detailSectionTitleStyle = { color: '#0A403C', fontSize: 18, lineHeight: 23, fontWeight: '900' } as const;
+const detailSectionDescriptionStyle = { color: '#486E6B', fontSize: 14, lineHeight: 20, fontWeight: '600' } as const;
+const detailSectionItemStyle = { gap: 4, paddingTop: 7, borderTopWidth: 1, borderTopColor: '#D0E0E3' } as const;
+const detailSectionItemHeadingStyle = { flexDirection: 'row', alignItems: 'flex-start', gap: 8 } as const;
+const detailSectionStatusStyle = { width: 18, color: '#0B7565', fontSize: 16, lineHeight: 22, fontWeight: '900' } as const;
+const detailSectionItemTitleStyle = { flex: 1, color: '#1E5551', fontSize: 15, lineHeight: 22, fontWeight: '800' } as const;
+const detailSectionItemDetailStyle = { color: '#486E6B', fontSize: 14, lineHeight: 20, fontWeight: '600', paddingLeft: 26 } as const;
 const includedStyle = { gap: 6, padding: 14, borderRadius: 14, backgroundColor: '#EAF5F4' } as const;
 const includedTitleStyle = { color: '#0A403C', fontSize: 17, fontWeight: '900' } as const;
 const includedItemStyle = { gap: 3, paddingVertical: 3 } as const;

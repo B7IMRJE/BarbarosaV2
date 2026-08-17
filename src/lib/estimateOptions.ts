@@ -1,5 +1,9 @@
 import { plumbingPriceBookCatalogItems } from './plumbingPriceBookCatalog';
 import { describeRepipeScopeItem } from './repipeHomeownerContent';
+import {
+    buildDetailedEstimatePresentationSections,
+    type EstimatePresentationSection,
+} from './estimatePresentationSections';
 
 export type EstimateWorkType = 'repair_service' | 'replacement';
 
@@ -379,6 +383,7 @@ export type EstimateChoice = {
     priceAdjustmentLabel?: string | null;
     linePriceAdjustments?: Record<string, EstimateLinePriceAdjustment>;
     customerSelections?: string[];
+    presentationSections?: EstimatePresentationSection[];
     selectionGroup?: string;
     selectionGroupLabel?: string;
     pricingSource?: 'price_book' | 'technician_custom';
@@ -441,6 +446,7 @@ export type HomeownerPresentationChoice = {
     priceAdjustmentPercentage: number;
     priceAdjustmentLabel: string | null;
     customerSelections: string[];
+    presentationSections: EstimatePresentationSection[];
     selectionGroup: string | null;
     selectionGroupLabel: string | null;
 };
@@ -629,18 +635,26 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         warnings: ['Round versus elongated should normally affect product selection, not automatic labor.'],
         blockingConditions: ['Required toilet measurements and site conditions must be answered before presentation.'],
         questions: [
-            selectQuestion('rough_in', 'Rough-in', true, ['10 in', '12 in', '14 in']),
+            selectQuestion('rough_in', 'Verified rough-in', true, ['10 in', '12 in', '14 in', 'custom — use measured value']),
             selectQuestion('bowl_shape', 'Round or elongated', true, ['round', 'elongated']),
-            selectQuestion('height', 'Height', true, ['standard', 'comfort / chair height']),
+            selectQuestion('height', 'Verified bowl height', true, ['standard height', 'comfort / chair height', 'ADA-compliant height — verified']),
             selectQuestion('construction', 'One-piece or two-piece', true, ['one-piece', 'two-piece']),
             selectQuestion('color', 'Color', true, ['white', 'bone / almond', 'other']),
             yesNoQuestion('clearance_restrictions', 'Clearance or height restrictions', true),
+            noteQuestion('space_height_restrictions', 'Documented space / height restrictions', false),
             selectQuestion('flush_type', 'Flush type', true, ['gravity', 'pressure assist', 'dual flush', 'other']),
+            noteQuestion('verified_flush_efficiency', 'Verified flush / efficiency rating (for example, GPF)', false),
+            selectQuestion('existing_toilet_condition', 'Existing toilet condition', true, ['operating but being replaced', 'leaking or damaged', 'unstable / loose', 'unknown']),
+            selectQuestion('floor_condition', 'Floor condition around toilet', true, ['appears sound', 'damage or softness observed', 'water damage observed', 'unknown until removal']),
             selectQuestion('flange_condition', 'Flange condition', true, ['good', 'damaged', 'unknown until removal']),
             selectQuestion('angle_stop_condition', 'Angle-stop condition', true, ['good', 'replace recommended', 'replace required']),
             yesNoQuestion('supply_line_replacement', 'Supply-line replacement', true),
             selectQuestion('seat', 'Seat', true, ['included', 'upgraded', 'customer supplied']),
             yesNoQuestion('haul_away', 'Haul-away', true),
+            selectQuestion('work_area_protection', 'Work-path and fixture-area protection', true, ['protect work path and fixture area', 'limited protection — describe in conditions', 'not applicable']),
+            selectQuestion('installation_hardware', 'Seal and fastening hardware', true, ['new wax or approved seal plus new approved closet bolts / hardware', 'manufacturer-specified seal and hardware', 'customer supplied — verify compatibility']),
+            selectQuestion('perimeter_seal_practice', 'Perimeter-seal practice', true, ['company standard — verify applicable requirements', 'full perimeter seal selected', 'perimeter seal with service gap selected', 'not included — explain']),
+            selectQuestion('completion_documentation', 'Completion documentation', true, ['before / during / after photos and completion record', 'before / after photos and completion record', 'company standard completion record']),
             selectQuestion('floor_stair_access', 'Floor / stair access', true, ['ground floor', 'stairs', 'difficult access']),
             multiQuestion('accessibility_requirements', 'Accessibility requirements', false, ['grab bars', 'chair height', 'bidet', 'clearance needs']),
             selectQuestion('bidet_electrical_needs', 'Bidet / electrical needs', false, ['none', 'bidet water only', 'electrical outlet needed']),
@@ -677,8 +691,12 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         blockingConditions: ['Fuel, venting, safety, and code requirements must be answered before presentation.'],
         questions: [
             selectQuestion('fuel_type', 'Fuel type', true, ['gas', 'electric', 'propane', 'heat pump', 'unknown']),
-            selectQuestion('tank_or_tankless', 'Tank size or tankless demand', true, ['30 gallon', '40 gallon', '50 gallon', '75 gallon', 'tankless like-kind', 'tankless conversion']),
+            selectQuestion('tank_or_tankless', 'Tank / tankless and verified capacity or demand', true, ['30 gallon', '40 gallon', '50 gallon', '70 gallon', '75 gallon', '100 gallon', 'tankless like-kind', 'tankless conversion']),
+            noteQuestion('verified_efficiency_rating', 'Verified efficiency rating / product fact', false),
             selectQuestion('location', 'Location', true, ['garage', 'closet', 'attic', 'basement', 'exterior', 'other']),
+            selectQuestion('work_area_protection', 'Work-path and installation-area protection', true, ['protect work path and installation area', 'limited protection — describe in conditions', 'not applicable']),
+            yesNoQuestion('haul_away', 'Controlled removal and haul-away of existing unit', true),
+            selectQuestion('water_shutoff_connections', 'Water shutoff and connection condition', true, ['acceptable', 'replace recommended', 'failed / repair required', 'unknown until isolation']),
             selectQuestion('venting', 'Venting', true, ['standard draft', 'power vent', 'direct vent', 'tankless vent', 'unknown']),
             selectQuestion('gas_valve_line', 'Gas valve and line', true, ['acceptable', 'replace recommended', 'needs sizing review', 'not applicable']),
             selectQuestion('electrical_needs', 'Electrical needs', true, ['none', 'existing outlet', 'new outlet needed', 'dedicated circuit review']),
@@ -697,7 +715,10 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
             multiQuestion('documented_deficiencies', 'Documented deficiencies', false, ['burner missing', 'burner damaged', 'no manufacturer warranty', 'corrosion', 'leaking tank', 'failed control', 'venting deficiency', 'code clearance issue']),
             selectQuestion('recirculation', 'Recirculation', false, ['none', 'existing', 'add option', 'repair / replace']),
             selectQuestion('water_quality_observation', 'Water quality observed', false, ['no concern observed', 'scale / sediment', 'hard water confirmed', 'unknown']),
+            selectQuestion('permit_inspection_scope', 'Permit / inspection scope', true, ['included in selected Price Book scope', 'fees or coordination priced separately', 'not required per documented local requirements', 'confirm with authority having jurisdiction']),
+            multiQuestion('conditional_remediation', 'Conditional remediation findings', false, ['None observed', 'water damage', 'mold or microbial growth', 'suspected asbestos-containing material', 'suspected lead-containing material', 'structural damage', 'other environmental or access condition']),
             multiQuestion('code_corrections', 'Code corrections', true, ['None required', 'permit', 'pan', 'straps', 'back block', 'T&P', 'venting', 'gas connector', 'sediment trap', 'expansion tank']),
+            selectQuestion('completion_documentation', 'Completion documentation', true, ['before / during / after photos and completion record', 'before / after photos and completion record', 'company standard completion record']),
             selectQuestion('desired_warranty', 'Desired warranty', false, ['Not discussed yet', 'Let homeowner choose', 'standard', 'extended', 'premium']),
             multiQuestion('homeowner_priorities', 'Homeowner priorities', false, ['lowest cost', 'reliability', 'efficiency', 'faster hot water', 'warranty', 'space saving']),
         ],
@@ -1901,6 +1922,7 @@ export function toHomeownerPresentationChoice(choice: EstimateChoice): Homeowner
         priceAdjustmentPercentage: choice.priceAdjustmentPercentage || 0,
         priceAdjustmentLabel: choice.priceAdjustmentLabel || null,
         customerSelections: [...(choice.customerSelections || [])],
+        presentationSections: [...(choice.presentationSections || [])],
         selectionGroup: choice.selectionGroup || null,
         selectionGroupLabel: choice.selectionGroupLabel || null,
     };
@@ -2576,6 +2598,16 @@ function buildDeterministicChoices(input: {
         });
     }
 
+    if (input.category === 'toilet_replacement') {
+        return buildToiletDeterministicChoices({
+            pricingResults: validPricingResults,
+            products: input.products,
+            answers: input.answers,
+            template: input.template,
+            draftContext: input.draftContext,
+        });
+    }
+
     if (input.category === 'exterior_pipe_replacement') {
         return buildExteriorPipeDeterministicChoices(
             validPricingResults,
@@ -2794,7 +2826,7 @@ function buildWaterHeaterDeterministicChoices(input: {
         return compatibleProducts.map((product, index): EstimateChoice => {
             const productLabel = `${product.brand} ${product.model}`.trim();
             const homeownerTier = productTierDisplayLabel(product.tier);
-            const pricingResult = applyApprovedWaterHeaterProductPrice(
+            const pricingResult = applyApprovedEquipmentProductPrice(
                 basePricingResult,
                 product,
                 equipmentDescription
@@ -2836,6 +2868,12 @@ function buildWaterHeaterDeterministicChoices(input: {
                     ...product.installationRequirements.map((requirement) => `Product requirement: ${requirement}`),
                     ...customerSelections,
                 ]),
+                presentationSections: buildDetailedEstimatePresentationSections({
+                    category: 'water_heater',
+                    answers: input.answers,
+                    pricingResult,
+                    product,
+                }),
             };
         });
     }
@@ -2869,8 +2907,167 @@ function buildWaterHeaterDeterministicChoices(input: {
             recommended: input.pricingResults.length === 1,
             displayOrder: index + 1,
             customerSelections,
+            presentationSections: buildDetailedEstimatePresentationSections({
+                category: 'water_heater',
+                answers: input.answers,
+                pricingResult,
+            }),
         };
     });
+}
+
+function buildToiletDeterministicChoices(input: {
+    pricingResults: EstimatePricingResult[];
+    products: EstimateApprovedProduct[];
+    answers: EstimateAnswerSet;
+    template: EstimateCategoryTemplate;
+    draftContext: EstimateDraftContextLike | null;
+}) {
+    const homeownerName = preferredHomeownerFirstName(input.draftContext);
+    const basePricingResult = selectToiletPricingResult(input.pricingResults, input.answers);
+    const compatibleProducts = input.products
+        .filter((product) => isCompatiblePricedToiletProduct(product, input.answers, basePricingResult))
+        .sort((first, second) =>
+            (first.approvedSellingPrice || 0) - (second.approvedSellingPrice || 0) ||
+            `${first.brand} ${first.model}`.localeCompare(`${second.brand} ${second.model}`)
+        )
+        .slice(0, 4);
+    const customerSelections = buildEstimateCustomerSelections(input.template, input.answers);
+
+    if (basePricingResult && compatibleProducts.length > 0) {
+        return compatibleProducts.map((product, index): EstimateChoice => {
+            const productLabel = `${product.brand} ${product.model}`.trim();
+            const pricingResult = applyApprovedEquipmentProductPrice(basePricingResult, product, 'Toilet Installation');
+            const lineNames = pricingResult.lineItems.map((line) => line.name);
+            const title = homeownerName
+                ? `${homeownerName}'s ${productLabel} Toilet Installation`
+                : `${productLabel} Toilet Installation`;
+
+            return {
+                id: `toilet-product-${product.id}`,
+                kind: 'individual',
+                title,
+                shortSummary: [productLabel, answerSummary(input.answers.rough_in), answerSummary(input.answers.bowl_shape), answerSummary(input.answers.height)].filter(Boolean).join(' · '),
+                homeownerExplanation: `Install the selected approved ${productLabel} using only the documented and priced scope: ${lineNames.join(', ')}. Conditional flange, floor, shutoff, supply, or access work remains separate unless it appears in the included checklist.`,
+                keyBenefits: ['Selected approved toilet', 'Plain included-scope checklist', 'Conditional work separated from the base installation'],
+                whyItDiffers: `Uses the approved ${productLabel} catalog product and the company Price Book scope selected for this home.`,
+                recommendedReason: index === 0 ? 'Matches the documented product and installation requirements.' : null,
+                productIds: [product.id],
+                scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+                warrantyIds: product.warranty ? [product.id] : [],
+                inclusionIds: pricingResult.lineItems.map((line) => line.code),
+                exclusionIds: ['unpriced-flange-floor-shutoff-and-access-remediation'],
+                pricingResult,
+                recommended: index === 0,
+                displayOrder: index + 1,
+                selectionGroup: 'toilet-equipment',
+                selectionGroupLabel: 'Choose one toilet and installation option',
+                customerSelections: uniqueText([
+                    `Brand and model: ${productLabel}`,
+                    product.warranty ? `Manufacturer warranty: ${product.warranty}` : '',
+                    ...product.installationRequirements.map((requirement) => `Product requirement: ${requirement}`),
+                    ...customerSelections,
+                ]),
+                presentationSections: buildDetailedEstimatePresentationSections({
+                    category: 'toilet_replacement',
+                    answers: input.answers,
+                    pricingResult,
+                    product,
+                }),
+            };
+        });
+    }
+
+    return input.pricingResults.slice(0, 4).map((pricingResult, index): EstimateChoice => {
+        const lineNames = pricingResult.lineItems.map((line) => line.name);
+        const baseTitle = lineNames.length === 1 ? lineNames[0] : 'Toilet Installation — Confirmed Scope';
+
+        return {
+            id: `individual-toilet-${index + 1}`,
+            kind: 'individual',
+            title: homeownerName ? `${homeownerName}'s ${baseTitle}` : baseTitle,
+            shortSummary: [answerSummary(input.answers.rough_in), answerSummary(input.answers.bowl_shape), answerSummary(input.answers.height)].filter(Boolean).join(' · ') || baseTitle,
+            homeownerExplanation: `Install a toilet matching the documented rough-in, bowl, height, and site conditions using only the selected company Price Book scope: ${lineNames.join(', ')}. A specific brand or model is not represented until an approved catalog product is selected.`,
+            keyBenefits: ['Documented installation conditions', 'No unselected product facts', 'Conditional work kept separate'],
+            whyItDiffers: 'This is a service-scope option without an attached approved catalog toilet. It does not invent a brand, model, or performance claim.',
+            recommendedReason: input.pricingResults.length === 1 ? 'Matches the documented installation scope.' : null,
+            productIds: [],
+            scopeIds: pricingResult.lineItems.map((line) => line.priceBookEntryId),
+            warrantyIds: [],
+            inclusionIds: pricingResult.lineItems.map((line) => line.code),
+            exclusionIds: ['unselected-product', 'unpriced-flange-floor-shutoff-and-access-remediation'],
+            pricingResult,
+            recommended: input.pricingResults.length === 1,
+            displayOrder: index + 1,
+            customerSelections,
+            presentationSections: buildDetailedEstimatePresentationSections({
+                category: 'toilet_replacement',
+                answers: input.answers,
+                pricingResult,
+            }),
+        };
+    });
+}
+
+function selectToiletPricingResult(pricingResults: EstimatePricingResult[], answers: EstimateAnswerSet) {
+    const construction = normalizeText(readAnswerText(answers.construction));
+    const bowlShape = normalizeText(readAnswerText(answers.bowl_shape));
+    const flushType = normalizeText(readAnswerText(answers.flush_type));
+    const preferredTerm = construction.includes('one piece')
+        ? 'one piece'
+        : flushType.includes('pressure assist')
+            ? 'pressure assist'
+            : bowlShape.includes('elongated')
+                ? 'elongated'
+                : bowlShape.includes('round')
+                    ? 'round front'
+                    : '';
+
+    if (preferredTerm) {
+        const matching = pricingResults.find((result) => result.lineItems.some((line) =>
+            normalizeText(`${line.code} ${line.name}`).includes(preferredTerm)
+        ));
+
+        if (matching) return matching;
+    }
+
+    return pricingResults.find((result) => result.lineItems.some((line) =>
+        normalizeText(`${line.code} ${line.name}`) === normalizeText('water service bathroom toilet replacement toilet replacement') ||
+        normalizeText(line.code) === normalizeText('water_service_bathroom_toilet_replacement')
+    )) || pricingResults[0];
+}
+
+function isCompatiblePricedToiletProduct(
+    product: EstimateApprovedProduct,
+    answers: EstimateAnswerSet,
+    pricingResult: EstimatePricingResult | undefined
+) {
+    const price = product.approvedSellingPrice;
+
+    if (!pricingResult || price === null || !Number.isFinite(price) || price <= 0) return false;
+    if (product.minimumSellingPrice !== null && price < product.minimumSellingPrice) return false;
+    if (product.maximumSellingPrice !== null && price > product.maximumSellingPrice) return false;
+    if (product.priceBookEntryId && !pricingResult.lineItems.some((line) => line.priceBookEntryId === product.priceBookEntryId)) return false;
+    if (!normalizeText(product.category).includes('toilet')) return false;
+
+    const descriptors = normalizeText([
+        product.category,
+        ...product.compatibleApplications,
+        ...Object.entries(product.specifications).map(([key, value]) => `${key} ${value}`),
+    ].join(' '));
+    const selectedShape = normalizeText(readAnswerText(answers.bowl_shape));
+    const selectedRoughIn = normalizeText(readAnswerText(answers.rough_in));
+    const declaredShapes = ['round', 'elongated'].filter((shape) => descriptors.includes(shape));
+    const declaredRoughIns = ['10 in', '12 in', '14 in'].filter((roughIn) => descriptors.includes(roughIn));
+
+    if (selectedShape && declaredShapes.length > 0 && !declaredShapes.includes(selectedShape)) return false;
+    if (selectedRoughIn && declaredRoughIns.length > 0 && !declaredRoughIns.includes(selectedRoughIn)) return false;
+
+    return true;
+}
+
+function answerSummary(value: EstimateAnswerValue | undefined) {
+    return formatCustomerSelectionValue(value);
 }
 
 function isCompatiblePricedWaterHeaterProduct(
@@ -2911,8 +3108,8 @@ function isCompatiblePricedWaterHeaterProduct(
         }
     }
 
-    const selectedSize = selectedEquipment.match(/\b(?:30|40|50|75)\s*gallon\b/)?.[0] || '';
-    const declaredSizes: string[] = descriptors.match(/\b(?:30|40|50|75)\s*gallon\b/g) || [];
+    const selectedSize = selectedEquipment.match(/\b(?:30|40|50|70|75|100)\s*gallon\b/)?.[0] || '';
+    const declaredSizes: string[] = descriptors.match(/\b(?:30|40|50|70|75|100)\s*gallon\b/g) || [];
     const selectedFuel = normalizeText(readAnswerText(answers.fuel_type));
     const declaredFuels: string[] = ['gas', 'electric', 'propane', 'heat pump']
         .filter((fuel) => descriptors.includes(fuel));
@@ -2942,7 +3139,7 @@ function compareApprovedWaterHeaterProducts(first: EstimateApprovedProduct, seco
         `${first.brand} ${first.model}`.localeCompare(`${second.brand} ${second.model}`);
 }
 
-function applyApprovedWaterHeaterProductPrice(
+function applyApprovedEquipmentProductPrice(
     pricingResult: EstimatePricingResult,
     product: EstimateApprovedProduct,
     equipmentDescription: string
@@ -3017,7 +3214,7 @@ function buildWaterHeaterEquipmentDescription(answers: EstimateAnswerSet) {
     if (normalizedSize === 'tankless like kind') return 'Tankless Water Heater Replacement';
     if (normalizedSize === 'tankless conversion') return 'Tank-to-Tankless Water Heater Conversion';
 
-    return `${formatAnswerLabel(size)} Tank Water Heater`;
+    return `${formatAnswerLabel(size).replace(/\bgallon\b/i, 'Gallon')} Tank Water Heater`;
 }
 
 function buildWaterHeaterHomeownerExplanation(input: {
@@ -3058,6 +3255,7 @@ function formatAnswerLabel(value: string) {
         .replace(/\bT&p\b/gi, 'T&P')
         .replace(/\bPrv\b/gi, 'PRV')
         .replace(/\bHp\b/g, 'HP')
+        .replace(/\bgallon\b/gi, 'Gallon')
         .replace(/^./, (character) => character.toUpperCase());
 }
 

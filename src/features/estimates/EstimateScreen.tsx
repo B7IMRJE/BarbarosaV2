@@ -54,6 +54,7 @@ import {
     type EstimateWorkType,
 } from '../../lib/estimateOptions';
 import { repipeHomeownerGuideSections } from '../../lib/repipeHomeownerContent';
+import type { EstimatePresentationSectionItem } from '../../lib/estimatePresentationSections';
 import {
     createEstimateRequirementPhotoPreview,
     deleteEstimateSessionAnswer,
@@ -5809,7 +5810,25 @@ function renderPresentationChoice(choice: Phase1EstimateChoice, productImageUrl?
                 </Text>
             )}
             <Text style={choiceDescriptionStyle}>{presentationChoice.homeownerExplanation}</Text>
-            {presentationChoice.customerSelections.length > 0 && (
+            {presentationChoice.presentationSections.length > 0 && (
+                <View style={presentationSectionGridStyle}>
+                    {presentationChoice.presentationSections.map((section) => (
+                        <View key={`${presentationChoice.id}-${section.id}`} style={presentationSectionCardStyle}>
+                            <Text style={presentationSectionTitleStyle}>{section.title}</Text>
+                            {!!section.description && <Text style={presentationSectionDescriptionStyle}>{section.description}</Text>}
+                            {section.items.map((item) => (
+                                <View key={`${presentationChoice.id}-${section.id}-${item.id}`} style={presentationSectionItemStyle}>
+                                    <Text style={presentationSectionItemTitleStyle}>
+                                        {presentationStatusSymbol(item)} {item.title}
+                                    </Text>
+                                    {!!item.detail && <Text style={presentationSectionItemDetailStyle}>{item.detail}</Text>}
+                                </View>
+                            ))}
+                        </View>
+                    ))}
+                </View>
+            )}
+            {presentationChoice.presentationSections.length === 0 && presentationChoice.customerSelections.length > 0 && (
                 <View style={customerSelectionListStyle}>
                     <Text style={customerSelectionTitleStyle}>Selected equipment and site details</Text>
                     {presentationChoice.customerSelections.map((selection) => (
@@ -5828,6 +5847,14 @@ function renderPresentationChoice(choice: Phase1EstimateChoice, productImageUrl?
             <Text style={systemsTextStyle}>Compare Options: {presentationChoice.whyItDiffers}</Text>
         </View>
     );
+}
+
+function presentationStatusSymbol(item: EstimatePresentationSectionItem) {
+    if (item.status === 'conditional' || item.status === 'not_included') return '△';
+    if (item.status === 'verified') return '✓';
+    if (item.status === 'documented') return '▣';
+
+    return '✓';
 }
 
 function labelForReference(id: string, choices: Phase1EstimateChoice[]) {
@@ -7889,6 +7916,53 @@ const presentationDiscountStyle = {
     fontSize: 13,
     fontWeight: '900' as const,
     marginTop: 4,
+};
+
+const presentationSectionGridStyle = {
+    gap: 10,
+    marginTop: 12,
+};
+
+const presentationSectionCardStyle = {
+    backgroundColor: '#F4F8FA',
+    borderColor: '#D8E1E7',
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+    padding: 12,
+};
+
+const presentationSectionTitleStyle = {
+    color: '#17344B',
+    fontSize: 14,
+    fontWeight: '900' as const,
+};
+
+const presentationSectionDescriptionStyle = {
+    color: '#607785',
+    fontSize: 12,
+    lineHeight: 17,
+};
+
+const presentationSectionItemStyle = {
+    borderTopColor: '#D8E1E7',
+    borderTopWidth: 1,
+    gap: 2,
+    paddingTop: 6,
+};
+
+const presentationSectionItemTitleStyle = {
+    color: '#284B5D',
+    fontSize: 12,
+    fontWeight: '800' as const,
+    lineHeight: 18,
+};
+
+const presentationSectionItemDetailStyle = {
+    color: '#607785',
+    fontSize: 12,
+    lineHeight: 17,
+    paddingLeft: 16,
 };
 
 const recommendedPillStyle = {

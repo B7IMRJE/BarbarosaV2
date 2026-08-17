@@ -352,7 +352,7 @@ function waterHeaterQuoteCarriesPickerSelections() {
 
     assert(Boolean(choice), 'A fully priced water-heater checklist should create a customer option.');
     assert(choice?.title.includes('50 Gallon Tank Water Heater') === true, 'The option title should identify the selected tank size and equipment type.');
-    assert(selections.includes('Tank size or tankless demand: 50 Gallon'), 'The selected tank size should appear in the customer option details.');
+    assert(selections.includes('Tank / tankless and verified capacity or demand: 50 Gallon'), 'The selected tank size should appear in the customer option details.');
     assert(selections.includes('Seismic strapping: Install straps anchored to wall studs'), 'The selected seismic-strapping work should appear in the customer option details.');
     assert(selections.includes('Water-heater back block: Install new blocking anchored to wall'), 'The selected back-block work should appear in the customer option details.');
     assert(selections.includes('Gas sediment trap: Install sediment trap'), 'The selected sediment-trap work should appear in the customer option details.');
@@ -961,7 +961,7 @@ function toiletRequiredQuestionsAreEnforced() {
     assert(validation.missingRequiredQuestionIds.includes('rough_in'), 'Toilet rough-in question should be required.');
     assert(validation.missingRequiredQuestionIds.includes('bowl_shape'), 'Toilet shape question should be required.');
     assert(validation.missingRequiredQuestionIds.includes('height'), 'Toilet height question should be required.');
-    assert(validation.missingRequiredQuestionLabels.includes('Rough-in'), 'Missing required question warnings should use display labels.');
+    assert(validation.missingRequiredQuestionLabels.includes('Verified rough-in'), 'Missing required question warnings should use display labels.');
 }
 
 function disposalRequiredQuestionsAreEnforced() {

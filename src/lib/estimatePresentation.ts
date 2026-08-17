@@ -1,4 +1,9 @@
 import { supabase } from './supabase';
+import type {
+    EstimatePresentationItemStatus,
+    EstimatePresentationSection,
+    EstimatePresentationSectionId,
+} from './estimatePresentationSections';
 
 export {
     buildEstimatePresentationLink,
@@ -12,6 +17,7 @@ export type EstimatePresentationOption = {
     homeownerExplanation: string;
     keyBenefits: string[];
     customerSelections: string[];
+    presentationSections: EstimatePresentationSection[];
     totalAmount: number;
     recommended: boolean;
     displayOrder: number;
@@ -284,10 +290,51 @@ function mapPresentationOption(value: unknown): EstimatePresentationOption {
         homeownerExplanation: readString(record.homeowner_explanation),
         keyBenefits: readStringArray(record.key_benefits),
         customerSelections: readStringArray(record.customer_selections),
+        presentationSections: readArray(record.presentation_sections)
+            .map(mapPresentationSection)
+            .filter((section) => section.items.length > 0),
         totalAmount: readNumber(record.total_amount),
         recommended: record.recommended === true,
         displayOrder: readNumber(record.display_order),
     };
+}
+
+function mapPresentationSection(value: unknown): EstimatePresentationSection {
+    const record = readRecord(value);
+    const id = readString(record.id);
+
+    return {
+        id: isPresentationSectionId(id) ? id : 'process',
+        title: readString(record.title),
+        description: readNullableString(record.description),
+        items: readArray(record.items).map((itemValue) => {
+            const item = readRecord(itemValue);
+            const status = readString(item.status);
+
+            return {
+                id: readString(item.id),
+                title: readString(item.title),
+                detail: readNullableString(item.detail),
+                status: isPresentationItemStatus(status) ? status : 'documented',
+            };
+        }).filter((item) => item.id && item.title),
+    };
+}
+
+function isPresentationSectionId(value: string): value is EstimatePresentationSectionId {
+    return [
+        'product',
+        'protection',
+        'process',
+        'included_components',
+        'conditions_exclusions',
+        'verification',
+        'documentation',
+    ].includes(value);
+}
+
+function isPresentationItemStatus(value: string): value is EstimatePresentationItemStatus {
+    return ['verified', 'included', 'conditional', 'not_included', 'documented'].includes(value);
 }
 
 function mapPresentationMedia(value: unknown): EstimatePresentationMedia {
