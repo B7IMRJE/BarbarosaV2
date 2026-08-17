@@ -6,7 +6,7 @@ import {
 } from './catalogFactoryDeckCore';
 
 const showerTub = {
-    name: 'Shower / Tub',
+    name: 'Tub & Shower Trim',
     system: 'Plumbing',
     mappedVariantIds: ['moen-chateau'],
 };
@@ -16,8 +16,8 @@ const records = [
 ];
 
 assert(
-    catalogFactoryStarterOptionsLabel(showerTub) === 'Options for Shower / Tub Plumbing',
-    'The deck must label the exact starter parent relationship shown to Super Admin.',
+    catalogFactoryStarterOptionsLabel(showerTub) === 'Options for Tub & Shower Trim Plumbing',
+    'The deck must label Moen Chateau under exposed Tub & Shower Trim rather than concealed Shower Valve.',
 );
 assert(
     filterUnmappedCatalogFactoryRecords(records, [showerTub]).map((record) => record.id).join(',') === 'unmapped-faucet',

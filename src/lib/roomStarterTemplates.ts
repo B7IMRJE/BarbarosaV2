@@ -17,6 +17,11 @@ export type CompleteRoomStarterItem = {
     aliases?: readonly string[];
     parentName?: string;
     parentAliases?: readonly string[];
+    suggested?: boolean;
+};
+
+export type MasterBathroomStarterItem = CompleteRoomStarterItem & {
+    templateKey: string;
 };
 
 const ROOM_PARENT_ALIASES: Record<string, readonly string[]> = {
@@ -49,6 +54,8 @@ const ROOM_STARTER_ITEMS: Record<CompleteRoomStarterKind, readonly CompleteRoomS
         child('Bathroom Sink Pop-Up / Drain Assembly', 'Drains / Sewer', 'Component', 'Bathroom Sink', ['Pop-Up Assembly', 'Bathroom Pop-Up Assembly', 'Drain Assembly', 'Lavatory Drain']),
 
         child('Shower Valve', 'Plumbing', 'Component', 'Shower / Tub'),
+        suggestedChild('Shower Trim', 'Plumbing', 'Component', 'Shower / Tub', ['Shower Control Trim', 'Shower Valve Trim']),
+        suggestedChild('Tub & Shower Trim', 'Plumbing', 'Component', 'Shower / Tub', ['Tub and Shower Trim', 'Tub / Shower Trim', 'Tub-Shower Trim']),
         child('Shower Cartridge', 'Plumbing', 'Component', 'Shower / Tub'),
         child('Shower Head', 'Plumbing', 'Fixture', 'Shower / Tub', ['Showerhead']),
         child('Shower Drain', 'Drains / Sewer', 'Fixture', 'Shower / Tub', ['Shower / Tub Drain', 'Tub Drain']),
@@ -130,11 +137,60 @@ const ROOM_STARTER_ITEMS: Record<CompleteRoomStarterKind, readonly CompleteRoomS
     ],
 };
 
+const MASTER_BATHROOM_PARENT_ALIASES: Record<string, readonly string[]> = {
+    'Roman / Deck-Mount Tub': ['Roman Tub', 'Deck-Mount Tub'],
+    'Freestanding / Soaking Tub': ['Freestanding Tub', 'Soaking Tub'],
+    'Standalone / Walk-In Shower': ['Standalone Shower', 'Walk-In Shower'],
+};
+
+const MASTER_BATHROOM_EXTRA_STARTER_ITEMS: readonly MasterBathroomStarterItem[] = [
+    masterBathroomItem('roman_deck_mount_tub', 'Roman / Deck-Mount Tub', 'Plumbing', 'Fixture', ['Roman Tub', 'Deck-Mount Tub']),
+    masterBathroomItem('freestanding_soaking_tub', 'Freestanding / Soaking Tub', 'Plumbing', 'Fixture', ['Freestanding Tub', 'Soaking Tub']),
+    masterBathroomItem('standalone_walk_in_shower', 'Standalone / Walk-In Shower', 'Plumbing', 'Fixture', ['Standalone Shower', 'Walk-In Shower']),
+    masterBathroomItem('shower_enclosure_door', 'Shower Enclosure / Door', 'Plumbing', 'Fixture', ['Shower Enclosure', 'Shower Door']),
+    masterBathroomChild('thermostatic_shower_valve', 'Thermostatic Shower Valve', 'Plumbing', 'Component', 'Standalone / Walk-In Shower', ['Thermostatic Valve']),
+    masterBathroomChild('rain_shower_head', 'Rain Shower Head', 'Plumbing', 'Fixture', 'Standalone / Walk-In Shower', ['Rain Shower']),
+    masterBathroomChild('hand_shower', 'Hand Shower', 'Plumbing', 'Fixture', 'Standalone / Walk-In Shower', ['Handheld Shower', 'Handheld Shower Head']),
+    masterBathroomChild('body_sprays', 'Body Sprays', 'Plumbing', 'Fixture', 'Standalone / Walk-In Shower', ['Body Jets', 'Shower Body Sprays']),
+    masterBathroomItem('double_vanity', 'Double Vanity', 'Plumbing', 'Fixture', ['Dual Vanity', 'Two-Sink Vanity']),
+    masterBathroomItem('bidet', 'Bidet', 'Plumbing', 'Fixture', ['Bidet Fixture']),
+    masterBathroomChild('bidet_seat', 'Bidet Seat', 'Plumbing', 'Component', 'Toilet', ['Washlet Seat']),
+    masterBathroomChild('roman_tub_filler', 'Roman Tub Filler', 'Plumbing', 'Fixture', 'Roman / Deck-Mount Tub', ['Deck-Mount Tub Filler']),
+    masterBathroomChild('freestanding_tub_filler', 'Freestanding Tub Filler', 'Plumbing', 'Fixture', 'Freestanding / Soaking Tub', ['Floor-Mount Tub Filler']),
+];
+
 const LOCATION_NEUTRAL_STARTER_ITEMS: readonly (CompleteRoomStarterItem & {
     templateKey: string;
     kind: LocationNeutralStarterKind;
     placementTags?: readonly string[];
 })[] = [
+    {
+        templateKey: 'whole_home:main_water_shutoff',
+        kind: 'whole_home',
+        name: 'Main Water Shutoff',
+        system: 'Plumbing',
+        category: 'Equipment',
+        aliases: [
+            'Whole Home Water Shutoff',
+            'Main Water Shutoff Valve',
+            'Main Water Valve',
+            'Front Yard Main Water Valve',
+        ],
+        placementTags: [
+            'whole_home',
+            'basement',
+            'crawlspace',
+            'garage',
+            'utility_room',
+            'mechanical_room',
+            'interior_closet',
+            'exterior',
+            'front_yard',
+            'back_yard',
+            'side_yard',
+            'custom',
+        ],
+    },
     {
         templateKey: 'whole_home:smart_water_shutoff',
         kind: 'whole_home',
@@ -194,11 +250,31 @@ export function getCompleteRoomStarterItems(kind: CompleteRoomStarterKind) {
     }));
 }
 
+export function getMasterBathroomStarterItems(): MasterBathroomStarterItem[] {
+    return [
+        ...ROOM_STARTER_ITEMS.bathroom.map((starterItem) => ({
+            ...starterItem,
+            aliases: starterItem.aliases ? [...starterItem.aliases] : undefined,
+            parentAliases: starterItem.parentAliases ? [...starterItem.parentAliases] : undefined,
+            templateKey: completeRoomStarterTemplateKey('bathroom', starterItem.name),
+        })),
+        ...MASTER_BATHROOM_EXTRA_STARTER_ITEMS.map((starterItem) => ({
+            ...starterItem,
+            aliases: starterItem.aliases ? [...starterItem.aliases] : undefined,
+            parentAliases: starterItem.parentAliases ? [...starterItem.parentAliases] : undefined,
+        })),
+    ];
+}
+
 export function completeRoomStarterTemplateKey(
     kind: CompleteRoomStarterKind,
     itemName: string,
 ) {
-    return `${kind}:${normalizeRoomStarterIdentity(itemName).replace(/\s+/g, '_')}`;
+    const identity = normalizeRoomStarterIdentity(itemName);
+    if (kind === 'bathroom' && identity === 'tub and shower trim') {
+        return 'bathroom:tub_shower_trim';
+    }
+    return `${kind}:${identity.replace(/\s+/g, '_')}`;
 }
 
 export function resolveCompleteRoomStarterTemplate(input: {
@@ -232,8 +308,13 @@ export function resolveCompleteRoomStarterTemplate(input: {
 
     if (!itemDefinition) return null;
 
+    const explicitTemplateKey = 'templateKey' in itemDefinition
+        && typeof itemDefinition.templateKey === 'string'
+        ? itemDefinition.templateKey
+        : '';
+
     return {
-        templateKey: completeRoomStarterTemplateKey(kind, itemDefinition.name),
+        templateKey: explicitTemplateKey || completeRoomStarterTemplateKey(kind, itemDefinition.name),
         kind,
         areaName,
         item: itemDefinition,
@@ -258,7 +339,11 @@ export function findCompleteRoomStarterItem(
 
     if (!kind) return null;
 
-    return ROOM_STARTER_ITEMS[kind].find((itemDefinition) =>
+    const starterItems = isMasterBathroomAreaName(areaName)
+        ? getMasterBathroomStarterItems()
+        : ROOM_STARTER_ITEMS[kind];
+
+    return starterItems.find((itemDefinition) =>
         roomStarterItemNames(itemDefinition).some((name) => sameRoomStarterIdentity(name, itemName))
     ) || null;
 }
@@ -272,7 +357,11 @@ export function isCompleteRoomStarterRelation(input: {
 
     if (!kind) return false;
 
-    return ROOM_STARTER_ITEMS[kind].some((itemDefinition) => (
+    const starterItems = isMasterBathroomAreaName(input.areaName)
+        ? getMasterBathroomStarterItems()
+        : ROOM_STARTER_ITEMS[kind];
+
+    return starterItems.some((itemDefinition) => (
         Boolean(itemDefinition.parentName) &&
         roomStarterItemNames(itemDefinition).some((name) => sameRoomStarterIdentity(name, input.candidateName)) &&
         roomStarterParentNames(itemDefinition).some((name) => sameRoomStarterIdentity(name, input.parentName))
@@ -291,6 +380,11 @@ export function normalizeRoomStarterIdentity(value?: string | null) {
 
 export function sameRoomStarterIdentity(first?: string | null, second?: string | null) {
     return normalizeRoomStarterIdentity(first) === normalizeRoomStarterIdentity(second);
+}
+
+export function isMasterBathroomAreaName(value?: string | null) {
+    const normalized = normalizeRoomStarterIdentity(value);
+    return /(^| )(master bath|master bathroom|primary bath|primary bathroom)( |$)/.test(normalized);
 }
 
 function item(
@@ -312,6 +406,50 @@ function child(
     const parent = ROOM_PARENT_ALIASES[parentName] || [];
 
     return { name, system, category, aliases, parentName, parentAliases: parent };
+}
+
+function suggestedChild(
+    name: string,
+    system: string,
+    category: CompleteRoomStarterItem['category'],
+    parentName: string,
+    aliases: readonly string[] = [],
+): CompleteRoomStarterItem {
+    return { ...child(name, system, category, parentName, aliases), suggested: true };
+}
+
+function masterBathroomItem(
+    key: string,
+    name: string,
+    system: string,
+    category: CompleteRoomStarterItem['category'],
+    aliases: readonly string[] = [],
+): MasterBathroomStarterItem {
+    return { templateKey: `master_bathroom:${key}`, name, system, category, aliases, suggested: true };
+}
+
+function masterBathroomChild(
+    key: string,
+    name: string,
+    system: string,
+    category: CompleteRoomStarterItem['category'],
+    parentName: string,
+    aliases: readonly string[] = [],
+): MasterBathroomStarterItem {
+    const parentAliases = MASTER_BATHROOM_PARENT_ALIASES[parentName]
+        || ROOM_PARENT_ALIASES[parentName]
+        || [];
+
+    return {
+        templateKey: `master_bathroom:${key}`,
+        name,
+        system,
+        category,
+        aliases,
+        parentName,
+        parentAliases,
+        suggested: true,
+    };
 }
 
 function electrical(

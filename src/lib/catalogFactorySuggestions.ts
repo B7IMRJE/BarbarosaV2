@@ -95,7 +95,7 @@ const HOME_DEPOT = 'Home Depot';
 const VERIFIED_ON = '2026-08-15';
 
 export const CATALOG_QUICK_START_GROUPS: CatalogQuickStartGroup[] = [
-    group('shower_tub', 'Shower / Tub', ['shower tub', 'shower valve', 'shower cartridge'], ['installation_category', 'size_capacity', 'fuel_energy_source', 'connection_type', 'flow_pressure', 'compatibility_required_parts', 'retail_source_reference'], 'Exact trim and rough-in contents must be explicit.'),
+    group('shower_tub', 'Shower Trim & Valve Packages', ['shower trim', 'tub shower trim', 'shower valve', 'rough in valve', 'shower cartridge'], ['installation_category', 'size_capacity', 'fuel_energy_source', 'connection_type', 'flow_pressure', 'compatibility_required_parts', 'retail_source_reference'], 'Exact exposed trim, tub-spout configuration, and concealed rough-in contents must be explicit.'),
     group('water_heater', 'Water Heater', ['water heater'], ['installation_category', 'size_capacity', 'fuel_energy_source', 'connection_type', 'flow_pressure', 'compatibility_required_parts', 'retail_source_reference'], 'Rheem entry, A. O. Smith mid, and Bradford White premium are user-defined selling tiers, not objective quality rankings. Exact sourced models are still required.'),
     group('tankless_water_heater', 'Tankless Water Heater', ['tankless water heater'], ['installation_category', 'size_capacity', 'fuel_energy_source', 'connection_type', 'flow_pressure', 'compatibility_required_parts', 'retail_source_reference'], 'Navien and Noritz are planned premium alternatives; no product appears until an exact sourced model is verified.'),
     group('smart_water_monitor', 'Smart Water Monitor & Shutoff', ['smart water monitor', 'automatic shutoff', 'whole home shutoff'], ['installation_category', 'size_capacity', 'fuel_energy_source', 'connection_type', 'flow_pressure', 'compatibility_required_parts', 'retail_source_reference'], 'Flo by Moen is planned; pipe size, power, connectivity, and shutoff compatibility must be exact.'),
@@ -113,7 +113,7 @@ export const CATALOG_QUICK_START_SUGGESTIONS: CatalogQuickStartSuggestion[] = [
     {
         id: 'moen-chateau-181119-trim-only',
         groupId: 'shower_tub',
-        starterTemplateKey: 'bathroom:shower_tub',
+        starterTemplateKey: 'bathroom:shower_trim',
         productName: 'Moen Chateau Lever Posi-Temp Shower Valve Trim',
         tier: 'Entry / retrofit',
         fitSummary: 'Chrome trim only. Requires an existing compatible Moen Posi-Temp rough-in valve.',
@@ -152,7 +152,7 @@ export const CATALOG_QUICK_START_SUGGESTIONS: CatalogQuickStartSuggestion[] = [
     {
         id: 'moen-brantford-t2151bn-2510-bundle',
         groupId: 'shower_tub',
-        starterTemplateKey: 'bathroom:shower_tub',
+        starterTemplateKey: 'bathroom:shower_trim',
         productName: 'Moen Brantford Posi-Temp Trim + Rough-In Valve',
         tier: 'Mid tier',
         fitSummary: 'Brushed Nickel trim plus Moen 2510 brass 1/2 in. IPS rough-in valve.',
@@ -191,7 +191,7 @@ export const CATALOG_QUICK_START_SUGGESTIONS: CatalogQuickStartSuggestion[] = [
     {
         id: 'moen-align-t2191bg-2510-bundle',
         groupId: 'shower_tub',
-        starterTemplateKey: 'bathroom:shower_tub',
+        starterTemplateKey: 'bathroom:shower_trim',
         productName: 'Moen Align Posi-Temp Brushed Gold Trim + Rough-In Valve',
         tier: 'Premium',
         fitSummary: 'Brushed Gold trim plus Moen 2510 brass 1/2 in. IPS rough-in valve.',

@@ -341,7 +341,6 @@ function mechanicalStarterItems(includeWaterHeater: boolean, includeHvac: boolea
             starterItem('Expansion Tank', 'Plumbing', 'Equipment'),
             starterItem('T&P Valve', 'Plumbing', 'Component', ['T&P Discharge Line']),
             starterItem('Water Heater Drain Pan', 'Plumbing', 'Component'),
-            starterItem('Main Water Shutoff', 'Plumbing', 'Equipment'),
             starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment', ['Pressure Regulator Valve']),
             starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment', ['Whole House Filter'])
         );
@@ -366,13 +365,6 @@ function exteriorStarterItems(yardLabel: 'Front Yard' | 'Back Yard'): StarterHom
         starterItem(`${yardLabel} Main Cleanout`, 'Exterior', 'Fixture', ['Main Cleanout']),
         starterItem(`Irrigation ${yardLabel}`, 'Irrigation', 'Equipment', ['Irrigation Supply', 'Irrigation Controller']),
     ];
-
-    if (yardLabel === 'Front Yard') {
-        items.push(
-            starterItem('Main Water Service', 'Plumbing', 'Equipment', ['Water Main']),
-            starterItem('Front Yard Main Water Valve', 'Plumbing', 'Component', ['Main Water Valve'])
-        );
-    }
 
     return items;
 }

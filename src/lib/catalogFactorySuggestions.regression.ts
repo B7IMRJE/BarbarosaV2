@@ -10,6 +10,8 @@ import {
 
 const starterCards = [
     starter('bathroom:shower_tub', 'bathroom', 'Shower / Tub Plumbing', ['Shower', 'Tub']),
+    starter('bathroom:shower_trim', 'bathroom', 'Shower Trim', ['Shower Control Trim']),
+    starter('bathroom:tub_shower_trim', 'bathroom', 'Tub & Shower Trim', ['Tub and Shower Trim']),
     starter('kitchen:kitchen_faucet', 'kitchen', 'Kitchen Faucet', ['Faucet']),
     starter('garage:water_heater', 'garage', 'Water Heater', ['Tank Water Heater', 'Storage Water Heater', '30 gallon', '40 gallon', '50 gallon', '70 gallon', '100 gallon', 'Tankless Water Heater']),
     starter('pool:pool_pump', 'pool', 'Pool Pump', ['Circulation Pump']),
@@ -46,8 +48,9 @@ assert(CATALOG_QUICK_START_SUGGESTIONS.length === 3, 'The first safe quick-start
 assert(CATALOG_QUICK_START_SUGGESTIONS.every(catalogQuickStartIsReady), 'Every quick-start product must have an exact model, compatibility fields, and matching retailer source.');
 assert(CATALOG_QUICK_START_SUGGESTIONS[0].seed.specifications.rough_in_valve_included === 'No', 'Chateau 181119 must remain clearly trim-only.');
 assert(CATALOG_QUICK_START_SUGGESTIONS.slice(1).every((suggestion) => suggestion.seed.specifications.rough_in_valve_included?.startsWith('Yes')), 'Brantford and Align must remain trim plus rough-in valve bundles.');
+assert(CATALOG_QUICK_START_SUGGESTIONS.every((suggestion) => suggestion.starterTemplateKey === 'bathroom:shower_trim'), 'Shower quick-start drafts must start under exposed trim; verified rough-in inclusion may add a separate Shower Valve mapping only after save.');
 assert(CATALOG_QUICK_START_SUGGESTIONS.every((suggestion) => !('price' in suggestion.seed)), 'Quick starts must never seed a company selling price.');
-assert(catalogQuickStartGroupsForDeck(starterCards).find((group) => group.id === 'shower_tub')?.matchedStarterNames.includes('Shower / Tub Plumbing'), 'Quick-start groups must visibly match the current HomeOS starter archetype.');
+assert(catalogQuickStartGroupsForDeck(starterCards).find((group) => group.id === 'shower_tub')?.matchedStarterNames.includes('Shower Trim'), 'Quick-start groups must visibly match the exposed Shower Trim archetype.');
 assert(CATALOG_QUICK_START_GROUPS.find((group) => group.id === 'expansion_tank')?.requiredFacts.includes('incoming_pressure'), 'Expansion-tank authoring must require incoming pressure.');
 assert(CATALOG_QUICK_START_GROUPS.find((group) => group.id === 'expansion_tank')?.requiredFacts.includes('pressure_setpoint'), 'Expansion-tank authoring must require the tank pressure setpoint.');
 assert(CATALOG_QUICK_START_GROUPS.find((group) => group.id === 'water_heater')?.authoringNote.includes('user-defined selling tiers'), 'Water-heater tier language must remain explicitly user-defined rather than an objective quality claim.');

@@ -25,6 +25,26 @@ export function runStarterHomeSetupRegressions() {
     existingHomeRecoveryCreatesOnlyMissingCards();
     kitchenHasDirectItemsAfterSetup();
     existingBathroomGapFillPreservesCurrentCards();
+    defaultSetupDoesNotClaimMainShutoffPlacement();
+}
+
+function defaultSetupDoesNotClaimMainShutoffPlacement() {
+    const existingFrontYardShutoff = {
+        name: 'Front Yard Main Water Valve',
+        system: 'Plumbing',
+        category: 'Equipment',
+        location: 'Front Yard',
+        parent_area: '',
+        item_slug: 'front-yard-main-water-valve',
+        status: 'Good',
+        install_state: 'Installed',
+        history: ['preserve'],
+    };
+    const snapshot = JSON.stringify(existingFrontYardShutoff);
+    const preview = previewWith([existingFrontYardShutoff]);
+
+    assert(!preview.rowsToInsert.some((row) => ['Main Water Shutoff', 'Main Water Service', 'Front Yard Main Water Valve'].includes(row.name)), 'Default setup must not invent a Main Water Shutoff placement.');
+    assert(JSON.stringify(existingFrontYardShutoff) === snapshot, 'Existing verified Front Yard shutoff history and placement must remain untouched.');
 }
 
 function bathroomAndGarageIncludeCompleteStarterCards() {

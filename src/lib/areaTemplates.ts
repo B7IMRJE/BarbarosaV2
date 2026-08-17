@@ -3,6 +3,8 @@ import {
     completeRoomStarterTemplateKey,
     getCompleteRoomStarterItems,
     getCompleteRoomStarterKind,
+    getMasterBathroomStarterItems,
+    isMasterBathroomAreaName,
     type CompleteRoomStarterKind,
 } from './roomStarterTemplates';
 
@@ -92,6 +94,31 @@ function bathroomStarterItems(): Record<string, AreaStarterItem[]> {
     };
 }
 
+function masterBathroomStarterItems(): Record<string, AreaStarterItem[]> {
+    const groups = getMasterBathroomStarterItems().reduce<Record<string, AreaStarterItem[]>>((starterGroups, definition) => {
+        const starter: AreaStarterItem = {
+            name: definition.name,
+            system: definition.system,
+            category: definition.category,
+            status: missingInfo,
+            install_state: unknown,
+            aliases: [...(definition.aliases || [])],
+            parentName: definition.parentName,
+            parentAliases: [...(definition.parentAliases || [])],
+            templateKey: definition.templateKey,
+        };
+        starterGroups[starter.system] = [...(starterGroups[starter.system] || []), starter];
+        return starterGroups;
+    }, {});
+
+    groups.Electrical = [
+        canonicalSuggestion('Bathroom Exhaust Fan', 'Electrical', 'Equipment', 'electrical_bathroom:bathroom_exhaust_fan', ['Exhaust Fan', 'Ventilation Fan']),
+        canonicalSuggestion('Interior Light Fixture', 'Electrical', 'Fixture', 'electrical_living_room:interior_light_fixture', ['Interior Light', 'Ceiling Light', 'Wall Light']),
+    ];
+
+    return groups;
+}
+
 function kitchenStarterItems(): Record<string, AreaStarterItem[]> {
     const completeItems = completeRoomStarterGroups('kitchen');
 
@@ -138,6 +165,9 @@ function completeRoomStarterGroups(kind: CompleteRoomStarterKind) {
             [...(starterDefinition.parentAliases || [])],
         );
         starter.templateKey = completeRoomStarterTemplateKey(kind, starterDefinition.name);
+        if (starterDefinition.suggested) {
+            starter.install_state = unknown;
+        }
 
         groups[starter.system] = [...(groups[starter.system] || []), starter];
         return groups;
@@ -195,7 +225,7 @@ export const areaTemplates: AreaTemplate[] = [
         id: 'master-bathroom',
         name: 'Master Bathroom',
         icon: '🛁',
-        starterItems: bathroomStarterItems(),
+        starterItems: masterBathroomStarterItems(),
     },
     {
         id: 'garage',
@@ -485,6 +515,25 @@ export function getAreaTemplate(id: string) {
     return areaTemplates.find((template) => template.id === id) || null;
 }
 
+function canonicalSuggestion(
+    name: string,
+    system: string,
+    category: StarterItemCategory,
+    templateKey: string,
+    aliases: string[] = [],
+): AreaStarterItem {
+    return {
+        name,
+        system,
+        category,
+        status: missingInfo,
+        install_state: unknown,
+        aliases,
+        parentAliases: [],
+        templateKey,
+    };
+}
+
 export function getAreaTemplateByName(name?: string | null) {
     const normalizedName = normalize(String(name || ''));
 
@@ -493,6 +542,10 @@ export function getAreaTemplateByName(name?: string | null) {
     const exactTemplate = areaTemplates.find((template) => normalize(template.name) === normalizedName);
 
     if (exactTemplate) return exactTemplate;
+
+    if (isMasterBathroomAreaName(name)) {
+        return areaTemplates.find((template) => template.id === 'master-bathroom') || null;
+    }
 
     const completeRoomKind = getCompleteRoomStarterKind(name);
 

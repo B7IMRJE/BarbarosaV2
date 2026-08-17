@@ -175,7 +175,7 @@ export default function CreateItemScreen() {
         (hasInitialSystemSelection || hasAreaContext) && !hasInitialCategorySelection
     );
 
-    const [locationChoice, setLocationChoice] = useState(initialArea || 'Garage');
+    const [locationChoice, setLocationChoice] = useState(initialArea || '');
     const [customLocation, setCustomLocation] = useState('');
 
     const [installState, setInstallState] = useState('Unknown');
@@ -281,12 +281,9 @@ export default function CreateItemScreen() {
 
     function chooseSystem(nextSystem: string) {
         const isCustomSystem = nextSystem === CUSTOM_SYSTEM_CHOICE;
-        const nextDefaults = getSystemDefaults(isCustomSystem ? OTHER_HOME_SYSTEM : nextSystem);
-        const nextArea = nextDefaults.areas[0] || 'Custom';
-
         setSystem(nextSystem);
         setSelectedDeckCard(null);
-        setLocationChoice(nextArea);
+        setLocationChoice(hasAreaContext ? initialArea : '');
         setCustomLocation('');
         if (!isCustomSystem) {
             setCustomSystem('');
@@ -369,8 +366,8 @@ export default function CreateItemScreen() {
             return;
         }
 
-        if (!hasAreaContext && locationChoice === 'Custom' && !customLocation.trim()) {
-            setMessage('Enter custom location or choose an existing one.');
+        if (!hasAreaContext && !finalLocation()) {
+            setMessage('Choose the item’s observed location. Use Custom if the location is not listed.');
             return;
         }
 
@@ -755,6 +752,7 @@ export default function CreateItemScreen() {
                         {!hasAreaContext && (
                             <>
                                 <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Location</Text>
+                                <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>Choose the actual observed placement. HomeOS will not assume Garage, Front Yard, or another location.</Text>
                                 <ChoiceCardGrid choices={locationChoices} value={locationChoice} onChange={setLocationChoice} />
 
                                 {locationChoice === 'Custom' && (

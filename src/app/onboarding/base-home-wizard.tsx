@@ -516,7 +516,6 @@ function mechanicalStarterCards(hasWaterHeater: YesNoNotSure, hasHvac: YesNoNotS
             starterItem('Expansion Tank', 'Plumbing', 'Equipment'),
             starterItem('T&P Valve', 'Plumbing', 'Component'),
             starterItem('Water Heater Drain Pan', 'Plumbing', 'Component'),
-            starterItem('Main Water Shutoff', 'Plumbing', 'Equipment'),
             starterItem('Pressure Regulator / PRV', 'Plumbing', 'Equipment'),
             starterItem('Whole Home Filter / Halo 5', 'Water Quality', 'Equipment')
         );

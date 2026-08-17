@@ -18,8 +18,47 @@ function runHomeAreaCardActionRegressions() {
     duplicateRequiresAUniquePlacementName();
     duplicateNameSuggestionIsStableAndReadable();
     tradeFilteringIsCanonicalAndServerCompatible();
+    masterBathroomSuggestionsAreCompleteAndTradeFiltered();
     concurrentUniqueConflictsRemainSafeSkips();
     console.log('HomeOS area-card action regression checks passed.');
+}
+
+function masterBathroomSuggestionsAreCompleteAndTradeFiltered() {
+    const plumbingOnly = canonicalAreaTemplateForTrades(requiredTemplate('master-bathroom'), ['plumbing']);
+    const plumbingAndElectrical = canonicalAreaTemplateForTrades(requiredTemplate('master-bathroom'), ['plumbing', 'electrical']);
+    const plumbingNames = Object.values(plumbingOnly.starterItems).flat().map((item) => item.name);
+    const multiTradeNames = Object.values(plumbingAndElectrical.starterItems).flat().map((item) => item.name);
+
+    for (const name of ['Roman / Deck-Mount Tub', 'Freestanding / Soaking Tub', 'Standalone / Walk-In Shower', 'Double Vanity', 'Shower Trim', 'Tub & Shower Trim']) {
+        assert(plumbingNames.includes(name), `Master Bathroom preview must include optional ${name}.`);
+    }
+    assert(!plumbingNames.includes('Bathroom Exhaust Fan') && !plumbingNames.includes('Interior Light Fixture'), 'A plumbing-only company must not receive Electrical Master Bathroom suggestions.');
+    assert(multiTradeNames.includes('Bathroom Exhaust Fan') && multiTradeNames.includes('Interior Light Fixture'), 'An electrical-enabled company must receive canonical Electrical Master Bathroom suggestions.');
+
+    const existingArea = buildAreaRow('owner-1', 'property-1', 'Master Bathroom', 'Plumbing');
+    const existingToilet = buildStarterRows('owner-1', 'property-1', 'Master Bathroom', plumbingOnly)
+        .find((row) => row.name === 'Toilet');
+    assert(existingToilet, 'Master Bathroom must reuse the canonical Toilet card.');
+    const documentedToilet = { ...existingToilet, status: 'Good', install_state: 'Installed', history: ['preserve'] };
+    const plan = planAddMissingAreaCards({
+        userId: 'owner-1',
+        propertyId: 'property-1',
+        areaName: 'Master Bathroom',
+        system: 'Plumbing',
+        template: plumbingOnly,
+        existingRows: [existingArea, documentedToilet],
+    });
+    assert(!plan.rowsToInsert.some((row) => row.name === 'Toilet'), 'Master Bathroom Add Missing must preserve an existing installed Toilet.');
+    assert(plan.rowsToInsert.every((row) => row.install_state === 'Unknown'), 'Master Bathroom Add Missing must create suggestions, not installed facts.');
+    const retry = planAddMissingAreaCards({
+        userId: 'owner-1',
+        propertyId: 'property-1',
+        areaName: 'Master Bathroom',
+        system: 'Plumbing',
+        template: plumbingOnly,
+        existingRows: [existingArea, existingToilet, ...plan.rowsToInsert],
+    });
+    assert(retry.rowsToInsert.length === 0, 'Master Bathroom Add Missing must remain idempotent on retry.');
 }
 
 function addMissingUpdatesTheExistingAreaOnly() {
