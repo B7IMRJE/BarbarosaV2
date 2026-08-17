@@ -1578,6 +1578,28 @@ export function getEstimateWorkTypeForCategory(category: EstimateOptionCategory)
     return getEstimateCategoryTemplate(category).workType;
 }
 
+export function resolveInitialEstimateCategorySelection(
+    items: EstimateDraftItemLike[],
+    preferredItemSlug: string | null | undefined,
+    activeCategory: EstimateOptionCategory,
+    restoredCategory: EstimateOptionCategory | null
+) {
+    const preferredIdentity = normalizeText(preferredItemSlug || '');
+    const opensFromSelectedHomeOsItem = Boolean(
+        preferredIdentity && items.some((item) =>
+            normalizeText(item.item_slug) === preferredIdentity ||
+            normalizeText(item.id) === preferredIdentity
+        )
+    );
+    const categoryChosen = Boolean(restoredCategory || opensFromSelectedHomeOsItem);
+
+    return {
+        category: activeCategory,
+        workType: categoryChosen ? getEstimateWorkTypeForCategory(activeCategory) : null,
+        categoryChosen,
+    };
+}
+
 export function isEstimateCategoryForWorkType(category: EstimateOptionCategory, workType: EstimateWorkType) {
     return getEstimateWorkTypeForCategory(category) === workType;
 }

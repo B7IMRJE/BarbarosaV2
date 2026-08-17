@@ -35,6 +35,7 @@ import {
     estimateWorkTypeOptions,
     photoRequirementAnswerKey,
     readEstimateOptionCategory,
+    resolveInitialEstimateCategorySelection,
     toggleEstimateMultiSelectAnswer,
     toHomeownerPresentationChoice,
     validateAiEstimateDraftResponse,
@@ -138,6 +139,9 @@ import {
     readProviderModeParams,
     validateProviderModeAccess,
 } from '../../lib/providerMode';
+import {
+    withSecureRouteGuardTimeout,
+} from '../../lib/secureRouteGuard';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../../lib/supabase';
 import {
     buildEstimateJobWorkflowRoute,
@@ -672,10 +676,21 @@ export default function EstimateScreen() {
         }
 
         if (providerModeContext) {
-            const providerAccess = await validateProviderModeAccess(
-                providerModeContext.companyId,
-                providerModeContext.propertyId
-            );
+            let providerAccess;
+
+            try {
+                providerAccess = await withSecureRouteGuardTimeout(validateProviderModeAccess(
+                    providerModeContext.companyId,
+                    providerModeContext.propertyId
+                ));
+            } catch (error) {
+                setCheckingAccess(false);
+                setMessage(readEstimateErrorMessage(
+                    error,
+                    'Assigned-job access could not be confirmed. Check your connection and retry.'
+                ));
+                return;
+            }
 
             if (!providerAccess.access) {
                 setCheckingAccess(false);
@@ -765,14 +780,20 @@ export default function EstimateScreen() {
             persistedBuilderState?.selectedCategory || nextDraftContext?.estimate_category
         );
         const activeCategory = restoredCategory || inferredCategory;
+        const initialSelection = resolveInitialEstimateCategorySelection(
+            draftItems,
+            requestedItemSlug,
+            activeCategory,
+            restoredCategory
+        );
 
         setItems(draftItems);
         setDraftContext(nextDraftContext);
         setEstimateSession(serverDraft ? mapBuilderDraftToEstimateSession(serverDraft) : null);
         setQuoteNumber(serverDraft?.quoteNumber || '');
-        setSelectedCategory(activeCategory);
-        setSelectedWorkType(restoredCategory ? getEstimateWorkTypeForCategory(restoredCategory) : null);
-        setEstimateCategoryChosen(Boolean(restoredCategory));
+        setSelectedCategory(initialSelection.category);
+        setSelectedWorkType(initialSelection.workType);
+        setEstimateCategoryChosen(initialSelection.categoryChosen);
         setAnswers(getInitialEstimateAnswers(activeCategory));
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
@@ -2712,6 +2733,7 @@ export default function EstimateScreen() {
                 message="Estimate tools are available to active company users with estimate permission."
                 detail={message}
                 homeRoute={resolveEstimateAccessFallbackRoute()}
+                onRetry={() => void checkAccess()}
             />
         );
     }
@@ -5101,7 +5123,17 @@ function nextGuidedOptionId(choices: PersistableEstimateChoice[]) {
     return `option-${index}`;
 }
 
-function StaffOnlyMessage({ message, detail, homeRoute = '/' }: { message: string; detail?: string; homeRoute?: string }) {
+function StaffOnlyMessage({
+    message,
+    detail,
+    homeRoute = '/',
+    onRetry,
+}: {
+    message: string;
+    detail?: string;
+    homeRoute?: string;
+    onRetry?: () => void;
+}) {
     return (
         <ScrollView
             style={{ flex: 1, backgroundColor: '#F3F6FA' }}
@@ -5113,6 +5145,15 @@ function StaffOnlyMessage({ message, detail, homeRoute = '/' }: { message: strin
                 <View style={emptyBoxStyle}>
                     <Text style={emptyTitleStyle}>{message}</Text>
                     {!!detail && <Text style={emptyTextStyle}>{detail}</Text>}
+
+                    {!!onRetry && (
+                        <TouchableOpacity
+                            onPress={onRetry}
+                            style={openButtonStyle}
+                        >
+                            <Text style={openButtonTextStyle}>Retry Access Check</Text>
+                        </TouchableOpacity>
+                    )}
 
                     <TouchableOpacity
                         onPress={() => router.replace(homeRoute as never)}

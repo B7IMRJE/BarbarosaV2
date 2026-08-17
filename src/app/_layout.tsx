@@ -18,6 +18,11 @@ import {
   type LoggedInUserRouteDecision,
 } from '../lib/onboarding';
 import { supabase } from '../lib/supabase';
+import {
+  secureRouteRenderKey,
+  withSecureRouteGuardTimeout,
+  type SecureRouteGuardParams,
+} from '../lib/secureRouteGuard';
 import GlobalDispatchChatOverlay from '../components/dispatch/GlobalDispatchChatOverlay';
 import DictationProvider from '../components/input/DictationProvider';
 import GlobalNavigation from '../components/navigation/GlobalNavigation';
@@ -51,11 +56,7 @@ const PUBLIC_AUTH_ROUTES = new Set<string>([
   RESET_PASSWORD_ROUTE,
 ]);
 
-type ProviderModeRouteParams = {
-  providerMode?: string | string[];
-  companyId?: string | string[];
-  propertyId?: string | string[];
-};
+type ProviderModeRouteParams = SecureRouteGuardParams;
 
 export default function Layout() {
   const pathname = usePathname();
@@ -63,6 +64,11 @@ export default function Layout() {
     providerMode?: string | string[];
     companyId?: string | string[];
     propertyId?: string | string[];
+    serviceRequestId?: string | string[];
+    scheduleSlotId?: string | string[];
+    jobId?: string | string[];
+    itemSlug?: string | string[];
+    estimateSessionId?: string | string[];
   }>();
   const pathnameRef = useRef(pathname);
   const routeParamsRef = useRef(routeParams);
@@ -73,7 +79,7 @@ export default function Layout() {
   const [initializing, setInitializing] = useState(true);
   const [approvedRouteKey, setApprovedRouteKey] = useState('');
   const [routeGuardError, setRouteGuardError] = useState('');
-  const currentRouteKey = routeRenderKey(pathname, routeParams);
+  const currentRouteKey = secureRouteRenderKey(pathname, routeParams);
   const routeIsSettled = approvedRouteKey === currentRouteKey && !initializing;
   const publicPresentation = isPresentationPath(normalizePath(pathname));
   const checkLoginEvent = useEffectEvent(checkLogin);
@@ -216,10 +222,29 @@ export default function Layout() {
         return;
       }
 
-      const userResult = await supabase.auth.getUser();
+      const guardResult = await withSecureRouteGuardTimeout((async () => {
+        const userResult = await supabase.auth.getUser();
+        const verifiedAuth = resolveAuthUserVerification(userResult.data.user, userResult.error);
+
+        if (verifiedAuth.status !== 'authenticated') {
+          return { verifiedAuth, timedOut: false, routeDecision: null } as const;
+        }
+
+        const timedOut = await hasSessionTimedOut();
+
+        if (!timedOut && !isAuthPath(currentPath)) {
+          await recordSessionActivity();
+        }
+
+        const routeDecision = timedOut
+          ? null
+          : await resolveLoggedInUserRoute(verifiedAuth.userId);
+
+        return { verifiedAuth, timedOut, routeDecision } as const;
+      })());
       if (runId !== checkRunRef.current) return;
 
-      const verifiedAuth = resolveAuthUserVerification(userResult.data.user, userResult.error);
+      const { verifiedAuth, timedOut, routeDecision } = guardResult;
 
       if (verifiedAuth.status === 'service-unavailable') {
         showRouteGuardServiceError(runId, verifiedAuth.message);
@@ -231,24 +256,19 @@ export default function Layout() {
         return;
       }
 
-      const timedOut = await hasSessionTimedOut();
-
-      if (runId !== checkRunRef.current) return;
-
       if (timedOut) {
-        await supabase.auth.signOut();
-        await clearSessionActivity();
+        await withSecureRouteGuardTimeout(Promise.allSettled([
+          supabase.auth.signOut(),
+          clearSessionActivity(),
+        ]));
         replaceIfNeeded(LOGIN_ROUTE, currentPath);
         return;
       }
 
-      if (!isAuthPath(currentPath)) {
-        await recordSessionActivity();
+      if (!routeDecision) {
+        showRouteGuardServiceError(runId);
+        return;
       }
-
-      const routeDecision = await resolveLoggedInUserRoute(verifiedAuth.userId);
-
-      if (runId !== checkRunRef.current) return;
 
       if (routeDecision.reason === 'service-unavailable') {
         showRouteGuardServiceError(runId, routeDecision.message);
@@ -322,7 +342,7 @@ export default function Layout() {
     settleTimerRef.current = setTimeout(() => {
       if (runId !== checkRunRef.current) return;
 
-      setApprovedRouteKey(routeRenderKey(pathnameRef.current, routeParamsRef.current));
+      setApprovedRouteKey(secureRouteRenderKey(pathnameRef.current, routeParamsRef.current));
       setInitializing(false);
       settleTimerRef.current = null;
     }, 220);
@@ -395,15 +415,6 @@ function normalizePath(pathname: string) {
   const withoutTrailingSlash = pathname.replace(/\/+$/, '');
 
   return withoutTrailingSlash || HOME_ROUTE;
-}
-
-function routeRenderKey(pathname: string, routeParams: ProviderModeRouteParams) {
-  return [
-    normalizePath(pathname),
-    firstRouteParam(routeParams.providerMode),
-    firstRouteParam(routeParams.companyId),
-    firstRouteParam(routeParams.propertyId),
-  ].join('|');
 }
 
 function isAuthPath(pathname: string) {
