@@ -39,9 +39,9 @@ function salesTechUsesReadOnlyCompanyClientRpc() {
     const directStrategy = getProviderHomeItemsReadStrategy(createUnassignedContext(), 'provider_sales');
     const assignedStrategy = getProviderHomeItemsReadStrategy(createContext(), 'sales tech');
 
-    assert(directStrategy === 'sales_company_rpc', 'Sales Tech should read an active company client home without an arbitrary historical assignment.');
-    assert(assignedStrategy === 'sales_company_rpc', 'Sales Tech should remain on the dedicated read-only RPC even when route context exists.');
-    assert(getProviderHomeItemsRpcName(directStrategy) === 'get_sales_company_homeos_items', 'Sales reads must not reuse the provider write authorization helper.');
+    assert(directStrategy === 'denied', 'Sales Tech must not read a client home without an explicitly assigned visit.');
+    assert(assignedStrategy === 'sales_company_rpc', 'Assigned Sales Tech reads should use the dedicated read-only RPC.');
+    assert(getProviderHomeItemsRpcName(assignedStrategy) === 'get_sales_company_homeos_items', 'Sales reads must not reuse the provider write authorization helper.');
 }
 
 function assignedPlatformAdminKeepsAssignedRpcBoundary() {

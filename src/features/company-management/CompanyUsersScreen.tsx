@@ -29,6 +29,13 @@ import {
 import { mergeCompanyTeamRosterMembers } from '../../lib/companyTeamRoster';
 import { resolveCompanyTeamContentWidth } from '../../lib/companyTeamLayout';
 import {
+    getCompanyPayBasisLabel,
+    loadCompanyTimekeepingPolicies,
+    normalizeCompanyPayBasis,
+    saveCompanyUserPayBasis,
+    type CompanyPayBasis,
+} from '../../lib/companyTimekeepingPolicy';
+import {
     COMPANY_PERMISSION_LABELS,
     canAccessTechOS as canAccessCompanyTechOS,
     getRoleDefaultPermissions,
@@ -78,6 +85,7 @@ type CompanyUser = {
     role: string;
     status: string;
     created_at: string | null;
+    pay_basis?: CompanyPayBasis | null;
     permissions?: Partial<CompanyPermissionSet> | null;
 };
 
@@ -304,9 +312,12 @@ export default function CompanyUsersScreen() {
         setCanManageUsers(accessResult.canManage);
         setCanViewTeam(true);
 
-        const [membersResult, companyProfileResult] = await Promise.all([
+        const [membersResult, companyProfileResult, timekeepingPolicies] = await Promise.all([
             loadCompanyMembers(String(id)),
             loadCompanyWorkspaceProfile(String(id)),
+            accessResult.canManage
+                ? loadCompanyTimekeepingPolicies(String(id)).catch(() => [])
+                : Promise.resolve([]),
         ]);
 
         setLoadingLists(false);
@@ -316,7 +327,13 @@ export default function CompanyUsersScreen() {
             return false;
         }
 
-        setMembers(membersResult.data);
+        const payBasisByMemberId = new Map(
+            timekeepingPolicies.map((policy) => [policy.companyUserId, policy.payBasis] as const)
+        );
+        setMembers(membersResult.data.map((member) => ({
+            ...member,
+            pay_basis: payBasisByMemberId.get(member.id) || member.pay_basis || 'hourly',
+        })));
         setCompanyName(companyProfileResult.name);
         setCompanyBrand(companyProfileResult.brand);
 
@@ -686,6 +703,46 @@ export default function CompanyUsersScreen() {
 
         await loadCompanyUsers(false);
         setMessage(`${getMemberDisplayName(member, member.email || 'Team member')} is now ${formatRole(nextRole)}.`);
+    }
+
+    async function updateMemberPayBasis(memberId: string, nextPayBasis: CompanyPayBasis) {
+        if (!canManageUsers) {
+            setMessage('Company timekeeping changes require owner, admin, or manager access.');
+            return;
+        }
+
+        const member = members.find((candidate) => candidate.id === memberId) || null;
+        if (!member || normalizeCompanyPayBasis(member.pay_basis) === nextPayBasis) return;
+
+        setActionLoadingKey(`${memberId}:pay-basis`);
+        setMessage(`Saving ${getCompanyPayBasisLabel(nextPayBasis).toLowerCase()} timekeeping for ${getMemberDisplayName(member, member.email || 'team member')}...`);
+
+        try {
+            const savedPolicy = await saveCompanyUserPayBasis(memberId, nextPayBasis);
+
+            setMembers((current) => current.map((candidate) => candidate.id === memberId
+                ? { ...candidate, pay_basis: savedPolicy.payBasis }
+                : candidate));
+            await recordCompanyAuditEvent({
+                companyId: member.company_id,
+                action: 'company_user_pay_basis_changed',
+                targetType: 'company_user',
+                targetId: member.id,
+                targetLabel: getMemberDisplayName(member, member.email || member.id),
+                beforeData: safeAuditRecord({ pay_basis: normalizeCompanyPayBasis(member.pay_basis) }),
+                afterData: safeAuditRecord({
+                    pay_basis: savedPolicy.payBasis,
+                    clock_required: savedPolicy.clockRequired,
+                }),
+            });
+            setMessage(savedPolicy.clockRequired
+                ? 'Hourly timekeeping saved. Clock in and clock out are required for assigned field work.'
+                : 'Salaried timekeeping saved. Clocking remains available but is optional.');
+        } catch (error) {
+            setMessage(`Timekeeping update failed: ${getErrorMessage(error)}`);
+        } finally {
+            setActionLoadingKey(null);
+        }
     }
 
     async function revokeInvitation(invitationId: string) {
@@ -1367,6 +1424,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1396,6 +1454,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1425,6 +1484,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1454,6 +1514,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1483,6 +1544,7 @@ export default function CompanyUsersScreen() {
                                         onToggle={() => toggleRow(`member:${member.id}`)}
                                         onStatusChange={updateMemberStatus}
                                         onRoleChange={updateMemberRole}
+                                        onPayBasisChange={updateMemberPayBasis}
                                         onSavePublicProfile={saveTechnicianProfile}
                                         onSaveProfessionalContact={saveProfessionalContact}
                                     />
@@ -1650,6 +1712,7 @@ function TeamMemberRow({
     onToggle,
     onStatusChange,
     onRoleChange,
+    onPayBasisChange,
     onSavePublicProfile,
     onSaveProfessionalContact,
 }: {
@@ -1663,6 +1726,7 @@ function TeamMemberRow({
     onToggle: () => void;
     onStatusChange: (memberId: string, nextStatus: MemberActionStatus) => void;
     onRoleChange: (memberId: string, nextRole: CompanyRole) => Promise<void> | void;
+    onPayBasisChange: (memberId: string, nextPayBasis: CompanyPayBasis) => Promise<void> | void;
     onSavePublicProfile: (memberId: string, draft: TechnicianProfileDraft) => Promise<void>;
     onSaveProfessionalContact: (memberId: string, draft: StaffProfessionalContactDraft) => Promise<void>;
 }) {
@@ -1677,10 +1741,15 @@ function TeamMemberRow({
     const [recoveryMessage, setRecoveryMessage] = useState('');
     const [creatingRecoveryCode, setCreatingRecoveryCode] = useState(false);
     const [pendingRole, setPendingRole] = useState<CompanyRole>(() => normalizeAssignableRole(member.role));
+    const [pendingPayBasis, setPendingPayBasis] = useState<CompanyPayBasis>(() => normalizeCompanyPayBasis(member.pay_basis));
 
     useEffect(() => {
         setPendingRole(normalizeAssignableRole(member.role));
     }, [member.role]);
+
+    useEffect(() => {
+        setPendingPayBasis(normalizeCompanyPayBasis(member.pay_basis));
+    }, [member.pay_basis]);
 
     async function createRecoveryCode() {
         if (creatingRecoveryCode) return;
@@ -1753,6 +1822,7 @@ function TeamMemberRow({
             <View style={glassPillRowStyle}>
                 <RoleBadge label={formatRole(member.role)} />
                 <RoleBadge label={status === 'active' ? 'Active' : formatLabel(member.status)} tone={status} />
+                <RoleBadge label={getCompanyPayBasisLabel(member.pay_basis)} />
             </View>
 
             <View style={glassMetaFooterStyle}>
@@ -1776,6 +1846,7 @@ function TeamMemberRow({
                     <DetailPanelSection title="Status">
                         <DetailLine label="Role" value={formatRole(member.role)} />
                         <DetailLine label="Status" value={formatLabel(member.status)} />
+                        <DetailLine label="Pay basis" value={getCompanyPayBasisLabel(member.pay_basis)} />
                         <DetailLine label="Created" value={formatDate(member.created_at)} />
                         <DetailLine label="Contact" value={contactLine} />
                     </DetailPanelSection>
@@ -1787,6 +1858,52 @@ function TeamMemberRow({
                             Invitations are free. Accepted users become billable only when a seat is activated. Plan pricing is not configured yet.
                         </Text>
                         <PlaceholderButton title="Billing confirmation will be added before paid seat activation." />
+                    </DetailPanelSection>
+
+                    <DetailPanelSection title="Timekeeping & Pay Basis">
+                        <Text style={[detailBodyTextStyle, { color: theme.colors.mutedText }]}>
+                            Hourly staff must clock in and out before assigned field work. Salaried staff can still use the time clock, but clocking is optional. Supervisors and every other company role can be configured here.
+                        </Text>
+                        <View style={permissionRoleTabsStyle}>
+                            {([
+                                { value: 'hourly' as const, label: 'Hourly · Clock required' },
+                                { value: 'salaried' as const, label: 'Salaried · Clock optional' },
+                            ]).map((option) => {
+                                const selected = pendingPayBasis === option.value;
+                                return (
+                                    <Pressable
+                                        key={option.value}
+                                        accessibilityRole="radio"
+                                        accessibilityState={{ selected }}
+                                        onPress={() => setPendingPayBasis(option.value)}
+                                        style={[
+                                            permissionRoleTabStyle,
+                                            {
+                                                backgroundColor: selected ? theme.colors.primary : theme.colors.background,
+                                                borderColor: selected ? theme.colors.primary : theme.colors.border,
+                                            },
+                                        ]}
+                                    >
+                                        <Text style={[
+                                            permissionRoleTabTextStyle,
+                                            { color: selected ? theme.colors.primaryText : theme.colors.text },
+                                        ]}>
+                                            {option.label}
+                                        </Text>
+                                    </Pressable>
+                                );
+                            })}
+                        </View>
+                        <ThemedButton
+                            title={actionLoadingKey === `${member.id}:pay-basis` ? 'Saving Timekeeping...' : 'Save Timekeeping'}
+                            variant="secondary"
+                            disabled={
+                                actionLoadingKey === `${member.id}:pay-basis` ||
+                                pendingPayBasis === normalizeCompanyPayBasis(member.pay_basis)
+                            }
+                            onPress={() => void onPayBasisChange(member.id, pendingPayBasis)}
+                            style={actionButtonStyle}
+                        />
                     </DetailPanelSection>
 
                     <DetailPanelSection title="Role & Permissions">
@@ -2982,7 +3099,7 @@ async function loadCompanyMembers(companyId: string): Promise<{
     const [directResult, dispatchRosterResult] = await Promise.all([
         supabase
             .from('company_users')
-            .select('id, company_id, auth_user_id, full_name, email, role, status, created_at')
+            .select('id, company_id, auth_user_id, full_name, email, role, status, created_at, pay_basis')
             .eq('company_id', companyId)
             .order('created_at', { ascending: false }),
         supabase.rpc('get_company_users_for_dispatch', {
@@ -3075,6 +3192,7 @@ function normalizeCompanyUsers(data: unknown): CompanyUser[] {
                 role: readStringField(record, 'role') || 'unknown',
                 status: readStringField(record, 'status') || 'unknown',
                 created_at: readStringField(record, 'created_at'),
+                pay_basis: normalizeCompanyPayBasis(readStringField(record, 'pay_basis')),
                 permissions: readPermissionOverrides(record, 'permissions'),
             };
         })

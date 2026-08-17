@@ -107,7 +107,7 @@ export function getProviderHomeItemsReadStrategy(
     membershipRole?: string | null
 ): ProviderHomeItemsReadStrategy {
     if (normalizeProviderCompanyRole(membershipRole) === 'sales') {
-        return 'sales_company_rpc';
+        return hasAssignedProviderHomeItemsContext(context) ? 'sales_company_rpc' : 'denied';
     }
 
     if (hasAssignedProviderHomeItemsContext(context)) {

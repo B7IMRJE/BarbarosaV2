@@ -114,7 +114,7 @@ function salesTechCanAuthorProposalsWithoutOperationalControl() {
 
     assert(canUseCompanyEstimateWorkflow(sales), 'Sales Tech should create estimates and proposals.');
     assert(hasCompanyPermission(sales, 'can_view_techos'), 'Sales Tech should open the scoped TechOS sales workspace.');
-    assert(hasCompanyPermission(sales, 'can_view_customers'), 'Sales Tech should read company clients.');
+    assert(!hasCompanyPermission(sales, 'can_view_customers'), 'Sales Tech must not receive company-wide client directory access.');
     assert(hasCompanyPermission(sales, 'can_view_jobs'), 'Sales Tech should read authorized company work.');
     assert(!canAccessDispatch(sales), 'Sales Tech must not control Dispatch.');
     assert(!hasCompanyPermission(sales, 'can_manage_price_book'), 'Sales Tech must not manage the Price Book.');
@@ -126,12 +126,14 @@ function salesTechRestrictionsCannotBeOverridden() {
         status: 'active',
         permissions: {
             can_manage_price_book: true,
+            can_view_customers: true,
             can_manage_company_users: true,
             can_manage_company_profile: true,
         },
     };
 
     assert(!hasCompanyPermission(sales, 'can_manage_price_book'), 'Sales Tech Price Book denial must override a saved profile flag.');
+    assert(!hasCompanyPermission(sales, 'can_view_customers'), 'Sales Tech company-wide customer denial must override a saved profile flag.');
     assert(!hasCompanyPermission(sales, 'can_manage_company_users'), 'Sales Tech team-admin denial must override a saved profile flag.');
     assert(!hasCompanyPermission(sales, 'can_manage_company_profile'), 'Sales Tech company-admin denial must override a saved profile flag.');
 }

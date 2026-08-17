@@ -63,6 +63,10 @@ import { supabase } from '../../lib/supabase';
 import { normalizeSoldJobRecord, type SoldJobRecord } from '../../lib/soldJobs';
 import { getTechnicianAssignmentDisplayName } from '../../lib/technicianDisplay';
 import {
+    resolveDispatchScheduleRpcCall,
+    type DispatchAssigneeType,
+} from '../../lib/dispatchAssigneeMode';
+import {
     loadPendingClockInCorrections,
     loadPendingTimeApprovals,
     reviewClockInCorrection,
@@ -172,6 +176,7 @@ type CompanyUser = {
 };
 
 type ScheduleRequestForm = {
+    assigneeType: DispatchAssigneeType;
     technicianCompanyUserId: string;
     technicianSearch: string;
     date: string;
@@ -302,6 +307,7 @@ function createDefaultScheduleForm(): ScheduleRequestForm {
     const start = getNextScheduleStart();
 
     return {
+        assigneeType: 'technician',
         technicianCompanyUserId: '',
         technicianSearch: '',
         date: formatDateInput(start),
@@ -988,17 +994,20 @@ export default function DispatchBoardScreen() {
             return;
         }
 
-        if (activeTechnicians.length === 0) {
-            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'No active technicians found for this company.' }));
-            return;
-        }
-
         if (!form.technicianCompanyUserId) {
-            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Select a technician before scheduling.' }));
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: form.assigneeType === 'sales'
+                    ? 'Select a Sales Tech before scheduling.'
+                    : 'Select a technician before scheduling.',
+            }));
             return;
         }
 
-        const selectedTechnician = activeTechnicians.find((technician) => technician.id === form.technicianCompanyUserId) || null;
+        const assignmentPool = form.assigneeType === 'sales'
+            ? companyUsers.filter((member) => isActiveStatus(member.status) && isSalesRole(member.role))
+            : activeTechnicians;
+        const selectedTechnician = assignmentPool.find((technician) => technician.id === form.technicianCompanyUserId) || null;
         const previousScheduleSlot = getCurrentRequestScheduleSlot(
             scheduleSlots.filter((slot) => slot.company_id === activeCompanyId && slot.service_request_id === request.id),
             request
@@ -1008,7 +1017,12 @@ export default function DispatchBoardScreen() {
             : null;
 
         if (!selectedTechnician) {
-            setRequestActionMessageById((current) => ({ ...current, [request.id]: 'Selected technician is not active for this company. Choose another technician.' }));
+            setRequestActionMessageById((current) => ({
+                ...current,
+                [request.id]: form.assigneeType === 'sales'
+                    ? 'Selected Sales Tech is not active for this company. Choose another Sales Tech.'
+                    : 'Selected technician is not active for this company. Choose another technician.',
+            }));
             return;
         }
 
@@ -1102,10 +1116,9 @@ export default function DispatchBoardScreen() {
         let scheduledSlot: ScheduleSlot | null = null;
 
         try {
-            const { data, error } = await supabase.rpc('schedule_service_request_slot', {
+            const scheduleArgs = {
                 p_company_id: activeCompanyId,
                 p_service_request_id: request.id,
-                p_technician_company_user_id: form.technicianCompanyUserId,
                 p_start_at: startAt.toISOString(),
                 p_end_at: endAt.toISOString(),
                 p_arrival_window_start: arrivalStart?.toISOString() || null,
@@ -1113,6 +1126,14 @@ export default function DispatchBoardScreen() {
                 p_estimated_duration_minutes: duration,
                 p_priority: request.priority || 'normal',
                 p_notes: form.notes.trim() || null,
+            };
+            const scheduleCall = resolveDispatchScheduleRpcCall(
+                form.assigneeType,
+                form.technicianCompanyUserId,
+            );
+            const { data, error } = await supabase.rpc(scheduleCall.rpcName, {
+                ...scheduleArgs,
+                ...scheduleCall.assigneeArgs,
             });
 
             scheduleErrorMessage = error?.message || '';
@@ -3196,13 +3217,25 @@ function DispatchRequestCard({
             activeTechnicians.find((technician) => technician.id === currentScheduleSlot.technician_company_user_id) ||
             null
         : selectedTechnician;
+    const activeSalesTechs = companyUsers.filter((member) => (
+        isActiveStatus(member.status) && isSalesRole(member.role)
+    ));
+    const effectiveAssigneeType = assignedTechnician && isSalesRole(assignedTechnician.role)
+        ? 'sales'
+        : scheduleForm.assigneeType;
+    const activeAssignees = effectiveAssigneeType === 'sales' ? activeSalesTechs : activeTechnicians;
+
+    useEffect(() => {
+        if (!assignedTechnician || !isSalesRole(assignedTechnician.role) || scheduleForm.assigneeType === 'sales') return;
+        onUpdateScheduleForm({ assigneeType: 'sales' });
+    }, [assignedTechnician, onUpdateScheduleForm, scheduleForm.assigneeType]);
     const assignedTechnicianLabel = assignedTechnician
         ? getMemberDisplayName(assignedTechnician)
         : currentScheduleSlot
         ? `Company user ${shortId(currentScheduleSlot.technician_company_user_id)}`
         : 'Not assigned';
     const technicianSearch = normalizeStatus(scheduleForm.technicianSearch);
-    const visibleTechnicians = activeTechnicians.filter((technician) => {
+    const visibleTechnicians = activeAssignees.filter((technician) => {
         if (!technicianSearch) return true;
 
         return normalizeStatus(`${getTechnicianAssignmentDisplayName(technician)} ${technician.role || ''}`).includes(technicianSearch);
@@ -3462,25 +3495,56 @@ function DispatchRequestCard({
                     <View style={scheduleFormRowsStyle}>
                         <View style={[schedulerPanelStyle, { borderColor: theme.colors.border, backgroundColor: theme.colors.surface }]}>
                             <View style={schedulePanelHeaderStyle}>
-                                <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Technician</Text>
+                                <Text style={[requestTypeStyle, { color: theme.colors.text }]}>Assigned field role</Text>
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                    {selectedTechnician ? getTechnicianAssignmentDisplayName(selectedTechnician) : 'No technician selected'}
+                                    {selectedTechnician ? getTechnicianAssignmentDisplayName(selectedTechnician) : 'No team member selected'}
                                 </Text>
                             </View>
+                            <View style={technicianPickerStyle}>
+                                <ThemedButton
+                                    title="Service Technician"
+                                    variant={effectiveAssigneeType === 'technician' ? 'primary' : 'secondary'}
+                                    onPress={() => onUpdateScheduleForm({
+                                        assigneeType: 'technician',
+                                        technicianCompanyUserId: '',
+                                        technicianSearch: '',
+                                    })}
+                                    style={technicianButtonStyle}
+                                    textStyle={{ fontSize: 12 }}
+                                />
+                                <ThemedButton
+                                    title="Sales Visit"
+                                    variant={effectiveAssigneeType === 'sales' ? 'primary' : 'secondary'}
+                                    onPress={() => onUpdateScheduleForm({
+                                        assigneeType: 'sales',
+                                        technicianCompanyUserId: '',
+                                        technicianSearch: '',
+                                    })}
+                                    style={technicianButtonStyle}
+                                    textStyle={{ fontSize: 12 }}
+                                />
+                            </View>
+                            {effectiveAssigneeType === 'sales' && (
+                                <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
+                                    Sales Visit is explicit and server-validated. It opens assigned HomeOS, Catalog, estimate, and proposal tools without technician execution or closeout.
+                                </Text>
+                            )}
                             <DictationTextInput
                                 value={scheduleForm.technicianSearch}
                                 onChangeText={(technicianSearchText) => onUpdateScheduleForm({ technicianSearch: technicianSearchText })}
-                                placeholder="Search technicians"
+                                placeholder={effectiveAssigneeType === 'sales' ? 'Search Sales Techs' : 'Search technicians'}
                                 placeholderTextColor={theme.colors.mutedText}
                                 style={[scheduleTextInputStyle, { borderColor: theme.colors.border, color: theme.colors.text }]}
                             />
-                            {activeTechnicians.length === 0 ? (
+                            {activeAssignees.length === 0 ? (
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                    No active technicians found for this company.
+                                    {effectiveAssigneeType === 'sales'
+                                        ? 'No active Sales Techs found for this company.'
+                                        : 'No active technicians found for this company.'}
                                 </Text>
                             ) : visibleTechnicians.length === 0 ? (
                                 <Text style={[metaTextStyle, { color: theme.colors.mutedText }]}>
-                                    No technicians match that search.
+                                    No {effectiveAssigneeType === 'sales' ? 'Sales Techs' : 'technicians'} match that search.
                                 </Text>
                             ) : (
                                 <View style={technicianPickerStyle}>
@@ -4643,6 +4707,10 @@ function isTechnicianRole(role?: string | null) {
     const normalized = normalizeStatus(role);
 
     return normalized === 'technician' || normalized === 'tech';
+}
+
+function isSalesRole(role?: string | null) {
+    return normalizeStatus(role) === 'sales';
 }
 
 function getMemberDisplayName(member: CompanyUser) {

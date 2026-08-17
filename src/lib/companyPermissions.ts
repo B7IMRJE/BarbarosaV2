@@ -77,7 +77,7 @@ const SALES_TECH_PERMISSIONS: CompanyPermissionSet = {
     can_create_estimates: true,
     can_add_item_to_estimate: true,
     can_manage_price_book: false,
-    can_view_customers: true,
+    can_view_customers: false,
     can_view_jobs: true,
     can_manage_company_users: false,
     can_manage_company_profile: false,
@@ -85,6 +85,7 @@ const SALES_TECH_PERMISSIONS: CompanyPermissionSet = {
 
 export const SALES_TECH_RESTRICTED_PERMISSION_KEYS: CompanyPermissionKey[] = [
     'can_manage_price_book',
+    'can_view_customers',
     'can_manage_company_users',
     'can_manage_company_profile',
 ];

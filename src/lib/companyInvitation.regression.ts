@@ -38,7 +38,7 @@ function permissionFractionsRemainCoverageSummaries() {
         office: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
         dispatcher: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
         supervisor: ['can_view_techos', 'can_view_customers', 'can_view_jobs'],
-        sales: ['can_view_techos', 'can_create_estimates', 'can_add_item_to_estimate', 'can_view_customers', 'can_view_jobs'],
+        sales: ['can_view_techos', 'can_create_estimates', 'can_add_item_to_estimate', 'can_view_jobs'],
         technician: ['can_view_techos', 'can_view_jobs'],
     };
 
