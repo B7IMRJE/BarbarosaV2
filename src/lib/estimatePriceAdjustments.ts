@@ -92,14 +92,35 @@ function applyLinePriceAdjustments(
 
     if (!hasAdjustment) return choice;
 
-    const totalAmount = roundCurrency(lineItems.reduce((total, line) => total + line.totalAmount, 0));
     const minimumAllowedTotal = choice.pricingResult.minimumAllowedTotal;
     const maximumAllowedTotal = choice.pricingResult.maximumAllowedTotal;
+    const companyCatalogFloorApplies = choice.pricingResult.priceBookVersion === 'company-catalog'
+        && minimumAllowedTotal !== null;
+    let adjustedLineItems = lineItems;
+    let totalAmount = roundCurrency(adjustedLineItems.reduce((total, line) => total + line.totalAmount, 0));
+    const floorWasApplied = companyCatalogFloorApplies && totalAmount < minimumAllowedTotal;
+    if (floorWasApplied && adjustedLineItems.length) {
+        const floorDelta = roundCurrency(minimumAllowedTotal! - totalAmount);
+        adjustedLineItems = adjustedLineItems.map((line, index) => {
+            if (index !== 0) return line;
+            const lineTotal = roundCurrency(line.totalAmount + floorDelta);
+            return {
+                ...line,
+                totalAmount: lineTotal,
+                unitAmount: line.quantity > 0 ? roundCurrency(lineTotal / line.quantity) : lineTotal,
+                grossMargin: lineTotal > 0 ? roundRatio((lineTotal - line.cost) / lineTotal) : null,
+            };
+        });
+        totalAmount = minimumAllowedTotal!;
+    }
     const belowMinimum = minimumAllowedTotal !== null && totalAmount < minimumAllowedTotal;
     const exceedsMaximum = maximumAllowedTotal !== null && totalAmount > maximumAllowedTotal;
     const adjustmentWarnings = [
         ...(belowMinimum
             ? [`Adjusted price is below the company minimum of ${formatMoney(minimumAllowedTotal)}.`]
+            : []),
+        ...(floorWasApplied
+            ? [`Company catalog minimum of ${formatMoney(minimumAllowedTotal!)} applied.`]
             : []),
         ...(exceedsMaximum
             ? [`Adjusted price exceeds the company maximum of ${formatMoney(maximumAllowedTotal)}.`]
@@ -110,7 +131,7 @@ function applyLinePriceAdjustments(
         ...choice,
         pricingResult: {
             ...choice.pricingResult,
-            lineItems,
+            lineItems: adjustedLineItems,
             totalAmount,
             grossMargin: totalAmount > 0
                 ? roundRatio((totalAmount - choice.pricingResult.totalCost) / totalAmount)

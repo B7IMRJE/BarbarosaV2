@@ -34,6 +34,8 @@ function runEstimatePriceAdjustmentRegression() {
         ...mismatchedSavedChoice,
         basePricingResult: baseChoice.pricingResult,
     });
+    const catalogMinimumChoice = applyEstimateChoicePriceAdjustment(companyCatalogChoice(), -25);
+    const catalogIncreasedChoice = applyEstimateChoicePriceAdjustment(companyCatalogChoice(), 15);
 
     assert(adjustedChoice.pricingResult.totalAmount === 110, 'A 10% increase should change a $100 option to $110.');
     assert(adjustedChoice.pricingResult.lineItems[0]?.unitAmount === 110, 'Line item selling prices should increase with the option.');
@@ -61,6 +63,23 @@ function runEstimatePriceAdjustmentRegression() {
     assert(safelyRestoredBaseChoice.pricingResult.totalAmount === 100, 'A matching saved base snapshot should restore deterministic pricing before adjustments.');
     assert(safelyKeptComposedChoice.pricingResult.totalAmount === 150, 'A mismatched saved base snapshot must not erase composed option lines.');
     assert(safelyKeptComposedChoice.pricingResult.lineItems.length === 2, 'Existing composed options must keep every promised priced line.');
+    assert(catalogMinimumChoice.pricingResult.totalAmount === 100, 'A company catalog quote must never fall below its saved minimum price.');
+    assert(!catalogMinimumChoice.pricingResult.requiredManagementApproval, 'The enforced company catalog floor must not create a fake below-minimum approval state.');
+    assert(catalogMinimumChoice.pricingResult.warnings.some((warning) => warning.includes('minimum')), 'The quote must explain when the company catalog floor was applied.');
+    assert(catalogIncreasedChoice.pricingResult.totalAmount === 115, 'A technician may raise a company catalog quote above its minimum.');
+}
+
+function companyCatalogChoice(): EstimateChoice {
+    const base = choice();
+    return {
+        ...base,
+        pricingResult: {
+            ...base.pricingResult,
+            priceBookVersion: 'company-catalog',
+            minimumAllowedTotal: 100,
+            maximumAllowedTotal: null,
+        },
+    };
 }
 
 function multiLineChoice(): EstimateChoice {

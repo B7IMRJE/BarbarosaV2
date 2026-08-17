@@ -21,7 +21,7 @@ const ROOM_PARENT_ALIASES: Record<string, readonly string[]> = {
     'Refrigerator Water Line': ['Ice Maker Line', 'Refrigerator Line'],
     'Instant Hot Water Dispenser': ['Instant Hot', 'Hot Water Dispenser'],
     'Reverse Osmosis System': ['Reverse Osmosis', 'RO System'],
-    'Water Heater': ['Tank Water Heater', 'Tankless Water Heater'],
+    'Water Heater': ['Tank Water Heater', 'Storage Water Heater', '30 gallon', '40 gallon', '50 gallon', '70 gallon', '100 gallon', 'Tankless Water Heater'],
     'Washer Box / Laundry Connections': ['Washer Box', 'Laundry Connections', 'Washing Machine Box'],
 };
 
@@ -94,7 +94,7 @@ const ROOM_STARTER_ITEMS: Record<CompleteRoomStarterKind, readonly CompleteRoomS
         child('RO Faucet', 'Water Quality', 'Fixture', 'Reverse Osmosis System', ['Reverse Osmosis Faucet']),
     ],
     garage: [
-        item('Water Heater', 'Plumbing', 'Equipment', ['Tank Water Heater', 'Tankless Water Heater']),
+        item('Water Heater', 'Plumbing', 'Equipment', ['Tank Water Heater', 'Storage Water Heater', '30 gallon', '40 gallon', '50 gallon', '70 gallon', '100 gallon', 'Tankless Water Heater']),
         item('Garage Hose Bibb', 'Plumbing', 'Fixture', ['Garage Hose Bib', 'Hose Bib', 'Hose Bibb']),
         item('Washer Box / Laundry Connections', 'Plumbing', 'Equipment', ['Washer Box', 'Laundry Connections', 'Washing Machine Box']),
         item('Whole Home Filter', 'Water Quality', 'Equipment', ['Whole House Filter', 'Whole Home Filter / Halo 5']),

@@ -69,6 +69,14 @@ export async function saveHomeOSStarterCardDeckEntry(input: {
     return parsed;
 }
 
+export async function addHomeOSStarterCardVariantMapping(templateKey: string, variantId: string) {
+    const { error } = await supabase.rpc('add_homeos_starter_card_variant_mapping', {
+        p_template_key: templateKey,
+        p_variant_id: variantId,
+    });
+    if (error) throw error;
+}
+
 export async function setHomeOSStarterCardReadiness(
     templateKey: string,
     readinessStatus: HomeOSStarterDeckReadiness,

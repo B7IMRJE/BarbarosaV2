@@ -1,6 +1,10 @@
 import type * as DocumentPicker from 'expo-document-picker';
 import type * as ImagePicker from 'expo-image-picker';
 import { loadCatalogCardCodeMaps, loadVisibleCatalogProductShortCodes } from './catalogCardCodes';
+import {
+    normalizeCompanyCatalogMarkupMode,
+    type CompanyCatalogMarkupMode,
+} from './companyCatalogPricingCore';
 import { supabase } from './supabase';
 import type {
     CatalogDuplicateMatch,
@@ -148,8 +152,10 @@ export type CompanyCatalogOffering = {
     companyCatalogProductId?: string;
     materialCost: number | null;
     markup: number | null;
+    markupMode: CompanyCatalogMarkupMode;
+    laborHours: number | null;
     laborAmount: number | null;
-    installedPrice: number | null;
+    minimumPrice: number | null;
     preferredSupplier: string;
     companyWarranty: string;
     active: boolean;
@@ -433,14 +439,33 @@ export async function loadApprovedMasterCatalogDetail(variantId: string): Promis
 }
 
 export async function saveCompanyCatalogOffering(companyId: string, variantId: string, offering: CompanyCatalogOffering) {
-    const { data, error } = await supabase.rpc('save_company_catalog_offering', {
+    if (!offering.id) {
+        const { error: createError } = await supabase.rpc('save_company_catalog_offering', {
+            p_company_id: companyId,
+            p_variant_id: variantId,
+            p_payload: {
+                material_cost: offering.materialCost,
+                markup: offering.markup,
+                labor_amount: offering.laborAmount,
+                installed_price: offering.minimumPrice,
+                preferred_supplier: offering.preferredSupplier || null,
+                company_warranty: offering.companyWarranty || null,
+                active: offering.active,
+            },
+        });
+        if (createError) throw createError;
+    }
+
+    const { data, error } = await supabase.rpc('save_company_catalog_offering_pricing_v2', {
         p_company_id: companyId,
         p_variant_id: variantId,
         p_payload: {
             material_cost: offering.materialCost,
             markup: offering.markup,
-            labor_amount: offering.laborAmount,
-            installed_price: offering.installedPrice,
+            markup_mode: offering.markupMode,
+            labor_hours: offering.laborHours,
+            preserve_legacy_labor_amount: offering.laborHours === null && offering.laborAmount !== null,
+            minimum_price: offering.minimumPrice,
             preferred_supplier: offering.preferredSupplier || null,
             company_warranty: offering.companyWarranty || null,
             active: offering.active,
@@ -649,8 +674,10 @@ function parseOffering(value: unknown): CompanyCatalogOffering {
         companyCatalogProductId: text(row.company_catalog_product_id) || undefined,
         materialCost: numberValue(row.material_cost),
         markup: numberValue(row.markup),
+        markupMode: normalizeCompanyCatalogMarkupMode(row.markup_mode),
+        laborHours: numberValue(row.labor_hours),
         laborAmount: numberValue(row.labor_amount),
-        installedPrice: numberValue(row.installed_price),
+        minimumPrice: numberValue(row.minimum_price ?? row.installed_price),
         preferredSupplier: text(row.preferred_supplier),
         companyWarranty: text(row.company_warranty),
         active: row.active !== false,

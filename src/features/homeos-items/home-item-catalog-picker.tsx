@@ -365,7 +365,7 @@ export default function HomeItemCatalogPicker({
                     message: selectedProposal
                         ? `${selectedProposal.productName} is proposed in ${selectedProposal.quoteNumber || 'the quote'}. Installed HomeOS facts will not change until completed job closeout.`
                         : canManageCompanyPricing && selectedNeedsCompanyPricing
-                            ? 'Open this company offering to add private company cost, labor, and installed price. Master product and HomeOS data will not change.'
+                            ? 'Open this company offering to add private company cost, labor hours, and minimum price. Master product and HomeOS data will not change.'
                         : selectedEligibility.message,
                     onPress: selectedProposal
                         ? () => onOpenQuote(selectedProposal)
@@ -393,8 +393,8 @@ function quoteEligibility(
     if (!item.offering?.active || !item.offering.companyCatalogProductId) {
         return { allowed: false, reason: 'inactive_offering' as const, message: 'This catalog item does not have an active company offering.' };
     }
-    if (item.offering.installedPrice === null || item.offering.installedPrice < 0) {
-        return { allowed: false, reason: 'missing_price' as const, message: 'Management must add an installed price before this product can be added to a quote.' };
+    if (item.offering.minimumPrice === null || item.offering.minimumPrice < 0) {
+        return { allowed: false, reason: 'missing_price' as const, message: 'Management must add a minimum price before this product can be added to a quote.' };
     }
     return {
         allowed: true,
@@ -407,8 +407,8 @@ function companyPricingRequired(item: ApprovedMasterCatalogItem) {
     return (
         !item.offering?.active ||
         !item.offering.companyCatalogProductId ||
-        item.offering.installedPrice === null ||
-        item.offering.installedPrice < 0
+        item.offering.minimumPrice === null ||
+        item.offering.minimumPrice < 0
     );
 }
 

@@ -89,6 +89,7 @@ import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
 import { useTheme } from '../../theme/useTheme';
 import CompactHomeOSCard from '../homeos-items/compact-homeos-card';
 import {
+    addHomeOSStarterCardVariantMapping,
     loadHomeOSStarterCardDeck,
     saveHomeOSStarterCardDeckEntry,
     setHomeOSStarterCardReadiness,
@@ -448,6 +449,9 @@ export default function CatalogFactoryScreen() {
         setBusy(true);
         try {
             await reviewCatalogDraft(record.id, action);
+            if (action === 'approve' && templates.find((template) => template.id === record.templateId)?.templateKey === 'water_heater') {
+                await addHomeOSStarterCardVariantMapping('garage:water_heater', record.id);
+            }
             setMessage(`${record.brand} ${record.modelNumber} ${action === 'approve' ? 'approved and published' : action.replace('_', ' ')}.`);
             await refresh();
         } catch (error) { setMessage(errorMessage(error)); }
@@ -516,6 +520,9 @@ export default function CatalogFactoryScreen() {
         setBusy(true);
         try {
             await bulkApproveCatalogDrafts(selected);
+            await Promise.all(selectedRecords
+                .filter((record) => templates.find((template) => template.id === record.templateId)?.templateKey === 'water_heater')
+                .map((record) => addHomeOSStarterCardVariantMapping('garage:water_heater', record.id)));
             setSelected([]);
             setMessage(`${selectedRecords.length} draft${selectedRecords.length === 1 ? '' : 's'} approved and published.`);
             await refresh();
@@ -1166,10 +1173,18 @@ function SeedEditor({
         brand: draft.brand,
     });
     const specificationValues = safeParseObject(draft.specifications);
+    const isTankWaterHeater = selectedTemplate?.templateKey === 'water_heater';
     const updateSpecification = (key: string, value: string) => {
         setDraft({
             ...draft,
             specifications: JSON.stringify({ ...safeParseObject(draft.specifications), [key]: value }, null, 2),
+        });
+    };
+    const setTankCapacity = (capacity: string) => {
+        setDraft({
+            ...draft,
+            capacity,
+            specifications: JSON.stringify({ ...safeParseObject(draft.specifications), capacity_gallons: capacity.replace(/\s*gal(?:lons?)?$/i, '') }, null, 2),
         });
     };
     return (
@@ -1229,14 +1244,41 @@ function SeedEditor({
                 <FieldBox label="Color" value={draft.color} onChangeText={(color) => setDraft({ ...draft, color })} />
                 <FieldBox label="Finish" value={draft.finish} onChangeText={(finish) => setDraft({ ...draft, finish })} />
                 <FieldBox label="Size" value={draft.size} onChangeText={(size) => setDraft({ ...draft, size })} />
-                <FieldBox label="Capacity" value={draft.capacity} onChangeText={(capacity) => setDraft({ ...draft, capacity })} />
+                {!isTankWaterHeater && <FieldBox label="Capacity" value={draft.capacity} onChangeText={(capacity) => setDraft({ ...draft, capacity })} />}
             </ButtonRow>
+            {isTankWaterHeater && (
+                <View style={{ gap: 12, borderWidth: 1, borderColor: '#B8CDD4', borderRadius: 12, padding: 12, backgroundColor: '#F5FBFC' }}>
+                    <Text selectable style={{ fontWeight: '900', fontSize: 18 }}>Tank water-heater profile</Text>
+                    <Text selectable style={{ color: '#58697A', lineHeight: 20 }}>Capacity and physical profile describe a real product option. They do not create separate HomeOS cards.</Text>
+                    <View style={{ gap: 7 }}>
+                        <Text selectable style={{ fontWeight: '800' }}>Capacity (gallons) *</Text>
+                        <ChoiceWrap>
+                            {['30', '40', '50', '70', '100'].map((capacity) => (
+                                <Chip key={capacity} label={`${capacity} gal`} selected={String(specificationValues.capacity_gallons || '') === capacity} onPress={() => setTankCapacity(capacity)} />
+                            ))}
+                        </ChoiceWrap>
+                        <Field label="Custom capacity" value={draft.capacity} onChangeText={setTankCapacity} placeholder="Example: 80 gallons" keyboardType="decimal-pad" />
+                    </View>
+                    <View style={{ gap: 7 }}>
+                        <Text selectable style={{ fontWeight: '800' }}>Form Factor / Physical Profile</Text>
+                        <ChoiceWrap>
+                            {['Tall', 'Slim / Tall', 'Standard / Wide', 'Short', 'Stubby'].map((profile) => (
+                                <Chip key={profile} label={profile} selected={String(specificationValues.form_factor || '') === profile} onPress={() => updateSpecification('form_factor', profile)} />
+                            ))}
+                        </ChoiceWrap>
+                    </View>
+                    <ButtonRow>
+                        <FieldBox label="Verified height (inches)" value={String(specificationValues.height_inches || '')} onChangeText={(value) => updateSpecification('height_inches', value)} keyboardType="decimal-pad" />
+                        <FieldBox label="Verified diameter (inches)" value={String(specificationValues.diameter_inches || '')} onChangeText={(value) => updateSpecification('diameter_inches', value)} keyboardType="decimal-pad" />
+                    </ButtonRow>
+                </View>
+            )}
             <Field label="Description" value={draft.description} onChangeText={(description) => setDraft({ ...draft, description })} multiline />
             {!!selectedTemplate?.specificationFields.length && (
                 <View style={{ gap: 10, borderWidth: 1, borderColor: '#B8CDD4', borderRadius: 12, padding: 12, backgroundColor: '#F5FBFC' }}>
                     <Text selectable style={{ fontWeight: '900', fontSize: 18 }}>{selectedTemplate.categoryName} specifications</Text>
                     <Text selectable style={{ color: '#58697A' }}>Fields marked with * are required before the draft can be created.</Text>
-                    {selectedTemplate.specificationFields.map((field) => (
+                    {selectedTemplate.specificationFields.filter((field) => !isTankWaterHeater || !['capacity_gallons', 'form_factor', 'height_inches', 'diameter_inches'].includes(field.key)).map((field) => (
                         <Field
                             key={field.key}
                             label={`${field.label}${selectedTemplate.requiredFields.includes(field.key) ? ' *' : ''}`}
@@ -1670,6 +1712,9 @@ function EditPanel({
     const specificationEntries = Object.entries(draft.specifications);
     const finishOption = catalogFinishOption(draft.finish);
     const selectedTemplate = templates.find((template) => template.id === draft.templateId);
+    const isTankWaterHeater = selectedTemplate?.templateKey === 'water_heater';
+    const tankProfileKeys = new Set(['capacity_gallons', 'form_factor', 'height_inches', 'diameter_inches']);
+    const visibleSpecificationEntries = specificationEntries.filter(([key]) => !isTankWaterHeater || !tankProfileKeys.has(key));
     const categoryOptions = catalogCategorySuggestions(templates, starterCards);
     const context = selectedTemplate?.categoryName || record.category;
     const manufacturerOptions = catalogBrandSuggestions(context, records, 'manufacturer');
@@ -1686,6 +1731,13 @@ function EditPanel({
 
     function updateSpecification(key: string, value: string) {
         setDraft({ ...draft, specifications: { ...draft.specifications, [key]: value } });
+    }
+
+    function setTankEditorCapacity(capacity: string) {
+        setDraft({
+            ...draft,
+            specifications: { ...draft.specifications, capacity_gallons: capacity.replace(/\s*gal(?:lons?)?$/i, '') },
+        });
     }
 
     function addSpecification() {
@@ -1782,12 +1834,25 @@ function EditPanel({
                 </CompactDisclosureCard>
 
                 <CompactEditorCard title="Specifications" description="Product-specific facts such as cartridge, showerhead, monoblock, flow rate, size, and capacity belong here.">
+                    {isTankWaterHeater && <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, borderCurve: 'continuous', padding: scaleIcon(10), gap: scaleIcon(9), backgroundColor: theme.colors.surfaceAlt }}>
+                        <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(16), fontWeight: '900' }}>Tank water-heater profile</Text>
+                        <Text selectable style={{ color: theme.colors.mutedText, lineHeight: scaleFont(19) }}>One Tank Water Heater category; these values describe this real product option.</Text>
+                        <Text selectable style={{ color: theme.colors.text, fontWeight: '800' }}>Capacity (gallons) *</Text>
+                        <ChoiceWrap>{['30', '40', '50', '70', '100'].map((capacity) => <Chip key={capacity} label={`${capacity} gal`} selected={String(draft.specifications.capacity_gallons || '') === capacity} onPress={() => setTankEditorCapacity(capacity)} />)}</ChoiceWrap>
+                        <CompactField label="Custom capacity" value={String(draft.specifications.capacity_gallons || '')} onChangeText={setTankEditorCapacity} placeholder="Example: 80 gallons" keyboardType="decimal-pad" />
+                        <Text selectable style={{ color: theme.colors.text, fontWeight: '800' }}>Form Factor / Physical Profile</Text>
+                        <ChoiceWrap>{['Tall', 'Slim / Tall', 'Standard / Wide', 'Short', 'Stubby'].map((profile) => <Chip key={profile} label={profile} selected={String(draft.specifications.form_factor || '') === profile} onPress={() => updateSpecification('form_factor', profile)} />)}</ChoiceWrap>
+                        <View style={{ flexDirection: phone ? 'column' : 'row', gap: scaleIcon(8) }}>
+                            <CompactFieldBox label="Verified height (inches)" value={String(draft.specifications.height_inches || '')} onChangeText={(value) => updateSpecification('height_inches', value)} keyboardType="decimal-pad" />
+                            <CompactFieldBox label="Verified diameter (inches)" value={String(draft.specifications.diameter_inches || '')} onChangeText={(value) => updateSpecification('diameter_inches', value)} keyboardType="decimal-pad" />
+                        </View>
+                    </View>}
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), alignItems: 'stretch' }}>
-                        {specificationEntries.map(([key, value]) => (
+                        {visibleSpecificationEntries.map(([key, value]) => (
                             <SpecificationTile key={key} label={catalogFieldLabel(key)} value={specificationEditorValue(value)} phone={phone} busy={busy} onChange={(next) => updateSpecification(key, next)} onRemove={() => { const next = { ...draft.specifications }; delete next[key]; setDraft({ ...draft, specifications: next }); }} />
                         ))}
                     </View>
-                    {!specificationEntries.length && <Text selectable style={{ color: theme.colors.mutedText }}>No product-specific specifications yet.</Text>}
+                    {!visibleSpecificationEntries.length && !isTankWaterHeater && <Text selectable style={{ color: theme.colors.mutedText }}>No product-specific specifications yet.</Text>}
                     {!addingSpecification
                         ? <CompactButton title="+ Add Specification" onPress={() => setAddingSpecification(true)} disabled={busy} />
                         : <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, borderCurve: 'continuous', padding: scaleIcon(10), gap: scaleIcon(8), backgroundColor: theme.colors.surfaceAlt }}>
@@ -2047,7 +2112,7 @@ function CompactDisclosureCard({ title, summary, expanded, onToggle, children }:
     );
 }
 
-function CompactField({ label, value, onChangeText, placeholder, multiline }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean }) {
+function CompactField({ label, value, onChangeText, placeholder, multiline, keyboardType }: { label: string; value: string; onChangeText: (value: string) => void; placeholder?: string; multiline?: boolean; keyboardType?: 'default' | 'decimal-pad' }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     return (
         <View style={{ gap: 5 }}>
@@ -2059,6 +2124,7 @@ function CompactField({ label, value, onChangeText, placeholder, multiline }: { 
                 placeholder={placeholder}
                 placeholderTextColor={theme.colors.mutedText}
                 multiline={multiline}
+                keyboardType={keyboardType}
                 style={{ minHeight: multiline ? 84 : 44, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, borderCurve: 'continuous', paddingHorizontal: scaleIcon(11), paddingVertical: scaleIcon(multiline ? 9 : 7), backgroundColor: theme.colors.background, color: theme.colors.text, fontSize: scaleFont(15), lineHeight: scaleFont(20), textAlignVertical: multiline ? 'top' : 'center' }}
             />
         </View>

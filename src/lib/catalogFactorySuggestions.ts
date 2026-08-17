@@ -46,7 +46,7 @@ export type CatalogQuickStartGroup = {
     authoringNote: string;
 };
 
-type BrandIntent = 'fixture' | 'stop_supply' | 'ball_valve' | 'repair' | 'general';
+type BrandIntent = 'fixture' | 'stop_supply' | 'ball_valve' | 'repair' | 'tank_water_heater' | 'tankless_water_heater' | 'general';
 
 type CuratedBrand = {
     name: string;
@@ -75,6 +75,10 @@ const CURATED_PLUMBING_BRANDS: CuratedBrand[] = [
     { name: 'Peerless', intents: ['fixture', 'repair', 'general'] },
     { name: 'Glacier Bay', intents: ['fixture', 'repair', 'general'] },
     { name: 'Westbrass', intents: ['fixture', 'repair', 'general'] },
+    ...['Bradford White', 'A. O. Smith', 'Rheem']
+        .map((name) => ({ name, intents: ['tank_water_heater', 'general'] as BrandIntent[] })),
+    ...['Navien', 'Noritz', 'Rinnai']
+        .map((name) => ({ name, intents: ['tankless_water_heater', 'general'] as BrandIntent[] })),
 ];
 
 const INTENT_PRIORITY: Record<BrandIntent, string[]> = {
@@ -82,6 +86,8 @@ const INTENT_PRIORITY: Record<BrandIntent, string[]> = {
     stop_supply: ['BrassCraft', 'Dahl', 'SharkBite', 'Everbilt', 'Sioux Chief', 'Matco-Norca'],
     ball_valve: ['NIBCO', 'Apollo', 'Watts', 'Legend Valve', 'Webstone', 'Dahl', 'BrassCraft', 'SharkBite'],
     repair: ['Danco', 'Peerless', 'Glacier Bay', 'Westbrass', 'Zurn', 'Sioux Chief'],
+    tank_water_heater: ['Bradford White', 'A. O. Smith', 'Rheem'],
+    tankless_water_heater: ['Navien', 'Noritz', 'Rinnai'],
     general: [],
 };
 
@@ -357,6 +363,8 @@ function retailerSource(retailer: string, title: string, url: string) {
 
 function brandIntent(context: string): BrandIntent {
     const normalized = context.toLowerCase();
+    if (/tankless|on demand|on-demand/.test(normalized)) return 'tankless_water_heater';
+    if (/tank water heater|storage water heater|water heater/.test(normalized)) return 'tank_water_heater';
     if (/ball valve|full port|isolation valve/.test(normalized)) return 'ball_valve';
     if (/angle stop|fixture stop|shutoff|shut-off|supply line|connector/.test(normalized)) return 'stop_supply';
     if (/repair|replacement|cartridge|flapper|fill valve|wax ring|tank bolt|drain assembly|pop-up/.test(normalized)) return 'repair';
@@ -365,6 +373,8 @@ function brandIntent(context: string): BrandIntent {
 }
 
 function contextDescription(intent: BrandIntent) {
+    if (intent === 'tank_water_heater') return 'Prioritized for storage tank water heaters';
+    if (intent === 'tankless_water_heater') return 'Prioritized for tankless water heaters';
     if (intent === 'stop_supply') return 'Prioritized for stops and supply connections';
     if (intent === 'ball_valve') return 'Prioritized for ball valves and isolation';
     if (intent === 'repair') return 'Prioritized for repair and replacement parts';

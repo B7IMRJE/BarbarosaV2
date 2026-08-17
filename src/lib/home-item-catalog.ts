@@ -55,7 +55,7 @@ export async function addHomeItemCatalogProductToQuote(input: HomeItemCatalogRou
     estimateCategory: EstimateOptionCategory;
     source: EstimateSessionSource;
 }) {
-    const { data, error } = await supabase.rpc('add_home_item_catalog_product_to_quote', {
+    const { data, error } = await supabase.rpc('add_home_item_catalog_product_to_quote_v2', {
         p_company_id: input.companyId,
         p_property_id: input.propertyId,
         p_home_item_id: input.homeItemId,
@@ -75,7 +75,7 @@ export async function addHomeItemCatalogProductsToQuote(input: HomeItemCatalogRo
     products: { productVariantId: string; estimateCategory: EstimateOptionCategory }[];
     source: EstimateSessionSource;
 }) {
-    const { data, error } = await supabase.rpc('add_home_item_catalog_products_to_quote', {
+    const { data, error } = await supabase.rpc('add_home_item_catalog_products_to_quote_v2', {
         p_company_id: input.companyId,
         p_property_id: input.propertyId,
         p_home_item_id: input.homeItemId,
