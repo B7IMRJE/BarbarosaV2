@@ -48,6 +48,7 @@ export function getSuggestedChildAreas(area?: string | null) {
 
 const waterServiceDefaults: SystemDefaults = {
     areas: [
+        'Whole Home',
         'Kitchen',
         'Master Bathroom',
         'Bathroom 2',

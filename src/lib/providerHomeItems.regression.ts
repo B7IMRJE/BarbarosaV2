@@ -2,6 +2,7 @@ import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
     getProviderHomeItemsReadStrategy,
+    getProviderHomeItemsWriteStrategy,
     getProviderHomeItemsRpcName,
     hasAssignedProviderHomeItemsContext,
 } from './providerHomeItems';
@@ -19,6 +20,26 @@ export function runProviderHomeItemsRegressions() {
     providerItemCreateUsesAssignedContextAndCustomerHomeFields();
     providerItemCreateKeepsCustomGasValvePayload();
     salesTechUsesReadOnlyCompanyClientRpc();
+    providerAreaWritesKeepExistingAuthorizationBoundaries();
+}
+
+function providerAreaWritesKeepExistingAuthorizationBoundaries() {
+    assert(
+        getProviderHomeItemsWriteStrategy(createContext(), 'provider_technician') === 'assigned_rpc',
+        'An assigned provider should keep using the assignment-scoped HomeOS write RPC.'
+    );
+    assert(
+        getProviderHomeItemsWriteStrategy(createUnassignedContext(), 'provider_platform_admin') === 'platform_admin_direct',
+        'A platform administrator direct-client write should use the existing platform-admin RLS authorization.'
+    );
+    assert(
+        getProviderHomeItemsWriteStrategy(createUnassignedContext(), 'provider_technician') === 'denied',
+        'An ordinary provider must not write without an assigned request, visit, or job.'
+    );
+    assert(
+        getProviderHomeItemsWriteStrategy(createContext(), 'provider_sales') === 'denied',
+        'Sales Tech remains read-only for installed HomeOS structure changes.'
+    );
 }
 
 function platformAdminCanReadDirectClientHomeWithoutAssignment() {

@@ -94,6 +94,11 @@ export type ProviderHomeItemsReadStrategy =
     | 'platform_admin_direct'
     | 'denied';
 
+export type ProviderHomeItemsWriteStrategy =
+    | 'assigned_rpc'
+    | 'platform_admin_direct'
+    | 'denied';
+
 export function hasAssignedProviderHomeItemsContext(context: ProviderHomeItemsReadContext) {
     return Boolean(
         cleanOptionalText(context.serviceRequestId) ||
@@ -121,6 +126,18 @@ export function getProviderHomeItemsReadStrategy(
 
 export function usesProviderHomeItemsRpc(strategy: ProviderHomeItemsReadStrategy) {
     return strategy === 'assigned_rpc' || strategy === 'sales_company_rpc';
+}
+
+export function getProviderHomeItemsWriteStrategy(
+    context: ProviderHomeItemsReadContext,
+    membershipRole?: string | null
+): ProviderHomeItemsWriteStrategy {
+    const readStrategy = getProviderHomeItemsReadStrategy(context, membershipRole);
+
+    if (readStrategy === 'assigned_rpc') return 'assigned_rpc';
+    if (readStrategy === 'platform_admin_direct') return 'platform_admin_direct';
+
+    return 'denied';
 }
 
 export function getProviderHomeItemsRpcName(strategy: ProviderHomeItemsReadStrategy) {

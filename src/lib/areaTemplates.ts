@@ -146,6 +146,12 @@ function completeRoomStarterGroup(kind: CompleteRoomStarterKind, system: string)
 
 export const areaTemplates: AreaTemplate[] = [
     {
+        id: 'whole-home',
+        name: 'Whole Home',
+        icon: '🏠',
+        starterItems: {},
+    },
+    {
         id: 'kitchen',
         name: 'Kitchen',
         icon: '🍳',
@@ -531,15 +537,15 @@ export function duplicateKey(system: string, areaName: string, itemName: string,
 }
 
 export function existingDuplicateKeys(items: ExistingAreaItem[]) {
-    return new Set(
-        items.map((item) =>
-            duplicateKey(
-                item.system || '',
-                item.location || item.parent_area || '',
-                item.name || '',
-                item.location ? item.parent_area || '' : ''
-            )
-        )
+    return new Set(items.map(homeItemDuplicateKey));
+}
+
+export function homeItemDuplicateKey(item: ExistingAreaItem) {
+    return duplicateKey(
+        item.system || '',
+        item.location || item.parent_area || '',
+        item.name || '',
+        item.location ? item.parent_area || '' : ''
     );
 }
 

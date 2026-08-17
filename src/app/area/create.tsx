@@ -1,16 +1,12 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import {
     areaTemplates,
-    buildAreaRow,
-    buildStarterRows,
-    duplicateKey,
-    existingDuplicateKeys,
     getStarterItems,
     type AreaTemplate,
     type ExistingAreaItem,
@@ -21,11 +17,21 @@ import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
+import {
+    getHomeAreaCreationErrorMessage,
+    pickHomeAreaRecordOwnerUserId,
+    planHomeAreaCreation,
+    withHomeAreaCreationTimeout,
+} from '../../lib/homeAreaCreation';
 import { getSystemDefinition, getSystemLabel } from '../../lib/homeSystems';
 import { providerModeQueryParams, readProviderModeParams } from '../../lib/providerMode';
 import {
     buildProviderHomeItemCreateRpcArgs,
     buildProviderHomeItemsRpcArgs,
+    getProviderHomeItemsReadStrategy,
+    getProviderHomeItemsRpcName,
+    getProviderHomeItemsWriteStrategy,
+    usesProviderHomeItemsRpc,
 } from '../../lib/providerHomeItems';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -51,7 +57,6 @@ export default function CreateAreaScreen() {
     const parentAreaName = decodeParam(params.parentArea).trim();
     const initialAreaName = decodeParam(params.areaName).trim();
     const initialTemplateId = decodeParam(params.templateId).trim();
-    const fillExisting = decodeParam(params.fillExisting).trim().toLowerCase() === 'true';
     const canonicalSystem = system ? getSystemDefinition(system)?.key || system : 'Plumbing';
     const systemLabel = getSystemLabel(canonicalSystem);
     const customAreaTemplate = areaTemplates.find((template) => template.id === 'custom-area') || null;
@@ -63,6 +68,8 @@ export default function CreateAreaScreen() {
     const [customAreaName, setCustomAreaName] = useState(initialAreaName);
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
+    const [retryIncludeStarterItems, setRetryIncludeStarterItems] = useState<boolean | null>(null);
+    const submissionInFlightRef = useRef(false);
 
     const areaName = customAreaName.trim() || selectedTemplate?.name || '';
     const starterItemCount = useMemo(
@@ -71,6 +78,8 @@ export default function CreateAreaScreen() {
     );
 
     async function createArea(includeStarterItems: boolean) {
+        if (submissionInFlightRef.current) return;
+
         if (!selectedTemplate) {
             setMessage('Choose an area template first.');
             return;
@@ -81,103 +90,143 @@ export default function CreateAreaScreen() {
             return;
         }
 
+        submissionInFlightRef.current = true;
         setSaving(true);
-        setMessage(includeStarterItems ? 'Creating area and starter items...' : 'Creating area...');
-
-        let activeProperty;
+        setRetryIncludeStarterItems(null);
+        setMessage('Confirming company and home access...');
 
         try {
-            activeProperty = await requireActivePropertyMembership({
-                propertyIdOverride: providerModeContext?.propertyId,
-                companyId: providerModeContext?.companyId,
-            });
-        } catch (error) {
-            setSaving(false);
-            setMessage(activePropertyErrorMessage(error));
+            let activeProperty;
 
-            if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
-                router.replace('/auth/login' as any);
-            } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
-                router.replace('/onboarding/create-home' as any);
+            try {
+                activeProperty = await withHomeAreaCreationTimeout(
+                    requireActivePropertyMembership({
+                        propertyIdOverride: providerModeContext?.propertyId,
+                        companyId: providerModeContext?.companyId,
+                    }),
+                    'access'
+                );
+            } catch (error) {
+                if (isActivePropertyResolutionError(error) && error.code === 'not_authenticated') {
+                    router.replace('/auth/login' as any);
+                } else if (isActivePropertyResolutionError(error) && error.code === 'no_active_property') {
+                    router.replace('/onboarding/create-home' as any);
+                }
+
+                throw error;
             }
 
-            return;
-        }
+            const readStrategy = providerModeContext
+                ? getProviderHomeItemsReadStrategy(providerModeContext, activeProperty.membershipRole)
+                : null;
+            const writeStrategy = providerModeContext
+                ? getProviderHomeItemsWriteStrategy(providerModeContext, activeProperty.membershipRole)
+                : null;
 
-        const existingResult = providerModeContext
-            ? await supabase.rpc('get_provider_homeos_items', buildProviderHomeItemsRpcArgs(providerModeContext))
-            : await supabase
-                .from('home_items')
-                .select('name, system, category, location, parent_area')
-                .eq('property_id', activeProperty.propertyId)
-                .or('archived.eq.false,archived.is.null');
-        const existingRows = existingResult.data;
-        const existingError = existingResult.error;
+            if (readStrategy === 'denied' || writeStrategy === 'denied') {
+                throw new Error('This provider account cannot add HomeOS areas without an assigned request, visit, or job. Sales Tech access remains read-only.');
+            }
 
-        if (existingError) {
-            setSaving(false);
-            setMessage(`Could not check existing items: ${existingError.message}`);
-            return;
-        }
+            setMessage('Checking existing areas so retries stay duplicate-free...');
 
-        const existingKeys = existingDuplicateKeys((existingRows || []) as ExistingAreaItem[]);
-        const rowsToInsert: HomeItemInsert[] = [];
-        const duplicateAreaExists = ((existingRows || []) as ExistingAreaItem[]).some(
-            (row) =>
-                sameAreaText(row.category, 'Area') &&
-                sameAreaText(row.system, canonicalSystem) &&
-                sameAreaText(row.parent_area, parentAreaName) &&
-                sameAreaText(row.name, areaName)
-        );
+            const existingResult = await withHomeAreaCreationTimeout(
+                providerModeContext && readStrategy && usesProviderHomeItemsRpc(readStrategy)
+                    ? supabase.rpc(
+                        getProviderHomeItemsRpcName(readStrategy),
+                        buildProviderHomeItemsRpcArgs(providerModeContext)
+                    )
+                    : supabase
+                        .from('home_items')
+                        .select('name, system, category, location, parent_area')
+                        .eq('property_id', activeProperty.propertyId)
+                        .or('archived.eq.false,archived.is.null'),
+                'existing_items'
+            );
 
-        if (duplicateAreaExists && !fillExisting) {
-            setSaving(false);
-            setMessage('An area with this name already exists for this system.');
-            return;
-        }
+            if (existingResult.error) {
+                throw new Error(`Could not check existing HomeOS areas: ${existingResult.error.message}`);
+            }
 
-        const areaRow = buildAreaRow(activeProperty.userId, activeProperty.propertyId, areaName, canonicalSystem, parentAreaName);
-        const areaKey = duplicateKey(areaRow.system, areaName, areaName, parentAreaName);
+            let recordOwnerUserId = activeProperty.userId;
 
-        if (!existingKeys.has(areaKey)) {
-            rowsToInsert.push(areaRow);
-            existingKeys.add(areaKey);
-        }
+            if (writeStrategy === 'platform_admin_direct') {
+                const membershipResult = await withHomeAreaCreationTimeout(
+                    supabase
+                        .from('property_memberships')
+                        .select('id, user_id, role, created_at')
+                        .eq('property_id', activeProperty.propertyId)
+                        .eq('status', 'active')
+                        .order('created_at', { ascending: true })
+                        .order('id', { ascending: true }),
+                    'existing_items'
+                );
 
-        if (includeStarterItems && selectedTemplate.id !== 'custom-area') {
-            for (const row of buildStarterRows(activeProperty.userId, activeProperty.propertyId, areaName, selectedTemplate, parentAreaName)) {
-                const key = duplicateKey(row.system, areaName, row.name, parentAreaName);
+                if (membershipResult.error) {
+                    throw new Error(`Could not confirm the homeowner record owner: ${membershipResult.error.message}`);
+                }
 
-                if (!existingKeys.has(key)) {
-                    rowsToInsert.push(row);
-                    existingKeys.add(key);
+                recordOwnerUserId = pickHomeAreaRecordOwnerUserId(membershipResult.data || []);
+
+                if (!recordOwnerUserId) {
+                    throw new Error('Could not find an active homeowner membership for this property. No HomeOS records were changed.');
                 }
             }
-        }
 
-        if (rowsToInsert.length > 0) {
-            const insertError = providerModeContext
-                ? await createProviderRows(providerModeContext, rowsToInsert)
-                : (await supabase.from('home_items').insert(rowsToInsert)).error;
-
-            if (insertError) {
-                setSaving(false);
-                setMessage(`Create failed: ${getSupabaseErrorMessage(insertError)}`);
-                return;
-            }
-        }
-
-        setSaving(false);
-        setMessage(`Created ${rowsToInsert.length} new item${rowsToInsert.length === 1 ? '' : 's'}.`);
-        router.replace({
-            pathname: '/system/[system]/area/[area]',
-            params: {
+            const plan = planHomeAreaCreation({
+                userId: recordOwnerUserId,
+                propertyId: activeProperty.propertyId,
+                areaName,
                 system: canonicalSystem,
-                area: areaName,
-                ...(parentAreaName ? { parentArea: parentAreaName } : {}),
-                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
-            },
-        } as any);
+                parentArea: parentAreaName,
+                template: selectedTemplate,
+                includeStarterItems,
+                existingRows: (existingResult.data || []) as ExistingAreaItem[],
+            });
+
+            setMessage(plan.duplicateAreaExists
+                ? 'Area already exists. Safely filling only missing records...'
+                : includeStarterItems
+                    ? 'Creating area and starter items...'
+                    : 'Creating area...'
+            );
+
+            if (plan.rowsToInsert.length > 0) {
+                const insertError = await withHomeAreaCreationTimeout(
+                    providerModeContext && writeStrategy === 'assigned_rpc'
+                        ? createProviderRows(providerModeContext, plan.rowsToInsert)
+                        : insertDirectRows(plan.rowsToInsert),
+                    'create',
+                    30_000
+                );
+
+                if (insertError) {
+                    throw new Error(`Create failed: ${getSupabaseErrorMessage(insertError)}`);
+                }
+            }
+
+            setMessage(plan.rowsToInsert.length > 0
+                ? `Created ${plan.rowsToInsert.length} new item${plan.rowsToInsert.length === 1 ? '' : 's'}.`
+                : 'This area already exists. Opening it now.'
+            );
+            router.replace({
+                pathname: '/system/[system]/area/[area]',
+                params: {
+                    system: canonicalSystem,
+                    area: areaName,
+                    ...(parentAreaName ? { parentArea: parentAreaName } : {}),
+                    ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
+                },
+            } as any);
+        } catch (error) {
+            setRetryIncludeStarterItems(includeStarterItems);
+            setMessage(isActivePropertyResolutionError(error)
+                ? activePropertyErrorMessage(error)
+                : getHomeAreaCreationErrorMessage(error)
+            );
+        } finally {
+            submissionInFlightRef.current = false;
+            setSaving(false);
+        }
     }
 
     return (
@@ -229,6 +278,8 @@ export default function CreateAreaScreen() {
                                 <Text style={{ color: theme.colors.mutedText, marginTop: scaleIcon(6), lineHeight: scaleFont(20) }}>
                                     {template.id === 'custom-area'
                                         ? 'Create your own area name.'
+                                        : template.id === 'whole-home'
+                                            ? 'Location-neutral placement for main services and whole-home systems.'
                                         : `${count} starter item${count === 1 ? '' : 's'} available.`}
                                 </Text>
                             </ThemedCard>
@@ -283,7 +334,7 @@ export default function CreateAreaScreen() {
                                 style={{ flexGrow: 1, minWidth: scaleIcon(190) }}
                             />
 
-                            {!parentAreaName && (
+                            {!parentAreaName && starterItemCount > 0 && (
                                 <ThemedButton
                                     title={saving ? 'Creating...' : 'Create Area + Starter Items'}
                                     disabled={saving || selectedTemplate.id === 'custom-area'}
@@ -298,19 +349,18 @@ export default function CreateAreaScreen() {
                 {!!message && (
                     <ThemedCard style={{ marginTop: scaleIcon(16) }}>
                         <Text style={{ color: theme.colors.mutedText, fontWeight: '900' }}>{message}</Text>
+                        {retryIncludeStarterItems !== null && !saving && (
+                            <ThemedButton
+                                title="Try Again"
+                                onPress={() => createArea(retryIncludeStarterItems)}
+                                style={{ marginTop: scaleIcon(12), minHeight: scaleIcon(48) }}
+                            />
+                        )}
                     </ThemedCard>
                 )}
             </View>
         </ScrollView>
     );
-}
-
-function normalizeAreaText(value?: string | null) {
-    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function sameAreaText(a?: string | null, b?: string | null) {
-    return normalizeAreaText(a) === normalizeAreaText(b);
 }
 
 async function createProviderRows(
@@ -336,6 +386,10 @@ async function createProviderRows(
     }
 
     return null;
+}
+
+async function insertDirectRows(rowsToInsert: HomeItemInsert[]) {
+    return (await supabase.from('home_items').insert(rowsToInsert)).error;
 }
 
 function getSupabaseErrorMessage(error: unknown) {
