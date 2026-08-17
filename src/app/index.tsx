@@ -26,6 +26,7 @@ import {
   getHomeownerFacingStatusLabel,
   isActiveHomeownerServiceRequest,
 } from '../lib/homeownerActiveRequests';
+import { signOutFromHomeOS } from '../lib/homeosSignOut';
 import { resolveHomeDashboardActionCardPalettes } from '../lib/homeDashboardActionCards';
 import {
   loadHomeownerServiceRequestTimeline,
@@ -46,6 +47,7 @@ import {
 import type { HomeHealthEmergency } from '../lib/homeHealth';
 import { isHomeOSPhoneLayout } from '../lib/homeos-responsive-layout';
 import { loadActiveHomeIdentity, loadCompanyHomeIdentity, type HomeIdentity } from '../lib/homeIdentity';
+import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import {
   providerModePath,
   providerModeItemPath,
@@ -59,6 +61,7 @@ import {
   usesProviderHomeItemsRpc,
 } from '../lib/providerHomeItems';
 import { getProviderReturnActionLabel } from '../lib/techosClientAccess';
+import { clearSessionActivity } from '../lib/sessionSecurity';
 import { supabase } from '../lib/supabase';
 import { useStableCallback } from '../hooks/useStableCallback';
 import { useTheme } from '../theme/useTheme';
@@ -202,6 +205,8 @@ export default function HomeScreen() {
   const [showServiceRequestForm, setShowServiceRequestForm] = useState(false);
   const [showHealthLegend, setShowHealthLegend] = useState(false);
   const [providerCompanyName, setProviderCompanyName] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutMessage, setSignOutMessage] = useState('');
   const homeownerServiceNotifications = useMemo(
     () => Object.values(serviceRequestTimelineById)
       .flat()
@@ -851,6 +856,25 @@ export default function HomeScreen() {
     }
   }
 
+  async function handleSignOut() {
+    if (signingOut) return;
+
+    setSigningOut(true);
+    setSignOutMessage('');
+
+    const result = await signOutFromHomeOS({
+      signOut: (scope) => supabase.auth.signOut({ scope }),
+      clearPendingInviteState: clearPendingCompanyInviteState,
+      clearSessionActivity,
+      replaceWithLogin: () => router.replace('/auth/login' as any),
+    });
+
+    if (result.status === 'failed') {
+      setSigningOut(false);
+      setSignOutMessage('Sign out could not be completed. Check your connection and try again.');
+    }
+  }
+
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.colors.background }}
@@ -861,6 +885,45 @@ export default function HomeScreen() {
       }}
     >
       <View style={{ width: '100%', maxWidth: 1120 }}>
+        <View
+          style={{
+            alignItems: 'flex-end',
+            marginBottom: scaleIcon(14),
+          }}
+        >
+          <ThemedButton
+            title={signingOut ? 'Signing Out...' : 'Sign Out'}
+            accessibilityLabel="Sign out of HomeOS"
+            testID="homeos-sign-out"
+            disabled={signingOut}
+            variant="ghost"
+            onPress={() => void handleSignOut()}
+            style={{
+              alignSelf: 'flex-end',
+              minHeight: scaleIcon(48),
+              minWidth: scaleIcon(132),
+              paddingHorizontal: scaleIcon(18),
+              paddingVertical: scaleIcon(11),
+            }}
+            textStyle={{ fontSize: scaleFont(15) }}
+          />
+          {!!signOutMessage && (
+            <Text
+              accessibilityLiveRegion="polite"
+              style={{
+                color: theme.colors.danger,
+                fontSize: scaleFont(13),
+                fontWeight: '800',
+                lineHeight: scaleFont(19),
+                marginTop: scaleIcon(8),
+                maxWidth: scaleIcon(360),
+                textAlign: 'right',
+              }}
+            >
+              {signOutMessage}
+            </Text>
+          )}
+        </View>
         <HomeDashboardView
           identity={homeIdentity}
           identityLoading={homeIdentityLoading}
