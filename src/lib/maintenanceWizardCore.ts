@@ -1,5 +1,24 @@
 import type { HomeOSStarterCardChoice } from './homeosStarterCatalog';
 
+export const MAINTENANCE_WIZARD_LOAD_TIMEOUT_MS = 15_000;
+
+export type MaintenanceWizardRouteParams = {
+    providerMode?: string | string[];
+    companyId?: string | string[];
+    propertyId?: string | string[];
+    returnTo?: string | string[];
+    serviceRequestId?: string | string[];
+    scheduleSlotId?: string | string[];
+    jobId?: string | string[];
+};
+
+export class MaintenanceWizardLoadTimeoutError extends Error {
+    constructor(message = 'HomeOS items took too long to load. Check your connection and try again.') {
+        super(message);
+        this.name = 'MaintenanceWizardLoadTimeoutError';
+    }
+}
+
 export type MaintenanceWizardItem = {
     id: string;
     item_slug: string | null;
@@ -15,6 +34,43 @@ export type MaintenanceWizardItem = {
 };
 
 export type MaintenanceGuideStep = 'spotlight' | 'section';
+
+export function maintenanceWizardRouteContextKey(params: MaintenanceWizardRouteParams) {
+    return [
+        firstRouteParam(params.providerMode),
+        firstRouteParam(params.companyId),
+        firstRouteParam(params.propertyId),
+        firstRouteParam(params.returnTo),
+        firstRouteParam(params.serviceRequestId),
+        firstRouteParam(params.scheduleSlotId),
+        firstRouteParam(params.jobId),
+    ].join('|');
+}
+
+export function isCurrentMaintenanceWizardLoad(runId: number, latestRunId: number) {
+    return runId === latestRunId;
+}
+
+export async function withMaintenanceWizardLoadTimeout<T>(
+    operation: PromiseLike<T>,
+    message?: string,
+    timeoutMs = MAINTENANCE_WIZARD_LOAD_TIMEOUT_MS,
+) {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            Promise.resolve(operation),
+            new Promise<never>((_, reject) => {
+                timeout = setTimeout(
+                    () => reject(new MaintenanceWizardLoadTimeoutError(message)),
+                    timeoutMs,
+                );
+            }),
+        ]);
+    } finally {
+        if (timeout) clearTimeout(timeout);
+    }
+}
 
 export function sortMaintenanceWizardItems(items: readonly MaintenanceWizardItem[]) {
     return items
@@ -75,4 +131,8 @@ function text(value?: string | null) {
 
 function normalize(value?: string | null) {
     return text(value).toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function firstRouteParam(value?: string | string[]) {
+    return Array.isArray(value) ? value[0] || '' : value || '';
 }

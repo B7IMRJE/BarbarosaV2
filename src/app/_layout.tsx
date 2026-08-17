@@ -23,7 +23,10 @@ import {
   withSecureRouteGuardTimeout,
   type SecureRouteGuardParams,
 } from '../lib/secureRouteGuard';
-import { isSalesProviderHomeOsRouteAllowed } from '../lib/salesProviderHomeOsRoutes';
+import {
+  isProviderHomeOsRouteAllowed,
+  isSalesProviderHomeOsRouteAllowed,
+} from '../lib/salesProviderHomeOsRoutes';
 import GlobalDispatchChatOverlay from '../components/dispatch/GlobalDispatchChatOverlay';
 import DictationProvider from '../components/input/DictationProvider';
 import GlobalNavigation from '../components/navigation/GlobalNavigation';
@@ -542,16 +545,7 @@ function isProviderModeHomeOsPath(
 ) {
   if (!hasValidProviderModeRouteParams(routeParams, allowedCompanyIds)) return false;
 
-  return (
-    pathname === HOME_ROUTE ||
-    pathname === '/equipment' ||
-    pathname === '/documents' ||
-    pathname === '/area/create' ||
-    pathname === '/item/create' ||
-    pathname === '/item/edit' ||
-    pathname.startsWith('/item/') ||
-    pathname.startsWith('/system/')
-  );
+  return isProviderHomeOsRouteAllowed(pathname);
 }
 
 function isProviderModeEstimatePath(

@@ -1,11 +1,22 @@
-import { isSalesProviderHomeOsRouteAllowed } from './salesProviderHomeOsRoutes';
+import {
+    isProviderHomeOsRouteAllowed,
+    isSalesProviderHomeOsRouteAllowed,
+} from './salesProviderHomeOsRoutes';
 
 runSalesProviderHomeOsRouteRegressions();
 
 export function runSalesProviderHomeOsRouteRegressions() {
     assignedSalesCanOpenHomeOsAndItemCreation();
+    assignedProviderMaintenanceWizardDoesNotRedirect();
     salesCannotOpenHomeOsWithoutAssignedWorkContext();
     salesCannotOpenInstalledItemEditor();
+}
+
+function assignedProviderMaintenanceWizardDoesNotRedirect() {
+    assert(
+        isProviderHomeOsRouteAllowed('/maintenance/wizard'),
+        'The assigned provider Maintenance Wizard must remain a stable HomeOS route instead of redirecting back to TechOS.'
+    );
 }
 
 function assignedSalesCanOpenHomeOsAndItemCreation() {

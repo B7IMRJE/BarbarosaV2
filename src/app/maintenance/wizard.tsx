@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import ThemedButton from '../../components/theme/ThemedButton';
@@ -16,8 +16,10 @@ import {
 } from '../../lib/homeosTradeCapabilitiesCore';
 import {
     maintenanceDeckSuggestions,
+    isCurrentMaintenanceWizardLoad,
     maintenanceWizardItemStatus,
     sortMaintenanceWizardItems,
+    withMaintenanceWizardLoadTimeout,
     type MaintenanceWizardItem,
 } from '../../lib/maintenanceWizardCore';
 import {
@@ -35,8 +37,6 @@ import {
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
-const LOAD_TIMEOUT_MS = 15_000;
-
 export default function MaintenanceWizardScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const params = useLocalSearchParams<{
@@ -48,7 +48,23 @@ export default function MaintenanceWizardScreen() {
         scheduleSlotId?: string | string[];
         jobId?: string | string[];
     }>();
-    const providerContext = useMemo(() => readProviderModeParams(params), [params]);
+    const providerMode = firstParam(params.providerMode);
+    const companyId = firstParam(params.companyId);
+    const propertyId = firstParam(params.propertyId);
+    const returnTo = firstParam(params.returnTo);
+    const serviceRequestId = firstParam(params.serviceRequestId);
+    const scheduleSlotId = firstParam(params.scheduleSlotId);
+    const jobId = firstParam(params.jobId);
+    const providerContext = useMemo(() => readProviderModeParams({
+        providerMode,
+        companyId,
+        propertyId,
+        returnTo,
+        serviceRequestId,
+        scheduleSlotId,
+        jobId,
+    }), [companyId, jobId, propertyId, providerMode, returnTo, scheduleSlotId, serviceRequestId]);
+    const loadRunRef = useRef(0);
     const [items, setItems] = useState<MaintenanceWizardItem[]>([]);
     const [suggestions, setSuggestions] = useState<Awaited<ReturnType<typeof loadHomeOSStarterCardChoices>>>([]);
     const [tradeContext, setTradeContext] = useState<HomeOSTradeContext | null>(null);
@@ -79,12 +95,13 @@ export default function MaintenanceWizardScreen() {
         return (data || []) as MaintenanceWizardItem[];
     }, []);
 
-    const loadWizard = useCallback(async () => {
+    const loadWizard = useCallback(async (runId: number) => {
+        if (!isCurrentMaintenanceWizardLoad(runId, loadRunRef.current)) return;
         setLoading(true);
         setMessage('');
 
         try {
-            const activeProperty = await withTimeout(
+            const activeProperty = await withMaintenanceWizardLoadTimeout(
                 requireActivePropertyMembership({
                     propertyIdOverride: providerContext?.propertyId,
                     companyId: providerContext?.companyId,
@@ -103,7 +120,7 @@ export default function MaintenanceWizardScreen() {
                 scheduleSlotId: providerContext?.scheduleSlotId,
                 jobId: providerContext?.jobId,
             };
-            const [loadedItems, deckCards, loadedTradeContext] = await withTimeout(
+            const [loadedItems, deckCards, loadedTradeContext] = await withMaintenanceWizardLoadTimeout(
                 Promise.all([
                     itemPromise,
                     loadHomeOSStarterCardChoices(accessContext),
@@ -112,23 +129,41 @@ export default function MaintenanceWizardScreen() {
                 'HomeOS items took too long to load. Check your connection and try again.'
             );
 
+            if (!isCurrentMaintenanceWizardLoad(runId, loadRunRef.current)) return;
             const sortedItems = sortMaintenanceWizardItems(loadedItems);
             setItems(sortedItems);
             setSuggestions(maintenanceDeckSuggestions(sortedItems, deckCards).slice(0, 8));
             setTradeContext(loadedTradeContext);
         } catch (error) {
+            if (!isCurrentMaintenanceWizardLoad(runId, loadRunRef.current)) return;
             setItems([]);
             setSuggestions([]);
             setTradeContext(null);
             setMessage(errorMessage(error));
         } finally {
-            setLoading(false);
+            if (isCurrentMaintenanceWizardLoad(runId, loadRunRef.current)) {
+                setLoading(false);
+            }
         }
     }, [loadHomeownerItems, loadProviderItems, providerContext]);
 
     useFocusEffect(useCallback(() => {
-        void loadWizard();
+        const runId = loadRunRef.current + 1;
+        loadRunRef.current = runId;
+        void loadWizard(runId);
+
+        return () => {
+            if (isCurrentMaintenanceWizardLoad(runId, loadRunRef.current)) {
+                loadRunRef.current += 1;
+            }
+        };
     }, [loadWizard]));
+
+    function retryLoad() {
+        const runId = loadRunRef.current + 1;
+        loadRunRef.current = runId;
+        void loadWizard(runId);
+    }
 
     function openItem(item: MaintenanceWizardItem) {
         const slug = String(item.item_slug || '').trim();
@@ -178,11 +213,11 @@ export default function MaintenanceWizardScreen() {
                         <Text accessibilityRole="alert" style={{ color: theme.colors.text, fontSize: scaleFont(15), lineHeight: scaleFont(22), fontWeight: '800' }}>
                             {message}
                         </Text>
-                        <ThemedButton title="Retry" onPress={() => void loadWizard()} style={{ alignSelf: 'flex-start', marginTop: scaleIcon(12) }} />
+                        <ThemedButton title="Retry" onPress={retryLoad} style={{ alignSelf: 'flex-start', marginTop: scaleIcon(12) }} />
                     </ThemedCard>
                 ) : null}
 
-                {!loading ? (
+                {!loading && !message ? (
                     <>
                         <Text style={{ color: theme.colors.text, fontSize: scaleFont(23), fontWeight: '900', marginTop: scaleIcon(24) }}>
                             What would you like to maintain?
@@ -275,21 +310,11 @@ function itemIcon(item: MaintenanceWizardItem) {
     return '🏠';
 }
 
-async function withTimeout<T>(promise: Promise<T>, message: string) {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    try {
-        return await Promise.race([
-            promise,
-            new Promise<T>((_, reject) => {
-                timeout = setTimeout(() => reject(new Error(message)), LOAD_TIMEOUT_MS);
-            }),
-        ]);
-    } finally {
-        if (timeout) clearTimeout(timeout);
-    }
-}
-
 function errorMessage(error: unknown) {
     const message = String((error as { message?: unknown })?.message || '').trim();
     return message || activePropertyErrorMessage(error);
+}
+
+function firstParam(value?: string | string[]) {
+    return Array.isArray(value) ? value[0] || '' : value || '';
 }

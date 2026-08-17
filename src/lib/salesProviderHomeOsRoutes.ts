@@ -14,3 +14,17 @@ export function isSalesProviderHomeOsRouteAllowed(
 
     return pathname.startsWith('/item/');
 }
+
+export function isProviderHomeOsRouteAllowed(pathname: string) {
+    return (
+        pathname === '/' ||
+        pathname === '/equipment' ||
+        pathname === '/documents' ||
+        pathname === '/area/create' ||
+        pathname === '/item/create' ||
+        pathname === '/item/edit' ||
+        pathname === '/maintenance/wizard' ||
+        pathname.startsWith('/item/') ||
+        pathname.startsWith('/system/')
+    );
+}
