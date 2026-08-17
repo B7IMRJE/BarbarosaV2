@@ -36,6 +36,7 @@ function runEstimatePriceAdjustmentRegression() {
     });
     const catalogMinimumChoice = applyEstimateChoicePriceAdjustment(companyCatalogChoice(), -25);
     const catalogIncreasedChoice = applyEstimateChoicePriceAdjustment(companyCatalogChoice(), 15);
+    const productMinimumChoice = applyEstimateChoicePriceAdjustment(productCatalogChoice(), -25);
 
     assert(adjustedChoice.pricingResult.totalAmount === 110, 'A 10% increase should change a $100 option to $110.');
     assert(adjustedChoice.pricingResult.lineItems[0]?.unitAmount === 110, 'Line item selling prices should increase with the option.');
@@ -67,6 +68,7 @@ function runEstimatePriceAdjustmentRegression() {
     assert(!catalogMinimumChoice.pricingResult.requiredManagementApproval, 'The enforced company catalog floor must not create a fake below-minimum approval state.');
     assert(catalogMinimumChoice.pricingResult.warnings.some((warning) => warning.includes('minimum')), 'The quote must explain when the company catalog floor was applied.');
     assert(catalogIncreasedChoice.pricingResult.totalAmount === 115, 'A technician may raise a company catalog quote above its minimum.');
+    assert(productMinimumChoice.pricingResult.totalAmount === 100, 'A size-specific catalog product quote must enforce its company minimum floor.');
 }
 
 function companyCatalogChoice(): EstimateChoice {
@@ -78,6 +80,18 @@ function companyCatalogChoice(): EstimateChoice {
             priceBookVersion: 'company-catalog',
             minimumAllowedTotal: 100,
             maximumAllowedTotal: null,
+        },
+    };
+}
+
+function productCatalogChoice(): EstimateChoice {
+    const base = companyCatalogChoice();
+
+    return {
+        ...base,
+        pricingResult: {
+            ...base.pricingResult,
+            priceBookVersion: 'price-book-v1:product:flo-3-4',
         },
     };
 }

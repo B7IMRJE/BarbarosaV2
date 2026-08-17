@@ -94,7 +94,10 @@ function applyLinePriceAdjustments(
 
     const minimumAllowedTotal = choice.pricingResult.minimumAllowedTotal;
     const maximumAllowedTotal = choice.pricingResult.maximumAllowedTotal;
-    const companyCatalogFloorApplies = choice.pricingResult.priceBookVersion === 'company-catalog'
+    const companyCatalogFloorApplies = (
+        choice.pricingResult.priceBookVersion.startsWith('company-catalog') ||
+        choice.pricingResult.priceBookVersion.includes(':product:')
+    )
         && minimumAllowedTotal !== null;
     let adjustedLineItems = lineItems;
     let totalAmount = roundCurrency(adjustedLineItems.reduce((total, line) => total + line.totalAmount, 0));

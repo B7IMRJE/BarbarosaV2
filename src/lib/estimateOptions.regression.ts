@@ -1,5 +1,6 @@
 import {
     buildEstimateOptionWorkspace,
+    buildCatalogProductEstimatePrefill,
     calculateEstimateOptionPrice,
     calculateRepipeTotals,
     canManageEstimatePricing,
@@ -22,6 +23,7 @@ import {
     isRequirementSkipAnswer,
     mapCompanyPriceBookItemToEstimateEntry,
     resolveEstimatePresentationLayout,
+    resolveEstimateCategoryTemplateForAnswers,
     resolveProductImageState,
     readEstimateOptionCategory,
     toHomeownerPresentationChoice,
@@ -74,6 +76,11 @@ export function runEstimateOptionsRegressions() {
     showerValvePriceBookEntryClearsPricingSetup();
     showerValveChoicesNeverStackUnrelatedPlumbingWork();
     tubShowerConfigurationUsesOneValveAtTheReviewedPrice();
+    smartShutoffCatalogContextRemovesRedundantAndFixtureQuestions();
+    unrelatedValveContextCannotSelectSmartShutoffProduct();
+    smartShutoffNominalSizeIsRequired();
+    smartShutoffSizesResolveOnlyTheirOwnCompanyPrice();
+    unsupportedSmartShutoffSizeCannotBorrowAnotherPrice();
     showerValveDeepLinkTargetsReplacementCatalogItem();
     repairPriceDoesNotSatisfyValveReplacement();
     priceSnapshotsRemainStableAfterEdits();
@@ -739,6 +746,103 @@ function tubShowerConfigurationUsesOneValveAtTheReviewedPrice() {
     assert(choice?.pricingResult.lineItems.filter((line) => /valve replacement/i.test(line.name)).length === 1, 'Tub-and-shower work must contain exactly one valve replacement.');
     assert(choice?.pricingResult.totalAmount === 1395, 'Tub-and-shower valve replacement should be $200 above the $1,195 shower-only scope.');
     assert(choice?.title.includes('Tub and Shower Valve Replacement'), 'Tub-and-shower work should use a clear plumber-facing title.');
+}
+
+function smartShutoffCatalogContextRemovesRedundantAndFixtureQuestions() {
+    const selectedProduct = smartShutoffProduct('flo-3-4', '900-001', '3/4 inch', 1800);
+    const answers = {
+        ...completeAnswers('valve_replacement'),
+        ...buildCatalogProductEstimatePrefill(selectedProduct),
+    };
+    const template = resolveEstimateCategoryTemplateForAnswers('valve_replacement', answers);
+    const questionIds = template.questions.map((question) => question.id);
+
+    assert(!questionIds.includes('valve_replacement_scope'), 'Known smart-shutoff catalog context should suppress the redundant replacement identity question.');
+    assert(!questionIds.includes('valve_type'), 'Known smart-shutoff catalog context should not ask for the already-known valve type.');
+    assert(!questionIds.includes('shower_configuration'), 'Smart-shutoff findings must not show shower or tub setup.');
+    assert(!questionIds.includes('tub_spout_scope'), 'Smart-shutoff findings must not show tub-spout questions.');
+    assert(questionIds.includes('valve_service'), 'Smart-shutoff findings should retain the domestic-water service question.');
+    assert(questionIds.includes('valve_material'), 'Smart-shutoff findings should retain existing piping material.');
+    assert(questionIds.includes('valve_access'), 'Smart-shutoff findings should retain physical access and location.');
+    assert(questionIds.includes('isolation_method'), 'Smart-shutoff findings should retain isolation method.');
+    assert(questionIds.includes('connection_method'), 'Smart-shutoff findings should retain connection method.');
+    assert(questionIds.includes('finish_restoration'), 'Smart-shutoff findings should retain restoration scope.');
+    assert(questionIds.includes('smart_shutoff_nominal_size'), 'Smart-shutoff findings should require the nominal device size.');
+}
+
+function unrelatedValveContextCannotSelectSmartShutoffProduct() {
+    const answers = completeAnswers('valve_replacement');
+    answers.valve_type = 'shower valve';
+    answers.shower_configuration = 'shower only';
+    answers.tub_spout_scope = 'not applicable';
+    const workspace = buildWorkspace({
+        category: 'valve_replacement',
+        answers,
+        priceBookItems: valvePriceBookItems(),
+        approvedProducts: [smartShutoffProduct('flo-3-4', '900-001', '3/4 inch', 1800)],
+        technicianApproved: true,
+    });
+
+    assert(
+        workspace.individualOptions.every((choice) => !choice.productIds.includes('flo-3-4')),
+        'A smart-shutoff catalog product must never leak into an unrelated shower-valve quote.'
+    );
+}
+
+function smartShutoffNominalSizeIsRequired() {
+    const answers = smartShutoffAnswers('');
+    const workspace = buildWorkspace({
+        category: 'valve_replacement',
+        answers,
+        priceBookItems: smartShutoffPriceBookItems(),
+        approvedProducts: [smartShutoffProduct('flo-3-4', '900-001', '3/4 inch', 1800)],
+    });
+
+    assert(workspace.answerValidation.missingRequiredQuestionIds.includes('smart_shutoff_nominal_size'), 'A smart-shutoff quote must require a supported nominal size.');
+    assert(workspace.pricingSetupRequired, 'A smart-shutoff quote without a size must not resolve a catalog price.');
+}
+
+function smartShutoffSizesResolveOnlyTheirOwnCompanyPrice() {
+    const products = [
+        smartShutoffProduct('flo-3-4', '900-001', '3/4 inch', 1800),
+        smartShutoffProduct('flo-1', '900-006', '1 inch', 2200),
+        smartShutoffProduct('flo-1-1-4', '900-002', '1-1/4 inch', 2700),
+    ];
+    const cases = [
+        { size: '3/4 inch', productId: 'flo-3-4', price: 1800 },
+        { size: '1 inch', productId: 'flo-1', price: 2200 },
+        { size: '1-1/4 inch', productId: 'flo-1-1-4', price: 2700 },
+    ];
+
+    cases.forEach((testCase) => {
+        const workspace = buildWorkspace({
+            category: 'valve_replacement',
+            answers: smartShutoffAnswers(testCase.size),
+            priceBookItems: smartShutoffPriceBookItems(),
+            approvedProducts: products,
+            technicianApproved: true,
+        });
+        const choice = workspace.individualOptions[0];
+
+        assert(choice?.productIds.length === 1 && choice.productIds[0] === testCase.productId, `${testCase.size} must resolve only its matching company product.`);
+        assert(choice?.pricingResult.totalAmount === testCase.price, `${testCase.size} must use only its own saved company price.`);
+        assert(choice?.customerSelections?.some((selection) => selection.includes(testCase.size)), `${testCase.size} must be clearly identified on the homeowner quote.`);
+    });
+}
+
+function unsupportedSmartShutoffSizeCannotBorrowAnotherPrice() {
+    const answers = smartShutoffAnswers('Other / larger size');
+    answers.smart_shutoff_other_size = '1-1/2 inch';
+    const workspace = buildWorkspace({
+        category: 'valve_replacement',
+        answers,
+        priceBookItems: smartShutoffPriceBookItems(),
+        approvedProducts: [smartShutoffProduct('flo-3-4', '900-001', '3/4 inch', 1800)],
+        technicianApproved: true,
+    });
+
+    assert(workspace.individualOptions.length === 0, 'Other/larger smart-shutoff sizes must not borrow a supported variant price.');
+    assert(workspace.pricingSetupRequired, 'Other/larger smart-shutoff sizes should remain blocked for Management review.');
 }
 
 function showerValveDeepLinkTargetsReplacementCatalogItem() {
@@ -1689,6 +1793,48 @@ function valvePriceBookItems() {
             name: 'Bathroom angle stop replacement',
         }),
     ];
+}
+
+function smartShutoffPriceBookItems() {
+    return [
+        priceBookItem('company-a', 9, 'Valves / Shutoffs', 500, {
+            price_key: 'water_service_garage_mechanical_smart_water_leak_shutoff_installation',
+            name: 'Smart water leak detection and automatic shutoff installation',
+        }),
+    ];
+}
+
+function smartShutoffAnswers(size: string): EstimateAnswerSet {
+    const answers = completeAnswers('valve_replacement');
+    answers.catalog_product_context = 'smart_water_shutoff';
+    answers.valve_type = 'smart water automatic shutoff';
+    answers.valve_service = 'domestic water';
+    answers.smart_shutoff_nominal_size = size;
+    delete answers.valve_replacement_scope;
+    delete answers.shower_configuration;
+    delete answers.tub_spout_scope;
+    delete answers.smart_shutoff_other_size;
+
+    return answers;
+}
+
+function smartShutoffProduct(
+    id: string,
+    model: string,
+    size: string,
+    approvedPrice: number | null
+) {
+    return product('company-a', id, true, true, {
+        category: 'Smart Water Shutoff and Leak Detection',
+        brand: 'Moen',
+        model,
+        approvedSellingPrice: approvedPrice,
+        minimumSellingPrice: approvedPrice,
+        specifications: {
+            nominal_device_size: size,
+        },
+        compatibleApplications: ['smart water shutoff', 'automatic water shutoff valve'],
+    });
 }
 
 function faucetPriceBookItem(

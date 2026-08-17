@@ -8,6 +8,7 @@ import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useStat
 import { Alert, Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
+    buildCatalogProductEstimatePrefill,
     buildEstimateOptionWorkspace,
     buildRepipeIncludedScopeSummary,
     canManageEstimatePricing,
@@ -53,6 +54,10 @@ import {
     type EstimateRequirementSkipReason,
     type EstimateWorkType,
 } from '../../lib/estimateOptions';
+import {
+    selectCustomEstimateWorkPath,
+    selectPredefinedEstimateWorkPath,
+} from '../../lib/estimateBuilderMode';
 import { repipeHomeownerGuideSections } from '../../lib/repipeHomeownerContent';
 import type { EstimatePresentationSectionItem } from '../../lib/estimatePresentationSections';
 import {
@@ -483,9 +488,14 @@ export default function EstimateScreen() {
                     );
                     if (requestedProduct && catalogPrefillAppliedRef.current !== requestedProduct.id) {
                         const category = estimateCategoryForCatalogProduct(requestedProduct);
+                        const catalogAnswers = buildCatalogProductEstimatePrefill(requestedProduct);
                         catalogPrefillAppliedRef.current = requestedProduct.id;
                         setSelectedWorkType(getEstimateWorkTypeForCategory(category));
                         setSelectedCategory(category);
+                        setAnswers((current) => ({
+                            ...current,
+                            ...catalogAnswers,
+                        }));
                         setEstimateCategoryChosen(true);
                         setGuidedStep('build');
                         setGuidedBuildStep('work');
@@ -1150,8 +1160,10 @@ export default function EstimateScreen() {
     function selectEstimateCategory(category: EstimateOptionCategory) {
         if (!selectedWorkType || !isEstimateCategoryForWorkType(category, selectedWorkType)) return;
 
-        setSelectedCategory(category);
-        setCustomQuoteMode(false);
+        const nextPath = selectPredefinedEstimateWorkPath(category);
+
+        setSelectedCategory(nextPath.predefinedCategory || category);
+        setCustomQuoteMode(nextPath.mode === 'custom');
         setEstimateCategoryChosen(true);
         resetEstimateChecklist(category);
         setMessage(`${getEstimateCategoryTemplate(category).label} checklist ready.`);
@@ -2003,9 +2015,11 @@ export default function EstimateScreen() {
     }
 
     function startCustomQuote() {
+        const nextPath = selectCustomEstimateWorkPath(estimateScopeSelected ? selectedCategory : null);
+
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
         setCustomScopeAiNotice('');
-        setCustomQuoteMode(true);
+        setCustomQuoteMode(nextPath.mode === 'custom');
         setScopePickerExpanded(false);
         navigateGuidedBuildStep('price');
         setMessage('Custom Quote opened. Enter only the work and exact price you intend to present.');
@@ -4243,9 +4257,9 @@ function renderGuidedEstimateBuilder({
                             <View style={guidedSectionHeadingRowStyle}>
                                 <View style={{ flex: 1 }}>
                                     <Text style={guidedStepStyle}>STEP 1</Text>
-                                    <Text style={guidedSectionTitleStyle}>Selected work</Text>
+                                    <Text style={guidedSectionTitleStyle}>Choose a service</Text>
                                 </View>
-                                {estimateScopeSelected && (
+                                {estimateScopeSelected && !customQuoteMode && (
                                     <TouchableOpacity onPress={() => setCategoryPickerExpanded(!categoryPickerExpanded)} style={guidedTextButtonStyle}>
                                         <Text style={guidedTextButtonTextStyle}>Change service</Text>
                                     </TouchableOpacity>
@@ -4291,11 +4305,11 @@ function renderGuidedEstimateBuilder({
                                                             selectEstimateCategory(template.id);
                                                             setCategoryPickerExpanded(false);
                                                         }}
-                                                        style={selectedCategory === template.id && estimateScopeSelected
+                                                        style={selectedCategory === template.id && estimateScopeSelected && !customQuoteMode
                                                             ? guidedCategoryChipSelectedStyle
                                                             : guidedCategoryChipStyle}
                                                     >
-                                                        <Text style={selectedCategory === template.id && estimateScopeSelected
+                                                        <Text style={selectedCategory === template.id && estimateScopeSelected && !customQuoteMode
                                                             ? guidedCategoryChipSelectedTextStyle
                                                             : guidedCategoryChipTextStyle}
                                                         >
@@ -4309,29 +4323,50 @@ function renderGuidedEstimateBuilder({
                                 </View>
                             )}
 
-                            <TouchableOpacity
-                                accessibilityLabel="Create a custom quote"
-                                accessibilityRole="button"
-                                onPress={startCustomQuote}
-                                style={[guidedChoiceCardStyle, { marginTop: 16, width: '100%' }]}
-                            >
-                                <Text style={guidedChoiceTitleStyle}>Custom Quote</Text>
-                                <Text style={guidedChoiceDescriptionStyle}>
-                                    Name the work, describe the exact scope, write the customer summary, and enter the exact price yourself.
-                                </Text>
-                            </TouchableOpacity>
-
-                            {estimateScopeSelected && !categoryPickerExpanded && (
+                            {estimateScopeSelected && !customQuoteMode && !categoryPickerExpanded && (
                                 <View style={guidedServiceSummaryStyle}>
-                                    <Text style={guidedServiceSummaryLabelStyle}>Service selected</Text>
+                                    <Text style={guidedServiceSummaryLabelStyle}>✓ PREDEFINED SERVICE SELECTED</Text>
                                     <Text style={guidedServiceSummaryTitleStyle}>{phase1Workspace.template.label}</Text>
+                                    <Text style={guidedChoiceDescriptionStyle}>
+                                        Continue with this Price Book service. A custom quote is not required.
+                                    </Text>
                                 </View>
                             )}
 
+                            <View
+                                accessibilityLabel="Or create a custom quote"
+                                accessibilityRole="text"
+                                style={guidedWorkPathDividerStyle}
+                            >
+                                <View style={guidedWorkPathDividerLineStyle} />
+                                <Text style={guidedWorkPathDividerTextStyle}>OR</Text>
+                                <View style={guidedWorkPathDividerLineStyle} />
+                            </View>
+
+                            <Text style={guidedPromptStyle}>Create a custom quote</Text>
+                            <TouchableOpacity
+                                accessibilityHint="Switches away from the selected predefined service and opens the custom quote editor."
+                                accessibilityLabel="Create a custom quote instead"
+                                accessibilityRole="button"
+                                onPress={startCustomQuote}
+                                style={customQuoteMode
+                                    ? [guidedCustomQuoteCardStyle, guidedCustomQuoteCardActiveStyle]
+                                    : guidedCustomQuoteCardStyle}
+                            >
+                                <Text style={guidedChoiceTitleStyle}>
+                                    {customQuoteMode ? '✓ Custom Quote Path Selected' : 'Create a Custom Quote'}
+                                </Text>
+                                <Text style={guidedChoiceDescriptionStyle}>
+                                    {customQuoteMode
+                                        ? 'Continue to the separate custom editor. The predefined service is not active.'
+                                        : 'Use this separate path only when no predefined service fits. You will name the work, describe the scope, and enter its exact price.'}
+                                </Text>
+                            </TouchableOpacity>
+
                                 <TouchableOpacity
-                                    disabled={!estimateScopeSelected || categoryPickerExpanded}
+                                    disabled={!estimateScopeSelected || categoryPickerExpanded || customQuoteMode}
                                     onPress={() => setGuidedBuildStep('findings')}
-                                    style={!estimateScopeSelected || categoryPickerExpanded ? guidedMutedPrimaryButtonStyle : guidedPrimaryButtonStyle}
+                                    style={!estimateScopeSelected || categoryPickerExpanded || customQuoteMode ? guidedMutedPrimaryButtonStyle : guidedPrimaryButtonStyle}
                                 >
                                     <Text style={guidedPrimaryButtonTextStyle}>Continue to Findings</Text>
                                 </TouchableOpacity>
@@ -6254,6 +6289,41 @@ const guidedServiceSummaryTitleStyle = {
     fontSize: 18,
     fontWeight: '900' as const,
     marginTop: 3,
+};
+
+const guidedWorkPathDividerStyle = {
+    width: '100%' as const,
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 12,
+    marginVertical: 4,
+};
+
+const guidedWorkPathDividerLineStyle = {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#C7D4DD',
+};
+
+const guidedWorkPathDividerTextStyle = {
+    color: '#526B78',
+    fontSize: 13,
+    fontWeight: '900' as const,
+    letterSpacing: 1.2,
+};
+
+const guidedCustomQuoteCardStyle = {
+    ...guidedChoiceCardStyle,
+    width: '100%' as const,
+    borderStyle: 'dashed' as const,
+    borderColor: '#748895',
+    backgroundColor: '#F8FAFB',
+};
+
+const guidedCustomQuoteCardActiveStyle = {
+    borderStyle: 'solid' as const,
+    borderColor: '#0E6F75',
+    backgroundColor: '#E8F5F4',
 };
 
 const repipeIncludedCardGridStyle = {

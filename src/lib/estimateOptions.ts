@@ -37,6 +37,13 @@ const FAUCET_REINSTALL_EXISTING_PRICE_KEY = 'faucet-reinstall-existing';
 const FAUCET_INSTALL_COMPANY_APPROVED_PRICE_KEY = 'faucet-install-company-approved';
 const WATER_HEATER_CUSTOM_SCOPE_LABEL = 'Custom repair / service';
 const WATER_HEATER_CUSTOM_SCOPE_ANSWER_ID = 'water_heater_service_custom_scope';
+export const SMART_WATER_SHUTOFF_CONTEXT = 'smart_water_shutoff';
+export const SMART_WATER_SHUTOFF_SIZE_OPTIONS = [
+    '3/4 inch',
+    '1 inch',
+    '1-1/4 inch',
+    'Other / larger size',
+] as const;
 const exteriorPipePriceKeys = {
     'Water service': 'water_service_whole_home_main_water_service_replacement_linear_foot',
     'Sewer / building drain': 'drain_sewer_whole_home_sewer_line_replacement_linear_foot',
@@ -872,16 +879,19 @@ export const estimateCategoryTemplates: EstimateCategoryTemplate[] = [
         ],
         requiredPhotoLabels: ['Existing valve', 'Valve access area', 'Connected piping'],
         requiredMeasurementLabels: ['Valve or pipe size'],
+        productCategoryFilters: ['smart water', 'flo by moen'],
         questions: [
             selectQuestion('valve_type', 'Valve type', true, ['shower valve', 'main water shutoff', 'smart water automatic shutoff', 'seismic gas shutoff', 'angle stop', 'pressure regulator', 'backflow assembly', 'hose bibb valve', 'other']),
             selectQuestion('shower_configuration', 'Shower or tub setup', true, ['shower only', 'tub and shower combination', 'tub only', 'not applicable - different valve type']),
             selectQuestion('tub_spout_scope', 'Tub spout', true, ['not applicable', 'existing tub spout remains', 'replace tub spout']),
             selectQuestion('valve_service', 'Service', true, ['domestic water', 'hot water', 'irrigation', 'fire protection', 'gas', 'other']),
             selectQuestion('valve_material', 'Existing valve / piping material', true, ['copper / brass', 'PEX', 'CPVC', 'galvanized', 'PVC', 'mixed / unknown']),
-            selectQuestion('valve_access', 'Access', true, ['exposed', 'cabinet / under fixture', 'access panel', 'in wall', 'underground / valve box', 'no existing access']),
+            selectQuestion('valve_access', 'Physical access / location', true, ['inside home - exposed', 'cabinet / under fixture', 'access panel', 'in wall', 'basement / utility room', 'garage', 'exterior', 'underground / valve box', 'custom / other', 'no existing access']),
             selectQuestion('isolation_method', 'Isolation method', true, ['local shutoff works', 'building main shutoff', 'utility shutoff required', 'system drain-down required', 'unknown']),
             selectQuestion('connection_method', 'Connection method', true, ['soldered', 'threaded', 'pressed', 'compression', 'push-fit', 'flanged', 'unknown']),
             selectQuestion('finish_restoration', 'Wall, cabinet, or surface restoration', true, ['not required', 'access panel included', 'patching included', 'patching excluded', 'separate allowance']),
+            selectQuestion('smart_shutoff_nominal_size', 'Nominal valve / device size', true, [...SMART_WATER_SHUTOFF_SIZE_OPTIONS]),
+            noteQuestion('smart_shutoff_other_size', 'Exact other / larger valve size (Management review required)', true),
             yesNoQuestion('permit_or_testing', 'Permit, certification, or backflow testing required', true),
         ],
     }),
@@ -1442,6 +1452,65 @@ export function getEstimateCategoryTemplate(category: EstimateOptionCategory) {
     return estimateCategoryTemplates.find((template) => template.id === category) || estimateCategoryTemplates[0];
 }
 
+export function resolveEstimateCategoryTemplateForAnswers(
+    category: EstimateOptionCategory,
+    answers: EstimateAnswerSet
+): EstimateCategoryTemplate {
+    const template = getEstimateCategoryTemplate(category);
+
+    if (category !== 'valve_replacement') return template;
+
+    const valveType = normalizeText(readAnswerText(answers.valve_type));
+    const smartShutoff = isSmartWaterShutoffEstimateContext(answers);
+    const selectedSize = normalizeText(readAnswerText(answers.smart_shutoff_nominal_size));
+    const hiddenQuestionIds = new Set<string>();
+
+    if (valveType !== 'shower valve') {
+        hiddenQuestionIds.add('shower_configuration');
+        hiddenQuestionIds.add('tub_spout_scope');
+    }
+
+    if (smartShutoff) {
+        hiddenQuestionIds.add('valve_replacement_scope');
+        hiddenQuestionIds.add('valve_type');
+    } else {
+        hiddenQuestionIds.add('smart_shutoff_nominal_size');
+        hiddenQuestionIds.add('smart_shutoff_other_size');
+    }
+
+    if (selectedSize !== normalizeText('Other / larger size')) {
+        hiddenQuestionIds.add('smart_shutoff_other_size');
+    }
+
+    return {
+        ...template,
+        requiredMeasurementLabels: smartShutoff
+            ? template.requiredMeasurementLabels.filter((label) => normalizeText(label) !== 'valve or pipe size')
+            : template.requiredMeasurementLabels,
+        questions: template.questions.filter((question) => !hiddenQuestionIds.has(question.id)),
+    };
+}
+
+export function buildCatalogProductEstimatePrefill(product: EstimateApprovedProduct): EstimateAnswerSet {
+    if (!isSmartWaterShutoffProduct(product)) return {};
+
+    const answers: EstimateAnswerSet = {
+        catalog_product_context: SMART_WATER_SHUTOFF_CONTEXT,
+        valve_type: 'smart water automatic shutoff',
+        valve_service: 'domestic water',
+    };
+    const nominalSize = getSmartWaterShutoffProductSize(product);
+
+    if (nominalSize) answers.smart_shutoff_nominal_size = nominalSize;
+
+    return answers;
+}
+
+export function isSmartWaterShutoffEstimateContext(answers: EstimateAnswerSet) {
+    return normalizeText(readAnswerText(answers.catalog_product_context)) === SMART_WATER_SHUTOFF_CONTEXT ||
+        normalizeText(readAnswerText(answers.valve_type)) === 'smart water automatic shutoff';
+}
+
 export function getInitialEstimateAnswers(category: EstimateOptionCategory): EstimateAnswerSet {
     if (category !== 'whole_home_repipe') return {};
 
@@ -1823,7 +1892,16 @@ export function filterApprovedActiveProducts(
         product.companyId === companyId &&
         product.approved &&
         product.active &&
-        template.productCategoryFilters.some((filter) => normalizeText(product.category).includes(normalizeText(filter)))
+        template.productCategoryFilters.some((filter) => {
+            const identity = normalizeText([
+                product.category,
+                product.brand,
+                product.model,
+                ...product.compatibleApplications,
+            ].join(' '));
+
+            return identity.includes(normalizeText(filter));
+        })
     );
 }
 
@@ -2167,7 +2245,7 @@ export function buildEstimateOptionWorkspace(input: {
     technicianApproved: boolean;
     aiValidationFailed?: boolean;
 }): EstimateOptionWorkspace {
-    const template = getEstimateCategoryTemplate(input.category);
+    const template = resolveEstimateCategoryTemplateForAnswers(input.category, input.answers);
     const answerValidation = validateEstimateAnswers(template, input.answers);
     const approvedProducts = filterApprovedActiveProducts(input.approvedProducts || [], input.companyId, template);
     const priceBookEntries = input.priceBookItems.map(mapCompanyPriceBookItemToEstimateEntry);
@@ -2176,7 +2254,6 @@ export function buildEstimateOptionWorkspace(input: {
     const pricingResults = priceBookEntriesUnavailable
         ? []
         : buildPricingResults(input.companyId, eligiblePriceBookEntries, template, input.category, input.answers);
-    const pricingSetupRequired = priceBookEntriesUnavailable || pricingResults.length === 0;
     const choices = buildDeterministicChoices({
         category: input.category,
         template,
@@ -2185,6 +2262,7 @@ export function buildEstimateOptionWorkspace(input: {
         draftContext: input.draftContext,
         answers: input.answers,
     });
+    const pricingSetupRequired = priceBookEntriesUnavailable || pricingResults.length === 0 || choices.length === 0;
     const individualOptions = choices.filter((choice) => choice.kind === 'individual');
     const packages = choices.filter((choice) => choice.kind === 'package');
     const draftGate = buildDraftGate({
@@ -3259,6 +3337,99 @@ function formatAnswerLabel(value: string) {
         .replace(/^./, (character) => character.toUpperCase());
 }
 
+export function isSmartWaterShutoffProduct(product: EstimateApprovedProduct) {
+    const identity = normalizeText([
+        product.category,
+        product.brand,
+        product.model,
+        ...product.compatibleApplications,
+        ...Object.keys(product.specifications),
+        ...Object.values(product.specifications),
+    ].join(' '));
+
+    return (identity.includes('smart water') && identity.includes('shutoff')) ||
+        (identity.includes('flo') && identity.includes('moen')) ||
+        ['900 001', '900 006', '900 002'].includes(normalizeText(product.model));
+}
+
+export function getSmartWaterShutoffProductSize(product: EstimateApprovedProduct): typeof SMART_WATER_SHUTOFF_SIZE_OPTIONS[number] | null {
+    const normalizedModel = normalizeText(product.model);
+
+    if (normalizedModel === '900 001') return '3/4 inch';
+    if (normalizedModel === '900 006') return '1 inch';
+    if (normalizedModel === '900 002') return '1-1/4 inch';
+
+    const sizeIdentity = normalizeText(Object.entries(product.specifications)
+        .filter(([key]) => /size|connection|diameter|nominal/i.test(key))
+        .map(([, value]) => value)
+        .join(' '));
+
+    if (/\b1 1 4\b|\b1\.25\b/.test(sizeIdentity)) return '1-1/4 inch';
+    if (/\b3 4\b|\b0\.75\b/.test(sizeIdentity)) return '3/4 inch';
+    if (/\b1\b/.test(sizeIdentity)) return '1 inch';
+
+    return null;
+}
+
+function buildSmartWaterShutoffDeterministicChoices(
+    pricingResults: EstimatePricingResult[],
+    products: EstimateApprovedProduct[],
+    answers: EstimateAnswerSet,
+    template: EstimateCategoryTemplate,
+    draftContext: EstimateDraftContextLike | null
+) {
+    const selectedSize = readAnswerText(answers.smart_shutoff_nominal_size) as typeof SMART_WATER_SHUTOFF_SIZE_OPTIONS[number];
+
+    if (!SMART_WATER_SHUTOFF_SIZE_OPTIONS.slice(0, 3).includes(selectedSize as never)) return [];
+
+    const homeownerName = preferredHomeownerFirstName(draftContext);
+    const pricedProducts = products.filter((product) =>
+        isSmartWaterShutoffProduct(product) &&
+        getSmartWaterShutoffProductSize(product) === selectedSize &&
+        product.approvedSellingPrice !== null &&
+        product.approvedSellingPrice > 0
+    );
+
+    return pricingResults.slice(0, 1).flatMap((pricingResult, pricingIndex) =>
+        pricedProducts.slice(0, 4).map((product, productIndex): EstimateChoice => {
+            const productLabel = `${product.brand} ${product.model}`.trim();
+            const sizedPricingResult = applyApprovedEquipmentProductPrice(
+                pricingResult,
+                product,
+                `${selectedSize} Smart Water Shutoff`
+            );
+
+            return {
+                id: `valve-product-${product.id}-${pricingIndex + 1}`,
+                kind: 'individual',
+                title: homeownerName
+                    ? `${homeownerName}'s ${productLabel} ${selectedSize} Smart Water Shutoff Installation`
+                    : `${productLabel} ${selectedSize} Smart Water Shutoff Installation`,
+                shortSummary: [productLabel, selectedSize, product.warranty].filter(Boolean).join(' · '),
+                homeownerExplanation: `Install the approved ${productLabel} ${selectedSize} smart water shutoff for the documented domestic-water service, complete the selected connection and restoration scope, configure available controls, and test operation.`,
+                keyBenefits: [`Exact ${selectedSize} approved product`, product.warranty || 'Warranty reviewed at closeout', 'Operation tested after installation'],
+                whyItDiffers: `Uses only the company-approved ${selectedSize} catalog offering and its own saved minimum price.`,
+                recommendedReason: productIndex === 0 ? 'Matches the documented nominal valve size and selected company product.' : null,
+                productIds: [product.id],
+                scopeIds: sizedPricingResult.lineItems.map((line) => line.priceBookEntryId),
+                warrantyIds: product.warranty ? [product.id] : [],
+                inclusionIds: sizedPricingResult.lineItems.map((line) => line.code),
+                exclusionIds: ['unselected-valve-sizes', 'unrelated-fixtures', 'unapproved-larger-size'],
+                pricingResult: sizedPricingResult,
+                recommended: productIndex === 0,
+                displayOrder: productIndex + 1,
+                customerSelections: uniqueText([
+                    `Approved product: ${productLabel}`,
+                    `Nominal valve / device size: ${selectedSize}`,
+                    product.warranty ? `Manufacturer warranty: ${product.warranty}` : '',
+                    ...product.installationRequirements.map((requirement) => `Product requirement: ${requirement}`),
+                    ...buildEstimateCustomerSelections(template, answers),
+                ]),
+            };
+        })
+    );
+}
+
 function buildValveDeterministicChoices(
     pricingResults: EstimatePricingResult[],
     products: EstimateApprovedProduct[],
@@ -3266,10 +3437,23 @@ function buildValveDeterministicChoices(
     template: EstimateCategoryTemplate,
     draftContext: EstimateDraftContextLike | null
 ) {
+    if (isSmartWaterShutoffEstimateContext(answers)) {
+        return buildSmartWaterShutoffDeterministicChoices(
+            pricingResults,
+            products,
+            answers,
+            template,
+            draftContext
+        );
+    }
+
     const homeownerName = preferredHomeownerFirstName(draftContext);
     const compatibleProducts = products.filter((product) => {
         const identity = normalizeText(`${product.category} ${product.brand} ${product.model} ${product.compatibleApplications.join(' ')}`);
-        return identity.includes('valve') && product.approved && product.active;
+        return identity.includes('valve') &&
+            !isSmartWaterShutoffProduct(product) &&
+            product.approved &&
+            product.active;
     });
 
     return pricingResults.slice(0, 4).flatMap((pricingResult, index): EstimateChoice[] => {
