@@ -55,6 +55,11 @@ import {
     type EstimateWorkType,
 } from '../../lib/estimateOptions';
 import {
+    clearEstimateSelectionDraft,
+    deferEstimateEvidence,
+    getEstimateEvidenceReminder,
+    getSelectedEstimateServiceActionState,
+    hasMeaningfulEstimateSelectionDraft,
     selectCustomEstimateWorkPath,
     selectPredefinedEstimateWorkPath,
 } from '../../lib/estimateBuilderMode';
@@ -220,6 +225,8 @@ type PersistedEstimateBuilderState = {
     editingGuidedOptionId: string;
     customQuoteMode: boolean;
     customQuoteDraft: CustomEstimateOptionDraft;
+    evidenceDeferred: boolean;
+    clearedAnswerQuestionIds: string[];
 };
 
 const emptyCustomEstimateOptionDraft: CustomEstimateOptionDraft = {
@@ -342,6 +349,8 @@ export default function EstimateScreen() {
     const [savingGuidedOption, setSavingGuidedOption] = useState(false);
     const [customQuoteMode, setCustomQuoteMode] = useState(false);
     const [customQuoteDraft, setCustomQuoteDraft] = useState<CustomEstimateOptionDraft>(emptyCustomEstimateOptionDraft);
+    const [evidenceDeferred, setEvidenceDeferred] = useState(false);
+    const [clearedAnswerQuestionIds, setClearedAnswerQuestionIds] = useState<string[]>([]);
     const [customScopePolishing, setCustomScopePolishing] = useState(false);
     const [customScopeAiNotice, setCustomScopeAiNotice] = useState('');
     const editingGuidedOptionSnapshotRef = useRef<{
@@ -398,6 +407,8 @@ export default function EstimateScreen() {
         editingGuidedOptionId,
         customQuoteMode,
         customQuoteDraft,
+        evidenceDeferred,
+        clearedAnswerQuestionIds,
     } satisfies PersistedEstimateBuilderState);
     const checkAccessEvent = useEffectEvent(checkAccess);
 
@@ -678,6 +689,8 @@ export default function EstimateScreen() {
         setSavingGuidedOption(false);
         setCustomQuoteMode(false);
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        setEvidenceDeferred(false);
+        setClearedAnswerQuestionIds([]);
         setMessage('Loading estimate draft...');
 
         if (providerContextIncomplete) {
@@ -829,6 +842,8 @@ export default function EstimateScreen() {
         setEditingGuidedOptionId('');
         setCustomQuoteMode(false);
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        setEvidenceDeferred(false);
+        setClearedAnswerQuestionIds([]);
         setMessage(providerModeContext && draftItems.length === 0 && !nextDraftContext
             ? 'No provider estimate draft found.'
             : ''
@@ -842,11 +857,21 @@ export default function EstimateScreen() {
 
         const persistedSessionId = serverDraft?.id || nextDraftContext?.estimate_session_id || '';
 
-        if (persistedSessionId && restoredCategory) {
-            await Promise.all([
-                loadPersistedAnswers(persistedSessionId, activeCategory, persistedBuilderState?.measurementDraftByKey),
+        if (persistedSessionId) {
+            const restoreTasks: Promise<void>[] = [
                 loadPersistedOptionSet(persistedSessionId, Boolean(persistedBuilderState)),
-            ]);
+            ];
+
+            if (restoredCategory && persistedBuilderState?.estimateCategoryChosen !== false) {
+                restoreTasks.push(loadPersistedAnswers(
+                    persistedSessionId,
+                    activeCategory,
+                    persistedBuilderState?.measurementDraftByKey,
+                    persistedBuilderState?.clearedAnswerQuestionIds,
+                ));
+            }
+
+            await Promise.all(restoreTasks);
         }
 
         if (persistedSessionId) {
@@ -886,6 +911,7 @@ export default function EstimateScreen() {
     function applyPersistedBuilderState(
         state: PersistedEstimateBuilderState,
         savedStep: EstimateBuilderStep,
+        respectRequestedStep = true,
     ) {
         setItems(state.items);
         setDraftContext(state.draftContext);
@@ -920,7 +946,16 @@ export default function EstimateScreen() {
         setEditingGuidedOptionId(state.editingGuidedOptionId);
         setCustomQuoteMode(state.customQuoteMode);
         setCustomQuoteDraft(state.customQuoteDraft);
-        applyRequestedBuilderStep(savedStep);
+        setEvidenceDeferred(state.evidenceDeferred);
+        setClearedAnswerQuestionIds(state.clearedAnswerQuestionIds);
+        if (respectRequestedStep) {
+            applyRequestedBuilderStep(savedStep);
+        } else {
+            const guided = builderStepToGuidedState(savedStep);
+
+            setGuidedStep(guided.guidedStep);
+            setGuidedBuildStep(guided.guidedBuildStep);
+        }
     }
 
     function applyRequestedBuilderStep(savedStep: EstimateBuilderStep) {
@@ -935,12 +970,17 @@ export default function EstimateScreen() {
         sessionId: string,
         category: EstimateOptionCategory,
         unsavedMeasurementDrafts: Record<string, string> = {},
+        excludedAnswerIds: string[] = [],
     ) {
         try {
             const persistedAnswers = await loadEstimateSessionAnswers(sessionId);
+            const excludedIds = new Set(excludedAnswerIds);
+            const visiblePersistedAnswers = Object.fromEntries(
+                Object.entries(persistedAnswers).filter(([key]) => !excludedIds.has(key))
+            ) as EstimateAnswerSet;
             const restoredAnswers = {
                 ...getInitialEstimateAnswers(category),
-                ...persistedAnswers,
+                ...visiblePersistedAnswers,
             };
 
             setAnswers(restoredAnswers);
@@ -1080,6 +1120,8 @@ export default function EstimateScreen() {
         setEditingGuidedOptionId('');
         setCustomQuoteMode(false);
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        setEvidenceDeferred(false);
+        setClearedAnswerQuestionIds([]);
         setMessage('Quote draft deleted.');
         router.replace({
             pathname: '/estimate',
@@ -1150,7 +1192,7 @@ export default function EstimateScreen() {
         setSelectedWorkType(workType);
         setCustomQuoteMode(false);
         setSelectedCategory(nextCategory);
-        resetEstimateChecklist(nextCategory);
+        resetEstimateChecklist(nextCategory, { preserveSavedOptions: true });
         setEstimateCategoryChosen(Boolean(matchingCategory));
         setMessage(matchingCategory
             ? `${estimateWorkTypeOptions.find((option) => option.id === workType)?.label || 'Work type'} selected for ${matchingCategory.label}.`
@@ -1165,31 +1207,42 @@ export default function EstimateScreen() {
         setSelectedCategory(nextPath.predefinedCategory || category);
         setCustomQuoteMode(nextPath.mode === 'custom');
         setEstimateCategoryChosen(true);
-        resetEstimateChecklist(category);
+        resetEstimateChecklist(category, { preserveSavedOptions: true });
         setMessage(`${getEstimateCategoryTemplate(category).label} checklist ready.`);
     }
 
-    function resetEstimateChecklist(category: EstimateOptionCategory = 'faucet_replacement') {
-        setEstimateSession(null);
+    function resetEstimateChecklist(
+        category: EstimateOptionCategory = 'faucet_replacement',
+        options: { preserveSavedOptions?: boolean } = {},
+    ) {
+        const preserveSavedOptions = options.preserveSavedOptions === true && persistedOptionChoices.length > 0;
+        const savedChoiceIds = new Set(persistedOptionChoices.map((choice) => choice.id));
+        const keepSavedChoiceRecords = <T,>(record: Record<string, T>) => Object.fromEntries(
+            Object.entries(record).filter(([choiceId]) => savedChoiceIds.has(choiceId))
+        ) as Record<string, T>;
+
+        if (!preserveSavedOptions) setEstimateSession(null);
         setAnswers(getInitialEstimateAnswers(category));
         setPhotoPreviewByKey({});
         setRequirementUploadByKey({});
         setMeasurementDraftByKey({});
         setMeasurementErrorByKey({});
-        setSelectedChoiceId('');
-        setTechnicianApproved(false);
-        setPresentationMode(false);
+        setSelectedChoiceId((current) => preserveSavedOptions && savedChoiceIds.has(current) ? current : '');
+        if (!preserveSavedOptions) {
+            setTechnicianApproved(false);
+            setPresentationMode(false);
+        }
         setAiDraftWarnings([]);
-        setAiDraftsByChoiceId({});
-        setEditableCopyByChoiceId({});
-        setPersistedOptionChoices([]);
-        setRemovedChoiceIds([]);
+        setAiDraftsByChoiceId((current) => preserveSavedOptions ? keepSavedChoiceRecords(current) : {});
+        setEditableCopyByChoiceId((current) => preserveSavedOptions ? keepSavedChoiceRecords(current) : {});
+        if (!preserveSavedOptions) setPersistedOptionChoices([]);
+        if (!preserveSavedOptions) setRemovedChoiceIds([]);
         setPendingRemoveChoiceId('');
-        setPriceAdjustmentByChoiceId({});
-        setCustomPriceAdjustmentByChoiceId({});
-        setPriceAdjustmentDirectionByChoiceId({});
-        setPriceAdjustmentLabelByChoiceId({});
-        setLinePriceAdjustmentsByChoiceId({});
+        setPriceAdjustmentByChoiceId((current) => preserveSavedOptions ? keepSavedChoiceRecords(current) : {});
+        setCustomPriceAdjustmentByChoiceId((current) => preserveSavedOptions ? keepSavedChoiceRecords(current) : {});
+        setPriceAdjustmentDirectionByChoiceId((current) => preserveSavedOptions ? keepSavedChoiceRecords(current) : {});
+        setPriceAdjustmentLabelByChoiceId((current) => preserveSavedOptions ? keepSavedChoiceRecords(current) : {});
+        setLinePriceAdjustmentsByChoiceId((current) => preserveSavedOptions ? keepSavedChoiceRecords(current) : {});
         setGuidedStep('build');
         setGuidedBuildStep('work');
         setDocumentationExpanded(false);
@@ -1201,6 +1254,7 @@ export default function EstimateScreen() {
         setEditingGuidedOptionId('');
         setCustomQuoteMode(false);
         setCustomQuoteDraft(emptyCustomEstimateOptionDraft);
+        setEvidenceDeferred(false);
     }
 
     function configureDraftItem(item: EstimateDraftItem) {
@@ -1361,6 +1415,15 @@ export default function EstimateScreen() {
     }
 
     function updateAnswer(question: EstimateQuestionDefinition, value: string | number | boolean) {
+        const unmaskedKeys = [question.id];
+
+        if (question.id === 'repipe_angle_stops_included' && value === 'no') {
+            unmaskedKeys.push('repipe_angle_stop_count');
+        }
+        if (question.id === 'repipe_valves_included' && value === 'no') {
+            unmaskedKeys.push('repipe_valve_count');
+        }
+        removeClearedAnswerMasks(unmaskedKeys);
         setTechnicianApproved(false);
         setPresentationMode(false);
         setAnswers((current) => {
@@ -1404,6 +1467,7 @@ export default function EstimateScreen() {
     }
 
     function toggleMultiAnswer(question: EstimateQuestionDefinition, value: string) {
+        removeClearedAnswerMasks([question.id]);
         setTechnicianApproved(false);
         setPresentationMode(false);
         const nextValues = toggleEstimateMultiSelectAnswer(question, answers[question.id], value);
@@ -1479,6 +1543,7 @@ export default function EstimateScreen() {
                 file,
             });
             await saveEstimateSessionAnswer(resolvedSession.id, key, uploadedAnswer);
+            removeClearedAnswerMasks([key]);
 
             setAnswers((current) => ({
                 ...current,
@@ -1574,6 +1639,7 @@ export default function EstimateScreen() {
 
         try {
             await saveEstimateSessionAnswer(session.id, key, answer);
+            removeClearedAnswerMasks([key]);
             setAnswers((current) => ({
                 ...current,
                 [key]: answer,
@@ -1662,6 +1728,7 @@ export default function EstimateScreen() {
 
         try {
             await saveEstimateSessionAnswer(session.id, key, answer);
+            removeClearedAnswerMasks([key]);
             setAnswers((current) => ({
                 ...current,
                 [key]: answer,
@@ -2012,6 +2079,164 @@ export default function EstimateScreen() {
 
         const builderStep = nextStep === 'build' ? guidedBuildStep : nextStep;
         router.setParams({ step: builderStep } as any);
+    }
+
+    function removeClearedAnswerMasks(keys: string[]) {
+        if (keys.length === 0) return;
+
+        const keySet = new Set(keys);
+
+        setClearedAnswerQuestionIds((current) => current.filter((key) => !keySet.has(key)));
+    }
+
+    function readCurrentBuilderSnapshot() {
+        return JSON.parse(builderStateJson) as PersistedEstimateBuilderState;
+    }
+
+    function keepSavedChoiceState<T>(record: Record<string, T>) {
+        const savedChoiceIds = new Set(persistedOptionChoices.map((choice) => choice.id));
+
+        return Object.fromEntries(
+            Object.entries(record).filter(([choiceId]) => savedChoiceIds.has(choiceId))
+        ) as Record<string, T>;
+    }
+
+    async function persistBuilderSnapshotImmediately(
+        sessionId: string,
+        stepToSave: EstimateBuilderStep,
+        state: PersistedEstimateBuilderState,
+    ) {
+        await persistLatestBuilderDraft({ silent: true });
+        hydratedDraftSessionIdRef.current = sessionId;
+        latestDraftSaveRef.current = null;
+        setDraftSaveStatus('saving');
+
+        try {
+            await saveCompanyEstimateBuilderDraft({
+                sessionId,
+                currentBuilderStep: stepToSave,
+                builderState: state,
+            });
+            setDraftSaveStatus('saved');
+        } catch (error) {
+            latestDraftSaveRef.current = {
+                sessionId,
+                step: stepToSave,
+                state,
+            };
+            setDraftSaveStatus('error');
+            setMessage(`Draft could not be saved: ${readEstimateErrorMessage(error, 'HomeOS services are unavailable.')}`);
+        }
+    }
+
+    function requestClearEstimateSelection() {
+        const snapshot = readCurrentBuilderSnapshot();
+        const initialAnswers = getInitialEstimateAnswers(selectedCategory);
+        const meaningfulAnswers = Object.fromEntries(Object.entries(snapshot.answers).filter(([key, value]) =>
+            JSON.stringify(value) !== JSON.stringify(initialAnswers[key])
+        ));
+        const meaningfulState = {
+            ...snapshot,
+            answers: {
+                ...meaningfulAnswers,
+                ...(hasCurrentDraftPricingOrCopy(snapshot) ? { __current_draft_pricing_or_copy: true } : {}),
+            },
+        };
+
+        if (!hasMeaningfulEstimateSelectionDraft(meaningfulState)) {
+            void clearEstimateSelection();
+            return;
+        }
+
+        Alert.alert(
+            'Start over with a different service?',
+            'This clears the current unsaved service, findings, pricing edits, and custom text. It does not change the HomeOS card, customer records, HomeOS photos or history, or any options already saved in Quote Review.',
+            [
+                { text: 'Keep Working', style: 'cancel' },
+                {
+                    text: 'Clear Selection',
+                    style: 'destructive',
+                    onPress: () => void clearEstimateSelection(),
+                },
+            ]
+        );
+    }
+
+    async function clearEstimateSelection() {
+        const current = readCurrentBuilderSnapshot();
+        const cleared = clearEstimateSelectionDraft(current);
+        const nextState: PersistedEstimateBuilderState = {
+            ...cleared,
+            aiDraftsByChoiceId: keepSavedChoiceState(cleared.aiDraftsByChoiceId),
+            editableCopyByChoiceId: keepSavedChoiceState(cleared.editableCopyByChoiceId),
+            priceAdjustmentByChoiceId: keepSavedChoiceState(cleared.priceAdjustmentByChoiceId),
+            customPriceAdjustmentByChoiceId: keepSavedChoiceState(cleared.customPriceAdjustmentByChoiceId),
+            priceAdjustmentDirectionByChoiceId: keepSavedChoiceState(cleared.priceAdjustmentDirectionByChoiceId),
+            priceAdjustmentLabelByChoiceId: keepSavedChoiceState(cleared.priceAdjustmentLabelByChoiceId),
+            linePriceAdjustmentsByChoiceId: keepSavedChoiceState(cleared.linePriceAdjustmentsByChoiceId),
+            technicianApproved: persistedOptionChoices.length > 0 ? cleared.technicianApproved : false,
+        };
+
+        applyPersistedBuilderState(nextState, 'work', false);
+        setPhotoPreviewByKey({});
+        setRequirementUploadByKey({});
+        setMeasurementErrorByKey({});
+        setCustomScopeAiNotice('');
+        setScopePickerExpanded(false);
+        setPresentationMode(false);
+        router.setParams({ step: 'work' } as any);
+
+        if (activeDraftSessionId) {
+            await persistBuilderSnapshotImmediately(activeDraftSessionId, 'work', nextState);
+        }
+
+        setMessage('Selection cleared. Saved quote options and HomeOS records were not changed.');
+    }
+
+    function hasCurrentDraftPricingOrCopy(state: PersistedEstimateBuilderState) {
+        const savedChoiceIds = new Set(state.persistedOptionChoices.map((choice) => choice.id));
+        const records = [
+            state.aiDraftsByChoiceId,
+            state.editableCopyByChoiceId,
+            state.priceAdjustmentByChoiceId,
+            state.customPriceAdjustmentByChoiceId,
+            state.priceAdjustmentDirectionByChoiceId,
+            state.priceAdjustmentLabelByChoiceId,
+            state.linePriceAdjustmentsByChoiceId,
+        ];
+
+        return records.some((record) => Object.keys(record).some((choiceId) => !savedChoiceIds.has(choiceId)));
+    }
+
+    async function deferPhotosAndMeasurements() {
+        const session = await resolveSessionForDraft(selectedCategory);
+
+        if (!session) return;
+
+        const currentSnapshot = readCurrentBuilderSnapshot();
+        const nextState = deferEstimateEvidence({
+            ...currentSnapshot,
+            draftContext: currentSnapshot.draftContext || {
+                estimate_session_id: session.id,
+                estimate_category: selectedCategory,
+                company_id: session.companyId,
+                property_id: session.propertyId,
+                customer_home_name: draftContext?.customer_home_name || items[0]?.customer_home_name || null,
+                service_request_id: session.serviceRequestId,
+                job_id: session.jobId,
+                schedule_slot_id: session.scheduleSlotId,
+                technician_company_user_id: draftContext?.technician_company_user_id || estimateAccess?.companyUserId || null,
+                technician_name: draftContext?.technician_name || null,
+                issue_summary: draftContext?.issue_summary || null,
+                source: session.source,
+                updated_at: new Date().toISOString(),
+            },
+        });
+
+        applyPersistedBuilderState(nextState, 'price', false);
+        router.setParams({ step: 'price' } as any);
+        await persistBuilderSnapshotImmediately(session.id, 'price', nextState);
+        setMessage('Photos and measurements skipped for now. The draft is saved, and required evidence must still be completed before presentation or approval.');
     }
 
     function startCustomQuote() {
@@ -2461,14 +2686,20 @@ export default function EstimateScreen() {
                         applyPersistedBuilderState(restoredState, serverDraft.currentBuilderStep);
                         setEstimateSession(mapBuilderDraftToEstimateSession(serverDraft));
                         hydratedDraftSessionIdRef.current = serverDraft.id;
-                        await Promise.all([
-                            loadPersistedAnswers(
+                        const restoreTasks: Promise<void>[] = [
+                            loadPersistedOptionSet(serverDraft.id, true),
+                        ];
+
+                        if (restoredState.estimateCategoryChosen) {
+                            restoreTasks.push(loadPersistedAnswers(
                                 serverDraft.id,
                                 restoredState.selectedCategory,
-                                restoredState.measurementDraftByKey
-                            ),
-                            loadPersistedOptionSet(serverDraft.id, true),
-                        ]);
+                                restoredState.measurementDraftByKey,
+                                restoredState.clearedAnswerQuestionIds,
+                            ));
+                        }
+
+                        await Promise.all(restoreTasks);
                         setDraftSaveStatus('saved');
                         return result.session;
                     }
@@ -2881,12 +3112,15 @@ export default function EstimateScreen() {
         categoryPickerExpanded: scopePickerExpanded,
         chooseRequirementPhoto,
         clearCurrentDraft,
+        requestClearEstimateSelection,
         clearSkippedRequirement,
         clearRequirementMeasurement,
         companyPriceBookRoute,
         candidateEstimateChoices,
         currentCandidateChoice,
         documentationExpanded,
+        evidenceDeferred,
+        deferPhotosAndMeasurements,
         draftContext,
         eligibleRecommendations,
         estimateAccess,
@@ -3932,6 +4166,7 @@ type GuidedEstimateBuilderProps = {
     categoryPickerExpanded: boolean;
     chooseRequirementPhoto: (label: string, capture: boolean) => Promise<void>;
     clearCurrentDraft: () => void;
+    requestClearEstimateSelection: () => void;
     clearSkippedRequirement: (kind: RequirementKind, label: string) => Promise<void>;
     clearRequirementMeasurement: (label: string) => Promise<void>;
     companyPriceBookRoute: string;
@@ -3942,6 +4177,8 @@ type GuidedEstimateBuilderProps = {
     customScopeAiNotice: string;
     customScopePolishing: boolean;
     documentationExpanded: boolean;
+    evidenceDeferred: boolean;
+    deferPhotosAndMeasurements: () => Promise<void>;
     draftContext: EstimateDraftContext | null;
     editingGuidedOptionId: string;
     eligibleRecommendations: EligibleEstimateRecommendation[];
@@ -4049,6 +4286,7 @@ function renderGuidedEstimateBuilder({
     categoryPickerExpanded,
     chooseRequirementPhoto,
     clearCurrentDraft,
+    requestClearEstimateSelection,
     clearSkippedRequirement,
     clearRequirementMeasurement,
     companyPriceBookRoute,
@@ -4059,6 +4297,8 @@ function renderGuidedEstimateBuilder({
     customScopeAiNotice,
     customScopePolishing,
     documentationExpanded,
+    evidenceDeferred,
+    deferPhotosAndMeasurements,
     draftContext,
     editingGuidedOptionId,
     eligibleRecommendations,
@@ -4173,13 +4413,28 @@ function renderGuidedEstimateBuilder({
         currentCandidateChoice.pricingResult.missingPricingInputs.length === 0
     );
     const hasStandardEstimateChoice = estimateChoices.some((choice) => !isCustomEstimateChoice(choice));
+    const evidenceReminder = getEstimateEvidenceReminder({
+        deferred: evidenceDeferred && hasStandardEstimateChoice,
+        missingPhotoCount,
+        missingMeasurementCount,
+    });
     const canApprove = estimateChoices.length > 0 &&
         !requirementUploadInProgress &&
         (!hasStandardEstimateChoice || (
+            !evidenceReminder.blocksFinalization &&
             phase1Workspace.answerValidation.complete &&
             !phase1Workspace.pricingSetupRequired
         ));
-    const reviewAttentionParts = hasStandardEstimateChoice ? attentionParts : [];
+    const selectedServiceActionState = getSelectedEstimateServiceActionState({
+        selected: estimateScopeSelected && !customQuoteMode,
+        unavailable: categoryPickerExpanded,
+    });
+    const reviewAttentionParts = hasStandardEstimateChoice ? [
+        missingQuestionCount > 0 ? `${missingQuestionCount} question${missingQuestionCount === 1 ? '' : 's'}` : '',
+        evidenceReminder.visible ? '' : missingPhotoCount > 0 ? `${missingPhotoCount} photo${missingPhotoCount === 1 ? '' : 's'}` : '',
+        evidenceReminder.visible ? '' : missingMeasurementCount > 0 ? `${missingMeasurementCount} measurement${missingMeasurementCount === 1 ? '' : 's'}` : '',
+        phase1Workspace.pricingSetupRequired ? 'pricing' : '',
+    ].filter(Boolean) : [];
 
     return (
         <ScrollView
@@ -4260,9 +4515,20 @@ function renderGuidedEstimateBuilder({
                                     <Text style={guidedSectionTitleStyle}>Choose a service</Text>
                                 </View>
                                 {estimateScopeSelected && !customQuoteMode && (
-                                    <TouchableOpacity onPress={() => setCategoryPickerExpanded(!categoryPickerExpanded)} style={guidedTextButtonStyle}>
-                                        <Text style={guidedTextButtonTextStyle}>Change service</Text>
-                                    </TouchableOpacity>
+                                    <View style={guidedHeaderActionsStyle}>
+                                        <TouchableOpacity onPress={() => setCategoryPickerExpanded(!categoryPickerExpanded)} style={guidedTextButtonStyle}>
+                                            <Text style={guidedTextButtonTextStyle}>Change service</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            accessibilityHint="Clears only this unsaved service selection and its draft answers."
+                                            accessibilityLabel="Clear selection and start over"
+                                            accessibilityRole="button"
+                                            onPress={requestClearEstimateSelection}
+                                            style={guidedClearSelectionButtonStyle}
+                                        >
+                                            <Text style={guidedClearSelectionButtonTextStyle}>Clear Selection</Text>
+                                        </TouchableOpacity>
+                                    </View>
                                 )}
                             </View>
 
@@ -4364,11 +4630,15 @@ function renderGuidedEstimateBuilder({
                             </TouchableOpacity>
 
                                 <TouchableOpacity
-                                    disabled={!estimateScopeSelected || categoryPickerExpanded || customQuoteMode}
+                                    accessibilityHint="Opens Step 2 with the saved findings for this service."
+                                    accessibilityLabel={selectedServiceActionState.label}
+                                    accessibilityRole="button"
+                                    accessibilityState={selectedServiceActionState.accessibilityState}
+                                    disabled={selectedServiceActionState.disabled}
                                     onPress={() => setGuidedBuildStep('findings')}
-                                    style={!estimateScopeSelected || categoryPickerExpanded || customQuoteMode ? guidedMutedPrimaryButtonStyle : guidedPrimaryButtonStyle}
+                                    style={selectedServiceActionState.disabled ? guidedMutedPrimaryButtonStyle : guidedPrimaryButtonStyle}
                                 >
-                                    <Text style={guidedPrimaryButtonTextStyle}>Continue to Findings</Text>
+                                    <Text style={guidedPrimaryButtonTextStyle}>{selectedServiceActionState.label}</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -4444,9 +4714,29 @@ function renderGuidedEstimateBuilder({
                                         </View>
                                     )}
 
-                                    <TouchableOpacity onPress={() => setGuidedBuildStep('price')} style={guidedPrimaryButtonStyle}>
-                                        <Text style={guidedPrimaryButtonTextStyle}>Continue to Price & Summary</Text>
-                                    </TouchableOpacity>
+                                    {(missingPhotoCount > 0 || missingMeasurementCount > 0) && (
+                                        <View style={guidedEvidenceDeferStyle}>
+                                            <Text style={guidedAttentionTitleStyle}>Need to keep building the draft?</Text>
+                                            <Text style={guidedAttentionTextStyle}>
+                                                Skip this step for now and continue to pricing. Captured evidence stays saved, and required photos or measurements still block approval and homeowner presentation until completed.
+                                            </Text>
+                                            <TouchableOpacity
+                                                accessibilityHint="Saves this estimate as an incomplete draft and continues to pricing without waiving required evidence."
+                                                accessibilityLabel="Skip photos and measurements for now and save the draft"
+                                                accessibilityRole="button"
+                                                onPress={() => void deferPhotosAndMeasurements()}
+                                                style={guidedSecondaryButtonStyle}
+                                            >
+                                                <Text style={guidedSecondaryButtonTextStyle}>Skip for Now — Save Draft</Text>
+                                            </TouchableOpacity>
+                                        </View>
+                                    )}
+
+                                    {missingPhotoCount === 0 && missingMeasurementCount === 0 && (
+                                        <TouchableOpacity onPress={() => setGuidedBuildStep('price')} style={guidedPrimaryButtonStyle}>
+                                            <Text style={guidedPrimaryButtonTextStyle}>Continue to Price & Summary</Text>
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
                         )}
 
@@ -4459,6 +4749,9 @@ function renderGuidedEstimateBuilder({
                                     </View>
                                     <TouchableOpacity onPress={cancelCustomQuote} style={guidedTextButtonStyle}>
                                         <Text style={guidedTextButtonTextStyle}>Cancel</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={requestClearEstimateSelection} style={guidedClearSelectionButtonStyle}>
+                                        <Text style={guidedClearSelectionButtonTextStyle}>Start Over</Text>
                                     </TouchableOpacity>
                                 </View>
                                 <Text style={guidedSectionDescriptionStyle}>
@@ -5073,6 +5366,25 @@ function renderGuidedEstimateBuilder({
                             })}
                         </View>
 
+                        {evidenceReminder.visible && (
+                            <View style={guidedAttentionStyle}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={guidedAttentionTitleStyle}>{evidenceReminder.title}</Text>
+                                    <Text style={guidedAttentionTextStyle}>
+                                        This was skipped for now, not waived. The draft is saved, but required evidence must be completed before approval or homeowner presentation.
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    accessibilityLabel="Return to complete photos and measurements"
+                                    accessibilityRole="button"
+                                    onPress={() => setGuidedBuildStep('findings')}
+                                    style={guidedAttentionButtonStyle}
+                                >
+                                    <Text style={guidedAttentionButtonTextStyle}>{evidenceReminder.actionLabel}</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
                         {reviewAttentionParts.length > 0 && (
                             <View style={guidedAttentionStyle}>
                                 <View style={{ flex: 1 }}>
@@ -5313,6 +5625,8 @@ function readPersistedEstimateBuilderState(
             customerSummary: readSnapshotString(customDraftRecord?.customerSummary),
             price: readSnapshotString(customDraftRecord?.price),
         },
+        evidenceDeferred: record.evidenceDeferred === true,
+        clearedAnswerQuestionIds: readStringArray(record.clearedAnswerQuestionIds),
     };
 }
 
@@ -6273,15 +6587,51 @@ const guidedCategoryChipSelectedTextStyle = {
 const guidedServiceSummaryStyle = {
     padding: 14,
     borderRadius: 16,
-    backgroundColor: '#F2F6F9',
+    borderWidth: 2,
+    borderColor: '#0B8DA5',
+    backgroundColor: '#E8F8FA',
     gap: 12,
 };
 
 const guidedServiceSummaryLabelStyle = {
-    color: '#71818E',
+    color: '#086A7D',
     fontSize: 11,
     fontWeight: '900' as const,
     textTransform: 'uppercase' as const,
+};
+
+const guidedHeaderActionsStyle = {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    justifyContent: 'flex-end' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+};
+
+const guidedClearSelectionButtonStyle = {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#B94A48',
+    backgroundColor: '#FFF7F6',
+    justifyContent: 'center' as const,
+};
+
+const guidedClearSelectionButtonTextStyle = {
+    color: '#9B2F2B',
+    fontSize: 13,
+    fontWeight: '900' as const,
+};
+
+const guidedEvidenceDeferStyle = {
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#B9C9D4',
+    backgroundColor: '#F7FAFC',
+    gap: 10,
 };
 
 const guidedServiceSummaryTitleStyle = {
