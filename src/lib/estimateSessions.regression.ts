@@ -1,8 +1,11 @@
 import {
     buildDraftEstimateOptionsRequest,
+    buildEstimateSessionResolutionKey,
     buildEstimateSessionRpcParams,
+    doesEstimateSessionMatchRequestedContext,
     isDraftableEstimateSessionStatus,
     isValidEstimateSessionId,
+    shouldRetryEstimateSessionWithoutCandidate,
 } from './estimateSessionContract';
 
 export function runEstimateSessionRegressions() {
@@ -11,6 +14,9 @@ export function runEstimateSessionRegressions() {
     crossCompanyOverrideCannotReplaceStoredSessionCompany();
     serviceRequestRepipeSessionWorksWithoutItemId();
     itemBasedSessionPreservesProviderContext();
+    equivalentResolutionContextsShareOneSessionKey();
+    staleRouteSessionsRetryWithoutWeakeningAuthorization();
+    staleCrossContextSessionsCannotReceiveEvidence();
     archivedAndClosedSessionsAreNotDraftable();
 }
 
@@ -97,6 +103,69 @@ function archivedAndClosedSessionsAreNotDraftable() {
     assert(!isDraftableEstimateSessionStatus('presentation_ready'), 'Presentation-ready sessions should not allow new AI generation.');
     assert(!isDraftableEstimateSessionStatus('presented'), 'Presented sessions should not allow new AI generation.');
     assert(!isDraftableEstimateSessionStatus('archived'), 'Archived sessions should not allow new AI generation.');
+}
+
+function equivalentResolutionContextsShareOneSessionKey() {
+    const input = {
+        sessionId: SESSION_ID,
+        companyId: COMPANY_ID,
+        propertyId: PROPERTY_ID,
+        serviceRequestId: REQUEST_ID,
+        jobId: JOB_ID,
+        scheduleSlotId: SLOT_ID,
+        homeItemId: ITEM_ID,
+        category: 'valve_replacement',
+        source: 'techos' as const,
+    };
+    const first = buildEstimateSessionResolutionKey(input);
+    const second = buildEstimateSessionResolutionKey({ ...input });
+    const anotherJob = buildEstimateSessionResolutionKey({ ...input, jobId: '88888888-8888-4888-8888-888888888888' });
+
+    assert(first === second, 'Parallel photo and evidence actions in one authorized context must share a single-flight session resolution.');
+    assert(first !== anotherJob, 'Different job contexts must never share an estimate session resolution.');
+}
+
+function staleRouteSessionsRetryWithoutWeakeningAuthorization() {
+    assert(shouldRetryEstimateSessionWithoutCandidate('Estimate session not found.'),
+        'A stale route session id should recover through the same authorized company/property/job context.');
+    assert(!shouldRetryEstimateSessionWithoutCandidate('Not authorized to use this estimate session.'),
+        'Authorization failures must never retry by discarding the server security boundary.');
+    assert(!shouldRetryEstimateSessionWithoutCandidate('Estimate session is closed for AI drafting.'),
+        'Closed sessions must not be silently replaced with a new draft.');
+}
+
+function staleCrossContextSessionsCannotReceiveEvidence() {
+    const requested = {
+        sessionId: SESSION_ID,
+        companyId: COMPANY_ID,
+        propertyId: PROPERTY_ID,
+        serviceRequestId: REQUEST_ID,
+        jobId: JOB_ID,
+        scheduleSlotId: SLOT_ID,
+        homeItemId: ITEM_ID,
+        category: 'valve_replacement',
+        source: 'techos' as const,
+    };
+
+    assert(doesEstimateSessionMatchRequestedContext({
+        companyId: COMPANY_ID,
+        propertyId: PROPERTY_ID,
+        serviceRequestId: REQUEST_ID,
+        jobId: JOB_ID,
+        scheduleSlotId: SLOT_ID,
+        homeItemId: ITEM_ID,
+        source: 'techos',
+    }, requested), 'The current job and HomeOS item may reuse its resolved session.');
+
+    assert(!doesEstimateSessionMatchRequestedContext({
+        companyId: COMPANY_ID,
+        propertyId: PROPERTY_ID,
+        serviceRequestId: REQUEST_ID,
+        jobId: '88888888-8888-4888-8888-888888888888',
+        scheduleSlotId: SLOT_ID,
+        homeItemId: ITEM_ID,
+        source: 'techos',
+    }, requested), 'A stale route session from another job must never receive captured evidence.');
 }
 
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';

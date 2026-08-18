@@ -5,7 +5,7 @@ import EstimatePresentationSessionPanel from './EstimatePresentationSessionPanel
 
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { type RefObject, useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
-import { Alert, Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Modal, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import {
     buildApprovedAiReferenceContext,
     buildCatalogProductEstimatePrefill,
@@ -58,10 +58,13 @@ import {
     clearEstimateSelectionDraft,
     deferEstimateEvidence,
     getEstimateEvidenceReminder,
+    getEstimateRequirementControlState,
+    getEstimateRequirementReasonChoices,
     getSelectedEstimateServiceActionState,
     hasMeaningfulEstimateSelectionDraft,
     selectCustomEstimateWorkPath,
     selectPredefinedEstimateWorkPath,
+    shouldStackEstimateBuilderHeading,
 } from '../../lib/estimateBuilderMode';
 import { repipeHomeownerGuideSections } from '../../lib/repipeHomeownerContent';
 import type { EstimatePresentationSectionItem } from '../../lib/estimatePresentationSections';
@@ -128,6 +131,7 @@ import {
     saveEstimateDraftContext,
 } from '../../lib/estimateDraft';
 import {
+    buildEstimateSessionResolutionKey,
     buildDraftEstimateOptionsRequest,
     resolveEstimateOptionSession,
     type EstimateOptionSession,
@@ -184,7 +188,10 @@ type EditableChoiceCopy = {
 type RequirementUploadState = {
     uploading: boolean;
     error: string | null;
+    pending?: boolean;
 };
+
+type RequirementActionState = 'resolving' | 'saving' | 'removing' | null;
 
 type RequirementKind = 'photo' | 'measurement';
 type EstimateWorkspaceSection = 'pricing' | 'editor' | 'presentation' | 'findings';
@@ -249,17 +256,8 @@ const flapperReplacementPricePresets = [
     { id: 'specialty', label: 'Specialty / Toto', price: 199 },
 ] as const;
 
-const requirementSkipReasons: { label: string; reason: EstimateRequirementSkipReason | null }[] = [
-    { label: 'Skip for now', reason: null },
-    { label: 'Inaccessible', reason: 'inaccessible' },
-    { label: 'Unsafe', reason: 'unsafe_to_capture' },
-    { label: 'Label unreadable', reason: 'label_unreadable' },
-    { label: 'Customer unavailable', reason: 'customer_unavailable' },
-    { label: 'N/A', reason: 'not_applicable' },
-    { label: 'Other', reason: 'other' },
-];
-
 export default function EstimateScreen() {
+    const { width: viewportWidth, fontScale } = useWindowDimensions();
     const { companyId, propertyId, itemSlug, mode, providerMode, returnTo, serviceRequestId, scheduleSlotId, jobId, estimateSessionId, step, catalogItemId } = useLocalSearchParams<{
         companyId?: string | string[];
         propertyId?: string | string[];
@@ -323,6 +321,7 @@ export default function EstimateScreen() {
     const [answers, setAnswers] = useState<EstimateAnswerSet>({});
     const [photoPreviewByKey, setPhotoPreviewByKey] = useState<Record<string, string>>({});
     const [requirementUploadByKey, setRequirementUploadByKey] = useState<Record<string, RequirementUploadState>>({});
+    const [requirementActionByKey, setRequirementActionByKey] = useState<Record<string, RequirementActionState>>({});
     const [measurementDraftByKey, setMeasurementDraftByKey] = useState<Record<string, string>>({});
     const [measurementErrorByKey, setMeasurementErrorByKey] = useState<Record<string, string>>({});
     const [technicianApproved, setTechnicianApproved] = useState(false);
@@ -350,6 +349,8 @@ export default function EstimateScreen() {
     const [customQuoteMode, setCustomQuoteMode] = useState(false);
     const [customQuoteDraft, setCustomQuoteDraft] = useState<CustomEstimateOptionDraft>(emptyCustomEstimateOptionDraft);
     const [evidenceDeferred, setEvidenceDeferred] = useState(false);
+    const [deferringEvidence, setDeferringEvidence] = useState(false);
+    const [preparingSelectedService, setPreparingSelectedService] = useState(false);
     const [clearedAnswerQuestionIds, setClearedAnswerQuestionIds] = useState<string[]>([]);
     const [customScopePolishing, setCustomScopePolishing] = useState(false);
     const [customScopeAiNotice, setCustomScopeAiNotice] = useState('');
@@ -367,6 +368,15 @@ export default function EstimateScreen() {
     const readinessDetailsRef = useRef<View | null>(null);
     const workspaceDetailsRef = useRef<View | null>(null);
     const hydratedDraftSessionIdRef = useRef('');
+    const estimateSessionRef = useRef<EstimateOptionSession | null>(null);
+    const estimateSessionResolutionRef = useRef<{
+        key: string;
+        promise: Promise<EstimateOptionSession | null>;
+    } | null>(null);
+    const deferringEvidenceRef = useRef(false);
+    const preparingSelectedServiceRef = useRef(false);
+    const requirementActionRef = useRef<Record<string, RequirementActionState>>({});
+    const pendingRequirementPhotoByKeyRef = useRef<Record<string, { label: string; file: File }>>({});
     const latestDraftSaveRef = useRef<{
         sessionId: string;
         step: EstimateBuilderStep;
@@ -374,6 +384,10 @@ export default function EstimateScreen() {
     } | null>(null);
     const draftSavePromiseRef = useRef<Promise<void> | null>(null);
     const activeDraftSessionId = estimateSession?.id || draftContext?.estimate_session_id || requestedEstimateSessionId;
+    const stackGuidedSectionHeading = shouldStackEstimateBuilderHeading({
+        width: viewportWidth,
+        fontScale,
+    });
     const currentBuilderStep = resolveCurrentBuilderStep(guidedStep, guidedBuildStep);
     const builderStateJson = JSON.stringify({
         version: 1,
@@ -427,6 +441,10 @@ export default function EstimateScreen() {
         providerModeContext?.jobId,
         requestedEstimateSessionId,
     ]);
+
+    useEffect(() => {
+        estimateSessionRef.current = estimateSession;
+    }, [estimateSession]);
 
     useEffect(() => {
         if (!activeDraftSessionId || hydratedDraftSessionIdRef.current !== activeDraftSessionId) return;
@@ -777,8 +795,7 @@ export default function EstimateScreen() {
                 serverDraft = await loadCompanyEstimateBuilderDraft(serverSessionId);
             } catch (error) {
                 if (requestedEstimateSessionId) {
-                    setMessage(`Saved quote could not be opened: ${readEstimateErrorMessage(error, 'Draft unavailable.')}`);
-                    return;
+                    setMessage(`Saved quote could not be restored yet: ${readEstimateErrorMessage(error, 'Draft unavailable.')} The selected service can retry it through this assigned customer context.`);
                 }
             }
         }
@@ -1498,109 +1515,154 @@ export default function EstimateScreen() {
         }
     }
 
-    async function chooseRequirementPhoto(label: string, capture: boolean) {
-        if (!estimateAccess) return;
+    async function runRequirementAction(
+        key: string,
+        action: Exclude<RequirementActionState, null>,
+        operation: () => Promise<void>,
+    ) {
+        if (requirementActionRef.current[key]) return false;
 
-        const key = photoRequirementAnswerKey(label);
-        let file: File | null = null;
-
-        try {
-            file = await pickEstimateRequirementPhoto(capture);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Photo picker could not be opened.';
-
-            setRequirementUploadByKey((current) => ({
-                ...current,
-                [key]: { uploading: false, error: errorMessage },
-            }));
-            setMessage(errorMessage);
-            return;
-        }
-
-        if (!file) return;
-
-        let uploadedAnswer: EstimateAnswerValue = null;
-
-        setTechnicianApproved(false);
-        setPresentationMode(false);
-        setRequirementUploadByKey((current) => ({
-            ...current,
-            [key]: { uploading: true, error: null },
-        }));
-        setMessage(`Uploading ${label} photo...`);
+        requirementActionRef.current[key] = action;
+        setRequirementActionByKey((current) => ({ ...current, [key]: action }));
 
         try {
-            const resolvedSession = await resolveSessionForDraft(selectedCategory);
-
-            if (!resolvedSession) {
-                throw new Error('Estimate session could not be resolved for this requirement.');
-            }
-
-            uploadedAnswer = await uploadEstimateRequirementPhoto({
-                companyId: resolvedSession.companyId,
-                sessionId: resolvedSession.id,
-                requirementLabel: label,
-                file,
-            });
-            await saveEstimateSessionAnswer(resolvedSession.id, key, uploadedAnswer);
-            removeClearedAnswerMasks([key]);
-
-            setAnswers((current) => ({
-                ...current,
-                [key]: uploadedAnswer,
-            }));
-            setPhotoPreviewByKey((current) => ({
-                ...current,
-                [key]: createLocalPhotoPreview(file) || current[key] || '',
-            }));
-            setRequirementUploadByKey((current) => ({
-                ...current,
-                [key]: { uploading: false, error: null },
-            }));
-            setMessage(`${label} photo saved.`);
-        } catch (error) {
-            if (uploadedAnswer) {
-                try {
-                    await removeEstimateRequirementPhotoFile(uploadedAnswer);
-                } catch {
-                    // Best effort cleanup; the visible requirement remains incomplete.
-                }
-            }
-
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-            setRequirementUploadByKey((current) => ({
-                ...current,
-                [key]: { uploading: false, error: errorMessage },
-            }));
-            setMessage(`${label} photo could not be saved: ${errorMessage}`);
-        }
-    }
-
-    async function removeRequirementPhoto(label: string) {
-        const key = photoRequirementAnswerKey(label);
-        const answer = answers[key];
-        const session = await resolveSessionForDraft(selectedCategory);
-
-        if (!session) return;
-
-        setTechnicianApproved(false);
-        setPresentationMode(false);
-        setRequirementUploadByKey((current) => ({
-            ...current,
-            [key]: { uploading: true, error: null },
-        }));
-
-        try {
-            await removeEstimateRequirementPhotoFile(answer);
-            await deleteEstimateSessionAnswer(session.id, key);
-            setAnswers((current) => {
+            await operation();
+            return true;
+        } finally {
+            delete requirementActionRef.current[key];
+            setRequirementActionByKey((current) => {
                 const next = { ...current };
 
                 delete next[key];
 
                 return next;
             });
+        }
+    }
+
+    async function chooseRequirementPhoto(label: string, capture: boolean) {
+        if (!estimateAccess) return;
+
+        const key = photoRequirementAnswerKey(label);
+        let file: File | null = null;
+        let pickerError: string | null = null;
+
+        const pickerOpened = await runRequirementAction(key, 'resolving', async () => {
+            try {
+                file = await pickEstimateRequirementPhoto(capture);
+            } catch (error) {
+                pickerError = error instanceof Error ? error.message : 'Photo picker could not be opened.';
+            }
+        });
+
+        if (!pickerOpened) return;
+
+        if (pickerError) {
+
+            setRequirementUploadByKey((current) => ({
+                ...current,
+                [key]: { uploading: false, error: pickerError },
+            }));
+            setMessage(pickerError);
+            return;
+        }
+
+        if (!file) return;
+
+        pendingRequirementPhotoByKeyRef.current[key] = { label, file };
+        const previewUrl = createLocalPhotoPreview(file);
+
+        if (previewUrl) {
+            setPhotoPreviewByKey((current) => ({ ...current, [key]: previewUrl }));
+        }
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+        setRequirementUploadByKey((current) => ({
+            ...current,
+            [key]: { uploading: false, error: null, pending: true },
+        }));
+        setMessage(`${label} photo captured. Securing the estimate draft before saving it...`);
+        await savePendingRequirementPhoto(label);
+    }
+
+    async function savePendingRequirementPhoto(label: string) {
+        const key = photoRequirementAnswerKey(label);
+        const pendingPhoto = pendingRequirementPhotoByKeyRef.current[key];
+
+        if (!pendingPhoto) {
+            setRequirementUploadByKey((current) => ({
+                ...current,
+                [key]: {
+                    uploading: false,
+                    error: 'The staged photo is no longer available on this device. Choose or take it again.',
+                    pending: false,
+                },
+            }));
+            return;
+        }
+
+        await runRequirementAction(key, 'saving', async () => {
+            let uploadedAnswer: EstimateAnswerValue = null;
+
+            setRequirementUploadByKey((current) => ({
+                ...current,
+                [key]: { uploading: true, error: null, pending: true },
+            }));
+            setMessage(`Saving ${label} photo to this estimate draft...`);
+
+            try {
+                const resolvedSession = await resolveSessionForDraft(selectedCategory);
+
+                if (!resolvedSession) {
+                    throw new Error('The secure estimate draft is not ready. Tap Retry Save; you will not need to retake this photo.');
+                }
+
+                uploadedAnswer = await uploadEstimateRequirementPhoto({
+                    companyId: resolvedSession.companyId,
+                    sessionId: resolvedSession.id,
+                    requirementLabel: label,
+                    file: pendingPhoto.file,
+                });
+                await saveEstimateSessionAnswer(resolvedSession.id, key, uploadedAnswer);
+                removeClearedAnswerMasks([key]);
+
+                setAnswers((current) => ({
+                    ...current,
+                    [key]: uploadedAnswer,
+                }));
+                delete pendingRequirementPhotoByKeyRef.current[key];
+                setRequirementUploadByKey((current) => ({
+                    ...current,
+                    [key]: { uploading: false, error: null, pending: false },
+                }));
+                setMessage(`${label} photo saved.`);
+            } catch (error) {
+                if (uploadedAnswer) {
+                    try {
+                        await removeEstimateRequirementPhotoFile(uploadedAnswer);
+                    } catch {
+                        // Best effort cleanup. The local staged photo remains available for retry.
+                    }
+                }
+
+                const errorMessage = error instanceof Error ? error.message : 'Photo could not be saved.';
+
+                setRequirementUploadByKey((current) => ({
+                    ...current,
+                    [key]: { uploading: false, error: errorMessage, pending: true },
+                }));
+                setMessage(`${label} photo is retained on this device. ${errorMessage}`);
+            }
+        });
+    }
+
+    async function removeRequirementPhoto(label: string) {
+        const key = photoRequirementAnswerKey(label);
+        const answer = answers[key];
+
+        if (pendingRequirementPhotoByKeyRef.current[key] && !isPhotoRequirementComplete(answer)) {
+            delete pendingRequirementPhotoByKeyRef.current[key];
             setPhotoPreviewByKey((current) => {
                 const next = { ...current };
 
@@ -1610,42 +1672,33 @@ export default function EstimateScreen() {
             });
             setRequirementUploadByKey((current) => ({
                 ...current,
-                [key]: { uploading: false, error: null },
+                [key]: { uploading: false, error: null, pending: false },
             }));
-            setMessage(`${label} photo removed.`);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-
-            setRequirementUploadByKey((current) => ({
-                ...current,
-                [key]: { uploading: false, error: errorMessage },
-            }));
-            setMessage(`${label} photo could not be removed: ${errorMessage}`);
+            setMessage(`${label} staged photo removed.`);
+            return;
         }
-    }
-
-    async function skipRequirement(kind: RequirementKind, label: string, reason: EstimateRequirementSkipReason | null) {
-        const key = kind === 'photo'
-            ? photoRequirementAnswerKey(label)
-            : measurementRequirementAnswerKey(label);
-        const session = await resolveSessionForDraft(selectedCategory);
-
-        if (!session) return;
-
-        const answer = createEstimateRequirementSkipAnswer(label, reason);
 
         setTechnicianApproved(false);
         setPresentationMode(false);
-
-        try {
-            await saveEstimateSessionAnswer(session.id, key, answer);
-            removeClearedAnswerMasks([key]);
-            setAnswers((current) => ({
+        await runRequirementAction(key, 'removing', async () => {
+            setRequirementUploadByKey((current) => ({
                 ...current,
-                [key]: answer,
+                [key]: { uploading: true, error: null },
             }));
 
-            if (kind === 'photo') {
+            try {
+                const session = await resolveSessionForDraft(selectedCategory);
+
+                if (!session) throw new Error('Secure estimate draft unavailable. Retry Remove.');
+                await removeEstimateRequirementPhotoFile(answer);
+                await deleteEstimateSessionAnswer(session.id, key);
+                setAnswers((current) => {
+                    const next = { ...current };
+
+                    delete next[key];
+
+                    return next;
+                });
                 setPhotoPreviewByKey((current) => {
                     const next = { ...current };
 
@@ -1653,38 +1706,94 @@ export default function EstimateScreen() {
 
                     return next;
                 });
-            }
+                setRequirementUploadByKey((current) => ({
+                    ...current,
+                    [key]: { uploading: false, error: null },
+                }));
+                setMessage(`${label} photo removed.`);
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Photo could not be removed.';
 
-            setMessage(`${label} marked skipped for now.`);
-        } catch (error) {
-            setMessage(`${label} skip state could not be saved: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                setRequirementUploadByKey((current) => ({
+                    ...current,
+                    [key]: { uploading: false, error: errorMessage },
+                }));
+                setMessage(`${label} photo could not be removed: ${errorMessage}`);
+            }
+        });
+    }
+
+    async function skipRequirement(kind: RequirementKind, label: string, reason: EstimateRequirementSkipReason | null) {
+        const key = kind === 'photo'
+            ? photoRequirementAnswerKey(label)
+            : measurementRequirementAnswerKey(label);
+
+        if (kind === 'photo' && pendingRequirementPhotoByKeyRef.current[key]) {
+            setMessage(`${label} photo is retained for retry. Save it or remove the staged photo before recording another status.`);
+            return;
         }
+
+        const answer = createEstimateRequirementSkipAnswer(label, reason);
+
+        setTechnicianApproved(false);
+        setPresentationMode(false);
+
+        await runRequirementAction(key, 'saving', async () => {
+            try {
+                const session = await resolveSessionForDraft(selectedCategory);
+
+                if (!session) throw new Error('Secure estimate draft unavailable. Tap this status again to retry.');
+                await saveEstimateSessionAnswer(session.id, key, answer);
+                removeClearedAnswerMasks([key]);
+                setAnswers((current) => ({
+                    ...current,
+                    [key]: answer,
+                }));
+
+                if (kind === 'photo') {
+                    setPhotoPreviewByKey((current) => {
+                        const next = { ...current };
+
+                        delete next[key];
+
+                        return next;
+                    });
+                }
+
+                const statusLabel = getEstimateRequirementReasonChoices({ required: false })
+                    .find((choice) => choice.reason === reason)?.label || 'Skip for now';
+                setMessage(`${label}: ${statusLabel} recorded. Required evidence remains open before final approval or presentation.`);
+            } catch (error) {
+                setMessage(`${label} status could not be saved: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        });
     }
 
     async function clearSkippedRequirement(kind: RequirementKind, label: string) {
         const key = kind === 'photo'
             ? photoRequirementAnswerKey(label)
             : measurementRequirementAnswerKey(label);
-        const session = await resolveSessionForDraft(selectedCategory);
-
-        if (!session) return;
-
         setTechnicianApproved(false);
         setPresentationMode(false);
 
-        try {
-            await deleteEstimateSessionAnswer(session.id, key);
-            setAnswers((current) => {
-                const next = { ...current };
+        await runRequirementAction(key, 'removing', async () => {
+            try {
+                const session = await resolveSessionForDraft(selectedCategory);
 
-                delete next[key];
+                if (!session) throw new Error('Secure estimate draft unavailable. Retry Clear.');
+                await deleteEstimateSessionAnswer(session.id, key);
+                setAnswers((current) => {
+                    const next = { ...current };
 
-                return next;
-            });
-            setMessage(`${label} skip state cleared.`);
-        } catch (error) {
-            setMessage(`${label} skip state could not be cleared: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
+                    delete next[key];
+
+                    return next;
+                });
+                setMessage(`${label} status cleared.`);
+            } catch (error) {
+                setMessage(`${label} status could not be cleared: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        });
     }
 
     function updateMeasurementDraft(label: string, value: string) {
@@ -1712,9 +1821,7 @@ export default function EstimateScreen() {
             return;
         }
 
-        const session = await resolveSessionForDraft(selectedCategory);
-
-        if (!session || validation.value === null) return;
+        if (validation.value === null) return;
 
         const answer: EstimateRequirementMeasurementAnswer = {
             kind: 'requirement_measurement',
@@ -1726,59 +1833,65 @@ export default function EstimateScreen() {
         setTechnicianApproved(false);
         setPresentationMode(false);
 
-        try {
-            await saveEstimateSessionAnswer(session.id, key, answer);
-            removeClearedAnswerMasks([key]);
-            setAnswers((current) => ({
-                ...current,
-                [key]: answer,
-            }));
-            setMeasurementErrorByKey((current) => ({
-                ...current,
-                [key]: '',
-            }));
-            setMessage(`${label} measurement saved.`);
-        } catch (error) {
-            setMeasurementErrorByKey((current) => ({
-                ...current,
-                [key]: error instanceof Error ? error.message : 'Measurement could not be saved.',
-            }));
-        }
+        await runRequirementAction(key, 'saving', async () => {
+            try {
+                const session = await resolveSessionForDraft(selectedCategory);
+
+                if (!session) throw new Error('Secure estimate draft unavailable. Retry Save.');
+                await saveEstimateSessionAnswer(session.id, key, answer);
+                removeClearedAnswerMasks([key]);
+                setAnswers((current) => ({
+                    ...current,
+                    [key]: answer,
+                }));
+                setMeasurementErrorByKey((current) => ({
+                    ...current,
+                    [key]: '',
+                }));
+                setMessage(`${label} measurement saved.`);
+            } catch (error) {
+                setMeasurementErrorByKey((current) => ({
+                    ...current,
+                    [key]: error instanceof Error ? error.message : 'Measurement could not be saved.',
+                }));
+            }
+        });
     }
 
     async function clearRequirementMeasurement(label: string) {
         const key = measurementRequirementAnswerKey(label);
-        const session = await resolveSessionForDraft(selectedCategory);
-
-        if (!session) return;
-
         setTechnicianApproved(false);
         setPresentationMode(false);
 
-        try {
-            await deleteEstimateSessionAnswer(session.id, key);
-            setAnswers((current) => {
-                const next = { ...current };
+        await runRequirementAction(key, 'removing', async () => {
+            try {
+                const session = await resolveSessionForDraft(selectedCategory);
 
-                delete next[key];
+                if (!session) throw new Error('Secure estimate draft unavailable. Retry Clear.');
+                await deleteEstimateSessionAnswer(session.id, key);
+                setAnswers((current) => {
+                    const next = { ...current };
 
-                return next;
-            });
-            setMeasurementDraftByKey((current) => ({
-                ...current,
-                [key]: '',
-            }));
-            setMeasurementErrorByKey((current) => ({
-                ...current,
-                [key]: '',
-            }));
-            setMessage(`${label} measurement cleared.`);
-        } catch (error) {
-            setMeasurementErrorByKey((current) => ({
-                ...current,
-                [key]: error instanceof Error ? error.message : 'Measurement could not be cleared.',
-            }));
-        }
+                    delete next[key];
+
+                    return next;
+                });
+                setMeasurementDraftByKey((current) => ({
+                    ...current,
+                    [key]: '',
+                }));
+                setMeasurementErrorByKey((current) => ({
+                    ...current,
+                    [key]: '',
+                }));
+                setMessage(`${label} measurement cleared.`);
+            } catch (error) {
+                setMeasurementErrorByKey((current) => ({
+                    ...current,
+                    [key]: error instanceof Error ? error.message : 'Measurement could not be cleared.',
+                }));
+            }
+        });
     }
 
     function hasRequirementUploadInProgress() {
@@ -2118,6 +2231,7 @@ export default function EstimateScreen() {
                 builderState: state,
             });
             setDraftSaveStatus('saved');
+            return true;
         } catch (error) {
             latestDraftSaveRef.current = {
                 sessionId,
@@ -2126,6 +2240,7 @@ export default function EstimateScreen() {
             };
             setDraftSaveStatus('error');
             setMessage(`Draft could not be saved: ${readEstimateErrorMessage(error, 'HomeOS services are unavailable.')}`);
+            return false;
         }
     }
 
@@ -2209,34 +2324,74 @@ export default function EstimateScreen() {
     }
 
     async function deferPhotosAndMeasurements() {
-        const session = await resolveSessionForDraft(selectedCategory);
+        if (deferringEvidenceRef.current) return;
 
-        if (!session) return;
+        deferringEvidenceRef.current = true;
+        setDeferringEvidence(true);
+        setMessage('Saving this draft with photos and measurements still needed...');
 
-        const currentSnapshot = readCurrentBuilderSnapshot();
-        const nextState = deferEstimateEvidence({
-            ...currentSnapshot,
-            draftContext: currentSnapshot.draftContext || {
-                estimate_session_id: session.id,
-                estimate_category: selectedCategory,
-                company_id: session.companyId,
-                property_id: session.propertyId,
-                customer_home_name: draftContext?.customer_home_name || items[0]?.customer_home_name || null,
-                service_request_id: session.serviceRequestId,
-                job_id: session.jobId,
-                schedule_slot_id: session.scheduleSlotId,
-                technician_company_user_id: draftContext?.technician_company_user_id || estimateAccess?.companyUserId || null,
-                technician_name: draftContext?.technician_name || null,
-                issue_summary: draftContext?.issue_summary || null,
-                source: session.source,
-                updated_at: new Date().toISOString(),
-            },
-        });
+        try {
+            const session = await resolveSessionForDraft(selectedCategory);
 
-        applyPersistedBuilderState(nextState, 'price', false);
-        router.setParams({ step: 'price' } as any);
-        await persistBuilderSnapshotImmediately(session.id, 'price', nextState);
-        setMessage('Photos and measurements skipped for now. The draft is saved, and required evidence must still be completed before presentation or approval.');
+            if (!session) {
+                setMessage('The secure estimate draft could not be opened. Tap Skip for Now again to retry; captured evidence is unchanged.');
+                return;
+            }
+
+            const currentSnapshot = readCurrentBuilderSnapshot();
+            const nextState = deferEstimateEvidence({
+                ...currentSnapshot,
+                draftContext: currentSnapshot.draftContext || {
+                    estimate_session_id: session.id,
+                    estimate_category: selectedCategory,
+                    company_id: session.companyId,
+                    property_id: session.propertyId,
+                    customer_home_name: draftContext?.customer_home_name || items[0]?.customer_home_name || null,
+                    service_request_id: session.serviceRequestId,
+                    job_id: session.jobId,
+                    schedule_slot_id: session.scheduleSlotId,
+                    technician_company_user_id: draftContext?.technician_company_user_id || estimateAccess?.companyUserId || null,
+                    technician_name: draftContext?.technician_name || null,
+                    issue_summary: draftContext?.issue_summary || null,
+                    source: session.source,
+                    updated_at: new Date().toISOString(),
+                },
+            });
+
+            const saved = await persistBuilderSnapshotImmediately(session.id, 'price', nextState);
+
+            if (!saved) return;
+
+            applyPersistedBuilderState(nextState, 'price', false);
+            router.setParams({ step: 'price' } as any);
+            setMessage('Draft saved. Photos and measurements are still needed before final approval or homeowner presentation.');
+        } finally {
+            deferringEvidenceRef.current = false;
+            setDeferringEvidence(false);
+        }
+    }
+
+    async function continueWithSelectedService() {
+        if (preparingSelectedServiceRef.current || !estimateScopeSelected || customQuoteMode) return;
+
+        preparingSelectedServiceRef.current = true;
+        setPreparingSelectedService(true);
+        setMessage('Opening findings and securing this estimate draft...');
+
+        try {
+            const session = await resolveSessionForDraft(selectedCategory);
+
+            if (!session) {
+                setMessage('The secure estimate draft could not be opened. Tap Continue with this service to retry.');
+                return;
+            }
+
+            navigateGuidedBuildStep('findings');
+            setMessage('Estimate draft ready. Record the findings that apply to this work.');
+        } finally {
+            preparingSelectedServiceRef.current = false;
+            setPreparingSelectedService(false);
+        }
     }
 
     function startCustomQuote() {
@@ -2651,24 +2806,83 @@ export default function EstimateScreen() {
             requestedPropertyId ||
             primaryItem?.property_id ||
             null;
-        const result = await resolveEstimateOptionSession({
-            sessionId: estimateSession?.id || draftContext?.estimate_session_id || null,
+        const serviceRequestId = providerModeContext?.serviceRequestId || draftContext?.service_request_id || null;
+        const jobId = providerModeContext?.jobId || draftContext?.job_id || null;
+        const scheduleSlotId = providerModeContext?.scheduleSlotId || draftContext?.schedule_slot_id || null;
+        const homeItemId = primaryItem?.id || null;
+        const candidateSessionId = estimateSessionRef.current?.id || draftContext?.estimate_session_id || requestedEstimateSessionId || null;
+        const resolutionInput = {
+            sessionId: candidateSessionId,
             companyId: estimateAccess.companyId,
             propertyId,
-            serviceRequestId: providerModeContext?.serviceRequestId || draftContext?.service_request_id || null,
-            jobId: providerModeContext?.jobId || draftContext?.job_id || null,
-            scheduleSlotId: providerModeContext?.scheduleSlotId || draftContext?.schedule_slot_id || null,
-            homeItemId: primaryItem?.id || null,
+            serviceRequestId,
+            jobId,
+            scheduleSlotId,
+            homeItemId,
             category,
             source,
+        };
+        const currentSession = estimateSessionRef.current;
+
+        if (
+            currentSession &&
+            currentSession.category === category &&
+            currentSession.companyId === estimateAccess.companyId &&
+            currentSession.propertyId === propertyId &&
+            currentSession.serviceRequestId === serviceRequestId &&
+            currentSession.jobId === jobId &&
+            currentSession.scheduleSlotId === scheduleSlotId &&
+            currentSession.homeItemId === homeItemId &&
+            currentSession.source === source
+        ) {
+            return currentSession;
+        }
+
+        const resolutionKey = buildEstimateSessionResolutionKey(resolutionInput);
+        const existingResolution = estimateSessionResolutionRef.current;
+
+        if (existingResolution?.key === resolutionKey) return existingResolution.promise;
+
+        const promise = withSecureRouteGuardTimeout(
+            resolveSessionForDraftOnce({
+                category,
+                primaryItem,
+                resolutionInput,
+            }),
+            15_000,
+        ).catch((error) => {
+            setMessage(`Estimate session unavailable: ${readEstimateErrorMessage(error, 'Check your connection and tap the action again to retry.')}`);
+            return null;
         });
 
+        estimateSessionResolutionRef.current = { key: resolutionKey, promise };
+
+        try {
+            return await promise;
+        } finally {
+            if (estimateSessionResolutionRef.current?.promise === promise) {
+                estimateSessionResolutionRef.current = null;
+            }
+        }
+    }
+
+    async function resolveSessionForDraftOnce(input: {
+        category: EstimateOptionCategory;
+        primaryItem: EstimateDraftItem | null;
+        resolutionInput: Parameters<typeof resolveEstimateOptionSession>[0];
+    }) {
+        if (!estimateAccess) return null;
+
+        const { category, primaryItem, resolutionInput } = input;
+        const result = await resolveEstimateOptionSession(resolutionInput);
+
         if (!result.session) {
-            setMessage(`Estimate session unavailable: ${result.error || 'Session could not be resolved.'}`);
+            setMessage(`Estimate session unavailable: ${result.error || 'Session could not be resolved.'} Tap the action again to retry.`);
             return null;
         }
 
         setEstimateSession(result.session);
+        estimateSessionRef.current = result.session;
 
         try {
             const serverDraft = await loadCompanyEstimateBuilderDraft(result.session.id);
@@ -2684,7 +2898,10 @@ export default function EstimateScreen() {
 
                     if (restoredState) {
                         applyPersistedBuilderState(restoredState, serverDraft.currentBuilderStep);
-                        setEstimateSession(mapBuilderDraftToEstimateSession(serverDraft));
+                        const restoredSession = mapBuilderDraftToEstimateSession(serverDraft);
+
+                        setEstimateSession(restoredSession);
+                        estimateSessionRef.current = restoredSession;
                         hydratedDraftSessionIdRef.current = serverDraft.id;
                         const restoreTasks: Promise<void>[] = [
                             loadPersistedOptionSet(serverDraft.id, true),
@@ -3111,6 +3328,7 @@ export default function EstimateScreen() {
         canUsePricing: canUseEstimatePricing(estimateAccess),
         categoryPickerExpanded: scopePickerExpanded,
         chooseRequirementPhoto,
+        retryRequirementPhoto: savePendingRequirementPhoto,
         clearCurrentDraft,
         requestClearEstimateSelection,
         clearSkippedRequirement,
@@ -3120,7 +3338,9 @@ export default function EstimateScreen() {
         currentCandidateChoice,
         documentationExpanded,
         evidenceDeferred,
+        deferringEvidence,
         deferPhotosAndMeasurements,
+        continueWithSelectedService,
         draftContext,
         eligibleRecommendations,
         estimateAccess,
@@ -3175,9 +3395,12 @@ export default function EstimateScreen() {
         removeRequirementPhoto,
         requestedMode,
         requirementUploadByKey,
+        requirementActionByKey,
         requirementUploadInProgress,
         saveRequirementMeasurement,
         savingGuidedOption,
+        preparingSelectedService,
+        stackGuidedSectionHeading,
         scrollRef: estimateScrollRef,
         selectEstimateCategory,
         selectCandidateChoice: (choiceId) => {
@@ -3406,7 +3629,9 @@ export default function EstimateScreen() {
                                     answers,
                                     previewByKey: photoPreviewByKey,
                                     uploadByKey: requirementUploadByKey,
+                                    actionByKey: requirementActionByKey,
                                     choosePhoto: chooseRequirementPhoto,
+                                    retryPhoto: savePendingRequirementPhoto,
                                     removePhoto: removeRequirementPhoto,
                                     skipRequirement: (label, reason) => skipRequirement('photo', label, reason),
                                     clearSkippedRequirement: (label) => clearSkippedRequirement('photo', label),
@@ -3416,6 +3641,7 @@ export default function EstimateScreen() {
                                     answers,
                                     measurementDraftByKey,
                                     measurementErrorByKey,
+                                    actionByKey: requirementActionByKey,
                                     updateMeasurementDraft,
                                     saveMeasurement: saveRequirementMeasurement,
                                     clearMeasurement: clearRequirementMeasurement,
@@ -4165,6 +4391,7 @@ type GuidedEstimateBuilderProps = {
     canUsePricing: boolean;
     categoryPickerExpanded: boolean;
     chooseRequirementPhoto: (label: string, capture: boolean) => Promise<void>;
+    retryRequirementPhoto: (label: string) => Promise<void>;
     clearCurrentDraft: () => void;
     requestClearEstimateSelection: () => void;
     clearSkippedRequirement: (kind: RequirementKind, label: string) => Promise<void>;
@@ -4178,7 +4405,9 @@ type GuidedEstimateBuilderProps = {
     customScopePolishing: boolean;
     documentationExpanded: boolean;
     evidenceDeferred: boolean;
+    deferringEvidence: boolean;
     deferPhotosAndMeasurements: () => Promise<void>;
+    continueWithSelectedService: () => Promise<void>;
     draftContext: EstimateDraftContext | null;
     editingGuidedOptionId: string;
     eligibleRecommendations: EligibleEstimateRecommendation[];
@@ -4230,9 +4459,12 @@ type GuidedEstimateBuilderProps = {
     removeRequirementPhoto: (label: string) => Promise<void>;
     requestedMode: string | null;
     requirementUploadByKey: Record<string, RequirementUploadState>;
+    requirementActionByKey: Record<string, RequirementActionState>;
     requirementUploadInProgress: boolean;
     saveRequirementMeasurement: (label: string) => Promise<void>;
     savingGuidedOption: boolean;
+    preparingSelectedService: boolean;
+    stackGuidedSectionHeading: boolean;
     scrollRef: RefObject<ScrollView | null>;
     selectEstimateCategory: (category: EstimateOptionCategory) => void;
     selectCandidateChoice: (choiceId: string) => void;
@@ -4285,6 +4517,7 @@ function renderGuidedEstimateBuilder({
     canUsePricing,
     categoryPickerExpanded,
     chooseRequirementPhoto,
+    retryRequirementPhoto,
     clearCurrentDraft,
     requestClearEstimateSelection,
     clearSkippedRequirement,
@@ -4298,7 +4531,9 @@ function renderGuidedEstimateBuilder({
     customScopePolishing,
     documentationExpanded,
     evidenceDeferred,
+    deferringEvidence,
     deferPhotosAndMeasurements,
+    continueWithSelectedService,
     draftContext,
     editingGuidedOptionId,
     eligibleRecommendations,
@@ -4342,9 +4577,12 @@ function renderGuidedEstimateBuilder({
     removeRequirementPhoto,
     requestedMode,
     requirementUploadByKey,
+    requirementActionByKey,
     requirementUploadInProgress,
     saveRequirementMeasurement,
     savingGuidedOption,
+    preparingSelectedService,
+    stackGuidedSectionHeading,
     scrollRef,
     selectEstimateCategory,
     selectCandidateChoice,
@@ -4428,6 +4666,7 @@ function renderGuidedEstimateBuilder({
     const selectedServiceActionState = getSelectedEstimateServiceActionState({
         selected: estimateScopeSelected && !customQuoteMode,
         unavailable: categoryPickerExpanded,
+        saving: preparingSelectedService,
     });
     const reviewAttentionParts = hasStandardEstimateChoice ? [
         missingQuestionCount > 0 ? `${missingQuestionCount} question${missingQuestionCount === 1 ? '' : 's'}` : '',
@@ -4509,8 +4748,8 @@ function renderGuidedEstimateBuilder({
                     <>
                         {guidedBuildStep === 'work' && (
                             <View style={guidedSectionStyle}>
-                            <View style={guidedSectionHeadingRowStyle}>
-                                <View style={{ flex: 1 }}>
+                            <View style={stackGuidedSectionHeading ? guidedSectionHeadingStackedStyle : guidedSectionHeadingRowStyle}>
+                                <View style={guidedSectionHeadingCopyStyle}>
                                     <Text style={guidedStepStyle}>STEP 1</Text>
                                     <Text style={guidedSectionTitleStyle}>Choose a service</Text>
                                 </View>
@@ -4635,7 +4874,7 @@ function renderGuidedEstimateBuilder({
                                     accessibilityRole="button"
                                     accessibilityState={selectedServiceActionState.accessibilityState}
                                     disabled={selectedServiceActionState.disabled}
-                                    onPress={() => setGuidedBuildStep('findings')}
+                                    onPress={() => void continueWithSelectedService()}
                                     style={selectedServiceActionState.disabled ? guidedMutedPrimaryButtonStyle : guidedPrimaryButtonStyle}
                                 >
                                     <Text style={guidedPrimaryButtonTextStyle}>{selectedServiceActionState.label}</Text>
@@ -4645,8 +4884,8 @@ function renderGuidedEstimateBuilder({
 
                         {guidedBuildStep === 'findings' && estimateScopeSelected && !categoryPickerExpanded && (
                                 <View style={guidedSectionStyle}>
-                                    <View style={guidedSectionHeadingRowStyle}>
-                                        <View style={{ flex: 1 }}>
+                                    <View style={stackGuidedSectionHeading ? guidedSectionHeadingStackedStyle : guidedSectionHeadingRowStyle}>
+                                        <View style={guidedSectionHeadingCopyStyle}>
                                             <Text style={guidedStepStyle}>STEP 2</Text>
                                             <Text style={guidedSectionTitleStyle}>Findings for this work</Text>
                                         </View>
@@ -4694,7 +4933,9 @@ function renderGuidedEstimateBuilder({
                                                     answers,
                                                     previewByKey: photoPreviewByKey,
                                                     uploadByKey: requirementUploadByKey,
+                                                    actionByKey: requirementActionByKey,
                                                     choosePhoto: chooseRequirementPhoto,
+                                                    retryPhoto: retryRequirementPhoto,
                                                     removePhoto: removeRequirementPhoto,
                                                     skipRequirement: (requirementLabel, reason) => skipRequirement('photo', requirementLabel, reason),
                                                     clearSkippedRequirement: (requirementLabel) => clearSkippedRequirement('photo', requirementLabel),
@@ -4704,6 +4945,7 @@ function renderGuidedEstimateBuilder({
                                                     answers,
                                                     measurementDraftByKey,
                                                     measurementErrorByKey,
+                                                    actionByKey: requirementActionByKey,
                                                     updateMeasurementDraft,
                                                     saveMeasurement: saveRequirementMeasurement,
                                                     clearMeasurement: clearRequirementMeasurement,
@@ -4724,10 +4966,13 @@ function renderGuidedEstimateBuilder({
                                                 accessibilityHint="Saves this estimate as an incomplete draft and continues to pricing without waiving required evidence."
                                                 accessibilityLabel="Skip photos and measurements for now and save the draft"
                                                 accessibilityRole="button"
+                                                disabled={deferringEvidence}
                                                 onPress={() => void deferPhotosAndMeasurements()}
-                                                style={guidedSecondaryButtonStyle}
+                                                style={deferringEvidence ? guidedMutedSecondaryButtonStyle : guidedSecondaryButtonStyle}
                                             >
-                                                <Text style={guidedSecondaryButtonTextStyle}>Skip for Now — Save Draft</Text>
+                                                <Text style={guidedSecondaryButtonTextStyle}>
+                                                    {deferringEvidence ? 'Saving Draft…' : 'Skip for Now — Save Draft'}
+                                                </Text>
                                             </TouchableOpacity>
                                         </View>
                                     )}
@@ -4742,8 +4987,8 @@ function renderGuidedEstimateBuilder({
 
                         {guidedBuildStep === 'price' && customQuoteMode && (
                             <View style={guidedSectionStyle}>
-                                <View style={guidedSectionHeadingRowStyle}>
-                                    <View style={{ flex: 1 }}>
+                                <View style={stackGuidedSectionHeading ? guidedSectionHeadingStackedStyle : guidedSectionHeadingRowStyle}>
+                                    <View style={guidedSectionHeadingCopyStyle}>
                                         <Text style={guidedStepStyle}>CUSTOM QUOTE</Text>
                                         <Text style={guidedSectionTitleStyle}>Create work from scratch</Text>
                                     </View>
@@ -4828,8 +5073,8 @@ function renderGuidedEstimateBuilder({
 
                         {guidedBuildStep === 'price' && estimateScopeSelected && !categoryPickerExpanded && !customQuoteMode && (
                                 <View style={guidedSectionStyle}>
-                                    <View style={guidedSectionHeadingRowStyle}>
-                                        <View style={{ flex: 1 }}>
+                                    <View style={stackGuidedSectionHeading ? guidedSectionHeadingStackedStyle : guidedSectionHeadingRowStyle}>
+                                        <View style={guidedSectionHeadingCopyStyle}>
                                             <Text style={guidedStepStyle}>STEP 3</Text>
                                             <Text style={guidedSectionTitleStyle}>Price & customer summary</Text>
                                         </View>
@@ -5937,7 +6182,9 @@ function renderPhotoRequirementCard(input: {
     answers: EstimateAnswerSet;
     previewByKey: Record<string, string>;
     uploadByKey: Record<string, RequirementUploadState>;
+    actionByKey: Record<string, RequirementActionState>;
     choosePhoto: (label: string, capture: boolean) => void;
+    retryPhoto: (label: string) => void;
     removePhoto: (label: string) => void;
     skipRequirement: (label: string, reason: EstimateRequirementSkipReason | null) => void;
     clearSkippedRequirement: (label: string) => void;
@@ -5949,6 +6196,13 @@ function renderPhotoRequirementCard(input: {
     const requirementState = getEstimateRequirementState(answer, complete);
     const previewUrl = input.previewByKey[key] || '';
     const uploadState = input.uploadByKey[key] || { uploading: false, error: null };
+    const controlState = getEstimateRequirementControlState({
+        action: input.actionByKey[key] || null,
+        uploading: uploadState.uploading,
+        pendingPhoto: uploadState.pending === true,
+        error: uploadState.error,
+    });
+    const reasonChoices = getEstimateRequirementReasonChoices({ required: true });
 
     return (
         <View key={key} style={[requirementCardStyle, photoRequirementToneStyle]}>
@@ -5975,36 +6229,57 @@ function renderPhotoRequirementCard(input: {
 
             <View style={compactActionRowStyle}>
                 <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={complete ? `Replace ${input.label}` : `Take ${input.label}`}
+                    accessibilityState={{ disabled: controlState.working }}
                     onPress={() => input.choosePhoto(input.label, true)}
-                    style={uploadState.uploading ? mutedButtonStyle : compactPrimaryButtonStyle}
-                    disabled={uploadState.uploading}
+                    style={controlState.working ? mutedButtonStyle : compactPrimaryButtonStyle}
+                    disabled={controlState.working}
                 >
                     <Text style={compactPrimaryButtonTextStyle}>
                         {complete ? 'Replace' : 'Take Photo'}
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`Choose ${input.label} from photo library`}
+                    accessibilityState={{ disabled: controlState.working }}
                     onPress={() => input.choosePhoto(input.label, false)}
-                    style={uploadState.uploading ? mutedButtonStyle : compactSecondaryButtonStyle}
-                    disabled={uploadState.uploading}
+                    style={controlState.working ? mutedButtonStyle : compactSecondaryButtonStyle}
+                    disabled={controlState.working}
                 >
-                    <Text style={uploadState.uploading ? compactPrimaryButtonTextStyle : compactSecondaryButtonTextStyle}>
+                    <Text style={controlState.working ? compactPrimaryButtonTextStyle : compactSecondaryButtonTextStyle}>
                         Choose Photo
                     </Text>
                 </TouchableOpacity>
-                {complete && (
+                {(complete || uploadState.pending) && (
                     <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${input.label}`}
+                        accessibilityState={{ disabled: controlState.working }}
                         onPress={() => input.removePhoto(input.label)}
-                        style={uploadState.uploading ? mutedButtonStyle : compactDangerButtonStyle}
-                        disabled={uploadState.uploading}
+                        style={controlState.working ? mutedButtonStyle : compactDangerButtonStyle}
+                        disabled={controlState.working}
                     >
-                        <Text style={uploadState.uploading ? compactPrimaryButtonTextStyle : compactDangerButtonTextStyle}>
+                        <Text style={controlState.working ? compactPrimaryButtonTextStyle : compactDangerButtonTextStyle}>
                             Remove
                         </Text>
                     </TouchableOpacity>
                 )}
-                {skipped && (
+                {controlState.retryVisible && (
                     <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Retry saving ${input.label}`}
+                        onPress={() => input.retryPhoto(input.label)}
+                        style={compactPrimaryButtonStyle}
+                    >
+                        <Text style={compactPrimaryButtonTextStyle}>Retry Save</Text>
+                    </TouchableOpacity>
+                )}
+                {skipped && !controlState.working && (
+                    <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Clear saved reason for ${input.label}`}
                         onPress={() => input.clearSkippedRequirement(input.label)}
                         style={compactSecondaryButtonStyle}
                     >
@@ -6015,15 +6290,23 @@ function renderPhotoRequirementCard(input: {
                 )}
             </View>
 
-            {!complete && !uploadState.uploading && (
+            {!complete && controlState.reasonsEnabled && (
                 <View style={chipRowStyle}>
-                    {requirementSkipReasons.map((skipReason) => (
+                    {reasonChoices.map((skipReason) => (
                         <TouchableOpacity
                             key={`${key}-${skipReason.reason}`}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${skipReason.label}: ${input.label}`}
+                            accessibilityState={{ selected: skipped && answer.reason === skipReason.reason }}
                             onPress={() => input.skipRequirement(input.label, skipReason.reason)}
-                            style={answerButtonStyle}
+                            style={skipped && answer.reason === skipReason.reason
+                                ? [answerButtonStyle, selectedAnswerButtonStyle]
+                                : answerButtonStyle}
                         >
-                            <Text style={answerButtonTextStyle}>
+                            <Text style={skipped && answer.reason === skipReason.reason
+                                ? selectedAnswerButtonTextStyle
+                                : answerButtonTextStyle}
+                            >
                                 {skipReason.label}
                             </Text>
                         </TouchableOpacity>
@@ -6031,8 +6314,15 @@ function renderPhotoRequirementCard(input: {
                 </View>
             )}
 
-            {uploadState.uploading && (
-                <Text style={requirementProgressTextStyle}>Uploading...</Text>
+            {controlState.working && (
+                <Text accessibilityLiveRegion="polite" style={requirementProgressTextStyle}>
+                    {uploadState.pending ? 'Saving captured photo…' : 'Saving…'}
+                </Text>
+            )}
+            {uploadState.pending && !!uploadState.error && (
+                <Text style={requirementProgressTextStyle}>
+                    Photo retained on this device. Tap Retry Save; you do not need to take it again.
+                </Text>
             )}
             {!!uploadState.error && (
                 <Text style={requirementErrorTextStyle}>{uploadState.error}</Text>
@@ -6046,6 +6336,7 @@ function renderMeasurementRequirementCard(input: {
     answers: EstimateAnswerSet;
     measurementDraftByKey: Record<string, string>;
     measurementErrorByKey: Record<string, string>;
+    actionByKey: Record<string, RequirementActionState>;
     updateMeasurementDraft: (label: string, value: string) => void;
     saveMeasurement: (label: string) => void;
     clearMeasurement: (label: string) => void;
@@ -6061,6 +6352,9 @@ function renderMeasurementRequirementCard(input: {
     const draftValue = input.measurementDraftByKey[key] ??
         (isMeasurementRequirementAnswer(answer) ? String(answer.value) : '');
     const error = input.measurementErrorByKey[key] || '';
+    const actionState = input.actionByKey[key] || null;
+    const working = actionState !== null;
+    const reasonChoices = getEstimateRequirementReasonChoices({ required: true });
 
     return (
         <View key={key} style={[requirementCardStyle, measurementRequirementToneStyle]}>
@@ -6078,14 +6372,19 @@ function renderMeasurementRequirementCard(input: {
                     style={measurementInputStyle}
                     keyboardType="decimal-pad"
                     placeholder={unit === 'sq ft' ? 'Enter square feet' : '0'}
+                    editable={!working}
                 />
                 <Text style={measurementUnitStyle}>{unit}</Text>
             </View>
 
             <View style={compactActionRowStyle}>
                 <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={`${complete ? 'Update' : 'Save'} ${input.label}`}
+                    accessibilityState={{ disabled: working }}
                     onPress={() => input.saveMeasurement(input.label)}
-                    style={compactPrimaryButtonStyle}
+                    disabled={working}
+                    style={working ? mutedButtonStyle : compactPrimaryButtonStyle}
                 >
                     <Text style={compactPrimaryButtonTextStyle}>
                         {complete ? 'Update' : 'Save'}
@@ -6093,14 +6392,20 @@ function renderMeasurementRequirementCard(input: {
                 </TouchableOpacity>
                 {complete && (
                     <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Clear ${input.label}`}
+                        accessibilityState={{ disabled: working }}
                         onPress={() => input.clearMeasurement(input.label)}
-                        style={compactSecondaryButtonStyle}
+                        disabled={working}
+                        style={working ? mutedButtonStyle : compactSecondaryButtonStyle}
                     >
                         <Text style={compactSecondaryButtonTextStyle}>Clear</Text>
                     </TouchableOpacity>
                 )}
-                {skipped && (
+                {skipped && !working && (
                     <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Clear saved reason for ${input.label}`}
                         onPress={() => input.clearSkippedRequirement(input.label)}
                         style={compactSecondaryButtonStyle}
                     >
@@ -6109,15 +6414,23 @@ function renderMeasurementRequirementCard(input: {
                 )}
             </View>
 
-            {!complete && (
+            {!complete && !working && (
                 <View style={chipRowStyle}>
-                    {requirementSkipReasons.map((skipReason) => (
+                    {reasonChoices.map((skipReason) => (
                         <TouchableOpacity
                             key={`${key}-${skipReason.reason}`}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${skipReason.label}: ${input.label}`}
+                            accessibilityState={{ selected: skipped && answer.reason === skipReason.reason }}
                             onPress={() => input.skipRequirement(input.label, skipReason.reason)}
-                            style={answerButtonStyle}
+                            style={skipped && answer.reason === skipReason.reason
+                                ? [answerButtonStyle, selectedAnswerButtonStyle]
+                                : answerButtonStyle}
                         >
-                            <Text style={answerButtonTextStyle}>
+                            <Text style={skipped && answer.reason === skipReason.reason
+                                ? selectedAnswerButtonTextStyle
+                                : answerButtonTextStyle}
+                            >
                                 {skipReason.label}
                             </Text>
                         </TouchableOpacity>
@@ -6125,8 +6438,13 @@ function renderMeasurementRequirementCard(input: {
                 </View>
             )}
 
-            {skipped && (
-                <Text style={requirementProgressTextStyle}>Skipped for now</Text>
+            {working && (
+                <Text accessibilityLiveRegion="polite" style={requirementProgressTextStyle}>Saving…</Text>
+            )}
+            {skipped && !working && (
+                <Text style={requirementProgressTextStyle}>
+                    Reason saved. Required evidence remains open for final approval.
+                </Text>
             )}
 
             {!!error && (
@@ -6430,6 +6748,22 @@ const guidedSectionHeadingRowStyle = {
     flexDirection: 'row' as const,
     alignItems: 'center' as const,
     gap: 12,
+    width: '100%' as const,
+};
+
+const guidedSectionHeadingStackedStyle = {
+    flexDirection: 'column' as const,
+    alignItems: 'stretch' as const,
+    gap: 12,
+    width: '100%' as const,
+};
+
+const guidedSectionHeadingCopyStyle = {
+    flexGrow: 1,
+    flexShrink: 1,
+    flexBasis: 240,
+    minWidth: 220,
+    maxWidth: '100%' as const,
 };
 
 const guidedStepStyle = {
@@ -6444,6 +6778,8 @@ const guidedSectionTitleStyle = {
     fontSize: 24,
     lineHeight: 30,
     fontWeight: '900' as const,
+    flexShrink: 1,
+    maxWidth: '100%' as const,
 };
 
 const guidedSectionDescriptionStyle = {
@@ -6606,6 +6942,7 @@ const guidedHeaderActionsStyle = {
     justifyContent: 'flex-end' as const,
     alignItems: 'center' as const,
     gap: 8,
+    maxWidth: '100%' as const,
 };
 
 const guidedClearSelectionButtonStyle = {
@@ -7233,6 +7570,8 @@ const guidedPrimaryButtonTextStyle = {
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '900' as const,
+    textAlign: 'center' as const,
+    flexShrink: 1,
 };
 
 const guidedSecondaryButtonStyle = {
@@ -7247,10 +7586,18 @@ const guidedSecondaryButtonStyle = {
     backgroundColor: '#FFFFFF',
 };
 
+const guidedMutedSecondaryButtonStyle = {
+    ...guidedSecondaryButtonStyle,
+    borderColor: '#C2CED5',
+    backgroundColor: '#E5EBEF',
+};
+
 const guidedSecondaryButtonTextStyle = {
     color: '#0B6173',
     fontSize: 14,
     fontWeight: '900' as const,
+    textAlign: 'center' as const,
+    flexShrink: 1,
 };
 
 const guidedDecisionStyle = {

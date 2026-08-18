@@ -32,6 +32,47 @@ export type EstimateEvidenceReminder = {
     blocksFinalization: boolean;
 };
 
+export type EstimateRequirementReasonChoice = {
+    label: string;
+    reason: 'inaccessible' | 'unsafe_to_capture' | 'label_unreadable' | 'customer_unavailable' | 'not_applicable' | 'other' | null;
+};
+
+const estimateRequirementReasonChoices: EstimateRequirementReasonChoice[] = [
+    { label: 'Skip for now', reason: null },
+    { label: 'Inaccessible', reason: 'inaccessible' },
+    { label: 'Unsafe', reason: 'unsafe_to_capture' },
+    { label: 'Label unreadable', reason: 'label_unreadable' },
+    { label: 'Customer unavailable', reason: 'customer_unavailable' },
+    { label: 'N/A', reason: 'not_applicable' },
+    { label: 'Other', reason: 'other' },
+];
+
+export function getEstimateRequirementReasonChoices(input: { required: boolean }) {
+    return estimateRequirementReasonChoices.filter((choice) =>
+        choice.reason !== 'not_applicable' || !input.required
+    );
+}
+
+export function shouldStackEstimateBuilderHeading(input: { width: number; fontScale: number }) {
+    return input.width <= 560 || input.fontScale >= 1.2;
+}
+
+export function getEstimateRequirementControlState(input: {
+    action: 'resolving' | 'saving' | 'removing' | null;
+    uploading: boolean;
+    pendingPhoto: boolean;
+    error: string | null;
+}) {
+    const working = input.action !== null || input.uploading;
+
+    return {
+        working,
+        retryVisible: input.pendingPhoto && Boolean(input.error) && !working,
+        reasonsEnabled: !working && !input.pendingPhoto,
+        removeVisible: input.pendingPhoto || input.action !== null || input.uploading,
+    };
+}
+
 export function selectPredefinedEstimateWorkPath(
     category: EstimateOptionCategory
 ): EstimateWorkPathState {
@@ -120,7 +161,11 @@ export function getSelectedEstimateServiceActionState(input: {
 
     return {
         disabled,
-        label: input.selected ? 'Continue with this service →' : 'Choose a service',
+        label: input.saving
+            ? 'Opening findings…'
+            : input.selected
+                ? 'Continue with this service →'
+                : 'Choose a service',
         accessibilityState: {
             selected: input.selected,
             disabled,

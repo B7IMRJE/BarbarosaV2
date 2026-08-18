@@ -15,6 +15,16 @@ export type EstimateOptionSessionInput = {
     source: EstimateSessionSource;
 };
 
+export type EstimateSessionContext = {
+    companyId: string;
+    propertyId?: string | null;
+    serviceRequestId?: string | null;
+    jobId?: string | null;
+    scheduleSlotId?: string | null;
+    homeItemId?: string | null;
+    source: EstimateSessionSource;
+};
+
 export function isValidEstimateSessionId(value?: string | null) {
     return UUID_PATTERN.test(String(value || '').trim());
 }
@@ -43,6 +53,47 @@ export function buildEstimateSessionRpcParams(input: EstimateOptionSessionInput)
         p_category: String(input.category || '').trim() || 'faucet_replacement',
         p_source: normalizeEstimateSessionSource(input.source),
     };
+}
+
+export function buildEstimateSessionResolutionKey(input: EstimateOptionSessionInput) {
+    const params = buildEstimateSessionRpcParams(input);
+
+    return [
+        params.p_session_id,
+        params.p_company_id,
+        params.p_property_id,
+        params.p_service_request_id,
+        params.p_job_id,
+        params.p_schedule_slot_id,
+        params.p_home_item_id,
+        params.p_category,
+        params.p_source,
+    ].map((value) => String(value || '')).join('|');
+}
+
+export function doesEstimateSessionMatchRequestedContext(
+    session: EstimateSessionContext,
+    input: EstimateOptionSessionInput
+) {
+    const requested = buildEstimateSessionRpcParams(input);
+    const resolved = buildEstimateSessionRpcParams({
+        ...session,
+        category: input.category,
+    });
+
+    return requested.p_company_id === resolved.p_company_id
+        && requested.p_property_id === resolved.p_property_id
+        && requested.p_service_request_id === resolved.p_service_request_id
+        && requested.p_job_id === resolved.p_job_id
+        && requested.p_schedule_slot_id === resolved.p_schedule_slot_id
+        && requested.p_home_item_id === resolved.p_home_item_id
+        && requested.p_source === resolved.p_source;
+}
+
+export function shouldRetryEstimateSessionWithoutCandidate(message?: string | null) {
+    const normalized = normalizeText(message);
+
+    return normalized.includes('estimate session not found');
 }
 
 export function buildDraftEstimateOptionsRequest<TInput extends Record<string, unknown>>(

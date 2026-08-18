@@ -1825,11 +1825,11 @@ export function validateEstimateAnswers(template: EstimateCategoryTemplate, answ
 
     const missingRequiredPhotoLabels = template.requiredPhotoLabels.filter((label) => {
         const answer = answers[photoRequirementAnswerKey(label)];
-        return !isPhotoRequirementComplete(answer) && !isRequirementSkipAnswer(answer);
+        return !isPhotoRequirementComplete(answer);
     });
     const missingRequiredMeasurementLabels = template.requiredMeasurementLabels.filter((label) => {
         const answer = answers[measurementRequirementAnswerKey(label)];
-        return !isMeasurementRequirementComplete(answer) && !isRequirementSkipAnswer(answer);
+        return !isMeasurementRequirementComplete(answer);
     });
     const blockingConditions = missingRequiredQuestionIds.length > 0 ||
         missingRequiredPhotoLabels.length > 0 ||

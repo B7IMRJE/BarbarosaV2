@@ -2,11 +2,14 @@ import {
     clearEstimateSelectionDraft,
     deferEstimateEvidence,
     getEstimateEvidenceReminder,
+    getEstimateRequirementControlState,
+    getEstimateRequirementReasonChoices,
     getSelectedEstimateServiceActionState,
     hasMeaningfulEstimateSelectionDraft,
     isPredefinedEstimateWorkPathActive,
     selectCustomEstimateWorkPath,
     selectPredefinedEstimateWorkPath,
+    shouldStackEstimateBuilderHeading,
     type EstimateSelectionDraftState,
 } from './estimateBuilderMode';
 
@@ -19,6 +22,9 @@ export function runEstimateBuilderModeRegressions() {
     clearSelectionPreservesUnrelatedEstimateState();
     clearSelectionConfirmsMeaningfulDraftWork();
     evidenceCanBeDeferredWithoutBeingWaived();
+    requiredEvidenceReasonsCannotWaiveFinalRequirements();
+    capturedPhotoFailureStaysRetryable();
+    mobileHeadingsStackBeforeTextCollapses();
     selectedServiceLooksAndActsEnabled();
 }
 
@@ -81,6 +87,54 @@ function selectedServiceLooksAndActsEnabled() {
     assert(selected.accessibilityState.selected && !selected.accessibilityState.disabled,
         'Assistive technology should hear selected without hearing disabled.');
     assert(unavailable.disabled && saving.disabled, 'Only truly unavailable or saving states should disable the action.');
+    assert(saving.label === 'Opening findings…', 'Saving should show immediate feedback instead of looking unresponsive.');
+}
+
+function requiredEvidenceReasonsCannotWaiveFinalRequirements() {
+    const requiredReasons = getEstimateRequirementReasonChoices({ required: true });
+    const optionalReasons = getEstimateRequirementReasonChoices({ required: false });
+
+    assert(!requiredReasons.some((choice) => choice.reason === 'not_applicable'),
+        'Not Applicable must not appear for genuinely required sizing or safety evidence.');
+    assert(optionalReasons.some((choice) => choice.reason === 'not_applicable'),
+        'Optional evidence may explicitly record that it does not apply.');
+    assert(requiredReasons.some((choice) => choice.reason === 'inaccessible'),
+        'Required evidence must still support an auditable inaccessible status.');
+    assert(requiredReasons.some((choice) => choice.reason === 'unsafe_to_capture'),
+        'Required evidence must still support an auditable unsafe status.');
+}
+
+function capturedPhotoFailureStaysRetryable() {
+    const failedStagedPhoto = getEstimateRequirementControlState({
+        action: null,
+        uploading: false,
+        pendingPhoto: true,
+        error: 'Estimate session unavailable.',
+    });
+    const savingPhoto = getEstimateRequirementControlState({
+        action: 'saving',
+        uploading: true,
+        pendingPhoto: true,
+        error: null,
+    });
+    const openingPicker = getEstimateRequirementControlState({
+        action: 'resolving',
+        uploading: false,
+        pendingPhoto: false,
+        error: null,
+    });
+
+    assert(failedStagedPhoto.retryVisible, 'A captured photo must remain available through an explicit Retry Save action.');
+    assert(!failedStagedPhoto.reasonsEnabled, 'A retained photo cannot be silently replaced with a skip status.');
+    assert(savingPhoto.working && !savingPhoto.retryVisible, 'Saving must prevent double taps until the current attachment finishes.');
+    assert(openingPicker.working, 'Opening the camera or photo library must prevent duplicate picker taps.');
+}
+
+function mobileHeadingsStackBeforeTextCollapses() {
+    assert(shouldStackEstimateBuilderHeading({ width: 320, fontScale: 1 }), 'The narrowest supported iPhone width should stack heading actions.');
+    assert(shouldStackEstimateBuilderHeading({ width: 430, fontScale: 1 }), 'Larger iPhones should keep the heading copy at a readable word width.');
+    assert(shouldStackEstimateBuilderHeading({ width: 768, fontScale: 1.3 }), 'Increased text scaling should stack controls before characters collapse.');
+    assert(!shouldStackEstimateBuilderHeading({ width: 768, fontScale: 1 }), 'Tablet layouts may keep heading actions in one row.');
 }
 
 type RegressionDraftState = EstimateSelectionDraftState & {

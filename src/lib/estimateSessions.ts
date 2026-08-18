@@ -1,17 +1,22 @@
 import { supabase } from './supabase';
 import {
     buildEstimateSessionRpcParams,
+    doesEstimateSessionMatchRequestedContext,
     normalizeEstimateSessionSource,
+    shouldRetryEstimateSessionWithoutCandidate,
     type EstimateOptionSessionInput,
     type EstimateSessionSource,
 } from './estimateSessionContract';
 
 export {
     buildDraftEstimateOptionsRequest,
+    buildEstimateSessionResolutionKey,
     buildEstimateSessionRpcParams,
+    doesEstimateSessionMatchRequestedContext,
     isDraftableEstimateSessionStatus,
     isValidEstimateSessionId,
     normalizeEstimateSessionSource,
+    shouldRetryEstimateSessionWithoutCandidate,
     type EstimateOptionSessionInput,
     type EstimateSessionSource,
 } from './estimateSessionContract';
@@ -67,14 +72,38 @@ export async function resolveEstimateOptionSession(
     }
 
     try {
-        const { data, error } = await supabase.rpc('upsert_estimate_option_session_for_draft', params);
+        let { data, error } = await supabase.rpc('upsert_estimate_option_session_for_draft', params);
+
+        if (error && params.p_session_id && shouldRetryEstimateSessionWithoutCandidate(error.message)) {
+            const retry = await supabase.rpc('upsert_estimate_option_session_for_draft', {
+                ...params,
+                p_session_id: null,
+            });
+
+            data = retry.data;
+            error = retry.error;
+        }
 
         if (error) {
             return { session: null, error: error.message };
         }
 
-        const row = readFirstSessionRow(data);
-        const session = mapEstimateSessionRow(row);
+        let row = readFirstSessionRow(data);
+        let session = mapEstimateSessionRow(row);
+
+        if (session && params.p_session_id && !doesEstimateSessionMatchRequestedContext(session, input)) {
+            const retry = await supabase.rpc('upsert_estimate_option_session_for_draft', {
+                ...params,
+                p_session_id: null,
+            });
+
+            if (retry.error) {
+                return { session: null, error: retry.error.message };
+            }
+
+            row = readFirstSessionRow(retry.data);
+            session = mapEstimateSessionRow(row);
+        }
 
         return {
             session,

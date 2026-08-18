@@ -1021,8 +1021,8 @@ function skippedNoncriticalEvidenceAllowsDraftCreation() {
 
     assert(workspace.draftGate.canDraft, 'Skipped noncritical evidence should still allow a working AI draft.');
     assert(workspace.draftGate.skippedForNow.some((entry) => entry.includes('Existing unit photo')), 'Skipped evidence should be listed separately.');
-    assert(!workspace.answerValidation.missingRequiredPhotoLabels.includes('Existing unit photo'), 'A skipped photo should no longer remain required.');
-    assert(!workspace.presentationGate.blockers.some((entry) => entry.includes('Required photos still missing')), 'Skipped photo evidence should not block final presentation.');
+    assert(workspace.answerValidation.missingRequiredPhotoLabels.includes('Existing unit photo'), 'Skipping now must not waive a required photo.');
+    assert(workspace.presentationGate.blockers.some((entry) => entry.includes('Required photos still missing')), 'Skipped required photo evidence must still block final presentation.');
 }
 
 function criticalSafetyEvidenceStillBlocksPresentation() {
@@ -1151,8 +1151,9 @@ function plumbingReplacementScopesUseRelevantChecklists() {
     });
     assert(workspace.draftGate.canDraft, 'Documented skipped valve evidence should allow estimate drafting.');
     assert(workspace.draftGate.skippedForNow.some((entry) => entry.includes('Valve access area')), 'The skipped valve access evidence should remain visible as an assumption.');
-    assert(!workspace.answerValidation.missingRequiredPhotoLabels.includes('Valve access area'), 'An inaccessible valve access photo should not leave the estimate incomplete.');
-    assert(!workspace.answerValidation.missingRequiredMeasurementLabels.includes('Valve or pipe size'), 'An unsafe measurement should not leave the estimate incomplete.');
+    assert(workspace.answerValidation.missingRequiredPhotoLabels.includes('Valve access area'), 'An inaccessible valve access photo must remain needed before finalization.');
+    assert(workspace.answerValidation.missingRequiredMeasurementLabels.includes('Valve or pipe size'), 'An unsafe required measurement must remain needed before finalization.');
+    assert(workspace.presentationGate.blockers.some((entry) => entry.includes('Required photos still missing')), 'Inaccessible required evidence must block presentation, not draft building.');
 }
 
 function mixedDraftUsesTheRequestedItemsWorkflow() {
