@@ -37,6 +37,33 @@ export type EstimateRequirementReasonChoice = {
     reason: 'inaccessible' | 'unsafe_to_capture' | 'label_unreadable' | 'customer_unavailable' | 'not_applicable' | 'other' | null;
 };
 
+export type EstimateServiceSessionContext = {
+    id: string;
+    companyId: string;
+    propertyId: string | null;
+    serviceRequestId: string | null;
+    jobId: string | null;
+    scheduleSlotId: string | null;
+    homeItemId: string | null;
+    category: string;
+    status: string;
+};
+
+export type SelectedEstimateServiceTransitionResult = 'advanced' | 'blocked' | 'failed';
+
+export type SelectedEstimateServiceTransitionInput<TSession> = {
+    selected: boolean;
+    customQuoteMode: boolean;
+    sessionReady: boolean;
+    resolveSession: () => Promise<TSession | null>;
+    yieldForFeedback?: () => Promise<void>;
+    onOpening: () => void;
+    onAdvance: (session: TSession | null) => void;
+    onSuccess: () => void;
+    onFailure: (message: string) => void;
+    onSettled: () => void;
+};
+
 const estimateRequirementReasonChoices: EstimateRequirementReasonChoice[] = [
     { label: 'Skip for now', reason: null },
     { label: 'Inaccessible', reason: 'inaccessible' },
@@ -93,6 +120,14 @@ export function selectCustomEstimateWorkPath(
 
 export function isPredefinedEstimateWorkPathActive(state: EstimateWorkPathState) {
     return state.mode === 'predefined' && state.predefinedCategory !== null;
+}
+
+export function shouldResetEstimateChecklistForServiceSelection(input: {
+    currentCategory: EstimateOptionCategory;
+    nextCategory: EstimateOptionCategory;
+    categoryChosen: boolean;
+}) {
+    return !input.categoryChosen || input.currentCategory !== input.nextCategory;
 }
 
 export function hasMeaningfulEstimateSelectionDraft(state: EstimateSelectionDraftState) {
@@ -171,4 +206,97 @@ export function getSelectedEstimateServiceActionState(input: {
             disabled,
         },
     };
+}
+
+export function isHydratedEstimateSessionReadyForService(input: {
+    session: EstimateServiceSessionContext | null;
+    hydratedSessionId: string;
+    companyId: string;
+    propertyId: string | null;
+    serviceRequestId: string | null;
+    jobId: string | null;
+    scheduleSlotId: string | null;
+    homeItemId: string | null;
+    category: string;
+}) {
+    const session = input.session;
+
+    if (!session || !input.hydratedSessionId || session.id !== input.hydratedSessionId) return false;
+
+    // A persisted draft can be reopened through TechOS or provider-mode routing. Once the
+    // server-authorized draft has hydrated, its exact id and assigned context are the safe
+    // reuse boundary; the entry-route source does not require another session upsert.
+    return ['draft', 'technician_review'].includes(normalizeBuilderModeText(session.status))
+        && normalizeBuilderModeText(session.category) === normalizeBuilderModeText(input.category)
+        && sameNullableEstimateContextValue(session.companyId, input.companyId)
+        && sameNullableEstimateContextValue(session.propertyId, input.propertyId)
+        && sameNullableEstimateContextValue(session.serviceRequestId, input.serviceRequestId)
+        && sameNullableEstimateContextValue(session.jobId, input.jobId)
+        && sameNullableEstimateContextValue(session.scheduleSlotId, input.scheduleSlotId)
+        && sameNullableEstimateContextValue(session.homeItemId, input.homeItemId);
+}
+
+export function createSelectedEstimateServiceTransitionController() {
+    let inFlight: Promise<SelectedEstimateServiceTransitionResult> | null = null;
+
+    return {
+        run<TSession>(input: SelectedEstimateServiceTransitionInput<TSession>) {
+            if (inFlight) return inFlight;
+
+            const transition = runSelectedEstimateServiceTransition(input);
+            inFlight = transition;
+
+            const clearInFlight = () => {
+                if (inFlight === transition) inFlight = null;
+            };
+
+            void transition.then(clearInFlight, clearInFlight);
+
+            return transition;
+        },
+    };
+}
+
+async function runSelectedEstimateServiceTransition<TSession>(
+    input: SelectedEstimateServiceTransitionInput<TSession>
+): Promise<SelectedEstimateServiceTransitionResult> {
+    if (!input.selected || input.customQuoteMode) return 'blocked';
+
+    input.onOpening();
+
+    try {
+        if (input.yieldForFeedback) await input.yieldForFeedback();
+
+        let session: TSession | null = null;
+
+        if (!input.sessionReady) {
+            session = await input.resolveSession();
+
+            if (!session) {
+                input.onFailure('The secure estimate draft could not be opened. Tap Continue with this service to retry.');
+                return 'failed';
+            }
+        }
+
+        input.onAdvance(session);
+        input.onSuccess();
+        return 'advanced';
+    } catch (error) {
+        const detail = error instanceof Error && error.message.trim()
+            ? ` ${error.message.trim()}`
+            : '';
+
+        input.onFailure(`The secure estimate draft could not be opened.${detail} Tap Continue with this service to retry.`);
+        return 'failed';
+    } finally {
+        input.onSettled();
+    }
+}
+
+function sameNullableEstimateContextValue(left?: string | null, right?: string | null) {
+    return normalizeBuilderModeText(left) === normalizeBuilderModeText(right);
+}
+
+function normalizeBuilderModeText(value?: string | null) {
+    return String(value || '').trim().toLowerCase();
 }

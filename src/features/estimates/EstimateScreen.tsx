@@ -56,14 +56,17 @@ import {
 } from '../../lib/estimateOptions';
 import {
     clearEstimateSelectionDraft,
+    createSelectedEstimateServiceTransitionController,
     deferEstimateEvidence,
     getEstimateEvidenceReminder,
     getEstimateRequirementControlState,
     getEstimateRequirementReasonChoices,
     getSelectedEstimateServiceActionState,
     hasMeaningfulEstimateSelectionDraft,
+    isHydratedEstimateSessionReadyForService,
     selectCustomEstimateWorkPath,
     selectPredefinedEstimateWorkPath,
+    shouldResetEstimateChecklistForServiceSelection,
     shouldStackEstimateBuilderHeading,
 } from '../../lib/estimateBuilderMode';
 import { repipeHomeownerGuideSections } from '../../lib/repipeHomeownerContent';
@@ -374,7 +377,7 @@ export default function EstimateScreen() {
         promise: Promise<EstimateOptionSession | null>;
     } | null>(null);
     const deferringEvidenceRef = useRef(false);
-    const preparingSelectedServiceRef = useRef(false);
+    const selectedServiceTransitionControllerRef = useRef(createSelectedEstimateServiceTransitionController());
     const requirementActionRef = useRef<Record<string, RequirementActionState>>({});
     const pendingRequirementPhotoByKeyRef = useRef<Record<string, { label: string; file: File }>>({});
     const latestDraftSaveRef = useRef<{
@@ -669,6 +672,7 @@ export default function EstimateScreen() {
         setEstimateAccess(null);
         setDraftContext(null);
         setEstimateSession(null);
+        estimateSessionRef.current = null;
         setQuoteNumber('');
         setDraftSaveStatus('idle');
         hydratedDraftSessionIdRef.current = '';
@@ -830,7 +834,10 @@ export default function EstimateScreen() {
 
         setItems(draftItems);
         setDraftContext(nextDraftContext);
-        setEstimateSession(serverDraft ? mapBuilderDraftToEstimateSession(serverDraft) : null);
+        const restoredSession = serverDraft ? mapBuilderDraftToEstimateSession(serverDraft) : null;
+
+        setEstimateSession(restoredSession);
+        estimateSessionRef.current = restoredSession;
         setQuoteNumber(serverDraft?.quoteNumber || '');
         setSelectedCategory(initialSelection.category);
         setSelectedWorkType(initialSelection.workType);
@@ -1220,11 +1227,16 @@ export default function EstimateScreen() {
         if (!selectedWorkType || !isEstimateCategoryForWorkType(category, selectedWorkType)) return;
 
         const nextPath = selectPredefinedEstimateWorkPath(category);
+        const shouldResetChecklist = shouldResetEstimateChecklistForServiceSelection({
+            currentCategory: selectedCategory,
+            nextCategory: nextPath.predefinedCategory || category,
+            categoryChosen: estimateCategoryChosen,
+        });
 
         setSelectedCategory(nextPath.predefinedCategory || category);
         setCustomQuoteMode(nextPath.mode === 'custom');
         setEstimateCategoryChosen(true);
-        resetEstimateChecklist(category, { preserveSavedOptions: true });
+        if (shouldResetChecklist) resetEstimateChecklist(category, { preserveSavedOptions: true });
         setMessage(`${getEstimateCategoryTemplate(category).label} checklist ready.`);
     }
 
@@ -2372,26 +2384,37 @@ export default function EstimateScreen() {
     }
 
     async function continueWithSelectedService() {
-        if (preparingSelectedServiceRef.current || !estimateScopeSelected || customQuoteMode) return;
+        const sessionContext = buildCurrentEstimateSessionResolutionContext(selectedCategory);
+        const currentSession = estimateSessionRef.current;
+        const sessionReady = Boolean(sessionContext && isHydratedEstimateSessionReadyForService({
+            session: currentSession,
+            hydratedSessionId: hydratedDraftSessionIdRef.current,
+            companyId: sessionContext.resolutionInput.companyId,
+            propertyId: sessionContext.resolutionInput.propertyId || null,
+            serviceRequestId: sessionContext.resolutionInput.serviceRequestId || null,
+            jobId: sessionContext.resolutionInput.jobId || null,
+            scheduleSlotId: sessionContext.resolutionInput.scheduleSlotId || null,
+            homeItemId: sessionContext.resolutionInput.homeItemId || null,
+            category: selectedCategory,
+        }));
 
-        preparingSelectedServiceRef.current = true;
-        setPreparingSelectedService(true);
-        setMessage('Opening findings and securing this estimate draft...');
-
-        try {
-            const session = await resolveSessionForDraft(selectedCategory);
-
-            if (!session) {
-                setMessage('The secure estimate draft could not be opened. Tap Continue with this service to retry.');
-                return;
-            }
-
-            navigateGuidedBuildStep('findings');
-            setMessage('Estimate draft ready. Record the findings that apply to this work.');
-        } finally {
-            preparingSelectedServiceRef.current = false;
-            setPreparingSelectedService(false);
-        }
+        await selectedServiceTransitionControllerRef.current.run({
+            selected: estimateScopeSelected,
+            customQuoteMode,
+            sessionReady,
+            resolveSession: () => resolveSessionForDraft(selectedCategory),
+            yieldForFeedback: waitForEstimateServiceFeedback,
+            onOpening: () => {
+                setPreparingSelectedService(true);
+                setMessage(sessionReady
+                    ? 'Opening the saved findings for this service...'
+                    : 'Opening findings and securing this estimate draft...');
+            },
+            onAdvance: () => navigateGuidedBuildStep('findings'),
+            onSuccess: () => setMessage('Estimate draft ready. Record the findings that apply to this work.'),
+            onFailure: setMessage,
+            onSettled: () => setPreparingSelectedService(false),
+        });
     }
 
     function startCustomQuote() {
@@ -2796,44 +2819,37 @@ export default function EstimateScreen() {
     }
 
     async function resolveSessionForDraft(category: EstimateOptionCategory) {
-        if (!estimateAccess) return null;
+        const sessionContext = buildCurrentEstimateSessionResolutionContext(category);
 
-        const primaryItem = items[0] || null;
-        const source = resolveEstimateSessionSource(providerModeContext ? 'provider_mode' : draftContext?.source || requestedMode);
-        const propertyId =
-            providerModeContext?.propertyId ||
-            draftContext?.property_id ||
-            requestedPropertyId ||
-            primaryItem?.property_id ||
-            null;
-        const serviceRequestId = providerModeContext?.serviceRequestId || draftContext?.service_request_id || null;
-        const jobId = providerModeContext?.jobId || draftContext?.job_id || null;
-        const scheduleSlotId = providerModeContext?.scheduleSlotId || draftContext?.schedule_slot_id || null;
-        const homeItemId = primaryItem?.id || null;
-        const candidateSessionId = estimateSessionRef.current?.id || draftContext?.estimate_session_id || requestedEstimateSessionId || null;
-        const resolutionInput = {
-            sessionId: candidateSessionId,
-            companyId: estimateAccess.companyId,
-            propertyId,
-            serviceRequestId,
-            jobId,
-            scheduleSlotId,
-            homeItemId,
-            category,
-            source,
-        };
+        if (!sessionContext) return null;
+
+        const { primaryItem, resolutionInput } = sessionContext;
         const currentSession = estimateSessionRef.current;
+
+        if (isHydratedEstimateSessionReadyForService({
+            session: currentSession,
+            hydratedSessionId: hydratedDraftSessionIdRef.current,
+            companyId: resolutionInput.companyId,
+            propertyId: resolutionInput.propertyId || null,
+            serviceRequestId: resolutionInput.serviceRequestId || null,
+            jobId: resolutionInput.jobId || null,
+            scheduleSlotId: resolutionInput.scheduleSlotId || null,
+            homeItemId: resolutionInput.homeItemId || null,
+            category,
+        })) {
+            return currentSession;
+        }
 
         if (
             currentSession &&
             currentSession.category === category &&
-            currentSession.companyId === estimateAccess.companyId &&
-            currentSession.propertyId === propertyId &&
-            currentSession.serviceRequestId === serviceRequestId &&
-            currentSession.jobId === jobId &&
-            currentSession.scheduleSlotId === scheduleSlotId &&
-            currentSession.homeItemId === homeItemId &&
-            currentSession.source === source
+            currentSession.companyId === resolutionInput.companyId &&
+            currentSession.propertyId === resolutionInput.propertyId &&
+            currentSession.serviceRequestId === resolutionInput.serviceRequestId &&
+            currentSession.jobId === resolutionInput.jobId &&
+            currentSession.scheduleSlotId === resolutionInput.scheduleSlotId &&
+            currentSession.homeItemId === resolutionInput.homeItemId &&
+            currentSession.source === resolutionInput.source
         ) {
             return currentSession;
         }
@@ -2864,6 +2880,38 @@ export default function EstimateScreen() {
                 estimateSessionResolutionRef.current = null;
             }
         }
+    }
+
+    function buildCurrentEstimateSessionResolutionContext(category: EstimateOptionCategory) {
+        if (!estimateAccess) return null;
+
+        const primaryItem = items[0] || null;
+        const source = resolveEstimateSessionSource(providerModeContext ? 'provider_mode' : draftContext?.source || requestedMode);
+        const propertyId =
+            providerModeContext?.propertyId ||
+            draftContext?.property_id ||
+            requestedPropertyId ||
+            primaryItem?.property_id ||
+            null;
+        const serviceRequestId = providerModeContext?.serviceRequestId || draftContext?.service_request_id || null;
+        const jobId = providerModeContext?.jobId || draftContext?.job_id || null;
+        const scheduleSlotId = providerModeContext?.scheduleSlotId || draftContext?.schedule_slot_id || null;
+        const homeItemId = primaryItem?.id || null;
+
+        return {
+            primaryItem,
+            resolutionInput: {
+                sessionId: estimateSessionRef.current?.id || draftContext?.estimate_session_id || requestedEstimateSessionId || null,
+                companyId: estimateAccess.companyId,
+                propertyId,
+                serviceRequestId,
+                jobId,
+                scheduleSlotId,
+                homeItemId,
+                category,
+                source,
+            },
+        };
     }
 
     async function resolveSessionForDraftOnce(input: {
@@ -5928,6 +5976,29 @@ function readStringArray(value: unknown) {
 
 function readSnapshotString(value: unknown) {
     return typeof value === 'string' ? value : '';
+}
+
+function waitForEstimateServiceFeedback() {
+    return new Promise<void>((resolve) => {
+        let finished = false;
+        const finish = () => {
+            if (finished) return;
+            finished = true;
+            resolve();
+        };
+        const fallback = setTimeout(finish, 120);
+
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => {
+                clearTimeout(fallback);
+                finish();
+            });
+            return;
+        }
+
+        clearTimeout(fallback);
+        setTimeout(finish, 0);
+    });
 }
 
 function estimateCategoryForCatalogProduct(product: EstimateApprovedProduct): EstimateOptionCategory {

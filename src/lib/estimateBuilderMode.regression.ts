@@ -1,5 +1,6 @@
 import {
     clearEstimateSelectionDraft,
+    createSelectedEstimateServiceTransitionController,
     deferEstimateEvidence,
     getEstimateEvidenceReminder,
     getEstimateRequirementControlState,
@@ -7,15 +8,17 @@ import {
     getSelectedEstimateServiceActionState,
     hasMeaningfulEstimateSelectionDraft,
     isPredefinedEstimateWorkPathActive,
+    isHydratedEstimateSessionReadyForService,
     selectCustomEstimateWorkPath,
     selectPredefinedEstimateWorkPath,
+    shouldResetEstimateChecklistForServiceSelection,
     shouldStackEstimateBuilderHeading,
     type EstimateSelectionDraftState,
 } from './estimateBuilderMode';
 
-runEstimateBuilderModeRegressions();
+void runEstimateBuilderModeRegressions();
 
-export function runEstimateBuilderModeRegressions() {
+export async function runEstimateBuilderModeRegressions() {
     predefinedAndCustomWorkPathsStayMutuallyExclusive();
     customModeRequiresAnExplicitAction();
     returningToPredefinedRestoresOnlyTheChosenService();
@@ -26,6 +29,10 @@ export function runEstimateBuilderModeRegressions() {
     capturedPhotoFailureStaysRetryable();
     mobileHeadingsStackBeforeTextCollapses();
     selectedServiceLooksAndActsEnabled();
+    reselectingTheCurrentServicePreservesDraftAnswers();
+    resumedAssignedDraftIsReadyWithoutSourceReResolution();
+    await selectedServiceContinuesThroughTheRealTransition();
+    await selectedServiceResolutionIsSingleFlightAndRetryable();
 }
 
 function clearSelectionPreservesUnrelatedEstimateState() {
@@ -88,6 +95,154 @@ function selectedServiceLooksAndActsEnabled() {
         'Assistive technology should hear selected without hearing disabled.');
     assert(unavailable.disabled && saving.disabled, 'Only truly unavailable or saving states should disable the action.');
     assert(saving.label === 'Opening findings…', 'Saving should show immediate feedback instead of looking unresponsive.');
+}
+
+function reselectingTheCurrentServicePreservesDraftAnswers() {
+    assert(!shouldResetEstimateChecklistForServiceSelection({
+        currentCategory: 'valve_replacement',
+        nextCategory: 'valve_replacement',
+        categoryChosen: true,
+    }), 'Tapping the already-selected service must not erase its resumed findings.');
+    assert(shouldResetEstimateChecklistForServiceSelection({
+        currentCategory: 'valve_replacement',
+        nextCategory: 'faucet_replacement',
+        categoryChosen: true,
+    }), 'Choosing a different service should start that service checklist.');
+}
+
+function resumedAssignedDraftIsReadyWithoutSourceReResolution() {
+    const session = createEstimateSession();
+    const context = {
+        session,
+        hydratedSessionId: session.id,
+        companyId: session.companyId,
+        propertyId: session.propertyId,
+        serviceRequestId: session.serviceRequestId,
+        jobId: session.jobId,
+        scheduleSlotId: session.scheduleSlotId,
+        homeItemId: session.homeItemId,
+        category: session.category,
+    };
+
+    assert(isHydratedEstimateSessionReadyForService(context),
+        'A securely hydrated assigned draft should continue without creating or re-resolving a session.');
+    assert(!isHydratedEstimateSessionReadyForService({ ...context, hydratedSessionId: 'another-session' }),
+        'A stale route session must not be treated as hydrated.');
+    assert(!isHydratedEstimateSessionReadyForService({ ...context, jobId: 'another-job' }),
+        'A draft from another assigned job must not be reused.');
+    assert(!isHydratedEstimateSessionReadyForService({ ...context, category: 'faucet_replacement' }),
+        'Changing services must resolve and persist the selected category before continuing.');
+}
+
+async function selectedServiceContinuesThroughTheRealTransition() {
+    const controller = createSelectedEstimateServiceTransitionController();
+    const answers = { existing_access: 'utility-room', pipe_material: 'copper' };
+    const answerSnapshot = JSON.stringify(answers);
+    let resolverCalls = 0;
+    let advanceCalls = 0;
+    let opened = false;
+    let settled = false;
+    let message = '';
+
+    const result = await controller.run({
+        selected: true,
+        customQuoteMode: false,
+        sessionReady: true,
+        resolveSession: async () => {
+            resolverCalls += 1;
+            return createEstimateSession();
+        },
+        onOpening: () => { opened = true; },
+        onAdvance: () => { advanceCalls += 1; },
+        onSuccess: () => { message = 'ready'; },
+        onFailure: (nextMessage) => { message = nextMessage; },
+        onSettled: () => { settled = true; },
+    });
+
+    assert(result === 'advanced' && opened && settled, 'The selected-service handler should report immediate work and settle after advancing.');
+    assert(resolverCalls === 0, 'A resumed hydrated draft must not enter the session upsert path again.');
+    assert(advanceCalls === 1, 'One tap should advance to findings exactly once.');
+    assert(message === 'ready', 'The successful transition should provide confirmation instead of a silent no-op.');
+    assert(JSON.stringify(answers) === answerSnapshot, 'Continuing a resumed draft must preserve saved findings.');
+
+    await controller.run({
+        selected: true,
+        customQuoteMode: false,
+        sessionReady: true,
+        resolveSession: async () => null,
+        onOpening: () => undefined,
+        onAdvance: () => { advanceCalls += 1; },
+        onSuccess: () => undefined,
+        onFailure: () => undefined,
+        onSettled: () => undefined,
+    });
+
+    assert(Number(advanceCalls) === 2, 'After going back to Step 1, the same selected service should continue again without duplication.');
+}
+
+async function selectedServiceResolutionIsSingleFlightAndRetryable() {
+    const controller = createSelectedEstimateServiceTransitionController();
+    const pendingResolution = createDeferred<ReturnType<typeof createEstimateSession> | null>();
+    let resolverCalls = 0;
+    let advanceCalls = 0;
+    let failureMessage = '';
+    const resolveSession = () => {
+        resolverCalls += 1;
+        return pendingResolution.promise;
+    };
+    const input = {
+        selected: true,
+        customQuoteMode: false,
+        sessionReady: false,
+        resolveSession,
+        onOpening: () => undefined,
+        onAdvance: () => { advanceCalls += 1; },
+        onSuccess: () => undefined,
+        onFailure: (message: string) => { failureMessage = message; },
+        onSettled: () => undefined,
+    };
+    const first = controller.run(input);
+    const doubleTap = controller.run(input);
+
+    assert(first === doubleTap, 'A mobile double tap must share the same in-flight transition.');
+    pendingResolution.resolve(null);
+    assert(await first === 'failed', 'A missing session should fail with retry guidance instead of silently doing nothing.');
+    assert(resolverCalls === 1 && advanceCalls === 0, 'A failed single-flight resolution must not duplicate sessions or advance.');
+    assert(failureMessage.includes('retry'), 'A session failure should surface an actionable retry message.');
+
+    const retry = controller.run({
+        ...input,
+        resolveSession: async () => {
+            resolverCalls += 1;
+            return createEstimateSession();
+        },
+    });
+
+    assert(await retry === 'advanced', 'The same action should be retryable after the failed flight settles.');
+    assert(Number(resolverCalls) === 2 && Number(advanceCalls) === 1, 'Retry should resolve once and advance without creating parallel work.');
+}
+
+function createEstimateSession() {
+    return {
+        id: 'session-1',
+        companyId: 'company-1',
+        propertyId: 'property-1',
+        serviceRequestId: 'request-1',
+        jobId: 'job-1',
+        scheduleSlotId: 'slot-1',
+        homeItemId: 'item-1',
+        category: 'valve_replacement',
+        status: 'draft',
+    };
+}
+
+function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((nextResolve) => {
+        resolve = nextResolve;
+    });
+
+    return { promise, resolve };
 }
 
 function requiredEvidenceReasonsCannotWaiveFinalRequirements() {
