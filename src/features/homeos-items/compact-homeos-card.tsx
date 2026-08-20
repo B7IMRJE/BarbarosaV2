@@ -1,13 +1,21 @@
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { ColorValue, StyleProp, ViewStyle } from 'react-native';
 import { Text, TouchableOpacity, View } from 'react-native';
+import {
+    HomeOSCardVisual,
+} from '../../components/homeos/HomeOSVisualFoundation';
+import type { HomeOSVisualAsset } from '../../components/homeos/homeos-visual-assets';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
 
 export default function CompactHomeOSCard({
     title,
     subtitle,
     icon,
+    visual,
+    kind = 'equipment',
+    accentColor,
     onOpen,
     openDisabled = false,
     actionTitle,
@@ -22,6 +30,9 @@ export default function CompactHomeOSCard({
     title: string;
     subtitle?: string;
     icon: string;
+    visual?: HomeOSVisualAsset;
+    kind?: 'area' | 'equipment';
+    accentColor?: ColorValue;
     onOpen: () => void;
     openDisabled?: boolean;
     actionTitle?: string;
@@ -34,50 +45,54 @@ export default function CompactHomeOSCard({
     style?: StyleProp<ViewStyle>;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
+    const areaCard = kind === 'area';
 
     return (
-        <ThemedCard style={[{
+        <ThemedCard style={[
+            foundation.surface,
+            {
             width: '47%',
-            minWidth: scaleIcon(180),
+            minWidth: areaCard
+                ? foundation.grid.areaMinimumWidth
+                : foundation.grid.equipmentMinimumWidth,
             maxWidth: scaleIcon(250),
-            minHeight: scaleIcon(166),
-            borderWidth: 2,
+            minHeight: scaleIcon(areaCard ? 176 : 202),
             borderCurve: 'continuous',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: scaleIcon(12),
+            padding: foundation.spacing.compact,
+            gap: foundation.spacing.compact,
+            overflow: 'hidden',
         }, style]}>
             <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel={`Open ${title}`}
+                accessibilityState={{ disabled: openDisabled || disabled }}
                 onPress={onOpen}
                 activeOpacity={0.82}
                 disabled={openDisabled || disabled}
-                style={{ alignItems: 'center', justifyContent: 'center', width: '100%', flex: 1, opacity: disabled ? 0.58 : 1 }}
+                style={{ alignItems: 'center', width: '100%', flex: 1, gap: foundation.spacing.compact, opacity: disabled ? 0.58 : 1 }}
             >
-                <View style={{
-                    width: scaleIcon(60),
-                    height: scaleIcon(60),
-                    borderRadius: 999,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginBottom: scaleIcon(10),
-                    backgroundColor: theme.colors.iconBackground,
-                }}>
-                    <Text style={{ fontSize: scaleIcon(30) }}>{icon}</Text>
-                </View>
-                <Text numberOfLines={2} ellipsizeMode="tail" style={{ color: theme.colors.text, fontSize: scaleFont(15), lineHeight: scaleFont(19), fontWeight: '900', textAlign: 'center' }}>
+                <HomeOSCardVisual
+                    asset={visual}
+                    label={title}
+                    fallbackIcon={icon}
+                    size={areaCard ? 'compact' : 'regular'}
+                    contentFit={areaCard ? 'cover' : 'contain'}
+                />
+                <Text selectable numberOfLines={2} ellipsizeMode="tail" style={[foundation.typography.containerTitle, { textAlign: 'center' }]}>
                     {title}
                 </Text>
                 {!!subtitle && (
-                    <Text numberOfLines={1} style={{ color: theme.colors.mutedText, marginTop: scaleIcon(6), fontSize: scaleFont(12), fontWeight: '800', textAlign: 'center' }}>
+                    <Text selectable numberOfLines={1} style={[foundation.typography.label, { textAlign: 'center' }]}>
                         {subtitle}
                     </Text>
                 )}
             </TouchableOpacity>
 
             {!!actionTitle && !!onAction && (
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${actionTitle}: ${title}`} disabled={disabled} onPress={onAction} style={{ alignSelf: 'center', paddingVertical: scaleIcon(6), paddingHorizontal: scaleIcon(8), marginTop: scaleIcon(5) }}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${actionTitle}: ${title}`} accessibilityState={{ disabled }} disabled={disabled} onPress={onAction} style={{ minHeight: scaleIcon(44), alignSelf: 'center', justifyContent: 'center', paddingVertical: scaleIcon(6), paddingHorizontal: scaleIcon(8) }}>
                     <Text style={{ color: theme.colors.primary, fontSize: scaleFont(12), fontWeight: '900' }}>{actionTitle}</Text>
                 </TouchableOpacity>
             )}
@@ -87,9 +102,12 @@ export default function CompactHomeOSCard({
             )}
 
             {!!onMenu && (
-                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${menuTitle || 'More actions'}: ${title}`} disabled={disabled} onPress={onMenu} style={{ position: 'absolute', top: scaleIcon(7), right: scaleIcon(8), width: scaleIcon(30), height: scaleIcon(26), borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.52)' }}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`${menuTitle || 'More actions'}: ${title}`} accessibilityState={{ disabled }} disabled={disabled} onPress={onMenu} style={{ position: 'absolute', top: scaleIcon(7), right: scaleIcon(7), width: scaleIcon(44), height: scaleIcon(44), borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surface }}>
                     <Text style={{ color: theme.colors.text, fontSize: scaleFont(13), fontWeight: '900', letterSpacing: 1, lineHeight: scaleFont(13) }}>•••</Text>
                 </TouchableOpacity>
+            )}
+            {!!accentColor && (
+                <View style={{ pointerEvents: 'none', position: 'absolute', left: foundation.spacing.regular, right: foundation.spacing.regular, bottom: 0, height: scaleIcon(3), borderRadius: 999, backgroundColor: accentColor }} />
             )}
         </ThemedCard>
     );

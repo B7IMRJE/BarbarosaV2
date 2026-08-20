@@ -4,6 +4,7 @@ import { useTheme } from '../../theme/useTheme';
 import ThemedButton from '../theme/ThemedButton';
 import ThemedCard from '../theme/ThemedCard';
 import ProductCardImage from './product-card-image';
+import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 
 type TileAction = {
     title: string;
@@ -42,21 +43,22 @@ export default function CompactCatalogProductTile({
     style?: StyleProp<ViewStyle>;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
     const actions = [primaryAction, secondaryAction, tertiaryAction].filter((action): action is TileAction => Boolean(action));
 
     return (
-        <ThemedCard style={[{
-            width: scaleIcon(148),
-            minWidth: scaleIcon(138),
-            maxWidth: scaleIcon(178),
-            minHeight: scaleIcon(208),
+        <ThemedCard style={[foundation.surface, {
+            width: scaleIcon(210),
+            minWidth: scaleIcon(176),
+            maxWidth: scaleIcon(260),
+            minHeight: scaleIcon(280),
             flexGrow: 1,
-            flexBasis: scaleIcon(142),
-            padding: scaleIcon(9),
+            flexBasis: scaleIcon(188),
+            padding: foundation.spacing.regular,
             borderWidth: selected ? 3 : 1,
             borderColor: selected ? theme.colors.primary : theme.colors.border,
             borderCurve: 'continuous',
-            gap: scaleIcon(7),
+            gap: foundation.spacing.compact,
             opacity: disabled ? 0.58 : 1,
         }, style]}>
             <TouchableOpacity
@@ -66,7 +68,7 @@ export default function CompactCatalogProductTile({
                 disabled={disabled}
                 activeOpacity={0.82}
                 onPress={onOpen}
-                style={{ flex: 1, width: '100%', alignItems: 'center', gap: scaleIcon(5) }}
+                style={{ flex: 1, width: '100%', alignItems: 'stretch', gap: foundation.spacing.compact }}
             >
                 <View style={{ width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: scaleIcon(24) }}>
                     {!!shortCode && (
@@ -76,10 +78,10 @@ export default function CompactCatalogProductTile({
                     )}
                     {selected && <Text selectable style={{ color: theme.colors.primary, fontSize: scaleFont(12), fontWeight: '900' }}>SELECTED</Text>}
                 </View>
-                <ProductCardImage imageUrl={imageUrl} productName={productName} compact style={{ width: scaleIcon(72), height: scaleIcon(72), minHeight: scaleIcon(72) }} />
-                <Text selectable numberOfLines={2} style={{ color: theme.colors.text, fontSize: scaleFont(14), lineHeight: scaleFont(18), fontWeight: '900', textAlign: 'center' }}>{productName}</Text>
-                {!!model && <Text selectable numberOfLines={1} style={{ color: theme.colors.mutedText, fontSize: scaleFont(12), fontWeight: '800', textAlign: 'center' }}>{model}</Text>}
-                {!!identity && <Text selectable numberOfLines={1} style={{ color: theme.colors.mutedText, fontSize: scaleFont(11), textAlign: 'center' }}>{identity}</Text>}
+                <ProductCardImage imageUrl={imageUrl} productName={productName} compact style={{ width: '100%', height: foundation.grid.equipmentImageHeight, minHeight: foundation.grid.equipmentImageHeight }} />
+                <Text selectable numberOfLines={2} style={[foundation.typography.containerTitle, { textAlign: 'left' }]}>{productName}</Text>
+                {!!model && <Text selectable numberOfLines={1} style={[foundation.typography.label, { textAlign: 'left' }]}>{model}</Text>}
+                {!!identity && <Text selectable numberOfLines={1} style={[foundation.typography.body, { fontSize: scaleFont(12), lineHeight: scaleFont(17), textAlign: 'left' }]}>{identity}</Text>}
             </TouchableOpacity>
             {!!actions.length && (
                 <View style={{ width: '100%', flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(5), marginTop: 'auto' }}>

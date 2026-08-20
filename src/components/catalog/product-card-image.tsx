@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import { Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
 
 type ProductCardImageProps = {
@@ -12,6 +13,7 @@ type ProductCardImageProps = {
 
 export default function ProductCardImage({ imageUrl, productName, compact = false, style }: ProductCardImageProps) {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
     const [failedUrl, setFailedUrl] = useState('');
     const cleanImageUrl = imageUrl?.trim() || '';
     const showImage = Boolean(cleanImageUrl && cleanImageUrl !== failedUrl);
@@ -23,13 +25,9 @@ export default function ProductCardImage({ imageUrl, productName, compact = fals
     return (
         <View
             style={[
+                foundation.imageSurface,
                 {
                     minHeight: scaleIcon(compact ? 68 : 110),
-                    overflow: 'hidden',
-                    borderRadius: theme.radii.button,
-                    borderCurve: 'continuous',
-                    borderWidth: 1,
-                    borderColor: theme.colors.border,
                     backgroundColor: theme.colors.surfaceAlt,
                 },
                 style,

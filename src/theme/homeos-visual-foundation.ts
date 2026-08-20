@@ -16,16 +16,21 @@ export function getHomeOSVisualFoundation(
         },
         grid: {
             gap: scaleIcon(12),
-            areaMinimumWidth: scaleIcon(148),
-            equipmentMinimumWidth: scaleIcon(168),
-            destinationMinimumHeight: scaleIcon(204),
-            imageHeight: scaleIcon(132),
+            areaMinimumWidth: scaleIcon(144),
+            equipmentMinimumWidth: scaleIcon(152),
+            destinationMinimumHeight: scaleIcon(224),
+            destinationImageHeight: scaleIcon(116),
+            areaImageHeight: scaleIcon(92),
+            equipmentImageHeight: scaleIcon(104),
         },
         radii: {
             container: theme.radii.card,
             image: Math.min(theme.radii.card, scaleIcon(16)),
         },
-        shadow: '0 2px 8px rgba(15, 23, 42, 0.08)',
+        shadows: {
+            card: '0 2px 8px rgba(15, 23, 42, 0.07)',
+            raised: '0 6px 18px rgba(15, 23, 42, 0.10)',
+        },
         typography: {
             destinationTitle: {
                 color: theme.colors.text,
@@ -57,6 +62,15 @@ export function getHomeOSVisualFoundation(
             borderWidth: 1,
             borderCurve: 'continuous',
             borderRadius: theme.radii.card,
+            boxShadow: '0 2px 8px rgba(15, 23, 42, 0.07)',
+        } satisfies ViewStyle,
+        imageSurface: {
+            backgroundColor: theme.colors.surfaceAlt,
+            borderColor: theme.colors.border,
+            borderWidth: 1,
+            borderCurve: 'continuous',
+            borderRadius: Math.min(theme.radii.card, scaleIcon(16)),
+            overflow: 'hidden',
         } satisfies ViewStyle,
     } as const;
 }

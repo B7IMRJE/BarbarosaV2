@@ -8,6 +8,7 @@ import HomeDashboardView, {
   type HomeDashboardItem,
   type HomeDashboardMaintenanceReminder,
 } from '../components/homeos/HomeDashboardView';
+import { MainDestinationCard } from '../components/homeos/HomeOSVisualFoundation';
 import ServiceRequestMediaGallery from '../components/serviceRequests/ServiceRequestMediaGallery';
 import ServiceRequestMediaPicker from '../components/serviceRequests/ServiceRequestMediaPicker';
 import HomeownerRequestTimeline from '../components/serviceRequests/HomeownerRequestTimeline';
@@ -45,7 +46,10 @@ import {
   SERVICE_REQUEST_REFRESH_EVENT,
 } from '../lib/serviceRequestRealtime';
 import type { HomeHealthEmergency } from '../lib/homeHealth';
-import { isHomeOSPhoneLayout } from '../lib/homeos-responsive-layout';
+import {
+  resolveHomeOSContainerGrid,
+  resolveHomeOSContainerItemWidth,
+} from '../lib/homeos-responsive-layout';
 import { loadActiveHomeIdentity, loadCompanyHomeIdentity, type HomeIdentity } from '../lib/homeIdentity';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import {
@@ -149,31 +153,22 @@ export default function HomeScreen() {
   ]);
   const { width: viewportWidth } = useWindowDimensions();
   const dashboardContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 1120);
-  const healthTileGap = scaleIcon(10);
-  const isCompactPhone = isHomeOSPhoneLayout(viewportWidth);
-  const healthTileColumns = isCompactPhone
-    ? dashboardContentWidth >= 300 ? 2 : 1
-    : 4;
-  const availableHealthTileSize =
-    (dashboardContentWidth - healthTileGap * (healthTileColumns - 1)) / healthTileColumns;
-  const healthTileSize = isCompactPhone
-    ? availableHealthTileSize
-    : Math.min(scaleIcon(156), availableHealthTileSize);
-  const actionTileSize = isCompactPhone
-    ? availableHealthTileSize
-    : Math.max(scaleIcon(188), Math.min(scaleIcon(210), healthTileSize + scaleIcon(54)));
-  const actionTileMinHeight = isCompactPhone
-    ? Math.max(actionTileSize, scaleIcon(230))
-    : actionTileSize;
-  const fullWidthActionCardStyle = isCompactPhone
-    ? {
-        width: '100%' as const,
-        minHeight: scaleIcon(164),
-      }
-    : {
-        width: actionTileSize,
-        minHeight: actionTileMinHeight,
-      };
+  const actionCardGap = scaleIcon(12);
+  const actionCardMinimumWidth = scaleIcon(152);
+  const actionCardColumns = resolveHomeOSContainerGrid({
+    viewportWidth,
+    contentWidth: dashboardContentWidth,
+    minimumItemWidth: actionCardMinimumWidth,
+    gap: actionCardGap,
+    maximumColumns: 4,
+  });
+  const actionCardWidth = resolveHomeOSContainerItemWidth({
+    contentWidth: dashboardContentWidth,
+    columns: actionCardColumns,
+    gap: actionCardGap,
+    minimumItemWidth: actionCardMinimumWidth,
+    maximumItemWidth: scaleIcon(260),
+  });
   const actionCardPalettes = useMemo(
     () => resolveHomeDashboardActionCardPalettes(theme),
     [theme]
@@ -877,6 +872,7 @@ export default function HomeScreen() {
 
   return (
     <ScrollView
+      contentInsetAdjustmentBehavior="automatic"
       style={{ flex: 1, backgroundColor: theme.colors.background }}
       contentContainerStyle={{
         padding: scaleIcon(20),
@@ -1037,177 +1033,51 @@ export default function HomeScreen() {
           </>
         ) : (
         <>
-          <View style={actionCardGridStyle}>
-          <ThemedCard
-            style={[
-              actionCardStyle,
-              fullWidthActionCardStyle,
-              {
-                borderColor: actionCardPalettes.emergency.borderColor,
-                backgroundColor: actionCardPalettes.emergency.backgroundColor,
-                borderTopWidth: scaleIcon(4),
-              },
-            ]}
-          >
-            <Text
-              style={{
-                fontSize: scaleFont(18),
-                fontWeight: '900',
-                color: theme.colors.text,
-                marginBottom: scaleIcon(8),
-              }}
-            >
-              Emergency Center
-            </Text>
+          <View style={[actionCardGridStyle, { gap: actionCardGap }]}>
+          <MainDestinationCard
+            title="Emergency Center"
+            description="Report urgent home issues with photos, notes, and status history."
+            fallbackIcon="🚨"
+            actionLabel="Open Emergency Center"
+            accentColor={actionCardPalettes.emergency.borderColor}
+            onPress={() => router.push('/emergency' as any)}
+            accessibilityLabel="Open Emergency Center"
+            style={[actionCardStyle, { width: actionCardWidth }]}
+          />
 
-            <Text
-              style={{
-                fontSize: scaleFont(14),
-                color: theme.colors.mutedText,
-                lineHeight: scaleFont(20),
-                marginBottom: scaleIcon(14),
-              }}
-            >
-              Report urgent home issues with photos, notes, and status history.
-            </Text>
+          <MainDestinationCard
+            title="Maintenance Center"
+            description="Track service history, photos, documents, and next maintenance dates."
+            fallbackIcon="🧰"
+            actionLabel="Open Maintenance Wizard"
+            accentColor={actionCardPalettes.maintenance.borderColor}
+            onPress={() => router.push('/maintenance/wizard' as any)}
+            accessibilityLabel="Open Maintenance Wizard"
+            style={[actionCardStyle, { width: actionCardWidth }]}
+          />
 
-            <ThemedButton
-              title="Open Emergency Center"
-              onPress={() => router.push('/emergency' as any)}
-              style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
-              textStyle={{ fontSize: scaleFont(14) }}
-            />
-          </ThemedCard>
+          <MainDestinationCard
+            title="Company Connections"
+            description="Review connected companies and pending access requests for your home."
+            fallbackIcon="🔗"
+            actionLabel="Open Connections"
+            accentColor={actionCardPalettes.connections.borderColor}
+            onPress={() => router.push('/connections' as any)}
+            accessibilityLabel="Open Connections"
+            style={[actionCardStyle, { width: actionCardWidth }]}
+          />
 
-          <ThemedCard
-            style={[
-              actionCardStyle,
-              fullWidthActionCardStyle,
-              {
-                borderColor: actionCardPalettes.maintenance.borderColor,
-                backgroundColor: actionCardPalettes.maintenance.backgroundColor,
-                borderTopWidth: scaleIcon(4),
-              },
-            ]}
-          >
-            <Text
-              style={{
-                fontSize: scaleFont(18),
-                fontWeight: '900',
-                color: theme.colors.text,
-                marginBottom: scaleIcon(8),
-              }}
-            >
-              Maintenance Center
-            </Text>
-
-            <Text
-              style={{
-                fontSize: scaleFont(14),
-                color: theme.colors.mutedText,
-                lineHeight: scaleFont(20),
-                marginBottom: scaleIcon(14),
-              }}
-            >
-              Track service history, photos, documents, and next maintenance dates.
-            </Text>
-
-            <ThemedButton
-              title="Open Maintenance Wizard"
-              variant="secondary"
-              onPress={() => router.push('/maintenance/wizard' as any)}
-              style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
-              textStyle={{ fontSize: scaleFont(14) }}
-            />
-          </ThemedCard>
-
-          <ThemedCard
-            style={[
-              actionCardStyle,
-              isCompactPhone
-                ? { width: '48%', minHeight: actionTileMinHeight }
-                : { width: actionTileSize, minHeight: actionTileMinHeight },
-              {
-                borderColor: actionCardPalettes.connections.borderColor,
-                backgroundColor: actionCardPalettes.connections.backgroundColor,
-                borderTopWidth: scaleIcon(4),
-              },
-            ]}
-          >
-            <Text
-              style={{
-                fontSize: scaleFont(18),
-                fontWeight: '900',
-                color: theme.colors.text,
-                marginBottom: scaleIcon(8),
-              }}
-            >
-              Company Connections
-            </Text>
-
-            <Text
-              style={{
-                fontSize: scaleFont(14),
-                color: theme.colors.mutedText,
-                lineHeight: scaleFont(20),
-                marginBottom: scaleIcon(14),
-              }}
-            >
-              Review connected companies and pending access requests for your home.
-            </Text>
-
-            <ThemedButton
-              title="Open Connections"
-              variant="secondary"
-              onPress={() => router.push('/connections' as any)}
-              style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
-              textStyle={{ fontSize: scaleFont(14) }}
-            />
-          </ThemedCard>
-
-          <ThemedCard
-            style={[
-              actionCardStyle,
-              isCompactPhone
-                ? { width: '48%', minHeight: actionTileMinHeight }
-                : { width: actionTileSize, minHeight: actionTileMinHeight },
-              {
-                borderColor: actionCardPalettes.requestService.borderColor,
-                backgroundColor: actionCardPalettes.requestService.backgroundColor,
-                borderTopWidth: scaleIcon(4),
-              },
-            ]}
-          >
-            <Text
-              style={{
-                fontSize: scaleFont(18),
-                fontWeight: '900',
-                color: theme.colors.text,
-                marginBottom: scaleIcon(8),
-              }}
-            >
-              Request Service
-            </Text>
-
-            <Text
-              style={{
-                fontSize: scaleFont(14),
-                color: theme.colors.mutedText,
-                lineHeight: scaleFont(20),
-                marginBottom: scaleIcon(14),
-              }}
-            >
-              Open a regular or emergency service request with your selected provider.
-            </Text>
-
-            <ThemedButton
-              title={showServiceRequestForm ? 'Hide Request Form' : 'Open Request Form'}
-              onPress={() => setShowServiceRequestForm((current) => !current)}
-              disabled={submittingServiceRequest}
-              style={{ marginTop: 'auto', paddingVertical: scaleIcon(12), paddingHorizontal: scaleIcon(14) }}
-              textStyle={{ fontSize: scaleFont(14) }}
-            />
-          </ThemedCard>
+          <MainDestinationCard
+            title="Request Service"
+            description="Open a regular or emergency service request with your selected provider."
+            fallbackIcon="📝"
+            actionLabel={showServiceRequestForm ? 'Hide Request Form' : 'Open Request Form'}
+            accentColor={actionCardPalettes.requestService.borderColor}
+            onPress={() => setShowServiceRequestForm((current) => !current)}
+            accessibilityLabel={showServiceRequestForm ? 'Hide Request Form' : 'Open Request Form'}
+            disabled={submittingServiceRequest}
+            style={[actionCardStyle, { width: actionCardWidth }]}
+          />
         </View>
 
         {showServiceRequestForm && (
@@ -1617,7 +1487,6 @@ const actionCardGridStyle = {
   flexWrap: 'wrap' as const,
   alignItems: 'stretch' as const,
   justifyContent: 'center' as const,
-  gap: 12,
   marginTop: 18,
 };
 

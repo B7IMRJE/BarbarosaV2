@@ -1,11 +1,12 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../../components/HomeHeader';
 import { getStatusCardStyle } from '../../../components/cards/SystemStatusCard';
 import ThemedButton from '../../../components/theme/ThemedButton';
 import ThemedCard from '../../../components/theme/ThemedCard';
+import CompactHomeOSCard from '../../../features/homeos-items/compact-homeos-card';
 import {
     activePropertyErrorMessage,
     isActivePropertyResolutionError,
@@ -25,6 +26,10 @@ import {
     usesProviderHomeItemsRpc,
 } from '../../../lib/providerHomeItems';
 import { isStarterHomeItemShell } from '../../../lib/starterHomeSetup';
+import {
+    resolveHomeOSContainerGrid,
+    resolveHomeOSContainerItemWidth,
+} from '../../../lib/homeos-responsive-layout';
 import { getAreaIcon, getSystemDefaults } from '../../../lib/systemDefaults';
 import { supabase } from '../../../lib/supabase';
 import { useTheme } from '../../../theme/useTheme';
@@ -36,6 +41,7 @@ type SystemAreaItem = HomeHealthItem & {
 
 export default function SystemAreasScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const { width: viewportWidth } = useWindowDimensions();
     const routeParams = useLocalSearchParams<{
         system: string;
         providerMode?: string | string[];
@@ -69,6 +75,23 @@ export default function SystemAreasScreen() {
     const [loading, setLoading] = useState(true);
     const [archivingRecordId, setArchivingRecordId] = useState<string | null>(null);
     const [message, setMessage] = useState('');
+    const gridGap = scaleIcon(12);
+    const gridContentWidth = Math.min(Math.max(viewportWidth - scaleIcon(40), 0), 900);
+    // This grid contains both area (144) and equipment (152) cards.
+    const gridMinimumWidth = scaleIcon(152);
+    const gridColumns = resolveHomeOSContainerGrid({
+        viewportWidth,
+        contentWidth: gridContentWidth,
+        minimumItemWidth: gridMinimumWidth,
+        gap: gridGap,
+    });
+    const gridCardWidth = resolveHomeOSContainerItemWidth({
+        contentWidth: gridContentWidth,
+        columns: gridColumns,
+        gap: gridGap,
+        minimumItemWidth: gridMinimumWidth,
+        maximumItemWidth: scaleIcon(220),
+    });
 
     const systemName = decodeRouteParam(system) || 'System';
     const systemLabel = getSystemLabel(systemName);
@@ -454,6 +477,7 @@ export default function SystemAreasScreen() {
 
     return (
         <ScrollView
+            contentInsetAdjustmentBehavior="automatic"
             style={{ flex: 1, backgroundColor: theme.colors.background }}
             contentContainerStyle={{
                 padding: scaleIcon(20),
@@ -561,7 +585,7 @@ export default function SystemAreasScreen() {
                             Top-Level Areas / Containers
                         </Text>
 
-                        <View style={gridStyle}>
+                        <View style={[gridStyle, { gap: gridGap }]}>
                             {filteredAreas.map((area) => {
                                 const areaSummary = scoreAreaHealth(systemItems, area);
                                 const areaRecord = topLevelAreaByName.get(normalizeText(area)) || null;
@@ -580,6 +604,7 @@ export default function SystemAreasScreen() {
                                         }
                                         archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Area'}
                                         archiveDisabled={!!archivingRecordId}
+                                        width={gridCardWidth}
                                     />
                                 );
                             })}
@@ -605,7 +630,7 @@ export default function SystemAreasScreen() {
                                     </Text>
                                 </ThemedCard>
                             ) : (
-                                <View style={gridStyle}>
+                                <View style={[gridStyle, { gap: gridGap }]}>
                                     {directSystemItems.map((item) => {
                                         const archiveKey = item.id || item.item_slug || item.name || '';
                                         const starterShell = isStarterHomeItemShell(item);
@@ -629,6 +654,7 @@ export default function SystemAreasScreen() {
                                                 onArchive={() => confirmArchiveItem(item)}
                                                 archiveTitle={archivingRecordId === archiveKey ? 'Archiving...' : 'Archive Item'}
                                                 archiveDisabled={!!archivingRecordId}
+                                                width={gridCardWidth}
                                             />
                                         );
                                     })}
@@ -698,6 +724,7 @@ function RootAreaCard({
     onArchive,
     archiveTitle,
     archiveDisabled,
+    width,
 }: {
     title: string;
     status?: string | null;
@@ -705,71 +732,23 @@ function RootAreaCard({
     onArchive?: () => void;
     archiveTitle: string;
     archiveDisabled: boolean;
+    width: number;
 }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
+    const { theme } = useTheme();
+    const statusStyle = getStatusCardStyle(status, theme);
 
     return (
-        <View
-            style={[
-                rootCardStyle,
-                {
-                    minWidth: scaleIcon(132),
-                    maxWidth: scaleIcon(170),
-                    minHeight: scaleIcon(166),
-                    padding: scaleIcon(12),
-                    borderRadius: theme.radii.card,
-                    borderTopColor: 'rgba(255, 255, 255, 0.96)',
-                    borderBottomColor: theme.colors.primary,
-                    borderBottomWidth: 7,
-                    boxShadow: '0 10px 20px rgba(7, 27, 51, 0.23), inset 0 2px 0 rgba(255, 255, 255, 0.94)',
-                },
-                getStatusCardStyle(status, theme),
-            ]}
-        >
-            <TouchableOpacity
-                onPress={onPress}
-                activeOpacity={0.82}
-                style={cardOpenAreaStyle}
-            >
-                <View
-                    style={[
-                        iconCircleStyle,
-                        {
-                            backgroundColor: theme.colors.iconBackground,
-                            width: scaleIcon(60),
-                            height: scaleIcon(60),
-                            marginBottom: scaleIcon(10),
-                        },
-                    ]}
-                >
-                    <Text style={{ fontSize: scaleIcon(30) }}>{getAreaIcon(title)}</Text>
-                </View>
-
-                <Text
-                    style={{
-                        color: theme.colors.text,
-                        fontSize: scaleFont(15),
-                        fontWeight: '900',
-                        lineHeight: scaleFont(19),
-                        textAlign: 'center',
-                    }}
-                    numberOfLines={2}
-                >
-                    {title}
-                </Text>
-            </TouchableOpacity>
-
-            {onArchive ? (
-                <ThemedButton
-                    title={archiveTitle}
-                    variant="danger"
-                    disabled={archiveDisabled}
-                    onPress={onArchive}
-                    style={smallArchiveButtonStyle}
-                    textStyle={smallArchiveButtonTextStyle}
-                />
-            ) : null}
-        </View>
+        <CompactHomeOSCard
+            title={title}
+            icon={getAreaIcon(title)}
+            kind="area"
+            onOpen={onPress}
+            menuTitle={archiveTitle}
+            onMenu={onArchive}
+            disabled={archiveDisabled}
+            accentColor={statusStyle.borderColor}
+            style={{ width, minWidth: width, maxWidth: width }}
+        />
     );
 }
 
@@ -780,6 +759,7 @@ function RootItemCard({
     onArchive,
     archiveTitle,
     archiveDisabled,
+    width,
 }: {
     item: SystemAreaItem;
     onOpen: () => void;
@@ -787,79 +767,27 @@ function RootItemCard({
     onArchive: () => void;
     archiveTitle: string;
     archiveDisabled: boolean;
+    width: number;
 }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
+    const { theme } = useTheme();
     const itemName = item.name || 'Unnamed Item';
     const itemSlug = item.item_slug || '';
+    const statusStyle = getStatusCardStyle(item.status, theme);
 
     return (
-        <View
-            style={[
-                rootCardStyle,
-                {
-                    minWidth: scaleIcon(132),
-                    maxWidth: scaleIcon(170),
-                    minHeight: scaleIcon(166),
-                    padding: scaleIcon(12),
-                    borderRadius: theme.radii.card,
-                },
-                getStatusCardStyle(item.status, theme),
-            ]}
-        >
-            <TouchableOpacity
-                onPress={onOpen}
-                activeOpacity={0.82}
-                disabled={!itemSlug}
-                style={cardOpenAreaStyle}
-            >
-                <View
-                    style={[
-                        iconCircleStyle,
-                        {
-                            backgroundColor: theme.colors.iconBackground,
-                            width: scaleIcon(60),
-                            height: scaleIcon(60),
-                            marginBottom: scaleIcon(10),
-                        },
-                    ]}
-                >
-                    <Text style={{ fontSize: scaleIcon(30) }}>{getItemIcon(item)}</Text>
-                </View>
-
-                <Text
-                    style={{
-                        color: theme.colors.text,
-                        fontSize: scaleFont(15),
-                        fontWeight: '900',
-                        lineHeight: scaleFont(19),
-                        textAlign: 'center',
-                    }}
-                    numberOfLines={2}
-                    ellipsizeMode="tail"
-                >
-                    {itemName}
-                </Text>
-            </TouchableOpacity>
-
-            {onActivate ? (
-                <ThemedButton
-                    title="Activate Card"
-                    disabled={archiveDisabled}
-                    onPress={onActivate}
-                    style={smallArchiveButtonStyle}
-                    textStyle={smallArchiveButtonTextStyle}
-                />
-            ) : (
-                <ThemedButton
-                    title={archiveTitle}
-                    variant="danger"
-                    disabled={archiveDisabled}
-                    onPress={onArchive}
-                    style={smallArchiveButtonStyle}
-                    textStyle={smallArchiveButtonTextStyle}
-                />
-            )}
-        </View>
+        <CompactHomeOSCard
+            title={itemName}
+            icon={getItemIcon(item)}
+            onOpen={onOpen}
+            openDisabled={!itemSlug}
+            secondaryActionTitle={onActivate ? 'Activate Card' : undefined}
+            onSecondaryAction={onActivate}
+            menuTitle={archiveTitle}
+            onMenu={onActivate ? undefined : onArchive}
+            disabled={archiveDisabled}
+            accentColor={statusStyle.borderColor}
+            style={{ width, minWidth: width, maxWidth: width }}
+        />
     );
 }
 
@@ -934,47 +862,7 @@ const sectionHeaderStyle = {
 const gridStyle = {
     flexDirection: 'row' as const,
     flexWrap: 'wrap' as const,
-    gap: 12,
     justifyContent: 'center' as const,
-};
-
-const rootCardStyle = {
-    width: '47%' as const,
-    minWidth: 132,
-    maxWidth: 170,
-    minHeight: 166,
-    borderWidth: 2,
-    borderCurve: 'continuous' as const,
-    alignItems: 'center' as const,
-    justifyContent: 'space-between' as const,
-};
-
-const cardOpenAreaStyle = {
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-    width: '100%' as const,
-    flex: 1,
-};
-
-const iconCircleStyle = {
-    borderRadius: 999,
-    alignItems: 'center' as const,
-    justifyContent: 'center' as const,
-};
-
-const smallArchiveButtonStyle = {
-    alignSelf: 'center' as const,
-    marginTop: 10,
-    paddingVertical: 5,
-    paddingHorizontal: 9,
-    minWidth: 84,
-    minHeight: 36,
-};
-
-const smallArchiveButtonTextStyle = {
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '800' as const,
 };
 
 const loadingCardStyle = {

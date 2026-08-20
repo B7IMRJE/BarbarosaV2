@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react';
+import { Image } from 'expo-image';
 import {
-    Image,
     Pressable,
     Text,
     View,
     type AccessibilityRole,
+    type ColorValue,
     type StyleProp,
     type ViewStyle,
 } from 'react-native';
@@ -43,7 +44,10 @@ function ContainerPress({
             disabled={disabled}
             onPress={onPress}
             style={({ pressed }) => [
-                { opacity: disabled ? 0.52 : pressed ? 0.84 : 1 },
+                {
+                    opacity: disabled ? 0.52 : pressed ? 0.88 : 1,
+                    transform: [{ scale: pressed ? 0.99 : 1 }],
+                },
                 pressed && { borderColor: theme.colors.primary },
                 style,
             ]}
@@ -53,47 +57,54 @@ function ContainerPress({
     );
 }
 
-function Visual({ asset, label, size = 'regular' }: {
+export function HomeOSCardVisual({
+    asset,
+    label,
+    fallbackIcon,
+    size = 'regular',
+    contentFit,
+}: {
     asset?: HomeOSVisualAsset;
     label: string;
+    fallbackIcon?: string;
     size?: 'compact' | 'regular' | 'destination';
+    contentFit?: 'cover' | 'contain';
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
     const source = resolveHomeOSVisualSource(asset);
     const height = size === 'destination'
-        ? foundation.grid.imageHeight
+        ? foundation.grid.destinationImageHeight
         : size === 'compact'
-            ? scaleIcon(52)
-            : scaleIcon(92);
+            ? foundation.grid.areaImageHeight
+            : foundation.grid.equipmentImageHeight;
 
     return source ? (
         <Image
             source={source}
             accessibilityLabel={`${label} image`}
-            resizeMode="cover"
-            style={{
+            alt={`${label} image`}
+            cachePolicy="memory-disk"
+            contentFit={contentFit || 'cover'}
+            transition={160}
+            style={[foundation.imageSurface, {
                 width: '100%',
                 height,
-                borderRadius: foundation.radii.image,
-                backgroundColor: theme.colors.surfaceAlt,
-            }}
+            }]}
         />
     ) : (
         <View
             accessible={false}
-            style={{
+            style={[foundation.imageSurface, {
                 width: '100%',
                 height,
                 alignItems: 'center',
                 justifyContent: 'center',
                 backgroundColor: theme.colors.iconBackground,
-                borderCurve: 'continuous',
-                borderRadius: foundation.radii.image,
-            }}
+            }]}
         >
-            <Text style={{ fontSize: scaleIcon(size === 'compact' ? 24 : 36) }}>
-                {resolveHomeOSFallbackIcon(label)}
+            <Text style={{ fontSize: scaleIcon(size === 'compact' ? 34 : 40) }}>
+                {fallbackIcon || resolveHomeOSFallbackIcon(label)}
             </Text>
         </View>
     );
@@ -106,11 +117,17 @@ export function MainDestinationCard({
     onPress,
     accessibilityLabel,
     disabled,
+    fallbackIcon,
+    actionLabel,
+    accentColor,
     style,
 }: ContainerPressProps & {
     title: string;
     description?: string;
     visual?: HomeOSVisualAsset;
+    fallbackIcon?: string;
+    actionLabel?: string;
+    accentColor?: ColorValue;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
@@ -124,23 +141,58 @@ export function MainDestinationCard({
                 foundation.surface,
                 {
                     minHeight: foundation.grid.destinationMinimumHeight,
-                    padding: foundation.spacing.comfortable,
-                    gap: foundation.spacing.regular,
-                    boxShadow: foundation.shadow,
+                    padding: foundation.spacing.regular,
+                    gap: foundation.spacing.compact,
+                    overflow: 'hidden',
                 },
                 style,
             ]}
         >
-            <Visual asset={visual} label={title} size="destination" />
-            <Text selectable style={foundation.typography.destinationTitle}>{title}</Text>
-            {description ? <Text selectable style={foundation.typography.body}>{description}</Text> : null}
+            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} size="destination" />
+            <View style={{ flex: 1, width: '100%', gap: foundation.spacing.compact }}>
+                <Text selectable numberOfLines={2} style={foundation.typography.destinationTitle}>{title}</Text>
+                {description ? <Text selectable numberOfLines={3} style={foundation.typography.body}>{description}</Text> : null}
+                {actionLabel ? (
+                    <Text
+                        selectable
+                        style={[foundation.typography.label, { color: theme.colors.primary, marginTop: 'auto' }]}
+                    >
+                        {actionLabel}  →
+                    </Text>
+                ) : null}
+            </View>
+            {accentColor ? (
+                <View
+                    style={{
+                        pointerEvents: 'none',
+                        position: 'absolute',
+                        left: foundation.spacing.regular,
+                        right: foundation.spacing.regular,
+                        bottom: 0,
+                        height: scaleIcon(3),
+                        borderRadius: 999,
+                        backgroundColor: accentColor,
+                    }}
+                />
+            ) : null}
         </ContainerPress>
     );
 }
 
-export function AreaContainer({ title, visual, onPress, accessibilityLabel, disabled, style }: ContainerPressProps & {
+export function AreaContainer({
+    title,
+    subtitle,
+    visual,
+    fallbackIcon,
+    onPress,
+    accessibilityLabel,
+    disabled,
+    style,
+}: ContainerPressProps & {
     title: string;
+    subtitle?: string;
     visual?: HomeOSVisualAsset;
+    fallbackIcon?: string;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
@@ -161,10 +213,11 @@ export function AreaContainer({ title, visual, onPress, accessibilityLabel, disa
                 style,
             ]}
         >
-            <Visual asset={visual} label={title} size="compact" />
+            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} size="compact" />
             <Text selectable numberOfLines={2} style={[foundation.typography.containerTitle, { textAlign: 'center' }]}>
                 {title}
             </Text>
+            {subtitle ? <Text selectable numberOfLines={1} style={[foundation.typography.label, { textAlign: 'center' }]}>{subtitle}</Text> : null}
         </ContainerPress>
     );
 }
@@ -173,6 +226,7 @@ export function EquipmentContainer({
     title,
     detail,
     visual,
+    fallbackIcon,
     onPress,
     accessibilityLabel,
     disabled,
@@ -181,6 +235,7 @@ export function EquipmentContainer({
     title: string;
     detail?: string;
     visual?: HomeOSVisualAsset;
+    fallbackIcon?: string;
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
@@ -200,7 +255,7 @@ export function EquipmentContainer({
                 style,
             ]}
         >
-            <Visual asset={visual} label={title} />
+            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} contentFit="contain" />
             <View style={{ gap: foundation.spacing.compact }}>
                 <Text selectable numberOfLines={2} style={foundation.typography.containerTitle}>{title}</Text>
                 {detail ? <Text selectable numberOfLines={1} style={foundation.typography.body}>{detail}</Text> : null}
@@ -227,7 +282,7 @@ export function EquipmentDetailHeader({
 
     return (
         <View style={[foundation.surface, { padding: foundation.spacing.comfortable, gap: foundation.spacing.comfortable }, style]}>
-            <Visual asset={visual} label={title} size="destination" />
+            <HomeOSCardVisual asset={visual} label={title} size="destination" />
             <View style={{ gap: foundation.spacing.compact }}>
                 <Text selectable style={foundation.typography.destinationTitle}>{title}</Text>
                 {type ? <Text selectable style={foundation.typography.body}>{type}</Text> : null}

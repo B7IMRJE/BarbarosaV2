@@ -12,16 +12,53 @@ export function isHomeOSPhoneLayout(viewportWidth: number) {
  * available width. The result is intentionally layout-only: visual tokens
  * remain in the shared theme foundation.
  */
-export function resolveHomeOSContainerGrid(viewportWidth: number, minimumItemWidth: number) {
-    if (viewportWidth <= HOMEOS_PHONE_LAYOUT_MAX_WIDTH) {
-        return viewportWidth >= minimumItemWidth * 2 + 16 ? 2 : 1;
-    }
+export function resolveHomeOSContainerGrid({
+    viewportWidth,
+    contentWidth,
+    minimumItemWidth,
+    gap,
+    maximumColumns = 5,
+}: {
+    viewportWidth: number;
+    contentWidth: number;
+    minimumItemWidth: number;
+    gap: number;
+    maximumColumns?: number;
+}) {
+    const safeGap = Math.max(0, gap);
+    const safeMinimumWidth = Math.max(1, minimumItemWidth);
+    const fittingColumns = Math.max(
+        1,
+        Math.floor((Math.max(0, contentWidth) + safeGap) / (safeMinimumWidth + safeGap))
+    );
+    const responsiveMaximum = viewportWidth <= HOMEOS_PHONE_LAYOUT_MAX_WIDTH
+        ? Math.min(2, maximumColumns)
+        : maximumColumns;
 
-    if (viewportWidth <= HOMEOS_TABLET_LAYOUT_MAX_WIDTH) {
-        return Math.max(3, Math.floor(viewportWidth / minimumItemWidth));
-    }
+    return Math.max(1, Math.min(fittingColumns, responsiveMaximum));
+}
 
-    return Math.max(3, Math.min(5, Math.floor(viewportWidth / minimumItemWidth)));
+export function resolveHomeOSContainerItemWidth({
+    contentWidth,
+    columns,
+    gap,
+    minimumItemWidth,
+    maximumItemWidth,
+}: {
+    contentWidth: number;
+    columns: number;
+    gap: number;
+    minimumItemWidth: number;
+    maximumItemWidth: number;
+}) {
+    const safeContentWidth = Math.max(0, contentWidth);
+    const safeColumns = Math.max(1, columns);
+    const availableWidth = (
+        safeContentWidth - Math.max(0, gap) * (safeColumns - 1)
+    ) / safeColumns;
+    const safeMinimumWidth = Math.min(Math.max(0, minimumItemWidth), safeContentWidth);
+
+    return Math.min(maximumItemWidth, Math.max(safeMinimumWidth, availableWidth));
 }
 
 export function resolveHomeOSHealthCardHeight(

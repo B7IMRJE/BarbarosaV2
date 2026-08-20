@@ -11,8 +11,22 @@ export type HomeOSVisualAsset = {
  * No generated or placeholder production artwork is bundled here.
  */
 export function resolveHomeOSVisualSource(asset?: HomeOSVisualAsset): ImageSourcePropType | undefined {
-    if (asset?.source) return asset.source;
     if (asset?.uri?.trim()) return { uri: asset.uri.trim() };
+    if (asset?.source) return asset.source;
+    return undefined;
+}
+
+/** Homeowner media is always preferred over a shared catalog illustration. */
+export function resolveHomeOSEquipmentVisual(
+    homeownerPhotoUrl?: string | null,
+    catalogImageUrl?: string | null
+): HomeOSVisualAsset | undefined {
+    const homeownerPhoto = homeownerPhotoUrl?.trim();
+    if (homeownerPhoto) return { uri: homeownerPhoto };
+
+    const catalogImage = catalogImageUrl?.trim();
+    if (catalogImage) return { uri: catalogImage };
+
     return undefined;
 }
 
