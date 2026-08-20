@@ -5,6 +5,7 @@ import {
     isChildPropertyArea,
     isDirectPropertyAreaItem,
     isTopLevelPropertyArea,
+    propertyAreaScopeFromRoute,
     type PropertyAreaRecord,
 } from './propertyAreas';
 
@@ -18,6 +19,13 @@ assert(classifyPropertyArea({ name: 'Attached Garage' }) === 'interior', 'Attach
 assert(classifyPropertyArea({ name: 'Detached Garage' }) === 'exterior', 'Detached garage must be exterior.');
 assert(classifyPropertyArea({ name: 'Garage' }) === 'unclassified', 'Ambiguous garages must remain unclassified.');
 assert(classifyPropertyArea({ name: 'Unknown workshop nook' }) === 'unclassified', 'Unknown labels must remain unclassified.');
+assert(propertyAreaScopeFromRoute('interior') === 'interior', 'Interior routes must open the My Home deck.');
+assert(propertyAreaScopeFromRoute('exterior') === 'exterior', 'Exterior routes must open the exterior deck.');
+assert(
+    propertyAreaScopeFromRoute('unclassified') === 'unclassified',
+    'The secondary other-areas route must keep ambiguous existing areas visible.'
+);
+assert(propertyAreaScopeFromRoute('unexpected') === 'interior', 'Unknown area routes must fail safely into My Home.');
 
 const rows: PropertyAreaRecord[] = [
     { id: 'a', name: 'Kitchen', system: 'Plumbing', area_scope: 'interior' },

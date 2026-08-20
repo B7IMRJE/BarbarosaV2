@@ -60,6 +60,14 @@ export function normalizePropertyAreaName(value?: string | null) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+export function propertyAreaScopeFromRoute(value?: string | null): PropertyAreaScope {
+    const scope = normalizePropertyAreaName(value);
+
+    if (scope === 'exterior') return 'exterior';
+    if (scope === 'unclassified') return 'unclassified';
+    return 'interior';
+}
+
 /** Conservative classification: ambiguous and unknown existing labels stay visible as unclassified. */
 export function classifyPropertyArea(
     area: Pick<PropertyAreaRecord, 'name' | 'area_scope'>

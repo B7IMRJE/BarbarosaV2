@@ -9,8 +9,8 @@ import { activePropertyErrorMessage, requireActivePropertyMembership } from '../
 import {
     activeAreasForScope,
     isTopLevelPropertyArea,
+    propertyAreaScopeFromRoute,
     type PropertyAreaRecord,
-    type PropertyAreaScope,
 } from '../../lib/propertyAreas';
 import {
     resolveHomeOSContainerGrid,
@@ -24,16 +24,18 @@ import { useTheme } from '../../theme/useTheme';
 export default function PropertyAreaScreen() {
     const { scope: rawScope } = useLocalSearchParams<{ scope?: string }>();
     const routeParamsReady = useHydratedRouteParamsReady();
-    const scope: Exclude<PropertyAreaScope, 'unclassified'> = routeParamsReady && rawScope === 'exterior'
-        ? 'exterior'
-        : 'interior';
+    const scope = propertyAreaScopeFromRoute(routeParamsReady ? rawScope : undefined);
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
     const { width: viewportWidth } = useWindowDimensions();
     const [areas, setAreas] = useState<PropertyAreaRecord[]>([]);
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
-    const label = scope === 'interior' ? 'Home' : 'Exterior';
+    const label = scope === 'interior'
+        ? 'My Home'
+        : scope === 'exterior'
+            ? 'Exterior'
+            : 'Other Areas / Needs Placement';
     const contentWidth = Math.min(Math.max(viewportWidth - foundation.spacing.comfortable * 2, 0), 960);
     const gridGap = foundation.grid.gap;
     const cardMinimumWidth = foundation.grid.areaMinimumWidth;
@@ -126,13 +128,17 @@ export default function PropertyAreaScreen() {
                 <Text selectable style={foundation.typography.body}>
                     {scope === 'interior'
                         ? 'Select an active indoor area'
-                        : 'Select an active outdoor area'}
+                        : scope === 'exterior'
+                            ? 'Select an active outdoor area'
+                            : 'These existing areas are kept visible until their indoor or outdoor placement is confirmed.'}
                 </Text>
-                <ThemedButton
-                    title="Add Area"
-                    onPress={() => router.push(`/home/${scope}/add-area` as never)}
-                    style={{ alignSelf: 'flex-start' }}
-                />
+                {scope !== 'unclassified' ? (
+                    <ThemedButton
+                        title="Add Area"
+                        onPress={() => router.push(`/home/${scope}/add-area` as never)}
+                        style={{ alignSelf: 'flex-start' }}
+                    />
+                ) : null}
 
                 {loading ? (
                     <ActivityIndicator color={theme.colors.primary} style={{ marginTop: scaleIcon(32) }} />
@@ -144,7 +150,9 @@ export default function PropertyAreaScreen() {
 
                 {!loading && activeAreas.length === 0 && (
                     <Text selectable style={foundation.typography.body}>
-                        No active {scope} areas yet. Add only the areas that exist at this property.
+                        {scope === 'unclassified'
+                            ? 'No areas currently need placement.'
+                            : `No active ${scope} areas yet. Add only the areas that exist at this property.`}
                     </Text>
                 )}
 

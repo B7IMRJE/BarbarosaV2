@@ -60,6 +60,11 @@ import {
   readProviderModeParams,
 } from '../lib/providerMode';
 import {
+  propertyLandingOtherAreasAction,
+  propertyLandingPrimaryDestinations,
+  shouldShowPropertyDestinations,
+} from '../lib/propertyLandingNavigation';
+import {
   buildProviderHomeItemsRpcArgs,
   getProviderHomeItemsReadStrategy,
   getProviderHomeItemsRpcName,
@@ -70,7 +75,6 @@ import { clearSessionActivity } from '../lib/sessionSecurity';
 import { supabase } from '../lib/supabase';
 import { useStableCallback } from '../hooks/useStableCallback';
 import { useTheme } from '../theme/useTheme';
-import PropertyLandingScreen from '../features/property-navigation/PropertyLandingScreen';
 
 type PreferredProvider = {
   companyId: string;
@@ -125,7 +129,11 @@ function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   });
 }
 
-export function HomeServicesScreen() {
+export function HomeServicesScreen({
+  showPropertyDestinations = false,
+}: {
+  showPropertyDestinations?: boolean;
+} = {}) {
   const { scaleFont, scaleIcon, theme } = useTheme();
   const routeParams = useLocalSearchParams<{
     providerMode?: string | string[];
@@ -170,6 +178,22 @@ export function HomeServicesScreen() {
     gap: actionCardGap,
     minimumItemWidth: actionCardMinimumWidth,
     maximumItemWidth: scaleIcon(260),
+  });
+  const propertyDestinationGap = scaleIcon(16);
+  const propertyDestinationMinimumWidth = scaleIcon(280);
+  const propertyDestinationColumns = resolveHomeOSContainerGrid({
+    viewportWidth,
+    contentWidth: dashboardContentWidth,
+    minimumItemWidth: propertyDestinationMinimumWidth,
+    gap: propertyDestinationGap,
+    maximumColumns: 2,
+  });
+  const propertyDestinationWidth = resolveHomeOSContainerItemWidth({
+    contentWidth: dashboardContentWidth,
+    columns: propertyDestinationColumns,
+    gap: propertyDestinationGap,
+    minimumItemWidth: propertyDestinationMinimumWidth,
+    maximumItemWidth: scaleIcon(460),
   });
   const actionCardPalettes = useMemo(
     () => resolveHomeDashboardActionCardPalettes(theme),
@@ -942,10 +966,85 @@ export function HomeServicesScreen() {
           maintenanceReminders={maintenanceReminders}
           maintenanceReminderMessage={maintenanceReminderMessage}
           afterIdentity={providerModeContext ? undefined : (
-            <PendingCustomerInvitesCard
-              compact
-              onAccepted={loadHomeHealthData}
-            />
+            <>
+              <PendingCustomerInvitesCard
+                compact
+                onAccepted={loadHomeHealthData}
+              />
+              {showPropertyDestinations ? (
+                <View
+                  accessibilityRole="summary"
+                  testID="homeos-property-destinations"
+                  style={{
+                    marginTop: scaleIcon(22),
+                    gap: scaleIcon(14),
+                  }}
+                >
+                  <View style={{ gap: scaleIcon(4) }}>
+                    <Text
+                      style={{
+                        color: theme.colors.text,
+                        fontSize: scaleFont(24),
+                        fontWeight: '900',
+                      }}
+                    >
+                      Your Property
+                    </Text>
+                    <Text
+                      style={{
+                        color: theme.colors.mutedText,
+                        fontSize: scaleFont(14),
+                        fontWeight: '700',
+                        lineHeight: scaleFont(20),
+                      }}
+                    >
+                      Choose where you want to look.
+                    </Text>
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      flexWrap: 'wrap',
+                      alignItems: 'stretch',
+                      justifyContent: 'center',
+                      gap: propertyDestinationGap,
+                    }}
+                  >
+                    {propertyLandingPrimaryDestinations.map((destination) => (
+                      <MainDestinationCard
+                        key={destination.key}
+                        title={destination.title}
+                        description={destination.description}
+                        visual={{
+                          source: destination.key === 'interior'
+                            ? require('../../assets/homeos/destinations/home.png')
+                            : require('../../assets/homeos/destinations/exterior.png'),
+                        }}
+                        fallbackIcon={destination.key === 'interior' ? '🏠' : '🌳'}
+                        visualContentFit="contain"
+                        actionLabel={destination.actionLabel}
+                        accentColor={destination.key === 'interior'
+                          ? theme.colors.primary
+                          : theme.colors.status.good.border}
+                        onPress={() => router.push(destination.route as any)}
+                        accessibilityLabel={destination.accessibilityLabel}
+                        style={{ width: propertyDestinationWidth }}
+                      />
+                    ))}
+                  </View>
+
+                  <ThemedButton
+                    title={propertyLandingOtherAreasAction.title}
+                    variant="secondary"
+                    accessibilityLabel={propertyLandingOtherAreasAction.accessibilityLabel}
+                    testID="homeos-other-areas"
+                    onPress={() => router.push(propertyLandingOtherAreasAction.route as any)}
+                    style={{ alignSelf: 'flex-start' }}
+                  />
+                </View>
+              ) : null}
+            </>
           )}
           beforeSummary={providerModeContext ? (
             <ThemedCard style={{ marginTop: scaleIcon(14), marginBottom: scaleIcon(16) }}>
@@ -1496,7 +1595,7 @@ export default function HomeScreen() {
   }>();
   const providerRouteActive = hasProviderModeRouteSignal(routeParams);
 
-  return providerRouteActive ? <HomeServicesScreen /> : <PropertyLandingScreen />;
+  return <HomeServicesScreen showPropertyDestinations={shouldShowPropertyDestinations(providerRouteActive)} />;
 }
 
 const actionCardGridStyle = {
