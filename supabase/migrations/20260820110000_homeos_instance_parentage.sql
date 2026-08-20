@@ -55,6 +55,11 @@ begin
 end;
 $$;
 
+-- Validate while no deferred home_items trigger events are pending. The
+-- relationship backfills below then write through this already-valid FK.
+alter table public.home_items
+    validate constraint home_items_parent_home_item_id_fkey;
+
 do $$
 begin
     if not exists (
@@ -1676,9 +1681,6 @@ set parent_home_item_id = resolved.parent_id
 from safe_resolved resolved
 where child.id = resolved.child_id
   and child.parent_home_item_id is null;
-
-alter table public.home_items
-    validate constraint home_items_parent_home_item_id_fkey;
 
 -- Every future canonical starter or explicit parent_area-only legacy write
 -- receives one deferred opportunity to persist its concrete parent after the
