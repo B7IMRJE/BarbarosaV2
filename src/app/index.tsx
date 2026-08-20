@@ -65,6 +65,7 @@ import { clearSessionActivity } from '../lib/sessionSecurity';
 import { supabase } from '../lib/supabase';
 import { useStableCallback } from '../hooks/useStableCallback';
 import { useTheme } from '../theme/useTheme';
+import PropertyLandingScreen from '../features/property-navigation/PropertyLandingScreen';
 
 type PreferredProvider = {
   companyId: string;
@@ -119,7 +120,7 @@ function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   });
 }
 
-export default function HomeScreen() {
+export function HomeServicesScreen() {
   const { scaleFont, scaleIcon, theme } = useTheme();
   const routeParams = useLocalSearchParams<{
     providerMode?: string | string[];
@@ -1610,6 +1611,10 @@ export default function HomeScreen() {
       </View>
     </ScrollView>
   );
+}
+
+export default function HomeScreen() {
+  return <PropertyLandingScreen />;
 }
 
 const actionCardGridStyle = {

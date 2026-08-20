@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Linking, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import { DetailSection, EquipmentDetailHeader, RoleActionBar } from '../../components/homeos/HomeOSVisualFoundation';
 import {
     createHomeItemProductReferenceAssetUrl,
     loadHomeItemProductReference,
@@ -140,6 +141,12 @@ export default function ProductReferenceModal({
                             </View>
                         ) : reference ? (
                             <>
+                                <EquipmentDetailHeader
+                                    title={reference.productName || itemName || 'Product details'}
+                                    type={reference.productType || reference.category || undefined}
+                                    identifier={[reference.brand, reference.model, reference.manufacturerPartNumber].filter(Boolean).join(' · ') || undefined}
+                                    visual={{ uri: images[0] ? assetUrls[images[0].id] : '' }}
+                                />
                                 {images.length > 0 ? (
                                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: scaleIcon(10) }}>
                                         {images.map((asset) => (
@@ -244,9 +251,7 @@ export default function ProductReferenceModal({
                         )}
                     </ScrollView>
 
-                    <View style={{ padding: scaleIcon(14), borderTopWidth: 1, borderTopColor: theme.colors.border }}>
-                        <ThemedButton title="Close Product Details" variant="secondary" onPress={onClose} />
-                    </View>
+                    <RoleActionBar actions={[{ key: 'close', title: 'Close Product Details', variant: 'secondary', onPress: onClose }]} style={{ borderTopWidth: 1, borderTopColor: theme.colors.border, borderRadius: 0 }} />
                 </ThemedCard>
             </View>
         </Modal>
@@ -254,13 +259,10 @@ export default function ProductReferenceModal({
 }
 
 function ReferenceSection({ title, children }: { title: string; children: ReactNode }) {
-    const { scaleFont, scaleIcon, theme } = useTheme();
+    const { scaleIcon } = useTheme();
 
     return (
-        <View style={{ borderWidth: 1, borderColor: theme.colors.border, borderRadius: 14, borderCurve: 'continuous', padding: scaleIcon(13), gap: scaleIcon(9) }}>
-            <Text selectable style={{ color: theme.colors.text, fontSize: scaleFont(17), fontWeight: '900' }}>{title}</Text>
-            {children}
-        </View>
+        <DetailSection title={title} style={{ gap: scaleIcon(9) }}>{children}</DetailSection>
     );
 }
 

@@ -16,6 +16,15 @@ export function resolveHomeOSVisualSource(asset?: HomeOSVisualAsset): ImageSourc
     return undefined;
 }
 
+/** A property item's actual photo always takes precedence over a generic product asset. */
+export function resolveHomeOSEquipmentVisual(
+    homeownerPhotoUrl?: string | null,
+    genericProductImageUrl?: string | null
+): HomeOSVisualAsset | undefined {
+    const uri = homeownerPhotoUrl?.trim() || genericProductImageUrl?.trim();
+    return uri ? { uri } : undefined;
+}
+
 export function resolveHomeOSFallbackIcon(label: string, fallback = '⌂') {
     return label.trim() ? getAreaIcon(label) : fallback;
 }
