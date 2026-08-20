@@ -12,6 +12,7 @@ import { resolveHomeOSEquipmentFallbackIcon } from '../../components/homeos/home
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import CompactHomeOSCard from './compact-homeos-card';
+import { useHydratedRouteParamsReady } from '../../hooks/useHydratedRouteParamsReady';
 import {
     activePropertyErrorMessage,
     isActivePropertyResolutionError,
@@ -101,6 +102,7 @@ function makeSlug(value: string) {
 
 export default function CreateItemScreen() {
     const { scaleFont, scaleIcon, theme } = useTheme();
+    const routeParamsReady = useHydratedRouteParamsReady();
 
     function scaleStyle<T extends Record<string, any>>(style: T): T {
         const fontKeys = new Set(['fontSize', 'lineHeight']);
@@ -638,6 +640,10 @@ export default function CreateItemScreen() {
         }
 
         router.replace(providerModeContext ? providerModeItemPath(savedSlug, providerModeContext) : `/item/${savedSlug}` as any);
+    }
+
+    if (!routeParamsReady) {
+        return <View style={{ flex: 1 }} />;
     }
 
     return (
