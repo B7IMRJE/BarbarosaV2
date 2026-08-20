@@ -174,7 +174,40 @@ function resolveHierarchy<T extends HomeItemHierarchyRecord>(input: readonly T[]
         if (parents.length === 1) claim(hierarchy, child, parents[0]);
     }
 
+    // Narrow read-only compatibility for one historical generic card. It is
+    // intentionally not a taxonomy rule: only a legacy, unkeyed "Toilet Drain"
+    // can attach, and only where there is one exact "Toilet" in the same room.
+    for (const child of rows) {
+        if (isClaimedOrExplicit(hierarchy, explicitParentRows, child)) continue;
+        const parents = legacyToiletDrainParents(child, rows, hierarchy.areaRows);
+        if (parents.length === 1) claim(hierarchy, child, parents[0]);
+    }
+
     return hierarchy;
+}
+
+function legacyToiletDrainParents<T extends HomeItemHierarchyRecord>(child: T, rows: T[], areaRows: T[]) {
+    if (
+        normalize(child.name) !== 'toilet drain' ||
+        normalize(child.starter_template_key) ||
+        normalize(child.system) !== 'drains / sewer' ||
+        normalize(child.category) !== 'fixture'
+    ) return [];
+    const placement = roomPlacement(child, areaRows);
+    if (!placement || placement.kind !== 'bathroom') return [];
+    return rows.filter((parent) =>
+        rowKey(parent) !== rowKey(child) &&
+        isLegacyToiletDrainParent(parent) &&
+        sameRoomPlacement(placement, roomPlacement(parent, areaRows))
+    );
+}
+
+function isLegacyToiletDrainParent(parent: HomeItemHierarchyRecord) {
+    if (normalize(parent.starter_template_key) === 'bathroom:toilet') return true;
+    return !normalize(parent.starter_template_key) &&
+        normalize(parent.name) === 'toilet' &&
+        normalize(parent.system) === 'plumbing' &&
+        ['fixture', 'equipment'].includes(normalize(parent.category));
 }
 
 function overlayParentsFor<T extends HomeItemHierarchyRecord>(child: T, rows: T[], areaRows: T[]) {

@@ -15,6 +15,36 @@ export function runHomeItemHierarchyProjectionRegressions() {
     ambiguousAndMismatchedLegacyRowsAreNotGuessed();
     nestedAreaItemsDoNotLeakIntoTheirParentDeck();
     projectionUsesEverySavedActiveRowAtMostOnce();
+    legacyToiletDrainUsesOnlyOneExactSameRoomToilet();
+}
+
+function legacyToiletDrainUsesOnlyOneExactSameRoomToilet() {
+    const toilet = item('toilet', 'Toilet', 'Bathroom 1', 'bathroom:toilet');
+    const drain = toiletDrain('toilet-drain');
+    const otherToilet = item('other-toilet', 'Toilet', 'Bathroom 2', 'bathroom:toilet');
+    assertNames(resolveHomeItemComponentDeck([toilet, drain, otherToilet], toilet), ['Toilet Drain'], 'The exact legacy Toilet Drain should attach to the only Toilet in its own room.');
+    const duplicateToilet = item('duplicate-toilet', 'Toilet', 'Bathroom 1', 'bathroom:toilet');
+    assert(resolveHomeItemComponentDeck([toilet, duplicateToilet, drain], toilet).length === 0, 'The legacy Toilet Drain must stay unclaimed when same-room Toilets are ambiguous.');
+    const keyedDrain = { ...toiletDrain('keyed-drain'), starter_template_key: 'custom:toilet_drain' };
+    assert(resolveHomeItemComponentDeck([toilet, keyedDrain], toilet).length === 0, 'A keyed card must never be captured by the legacy Toilet Drain compatibility rule.');
+    const wrongSystemChild = { ...toiletDrain('wrong-system-child'), system: 'Plumbing' };
+    assert(resolveHomeItemComponentDeck([toilet, wrongSystemChild], toilet).length === 0, 'A Toilet Drain outside Drains / Sewer must not use the legacy compatibility relation.');
+    const areaChild = { ...toiletDrain('area-child'), category: 'Area' };
+    assert(resolveHomeItemComponentDeck([toilet, areaChild], toilet).length === 0, 'An Area card must never become a Toilet component.');
+    const componentChild = { ...toiletDrain('component-child'), category: 'Component' };
+    assert(resolveHomeItemComponentDeck([toilet, componentChild], toilet).length === 0, 'A Component-category Toilet Drain must not use the legacy Fixture compatibility rule.');
+    const customCategoryChild = { ...toiletDrain('custom-category-child'), category: 'Custom' };
+    assert(resolveHomeItemComponentDeck([toilet, customCategoryChild], toilet).length === 0, 'A custom-category Toilet Drain must not use the legacy Fixture compatibility rule.');
+    const customParent = { ...item('custom-parent', 'Toilet', 'Bathroom 1', 'custom:toilet'), system: 'Plumbing', category: 'Fixture' };
+    assert(resolveHomeItemComponentDeck([customParent, toiletDrain('custom-parent-child')], customParent).length === 0, 'A custom keyed Toilet must not be treated as the canonical legacy parent.');
+    const wrongSystemParent = { ...item('wrong-system-parent', 'Toilet', 'Bathroom 1'), system: 'Water Quality', category: 'Fixture' };
+    assert(resolveHomeItemComponentDeck([wrongSystemParent, toiletDrain('wrong-system-parent-child')], wrongSystemParent).length === 0, 'An unkeyed Toilet with the wrong system must not be claimed.');
+    const legacyParent = { ...item('legacy-parent', 'Toilet', 'Bathroom 1'), system: 'Plumbing', category: 'Fixture' };
+    assertNames(resolveHomeItemComponentDeck([legacyParent, toiletDrain('legacy-parent-child')], legacyParent), ['Toilet Drain'], 'An unkeyed Plumbing Fixture Toilet remains the precise legacy compatibility parent.');
+}
+
+function toiletDrain(id: string): HomeItemHierarchyRecord {
+    return { ...item(id, 'Toilet Drain', 'Bathroom 1'), system: 'Drains / Sewer', category: 'Fixture' };
 }
 
 function kitchenCounterClaimsOnlyItsApprovedSavedEquipment() {

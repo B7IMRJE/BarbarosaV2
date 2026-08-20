@@ -36,7 +36,7 @@ async function loadSuperAdminProfile(userId: string) {
 
 const cards = [
     'Companies',
-    'Catalog Factory',
+    'Card Decks',
     'Users',
     'Properties',
     'Reviews',
@@ -123,8 +123,8 @@ export default function SuperAdminDashboard() {
             return;
         }
 
-        if (card === 'Catalog Factory') {
-            router.push('/super-admin/catalog-factory' as any);
+        if (card === 'Card Decks') {
+            router.push('/super-admin/card-decks' as any);
             return;
         }
 
