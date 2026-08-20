@@ -168,6 +168,7 @@ declare
     v_archive_child_id uuid;
     v_legacy_area_id uuid;
     v_legacy_root_id uuid;
+    v_foreign_legacy_laundry_id uuid;
     v_delete_guard_area_id uuid;
     v_delete_guard_item_id uuid;
     v_foreign_host_id uuid;
@@ -193,6 +194,7 @@ declare
     v_foreign_email text := 'homeos-area-location-foreign-' || replace(gen_random_uuid()::text, '-', '') || '@example.invalid';
     v_teardown_email text := 'homeos-area-location-teardown-' || replace(gen_random_uuid()::text, '-', '') || '@example.invalid';
     v_reset_email text := 'homeos-area-location-reset-' || replace(gen_random_uuid()::text, '-', '') || '@example.invalid';
+    v_previous_area_location_write text;
     v_rejected boolean;
 begin
     insert into auth.users (
@@ -906,32 +908,37 @@ begin
         'Foreign Garage', 'Structural', 'Area', '', '', 'Missing Information', 'Unknown', false, 'interior'
     ) returning id into v_foreign_host_id;
 
-    -- Simulate two pre-migration aliases by bypassing triggers for fixture
-    -- setup, then execute the same conservative adoption query as the
-    -- migration. Ambiguity must leave both rows at NULL state.
-    perform set_config('session_replication_role', 'replica', true);
-    insert into public.home_items (
-        user_id, property_id, item_slug, name, system, category,
-        location, parent_area, status, install_state, archived, area_scope, area_placement_state
+    -- Exercise the migration's unique-only legacy adoption rule in a temporary
+    -- table. Production triggers intentionally make this pre-migration state
+    -- impossible to manufacture in home_items, and the hosted database does
+    -- not permit disabling those triggers for regression setup.
+    create temporary table homeos_area_location_legacy_adoption_regression (
+        id uuid primary key,
+        property_id uuid not null,
+        name text,
+        category text,
+        archived boolean,
+        area_placement_state text
+    ) on commit drop;
+
+    insert into homeos_area_location_legacy_adoption_regression (
+        id, property_id, name, category, archived, area_placement_state
     ) values (
-        v_foreign_user_id, v_foreign_property_id, 'legacy-laundry-a-' || replace(gen_random_uuid()::text, '-', ''),
-        'Laundry', 'Structural', 'Area', '', '', 'Missing Information', 'Unknown', false, 'interior', null
+        gen_random_uuid(), v_foreign_property_id, 'Laundry', 'Area', false, null
     ), (
-        v_foreign_user_id, v_foreign_property_id, 'legacy-laundry-b-' || replace(gen_random_uuid()::text, '-', ''),
-        'Laundry Room', 'Structural', 'Area', '', 'Foreign Garage', 'Missing Information', 'Unknown', false, 'interior', null
+        gen_random_uuid(), v_foreign_property_id, 'Laundry Room', 'Area', false, null
     );
-    perform set_config('session_replication_role', 'origin', true);
 
     with active_laundry as (
         select
             area.id,
             count(*) over (partition by area.property_id) as active_laundry_count
-        from public.home_items area
+        from homeos_area_location_legacy_adoption_regression area
         where lower(btrim(coalesce(area.category, ''))) = 'area'
           and coalesce(area.archived, false) = false
           and public.homeos_starter_identity(area.name) in ('laundry', 'laundry room')
     )
-    update public.home_items area
+    update homeos_area_location_legacy_adoption_regression area
     set area_placement_state = 'unassigned'
     from active_laundry laundry
     where area.id = laundry.id
@@ -940,7 +947,7 @@ begin
 
     if exists (
         select 1
-        from public.home_items legacy_laundry
+        from homeos_area_location_legacy_adoption_regression legacy_laundry
         where legacy_laundry.property_id = v_foreign_property_id
           and public.homeos_starter_identity(legacy_laundry.name) in ('laundry', 'laundry room')
           and legacy_laundry.area_placement_state is not null
@@ -948,23 +955,63 @@ begin
         raise exception 'Ambiguous legacy Laundry aliases must remain NULL and never be auto-adopted.';
     end if;
 
-    -- Resolving a legacy ambiguity through an ordinary archive must remain
-    -- possible. An UPDATE must not silently default the surviving NULL-state
-    -- alias or force it through the atomic move RPC.
-    update public.home_items legacy_laundry
+    -- Resolving one ambiguous legacy alias must leave the surviving NULL-state
+    -- record untouched until the homeowner chooses a location.
+    update homeos_area_location_legacy_adoption_regression legacy_laundry
     set archived = true
     where legacy_laundry.property_id = v_foreign_property_id
       and public.homeos_starter_identity(legacy_laundry.name) = 'laundry room';
 
     if not exists (
         select 1
-        from public.home_items surviving_laundry
+        from homeos_area_location_legacy_adoption_regression surviving_laundry
         where surviving_laundry.property_id = v_foreign_property_id
           and public.homeos_starter_identity(surviving_laundry.name) = 'laundry'
           and coalesce(surviving_laundry.archived, false) = false
           and surviving_laundry.area_placement_state is null
     ) then
         raise exception 'Archiving one ambiguous legacy Laundry alias must leave the surviving NULL-state record unchanged.';
+    end if;
+
+    -- Independently exercise the real home_items lifecycle guard. A migration-
+    -- era NULL-state Laundry may be archived through an ordinary write without
+    -- silently acquiring a state or changing its placement snapshot.
+    insert into public.home_items (
+        user_id, property_id, item_slug, name, system, category,
+        location, parent_area, status, install_state, archived, area_scope
+    ) values (
+        v_foreign_user_id, v_foreign_property_id,
+        'legacy-laundry-lifecycle-' || replace(gen_random_uuid()::text, '-', ''),
+        'Laundry', 'Structural', 'Area', '', '', 'Missing Information', 'Unknown', false, 'interior'
+    ) returning id into v_foreign_legacy_laundry_id;
+
+    v_previous_area_location_write := coalesce(
+        current_setting('barbarosa.homeos_area_location_write', true),
+        ''
+    );
+    perform set_config('barbarosa.homeos_area_location_write', 'allowed', true);
+    update public.home_items
+    set area_placement_state = null
+    where id = v_foreign_legacy_laundry_id;
+    perform set_config(
+        'barbarosa.homeos_area_location_write',
+        v_previous_area_location_write,
+        true
+    );
+
+    update public.home_items
+    set archived = true
+    where id = v_foreign_legacy_laundry_id;
+
+    if not exists (
+        select 1
+        from public.home_items legacy_laundry
+        where legacy_laundry.id = v_foreign_legacy_laundry_id
+          and coalesce(legacy_laundry.archived, false)
+          and legacy_laundry.area_placement_state is null
+          and nullif(btrim(coalesce(legacy_laundry.parent_area, '')), '') is null
+    ) then
+        raise exception 'Archiving a real legacy NULL-state Laundry must preserve its placement snapshot.';
     end if;
 
     perform set_config('request.jwt.claim.sub', v_user_id::text, true);
