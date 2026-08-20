@@ -3,6 +3,30 @@ import { buildHomeDashboardSystemTiles } from './homeDashboardSystems';
 export function runHomeDashboardSystemsRegressions() {
   canonicalSystemsDoNotBecomeDuplicateRootTiles();
   legacyCustomWrappersDoNotDuplicateCanonicalSystems();
+  propertyAreaContainersDoNotBecomeCustomServices();
+}
+
+function propertyAreaContainersDoNotBecomeCustomServices() {
+  const tiles = buildHomeDashboardSystemTiles([
+    {
+      name: 'Wine Room',
+      system: 'Structural',
+      category: 'Area',
+      location: '',
+      parent_area: '',
+      area_scope: 'interior',
+    },
+    {
+      item_slug: 'area-wine-room-provider-copy',
+      name: 'Wine Room',
+      system: 'Structural',
+      category: 'Area',
+      location: '',
+      parent_area: '',
+    },
+  ]);
+
+  assert(!tiles.some((tile) => tile.label === 'Structural'), 'Property area containers must not leak into Services.');
 }
 
 function canonicalSystemsDoNotBecomeDuplicateRootTiles() {

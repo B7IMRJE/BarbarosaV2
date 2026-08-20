@@ -15,11 +15,13 @@ import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
 type ExistingServiceRow = {
+    item_slug: string | null;
     name: string | null;
     system: string | null;
     category: string | null;
     location: string | null;
     parent_area: string | null;
+    area_scope: string | null;
 };
 
 const suggestedServiceNames = [
@@ -73,7 +75,7 @@ export default function CreateSystemScreen() {
 
         const { data: existingRows, error: existingError } = await supabase
             .from('home_items')
-            .select('name, system, category, location, parent_area')
+            .select('item_slug, name, system, category, location, parent_area, area_scope')
             .eq('property_id', activeProperty.propertyId)
             .or('archived.eq.false,archived.is.null');
 

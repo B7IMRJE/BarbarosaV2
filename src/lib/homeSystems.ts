@@ -21,11 +21,13 @@ export type HomeSystemDefinition = {
 };
 
 export type HomeSystemRecord = {
+    item_slug?: string | null;
     name?: string | null;
     system?: string | null;
     category?: string | null;
     location?: string | null;
     parent_area?: string | null;
+    area_scope?: string | null;
 };
 
 export const homeSystems: HomeSystemDefinition[] = [
@@ -144,6 +146,11 @@ export function isCustomServiceRoot(row: HomeSystemRecord) {
     if (!systemName || getSystemDefinition(systemName)) return false;
     if (!sameSystemText(row.category, 'Area')) return false;
     if (normalizeSystemText(row.parent_area)) return false;
+    if (['interior', 'exterior'].includes(normalizeSystemText(row.area_scope))) return false;
+    if (
+        systemName === 'structural' &&
+        normalizeSystemText(row.item_slug).startsWith('area-')
+    ) return false;
 
     return true;
 }

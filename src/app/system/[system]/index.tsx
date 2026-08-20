@@ -37,6 +37,7 @@ import { useTheme } from '../../../theme/useTheme';
 type SystemAreaItem = HomeHealthItem & {
     name?: string | null;
     item_slug?: string | null;
+    area_scope?: string | null;
 };
 
 export default function SystemAreasScreen() {
@@ -193,7 +194,7 @@ export default function SystemAreasScreen() {
             } else {
                 const { data, error } = await supabase
                     .from('home_items')
-                    .select('id, name, item_slug, status, install_state, system, location, parent_area, category')
+                    .select('id, name, item_slug, status, install_state, system, location, parent_area, category, area_scope')
                     .eq('property_id', activeProperty.propertyId)
                     .or('archived.eq.false,archived.is.null');
 
@@ -206,7 +207,7 @@ export default function SystemAreasScreen() {
         } else {
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, name, item_slug, status, install_state, system, location, parent_area, category')
+                .select('id, name, item_slug, status, install_state, system, location, parent_area, category, area_scope')
                 .eq('property_id', activeProperty.propertyId)
                 .or('archived.eq.false,archived.is.null');
 
@@ -366,7 +367,7 @@ export default function SystemAreasScreen() {
 
         const { data, error } = await supabase
             .from('home_items')
-            .select('id, name, item_slug, status, install_state, system, location, parent_area, category')
+            .select('id, name, item_slug, status, install_state, system, location, parent_area, category, area_scope')
             .eq('property_id', activeProperty.propertyId)
             .eq('system', systemName)
             .or('archived.eq.false,archived.is.null');

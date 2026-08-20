@@ -35,6 +35,7 @@ export type HomeDashboardItem = HomeHealthItem & {
   area?: string | null;
   location?: string | null;
   parent_area?: string | null;
+  area_scope?: string | null;
   status?: string | null;
   install_state?: string | null;
   category?: string | null;

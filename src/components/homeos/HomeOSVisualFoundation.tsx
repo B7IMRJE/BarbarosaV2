@@ -118,6 +118,7 @@ export function MainDestinationCard({
     accessibilityLabel,
     disabled,
     fallbackIcon,
+    visualContentFit,
     actionLabel,
     accentColor,
     style,
@@ -126,6 +127,7 @@ export function MainDestinationCard({
     description?: string;
     visual?: HomeOSVisualAsset;
     fallbackIcon?: string;
+    visualContentFit?: 'cover' | 'contain';
     actionLabel?: string;
     accentColor?: ColorValue;
 }) {
@@ -148,7 +150,13 @@ export function MainDestinationCard({
                 style,
             ]}
         >
-            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} size="destination" />
+            <HomeOSCardVisual
+                asset={visual}
+                label={title}
+                fallbackIcon={fallbackIcon}
+                size="destination"
+                contentFit={visualContentFit}
+            />
             <View style={{ flex: 1, width: '100%', gap: foundation.spacing.compact }}>
                 <Text selectable numberOfLines={2} style={foundation.typography.destinationTitle}>{title}</Text>
                 {description ? <Text selectable numberOfLines={3} style={foundation.typography.body}>{description}</Text> : null}

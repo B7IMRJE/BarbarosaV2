@@ -53,6 +53,7 @@ import {
 import { loadActiveHomeIdentity, loadCompanyHomeIdentity, type HomeIdentity } from '../lib/homeIdentity';
 import { clearPendingCompanyInviteState } from '../lib/companyInviteState';
 import {
+  hasProviderModeRouteSignal,
   providerModePath,
   providerModeItemPath,
   providerModeQueryParams,
@@ -69,6 +70,7 @@ import { clearSessionActivity } from '../lib/sessionSecurity';
 import { supabase } from '../lib/supabase';
 import { useStableCallback } from '../hooks/useStableCallback';
 import { useTheme } from '../theme/useTheme';
+import PropertyLandingScreen from '../features/property-navigation/PropertyLandingScreen';
 
 type PreferredProvider = {
   companyId: string;
@@ -123,7 +125,7 @@ function logHomeMaintenanceSummaryError(stage: string, error: unknown) {
   });
 }
 
-export default function HomeScreen() {
+export function HomeServicesScreen() {
   const { scaleFont, scaleIcon, theme } = useTheme();
   const routeParams = useLocalSearchParams<{
     providerMode?: string | string[];
@@ -1480,6 +1482,21 @@ export default function HomeScreen() {
       </View>
     </ScrollView>
   );
+}
+
+export default function HomeScreen() {
+  const routeParams = useLocalSearchParams<{
+    providerMode?: string | string[];
+    companyId?: string | string[];
+    propertyId?: string | string[];
+    returnTo?: string | string[];
+    serviceRequestId?: string | string[];
+    scheduleSlotId?: string | string[];
+    jobId?: string | string[];
+  }>();
+  const providerRouteActive = hasProviderModeRouteSignal(routeParams);
+
+  return providerRouteActive ? <HomeServicesScreen /> : <PropertyLandingScreen />;
 }
 
 const actionCardGridStyle = {
