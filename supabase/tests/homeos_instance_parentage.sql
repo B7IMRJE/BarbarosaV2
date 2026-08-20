@@ -473,6 +473,8 @@ declare
     v_bathroom_area_id uuid;
     v_toilet_id uuid;
     v_toilet_flapper_id uuid;
+    v_flat_bathroom_area_id uuid;
+    v_flat_toilet_id uuid;
     v_flat_toilet_flapper_id uuid;
     v_bulk_toilet_id uuid := gen_random_uuid();
     v_bulk_flapper_id uuid := gen_random_uuid();
@@ -907,8 +909,28 @@ begin
     ) returning id into v_toilet_flapper_id;
 
     -- Older keyed rows may carry the room placement rather than the assembly
-    -- name. Stable catalog identity plus one unkeyed parent in that exact room
-    -- must still match the hierarchy projection.
+    -- name. Use a separate placement so this fixture does not intentionally
+    -- collide with the unkeyed Flapper above after both resolve to a Toilet.
+    insert into public.home_items (
+        user_id, property_id, item_slug, name, system, category,
+        location, parent_area, status, install_state, archived, area_scope
+    ) values (
+        v_user_id, v_property_id,
+        'parentage-regression-bathroom-flat-area-' || replace(gen_random_uuid()::text, '-', ''),
+        'Bathroom Flat', 'HomeOS', 'Area',
+        'Bathroom Flat', 'Guest House', 'Missing Information', 'Unknown', false, 'interior'
+    ) returning id into v_flat_bathroom_area_id;
+
+    insert into public.home_items (
+        user_id, property_id, item_slug, name, system, category,
+        location, parent_area, status, install_state, archived
+    ) values (
+        v_user_id, v_property_id,
+        'parentage-regression-flat-toilet-' || replace(gen_random_uuid()::text, '-', ''),
+        'Toilet', 'Structural', 'Fixture',
+        'Bathroom Flat', 'Guest House', 'Missing Information', 'Unknown', false
+    ) returning id into v_flat_toilet_id;
+
     insert into public.home_items (
         user_id, property_id, item_slug, name, system, category,
         location, parent_area, status, install_state, archived, starter_template_key
@@ -916,7 +938,7 @@ begin
         v_user_id, v_property_id,
         'parentage-regression-flat-toilet-flapper-' || replace(gen_random_uuid()::text, '-', ''),
         'Toilet Flapper', 'Structural', 'Component',
-        'Bathroom Legacy', 'Guest House', 'Missing Information', 'Unknown', false,
+        'Bathroom Flat', 'Guest House', 'Missing Information', 'Unknown', false,
         'bathroom:toilet_flapper'
     ) returning id into v_flat_toilet_flapper_id;
 
@@ -1036,6 +1058,7 @@ begin
     insert into homeos_instance_parentage_runtime_ids(fixture_key, item_id) values
         ('toilet', v_toilet_id),
         ('toilet_flapper', v_toilet_flapper_id),
+        ('flat_toilet', v_flat_toilet_id),
         ('flat_toilet_flapper', v_flat_toilet_flapper_id),
         ('bulk_toilet', v_bulk_toilet_id),
         ('bulk_flapper', v_bulk_flapper_id),
@@ -1066,6 +1089,7 @@ do $$
 declare
     v_toilet_id uuid;
     v_toilet_flapper_id uuid;
+    v_flat_toilet_id uuid;
     v_flat_toilet_flapper_id uuid;
     v_bulk_toilet_id uuid;
     v_bulk_flapper_id uuid;
@@ -1081,6 +1105,8 @@ begin
     from homeos_instance_parentage_runtime_ids where fixture_key = 'toilet';
     select item_id into v_toilet_flapper_id
     from homeos_instance_parentage_runtime_ids where fixture_key = 'toilet_flapper';
+    select item_id into v_flat_toilet_id
+    from homeos_instance_parentage_runtime_ids where fixture_key = 'flat_toilet';
     select item_id into v_flat_toilet_flapper_id
     from homeos_instance_parentage_runtime_ids where fixture_key = 'flat_toilet_flapper';
     select item_id into v_bulk_toilet_id
@@ -1104,7 +1130,7 @@ begin
     end if;
 
     if (select parent_home_item_id from public.home_items where id = v_flat_toilet_flapper_id)
-           is distinct from v_toilet_id then
+           is distinct from v_flat_toilet_id then
         raise exception 'A keyed legacy room-placement component did not persist its unique unkeyed Toilet instance.';
     end if;
 
@@ -1137,17 +1163,31 @@ begin
     from public.archive_home_item_with_components(v_toilet_id) archived;
 
     if v_archived_id is distinct from v_toilet_id
-       or v_archived_count is distinct from 2
+       or v_archived_count is distinct from 1
        or not exists (
            select 1
            from public.home_items child
-           where child.id in (v_toilet_flapper_id, v_flat_toilet_flapper_id)
+           where child.id = v_toilet_flapper_id
              and child.parent_home_item_id = v_toilet_id
              and coalesce(child.archived, false)
-           group by child.parent_home_item_id
-           having count(*) = 2
        ) then
         raise exception 'Generic non-overlay assembly archive did not retain the Toilet Flapper history.';
+    end if;
+
+    select archived.archived_home_item_id, archived.archived_component_count
+    into v_archived_id, v_archived_count
+    from public.archive_home_item_with_components(v_flat_toilet_id) archived;
+
+    if v_archived_id is distinct from v_flat_toilet_id
+       or v_archived_count is distinct from 1
+       or not exists (
+           select 1
+           from public.home_items child
+           where child.id = v_flat_toilet_flapper_id
+             and child.parent_home_item_id = v_flat_toilet_id
+             and coalesce(child.archived, false)
+       ) then
+        raise exception 'Keyed legacy room-placement archive did not retain the resolved Toilet Flapper history.';
     end if;
 
     select archived.archived_home_item_id, archived.archived_component_count
