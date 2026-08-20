@@ -160,6 +160,8 @@ function providerItemCreateUsesAssignedContextAndCustomerHomeFields() {
     assert(args.p_service_request_id === 'request-1', 'Provider create RPC should preserve assigned request scope.');
     assert(args.p_schedule_slot_id === 'slot-1', 'Provider create RPC should preserve assigned visit scope.');
     assert(args.p_job_id === 'job-1', 'Provider create RPC should preserve assigned job scope.');
+    assert(args.p_parent_home_item_id === null, 'A top-level provider item should not receive an assembly parent implicitly.');
+    assert(args.p_placement_label === null, 'A provider item should not receive a placement label implicitly.');
     assert(args.p_item_slug === 'kitchen-gas-gas-valve', 'Provider create RPC should keep the item slug.');
     assert(args.p_name === 'Kitchen Stove Gas Valve', 'Provider create RPC should keep the item name.');
     assert(args.p_system === 'Gas', 'Provider create RPC should keep the item system.');

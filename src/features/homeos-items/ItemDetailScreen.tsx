@@ -1,5 +1,6 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
+import { ManageActionMenu, homeOSManageActionKeys } from '../../components/homeos/manage-action-menu';
 
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -18,6 +19,7 @@ import {
 } from 'react-native';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
+import { useHydratedRouteParamsReady } from '../../hooks/useHydratedRouteParamsReady';
 import {
     isActivePropertyResolutionError,
     requireActivePropertyMembership,
@@ -76,10 +78,12 @@ import {
     type ProviderHomeItemRpcRow,
 } from '../../lib/providerHomeItems';
 import {
-    filterChildHomeItems,
     resolveHomeItemChildCreateContext,
     type HomeItemHierarchyRecord,
 } from '../../lib/homeItemHierarchy';
+import { resolveHomeItemComponentDeck } from '../../lib/homeItemHierarchyProjection';
+import { nextHomeItemInstanceName } from '../../lib/homeItemInstances';
+import { resolveHomeItemPresentation } from '../../lib/homeItemPresentation';
 import {
     applyPersistedItemPhotoRemoval,
     buildItemPhotoGalleryGroups,
@@ -116,6 +120,7 @@ import {
 } from '../../lib/home-item-closeout';
 import type { HomeItemCatalogProposal } from '../../lib/home-item-catalog';
 import { useTheme } from '../../theme/useTheme';
+import HomeItemAssemblyView from './HomeItemAssemblyView';
 import HomeItemCatalogPicker from './home-item-catalog-picker';
 
 declare const __DEV__: boolean;
@@ -549,9 +554,13 @@ export default function ItemScreen() {
         scheduleSlotId?: string | string[];
         jobId?: string | string[];
         itemView?: string | string[];
+        presentation?: string | string[];
+        hierarchyReturnTo?: string | string[];
+        refresh?: string | string[];
         saved?: string | string[];
         maintenanceGuide?: string | string[];
     }>();
+    const routeParamsReady = useHydratedRouteParamsReady();
     const slug = firstParam(routeParams.slug);
     const managementCompanyId = firstParam(routeParams.companyId);
     const managementPropertyId = firstParam(routeParams.propertyId);
@@ -561,8 +570,12 @@ export default function ItemScreen() {
     const itemFocusedView = firstParam(routeParams.itemView) as ItemFocusedView | '';
     const focusedSaveComplete = firstParam(routeParams.saved) === '1';
     const requestedMaintenanceGuideStep = firstParam(routeParams.maintenanceGuide);
+    const requestedPresentation = routeParamsReady ? firstParam(routeParams.presentation) : '';
+    const hierarchyReturnTo = routeParamsReady ? firstParam(routeParams.hierarchyReturnTo) : '';
+    const refreshSignal = routeParamsReady ? firstParam(routeParams.refresh) : '';
     const [item, setItem] = useState<any>(null);
     const [relatedItems, setRelatedItems] = useState<HomeItemHierarchyRecord[]>([]);
+    const [hierarchyItems, setHierarchyItems] = useState<HomeItemHierarchyRecord[]>([]);
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
     const [maintenanceCompletions, setMaintenanceCompletions] = useState<MaintenanceCompletion[]>([]);
@@ -657,11 +670,20 @@ export default function ItemScreen() {
     const refreshProviderStagedEntriesEvent = useEffectEvent(refreshProviderStagedEntries);
     const openProviderEditEvent = useEffectEvent(() => openProviderPanel('edit'));
     const isProviderMode = Boolean(providerModeContext);
+    const itemPresentation = resolveHomeItemPresentation({
+        presentation: requestedPresentation,
+        routeParamsReady,
+        isProviderMode,
+        isManagementMode,
+        focusedView: itemFocusedView,
+        maintenanceGuide: requestedMaintenanceGuideStep,
+    });
     const isSalesProviderReadOnly = Boolean(providerModeContext) && getProviderHomeItemsReadStrategy(
         providerModeContext!,
         providerMembershipRole
     ) === 'sales_company_rpc';
     const hasItem = Boolean(item);
+    const isLinkedComponent = Boolean(item?.parent_home_item_id);
 
     useEffect(() => {
         void loadItemEvent();
@@ -676,6 +698,7 @@ export default function ItemScreen() {
         providerModeContext?.serviceRequestId,
         providerModeContext?.scheduleSlotId,
         providerModeContext?.jobId,
+        refreshSignal,
     ]);
 
     useEffect(() => {
@@ -995,6 +1018,7 @@ export default function ItemScreen() {
                     brand: 'Unknown',
                     model: 'Unknown',
                     serial: 'Unknown',
+                    parentHomeItemId: String(item.id || ''),
                 })
             );
 
@@ -1011,8 +1035,9 @@ export default function ItemScreen() {
             setProviderRelatedNotes('');
             setProviderPanel('none');
             setRelatedItems((currentItems) =>
-                filterChildHomeItems([...currentItems, createdItem].filter(Boolean) as HomeItemHierarchyRecord[], item)
+                resolveHomeItemComponentDeck([...currentItems, createdItem].filter(Boolean) as HomeItemHierarchyRecord[], item)
             );
+            setHierarchyItems((currentItems) => [...currentItems, createdItem].filter(Boolean) as HomeItemHierarchyRecord[]);
             setMessage(`${itemName} was added under ${item.name || 'this item'}.`);
 
             if (createdItem?.item_slug) {
@@ -1471,6 +1496,7 @@ export default function ItemScreen() {
         setCheckingEstimateAccess(false);
         setProviderMembershipRole('');
         setRelatedItems([]);
+        setHierarchyItems([]);
         setFiles([]);
         setMaintenanceTasks([]);
         setMaintenanceCompletions([]);
@@ -1553,6 +1579,9 @@ export default function ItemScreen() {
                     .select('*')
                     .eq('item_slug', String(slug))
                     .eq('property_id', activeProperty.propertyId)
+                    .order('archived', { ascending: true, nullsFirst: true })
+                    .order('created_at', { ascending: false })
+                    .limit(1)
                     .maybeSingle();
 
                 if (error) {
@@ -1567,6 +1596,9 @@ export default function ItemScreen() {
                 .select('*')
                 .eq('item_slug', String(slug))
                 .eq('property_id', activeProperty.propertyId)
+                .order('archived', { ascending: true, nullsFirst: true })
+                .order('created_at', { ascending: false })
+                .limit(1)
                 .maybeSingle();
 
             if (error) {
@@ -1727,7 +1759,7 @@ export default function ItemScreen() {
             } else {
                 const { data, error } = await supabase
                     .from('home_items')
-                    .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived, starter_template_key')
+                    .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived, starter_template_key, parent_home_item_id, placement_label, photo_url')
                     .eq('property_id', propertyId)
                     .or('archived.eq.false,archived.is.null')
                     .order('name', { ascending: true });
@@ -1742,9 +1774,8 @@ export default function ItemScreen() {
         } else {
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived, starter_template_key')
+                .select('id, item_slug, name, system, category, location, parent_area, status, install_state, archived, starter_template_key, parent_home_item_id, placement_label, photo_url')
                 .eq('property_id', propertyId)
-                .or('archived.eq.false,archived.is.null')
                 .order('name', { ascending: true });
 
             if (error) {
@@ -1755,7 +1786,8 @@ export default function ItemScreen() {
             rows = (data || []) as HomeItemHierarchyRecord[];
         }
 
-        return filterChildHomeItems(rows, parentItem);
+        setHierarchyItems(rows);
+        return resolveHomeItemComponentDeck(rows, parentItem);
     }
 
     async function loadManagementItem(targetCompanyId: string, targetPropertyId: string) {
@@ -1826,6 +1858,9 @@ export default function ItemScreen() {
             .select('id, property_id, name, item_slug, system, location, parent_area, category, status, condition, install_state, installed_on, install_date, brand, model, serial, part_number, installation_notes, created_at, starter_template_key')
             .eq('item_slug', slug)
             .eq('property_id', targetPropertyId)
+            .order('archived', { ascending: true, nullsFirst: true })
+            .order('created_at', { ascending: false })
+            .limit(1)
             .maybeSingle();
 
         if (error) {
@@ -1892,7 +1927,7 @@ export default function ItemScreen() {
             }
         }
 
-        if (resolvedItemSlug) {
+        if ((!resolvedHomeItemId || homeItemIdQueryFailed) && resolvedItemSlug) {
             const { data, error } = await supabase
                 .from('home_item_files')
                 .select('*')
@@ -2608,13 +2643,19 @@ export default function ItemScreen() {
     function baseItemPath() {
         const itemSlug = item?.item_slug || String(slug);
 
-        return providerModeContext
-            ? providerModeItemPath(itemSlug, providerModeContext)
-            : `/item/${encodeURIComponent(itemSlug)}`;
+        if (providerModeContext) {
+            return providerModeItemPath(itemSlug, providerModeContext);
+        }
+
+        const query = hierarchyReturnTo
+            ? `?hierarchyReturnTo=${encodeURIComponent(hierarchyReturnTo)}`
+            : '';
+
+        return `/item/${encodeURIComponent(itemSlug)}${query}`;
     }
 
     function openItemManagement() {
-        router.push(focusedItemPath('management') as any);
+        router.push(focusedItemPath('management', hierarchyReturnTo ? { hierarchyReturnTo } : {}) as any);
     }
 
     function closeProviderEdit() {
@@ -2632,13 +2673,25 @@ export default function ItemScreen() {
             return;
         }
 
+        const returnTo = !isManagementMode && (itemPresentation === 'assembly' || hierarchyReturnTo)
+            ? (hierarchyReturnTo || homeownerAreaReturnPath())
+            : '';
+
         router.push({
             pathname: '/item/edit',
-            params: { slug: String(slug) },
+            params: {
+                slug: String(slug),
+                ...(returnTo ? { returnTo } : {}),
+            },
         } as any);
     }
 
     function handleAddRelatedItem() {
+        if (isLinkedComponent) {
+            setMessage('Add components from the parent equipment or fixture card. HomeOS keeps one clear component level.');
+            return;
+        }
+
         if (providerModeContext) {
             openProviderPanel('related_item');
             return;
@@ -2653,8 +2706,57 @@ export default function ItemScreen() {
                 category: 'Component',
                 area: childContext.location || item.name || '',
                 parentArea: childContext.parentArea || '',
+                parentItemId: String(item.id || ''),
+                parentItemSlug: String(item.item_slug || slug || ''),
             },
         } as any);
+    }
+
+    function handleAddAnotherItem() {
+        const nextName = nextHomeItemInstanceName(
+            String(item.name || 'Item'),
+            hierarchyItems.map((candidate) => candidate.name)
+        );
+        const areaName = String(item.location || item.parent_area || '').trim();
+        const parentAreaName = item.location ? String(item.parent_area || '').trim() : '';
+        const areaReturnTo = areaName
+            ? `/home/area/${encodeURIComponent(areaName)}${parentAreaName ? `?parentArea=${encodeURIComponent(parentAreaName)}` : ''}`
+            : '/';
+
+        router.push({
+            pathname: '/item/create',
+            params: {
+                system: item.system || 'Plumbing',
+                category: item.category || 'Equipment',
+                area: item.location || item.parent_area || '',
+                parentArea: item.location ? item.parent_area || '' : '',
+                name: nextName,
+                templateKey: item.starter_template_key || '',
+                additionalInstance: '1',
+                areaReturnTo,
+            },
+        } as any);
+    }
+
+    function homeownerAreaReturnPath() {
+        let returnItem = item;
+
+        if (isLinkedComponent) {
+            const parent = hierarchyItems.find((candidate) =>
+                String(candidate.id || '') === String(item.parent_home_item_id || '') &&
+                candidate.archived !== true
+            );
+
+            if (!parent) return '/';
+            returnItem = parent;
+        }
+
+        const areaName = String(returnItem.location || returnItem.parent_area || '').trim();
+        const parentAreaName = returnItem.location ? String(returnItem.parent_area || '').trim() : '';
+
+        return areaName
+            ? `/home/area/${encodeURIComponent(areaName)}${parentAreaName ? `?parentArea=${encodeURIComponent(parentAreaName)}` : ''}`
+            : '/';
     }
 
     function openCurrentItemEstimate() {
@@ -3367,7 +3469,7 @@ export default function ItemScreen() {
 
         Alert.alert(
             'Archive item?',
-            'This hides the item from HomeOS. It does not delete your home or account.',
+            'This hides the item and its connected component cards from HomeOS. Saved history, photos, and documents are not deleted.',
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -3384,10 +3486,8 @@ export default function ItemScreen() {
     async function handleArchiveItem() {
         setMessage('Archiving item...');
 
-        let activeProperty;
-
         try {
-            activeProperty = await requireActivePropertyMembership();
+            await requireActivePropertyMembership();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : 'Could not confirm your active home.');
 
@@ -3400,11 +3500,9 @@ export default function ItemScreen() {
             return;
         }
 
-        const { error } = await supabase
-            .from('home_items')
-            .update({ archived: true })
-            .eq('item_slug', String(slug))
-            .eq('property_id', activeProperty.propertyId);
+        const { error } = await supabase.rpc('archive_home_item_with_components', {
+            p_home_item_id: String(item.id || ''),
+        });
 
         if (error) {
             setMessage(`Remove failed: ${error.message}`);
@@ -3413,7 +3511,16 @@ export default function ItemScreen() {
 
         setMessage('Item archived.');
 
+        const returnTo = !isManagementMode && (itemPresentation === 'assembly' || hierarchyReturnTo)
+            ? (hierarchyReturnTo || homeownerAreaReturnPath())
+            : '';
+
         setTimeout(() => {
+            if (returnTo) {
+                router.dismissTo(returnTo as any);
+                return;
+            }
+
             router.back();
         }, 700);
     }
@@ -3511,7 +3618,7 @@ export default function ItemScreen() {
         }
     }
 
-    if (loading) {
+    if (!routeParamsReady || loading) {
         return (
             <View style={scaleStyle(centerStyle)}>
                 <ActivityIndicator size="large" />
@@ -3751,7 +3858,17 @@ export default function ItemScreen() {
 
         if (!itemSlug) return;
 
-        router.push(providerModeContext ? providerModeItemPath(itemSlug, providerModeContext) : `/item/${itemSlug}` as any);
+        if (providerModeContext) {
+            router.push(providerModeItemPath(itemSlug, providerModeContext) as any);
+            return;
+        }
+
+        const returnTo = itemPresentation === 'assembly' ? homeownerAreaReturnPath() : '';
+        const query = returnTo
+            ? `?hierarchyReturnTo=${encodeURIComponent(returnTo)}`
+            : '';
+
+        router.push(`/item/${encodeURIComponent(itemSlug)}${query}` as any);
     }
 
     function renderSectionTile(
@@ -4883,7 +5000,9 @@ export default function ItemScreen() {
                         <ThemedButton
                             title="Back to Item"
                             variant="secondary"
-                            onPress={() => router.replace(baseItemPath() as any)}
+                            onPress={() => hierarchyReturnTo
+                                ? router.back()
+                                : router.replace(baseItemPath() as any)}
                             style={scaleStyle(focusedPageBackButtonStyle)}
                             textStyle={scaleStyle(buttonTextStyle)}
                         />
@@ -4917,13 +5036,15 @@ export default function ItemScreen() {
                                     style={scaleStyle(focusedManagementButtonStyle)}
                                     textStyle={scaleStyle(buttonTextStyle)}
                                 />
-                                <ThemedButton
-                                    title="Add Related Item"
-                                    variant="secondary"
-                                    onPress={handleAddRelatedItem}
-                                    style={scaleStyle(focusedManagementButtonStyle)}
-                                    textStyle={scaleStyle(buttonTextStyle)}
-                                />
+                                {!isLinkedComponent ? (
+                                    <ThemedButton
+                                        title="Add Related Item"
+                                        variant="secondary"
+                                        onPress={handleAddRelatedItem}
+                                        style={scaleStyle(focusedManagementButtonStyle)}
+                                        textStyle={scaleStyle(buttonTextStyle)}
+                                    />
+                                ) : null}
                                 <ThemedButton
                                     title="Request Service"
                                     variant="secondary"
@@ -5005,6 +5126,50 @@ export default function ItemScreen() {
                     ) : null}
                 </View>
             </ScrollView>
+        );
+    }
+
+    if (itemPresentation === 'assembly') {
+        return (
+            <HomeItemAssemblyView
+                item={item}
+                components={relatedItems}
+                onOpenComponent={openRelatedItem}
+                message={message}
+                manageControl={(
+                    <ManageActionMenu
+                        panelTitle={`Manage ${item.name || 'item'}`}
+                        panelDescription="Choose one clear action. Your item history and documents stay attached."
+                        actions={[
+                            {
+                                key: homeOSManageActionKeys.edit,
+                                title: 'Edit or Move',
+                                description: 'Update the name, information, or area for this item.',
+                                onPress: handleEditInformation,
+                            },
+                            {
+                                key: homeOSManageActionKeys.addComponent,
+                                title: 'Add Component',
+                                description: `Add an observed part inside ${item.name || 'this item'}.`,
+                                onPress: handleAddRelatedItem,
+                            },
+                            {
+                                key: homeOSManageActionKeys.addAnother,
+                                title: `Add Another ${String(item.name || 'Item').replace(/\s+(?:#\s*)?\d+$/i, '')}`,
+                                description: 'Start a separate blank record with its own components, photos, and history.',
+                                onPress: handleAddAnotherItem,
+                            },
+                            {
+                                key: homeOSManageActionKeys.archive,
+                                title: 'Remove from HomeOS',
+                                description: 'Archive this item without deleting its saved history.',
+                                destructive: true,
+                                onPress: confirmArchiveItem,
+                            },
+                        ]}
+                    />
+                )}
+            />
         );
     }
 
@@ -5209,14 +5374,14 @@ export default function ItemScreen() {
                                 </View>
                             </ThemedCard>
                         ) : null}
-                        {renderSectionTile(
+                        {!isLinkedComponent ? renderSectionTile(
                             'components',
                             'Components',
                             relatedItems.length > 0
                                 ? `View parts under ${item.name || 'this item'}.`
                                 : `Add parts under ${item.name || 'this item'}.`,
                             `${relatedItems.length}`
-                        )}
+                        ) : null}
                         {renderSectionTile(
                             'maintenance',
                             'Maintenance',
@@ -5249,13 +5414,15 @@ export default function ItemScreen() {
                         {!isSalesProviderReadOnly && renderSectionTile(
                             'item',
                             'Item Management',
-                            'Edit, add components, request service, or archive.',
+                            isLinkedComponent
+                                ? 'Edit this component, request service, or archive it.'
+                                : 'Edit, add components, request service, or archive.',
                             undefined,
                             openItemManagement
                         )}
                     </View>
 
-                    {expandedActionGroups.components ? (
+                    {!isLinkedComponent && expandedActionGroups.components ? (
                     <ThemedCard style={scaleStyle(relatedItemsCardStyle)}>
                         <View style={scaleStyle(relatedItemsHeaderStyle)}>
                             <View style={scaleStyle(relatedItemsHeaderTextStyle)}>
@@ -5920,7 +6087,9 @@ export default function ItemScreen() {
                     {!isSalesProviderReadOnly && renderActionGroup(
                         'item',
                         'Item management',
-                        'Edit this item, add components inside it, or request/archive work.',
+                        isLinkedComponent
+                            ? 'Edit this component, or request/archive work.'
+                            : 'Edit this item, add components inside it, or request/archive work.',
                         <>
                             <ThemedButton
                                 title="Edit Information"
@@ -5929,12 +6098,14 @@ export default function ItemScreen() {
                                 textStyle={scaleStyle(buttonTextStyle)}
                             />
 
-                            <ThemedButton
-                                title="Add Related Item"
-                                onPress={handleAddRelatedItem}
-                                style={scaleStyle(buttonStyle)}
-                                textStyle={scaleStyle(buttonTextStyle)}
-                            />
+                            {!isLinkedComponent ? (
+                                <ThemedButton
+                                    title="Add Related Item"
+                                    onPress={handleAddRelatedItem}
+                                    style={scaleStyle(buttonStyle)}
+                                    textStyle={scaleStyle(buttonTextStyle)}
+                                />
+                            ) : null}
 
                             <ThemedButton
                                 title="Request Service"

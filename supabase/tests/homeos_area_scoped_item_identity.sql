@@ -35,7 +35,7 @@ begin
 
     select pg_get_functiondef('public.provision_complete_room_starter_cards(uuid)'::regprocedure)
     into v_provisioner;
-    select pg_get_functiondef('public.create_provider_homeos_item(uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text)'::regprocedure)
+    select pg_get_functiondef('public.create_provider_homeos_item(uuid,uuid,uuid,uuid,uuid,text,text,text,text,text,text,text,text,text,text,text,text,uuid,text)'::regprocedure)
     into v_provider_publisher;
 
     if v_provisioner !~* 'for update'

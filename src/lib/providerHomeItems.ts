@@ -23,6 +23,8 @@ export type ProviderHomeItemCreateInput = {
     brand?: string | null;
     model?: string | null;
     serial?: string | null;
+    parentHomeItemId?: string | null;
+    placementLabel?: string | null;
 };
 
 export type ProviderHomeItemCreateRpcArgs = ProviderHomeItemsRpcArgs & {
@@ -38,6 +40,8 @@ export type ProviderHomeItemCreateRpcArgs = ProviderHomeItemsRpcArgs & {
     p_brand: string | null;
     p_model: string | null;
     p_serial: string | null;
+    p_parent_home_item_id: string | null;
+    p_placement_label: string | null;
 };
 
 export type ProviderHomeItemRpcRow = {
@@ -60,11 +64,19 @@ export type ProviderHomeItemRpcRow = {
     archived: boolean | null;
     property_id: string;
     starter_template_key?: string | null;
+    parent_home_item_id?: string | null;
+    placement_label?: string | null;
 };
 
 export async function createProviderHomeOSStarterItemFromDeck(
     context: ProviderHomeItemsReadContext,
-    input: { templateKey: string; location: string; parentArea?: string | null },
+    input: {
+        templateKey: string;
+        location: string;
+        parentArea?: string | null;
+        parentHomeItemId?: string | null;
+        placementLabel?: string | null;
+    },
     strategy: ProviderHomeItemCreateStrategy = 'assigned_rpc',
 ) {
     const { data, error } = await supabase.rpc(getProviderHomeOSStarterItemCreateRpcName(strategy), {
@@ -72,6 +84,8 @@ export async function createProviderHomeOSStarterItemFromDeck(
         p_template_key: cleanRequiredText(input.templateKey),
         p_location: cleanRequiredText(input.location),
         p_parent_area: cleanOptionalText(input.parentArea),
+        p_parent_home_item_id: cleanOptionalText(input.parentHomeItemId),
+        p_placement_label: cleanOptionalText(input.placementLabel),
     });
     if (error) throw error;
     const row = (Array.isArray(data) ? data[0] : data) as { id?: unknown; item_slug?: unknown; starter_template_key?: unknown } | null;
@@ -211,6 +225,8 @@ export function buildProviderHomeItemCreateRpcArgs(
         p_brand: cleanOptionalText(input.brand),
         p_model: cleanOptionalText(input.model),
         p_serial: cleanOptionalText(input.serial),
+        p_parent_home_item_id: cleanOptionalText(input.parentHomeItemId),
+        p_placement_label: cleanOptionalText(input.placementLabel),
     };
 }
 

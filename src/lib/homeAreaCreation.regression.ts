@@ -20,6 +20,7 @@ export async function runHomeAreaCreationRegressions() {
     separateBathroomsCanUseTheSameCanonicalStarterCards();
     nestedStarterRowsAreNotDuplicatedOnRetry();
     starterRowsAreWrittenBeforeTheAreaTriggerRuns();
+    parentAssembliesAreWrittenBeforeTheirStarterComponents();
     concurrentDuplicateWritesBecomeSafeSkips();
     existingRowsAreNeverMutatedByThePlanner();
     platformAdminDirectWriteKeepsTheHomeownerAsRecordOwner();
@@ -51,6 +52,19 @@ function starterRowsAreWrittenBeforeTheAreaTriggerRuns() {
 
     assert(ordered.at(-1)?.category === 'Area', 'The area row must be written last so its starter trigger sees the already-created cards.');
     assert(ordered.slice(0, -1).every((row) => row.category !== 'Area'), 'Every starter card should be written before the triggering area row.');
+}
+
+function parentAssembliesAreWrittenBeforeTheirStarterComponents() {
+    const bathroom = requiredTemplate('bathroom');
+    const rows = buildStarterRows('user-1', 'property-1', 'Bathroom 2', bathroom);
+    const ordered = orderHomeAreaCreationRows(rows);
+    const toiletIndex = ordered.findIndex((row) => row.name === 'Toilet');
+    const flapperIndex = ordered.findIndex((row) => row.name === 'Toilet Flapper');
+    const vanityIndex = ordered.findIndex((row) => row.name === 'Bathroom Vanity');
+    const trapIndex = ordered.findIndex((row) => row.name === 'Bathroom Sink P-Trap');
+
+    assert(toiletIndex >= 0 && flapperIndex > toiletIndex, 'A Toilet must be written before its Flapper so durable parentage can resolve on insert.');
+    assert(vanityIndex >= 0 && trapIndex > vanityIndex, 'An approved Vanity root must be written before flattened sink descendants.');
 }
 
 function concurrentDuplicateWritesBecomeSafeSkips() {

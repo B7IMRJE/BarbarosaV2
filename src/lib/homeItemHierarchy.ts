@@ -14,6 +14,10 @@ export type HomeItemHierarchyRecord = {
     status?: string | null;
     install_state?: string | null;
     archived?: boolean | null;
+    starter_template_key?: string | null;
+    parent_home_item_id?: string | null;
+    placement_label?: string | null;
+    photo_url?: string | null;
 };
 
 export type HomeItemChildCreateContext = {
@@ -32,7 +36,18 @@ export function isChildHomeItem(candidate: HomeItemHierarchyRecord, parent: Home
     if (!candidate || !parent) return false;
     if (candidate.archived === true) return false;
     if (sameHierarchyIdentity(candidate.id, parent.id)) return false;
-    if (sameHierarchyIdentity(candidate.item_slug, parent.item_slug)) return false;
+
+    const explicitParentId = cleanHierarchyText(candidate.parent_home_item_id);
+
+    if (explicitParentId) {
+        return sameHierarchyIdentity(explicitParentId, parent.id);
+    }
+
+    if (
+        sameHierarchyIdentity(candidate.item_slug, parent.item_slug) &&
+        sameHierarchyText(candidate.location, parent.location) &&
+        sameHierarchyText(candidate.parent_area, parent.parent_area)
+    ) return false;
 
     const parentName = cleanHierarchyText(parent.name);
     if (!parentName) return false;

@@ -13,10 +13,9 @@ import {
     resolveHomeOSContainerGrid,
     resolveHomeOSContainerItemWidth,
 } from '../../lib/homeos-responsive-layout';
-import {
-    isChildPropertyArea,
-    isDirectPropertyAreaItem,
-} from '../../lib/propertyAreas';
+import { resolveHomeItemDisplay } from '../../lib/homeItemDisplay';
+import { resolveHomeItemAreaAssemblyDeck } from '../../lib/homeItemHierarchyProjection';
+import { isChildPropertyArea } from '../../lib/propertyAreas';
 import { getAreaIcon } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
@@ -30,6 +29,9 @@ type AreaItem = {
     category: string | null;
     location: string | null;
     parent_area: string | null;
+    starter_template_key?: string | null;
+    parent_home_item_id?: string | null;
+    placement_label?: string | null;
     photo_url?: string | null;
 };
 
@@ -69,7 +71,7 @@ export default function PropertyAreaDetailScreen() {
             const property = await requireActivePropertyMembership();
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, name, item_slug, system, category, location, parent_area, photo_url')
+                .select('id, name, item_slug, system, category, location, parent_area, starter_template_key, parent_home_item_id, placement_label, photo_url')
                 .eq('property_id', property.propertyId)
                 .or('archived.eq.false,archived.is.null')
                 .order('system')
@@ -93,8 +95,8 @@ export default function PropertyAreaDetailScreen() {
         () => allItems.filter((item) => isChildPropertyArea(item, areaName)),
         [allItems, areaName]
     );
-    const directItems = useMemo(
-        () => allItems.filter((item) => isDirectPropertyAreaItem(item, areaName, parentAreaName)),
+    const assemblyItems = useMemo(
+        () => resolveHomeItemAreaAssemblyDeck(allItems, { areaName, parentAreaName }),
         [allItems, areaName, parentAreaName]
     );
 
@@ -155,27 +157,29 @@ export default function PropertyAreaDetailScreen() {
                             </View>
                         )}
 
-                        {directItems.length > 0 && (
+                        {assemblyItems.length > 0 && (
                             <View style={{ gap: foundation.spacing.regular }}>
-                                <Text selectable style={foundation.typography.containerTitle}>Items</Text>
+                                <Text selectable style={foundation.typography.containerTitle}>Equipment &amp; Fixtures</Text>
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: gridGap }}>
-                                    {directItems.map((item) => {
+                                    {assemblyItems.map((item) => {
                                         const itemSlug = String(item.item_slug || '').trim();
-                                        const detail = [item.system, item.category].filter(Boolean).join(' · ');
+                                        const itemDisplay = resolveHomeItemDisplay(item);
 
                                         return (
                                             <EquipmentContainer
                                                 key={item.id}
-                                                title={item.name || 'Unnamed item'}
-                                                detail={itemSlug ? detail : [detail, 'Details unavailable'].filter(Boolean).join(' · ')}
+                                                title={itemDisplay.title}
+                                                detail={itemSlug
+                                                    ? itemDisplay.placementLabel || undefined
+                                                    : [itemDisplay.placementLabel, 'Details unavailable'].filter(Boolean).join(' · ')}
                                                 visual={resolveHomeOSEquipmentVisual(item.photo_url)}
                                                 accessibilityLabel={itemSlug
-                                                    ? `Open equipment ${item.name || 'Unnamed item'}`
-                                                    : `${item.name || 'Unnamed item'} details unavailable`}
+                                                    ? `Open ${itemDisplay.title}${itemDisplay.placementLabel ? `, ${itemDisplay.placementLabel}` : ''}`
+                                                    : `${itemDisplay.title} details unavailable`}
                                                 disabled={!itemSlug}
                                                 onPress={itemSlug ? () => router.push({
                                                     pathname: '/item/[slug]',
-                                                    params: { slug: itemSlug },
+                                                    params: { slug: itemSlug, presentation: 'assembly' },
                                                 } as never) : undefined}
                                                 style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
                                             />
@@ -185,7 +189,7 @@ export default function PropertyAreaDetailScreen() {
                             </View>
                         )}
 
-                        {childAreas.length === 0 && directItems.length === 0 && (
+                        {childAreas.length === 0 && assemblyItems.length === 0 && (
                             <Text selectable style={foundation.typography.body}>
                                 No equipment or items are currently stored in this area.
                             </Text>

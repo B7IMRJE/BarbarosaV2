@@ -1,0 +1,189 @@
+import type { HomeItemHierarchyRecord } from './homeItemHierarchy';
+import {
+    resolveHomeItemAreaAssemblyDeck,
+    resolveHomeItemAreaHierarchyProjection,
+    resolveHomeItemComponentDeck,
+} from './homeItemHierarchyProjection';
+
+runHomeItemHierarchyProjectionRegressions();
+
+export function runHomeItemHierarchyProjectionRegressions() {
+    kitchenSinkClaimsOnlyTheApprovedExistingDeck();
+    bathroomVanityAndRefrigeratorClaimsAreTransitive();
+    explicitParentIdsWinAndDisambiguateDuplicateAssemblies();
+    ambiguousAndMismatchedLegacyRowsAreNotGuessed();
+    nestedAreaItemsDoNotLeakIntoTheirParentDeck();
+    projectionUsesEverySavedActiveRowAtMostOnce();
+}
+
+function kitchenSinkClaimsOnlyTheApprovedExistingDeck() {
+    const sink = item('sink', 'Kitchen Sink', 'Kitchen', 'kitchen:kitchen_sink');
+    const faucet = item('faucet', 'Kitchen Faucet', 'Kitchen', 'kitchen:kitchen_faucet');
+    const disposal = item('disposal', 'Garbage Disposal', 'Kitchen', 'kitchen:garbage_disposal');
+    const flange = item('flange', 'Disposal Flange', 'Kitchen', 'kitchen:disposal_flange');
+    const dishwasher = item('dishwasher', 'Dishwasher', 'Kitchen', 'kitchen:dishwasher');
+    const rows = [sink, faucet, disposal, flange, dishwasher];
+
+    assertNames(
+        resolveHomeItemComponentDeck(rows, sink),
+        ['Disposal Flange', 'Garbage Disposal', 'Kitchen Faucet'],
+        'Kitchen Sink should claim the existing Faucet, Garbage Disposal, and disposal descendants.'
+    );
+    assertNames(
+        resolveHomeItemAreaAssemblyDeck(rows, 'Kitchen'),
+        ['Dishwasher', 'Kitchen Sink'],
+        'Claimed sink components should not remain duplicated on the Kitchen deck.'
+    );
+    assert(resolveHomeItemComponentDeck(rows, sink).includes(faucet), 'Projection must return the original saved row object.');
+}
+
+function bathroomVanityAndRefrigeratorClaimsAreTransitive() {
+    const vanity = item('vanity', 'Bathroom Vanity', 'Bathroom 1', 'bathroom:bathroom_vanity');
+    const sink = item('bath-sink', 'Bathroom Sink', 'Bathroom 1', 'bathroom:bathroom_sink');
+    const faucet = item('bath-faucet', 'Bathroom Sink Faucet', 'Bathroom 1', 'bathroom:bathroom_sink_faucet');
+    const trap = item('bath-trap', 'Bathroom Sink P-Trap', 'Bathroom 1', 'bathroom:bathroom_sink_p_trap');
+
+    assertNames(
+        resolveHomeItemComponentDeck([vanity, sink, faucet, trap], vanity),
+        ['Bathroom Sink', 'Bathroom Sink Faucet', 'Bathroom Sink P-Trap'],
+        'Bathroom Vanity should claim saved Sink/Faucet cards and the Sink descendants.'
+    );
+
+    const refrigerator = item('fridge', 'Refrigerator', 'Kitchen');
+    const waterLine = item('water-line', 'Refrigerator Water Line', 'Kitchen', 'kitchen:refrigerator_water_line');
+    const waterFilter = item('water-filter', 'Refrigerator Water Filter', 'Kitchen', 'kitchen:refrigerator_water_filter');
+
+    assertNames(
+        resolveHomeItemComponentDeck([refrigerator, waterLine, waterFilter], refrigerator),
+        ['Refrigerator Water Filter', 'Refrigerator Water Line'],
+        'Refrigerator should claim only an existing Water Line and its saved descendants.'
+    );
+}
+
+function explicitParentIdsWinAndDisambiguateDuplicateAssemblies() {
+    const firstSink = item('sink-a', 'Kitchen Sink', 'Kitchen', 'kitchen:kitchen_sink');
+    const secondSink = item('sink-b', 'Kitchen Sink', 'Kitchen', 'kitchen:kitchen_sink');
+    const firstTrap = { ...item('trap-a', 'Kitchen Sink P-Trap', 'Kitchen', 'kitchen:kitchen_sink_p_trap'), parent_home_item_id: 'sink-a' };
+    const secondTrap = { ...item('trap-b', 'Kitchen Sink P-Trap', 'Kitchen', 'kitchen:kitchen_sink_p_trap'), parent_home_item_id: 'sink-b' };
+    const rows = [firstSink, secondSink, firstTrap, secondTrap];
+
+    assertNames(resolveHomeItemComponentDeck(rows, firstSink), ['Kitchen Sink P-Trap'], 'The first duplicate assembly should receive only its ID-linked child.');
+    assert(resolveHomeItemComponentDeck(rows, firstSink)[0]?.id === 'trap-a', 'The first child should remain attached to sink-a.');
+    assert(resolveHomeItemComponentDeck(rows, secondSink)[0]?.id === 'trap-b', 'The second child should remain attached to sink-b.');
+
+    const dishwasher = item('dishwasher-explicit', 'Dishwasher', 'Kitchen', 'kitchen:dishwasher');
+    const faucet = { ...item('explicit-faucet', 'Kitchen Faucet', 'Kitchen', 'kitchen:kitchen_faucet'), parent_home_item_id: dishwasher.id };
+    const explicitRows = [firstSink, dishwasher, faucet];
+
+    assert(resolveHomeItemComponentDeck(explicitRows, firstSink).length === 0, 'Overlay must not override an explicit parent ID.');
+    assert(resolveHomeItemComponentDeck(explicitRows, dishwasher)[0]?.id === faucet.id, 'Explicit parent ID should win before every fallback.');
+}
+
+function ambiguousAndMismatchedLegacyRowsAreNotGuessed() {
+    const firstSink = item('ambiguous-sink-a', 'Kitchen Sink', 'Kitchen', 'kitchen:kitchen_sink');
+    const secondSink = item('ambiguous-sink-b', 'Kitchen Sink', 'Kitchen', 'kitchen:kitchen_sink');
+    const unlinkedFaucet = item('ambiguous-faucet', 'Kitchen Faucet', 'Kitchen', 'kitchen:kitchen_faucet');
+    const customFaucet = item('custom-faucet', 'Kitchen Faucet', 'Kitchen', 'custom:not_a_sink_faucet');
+    const renamedSink = item('renamed-sink', 'Island Workstation', 'Kitchen', 'kitchen:kitchen_sink');
+    const renamedTrap = item('renamed-trap', 'Left Drain Bend', 'Kitchen', 'kitchen:kitchen_sink_p_trap');
+
+    assertNames(
+        resolveHomeItemAreaAssemblyDeck([firstSink, secondSink, unlinkedFaucet], 'Kitchen'),
+        ['Kitchen Faucet', 'Kitchen Sink', 'Kitchen Sink'],
+        'An unlinked component should remain visible when duplicate parents make the legacy relation ambiguous.'
+    );
+    assertNames(
+        resolveHomeItemAreaAssemblyDeck([firstSink, customFaucet], 'Kitchen'),
+        ['Kitchen Faucet', 'Kitchen Sink'],
+        'A conflicting stable template key must not be overridden by a matching display name.'
+    );
+    assert(
+        resolveHomeItemComponentDeck([renamedSink, renamedTrap], renamedSink)[0]?.id === renamedTrap.id,
+        'Stable starter template keys should preserve a canonical relation after display names change.'
+    );
+}
+
+function nestedAreaItemsDoNotLeakIntoTheirParentDeck() {
+    const kitchenSink = item('root-kitchen-sink', 'Kitchen Sink', 'Kitchen', 'kitchen:kitchen_sink');
+    const pantryArea = {
+        ...item('pantry-area', 'Pantry', 'Pantry'),
+        category: 'Area',
+        parent_area: 'Kitchen',
+    };
+    const pantrySink = {
+        ...item('pantry-sink', 'Bar Sink', 'Pantry'),
+        parent_area: 'Kitchen',
+    };
+    const pantryFaucet = {
+        ...item('pantry-faucet', 'Kitchen Faucet', 'Pantry', 'kitchen:kitchen_faucet'),
+        parent_area: 'Kitchen',
+    };
+    const legacySinkChild = {
+        ...item('legacy-sink-child', 'Kitchen Sink P-Trap', 'Kitchen Sink', 'kitchen:kitchen_sink_p_trap'),
+        parent_area: 'Kitchen',
+    };
+    const legacyKitchenItem = {
+        ...item('legacy-kitchen-item', 'Legacy Kitchen Valve', ''),
+        parent_area: 'Kitchen',
+    };
+    const rows = [pantryArea, kitchenSink, pantrySink, pantryFaucet, legacySinkChild, legacyKitchenItem];
+
+    assertNames(
+        resolveHomeItemAreaAssemblyDeck(rows, { areaName: 'Kitchen' }),
+        ['Kitchen Sink', 'Legacy Kitchen Valve'],
+        'A nested Pantry item must not also appear in its parent Kitchen deck.'
+    );
+    assertNames(
+        resolveHomeItemAreaAssemblyDeck(rows, { areaName: 'Pantry', parentAreaName: 'Kitchen' }),
+        ['Bar Sink', 'Kitchen Faucet'],
+        'A keyed item in a saved nested area must remain in that exact child-area deck.'
+    );
+    assertNames(
+        resolveHomeItemComponentDeck(rows, kitchenSink),
+        ['Kitchen Sink P-Trap'],
+        'A true legacy child placed at the parent item name should still attach to its assembly.'
+    );
+}
+
+function projectionUsesEverySavedActiveRowAtMostOnce() {
+    const sink = item('projection-sink', 'Kitchen Sink', 'Kitchen', 'kitchen:kitchen_sink');
+    const faucet = item('projection-faucet', 'Kitchen Faucet', 'Kitchen', 'kitchen:kitchen_faucet');
+    const dishwasher = item('projection-dishwasher', 'Dishwasher', 'Kitchen', 'kitchen:dishwasher');
+    const archived = { ...item('projection-archived', 'Garbage Disposal', 'Kitchen', 'kitchen:garbage_disposal'), archived: true };
+    const unsavedSuggestion: HomeItemHierarchyRecord = { name: 'Garbage Disposal', location: 'Kitchen', archived: false };
+    const projection = resolveHomeItemAreaHierarchyProjection(
+        [sink, faucet, dishwasher, archived, unsavedSuggestion],
+        { areaName: 'Kitchen' }
+    );
+    const projectedIds = projection.flatMap((entry) => [entry.assembly, ...entry.components]).map((row) => row.id);
+
+    assert(projectedIds.length === new Set(projectedIds).size, 'A saved row must be claimed at most once in the area projection.');
+    assert(projectedIds.length === 3, 'Projection must neither synthesize cards nor include archived/unsaved suggestions.');
+    assert(!projectedIds.includes(archived.id), 'Archived rows must be excluded.');
+}
+
+function item(
+    id: string,
+    name: string,
+    location: string,
+    starterTemplateKey?: string
+): HomeItemHierarchyRecord {
+    return {
+        id,
+        item_slug: id,
+        name,
+        location,
+        parent_area: '',
+        archived: false,
+        starter_template_key: starterTemplateKey || null,
+    };
+}
+
+function assertNames(rows: HomeItemHierarchyRecord[], expected: string[], message: string) {
+    const actual = rows.map((row) => row.name || '');
+    assert(JSON.stringify(actual) === JSON.stringify(expected), `${message} Received: ${actual.join(', ') || 'none'}.`);
+}
+
+function assert(condition: unknown, message: string): asserts condition {
+    if (!condition) throw new Error(message);
+}

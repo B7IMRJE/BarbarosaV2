@@ -58,6 +58,16 @@ const CUSTOM_CATEGORY_CHOICE = '__custom_category__';
 const extraCategories = ['Storage', 'Safety'];
 const installStates = ['Unknown', 'Installed', 'Missing', 'Not Applicable'];
 const statuses = ['Missing Information', 'Not Inspected', 'Good', 'Needs Attention', 'Emergency'];
+const placementLabelSuggestions = [
+    'Left wall',
+    'Right wall',
+    'Center',
+    'Near tub',
+    'Near shower',
+    'Near entry',
+    'Water-closet alcove',
+    'Custom',
+];
 
 declare const __DEV__: boolean;
 
@@ -129,6 +139,11 @@ export default function CreateItemScreen() {
         system?: string;
         area?: string;
         parentArea?: string;
+        parentItemId?: string;
+        parentItemSlug?: string;
+        templateKey?: string;
+        additionalInstance?: string;
+        areaReturnTo?: string;
         category?: string;
         name?: string;
         rootItem?: string;
@@ -145,6 +160,11 @@ export default function CreateItemScreen() {
     const initialSystem = decodeParam(params.system) || 'Plumbing';
     const initialArea = decodeParam(params.area);
     const initialParentArea = decodeParam(params.parentArea).trim();
+    const initialParentItemId = decodeParam(params.parentItemId).trim();
+    const initialParentItemSlug = decodeParam(params.parentItemSlug).trim();
+    const initialTemplateKey = decodeParam(params.templateKey).trim();
+    const isAdditionalInstance = sameItemText(decodeParam(params.additionalInstance), '1');
+    const areaReturnTo = decodeParam(params.areaReturnTo).trim();
     const isRootSystemItem = sameItemText(decodeParam(params.rootItem), 'true');
     const openDeckPickerInitially = sameItemText(decodeParam(params.deckPicker), 'true');
     const hasAreaContext = !!initialSystem && !!initialArea;
@@ -181,6 +201,8 @@ export default function CreateItemScreen() {
     const [installState, setInstallState] = useState('Unknown');
     const [status, setStatus] = useState('Missing Information');
     const [about, setAbout] = useState('');
+    const [placementLabelChoice, setPlacementLabelChoice] = useState('');
+    const [customPlacementLabel, setCustomPlacementLabel] = useState('');
     const [message, setMessage] = useState('');
     const [saving, setSaving] = useState(false);
     const [deckCards, setDeckCards] = useState<HomeOSStarterCardChoice[]>([]);
@@ -350,6 +372,11 @@ export default function CreateItemScreen() {
         return '';
     }
 
+    function finalPlacementLabel() {
+        if (placementLabelChoice === 'Custom') return customPlacementLabel.trim();
+        return placementLabelChoice.trim();
+    }
+
     async function saveItem() {
         if (!name.trim()) {
             setMessage('Enter item name.');
@@ -368,6 +395,11 @@ export default function CreateItemScreen() {
 
         if (!hasAreaContext && !finalLocation()) {
             setMessage('Choose the item’s observed location. Use Custom if the location is not listed.');
+            return;
+        }
+
+        if (isAdditionalInstance && !finalPlacementLabel()) {
+            setMessage('Choose a short placement label so this item is easy to recognize.');
             return;
         }
 
@@ -412,7 +444,9 @@ export default function CreateItemScreen() {
             brand: selectedDeckCard ? null : 'Unknown',
             model: selectedDeckCard ? null : 'Unknown',
             serial: selectedDeckCard ? null : 'Unknown',
-            starter_template_key: selectedDeckCard?.templateKey || null,
+            starter_template_key: selectedDeckCard?.templateKey || initialTemplateKey || null,
+            parent_home_item_id: initialParentItemId || null,
+            placement_label: finalPlacementLabel() || null,
             archived: false,
         };
 
@@ -483,6 +517,8 @@ export default function CreateItemScreen() {
                     templateKey: selectedDeckCard.templateKey,
                     location: insertPayload.location,
                     parentArea: insertPayload.parent_area,
+                    parentHomeItemId: insertPayload.parent_home_item_id,
+                    placementLabel: insertPayload.placement_label,
                 }, providerCreateStrategy!);
                 savedSlug = created.itemSlug || slug;
             } catch (createError) {
@@ -504,6 +540,8 @@ export default function CreateItemScreen() {
                     brand: insertPayload.brand,
                     model: insertPayload.model,
                     serial: insertPayload.serial,
+                    parentHomeItemId: insertPayload.parent_home_item_id,
+                    placementLabel: insertPayload.placement_label,
                 })
             );
             error = providerCreateResult.error;
@@ -525,6 +563,23 @@ export default function CreateItemScreen() {
             setMessage(selectedDeckCard
                 ? `Could not add ${selectedDeckCard.name} from the HomeOS Deck: ${unknownErrorMessage(error)}`
                 : getCreateItemErrorMessage(error, itemName));
+            return;
+        }
+
+        if (initialParentItemSlug) {
+            router.dismissTo({
+                pathname: '/item/[slug]',
+                params: {
+                    slug: initialParentItemSlug,
+                    presentation: 'assembly',
+                    refresh: String(Date.now()),
+                },
+            } as any);
+            return;
+        }
+
+        if (isAdditionalInstance && areaReturnTo) {
+            router.dismissTo(areaReturnTo as any);
             return;
         }
 
@@ -581,6 +636,28 @@ export default function CreateItemScreen() {
                                 ? `${getSystemLabel(initialSystem)} / ${initialParentArea}`
                                 : getSystemLabel(initialSystem)}
                         </Text>
+                    </ThemedCard>
+                )}
+
+                {isAdditionalInstance && (
+                    <ThemedCard style={scaleStyle(formCardStyle)}>
+                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>RECOGNIZE THIS ONE</Text>
+                        <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Where is this item in the area?</Text>
+                        <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>Choose a short placement label. For Left or Right, stand at the room entry and look in.</Text>
+                        <ChoiceCardGrid
+                            accessibilityLabel="Placement label"
+                            choices={placementLabelSuggestions.map((label) => ({ value: label, label }))}
+                            value={placementLabelChoice}
+                            onChange={setPlacementLabelChoice}
+                        />
+                        {placementLabelChoice === 'Custom' && (
+                            <ThemedInput
+                                label="Custom Placement Label"
+                                placeholder="Near the makeup counter"
+                                value={customPlacementLabel}
+                                onChangeText={setCustomPlacementLabel}
+                            />
+                        )}
                     </ThemedCard>
                 )}
 
@@ -658,6 +735,7 @@ export default function CreateItemScreen() {
                                 Pick the home system this item belongs to.
                             </Text>
                             <ChoiceCardGrid
+                                accessibilityLabel="Home system"
                                 choices={systemChoices}
                                 value={isSystemSelected ? system : ''}
                                 onChange={chooseSystem}
@@ -692,6 +770,7 @@ export default function CreateItemScreen() {
                                     Choose the kind of item you are adding.
                                 </Text>
                                 <ChoiceCardGrid
+                                    accessibilityLabel="Item category"
                                     choices={categoryChoices}
                                     value={isCategorySelected ? category : ''}
                                     onChange={chooseCategory}
@@ -717,7 +796,7 @@ export default function CreateItemScreen() {
                             Tap one to fill the item name, or type your own below.
                         </Text>
                         <CustomItemChoice onPress={() => { setSelectedDeckCard(null); setName(''); }} />
-                        <ChoiceCardGrid choices={suggestionChoices} value={name} onChange={(nextName) => { setSelectedDeckCard(null); setName(nextName); }} />
+                        <ChoiceCardGrid accessibilityLabel="Common item" choices={suggestionChoices} value={name} onChange={(nextName) => { setSelectedDeckCard(null); setName(nextName); }} />
                     </ThemedCard>
                 )}
 
@@ -753,7 +832,7 @@ export default function CreateItemScreen() {
                             <>
                                 <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Location</Text>
                                 <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>Choose the actual observed placement. HomeOS will not assume Garage, Front Yard, or another location.</Text>
-                                <ChoiceCardGrid choices={locationChoices} value={locationChoice} onChange={setLocationChoice} />
+                                <ChoiceCardGrid accessibilityLabel="Item location" choices={locationChoices} value={locationChoice} onChange={setLocationChoice} />
 
                                 {locationChoice === 'Custom' && (
                                     <ThemedInput
@@ -767,10 +846,10 @@ export default function CreateItemScreen() {
                         )}
 
                         <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Condition</Text>
-                        <ChoiceCardGrid choices={installStateChoices} value={installState} onChange={setInstallState} />
+                        <ChoiceCardGrid accessibilityLabel="Item condition" choices={installStateChoices} value={installState} onChange={setInstallState} />
 
                         <Text style={[scaleStyle(fieldLabelStyle), { color: theme.colors.text }]}>Status</Text>
-                        <ChoiceCardGrid choices={statusChoices} value={status} onChange={setStatus} />
+                        <ChoiceCardGrid accessibilityLabel="Item status" choices={statusChoices} value={status} onChange={setStatus} />
                     </ThemedCard>
                 )}
 
@@ -1046,10 +1125,12 @@ function CustomItemChoice({ onPress }: { onPress: () => void }) {
 }
 
 function ChoiceCardGrid({
+    accessibilityLabel,
     choices,
     value,
     onChange,
 }: {
+    accessibilityLabel: string;
     choices: Choice[];
     value: string;
     onChange: (value: string) => void;
@@ -1057,12 +1138,19 @@ function ChoiceCardGrid({
     const { scaleFont, scaleIcon, theme } = useTheme();
 
     return (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12) }}>
+        <View
+            accessibilityLabel={accessibilityLabel}
+            accessibilityRole="radiogroup"
+            style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(12) }}
+        >
             {choices.map((choice) => {
                 const selected = value === choice.value;
 
                 return (
                     <TouchableOpacity
+                        accessibilityLabel={choice.label}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected }}
                         key={choice.value}
                         onPress={() => onChange(choice.value)}
                         activeOpacity={0.82}

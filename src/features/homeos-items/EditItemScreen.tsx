@@ -1,6 +1,6 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useEffectEvent, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     ScrollView,
@@ -16,6 +16,13 @@ import {
     requireActivePropertyMembership,
 } from '../../lib/activeProperty';
 import { buildAreaRow } from '../../lib/areaTemplates';
+import {
+    HOME_ITEM_CUSTOM_LOCATION_VALUE,
+    buildHomeItemEditLocationChoices,
+    getHomeItemEditLocationChoiceValue,
+    resolveHomeItemEditLocationChoice,
+    type HomeItemEditLocationChoice,
+} from '../../lib/home-item-edit-locations';
 import { homeSystemOptions } from '../../lib/homeSystems';
 import {
     ACTIVATED_ITEM_INSTALL_STATE,
@@ -58,22 +65,12 @@ const statuses = [
     'Emergency',
 ];
 
-function getPickerValue(value: string, options: string[]) {
-    if (!value) return options[0];
-    if (options.includes(value)) return value;
-    return 'Custom';
-}
-
 function normalizeLocationText(value?: string | null) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function sameLocationText(a?: string | null, b?: string | null) {
     return normalizeLocationText(a) === normalizeLocationText(b);
-}
-
-function uniqueOptions(options: string[]) {
-    return options.filter((option, index, self) => option && self.indexOf(option) === index);
 }
 
 export default function EditItemScreen() {
@@ -120,9 +117,11 @@ export default function EditItemScreen() {
     const routeParams = useLocalSearchParams<{
         slug?: string | string[];
         activate?: string | string[];
+        returnTo?: string | string[];
     }>();
     const slug = firstParam(routeParams.slug);
     const activationMode = firstParam(routeParams.activate) === '1';
+    const requestedReturnTo = firstParam(routeParams.returnTo);
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -131,11 +130,14 @@ export default function EditItemScreen() {
     const [about, setAbout] = useState('');
     const [system, setSystem] = useState('Plumbing');
 
-    const [locationChoice, setLocationChoice] = useState('Garage');
+    const [locationChoice, setLocationChoice] = useState('');
     const [customLocation, setCustomLocation] = useState('');
     const [areaLocations, setAreaLocations] = useState<AreaLocation[]>([]);
     const [originalLocation, setOriginalLocation] = useState('');
     const [originalParentArea, setOriginalParentArea] = useState('');
+    const [homeItemId, setHomeItemId] = useState('');
+    const [isLinkedComponent, setIsLinkedComponent] = useState(false);
+    const [placementLabel, setPlacementLabel] = useState('');
 
     const [brand, setBrand] = useState('');
     const [model, setModel] = useState('');
@@ -148,12 +150,17 @@ export default function EditItemScreen() {
         void loadItemEvent();
     }, [activationMode, slug]);
 
+    const locationOptions = useMemo(
+        () => buildHomeItemEditLocationChoices(locations, areaLocations),
+        [areaLocations]
+    );
+
     function finalLocation() {
-        if (locationChoice === 'Custom') {
+        if (locationChoice === HOME_ITEM_CUSTOM_LOCATION_VALUE) {
             return customLocation.trim();
         }
 
-        return locationChoice;
+        return resolveHomeItemEditLocationChoice(locationChoice, locationOptions)?.location || originalLocation;
     }
 
     function finalParentArea(nextLocation: string) {
@@ -161,21 +168,21 @@ export default function EditItemScreen() {
             return originalParentArea;
         }
 
-        const matchingArea = areaLocations.find(
+        const selectedArea = resolveHomeItemEditLocationChoice(locationChoice, locationOptions);
+        if (selectedArea) return selectedArea.parentArea;
+
+        const systemMatches = areaLocations.filter(
             (area) => sameLocationText(area.name, nextLocation) && sameLocationText(area.system, system)
-        ) || areaLocations.find(
+        );
+        const matchingAreas = systemMatches.length > 0 ? systemMatches : areaLocations.filter(
             (area) => sameLocationText(area.name, nextLocation)
         );
+        const parentAreas = matchingAreas.filter((area, index, rows) =>
+            rows.findIndex((candidate) => sameLocationText(candidate.parent_area, area.parent_area)) === index
+        );
 
-        return matchingArea?.parent_area?.trim() || '';
+        return parentAreas.length === 1 ? parentAreas[0]?.parent_area?.trim() || '' : '';
     }
-
-    const locationOptions = uniqueOptions([
-        ...locations.filter((location) => location !== 'Custom'),
-        ...areaLocations.map((area) => area.name || '').filter(Boolean),
-        originalLocation,
-        'Custom',
-    ]);
 
     async function loadItem() {
         let activeProperty;
@@ -199,6 +206,9 @@ export default function EditItemScreen() {
             .select('*')
             .eq('item_slug', String(slug))
             .eq('property_id', activeProperty.propertyId)
+            .order('archived', { ascending: true, nullsFirst: true })
+            .order('created_at', { ascending: false })
+            .limit(1)
             .maybeSingle();
 
         if (error || !data) {
@@ -209,16 +219,15 @@ export default function EditItemScreen() {
         const savedLocation = data.location || data.parent_area || '';
         const savedParentArea = data.parent_area || '';
 
-        const nextLocationChoice = getPickerValue(savedLocation, locations);
-
         setName(data.name || '');
         setAbout(data.about || '');
         setSystem(data.system || 'Plumbing');
 
-        setLocationChoice(nextLocationChoice);
-        setCustomLocation(nextLocationChoice === 'Custom' ? savedLocation : '');
         setOriginalLocation(savedLocation);
         setOriginalParentArea(savedParentArea);
+        setHomeItemId(String(data.id || ''));
+        setIsLinkedComponent(Boolean(data.parent_home_item_id));
+        setPlacementLabel(data.placement_label || '');
 
         setBrand(data.brand || '');
         setModel(data.model || '');
@@ -238,7 +247,18 @@ export default function EditItemScreen() {
             .eq('category', 'Area')
             .or('archived.eq.false,archived.is.null');
 
-        setAreaLocations((areaRows || []) as AreaLocation[]);
+        const nextAreaLocations = (areaRows || []) as AreaLocation[];
+        const nextLocationOptions = buildHomeItemEditLocationChoices(locations, nextAreaLocations);
+        const nextLocationChoice = getHomeItemEditLocationChoiceValue(
+            savedLocation,
+            savedParentArea,
+            data.system || '',
+            nextLocationOptions
+        );
+
+        setAreaLocations(nextAreaLocations);
+        setLocationChoice(nextLocationChoice);
+        setCustomLocation(nextLocationChoice === HOME_ITEM_CUSTOM_LOCATION_VALUE ? savedLocation : '');
 
         setLoading(false);
     }
@@ -249,12 +269,12 @@ export default function EditItemScreen() {
             return;
         }
 
-        if (locationChoice === 'Custom' && !customLocation.trim()) {
+        if (!isLinkedComponent && locationChoice === HOME_ITEM_CUSTOM_LOCATION_VALUE && !customLocation.trim()) {
             alert('Enter a custom location or select an existing one.');
             return;
         }
 
-        const nextLocation = finalLocation();
+        const nextLocation = isLinkedComponent ? originalLocation : finalLocation();
 
         setSaving(true);
 
@@ -275,21 +295,34 @@ export default function EditItemScreen() {
             return;
         }
 
+        const updatePayload = {
+            name: name.trim(),
+            about: about.trim(),
+            placement_label: placementLabel.trim() || null,
+            brand: brand.trim() || 'Unknown',
+            model: model.trim() || 'Unknown',
+            serial: serial.trim() || 'Unknown',
+            system,
+            install_state: installState,
+            status,
+            ...(!isLinkedComponent
+                ? {
+                    location: nextLocation,
+                    parent_area: finalParentArea(nextLocation),
+                }
+                : {}),
+        };
+
+        if (!homeItemId) {
+            setSaving(false);
+            alert('This HomeOS item could not be identified. Reopen it and try again.');
+            return;
+        }
+
         const { error } = await supabase
             .from('home_items')
-            .update({
-                name: name.trim(),
-                about: about.trim(),
-                location: nextLocation,
-                parent_area: finalParentArea(nextLocation),
-                brand: brand.trim() || 'Unknown',
-                model: model.trim() || 'Unknown',
-                serial: serial.trim() || 'Unknown',
-                system,
-                install_state: installState,
-                status,
-            })
-            .eq('item_slug', String(slug))
+            .update(updatePayload)
+            .eq('id', homeItemId)
             .eq('property_id', activeProperty.propertyId);
 
         setSaving(false);
@@ -299,7 +332,7 @@ export default function EditItemScreen() {
             return;
         }
 
-        if (activationMode) {
+        if (activationMode && !isLinkedComponent) {
             await activateParentArea({
                 userId: activeProperty.userId,
                 propertyId: activeProperty.propertyId,
@@ -308,6 +341,15 @@ export default function EditItemScreen() {
                 parentArea: finalParentArea(nextLocation),
             });
             router.replace(`/item/${String(slug)}` as any);
+            return;
+        }
+
+        if (requestedReturnTo) {
+            const returnTo = !isLinkedComponent && requestedReturnTo.startsWith('/home/area/')
+                ? `/home/area/${encodeURIComponent(nextLocation)}${finalParentArea(nextLocation) ? `?parentArea=${encodeURIComponent(finalParentArea(nextLocation))}` : ''}`
+                : requestedReturnTo;
+
+            router.dismissTo(returnTo as any);
             return;
         }
 
@@ -360,19 +402,37 @@ export default function EditItemScreen() {
 
                 <ThemedCard style={scaleStyle(formCardStyle)}>
                     <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Location</Text>
-                    <OptionRow
-                        options={locationOptions}
-                        value={locationChoice}
-                        onChange={setLocationChoice}
-                    />
+                    {isLinkedComponent ? (
+                        <Text style={{ color: theme.colors.mutedText, marginBottom: scaleIcon(12), fontSize: scaleFont(14) }}>
+                            This component stays with its equipment or fixture. Its location changes when the parent item moves.
+                        </Text>
+                    ) : (
+                        <>
+                            <OptionRow
+                                options={locationOptions}
+                                value={locationChoice}
+                                onChange={setLocationChoice}
+                            />
 
-                    {locationChoice === 'Custom' && (
-                        <ThemedInput
-                            placeholder="Custom Location"
-                            value={customLocation}
-                            onChangeText={setCustomLocation}
-                        />
+                            {locationChoice === HOME_ITEM_CUSTOM_LOCATION_VALUE && (
+                                <ThemedInput
+                                    placeholder="Custom Location"
+                                    value={customLocation}
+                                    onChangeText={setCustomLocation}
+                                />
+                            )}
+                        </>
                     )}
+
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Placement Label</Text>
+                    <Text style={{ color: theme.colors.mutedText, marginBottom: scaleIcon(10), fontSize: scaleFont(14) }}>
+                        Optional. Use a landmark such as Left wall, Near shower, or Water-closet alcove.
+                    </Text>
+                    <ThemedInput
+                        placeholder="Placement label, for example Left wall"
+                        value={placementLabel}
+                        onChangeText={setPlacementLabel}
+                    />
 
                     <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>System</Text>
                     <SystemOptionRow value={system} onChange={setSystem} />
@@ -550,7 +610,7 @@ function OptionRow({
     value,
     onChange,
 }: {
-    options: string[];
+    options: readonly (string | HomeItemEditLocationChoice)[];
     value: string;
     onChange: (value: string) => void;
 }) {
@@ -559,12 +619,14 @@ function OptionRow({
     return (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8), marginBottom: scaleIcon(12) }}>
             {options.map((option) => {
-                const selected = value === option;
+                const optionValue = typeof option === 'string' ? option : option.value;
+                const optionLabel = typeof option === 'string' ? option : option.label;
+                const selected = value === optionValue;
 
                 return (
                     <TouchableOpacity
-                        key={option}
-                        onPress={() => onChange(option)}
+                        key={optionValue}
+                        onPress={() => onChange(optionValue)}
                         style={{
                             backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
                             borderRadius: theme.radii.pill,
@@ -581,7 +643,7 @@ function OptionRow({
                                 fontSize: scaleFont(14),
                             }}
                         >
-                            {option}
+                            {optionLabel}
                         </Text>
                     </TouchableOpacity>
                 );

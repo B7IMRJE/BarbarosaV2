@@ -7,6 +7,7 @@ import {
     type ExistingAreaItem,
     type HomeItemInsert,
 } from './areaTemplates';
+import { resolveHomeItemAreaHierarchyProjection } from './homeItemHierarchyProjection';
 
 export type HomeAreaCreationStage = 'access' | 'existing_items' | 'create';
 
@@ -70,12 +71,24 @@ export function getHomeAreaCreationErrorMessage(error: unknown) {
 }
 
 export function orderHomeAreaCreationRows(rows: HomeItemInsert[]) {
-    return [...rows].sort((left, right) => {
-        const leftIsArea = left.category === 'Area' ? 1 : 0;
-        const rightIsArea = right.category === 'Area' ? 1 : 0;
+    const componentSlugs = new Set(
+        resolveHomeItemAreaHierarchyProjection(rows)
+            .flatMap((entry) => entry.components)
+            .map((row) => String(row.item_slug || '').trim())
+            .filter(Boolean)
+    );
 
-        return leftIsArea - rightIsArea;
+    return [...rows].sort((left, right) => {
+        const leftRank = homeAreaCreationRowRank(left, componentSlugs);
+        const rightRank = homeAreaCreationRowRank(right, componentSlugs);
+
+        return leftRank - rightRank;
     });
+}
+
+function homeAreaCreationRowRank(row: HomeItemInsert, componentSlugs: ReadonlySet<string>) {
+    if (row.category === 'Area') return 2;
+    return componentSlugs.has(String(row.item_slug || '').trim()) ? 1 : 0;
 }
 
 export function isHomeAreaDuplicateWriteError(error: unknown) {
