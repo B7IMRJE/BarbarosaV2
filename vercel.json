@@ -42,6 +42,18 @@
       "destination": "/maintenance/[id]"
     },
     {
+      "source": "/home/:scope",
+      "destination": "/home/[scope]"
+    },
+    {
+      "source": "/home/:scope/add-area",
+      "destination": "/home/[scope]/add-area"
+    },
+    {
+      "source": "/home/area/:area",
+      "destination": "/home/area/[area]"
+    },
+    {
       "source": "/plumbing-item/:itemId",
       "destination": "/plumbing-item/[itemId]"
     },
