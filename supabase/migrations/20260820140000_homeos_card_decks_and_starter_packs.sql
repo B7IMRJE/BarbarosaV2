@@ -908,9 +908,9 @@ begin
                 'aliases', area.aliases,
                 'display_order', area.display_order,
                 'publication_status', area.publication_status
-            ) order by area.display_order, area.name), '[]'::jsonb)
+            ) order by area.display_order, area.name)
             from public.homeos_area_card_templates area
-        ),
+        ), '[]'::jsonb),
         'card_sets', coalesce((
             select jsonb_agg(jsonb_build_object(
                 'id', card_set.id,
@@ -973,20 +973,20 @@ begin
                                         'status', variant.status
                                     )
                                 end
-                            ) order by member.display_order, member.slot_key), '[]'::jsonb)
+                            ) order by member.display_order, member.slot_key)
                             from public.homeos_card_set_revision_members member
                             left join public.homeos_area_card_templates area on area.area_key = member.area_card_key
                             left join public.homeos_starter_card_templates template on template.template_key = member.starter_template_key
                             left join public.catalog_product_variants variant on variant.id = member.catalog_product_variant_id
                             where member.revision_id = revision.id
-                        )
-                    ) order by revision.revision_number desc), '[]'::jsonb)
+                        ), '[]'::jsonb)
+                    ) order by revision.revision_number desc)
                     from public.homeos_card_set_revisions revision
                     where revision.card_set_id = card_set.id
-                )
-            ) order by card_set.created_at, card_set.id), '[]'::jsonb)
+                ), '[]'::jsonb)
+            ) order by card_set.created_at, card_set.id)
             from public.homeos_card_sets card_set
-        )
+        ), '[]'::jsonb)
     ) into v_result;
 
     return v_result;
