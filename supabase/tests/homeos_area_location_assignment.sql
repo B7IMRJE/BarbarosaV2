@@ -15,6 +15,7 @@ declare
     v_delete_guard_def text;
     v_sync_def text;
     v_move_def text;
+    v_reset_def text;
     v_reset_config text[];
 begin
     select column_row.data_type, column_row.is_nullable
@@ -61,6 +62,7 @@ begin
     v_delete_guard_def := pg_get_functiondef('public.homeos_prevent_area_hard_delete()'::regprocedure);
     v_sync_def := pg_get_functiondef('public.sync_complete_room_starter_cards()'::regprocedure);
     v_move_def := pg_get_functiondef('public.move_homeowner_property_area(uuid,text,uuid)'::regprocedure);
+    v_reset_def := pg_get_functiondef('public.reset_active_home_for_testing(text)'::regprocedure);
 
     select pg_get_triggerdef(trigger_row.oid)
     into v_root_lock_trigger_def
@@ -118,11 +120,13 @@ begin
        or v_delete_guard_def !~* 'homeos_property_teardown'
        or v_delete_guard_def !~* 'archive homeos areas'
        or has_function_privilege('authenticated', 'public.homeos_prevent_area_hard_delete()', 'EXECUTE')
-       or (
-           to_regprocedure('public.reset_active_home_for_testing(text)') is not null
-           and not coalesce('barbarosa.homeos_property_teardown=allowed' = any(v_reset_config), false)
-       ) then
-        raise exception 'Area hard-delete protection or the existing reset teardown exemption is missing.';
+       or coalesce('barbarosa.homeos_property_teardown=allowed' = any(v_reset_config), false)
+       or v_reset_def is null
+       or v_reset_def !~* 'v_previous_homeos_property_teardown'
+       or v_reset_def !~* 'set_config\(''barbarosa.homeos_property_teardown'', ''allowed'', true\)'
+       or v_reset_def !~* 'delete from public.home_items where property_id = \$1'
+       or v_reset_def !~* 'exception when others' then
+        raise exception 'Area hard-delete protection or the reset-local teardown exemption is missing.';
     end if;
 
     if v_move_def !~* 'security definer'
@@ -1128,6 +1132,7 @@ begin
 
     -- The existing test reset deletes HomeOS rows before deleting its property,
     -- so its function-local marker is the only explicit normal-delete bypass.
+    -- It must restore a caller's existing setting after the Area is deleted.
     if to_regprocedure('public.reset_active_home_for_testing(text)') is not null then
         perform set_config('request.jwt.claim.sub', v_reset_user_id::text, true);
         select created_property.property_id
@@ -1150,13 +1155,19 @@ begin
             'Reset Area', 'Structural', 'Area', '', '', 'Missing Information', 'Unknown', false, 'interior'
         ) returning id into v_reset_area_id;
 
-        perform * from public.reset_active_home_for_testing('RESET');
+        perform set_config('barbarosa.homeos_property_teardown', 'before-reset', true);
+        select * into v_result
+        from public.reset_active_home_for_testing('RESET');
 
-        if exists (select 1 from public.properties where id = v_reset_property_id)
+        if v_result.property_id is distinct from v_reset_property_id
+           or v_result.reset_status is distinct from 'deleted'
+           or exists (select 1 from public.properties where id = v_reset_property_id)
            or exists (select 1 from public.home_items where id = v_reset_area_id)
-           or coalesce(current_setting('barbarosa.homeos_property_teardown', true), '') = 'allowed' then
+           or current_setting('barbarosa.homeos_property_teardown', true) is distinct from 'before-reset' then
             raise exception 'The existing reset workflow must remove its property and restore the Area-delete bypass.';
         end if;
+
+        perform set_config('barbarosa.homeos_property_teardown', '', true);
     end if;
 
     perform set_config('request.jwt.claim.sub', v_user_id::text, true);
