@@ -10,10 +10,32 @@ runHomeItemHierarchyProjectionRegressions();
 export function runHomeItemHierarchyProjectionRegressions() {
     kitchenSinkClaimsOnlyTheApprovedExistingDeck();
     bathroomVanityAndRefrigeratorClaimsAreTransitive();
+    kitchenCounterClaimsOnlyItsApprovedSavedEquipment();
     explicitParentIdsWinAndDisambiguateDuplicateAssemblies();
     ambiguousAndMismatchedLegacyRowsAreNotGuessed();
     nestedAreaItemsDoNotLeakIntoTheirParentDeck();
     projectionUsesEverySavedActiveRowAtMostOnce();
+}
+
+function kitchenCounterClaimsOnlyItsApprovedSavedEquipment() {
+    const counter = item('counter', 'Kitchen Counter', 'Kitchen', 'kitchen:kitchen_counter');
+    const instantHot = item('instant-hot', 'Instant Hot Water Dispenser', 'Kitchen', 'kitchen:instant_hot_water_dispenser');
+    const instantValve = item('instant-valve', 'Instant Hot Shutoff Valve', 'Kitchen', 'kitchen:instant_hot_shutoff_valve');
+    const reverseOsmosis = item('ro', 'Reverse Osmosis System', 'Kitchen', 'kitchen:reverse_osmosis_system');
+    const roFilter = item('ro-filter', 'RO Sediment Filter', 'Kitchen', 'kitchen:ro_sediment_filter');
+    const dishwasher = item('counter-dishwasher', 'Dishwasher', 'Kitchen', 'kitchen:dishwasher');
+    const rows = [counter, instantHot, instantValve, reverseOsmosis, roFilter, dishwasher];
+
+    assertNames(
+        resolveHomeItemComponentDeck(rows, counter),
+        ['Instant Hot Shutoff Valve', 'Instant Hot Water Dispenser', 'Reverse Osmosis System', 'RO Sediment Filter'],
+        'Kitchen Counter should claim saved Instant Hot and Reverse Osmosis cards plus their saved descendants.'
+    );
+    assertNames(
+        resolveHomeItemAreaAssemblyDeck(rows, 'Kitchen'),
+        ['Dishwasher', 'Kitchen Counter'],
+        'Counter-bound cards must no longer appear beside the Kitchen Counter on the area deck.'
+    );
 }
 
 function kitchenSinkClaimsOnlyTheApprovedExistingDeck() {
@@ -49,7 +71,7 @@ function bathroomVanityAndRefrigeratorClaimsAreTransitive() {
         'Bathroom Vanity should claim saved Sink/Faucet cards and the Sink descendants.'
     );
 
-    const refrigerator = item('fridge', 'Refrigerator', 'Kitchen');
+    const refrigerator = item('fridge', 'Refrigerator', 'Kitchen', 'kitchen:refrigerator');
     const waterLine = item('water-line', 'Refrigerator Water Line', 'Kitchen', 'kitchen:refrigerator_water_line');
     const waterFilter = item('water-filter', 'Refrigerator Water Filter', 'Kitchen', 'kitchen:refrigerator_water_filter');
 

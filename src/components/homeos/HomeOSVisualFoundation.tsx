@@ -13,7 +13,8 @@ import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation'
 import { useTheme } from '../../theme/useTheme';
 import ThemedButton from '../theme/ThemedButton';
 import {
-    resolveHomeOSFallbackIcon,
+    resolveHomeOSAreaFallbackIcon,
+    resolveHomeOSEquipmentFallbackIcon,
     resolveHomeOSVisualSource,
     type HomeOSVisualAsset,
 } from './homeos-visual-assets';
@@ -61,12 +62,14 @@ export function HomeOSCardVisual({
     asset,
     label,
     fallbackIcon,
+    fallbackContext,
     size = 'regular',
     contentFit,
 }: {
     asset?: HomeOSVisualAsset;
     label: string;
     fallbackIcon?: string;
+    fallbackContext?: 'area' | 'equipment';
     size?: 'compact' | 'regular' | 'destination';
     contentFit?: 'cover' | 'contain';
 }) {
@@ -78,6 +81,9 @@ export function HomeOSCardVisual({
         : size === 'compact'
             ? foundation.grid.areaImageHeight
             : foundation.grid.equipmentImageHeight;
+    const resolvedFallbackIcon = (fallbackContext || (size === 'compact' ? 'area' : 'equipment')) === 'area'
+        ? resolveHomeOSAreaFallbackIcon(label, fallbackIcon)
+        : resolveHomeOSEquipmentFallbackIcon(label, fallbackIcon);
 
     return source ? (
         <Image
@@ -104,7 +110,7 @@ export function HomeOSCardVisual({
             }]}
         >
             <Text style={{ fontSize: scaleIcon(size === 'compact' ? 34 : 40) }}>
-                {fallbackIcon || resolveHomeOSFallbackIcon(label)}
+                {resolvedFallbackIcon}
             </Text>
         </View>
     );
@@ -154,6 +160,7 @@ export function MainDestinationCard({
                 asset={visual}
                 label={title}
                 fallbackIcon={fallbackIcon}
+                fallbackContext="area"
                 size="destination"
                 contentFit={visualContentFit}
             />
@@ -221,7 +228,7 @@ export function AreaContainer({
                 style,
             ]}
         >
-            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} size="compact" />
+            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} fallbackContext="area" size="compact" />
             <Text selectable numberOfLines={2} style={[foundation.typography.containerTitle, { textAlign: 'center' }]}>
                 {title}
             </Text>
@@ -263,7 +270,7 @@ export function EquipmentContainer({
                 style,
             ]}
         >
-            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} contentFit="contain" />
+            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} fallbackContext="equipment" contentFit="contain" />
             <View style={{ gap: foundation.spacing.compact }}>
                 <Text selectable numberOfLines={2} style={foundation.typography.containerTitle}>{title}</Text>
                 {detail ? <Text selectable numberOfLines={1} style={foundation.typography.body}>{detail}</Text> : null}
@@ -290,7 +297,7 @@ export function EquipmentDetailHeader({
 
     return (
         <View style={[foundation.surface, { padding: foundation.spacing.comfortable, gap: foundation.spacing.comfortable }, style]}>
-            <HomeOSCardVisual asset={visual} label={title} size="destination" />
+            <HomeOSCardVisual asset={visual} label={title} fallbackContext="equipment" size="destination" />
             <View style={{ gap: foundation.spacing.compact }}>
                 <Text selectable style={foundation.typography.destinationTitle}>{title}</Text>
                 {type ? <Text selectable style={foundation.typography.body}>{type}</Text> : null}

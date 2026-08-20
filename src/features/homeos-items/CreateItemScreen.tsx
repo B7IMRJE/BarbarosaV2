@@ -8,6 +8,7 @@ import {
     View,
 } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
+import { resolveHomeOSEquipmentFallbackIcon } from '../../components/homeos/homeos-visual-assets';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import CompactHomeOSCard from './compact-homeos-card';
@@ -47,6 +48,10 @@ import {
     homeOSStarterCardGroupLabel,
     homeOSStarterCardGroups,
 } from '../../lib/homeosStarterCardPickerCore';
+import {
+    filterHomeOSContainerStarterCardChoices,
+    propertyAreaRoutePath,
+} from '../../lib/propertyAreaContainerDeck';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
 
@@ -148,6 +153,7 @@ export default function CreateItemScreen() {
         name?: string;
         rootItem?: string;
         deckPicker?: string;
+        containerMode?: string | string[];
         providerMode?: string | string[];
         companyId?: string | string[];
         propertyId?: string | string[];
@@ -166,7 +172,8 @@ export default function CreateItemScreen() {
     const isAdditionalInstance = sameItemText(decodeParam(params.additionalInstance), '1');
     const areaReturnTo = decodeParam(params.areaReturnTo).trim();
     const isRootSystemItem = sameItemText(decodeParam(params.rootItem), 'true');
-    const openDeckPickerInitially = sameItemText(decodeParam(params.deckPicker), 'true');
+    const isContainerMode = sameItemText(decodeParam(params.containerMode), 'true');
+    const openDeckPickerInitially = isContainerMode || sameItemText(decodeParam(params.deckPicker), 'true');
     const hasAreaContext = !!initialSystem && !!initialArea;
     const initialCategoryParam = typeof params.category === 'string' ? params.category.trim() : '';
     const initialCategory = initialCategoryParam
@@ -298,8 +305,17 @@ export default function CreateItemScreen() {
     const showCategoryStep = isSystemSelected;
     const showItemSections = isCategorySelected;
     const showOptionalDetails = showItemSections && !!name.trim();
-    const deckGroups = homeOSStarterCardGroups(deckCards);
-    const visibleDeckCards = filterHomeOSStarterCardChoices(deckCards, deckQuery, deckGroup);
+    const availableDeckCards = useMemo(
+        () => isContainerMode
+            ? filterHomeOSContainerStarterCardChoices(deckCards, {
+                areaName: initialArea,
+                parentAreaName: initialParentArea,
+            })
+            : deckCards,
+        [deckCards, initialArea, initialParentArea, isContainerMode]
+    );
+    const deckGroups = homeOSStarterCardGroups(availableDeckCards);
+    const visibleDeckCards = filterHomeOSStarterCardChoices(availableDeckCards, deckQuery, deckGroup);
 
     function chooseSystem(nextSystem: string) {
         const isCustomSystem = nextSystem === CUSTOM_SYSTEM_CHOICE;
@@ -378,6 +394,11 @@ export default function CreateItemScreen() {
     }
 
     async function saveItem() {
+        if (isContainerMode && !selectedDeckCard) {
+            setMessage('Choose an existing top-level container from the HomeOS Deck. New container archetypes require a separate catalog release.');
+            return;
+        }
+
         if (!name.trim()) {
             setMessage('Enter item name.');
             return;
@@ -578,6 +599,14 @@ export default function CreateItemScreen() {
             return;
         }
 
+        if (isContainerMode && hasAreaContext) {
+            router.dismissTo(propertyAreaRoutePath({
+                areaName: initialArea,
+                parentAreaName: initialParentArea,
+            }) as any);
+            return;
+        }
+
         if (isAdditionalInstance && areaReturnTo) {
             router.dismissTo(areaReturnTo as any);
             return;
@@ -619,15 +648,21 @@ export default function CreateItemScreen() {
             <View style={{ width: '100%', maxWidth: 1200 }}>
                 <HomeHeader />
 
-                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>Create Item</Text>
+                <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>
+                    {isContainerMode ? 'Add Container' : 'Create Item'}
+                </Text>
 
                 <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
-                    Add one home item at a time. Choose where it belongs, then fill in only what you know.
+                    {isContainerMode
+                        ? 'Choose one existing top-level HomeOS container for this exact area.'
+                        : 'Add one home item at a time. Choose where it belongs, then fill in only what you know.'}
                 </Text>
 
                 {hasAreaContext && (
                     <ThemedCard style={scaleStyle(contextCardStyle)}>
-                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Adding to</Text>
+                        <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>
+                            {isContainerMode ? 'Adding container to' : 'Adding to'}
+                        </Text>
                         <Text style={[scaleStyle(contextTitleStyle), { color: theme.colors.text }]}>
                             {initialArea}
                         </Text>
@@ -663,14 +698,20 @@ export default function CreateItemScreen() {
 
                 <ThemedCard style={scaleStyle(formCardStyle)}>
                     <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>HomeOS Deck</Text>
-                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Add a standard HomeOS card</Text>
-                    <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>Search the master Deck and add one generic card directly to this area or container. This adds no catalog product, installed brand/model, service history, or unverified location.</Text>
+                    <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>
+                        {isContainerMode ? 'Containers' : 'Add a standard HomeOS card'}
+                    </Text>
+                    <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
+                        {isContainerMode
+                            ? 'This area’s Deck shows existing top-level container choices only. It excludes component, Electrical, and Safety cards and adds no installed product facts.'
+                            : 'Search the master Deck and add one generic card directly to this area or container. This adds no catalog product, installed brand/model, service history, or unverified location.'}
+                    </Text>
                     {selectedDeckCard && !deckPickerOpen ? (
                         <View style={{ gap: scaleIcon(10), marginTop: scaleIcon(12) }}>
                             <CompactHomeOSCard
                                 title={selectedDeckCard.name}
                                 subtitle={[selectedDeckCard.shortCode, selectedDeckCard.system, selectedDeckCard.category].filter(Boolean).join(' · ')}
-                                icon={starterCardIcon(selectedDeckCard)}
+                                icon={resolveHomeOSEquipmentFallbackIcon(selectedDeckCard.name)}
                                 onOpen={() => setDeckPickerOpen(true)}
                                 actionTitle="Change Deck Card"
                                 onAction={() => setDeckPickerOpen(true)}
@@ -680,7 +721,13 @@ export default function CreateItemScreen() {
                         </View>
                     ) : (
                         <ThemedButton
-                            title={deckPickerOpen ? 'Hide HomeOS Deck' : deckLoading ? 'Loading HomeOS Deck...' : 'Search HomeOS Deck'}
+                            title={deckPickerOpen
+                                ? `Hide ${isContainerMode ? 'Container' : 'HomeOS'} Deck`
+                                : deckLoading
+                                    ? 'Loading HomeOS Deck...'
+                                    : isContainerMode
+                                        ? 'Choose a Container'
+                                        : 'Search HomeOS Deck'}
                             variant="secondary"
                             disabled={deckLoading}
                             onPress={() => setDeckPickerOpen((current) => !current)}
@@ -699,9 +746,16 @@ export default function CreateItemScreen() {
                     )}
                     {deckPickerOpen && !deckLoading && (
                         <View style={{ gap: scaleIcon(12), marginTop: scaleIcon(14) }}>
-                            <ThemedInput label="Search HomeOS Deck" placeholder="Smart water, shower valve, faucet, S01..." value={deckQuery} onChangeText={setDeckQuery} />
+                            <ThemedInput
+                                label={isContainerMode ? 'Search Containers' : 'Search HomeOS Deck'}
+                                placeholder={isContainerMode
+                                    ? 'Vanity, sink, dishwasher, water heater...'
+                                    : 'Smart water, shower valve, faucet, S01...'}
+                                value={deckQuery}
+                                onChangeText={setDeckQuery}
+                            />
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: scaleIcon(8) }}>
-                                <DeckGroupChip label="All Deck Cards" selected={deckGroup === 'all'} onPress={() => setDeckGroup('all')} />
+                                <DeckGroupChip label={isContainerMode ? 'All Containers' : 'All Deck Cards'} selected={deckGroup === 'all'} onPress={() => setDeckGroup('all')} />
                                 {deckGroups.map((group) => <DeckGroupChip key={group.key} label={`${group.label} (${group.count})`} selected={deckGroup === group.key} onPress={() => setDeckGroup(group.key)} />)}
                             </View>
                             <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>Deck groups describe the archetype’s master taxonomy only. You choose its actual home location here.</Text>
@@ -711,53 +765,61 @@ export default function CreateItemScreen() {
                                         key={card.templateKey}
                                         title={card.name}
                                         subtitle={[card.shortCode, homeOSStarterCardGroupLabel(card.roomKind)].filter(Boolean).join(' · ')}
-                                        icon={starterCardIcon(card)}
+                                        icon={resolveHomeOSEquipmentFallbackIcon(card.name)}
                                         onOpen={() => chooseDeckCard(card)}
                                         actionTitle="Add This Card"
                                         onAction={() => chooseDeckCard(card)}
                                     />
                                 ))}
                             </View>
-                            {!visibleDeckCards.length && <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>No HomeOS Deck cards match this search.</Text>}
+                            {!visibleDeckCards.length && (
+                                <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
+                                    {isContainerMode
+                                        ? 'No existing top-level HomeOS Deck containers match this area or search. New container archetypes require a separate additive catalog release.'
+                                        : 'No HomeOS Deck cards match this search.'}
+                                </Text>
+                            )}
                         </View>
                     )}
                 </ThemedCard>
 
-                <StepCard
-                    step="1"
-                    title="System"
-                    summary={isSystemSelected && !isSystemOpen ? selectedSystemLabel : undefined}
-                    onEdit={() => setIsSystemOpen(true)}
-                >
-                    {isSystemOpen && (
-                        <>
-                            <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
-                                Pick the home system this item belongs to.
-                            </Text>
-                            <ChoiceCardGrid
-                                accessibilityLabel="Home system"
-                                choices={systemChoices}
-                                value={isSystemSelected ? system : ''}
-                                onChange={chooseSystem}
-                            />
-                            {system === CUSTOM_SYSTEM_CHOICE && (
-                                <>
-                                    <ThemedInput
-                                        label="Custom System Name"
-                                        placeholder="Home Storage"
-                                        value={customSystem}
-                                        onChangeText={setCustomSystem}
-                                    />
-                                    <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
-                                        Use Add Service first if this should appear on Home. Custom item systems stay inside the item unless a service exists.
-                                    </Text>
-                                </>
-                            )}
-                        </>
-                    )}
-                </StepCard>
+                {!isContainerMode && (
+                    <StepCard
+                        step="1"
+                        title="System"
+                        summary={isSystemSelected && !isSystemOpen ? selectedSystemLabel : undefined}
+                        onEdit={() => setIsSystemOpen(true)}
+                    >
+                        {isSystemOpen && (
+                            <>
+                                <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
+                                    Pick the home system this item belongs to.
+                                </Text>
+                                <ChoiceCardGrid
+                                    accessibilityLabel="Home system"
+                                    choices={systemChoices}
+                                    value={isSystemSelected ? system : ''}
+                                    onChange={chooseSystem}
+                                />
+                                {system === CUSTOM_SYSTEM_CHOICE && (
+                                    <>
+                                        <ThemedInput
+                                            label="Custom System Name"
+                                            placeholder="Home Storage"
+                                            value={customSystem}
+                                            onChangeText={setCustomSystem}
+                                        />
+                                        <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
+                                            Use Add Service first if this should appear on Home. Custom item systems stay inside the item unless a service exists.
+                                        </Text>
+                                    </>
+                                )}
+                            </>
+                        )}
+                    </StepCard>
+                )}
 
-                {showCategoryStep && (
+                {!isContainerMode && showCategoryStep && (
                     <StepCard
                         step="2"
                         title="Category"
@@ -788,7 +850,7 @@ export default function CreateItemScreen() {
                     </StepCard>
                 )}
 
-                {showItemSections && itemSuggestions.length > 0 && (
+                {!isContainerMode && showItemSections && itemSuggestions.length > 0 && (
                     <ThemedCard style={scaleStyle(formCardStyle)}>
                         <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Suggested {selectedCategoryLabel}</Text>
                         <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Common items</Text>
@@ -800,7 +862,7 @@ export default function CreateItemScreen() {
                     </ThemedCard>
                 )}
 
-                {showItemSections && (
+                {!isContainerMode && showItemSections && (
                     <ThemedCard style={scaleStyle(formCardStyle)}>
                         <Text style={[scaleStyle(eyebrowStyle), { color: theme.colors.mutedText }]}>Item Info</Text>
                         <Text style={[scaleStyle(sectionTitleStyle), { color: theme.colors.text }]}>Name and notes</Text>
@@ -855,7 +917,13 @@ export default function CreateItemScreen() {
 
                 {showItemSections ? (
                     <ThemedButton
-                        title={saving ? 'Saving...' : selectedDeckCard ? `Add ${selectedDeckCard.name}` : 'Save Item'}
+                        title={saving
+                            ? 'Saving...'
+                            : selectedDeckCard
+                                ? `Add ${selectedDeckCard.name}`
+                                : isContainerMode
+                                    ? 'Save Container'
+                                    : 'Save Item'}
                         onPress={saveItem}
                         disabled={saving}
                         style={scaleStyle(saveButtonStyle)}
@@ -863,7 +931,9 @@ export default function CreateItemScreen() {
                 ) : (
                     <ThemedCard style={scaleStyle(nextStepCardStyle)}>
                         <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
-                            Choose a system and category to continue.
+                            {isContainerMode
+                                ? 'Choose one of the available containers from the HomeOS Deck to continue.'
+                                : 'Choose a system and category to continue.'}
                         </Text>
                     </ThemedCard>
                 )}
@@ -882,18 +952,6 @@ function logCreateItemDebug(label: string, details: unknown) {
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
         console.info(`[CreateItem] ${label}`, details);
     }
-}
-
-function starterCardIcon(card: Pick<HomeOSStarterCardChoice, 'name' | 'system' | 'category'>) {
-    const identity = `${card.name} ${card.system} ${card.category}`.toLowerCase();
-    if (identity.includes('smart water')) return '🛡️';
-    if (identity.includes('shower') || identity.includes('tub')) return '🚿';
-    if (identity.includes('toilet')) return '🚽';
-    if (identity.includes('faucet') || identity.includes('sink')) return '🚰';
-    if (identity.includes('water heater')) return '🔥';
-    if (identity.includes('drain') || identity.includes('trap')) return '🌀';
-    if (identity.includes('valve') || identity.includes('stop')) return '🔧';
-    return card.category.toLowerCase() === 'fixture' ? '🏠' : '🧰';
 }
 
 function unknownErrorMessage(error: unknown) {

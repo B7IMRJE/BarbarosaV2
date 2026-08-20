@@ -12,6 +12,10 @@ import {
 } from '../../lib/homeos-responsive-layout';
 import type { HomeItemHierarchyRecord } from '../../lib/homeItemHierarchy';
 import { resolveHomeItemDisplay } from '../../lib/homeItemDisplay';
+import {
+    resolveHomeItemHealthCardPresentation,
+    resolveHomeItemHealthCardStyle,
+} from '../../lib/homeItemHealthPresentation';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
 
@@ -88,19 +92,26 @@ export default function HomeItemAssemblyView({
                                 const componentDisplay = resolveHomeItemDisplay(component);
                                 const componentName = componentDisplay.title;
                                 const itemSlug = cleanText(component.item_slug);
+                                const health = resolveHomeItemHealthCardPresentation(component);
 
                                 return (
                                     <EquipmentContainer
                                         key={cleanText(component.id) || itemSlug || componentName}
                                         title={componentName}
-                                        detail={componentDisplay.placementLabel || undefined}
+                                        detail={[
+                                            `Status: ${health.label}`,
+                                            componentDisplay.placementLabel,
+                                        ].filter(Boolean).join(' · ')}
                                         visual={resolveHomeOSEquipmentVisual(component.photo_url)}
                                         accessibilityLabel={itemSlug
-                                            ? `Open ${componentName} details`
-                                            : `${componentName} details unavailable`}
+                                            ? `Open ${componentName} details. Status: ${health.label}`
+                                            : `${componentName} details unavailable. Status: ${health.label}`}
                                         disabled={!itemSlug}
                                         onPress={itemSlug ? () => onOpenComponent(component) : undefined}
-                                        style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
+                                        style={[
+                                            resolveHomeItemHealthCardStyle(health.tone, theme),
+                                            { width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth },
+                                        ]}
                                     />
                                 );
                             })}

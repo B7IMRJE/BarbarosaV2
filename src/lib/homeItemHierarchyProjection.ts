@@ -52,7 +52,9 @@ const OVERLAY_RELATIONS: readonly OverlayRelation[] = [
     overlay('kitchen', ['kitchen:kitchen_sink'], ['Kitchen Sink', 'Sink'], ['kitchen:garbage_disposal'], ['Garbage Disposal', 'Food Waste Disposer', 'Disposal']),
     overlay('bathroom', ['bathroom:bathroom_vanity'], ['Bathroom Vanity', 'Vanity'], ['bathroom:bathroom_sink'], ['Bathroom Sink', 'Vanity Sink', 'Lavatory Sink', 'Sink']),
     overlay('bathroom', ['bathroom:bathroom_vanity'], ['Bathroom Vanity', 'Vanity'], ['bathroom:bathroom_sink_faucet'], ['Bathroom Sink Faucet', 'Bathroom Faucet', 'Lavatory Faucet', 'Faucet']),
-    overlay('kitchen', [], ['Refrigerator'], ['kitchen:refrigerator_water_line'], ['Refrigerator Water Line', 'Ice Maker Line', 'Refrigerator Line', 'Water Line']),
+    overlay('kitchen', ['kitchen:refrigerator'], ['Refrigerator'], ['kitchen:refrigerator_water_line'], ['Refrigerator Water Line', 'Ice Maker Line', 'Refrigerator Line', 'Water Line']),
+    overlay('kitchen', ['kitchen:kitchen_counter'], ['Kitchen Counter', 'Counter', 'Countertop', 'Kitchen Island'], ['kitchen:instant_hot_water_dispenser'], ['Instant Hot Water Dispenser', 'Instant Hot', 'Hot Water Dispenser']),
+    overlay('kitchen', ['kitchen:kitchen_counter'], ['Kitchen Counter', 'Counter', 'Countertop', 'Kitchen Island'], ['kitchen:reverse_osmosis_system'], ['Reverse Osmosis System', 'Reverse Osmosis', 'RO System']),
 ];
 
 /** Returns the transitive saved component deck for one assembly. */
@@ -163,7 +165,7 @@ function resolveHierarchy<T extends HomeItemHierarchyRecord>(input: readonly T[]
         if (parents.length === 1) claim(hierarchy, child, parents[0]);
     }
 
-    // The only inferred assembly relationships are the three approved overlays.
+    // The only inferred assembly relationships are the explicitly approved overlays.
     for (const child of rows) {
         if (isClaimedOrExplicit(hierarchy, explicitParentRows, child)) continue;
 

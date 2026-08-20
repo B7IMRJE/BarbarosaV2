@@ -16,6 +16,7 @@ import {
   buildHomeDashboardSystemTiles,
   type DashboardSystemTile,
 } from '../../lib/homeDashboardSystems';
+import { resolveHomeDashboardIssueTone } from '../../lib/homeDashboardPresentation';
 import { homeSystems } from '../../lib/homeSystems';
 import type { HomeIdentity } from '../../lib/homeIdentity';
 import { labelDueStatus, type DueStatusLabel } from '../../lib/maintenanceTimers';
@@ -60,6 +61,7 @@ type HomeDashboardViewProps = {
   afterIdentity?: ReactNode;
   beforeSummary?: ReactNode;
   afterHealthBreakdown?: ReactNode;
+  showSystemBreakdown?: boolean;
   showHealthLegend: boolean;
   onToggleHealthLegend: () => void;
   showAddService?: boolean;
@@ -84,6 +86,7 @@ export default function HomeDashboardView({
   afterIdentity,
   beforeSummary,
   afterHealthBreakdown,
+  showSystemBreakdown = true,
   showHealthLegend,
   onToggleHealthLegend,
   showAddService = true,
@@ -356,9 +359,9 @@ export default function HomeDashboardView({
               color: theme.colors.text,
             }}
           >
-            Health Breakdown
+            {showSystemBreakdown ? 'Health Breakdown' : 'Item Status'}
           </Text>
-          {healthBreakdownSubtitle ? (
+          {showSystemBreakdown && healthBreakdownSubtitle ? (
             <Text
               style={{
                 fontSize: scaleFont(13),
@@ -369,7 +372,7 @@ export default function HomeDashboardView({
             >
               {healthBreakdownSubtitle}
             </Text>
-          ) : customSystemCount > 0 ? (
+          ) : showSystemBreakdown && customSystemCount > 0 ? (
             <Text
               style={{
                 fontSize: scaleFont(13),
@@ -395,7 +398,7 @@ export default function HomeDashboardView({
             textStyle={{ fontSize: scaleFont(13) }}
           />
 
-          {showAddService && onAddService ? (
+          {showSystemBreakdown && showAddService && onAddService ? (
             <ThemedButton
               title="Add Service"
               variant="secondary"
@@ -463,29 +466,31 @@ export default function HomeDashboardView({
         </ThemedCard>
       ) : null}
 
-      <View style={[healthBreakdownGridStyle, { gap: healthTileGap }]}>
-        {dashboardSystemTiles.map((system) => (
-          <SystemStatusCard
-            key={system.key}
-            title={system.label}
-            icon={system.icon}
-            status={statusForCard(systemSummaries[system.key])}
-            onPress={() => onOpenSystemTile(system)}
-            compact={!isCompactPhone}
-            style={isCompactPhone
-              ? {
-                  width: '48%',
-                  height: compactPhoneHealthTileHeight,
-                  minHeight: 0,
-                }
-              : {
-                  width: healthTileSize,
-                  height: healthTileSize,
-                  minHeight: 0,
-                }}
-          />
-        ))}
-      </View>
+      {showSystemBreakdown ? (
+        <View style={[healthBreakdownGridStyle, { gap: healthTileGap }]}>
+          {dashboardSystemTiles.map((system) => (
+            <SystemStatusCard
+              key={system.key}
+              title={system.label}
+              icon={system.icon}
+              status={statusForCard(systemSummaries[system.key])}
+              onPress={() => onOpenSystemTile(system)}
+              compact={!isCompactPhone}
+              style={isCompactPhone
+                ? {
+                    width: '48%',
+                    height: compactPhoneHealthTileHeight,
+                    minHeight: 0,
+                  }
+                : {
+                    width: healthTileSize,
+                    height: healthTileSize,
+                    minHeight: 0,
+                  }}
+            />
+          ))}
+        </View>
+      ) : null}
 
       {afterHealthBreakdown}
 
@@ -526,7 +531,10 @@ export default function HomeDashboardView({
           >
             {issueItems.map(({ item, health }) => {
               const itemSlug = firstText(item.item_slug);
-              const isCritical = health.status === 'critical';
+              const issueTone = resolveHomeDashboardIssueTone(health.status);
+              const issueColors = issueTone === 'critical'
+                ? theme.colors.status.emergency
+                : theme.colors.status.notInspected;
 
               return (
                 <View
@@ -535,12 +543,8 @@ export default function HomeDashboardView({
                     width: healthTileSize,
                     minHeight: healthTileSize,
                     borderWidth: 1,
-                    borderColor: isCritical
-                      ? theme.colors.status.activeEmergency.border
-                      : theme.colors.border,
-                    backgroundColor: isCritical
-                      ? theme.colors.status.activeEmergency.background
-                      : theme.colors.surface,
+                    borderColor: issueColors.border,
+                    backgroundColor: issueColors.background,
                     borderRadius: theme.radii.card,
                     padding: scaleIcon(14),
                     gap: scaleIcon(10),

@@ -4,6 +4,12 @@ import {
     homeOSTradeContextRpcParams,
     type HomeOSTradeContextInput,
 } from './homeosTradeCapabilitiesCore';
+import {
+    homeOSStarterPresentationRole,
+    type HomeOSStarterPresentationRole,
+} from './homeosStarterPresentation';
+
+export { homeOSStarterPresentationRole, type HomeOSStarterPresentationRole } from './homeosStarterPresentation';
 
 export type HomeOSStarterDeckReadiness = 'unbuilt' | 'building' | 'ready';
 
@@ -17,6 +23,8 @@ export type HomeOSStarterDeckCard = {
     system: string;
     category: string;
     parentTemplateKey: string | null;
+    presentationRole?: HomeOSStarterPresentationRole;
+    autoProvision?: boolean;
     aliases: string[];
     displayOrder: number;
     readinessStatus: HomeOSStarterDeckReadiness;
@@ -29,7 +37,7 @@ export type HomeOSStarterDeckCard = {
 
 export type HomeOSStarterCardChoice = Pick<
     HomeOSStarterDeckCard,
-    'templateKey' | 'shortCode' | 'tradeKey' | 'roomKind' | 'placementTags' | 'name' | 'system' | 'category' | 'parentTemplateKey' | 'aliases' | 'displayOrder'
+    'templateKey' | 'shortCode' | 'tradeKey' | 'roomKind' | 'placementTags' | 'name' | 'system' | 'category' | 'parentTemplateKey' | 'presentationRole' | 'autoProvision' | 'aliases' | 'displayOrder'
 >;
 
 export async function loadHomeOSStarterCardChoices(context: HomeOSTradeContextInput = {}) {
@@ -128,6 +136,8 @@ function parseStarterDeckCard(value: unknown): HomeOSStarterDeckCard | null {
         system: text(row.system),
         category: text(row.category),
         parentTemplateKey: nullableText(row.parent_template_key),
+        presentationRole: homeOSStarterPresentationRole(row.presentation_role),
+        autoProvision: booleanValue(row.auto_provision, true),
         aliases: array(row.aliases).map(text).filter(Boolean),
         displayOrder: numberValue(row.display_order),
         readinessStatus: readiness(row.readiness_status),
@@ -155,6 +165,8 @@ function parseStarterCardChoice(value: unknown): HomeOSStarterCardChoice | null 
         system: text(row.system),
         category: text(row.category),
         parentTemplateKey: nullableText(row.parent_template_key),
+        presentationRole: homeOSStarterPresentationRole(row.presentation_role),
+        autoProvision: booleanValue(row.auto_provision, true),
         aliases: array(row.aliases).map(text).filter(Boolean),
         displayOrder: numberValue(row.display_order),
     };
@@ -174,6 +186,7 @@ function array(value: unknown) { return Array.isArray(value) ? value : []; }
 function text(value: unknown) { return typeof value === 'string' || typeof value === 'number' ? String(value).trim() : ''; }
 function nullableText(value: unknown) { return text(value) || null; }
 function numberValue(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : 0; }
+function booleanValue(value: unknown, fallback: boolean) { return typeof value === 'boolean' ? value : fallback; }
 function unique(values: string[]) { return [...new Set(values)]; }
 
 async function withTimeout<T>(promise: PromiseLike<T>, message: string) {

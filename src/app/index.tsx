@@ -64,6 +64,7 @@ import {
   propertyLandingPrimaryDestinations,
   shouldShowPropertyDestinations,
 } from '../lib/propertyLandingNavigation';
+import { shouldShowHomeDashboardSystemBreakdown } from '../lib/homeDashboardPresentation';
 import {
   buildProviderHomeItemsRpcArgs,
   getProviderHomeItemsReadStrategy,
@@ -965,6 +966,7 @@ export function HomeServicesScreen({
           emergencies={activeEmergencies}
           maintenanceReminders={maintenanceReminders}
           maintenanceReminderMessage={maintenanceReminderMessage}
+          showSystemBreakdown={shouldShowHomeDashboardSystemBreakdown(showPropertyDestinations)}
           afterIdentity={providerModeContext ? undefined : (
             <>
               <PendingCustomerInvitesCard
@@ -1024,9 +1026,6 @@ export function HomeServicesScreen({
                         fallbackIcon={destination.key === 'interior' ? '🏠' : '🌳'}
                         visualContentFit="contain"
                         actionLabel={destination.actionLabel}
-                        accentColor={destination.key === 'interior'
-                          ? theme.colors.primary
-                          : theme.colors.status.good.border}
                         onPress={() => router.push(destination.route as any)}
                         accessibilityLabel={destination.accessibilityLabel}
                         style={{ width: propertyDestinationWidth }}
