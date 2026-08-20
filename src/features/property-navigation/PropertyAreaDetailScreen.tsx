@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import {
@@ -20,7 +20,18 @@ import {
     resolveHomeItemHealthCardStyle,
 } from '../../lib/homeItemHealthPresentation';
 import { resolveHomeItemComponentDeck } from '../../lib/homeItemHierarchyProjection';
-import { isChildPropertyArea } from '../../lib/propertyAreas';
+import {
+    childPropertyAreasForHost,
+    hasAmbiguousPortableLaundryAreas,
+    isPortableLaundryAreaName,
+    laundryAreaLocationActionLabel,
+    laundryAreaPlacementText,
+    normalizePropertyAreaName,
+    propertyAreaDetailRouteParams,
+    propertyAreaLocationActionLabel,
+    propertyAreaPlacementText,
+    resolvePropertyAreaDetail,
+} from '../../lib/propertyAreas';
 import {
     loadHomeOSStarterCardChoices,
     type HomeOSStarterCardChoice,
@@ -48,14 +59,20 @@ type AreaItem = {
     parent_home_item_id?: string | null;
     placement_label?: string | null;
     photo_url?: string | null;
+    area_placement_state?: string | null;
     archived?: boolean | null;
 };
 
 export default function PropertyAreaDetailScreen() {
-    const { area, parentArea } = useLocalSearchParams<{ area?: string; parentArea?: string }>();
+    const { area, parentArea, areaId } = useLocalSearchParams<{
+        area?: string;
+        parentArea?: string;
+        areaId?: string;
+    }>();
     const routeParamsReady = useHydratedRouteParamsReady();
     const areaName = routeParamsReady ? decodeRouteParam(area) : '';
     const parentAreaName = routeParamsReady ? decodeRouteParam(parentArea) : '';
+    const requestedAreaId = routeParamsReady ? decodeRouteParam(areaId) : '';
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
     const { width: viewportWidth } = useWindowDimensions();
@@ -89,7 +106,7 @@ export default function PropertyAreaDetailScreen() {
             const [itemsResult, deckResult] = await Promise.all([
                 supabase
                     .from('home_items')
-                    .select('id, name, item_slug, system, category, location, parent_area, status, install_state, starter_template_key, parent_home_item_id, placement_label, photo_url, archived')
+                    .select('id, name, item_slug, system, category, location, parent_area, status, install_state, starter_template_key, parent_home_item_id, placement_label, photo_url, area_placement_state, archived')
                     .eq('property_id', property.propertyId)
                     .or('archived.eq.false,archived.is.null')
                     .order('system')
@@ -120,13 +137,54 @@ export default function PropertyAreaDetailScreen() {
         void load();
     }, [load]));
 
-    const childAreas = useMemo(
-        () => allItems.filter((item) => isChildPropertyArea(item, areaName)),
-        [allItems, areaName]
+    const currentAreaResolution = useMemo(
+        () => resolvePropertyAreaDetail(allItems, {
+            areaName,
+            parentAreaName,
+            areaId: requestedAreaId,
+        }),
+        [allItems, areaName, parentAreaName, requestedAreaId]
     );
+    const currentArea = currentAreaResolution.area;
+    const detailRouteIsCurrent = currentAreaResolution.status === 'exact';
+    const childAreas = useMemo(
+        () => currentArea ? childPropertyAreasForHost(allItems, currentArea) : [],
+        [allItems, currentArea]
+    );
+
+    useEffect(() => {
+        if (loading || currentAreaResolution.status !== 'recovered' || !currentArea) return;
+
+        router.replace({
+            pathname: '/home/area/[area]',
+            params: propertyAreaDetailRouteParams(currentArea),
+        } as never);
+    }, [currentArea, currentAreaResolution.status, loading]);
+    const currentAreaIsPortableLaundry = isPortableLaundryAreaName(currentArea?.name);
+    const ambiguousPortableLaundry = useMemo(
+        () => hasAmbiguousPortableLaundryAreas(allItems.filter((item) => normalizePropertyAreaName(item.category) === 'area')),
+        [allItems]
+    );
+    const currentAreaPlacementText = currentArea
+        ? currentAreaIsPortableLaundry && ambiguousPortableLaundry
+            ? 'Needs review · duplicate Laundry area'
+            : currentAreaIsPortableLaundry
+            ? laundryAreaPlacementText(currentArea)
+            : propertyAreaPlacementText(currentArea)
+        : '';
+    const currentAreaLocationAction = currentArea
+        ? currentAreaIsPortableLaundry
+            ? laundryAreaLocationActionLabel(currentArea)
+            : propertyAreaLocationActionLabel(currentArea)
+        : '';
     const containerItems = useMemo(
-        () => resolvePropertyAreaContainerDeck(allItems, { areaName, parentAreaName }, starterCards),
-        [allItems, areaName, parentAreaName, starterCards]
+        () => detailRouteIsCurrent && currentArea
+            ? resolvePropertyAreaContainerDeck(allItems, {
+                areaName: String(currentArea.name || '').trim(),
+                parentAreaName: currentArea.parent_area,
+            }, starterCards)
+            : [],
+        [allItems, currentArea, detailRouteIsCurrent, starterCards]
     );
     const containerComponentsById = useMemo(() => {
         const componentDecks = new Map<string, AreaItem[]>();
@@ -141,19 +199,35 @@ export default function PropertyAreaDetailScreen() {
     function openChildArea(item: AreaItem) {
         router.push({
             pathname: '/home/area/[area]',
-            params: {
-                area: item.name || '',
-                parentArea: areaName,
-            },
+            params: propertyAreaDetailRouteParams(item),
+        } as never);
+    }
+
+    function openLocationAssignment() {
+        if (!currentArea || !detailRouteIsCurrent) return;
+
+        router.push({
+            pathname: '/area-location',
+            params: { areaId: currentArea.id },
         } as never);
     }
 
     function openAddContainer() {
+        if (!detailRouteIsCurrent || !currentArea) return;
+
         router.push(buildPropertyAreaContainerCreateRoute({
-            areaName,
-            parentAreaName,
+            areaName: String(currentArea.name || '').trim(),
+            parentAreaName: currentArea.parent_area,
         }) as never);
     }
+
+    const routeStatusMessage = currentAreaResolution.status === 'recovered'
+        ? 'This area moved. Reopening its current location before any changes can be made.'
+        : currentAreaResolution.status === 'ambiguous'
+            ? 'More than one saved area matches this old link. Return to My Home and open the exact card before making changes.'
+            : currentAreaResolution.status === 'missing' && !loading && areaName
+                ? 'This area is no longer available at this location. Return to My Home and open the current card.'
+                : '';
 
     return (
         <ScrollView
@@ -176,17 +250,39 @@ export default function PropertyAreaDetailScreen() {
                 <Text selectable style={foundation.typography.body}>
                     Existing areas and containers stored here
                 </Text>
+                {!!routeStatusMessage && (
+                    <Text selectable style={{ color: theme.colors.mutedText }}>
+                        {routeStatusMessage}
+                    </Text>
+                )}
+                {currentArea ? (
+                    <View style={{ gap: foundation.spacing.compact }}>
+                        <Text selectable style={foundation.typography.label}>
+                            {currentAreaPlacementText}
+                        </Text>
+                        {!(currentAreaIsPortableLaundry && ambiguousPortableLaundry) ? (
+                            <ThemedButton
+                                title={currentAreaLocationAction}
+                                variant="secondary"
+                                accessibilityLabel={`${currentAreaLocationAction} for ${areaName || 'this area'}`}
+                                disabled={!detailRouteIsCurrent}
+                                onPress={openLocationAssignment}
+                                style={{ alignSelf: 'flex-start' }}
+                            />
+                        ) : null}
+                    </View>
+                ) : null}
                 <ThemedButton
                     title="Add Container"
                     accessibilityLabel={`Add a container to ${areaName || 'this area'}`}
-                    disabled={!routeParamsReady || !areaName}
+                    disabled={!routeParamsReady || !areaName || !detailRouteIsCurrent}
                     onPress={openAddContainer}
                     style={{ alignSelf: 'flex-start' }}
                 />
 
                 {loading ? (
                     <ActivityIndicator color={theme.colors.primary} style={{ marginTop: scaleIcon(28) }} />
-                ) : (
+                ) : detailRouteIsCurrent ? (
                     <>
                         {childAreas.length > 0 && (
                             <View style={{ gap: foundation.spacing.regular }}>
@@ -194,12 +290,22 @@ export default function PropertyAreaDetailScreen() {
                                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: gridGap }}>
                                     {childAreas.map((item) => {
                                         const title = item.name || 'Area';
+                                        const isExplicitPortal = normalizePropertyAreaName(item.area_placement_state) === 'inside_area';
+                                        const portalPlacementText = isPortableLaundryAreaName(title)
+                                            ? laundryAreaPlacementText(item)
+                                            : propertyAreaPlacementText(item);
 
                                         return (
                                             <AreaContainer
                                                 key={item.id}
                                                 title={title}
+                                                subtitle={isExplicitPortal
+                                                    ? `Portal · ${portalPlacementText}`
+                                                    : undefined}
                                                 fallbackIcon={getAreaIcon(title)}
+                                                accessibilityLabel={isExplicitPortal
+                                                    ? `Open linked ${title}. ${portalPlacementText}`
+                                                    : `Open area ${title}`}
                                                 onPress={() => openChildArea(item)}
                                                 style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
                                             />
@@ -256,7 +362,7 @@ export default function PropertyAreaDetailScreen() {
                             </Text>
                         )}
                     </>
-                )}
+                ) : null}
 
                 {!!message && <Text selectable style={{ color: theme.colors.danger }}>{message}</Text>}
             </View>

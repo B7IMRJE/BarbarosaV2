@@ -7,10 +7,15 @@ import ThemedButton from '../../components/theme/ThemedButton';
 import { useHydratedRouteParamsReady } from '../../hooks/useHydratedRouteParamsReady';
 import { activePropertyErrorMessage, requireActivePropertyMembership } from '../../lib/activeProperty';
 import {
-    activeAreasForScope,
-    isTopLevelPropertyArea,
+    hasAmbiguousPortableLaundryAreas,
+    isPortableLaundryAreaName,
+    laundryAreaLocationActionLabel,
+    laundryAreaPlacementText,
+    propertyAreaDetailRouteParams,
+    propertyAreaPlacementText,
     propertyAreaScopeFromRoute,
     type PropertyAreaRecord,
+    visibleRootAreasForScope,
 } from '../../lib/propertyAreas';
 import {
     resolveHomeOSContainerGrid,
@@ -61,7 +66,7 @@ export default function PropertyAreaScreen() {
             const property = await requireActivePropertyMembership();
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, name, system, area_scope, parent_area, archived')
+                .select('id, name, system, area_scope, parent_area, area_placement_state, archived')
                 .eq('property_id', property.propertyId)
                 .ilike('category', 'Area')
                 .or('archived.eq.false,archived.is.null')
@@ -82,28 +87,64 @@ export default function PropertyAreaScreen() {
     }, [load]));
 
     const activeAreas = useMemo(
-        () => activeAreasForScope(areas.filter(isTopLevelPropertyArea), scope),
+        () => visibleRootAreasForScope(areas, scope),
         [areas, scope]
+    );
+    const ambiguousPortableLaundry = useMemo(
+        () => hasAmbiguousPortableLaundryAreas(areas),
+        [areas]
     );
 
     function openArea(area: PropertyAreaRecord) {
         router.push({
             pathname: '/home/area/[area]',
-            params: { area: area.name || '' },
+            params: propertyAreaDetailRouteParams(area),
+        } as never);
+    }
+
+    function openLocationAssignment(area: PropertyAreaRecord) {
+        router.push({
+            pathname: '/area-location',
+            params: { areaId: area.id },
         } as never);
     }
 
     function renderAreaCard(area: PropertyAreaRecord) {
         const title = area.name || 'Area';
 
+        const portableLaundry = isPortableLaundryAreaName(title);
+        const placementState = String(area.area_placement_state || '').trim().toLowerCase();
+        const explicitlyManaged = ['unassigned', 'standalone', 'inside_area'].includes(placementState);
+        const placementText = portableLaundry && ambiguousPortableLaundry
+            ? 'Needs review · duplicate Laundry area'
+            : portableLaundry
+            ? laundryAreaPlacementText(area)
+            : explicitlyManaged
+                ? propertyAreaPlacementText(area)
+                : undefined;
+
         return (
-            <AreaContainer
-                key={area.id}
-                title={title}
-                fallbackIcon={getAreaIcon(title)}
-                onPress={() => openArea(area)}
-                style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
-            />
+            <View key={area.id} style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth, gap: foundation.spacing.compact }}>
+                <AreaContainer
+                    title={title}
+                    subtitle={placementText}
+                    fallbackIcon={getAreaIcon(title)}
+                    accessibilityLabel={placementText
+                        ? `Open ${title}. ${placementText}`
+                        : `Open area ${title}`}
+                    onPress={() => openArea(area)}
+                    style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
+                />
+                {portableLaundry && !ambiguousPortableLaundry ? (
+                    <ThemedButton
+                        title={laundryAreaLocationActionLabel(area)}
+                        variant="secondary"
+                        accessibilityLabel={`${laundryAreaLocationActionLabel(area)} for ${title}`}
+                        onPress={() => openLocationAssignment(area)}
+                        style={{ alignSelf: 'stretch' }}
+                    />
+                ) : null}
+            </View>
         );
     }
 

@@ -5,6 +5,7 @@ import {
     Text,
     View,
     type AccessibilityRole,
+    type AccessibilityState,
     type ColorValue,
     type StyleProp,
     type ViewStyle,
@@ -22,6 +23,7 @@ import {
 type ContainerPressProps = {
     onPress?: () => void;
     accessibilityLabel?: string;
+    accessibilityState?: AccessibilityState;
     disabled?: boolean;
     style?: StyleProp<ViewStyle>;
 };
@@ -30,6 +32,7 @@ function ContainerPress({
     children,
     onPress,
     accessibilityLabel,
+    accessibilityState,
     disabled,
     style,
 }: ContainerPressProps & { children: ReactNode }) {
@@ -41,7 +44,7 @@ function ContainerPress({
         <Pressable
             accessibilityRole={'button' as AccessibilityRole}
             accessibilityLabel={accessibilityLabel}
-            accessibilityState={{ disabled: Boolean(disabled) }}
+            accessibilityState={{ ...accessibilityState, disabled: Boolean(disabled) }}
             disabled={disabled}
             onPress={onPress}
             style={({ pressed }) => [
@@ -122,6 +125,7 @@ export function MainDestinationCard({
     visual,
     onPress,
     accessibilityLabel,
+    accessibilityState,
     disabled,
     fallbackIcon,
     visualContentFit,
@@ -145,6 +149,7 @@ export function MainDestinationCard({
             onPress={onPress}
             disabled={disabled}
             accessibilityLabel={accessibilityLabel || `Open ${title}`}
+            accessibilityState={accessibilityState}
             style={[
                 foundation.surface,
                 {
@@ -201,6 +206,7 @@ export function AreaContainer({
     fallbackIcon,
     onPress,
     accessibilityLabel,
+    accessibilityState,
     disabled,
     style,
 }: ContainerPressProps & {
@@ -217,6 +223,7 @@ export function AreaContainer({
             onPress={onPress}
             disabled={disabled}
             accessibilityLabel={accessibilityLabel || `Open area ${title}`}
+            accessibilityState={accessibilityState}
             style={[
                 foundation.surface,
                 {
@@ -244,6 +251,7 @@ export function EquipmentContainer({
     fallbackIcon,
     onPress,
     accessibilityLabel,
+    accessibilityState,
     disabled,
     style,
 }: ContainerPressProps & {
@@ -260,6 +268,7 @@ export function EquipmentContainer({
             onPress={onPress}
             disabled={disabled}
             accessibilityLabel={accessibilityLabel || `Open equipment ${title}`}
+            accessibilityState={accessibilityState}
             style={[
                 foundation.surface,
                 {
