@@ -48,7 +48,6 @@ const drawerLinks: NavigationLink[] = [
     { label: 'Updates & Privacy', route: '/notifications', icon: 'bell-outline' },
     { label: 'ManagementOS', route: '/management', staffOnly: true },
     { label: 'Maintenance', route: '/maintenance' },
-    { label: 'Services', route: '/services' },
     { label: 'Jobs', route: '/jobs', staffOnly: true },
     { label: 'Theme & Sizes', route: '/profile/theme' },
     { label: 'Security', route: '/profile/security' },

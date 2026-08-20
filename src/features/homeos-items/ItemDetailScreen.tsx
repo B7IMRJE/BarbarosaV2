@@ -1,6 +1,5 @@
 import DictationTextInput from '@/components/input/DictationTextInput';
 import HomeHeader from '../../components/HomeHeader';
-import { EquipmentDetailHeader, RoleActionBar } from '../../components/homeos/HomeOSVisualFoundation';
 
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
@@ -118,7 +117,6 @@ import {
 import type { HomeItemCatalogProposal } from '../../lib/home-item-catalog';
 import { useTheme } from '../../theme/useTheme';
 import HomeItemCatalogPicker from './home-item-catalog-picker';
-import ProductReferenceModal from './product-reference-modal';
 
 declare const __DEV__: boolean;
 
@@ -583,7 +581,6 @@ export default function ItemScreen() {
     const [uploading, setUploading] = useState(false);
     const [capturingPhoto, setCapturingPhoto] = useState(false);
     const [showPhoto, setShowPhoto] = useState(false);
-    const [showProductReference, setShowProductReference] = useState(false);
     const [showPhotos, setShowPhotos] = useState(false);
     const [showDocuments, setShowDocuments] = useState(false);
     const [selectedPhotoGalleryCategory, setSelectedPhotoGalleryCategory] =
@@ -5020,27 +5017,11 @@ export default function ItemScreen() {
                 <View style={{ width: '100%', maxWidth: 1200 }}>
                     <HomeHeader />
 
-                    <EquipmentDetailHeader
-                        title={item.name || 'HomeOS item'}
-                        type={item.category || item.system || undefined}
-                        identifier={[item.brand, item.model, item.serial].filter(Boolean).join(' · ') || undefined}
-                        visual={{ uri: providerModeContext ? stagedMainPhotoUrl : item.photo_url }}
-                    />
+                    <Text style={[scaleStyle(titleStyle), { color: theme.colors.text }]}>{item.name}</Text>
 
-                    <Text selectable style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
+                    <Text style={[scaleStyle(subtitleStyle), { color: theme.colors.mutedText }]}>
                         {item.about || 'This item has not been fully documented yet.'}
                     </Text>
-
-                    {item.id ? (
-                        <RoleActionBar
-                            actions={[{
-                                key: 'product-reference',
-                                title: 'Product details',
-                                variant: 'secondary',
-                                onPress: () => setShowProductReference(true),
-                            }]}
-                        />
-                    ) : null}
 
                     {providerModeContext ? (
                         <ThemedCard style={scaleStyle(messageCardStyle)}>
@@ -6536,12 +6517,6 @@ export default function ItemScreen() {
                     </View>
                 </ScrollView>
             </Modal>
-            <ProductReferenceModal
-                visible={showProductReference}
-                homeItemId={String(item.id || '')}
-                itemName={item.name || 'HomeOS item'}
-                onClose={() => setShowProductReference(false)}
-            />
         </>
     );
 }
