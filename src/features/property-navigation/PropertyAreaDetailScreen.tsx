@@ -7,6 +7,7 @@ import {
     EquipmentContainer,
 } from '../../components/homeos/HomeOSVisualFoundation';
 import { resolveHomeOSEquipmentVisual } from '../../components/homeos/homeos-visual-assets';
+import { useHydratedRouteParamsReady } from '../../hooks/useHydratedRouteParamsReady';
 import { activePropertyErrorMessage, requireActivePropertyMembership } from '../../lib/activeProperty';
 import {
     resolveHomeOSContainerGrid,
@@ -34,8 +35,9 @@ type AreaItem = {
 
 export default function PropertyAreaDetailScreen() {
     const { area, parentArea } = useLocalSearchParams<{ area?: string; parentArea?: string }>();
-    const areaName = decodeRouteParam(area);
-    const parentAreaName = decodeRouteParam(parentArea);
+    const routeParamsReady = useHydratedRouteParamsReady();
+    const areaName = routeParamsReady ? decodeRouteParam(area) : '';
+    const parentAreaName = routeParamsReady ? decodeRouteParam(parentArea) : '';
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
     const { width: viewportWidth } = useWindowDimensions();

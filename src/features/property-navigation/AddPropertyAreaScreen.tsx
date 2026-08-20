@@ -3,6 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import { AreaContainer } from '../../components/homeos/HomeOSVisualFoundation';
+import { useHydratedRouteParamsReady } from '../../hooks/useHydratedRouteParamsReady';
 import { activePropertyErrorMessage, requireActivePropertyMembership } from '../../lib/activeProperty';
 import {
     catalogForScope,
@@ -21,7 +22,8 @@ import { useTheme } from '../../theme/useTheme';
 
 export default function AddPropertyAreaScreen() {
     const { scope: rawScope } = useLocalSearchParams<{ scope?: string }>();
-    const scope: Exclude<PropertyAreaScope, 'unclassified'> = rawScope === 'exterior'
+    const routeParamsReady = useHydratedRouteParamsReady();
+    const scope: Exclude<PropertyAreaScope, 'unclassified'> = routeParamsReady && rawScope === 'exterior'
         ? 'exterior'
         : 'interior';
     const { scaleFont, scaleIcon, theme } = useTheme();
