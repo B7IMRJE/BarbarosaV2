@@ -38,19 +38,19 @@ declare
     v_sales_create_def text;
     v_sales_deck_def text;
 begin
-    select column.data_type, column.is_nullable
+    select column_row.data_type, column_row.is_nullable
     into v_parent_column_type, v_parent_column_nullable
-    from information_schema.columns column
-    where column.table_schema = 'public'
-      and column.table_name = 'home_items'
-      and column.column_name = 'parent_home_item_id';
+    from information_schema.columns column_row
+    where column_row.table_schema = 'public'
+      and column_row.table_name = 'home_items'
+      and column_row.column_name = 'parent_home_item_id';
 
-    select column.data_type, column.is_nullable
+    select column_row.data_type, column_row.is_nullable
     into v_label_column_type, v_label_column_nullable
-    from information_schema.columns column
-    where column.table_schema = 'public'
-      and column.table_name = 'home_items'
-      and column.column_name = 'placement_label';
+    from information_schema.columns column_row
+    where column_row.table_schema = 'public'
+      and column_row.table_name = 'home_items'
+      and column_row.column_name = 'placement_label';
 
     if v_parent_column_type is distinct from 'uuid'
        or v_parent_column_nullable is distinct from 'YES' then
