@@ -137,8 +137,8 @@ begin
        or v_move_def !~* 'parent_home_item_id is null'
        or v_move_def !~* 'moving_roots'
        or v_move_def !~* 'moving.property_id, moving.user_id'
-       or v_move_def !~* 'coalesce(moving.archived, false) = false'
-       or v_move_def !~* 'coalesce(direct_root.archived, false) = false'
+       or v_move_def !~* 'coalesce\([[:space:]]*moving\.archived,[[:space:]]*false[[:space:]]*\)[[:space:]]*=[[:space:]]*false'
+       or v_move_def !~* 'coalesce\([[:space:]]*direct_root\.archived,[[:space:]]*false[[:space:]]*\)[[:space:]]*=[[:space:]]*false'
        or v_move_def !~* 'v_previous_area_location_write'
        or v_move_def !~* 'child areas' then
         raise exception 'Area location moves are missing authorization, locking, direct-root-only scope, or child-Area protection.';
