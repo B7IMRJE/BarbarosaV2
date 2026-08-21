@@ -43,6 +43,45 @@ export function filterHomeOSStarterCardChoices(
             || left.name.localeCompare(right.name));
 }
 
+/**
+ * Returns the canonical Component Card descendants of one Super Admin Deck
+ * container. Nested assemblies are included so a container such as Kitchen
+ * Counter can expose its RO system and the RO system's service parts.
+ */
+export function homeOSStarterComponentCardsForContainer(
+    cards: readonly HomeOSStarterCardChoice[],
+    containerTemplateKey?: string | null,
+) {
+    const rootKey = normalizeTemplateKey(containerTemplateKey);
+    if (!rootKey) return [];
+
+    const childrenByParent = new Map<string, HomeOSStarterCardChoice[]>();
+    for (const card of cards) {
+        const parentKey = normalizeTemplateKey(card.parentTemplateKey);
+        if (!parentKey) continue;
+        const children = childrenByParent.get(parentKey) || [];
+        children.push(card);
+        childrenByParent.set(parentKey, children);
+    }
+
+    const results: HomeOSStarterCardChoice[] = [];
+    const visited = new Set<string>([rootKey]);
+    const queue = [...(childrenByParent.get(rootKey) || [])];
+
+    while (queue.length > 0) {
+        const card = queue.shift()!;
+        const cardKey = normalizeTemplateKey(card.templateKey);
+        if (!cardKey || visited.has(cardKey)) continue;
+        visited.add(cardKey);
+
+        if (card.presentationRole !== 'container') results.push(card);
+        queue.push(...(childrenByParent.get(cardKey) || []));
+    }
+
+    return results.sort((left, right) => left.displayOrder - right.displayOrder
+        || left.name.localeCompare(right.name));
+}
+
 export function homeOSStarterCardGroupLabel(roomKind: string) {
     return metadataLabel(roomKind);
 }
@@ -53,4 +92,8 @@ function metadataLabel(value: string) {
 
 function normalize(value: string) {
     return value.trim().toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeTemplateKey(value?: string | null) {
+    return String(value || '').trim().toLowerCase();
 }

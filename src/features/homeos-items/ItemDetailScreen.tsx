@@ -82,6 +82,11 @@ import {
     type HomeItemHierarchyRecord,
 } from '../../lib/homeItemHierarchy';
 import { resolveHomeItemComponentDeck } from '../../lib/homeItemHierarchyProjection';
+import {
+    loadHomeOSStarterCardChoices,
+    type HomeOSStarterCardChoice,
+} from '../../lib/homeosStarterCatalog';
+import { homeOSStarterComponentCardsForContainer } from '../../lib/homeosStarterCardPickerCore';
 import { nextHomeItemInstanceName } from '../../lib/homeItemInstances';
 import { resolveHomeItemPresentation } from '../../lib/homeItemPresentation';
 import {
@@ -575,6 +580,7 @@ export default function ItemScreen() {
     const refreshSignal = routeParamsReady ? firstParam(routeParams.refresh) : '';
     const [item, setItem] = useState<any>(null);
     const [relatedItems, setRelatedItems] = useState<HomeItemHierarchyRecord[]>([]);
+    const [componentDeckChoices, setComponentDeckChoices] = useState<HomeOSStarterCardChoice[]>([]);
     const [hierarchyItems, setHierarchyItems] = useState<HomeItemHierarchyRecord[]>([]);
     const [files, setFiles] = useState<ItemFile[]>([]);
     const [maintenanceTasks, setMaintenanceTasks] = useState<MaintenanceTask[]>([]);
@@ -684,6 +690,15 @@ export default function ItemScreen() {
     ) === 'sales_company_rpc';
     const hasItem = Boolean(item);
     const isLinkedComponent = Boolean(item?.parent_home_item_id);
+    const installedComponentTemplateKeys = new Set(
+        relatedItems.map((candidate) => String(candidate.starter_template_key || '').trim()).filter(Boolean)
+    );
+    const availableComponentCards = item
+        ? homeOSStarterComponentCardsForContainer(
+            componentDeckChoices,
+            String(item.starter_template_key || '')
+        ).filter((card) => !installedComponentTemplateKeys.has(card.templateKey))
+        : [];
 
     useEffect(() => {
         void loadItemEvent();
@@ -1496,6 +1511,7 @@ export default function ItemScreen() {
         setCheckingEstimateAccess(false);
         setProviderMembershipRole('');
         setRelatedItems([]);
+        setComponentDeckChoices([]);
         setHierarchyItems([]);
         setFiles([]);
         setMaintenanceTasks([]);
@@ -1550,6 +1566,19 @@ export default function ItemScreen() {
             setProviderMembershipRole(activeProperty.membershipRole);
             await loadEstimateAccessForCurrentContext();
         }
+
+        void loadHomeOSStarterCardChoices({
+            companyId: providerModeContext?.companyId,
+            propertyId: activeProperty.propertyId,
+            serviceRequestId: providerModeContext?.serviceRequestId,
+            scheduleSlotId: providerModeContext?.scheduleSlotId,
+            jobId: providerModeContext?.jobId,
+        })
+            .then(setComponentDeckChoices)
+            .catch((error) => {
+                console.warn('HomeOS Component Deck could not be loaded.', error);
+                setComponentDeckChoices([]);
+            });
 
         let itemRow: HomeItemRow | null = null;
         let loadErrorMessage = '';
@@ -2686,14 +2715,13 @@ export default function ItemScreen() {
         } as any);
     }
 
-    function handleAddRelatedItem() {
+    function openComponentDeckCard(templateKey = '') {
         if (isLinkedComponent) {
             setMessage('Add components from the parent equipment or fixture card. HomeOS keeps one clear component level.');
             return;
         }
-
-        if (providerModeContext) {
-            openProviderPanel('related_item');
+        if (!String(item.starter_template_key || '').trim()) {
+            setMessage('This installed card needs a Super Admin Deck identity before Component Cards can be added. No free-form component was created.');
             return;
         }
 
@@ -2708,8 +2736,16 @@ export default function ItemScreen() {
                 parentArea: childContext.parentArea || '',
                 parentItemId: String(item.id || ''),
                 parentItemSlug: String(item.item_slug || slug || ''),
+                parentTemplateKey: String(item.starter_template_key || ''),
+                ...(templateKey ? { templateKey } : {}),
+                deckPicker: 'true',
+                ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
             },
         } as any);
+    }
+
+    function handleAddRelatedItem() {
+        openComponentDeckCard();
     }
 
     function handleAddAnotherItem() {
@@ -5138,7 +5174,9 @@ export default function ItemScreen() {
             <HomeItemAssemblyView
                 item={item}
                 components={relatedItems}
+                availableComponents={availableComponentCards}
                 onOpenComponent={openRelatedItem}
+                onAddComponent={(card) => openComponentDeckCard(card.templateKey)}
                 message={message}
                 manageControl={(
                     <ManageActionMenu

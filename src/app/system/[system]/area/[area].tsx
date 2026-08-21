@@ -1089,6 +1089,7 @@ function AreaItemCard({
     return (
         <CompactHomeOSCard
             title={itemName}
+            semanticIdentity={item.starter_template_key || undefined}
             subtitle={[systemLabel, historicalNotice].filter(Boolean).join(' · ')}
             icon={getItemIcon(item)}
             onOpen={onOpen}

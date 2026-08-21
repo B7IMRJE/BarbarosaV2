@@ -391,6 +391,7 @@ export default function PropertyAreaDetailScreen() {
                                             <EquipmentContainer
                                                 key={item.id}
                                                 title={itemDisplay.title}
+                                                semanticIdentity={item.starter_template_key || undefined}
                                                 detail={itemSlug
                                                     ? [statusDetail, itemDisplay.placementLabel].filter(Boolean).join(' · ')
                                                     : [statusDetail, itemDisplay.placementLabel, 'Details unavailable'].filter(Boolean).join(' · ')}

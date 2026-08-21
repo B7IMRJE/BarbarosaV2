@@ -1,4 +1,8 @@
-import { filterHomeOSStarterCardChoices, homeOSStarterCardGroups } from './homeosStarterCardPickerCore';
+import {
+    filterHomeOSStarterCardChoices,
+    homeOSStarterCardGroups,
+    homeOSStarterComponentCardsForContainer,
+} from './homeosStarterCardPickerCore';
 import type { HomeOSStarterCardChoice } from './homeosStarterCatalog';
 
 const cards = [
@@ -10,6 +14,18 @@ const cards = [
     card('whole_home:smart_water_shutoff', 'whole_home', 'Smart Water Shutoff', ['Smart Water Monitor and Shutoff', 'Automatic Shutoff'], 10),
 ];
 
+const componentDeck = [
+    card('kitchen:kitchen_counter', 'kitchen', 'Kitchen Counter', [], 1, [], null, 'container'),
+    card('kitchen:instant_hot', 'kitchen', 'Instant Hot Water Dispenser', [], 2, [], 'kitchen:kitchen_counter', 'component'),
+    card('kitchen:ro_system', 'kitchen', 'Reverse Osmosis System', [], 3, [], 'kitchen:kitchen_counter', 'component'),
+    card('kitchen:ro_membrane', 'kitchen', 'RO Membrane', [], 4, [], 'kitchen:ro_system', 'component'),
+    card('kitchen:kitchen_sink', 'kitchen', 'Kitchen Sink', [], 5, [], null, 'container'),
+    card('kitchen:kitchen_faucet', 'kitchen', 'Kitchen Faucet', [], 6, [], 'kitchen:kitchen_sink', 'component'),
+    card('kitchen:garbage_disposal', 'kitchen', 'Garbage Disposal', [], 7, [], 'kitchen:kitchen_sink', 'component'),
+    card('kitchen:disposal_flange', 'kitchen', 'Disposal Flange', [], 8, [], 'kitchen:garbage_disposal', 'component'),
+    card('kitchen:dishwasher', 'kitchen', 'Dishwasher', [], 9, [], null, 'container'),
+];
+
 assert(homeOSStarterCardGroups(cards).some((group) => group.key === 'whole home' && group.label === 'Whole Home'), 'Location-neutral archetypes must have a readable Whole Home Deck group.');
 for (const query of ['smart', 'water', 'shutoff']) {
     assert(filterHomeOSStarterCardChoices(cards, query).some((entry) => entry.templateKey === 'whole_home:smart_water_shutoff'), `Add from Deck search for “${query}” must find Smart Water Shutoff.`);
@@ -19,10 +35,27 @@ assert(filterHomeOSStarterCardChoices(cards, 'tub shower trim', 'bathroom')[0]?.
 assert(filterHomeOSStarterCardChoices(cards, 'front yard main water valve')[0]?.templateKey === 'whole_home:main_water_shutoff', 'Existing shutoff terminology must find the reusable neutral archetype without forcing its placement.');
 assert(filterHomeOSStarterCardChoices(cards, '', 'basement').map((entry) => entry.templateKey).includes('whole_home:main_water_shutoff'), 'Main Water Shutoff must be selectable for an observed Basement placement.');
 
+const counterComponents = homeOSStarterComponentCardsForContainer(componentDeck, 'kitchen:kitchen_counter');
+assert(counterComponents.map((card) => card.templateKey).join(',') === 'kitchen:instant_hot,kitchen:ro_system,kitchen:ro_membrane', 'Kitchen Counter must expose direct and nested canonical Component Cards in Deck order.');
+
+const sinkComponents = homeOSStarterComponentCardsForContainer(componentDeck, 'KITCHEN:KITCHEN_SINK');
+assert(sinkComponents.map((card) => card.templateKey).join(',') === 'kitchen:kitchen_faucet,kitchen:garbage_disposal,kitchen:disposal_flange', 'Kitchen Sink must include its canonical faucet, disposal, and nested disposal flange without unrelated containers.');
+assert(!sinkComponents.some((card) => card.templateKey === 'kitchen:dishwasher'), 'A sibling Dishwasher container must never leak into the Kitchen Sink component picker.');
+assert(homeOSStarterComponentCardsForContainer(componentDeck, '').length === 0, 'A missing permanent Deck identity must not guess component relationships from a display name.');
+
 console.log('HomeOS Add from Deck picker regression checks passed.');
 
-function card(templateKey: string, roomKind: string, name: string, aliases: string[], displayOrder: number, placementTags: string[] = []): HomeOSStarterCardChoice {
-    return { templateKey, shortCode: '', roomKind, placementTags, name, system: 'Plumbing', category: 'Equipment', parentTemplateKey: null, aliases, displayOrder };
+function card(
+    templateKey: string,
+    roomKind: string,
+    name: string,
+    aliases: string[],
+    displayOrder: number,
+    placementTags: string[] = [],
+    parentTemplateKey: string | null = null,
+    presentationRole?: 'container' | 'component',
+): HomeOSStarterCardChoice {
+    return { templateKey, shortCode: '', roomKind, placementTags, name, system: 'Plumbing', category: 'Equipment', parentTemplateKey, presentationRole, aliases, displayOrder };
 }
 
 function assert(condition: unknown, message: string): asserts condition {

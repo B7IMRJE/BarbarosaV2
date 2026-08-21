@@ -48,6 +48,7 @@ import {
     filterHomeOSStarterCardChoices,
     homeOSStarterCardGroupLabel,
     homeOSStarterCardGroups,
+    homeOSStarterComponentCardsForContainer,
 } from '../../lib/homeosStarterCardPickerCore';
 import {
     filterHomeOSContainerStarterCardChoices,
@@ -148,6 +149,7 @@ export default function CreateItemScreen() {
         parentArea?: string;
         parentItemId?: string;
         parentItemSlug?: string;
+        parentTemplateKey?: string;
         templateKey?: string;
         additionalInstance?: string;
         areaReturnTo?: string;
@@ -170,6 +172,7 @@ export default function CreateItemScreen() {
     const initialParentArea = decodeParam(params.parentArea).trim();
     const initialParentItemId = decodeParam(params.parentItemId).trim();
     const initialParentItemSlug = decodeParam(params.parentItemSlug).trim();
+    const initialParentTemplateKey = decodeParam(params.parentTemplateKey).trim();
     const initialTemplateKey = decodeParam(params.templateKey).trim();
     const isAdditionalInstance = sameItemText(decodeParam(params.additionalInstance), '1');
     const areaReturnTo = decodeParam(params.areaReturnTo).trim();
@@ -246,6 +249,31 @@ export default function CreateItemScreen() {
                 if (!current) return;
                 setDeckCards(cards);
                 setDeckMessage('');
+                if (initialTemplateKey) {
+                    const eligibleCards = initialParentTemplateKey
+                        ? homeOSStarterComponentCardsForContainer(cards, initialParentTemplateKey)
+                        : cards;
+                    const initialCard = eligibleCards.find((card) => card.templateKey === initialTemplateKey);
+                    if (initialCard) {
+                        const nextSystem = getSystemDefinition(initialCard.system)?.key || initialCard.system;
+                        const nextCategory = categoryOptionValues.includes(initialCard.category) ? initialCard.category : CUSTOM_CATEGORY_CHOICE;
+                        setSelectedDeckCard(initialCard);
+                        setName(initialCard.name);
+                        setSystem(nextSystem);
+                        setCustomSystem('');
+                        setIsSystemSelected(true);
+                        setIsSystemOpen(false);
+                        setCategory(nextCategory);
+                        setCustomCategory(nextCategory === CUSTOM_CATEGORY_CHOICE ? initialCard.category : '');
+                        setIsCategorySelected(true);
+                        setIsCategoryOpen(false);
+                        setInstallState('Unknown');
+                        setStatus('Missing Information');
+                        setAbout('');
+                        setDeckPickerOpen(false);
+                        setMessage(`${initialCard.name} is selected from the Super Admin HomeOS Deck.`);
+                    }
+                }
             })
             .catch((error) => {
                 if (!current) return;
@@ -258,6 +286,9 @@ export default function CreateItemScreen() {
         return () => { current = false; };
     }, [
         deckReloadKey,
+        initialArea,
+        initialParentTemplateKey,
+        initialTemplateKey,
         providerModeContext?.companyId,
         providerModeContext?.jobId,
         providerModeContext?.propertyId,
@@ -313,8 +344,10 @@ export default function CreateItemScreen() {
                 areaName: initialArea,
                 parentAreaName: initialParentArea,
             })
-            : deckCards,
-        [deckCards, initialArea, initialParentArea, isContainerMode]
+            : initialParentTemplateKey
+                ? homeOSStarterComponentCardsForContainer(deckCards, initialParentTemplateKey)
+                : deckCards,
+        [deckCards, initialArea, initialParentArea, initialParentTemplateKey, isContainerMode]
     );
     const deckGroups = homeOSStarterCardGroups(availableDeckCards);
     const visibleDeckCards = filterHomeOSStarterCardChoices(availableDeckCards, deckQuery, deckGroup);
@@ -398,6 +431,16 @@ export default function CreateItemScreen() {
     async function saveItem() {
         if (isContainerMode && !selectedDeckCard) {
             setMessage('Choose an existing top-level container from the HomeOS Deck. New container archetypes require a separate catalog release.');
+            return;
+        }
+
+        if (initialParentItemId && !initialParentTemplateKey) {
+            setMessage('The parent card must be linked to its Super Admin Deck identity before a Component Card can be added.');
+            return;
+        }
+
+        if (initialParentItemId && !selectedDeckCard) {
+            setMessage('Choose a compatible Component Card from the Super Admin HomeOS Deck. Free-form component cards are not allowed.');
             return;
         }
 
@@ -596,6 +639,7 @@ export default function CreateItemScreen() {
                     slug: initialParentItemSlug,
                     presentation: 'assembly',
                     refresh: String(Date.now()),
+                    ...(providerModeContext ? providerModeQueryParams(providerModeContext) : {}),
                 },
             } as any);
             return;
@@ -710,12 +754,15 @@ export default function CreateItemScreen() {
                     <Text style={[scaleStyle(helperTextStyle), { color: theme.colors.mutedText }]}>
                         {isContainerMode
                             ? 'This area’s Deck shows existing top-level container choices only. It excludes component, Electrical, and Safety cards and adds no installed product facts.'
+                            : initialParentTemplateKey
+                                ? 'This list contains only compatible Component Cards from the Super Admin Deck. Selecting one creates an instance of that master card without inventing installed product facts.'
                             : 'Search the master Deck and add one generic card directly to this area or container. This adds no catalog product, installed brand/model, service history, or unverified location.'}
                     </Text>
                     {selectedDeckCard && !deckPickerOpen ? (
                         <View style={{ gap: scaleIcon(10), marginTop: scaleIcon(12) }}>
                             <CompactHomeOSCard
                                 title={selectedDeckCard.name}
+                                semanticIdentity={selectedDeckCard.templateKey}
                                 subtitle={[selectedDeckCard.shortCode, selectedDeckCard.system, selectedDeckCard.category].filter(Boolean).join(' · ')}
                                 icon={resolveHomeOSEquipmentFallbackIcon(selectedDeckCard.name)}
                                 onOpen={() => setDeckPickerOpen(true)}
@@ -770,6 +817,7 @@ export default function CreateItemScreen() {
                                     <CompactHomeOSCard
                                         key={card.templateKey}
                                         title={card.name}
+                                        semanticIdentity={card.templateKey}
                                         subtitle={[card.shortCode, homeOSStarterCardGroupLabel(card.roomKind)].filter(Boolean).join(' · ')}
                                         icon={resolveHomeOSEquipmentFallbackIcon(card.name)}
                                         onOpen={() => chooseDeckCard(card)}

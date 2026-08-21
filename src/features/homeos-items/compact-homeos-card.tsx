@@ -11,6 +11,7 @@ import { useTheme } from '../../theme/useTheme';
 
 export default function CompactHomeOSCard({
     title,
+    semanticIdentity,
     subtitle,
     icon,
     visual,
@@ -28,6 +29,7 @@ export default function CompactHomeOSCard({
     style,
 }: {
     title: string;
+    semanticIdentity?: string;
     subtitle?: string;
     icon: string;
     visual?: HomeOSVisualAsset;
@@ -77,6 +79,7 @@ export default function CompactHomeOSCard({
                 <HomeOSCardVisual
                     asset={visual}
                     label={title}
+                    semanticIdentity={semanticIdentity}
                     fallbackIcon={icon}
                     size={areaCard ? 'compact' : 'regular'}
                     contentFit={areaCard ? 'cover' : 'contain'}

@@ -344,6 +344,19 @@ export function resolveHomeOSSemanticVisual(
 }
 
 /**
+ * Installed HomeOS records keep their permanent Super Admin Deck identity even
+ * when a homeowner or provider gives the instance a custom display name.
+ */
+export function resolveHomeOSCardSemanticVisual(
+    label: string,
+    context: 'area' | 'equipment',
+    semanticIdentity?: string | null,
+): HomeOSSemanticVisual | undefined {
+    return (semanticIdentity ? resolveHomeOSSemanticVisual(semanticIdentity, context) : undefined)
+        || resolveHomeOSSemanticVisual(label, context);
+}
+
+/**
  * One replacement point for approved HomeOS illustrations and homeowner media.
  * Bundled semantic artwork is resolved above; explicit property media still wins here.
  */
