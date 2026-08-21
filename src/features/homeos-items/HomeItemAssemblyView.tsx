@@ -26,7 +26,7 @@ export default function HomeItemAssemblyView({
     components,
     componentDeckCards,
     availableComponents,
-    itemSemanticIdentity,
+    itemMasterCard,
     onOpenComponent,
     onAddComponent,
     manageControl,
@@ -36,7 +36,7 @@ export default function HomeItemAssemblyView({
     components: HomeItemHierarchyRecord[];
     componentDeckCards: HomeOSStarterCardChoice[];
     availableComponents: HomeOSStarterCardChoice[];
-    itemSemanticIdentity?: string;
+    itemMasterCard?: HomeOSStarterCardChoice;
     onOpenComponent: (component: HomeItemHierarchyRecord) => void;
     onAddComponent: (component: HomeOSStarterCardChoice) => void;
     manageControl?: ReactNode;
@@ -63,6 +63,7 @@ export default function HomeItemAssemblyView({
     });
     const itemDisplay = resolveHomeItemDisplay(item);
     const itemName = itemDisplay.title || 'Equipment';
+    const itemTitle = itemMasterCard?.name || itemName;
 
     return (
         <ScrollView
@@ -78,8 +79,8 @@ export default function HomeItemAssemblyView({
                 <HomeHeader />
 
                 <EquipmentDetailHeader
-                    title={itemName}
-                    semanticIdentity={itemSemanticIdentity || cleanText(item.starter_template_key) || undefined}
+                    title={itemTitle}
+                    semanticIdentity={itemMasterCard?.templateKey || cleanText(item.starter_template_key) || undefined}
                     type={itemDisplay.placementLabel || undefined}
                     details={resolveHomeItemCardDetails(item)}
                     visual={resolveHomeOSEquipmentVisual(item.photo_url)}
@@ -107,14 +108,15 @@ export default function HomeItemAssemblyView({
                                 const health = resolveHomeItemHealthCardPresentation(component);
                                 const masterCard = homeOSStarterCardForInstalledComponent(
                                     componentDeckCards,
-                                    item.starter_template_key,
+                                    itemMasterCard?.templateKey || item.starter_template_key,
                                     component,
                                 );
+                                const componentTitle = masterCard?.name || componentName;
 
                                 return (
                                     <EquipmentContainer
                                         key={cleanText(component.id) || itemSlug || componentName}
-                                        title={componentName}
+                                        title={componentTitle}
                                         semanticIdentity={masterCard?.templateKey || cleanText(component.starter_template_key) || undefined}
                                         detail={[
                                             `Status: ${health.label}`,
@@ -122,8 +124,8 @@ export default function HomeItemAssemblyView({
                                         ].filter(Boolean).join(' · ')}
                                         visual={resolveHomeOSEquipmentVisual(component.photo_url)}
                                         accessibilityLabel={itemSlug
-                                            ? `Open ${componentName} details. Status: ${health.label}`
-                                            : `${componentName} details unavailable. Status: ${health.label}`}
+                                            ? `Open ${componentTitle} details. Status: ${health.label}`
+                                            : `${componentTitle} details unavailable. Status: ${health.label}`}
                                         disabled={!itemSlug}
                                         onPress={itemSlug ? () => onOpenComponent(component) : undefined}
                                         style={[

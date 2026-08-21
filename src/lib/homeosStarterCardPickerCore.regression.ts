@@ -1,6 +1,7 @@
 import {
     filterHomeOSStarterCardChoices,
     homeOSStarterCardGroups,
+    homeOSStarterCardForInstalledContainer,
     homeOSStarterCardForInstalledComponent,
     homeOSStarterComponentCardsForContainer,
 } from './homeosStarterCardPickerCore';
@@ -33,6 +34,7 @@ const vanityDeck = [
     card('bathroom:bathroom_sink_faucet', 'bathroom', 'Bathroom Sink Faucet', ['Bathroom Faucet', 'Lavatory Faucet', 'Faucet'], 3, [], 'bathroom:bathroom_vanity', 'component'),
     card('bathroom:bathroom_sink_hot_angle_stop', 'bathroom', 'Bathroom Sink Hot Angle Stop', ['Hot Angle Stop'], 4, [], 'bathroom:bathroom_sink', 'component'),
     card('bathroom:bathroom_sink_cold_angle_stop', 'bathroom', 'Bathroom Sink Cold Angle Stop', ['Cold Angle Stop'], 5, [], 'bathroom:bathroom_sink', 'component'),
+    card('bathroom:bathroom_sink_p_trap', 'bathroom', 'Bathroom Sink P-Trap', ['Bathroom P-Trap', 'Lavatory P-Trap'], 6, [], 'bathroom:bathroom_sink', 'component'),
 ];
 
 assert(homeOSStarterCardGroups(cards).some((group) => group.key === 'whole home' && group.label === 'Whole Home'), 'Location-neutral archetypes must have a readable Whole Home Deck group.');
@@ -52,6 +54,27 @@ assert(sinkComponents.map((card) => card.templateKey).join(',') === 'kitchen:kit
 assert(!sinkComponents.some((card) => card.templateKey === 'kitchen:dishwasher'), 'A sibling Dishwasher container must never leak into the Kitchen Sink component picker.');
 assert(homeOSStarterComponentCardsForContainer(componentDeck, '').length === 0, 'A missing permanent Deck identity must not guess component relationships from a display name.');
 
+assert(
+    homeOSStarterCardForInstalledContainer(
+        vanityDeck,
+        { name: 'Bathroom Vanity', starter_template_key: null },
+    )?.templateKey === 'bathroom:bathroom_vanity',
+    'A legacy root container without a permanent key must inherit its unique Super Admin Deck identity.'
+);
+const legacyVanityMaster = homeOSStarterCardForInstalledContainer(
+    vanityDeck,
+    { name: 'Bathroom Vanity', starter_template_key: null },
+);
+const legacyPTrapMaster = homeOSStarterCardForInstalledComponent(
+    vanityDeck,
+    legacyVanityMaster?.templateKey,
+    { name: 'Bathroom P-Trap', starter_template_key: null },
+);
+assert(
+    legacyPTrapMaster?.templateKey === 'bathroom:bathroom_sink_p_trap'
+    && legacyPTrapMaster.name === 'Bathroom Sink P-Trap',
+    'A legacy Bathroom P-Trap must render from the canonical Deck card reached through its reconciled Vanity master.'
+);
 assert(
     homeOSStarterCardForInstalledComponent(
         vanityDeck,
@@ -83,6 +106,13 @@ assert(
         { name: 'Bathroom Faucet', starter_template_key: 'custom:designer_faucet' },
     ),
     'A deliberate custom identity must not be silently reclassified as a Super Admin master card.'
+);
+assert(
+    !homeOSStarterCardForInstalledContainer(
+        vanityDeck,
+        { name: 'Bathroom Vanity', starter_template_key: 'custom:designer_vanity' },
+    ),
+    'A deliberately custom root container must not be silently reclassified as a Super Admin master card.'
 );
 
 console.log('HomeOS Add from Deck picker regression checks passed.');
