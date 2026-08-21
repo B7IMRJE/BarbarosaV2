@@ -38,6 +38,7 @@ type SystemAreaItem = HomeHealthItem & {
     name?: string | null;
     item_slug?: string | null;
     area_scope?: string | null;
+    starter_template_key?: string | null;
 };
 
 export default function SystemAreasScreen() {
@@ -194,7 +195,7 @@ export default function SystemAreasScreen() {
             } else {
                 const { data, error } = await supabase
                     .from('home_items')
-                    .select('id, name, item_slug, status, install_state, system, location, parent_area, category, area_scope')
+                    .select('id, name, item_slug, status, install_state, system, location, parent_area, category, area_scope, starter_template_key')
                     .eq('property_id', activeProperty.propertyId)
                     .or('archived.eq.false,archived.is.null');
 
@@ -207,7 +208,7 @@ export default function SystemAreasScreen() {
         } else {
             const { data, error } = await supabase
                 .from('home_items')
-                .select('id, name, item_slug, status, install_state, system, location, parent_area, category, area_scope')
+                .select('id, name, item_slug, status, install_state, system, location, parent_area, category, area_scope, starter_template_key')
                 .eq('property_id', activeProperty.propertyId)
                 .or('archived.eq.false,archived.is.null');
 
@@ -778,6 +779,7 @@ function RootItemCard({
     return (
         <CompactHomeOSCard
             title={itemName}
+            semanticIdentity={item.starter_template_key || undefined}
             icon={getItemIcon(item)}
             onOpen={onOpen}
             openDisabled={!itemSlug}

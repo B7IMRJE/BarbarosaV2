@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Image } from 'expo-image';
 import {
     Pressable,
@@ -15,8 +15,8 @@ import { useTheme } from '../../theme/useTheme';
 import ThemedButton from '../theme/ThemedButton';
 import {
     resolveHomeOSAreaFallbackIcon,
+    resolveHomeOSCardSemanticVisual,
     resolveHomeOSEquipmentFallbackIcon,
-    resolveHomeOSSemanticVisual,
     resolveHomeOSVisualSource,
     type HomeOSVisualAsset,
 } from './homeos-visual-assets';
@@ -65,6 +65,7 @@ function ContainerPress({
 export function HomeOSCardVisual({
     asset,
     label,
+    semanticIdentity,
     fallbackIcon,
     fallbackContext,
     size = 'regular',
@@ -72,6 +73,7 @@ export function HomeOSCardVisual({
 }: {
     asset?: HomeOSVisualAsset;
     label: string;
+    semanticIdentity?: string;
     fallbackIcon?: string;
     fallbackContext?: 'area' | 'equipment';
     size?: 'compact' | 'regular' | 'destination';
@@ -81,7 +83,7 @@ export function HomeOSCardVisual({
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
     const visualContext = fallbackContext || (size === 'compact' ? 'area' : 'equipment');
     const explicitSource = resolveHomeOSVisualSource(asset);
-    const semanticVisual = resolveHomeOSSemanticVisual(label, visualContext);
+    const semanticVisual = resolveHomeOSCardSemanticVisual(label, visualContext, semanticIdentity);
     const semanticSource = resolveHomeOSVisualSource(semanticVisual?.asset);
     const semanticIsExplicit = Boolean(semanticSource && explicitSource && semanticSource === explicitSource);
     const heroSource = semanticSource || (semanticIsExplicit ? explicitSource : undefined);
@@ -307,6 +309,7 @@ export function AreaContainer({
 
 export function EquipmentContainer({
     title,
+    semanticIdentity,
     detail,
     visual,
     fallbackIcon,
@@ -317,6 +320,7 @@ export function EquipmentContainer({
     style,
 }: ContainerPressProps & {
     title: string;
+    semanticIdentity?: string;
     detail?: string;
     visual?: HomeOSVisualAsset;
     fallbackIcon?: string;
@@ -341,7 +345,7 @@ export function EquipmentContainer({
                 style,
             ]}
         >
-            <HomeOSCardVisual asset={visual} label={title} fallbackIcon={fallbackIcon} fallbackContext="equipment" contentFit="contain" />
+            <HomeOSCardVisual asset={visual} label={title} semanticIdentity={semanticIdentity} fallbackIcon={fallbackIcon} fallbackContext="equipment" contentFit="contain" />
             <View style={{ gap: foundation.spacing.compact }}>
                 <Text selectable numberOfLines={2} style={foundation.typography.containerTitle}>{title}</Text>
                 {detail ? <Text selectable numberOfLines={1} style={foundation.typography.body}>{detail}</Text> : null}
@@ -352,6 +356,7 @@ export function EquipmentContainer({
 
 export function EquipmentDetailHeader({
     title,
+    semanticIdentity,
     type,
     identifier,
     details,
@@ -359,6 +364,7 @@ export function EquipmentDetailHeader({
     style,
 }: {
     title: string;
+    semanticIdentity?: string;
     type?: string;
     identifier?: string;
     details?: readonly { label: string; value?: string | null }[];
@@ -367,36 +373,62 @@ export function EquipmentDetailHeader({
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
+    const [detailsExpanded, setDetailsExpanded] = useState(false);
 
     return (
         <View style={[foundation.surface, { padding: foundation.spacing.comfortable, gap: foundation.spacing.comfortable }, style]}>
-            <HomeOSCardVisual asset={visual} label={title} fallbackContext="equipment" size="destination" />
+            <HomeOSCardVisual asset={visual} label={title} semanticIdentity={semanticIdentity} fallbackContext="equipment" size="destination" />
             <View style={{ gap: foundation.spacing.compact }}>
                 <Text selectable style={foundation.typography.destinationTitle}>{title}</Text>
                 {type ? <Text selectable style={foundation.typography.body}>{type}</Text> : null}
                 {identifier ? <Text selectable style={foundation.typography.label}>{identifier}</Text> : null}
             </View>
             {details?.length ? (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: foundation.spacing.regular }}>
-                    {details.map((detail) => (
-                        <View
-                            key={detail.label}
-                            style={{
-                                minWidth: scaleIcon(118),
-                                flexBasis: scaleIcon(132),
-                                flexGrow: 1,
-                                gap: foundation.spacing.compact,
-                                paddingTop: foundation.spacing.compact,
-                                borderTopWidth: 1,
-                                borderTopColor: theme.colors.border,
-                            }}
-                        >
-                            <Text selectable style={foundation.typography.label}>{detail.label}</Text>
-                            <Text selectable numberOfLines={2} style={[foundation.typography.body, { color: theme.colors.text }]}>
-                                {detail.value || 'Not provided'}
-                            </Text>
+                <View style={{ gap: foundation.spacing.regular }}>
+                    <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${detailsExpanded ? 'Hide' : 'Show'} information for ${title}`}
+                        accessibilityState={{ expanded: detailsExpanded }}
+                        onPress={() => setDetailsExpanded((current) => !current)}
+                        style={({ pressed }) => ({
+                            minHeight: scaleIcon(48),
+                            borderTopWidth: 1,
+                            borderTopColor: theme.colors.border,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: foundation.spacing.regular,
+                            opacity: pressed ? 0.76 : 1,
+                        })}
+                    >
+                        <Text selectable style={foundation.typography.containerTitle}>Information</Text>
+                        <Text style={[foundation.typography.label, { color: theme.colors.primary }]}>
+                            {detailsExpanded ? 'Hide details  ▲' : 'Show details  ▼'}
+                        </Text>
+                    </Pressable>
+                    {detailsExpanded ? (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: foundation.spacing.regular }}>
+                            {details.map((detail) => (
+                                <View
+                                    key={detail.label}
+                                    style={{
+                                        minWidth: scaleIcon(118),
+                                        flexBasis: scaleIcon(132),
+                                        flexGrow: 1,
+                                        gap: foundation.spacing.compact,
+                                        paddingTop: foundation.spacing.compact,
+                                        borderTopWidth: 1,
+                                        borderTopColor: theme.colors.border,
+                                    }}
+                                >
+                                    <Text selectable style={foundation.typography.label}>{detail.label}</Text>
+                                    <Text selectable numberOfLines={2} style={[foundation.typography.body, { color: theme.colors.text }]}>
+                                        {detail.value || 'Not provided'}
+                                    </Text>
+                                </View>
+                            ))}
                         </View>
-                    ))}
+                    ) : null}
                 </View>
             ) : null}
         </View>

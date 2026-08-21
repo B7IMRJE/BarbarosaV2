@@ -12,6 +12,7 @@ import {
 } from '../../lib/homeos-responsive-layout';
 import type { HomeItemHierarchyRecord } from '../../lib/homeItemHierarchy';
 import { resolveHomeItemCardDetails, resolveHomeItemDisplay } from '../../lib/homeItemDisplay';
+import type { HomeOSStarterCardChoice } from '../../lib/homeosStarterCatalog';
 import {
     resolveHomeItemHealthCardPresentation,
     resolveHomeItemHealthCardStyle,
@@ -22,13 +23,17 @@ import { useTheme } from '../../theme/useTheme';
 export default function HomeItemAssemblyView({
     item,
     components,
+    availableComponents,
     onOpenComponent,
+    onAddComponent,
     manageControl,
     message,
 }: {
     item: HomeItemHierarchyRecord;
     components: HomeItemHierarchyRecord[];
+    availableComponents: HomeOSStarterCardChoice[];
     onOpenComponent: (component: HomeItemHierarchyRecord) => void;
+    onAddComponent: (component: HomeOSStarterCardChoice) => void;
     manageControl?: ReactNode;
     message?: string;
 }) {
@@ -69,6 +74,7 @@ export default function HomeItemAssemblyView({
 
                 <EquipmentDetailHeader
                     title={itemName}
+                    semanticIdentity={cleanText(item.starter_template_key) || undefined}
                     type={itemDisplay.placementLabel || undefined}
                     details={resolveHomeItemCardDetails(item)}
                     visual={resolveHomeOSEquipmentVisual(item.photo_url)}
@@ -99,6 +105,7 @@ export default function HomeItemAssemblyView({
                                     <EquipmentContainer
                                         key={cleanText(component.id) || itemSlug || componentName}
                                         title={componentName}
+                                        semanticIdentity={cleanText(component.starter_template_key) || undefined}
                                         detail={[
                                             `Status: ${health.label}`,
                                             componentDisplay.placementLabel,
@@ -120,10 +127,34 @@ export default function HomeItemAssemblyView({
                     ) : (
                         <View style={[foundation.surface, { padding: foundation.spacing.comfortable }]}>
                             <Text selectable style={foundation.typography.body}>
-                                No component cards are connected to this {itemName} yet. Use Manage to add one when it is observed.
+                                No Component Cards have been added to this {itemName} yet. Choose an applicable master card below when the part is observed.
                             </Text>
                         </View>
                     )}
+
+                    {availableComponents.length > 0 ? (
+                        <View style={{ gap: foundation.spacing.regular }}>
+                            <View style={{ gap: foundation.spacing.compact }}>
+                                <Text selectable style={foundation.typography.containerTitle}>Available from Card Deck</Text>
+                                <Text selectable style={foundation.typography.body}>
+                                    These are compatible Super Admin master cards. Opening one adds its own HomeOS instance; it does not claim the part is already installed.
+                                </Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: gridGap }}>
+                                {availableComponents.map((component) => (
+                                    <EquipmentContainer
+                                        key={component.templateKey}
+                                        title={component.name}
+                                        semanticIdentity={component.templateKey}
+                                        detail="Master Component Card · Not added"
+                                        accessibilityLabel={`Add ${component.name} from the HomeOS Card Deck`}
+                                        onPress={() => onAddComponent(component)}
+                                        style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
+                                    />
+                                ))}
+                            </View>
+                        </View>
+                    ) : null}
                 </View>
 
                 {message ? (

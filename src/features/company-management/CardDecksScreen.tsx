@@ -314,6 +314,7 @@ function StarterCards({ title, cards, allCards }: { title: string; cards: HomeOS
                     <EquipmentContainer
                         key={card.templateKey}
                         title={card.name}
+                        semanticIdentity={card.templateKey}
                         detail={detail}
                         style={cardStyle}
                     />

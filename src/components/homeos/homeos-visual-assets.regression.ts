@@ -1,5 +1,6 @@
 import {
     resolveHomeOSAreaFallbackIcon,
+    resolveHomeOSCardSemanticVisual,
     resolveHomeOSEquipmentFallbackIcon,
     resolveHomeOSEquipmentVisual,
     resolveHomeOSFallbackIcon,
@@ -241,6 +242,14 @@ assert(
 assert(
     resolveHomeOSSemanticVisual('Tank Water Heater', 'equipment')?.key === 'water-heater',
     'a tank-water-heater alias must share the canonical Water Heater equipment cutout.'
+);
+assert(
+    resolveHomeOSCardSemanticVisual('Custom tank part', 'equipment', 'bathroom:toilet_fill_valve')?.key === 'toilet-fill-valve',
+    'an installed card must keep the realistic artwork from its permanent Super Admin Deck identity even when its display name changes.'
+);
+assert(
+    resolveHomeOSCardSemanticVisual('My utility equipment', 'equipment', 'garage:water_heater')?.key === 'water-heater',
+    'a container instance must resolve artwork from its permanent Deck key before its editable name.'
 );
 
 assert(
