@@ -3,6 +3,7 @@ import { ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import {
     AreaContainer,
     EquipmentContainer,
+    EquipmentDetailHeader,
     HomeOSCardVisual,
     MainDestinationCard,
 } from '../../components/homeos/HomeOSVisualFoundation';
@@ -233,6 +234,31 @@ function DetailReview({ state }: { state: Extract<HomeOSReviewState, { level: 'd
     const card = selectedHomeOSReviewCard(state);
 
     if (!card) return null;
+
+    if (card.kind === 'equipment') {
+        return (
+            <View style={{ gap: foundation.spacing.regular }}>
+                <EquipmentDetailHeader
+                    title={card.title}
+                    type="Fixture card"
+                    details={[
+                        { label: 'Status', value: 'Installed' },
+                        { label: 'System', value: 'Plumbing' },
+                        { label: 'Category', value: 'Fixture' },
+                        { label: 'Location', value: 'Bathroom 1' },
+                        { label: 'Brand', value: 'Homeowner record' },
+                        { label: 'Model', value: 'Not provided' },
+                        { label: 'Serial', value: 'Not provided' },
+                        { label: 'Installed', value: 'Jun 15, 2025' },
+                    ]}
+                    style={{ maxWidth: scaleIcon(640) }}
+                />
+                <Text selectable style={foundation.typography.body}>
+                    Data-free review: installed information stays inside the modern card. Manage opens the provider&apos;s full work tools.
+                </Text>
+            </View>
+        );
+    }
 
     return (
         <View style={{ gap: foundation.spacing.regular }}>

@@ -11,7 +11,7 @@ import {
     resolveHomeOSContainerItemWidth,
 } from '../../lib/homeos-responsive-layout';
 import type { HomeItemHierarchyRecord } from '../../lib/homeItemHierarchy';
-import { resolveHomeItemDisplay } from '../../lib/homeItemDisplay';
+import { resolveHomeItemCardDetails, resolveHomeItemDisplay } from '../../lib/homeItemDisplay';
 import {
     resolveHomeItemHealthCardPresentation,
     resolveHomeItemHealthCardStyle,
@@ -70,6 +70,7 @@ export default function HomeItemAssemblyView({
                 <EquipmentDetailHeader
                     title={itemName}
                     type={itemDisplay.placementLabel || undefined}
+                    details={resolveHomeItemCardDetails(item)}
                     visual={resolveHomeOSEquipmentVisual(item.photo_url)}
                 />
 

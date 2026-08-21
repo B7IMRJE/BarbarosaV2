@@ -354,12 +354,14 @@ export function EquipmentDetailHeader({
     title,
     type,
     identifier,
+    details,
     visual,
     style,
 }: {
     title: string;
     type?: string;
     identifier?: string;
+    details?: readonly { label: string; value?: string | null }[];
     visual?: HomeOSVisualAsset;
     style?: StyleProp<ViewStyle>;
 }) {
@@ -374,6 +376,29 @@ export function EquipmentDetailHeader({
                 {type ? <Text selectable style={foundation.typography.body}>{type}</Text> : null}
                 {identifier ? <Text selectable style={foundation.typography.label}>{identifier}</Text> : null}
             </View>
+            {details?.length ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: foundation.spacing.regular }}>
+                    {details.map((detail) => (
+                        <View
+                            key={detail.label}
+                            style={{
+                                minWidth: scaleIcon(118),
+                                flexBasis: scaleIcon(132),
+                                flexGrow: 1,
+                                gap: foundation.spacing.compact,
+                                paddingTop: foundation.spacing.compact,
+                                borderTopWidth: 1,
+                                borderTopColor: theme.colors.border,
+                            }}
+                        >
+                            <Text selectable style={foundation.typography.label}>{detail.label}</Text>
+                            <Text selectable numberOfLines={2} style={[foundation.typography.body, { color: theme.colors.text }]}>
+                                {detail.value || 'Not provided'}
+                            </Text>
+                        </View>
+                    ))}
+                </View>
+            ) : null}
         </View>
     );
 }

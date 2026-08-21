@@ -12,7 +12,14 @@ export type HomeItemHierarchyRecord = {
     location?: string | null;
     parent_area?: string | null;
     status?: string | null;
+    condition?: string | null;
     install_state?: string | null;
+    brand?: string | null;
+    model?: string | null;
+    serial?: string | null;
+    part_number?: string | null;
+    installed_on?: string | null;
+    install_date?: string | null;
     archived?: boolean | null;
     starter_template_key?: string | null;
     parent_home_item_id?: string | null;

@@ -13,11 +13,21 @@ export function runProviderModeRegressions() {
     providerModeParamsPreserveTechOSJobContext();
     providerModeItemPathPreservesEstimateContext();
     providerModeItemPathPreservesFocusedView();
+    providerModeItemPathPreservesCardPresentation();
     providerModePathKeepsBackToCurrentJob();
     providerModePathPreservesExistingAreaQuery();
     providerContextDoesNotInventOptionalIds();
     missingProviderContextIsDetected();
     providerEstimateRouteParamsRemainIntact();
+}
+
+function providerModeItemPathPreservesCardPresentation() {
+    const itemPath = String(providerModeItemPath('bathroom-vanity', createContext(), {
+        presentation: 'assembly',
+    }));
+
+    assert(itemPath.includes('presentation=assembly'), 'Nested provider cards should retain the modern card presentation.');
+    assert(itemPath.includes('jobId=job-1'), 'Nested provider cards should retain assigned job context.');
 }
 
 function providerModeParamsPreserveTechOSJobContext() {
