@@ -63,7 +63,6 @@ import {
 import {
   propertyLandingOtherAreasAction,
   propertyLandingPrimaryDestinations,
-  shouldShowPropertyDestinations,
 } from '../lib/propertyLandingNavigation';
 import { shouldShowHomeDashboardSystemBreakdown } from '../lib/homeDashboardPresentation';
 import {
@@ -78,6 +77,7 @@ import { supabase } from '../lib/supabase';
 import { useStableCallback } from '../hooks/useStableCallback';
 import { useTheme } from '../theme/useTheme';
 import PropertyLandingScreen from '../features/property-navigation/PropertyLandingScreen';
+import ProviderPropertyLandingScreen from '../features/property-navigation/ProviderPropertyLandingScreen';
 
 type PreferredProvider = {
   companyId: string;
@@ -1608,7 +1608,7 @@ export default function HomeScreen() {
 
   if (!providerRouteActive) return <PropertyLandingScreen />;
 
-  return <HomeServicesScreen showPropertyDestinations={shouldShowPropertyDestinations(providerRouteActive)} />;
+  return <ProviderPropertyLandingScreen />;
 }
 
 const actionCardGridStyle = {
