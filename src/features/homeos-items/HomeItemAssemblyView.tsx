@@ -13,6 +13,7 @@ import {
 import type { HomeItemHierarchyRecord } from '../../lib/homeItemHierarchy';
 import { resolveHomeItemCardDetails, resolveHomeItemDisplay } from '../../lib/homeItemDisplay';
 import type { HomeOSStarterCardChoice } from '../../lib/homeosStarterCatalog';
+import { homeOSStarterCardForInstalledComponent } from '../../lib/homeosStarterCardPickerCore';
 import {
     resolveHomeItemHealthCardPresentation,
     resolveHomeItemHealthCardStyle,
@@ -23,7 +24,9 @@ import { useTheme } from '../../theme/useTheme';
 export default function HomeItemAssemblyView({
     item,
     components,
+    componentDeckCards,
     availableComponents,
+    itemSemanticIdentity,
     onOpenComponent,
     onAddComponent,
     manageControl,
@@ -31,7 +34,9 @@ export default function HomeItemAssemblyView({
 }: {
     item: HomeItemHierarchyRecord;
     components: HomeItemHierarchyRecord[];
+    componentDeckCards: HomeOSStarterCardChoice[];
     availableComponents: HomeOSStarterCardChoice[];
+    itemSemanticIdentity?: string;
     onOpenComponent: (component: HomeItemHierarchyRecord) => void;
     onAddComponent: (component: HomeOSStarterCardChoice) => void;
     manageControl?: ReactNode;
@@ -74,7 +79,7 @@ export default function HomeItemAssemblyView({
 
                 <EquipmentDetailHeader
                     title={itemName}
-                    semanticIdentity={cleanText(item.starter_template_key) || undefined}
+                    semanticIdentity={itemSemanticIdentity || cleanText(item.starter_template_key) || undefined}
                     type={itemDisplay.placementLabel || undefined}
                     details={resolveHomeItemCardDetails(item)}
                     visual={resolveHomeOSEquipmentVisual(item.photo_url)}
@@ -100,12 +105,17 @@ export default function HomeItemAssemblyView({
                                 const componentName = componentDisplay.title;
                                 const itemSlug = cleanText(component.item_slug);
                                 const health = resolveHomeItemHealthCardPresentation(component);
+                                const masterCard = homeOSStarterCardForInstalledComponent(
+                                    componentDeckCards,
+                                    item.starter_template_key,
+                                    component,
+                                );
 
                                 return (
                                     <EquipmentContainer
                                         key={cleanText(component.id) || itemSlug || componentName}
                                         title={componentName}
-                                        semanticIdentity={cleanText(component.starter_template_key) || undefined}
+                                        semanticIdentity={masterCard?.templateKey || cleanText(component.starter_template_key) || undefined}
                                         detail={[
                                             `Status: ${health.label}`,
                                             componentDisplay.placementLabel,

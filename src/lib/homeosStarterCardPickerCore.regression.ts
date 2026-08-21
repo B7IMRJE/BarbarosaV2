@@ -1,6 +1,7 @@
 import {
     filterHomeOSStarterCardChoices,
     homeOSStarterCardGroups,
+    homeOSStarterCardForInstalledComponent,
     homeOSStarterComponentCardsForContainer,
 } from './homeosStarterCardPickerCore';
 import type { HomeOSStarterCardChoice } from './homeosStarterCatalog';
@@ -26,6 +27,14 @@ const componentDeck = [
     card('kitchen:dishwasher', 'kitchen', 'Dishwasher', [], 9, [], null, 'container'),
 ];
 
+const vanityDeck = [
+    card('bathroom:bathroom_vanity', 'bathroom', 'Bathroom Vanity', ['Vanity'], 1, [], null, 'container'),
+    card('bathroom:bathroom_sink', 'bathroom', 'Bathroom Sink', ['Vanity Sink', 'Lavatory Sink', 'Sink'], 2, [], 'bathroom:bathroom_vanity', 'component'),
+    card('bathroom:bathroom_sink_faucet', 'bathroom', 'Bathroom Sink Faucet', ['Bathroom Faucet', 'Lavatory Faucet', 'Faucet'], 3, [], 'bathroom:bathroom_vanity', 'component'),
+    card('bathroom:bathroom_sink_hot_angle_stop', 'bathroom', 'Bathroom Sink Hot Angle Stop', ['Hot Angle Stop'], 4, [], 'bathroom:bathroom_sink', 'component'),
+    card('bathroom:bathroom_sink_cold_angle_stop', 'bathroom', 'Bathroom Sink Cold Angle Stop', ['Cold Angle Stop'], 5, [], 'bathroom:bathroom_sink', 'component'),
+];
+
 assert(homeOSStarterCardGroups(cards).some((group) => group.key === 'whole home' && group.label === 'Whole Home'), 'Location-neutral archetypes must have a readable Whole Home Deck group.');
 for (const query of ['smart', 'water', 'shutoff']) {
     assert(filterHomeOSStarterCardChoices(cards, query).some((entry) => entry.templateKey === 'whole_home:smart_water_shutoff'), `Add from Deck search for “${query}” must find Smart Water Shutoff.`);
@@ -42,6 +51,39 @@ const sinkComponents = homeOSStarterComponentCardsForContainer(componentDeck, 'K
 assert(sinkComponents.map((card) => card.templateKey).join(',') === 'kitchen:kitchen_faucet,kitchen:garbage_disposal,kitchen:disposal_flange', 'Kitchen Sink must include its canonical faucet, disposal, and nested disposal flange without unrelated containers.');
 assert(!sinkComponents.some((card) => card.templateKey === 'kitchen:dishwasher'), 'A sibling Dishwasher container must never leak into the Kitchen Sink component picker.');
 assert(homeOSStarterComponentCardsForContainer(componentDeck, '').length === 0, 'A missing permanent Deck identity must not guess component relationships from a display name.');
+
+assert(
+    homeOSStarterCardForInstalledComponent(
+        vanityDeck,
+        'bathroom:bathroom_vanity',
+        { name: 'Bathroom Faucet', starter_template_key: null },
+    )?.templateKey === 'bathroom:bathroom_sink_faucet',
+    'A legacy unkeyed Bathroom Faucet must inherit the one compatible Super Admin Deck identity beneath Bathroom Vanity.'
+);
+assert(
+    homeOSStarterCardForInstalledComponent(
+        vanityDeck,
+        'bathroom:bathroom_vanity',
+        { name: 'Left stop', starter_template_key: 'bathroom:hot_angle_stop' },
+    )?.templateKey === 'bathroom:bathroom_sink_hot_angle_stop',
+    'An older shortened template key must reconcile through a unique current Deck alias.'
+);
+assert(
+    !homeOSStarterCardForInstalledComponent(
+        vanityDeck,
+        'bathroom:bathroom_vanity',
+        { name: 'Angle Stop', starter_template_key: null },
+    ),
+    'An ambiguous legacy label must not be guessed between hot and cold master cards.'
+);
+assert(
+    !homeOSStarterCardForInstalledComponent(
+        vanityDeck,
+        'bathroom:bathroom_vanity',
+        { name: 'Bathroom Faucet', starter_template_key: 'custom:designer_faucet' },
+    ),
+    'A deliberate custom identity must not be silently reclassified as a Super Admin master card.'
+);
 
 console.log('HomeOS Add from Deck picker regression checks passed.');
 

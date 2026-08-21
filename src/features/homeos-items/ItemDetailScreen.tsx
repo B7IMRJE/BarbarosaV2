@@ -86,7 +86,10 @@ import {
     loadHomeOSStarterCardChoices,
     type HomeOSStarterCardChoice,
 } from '../../lib/homeosStarterCatalog';
-import { homeOSStarterComponentCardsForContainer } from '../../lib/homeosStarterCardPickerCore';
+import {
+    homeOSStarterCardForInstalledComponent,
+    homeOSStarterComponentCardsForContainer,
+} from '../../lib/homeosStarterCardPickerCore';
 import { nextHomeItemInstanceName } from '../../lib/homeItemInstances';
 import { resolveHomeItemPresentation } from '../../lib/homeItemPresentation';
 import {
@@ -690,8 +693,30 @@ export default function ItemScreen() {
     ) === 'sales_company_rpc';
     const hasItem = Boolean(item);
     const isLinkedComponent = Boolean(item?.parent_home_item_id);
+    const currentItemParent = item
+        ? resolveSavedParentForItem(hierarchyItems, item)
+        : undefined;
+    const currentItemMasterCard = currentItemParent
+        ? homeOSStarterCardForInstalledComponent(
+            componentDeckChoices,
+            currentItemParent.starter_template_key,
+            item,
+        )
+        : undefined;
     const installedComponentTemplateKeys = new Set(
-        relatedItems.map((candidate) => String(candidate.starter_template_key || '').trim()).filter(Boolean)
+        relatedItems.flatMap((candidate) => {
+            const masterCard = item
+                ? homeOSStarterCardForInstalledComponent(
+                    componentDeckChoices,
+                    item.starter_template_key,
+                    candidate,
+                )
+                : undefined;
+            return [
+                String(candidate.starter_template_key || '').trim(),
+                masterCard?.templateKey || '',
+            ].filter(Boolean);
+        })
     );
     const availableComponentCards = item
         ? homeOSStarterComponentCardsForContainer(
@@ -5174,7 +5199,9 @@ export default function ItemScreen() {
             <HomeItemAssemblyView
                 item={item}
                 components={relatedItems}
+                componentDeckCards={componentDeckChoices}
                 availableComponents={availableComponentCards}
+                itemSemanticIdentity={currentItemMasterCard?.templateKey}
                 onOpenComponent={openRelatedItem}
                 onAddComponent={(card) => openComponentDeckCard(card.templateKey)}
                 message={message}
@@ -6732,6 +6759,26 @@ export default function ItemScreen() {
             </Modal>
         </>
     );
+}
+
+function resolveSavedParentForItem(
+    rows: readonly HomeItemHierarchyRecord[],
+    item: HomeItemHierarchyRecord,
+) {
+    const itemId = String(item.id || '').trim();
+    if (!itemId) return undefined;
+
+    const explicitParentId = String(item.parent_home_item_id || '').trim();
+    if (explicitParentId) {
+        return rows.find((candidate) => String(candidate.id || '').trim() === explicitParentId);
+    }
+
+    const inferredParents = rows.filter((candidate) =>
+        String(candidate.id || '').trim() !== itemId
+        && resolveHomeItemComponentDeck(rows, candidate).some((child) => String(child.id || '').trim() === itemId)
+    );
+
+    return inferredParents.length === 1 ? inferredParents[0] : undefined;
 }
 
 function OptionRow({

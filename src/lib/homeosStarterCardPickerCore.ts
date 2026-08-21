@@ -82,6 +82,56 @@ export function homeOSStarterComponentCardsForContainer(
         || left.name.localeCompare(right.name));
 }
 
+/**
+ * Reconciles one saved legacy component with a compatible Super Admin Deck
+ * card. Exact permanent keys win. Older shortened keys, names, or aliases are
+ * accepted only when they identify exactly one descendant of the parent
+ * container, so the UI never guesses between similar master cards.
+ */
+export function homeOSStarterCardForInstalledComponent(
+    cards: readonly HomeOSStarterCardChoice[],
+    containerTemplateKey: string | null | undefined,
+    component: {
+        starter_template_key?: string | null;
+        name?: string | null;
+    },
+) {
+    const candidates = homeOSStarterComponentCardsForContainer(cards, containerTemplateKey);
+    if (candidates.length === 0) return undefined;
+
+    const explicitKey = normalizeTemplateKey(component.starter_template_key);
+    const directMatch = explicitKey
+        ? candidates.find((card) => normalizeTemplateKey(card.templateKey) === explicitKey)
+        : undefined;
+    if (directMatch) return directMatch;
+
+    // A deliberately custom identity must remain custom. Only null or older
+    // non-custom keys are eligible for compatibility reconciliation.
+    if (explicitKey.startsWith('custom:')) return undefined;
+
+    const observedIdentities = uniqueNormalized([
+        component.name,
+        explicitKey ? templateKeyTail(explicitKey) : '',
+    ]);
+    if (observedIdentities.length === 0) return undefined;
+
+    const exactMatches = candidates.filter((card) => {
+        const identities = starterCardIdentities(card);
+        return observedIdentities.some((identity) => identities.includes(identity));
+    });
+    if (exactMatches.length === 1) return exactMatches[0];
+    if (exactMatches.length > 1) return undefined;
+
+    const containedMatches = candidates.filter((card) => {
+        const identities = starterCardIdentities(card);
+        return observedIdentities.some((observed) => observed.length >= 4 && identities.some((identity) =>
+            ` ${identity} `.includes(` ${observed} `)
+        ));
+    });
+
+    return containedMatches.length === 1 ? containedMatches[0] : undefined;
+}
+
 export function homeOSStarterCardGroupLabel(roomKind: string) {
     return metadataLabel(roomKind);
 }
@@ -96,4 +146,24 @@ function normalize(value: string) {
 
 function normalizeTemplateKey(value?: string | null) {
     return String(value || '').trim().toLowerCase();
+}
+
+function starterCardIdentities(card: HomeOSStarterCardChoice) {
+    return uniqueNormalized([
+        card.templateKey,
+        templateKeyTail(card.templateKey),
+        card.name,
+        ...card.aliases,
+    ]);
+}
+
+function templateKeyTail(value: string) {
+    const tail = value.split(':').pop() || value;
+    return tail.replace(/[_-]+/g, ' ');
+}
+
+function uniqueNormalized(values: readonly (string | null | undefined)[]) {
+    return [...new Set(values
+        .map((value) => normalize(String(value || '')).replace(/\s+#?\d+$/, ''))
+        .filter(Boolean))];
 }
