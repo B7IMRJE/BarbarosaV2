@@ -3,6 +3,7 @@ import {
     cardSetDraftFromSet,
     deckSourceCards,
     draftPayload,
+    HOMEOS_CARD_DECK_TABS,
     moveDraftMember,
     removeDraftMember,
     revisionLabel,
@@ -15,9 +16,14 @@ import {
 import type { HomeOSStarterDeckCard } from './homeosStarterCatalog';
 
 const containers: HomeOSStarterDeckCard[] = [{ templateKey: 'bathroom:toilet', name: 'Toilet', roomKind: 'bathroom', system: 'Plumbing', category: 'Fixture', parentTemplateKey: null, presentationRole: 'container', placementTags: [], aliases: [], displayOrder: 1, readinessStatus: 'ready', shortCode: '', mappedVariantIds: [], mappedCount: 0, approvedOptionCount: 0, readinessIssues: [], adminNotes: '' }];
-const components: HomeOSStarterDeckCard[] = [{ ...containers[0], templateKey: 'bathroom:toilet_supply', name: 'Toilet Supply Line', parentTemplateKey: 'bathroom:toilet', presentationRole: 'component', displayOrder: 2 }];
+const components: HomeOSStarterDeckCard[] = [{ ...containers[0], templateKey: 'bathroom:toilet_supply', name: 'Toilet Supply Line', category: 'Component', parentTemplateKey: 'bathroom:toilet', presentationRole: 'component', displayOrder: 2 }];
+const componentFixtures: HomeOSStarterDeckCard[] = [{ ...containers[0], templateKey: 'bathroom:toilet_fill_valve', name: 'Toilet Fill Valve', parentTemplateKey: 'bathroom:toilet', presentationRole: 'component', displayOrder: 3 }];
+const equipment: HomeOSStarterDeckCard[] = [{ ...containers[0], templateKey: 'garage:water_heater', name: 'Water Heater', roomKind: 'garage', category: 'Equipment', presentationRole: 'container', displayOrder: 4 }];
 assert(starterDeckCards([...containers, ...components], 'containers').map((card) => card.name).join(',') === 'Toilet', 'Container deck must exclude cards that declare a parent.');
 assert(starterDeckCards([...containers, ...components], 'components').map((card) => card.name).join(',') === 'Toilet Supply Line', 'Component deck must retain cards with a declared parent.');
+assert(starterDeckCards([...containers, ...componentFixtures], 'fixtures').map((card) => card.name).join(',') === 'Toilet,Toilet Fill Valve', 'Fixture deck is a category lens over both container and nested fixture masters.');
+assert(starterDeckCards([...containers, ...equipment], 'equipment').map((card) => card.name).join(',') === 'Water Heater', 'Equipment deck must expose equipment-category masters.');
+assert(HOMEOS_CARD_DECK_TABS.map((tab) => tab.key).join(',') === 'areas,containers,fixtures,equipment,components,products,starter-packs', 'Master Card Deck navigation must expose every approved master-card lens.');
 
 let draft = setDraftTargetArea({ ...cardSetDraftFromSet(), setKey: 'bath-one', name: 'Bathroom one' }, 'bathroom');
 assert(draft.hasDraftRevision === false, 'A new unsaved pack must not be publishable.');

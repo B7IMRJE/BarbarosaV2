@@ -1,7 +1,9 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Alert, ScrollView, Text, TextInput, TouchableOpacity, View, useWindowDimensions, type ViewStyle } from 'react-native';
 import AdminNavBar from '../../components/AdminNavBar';
+import CompactCatalogProductTile from '../../components/catalog/compact-catalog-product-tile';
+import { AreaContainer, EquipmentContainer } from '../../components/homeos/HomeOSVisualFoundation';
 import ThemedButton from '../../components/theme/ThemedButton';
 import ThemedCard from '../../components/theme/ThemedCard';
 import { loadCatalogFactory, type CatalogFactoryRecord } from '../../lib/catalogFactory';
@@ -28,13 +30,29 @@ import {
     type HomeOSCardDeckTab,
     type HomeOSCardSet,
     type HomeOSCardSetDraft,
+    type HomeOSStarterMasterDeck,
     validateDraft,
 } from '../../lib/homeosCardDecksCore';
+import {
+    resolveHomeOSContainerGrid,
+    resolveHomeOSContainerItemWidth,
+} from '../../lib/homeos-responsive-layout';
 import { loadHomeOSStarterCardDeck, type HomeOSStarterDeckCard } from '../../lib/homeosStarterCatalog';
 import { loadCurrentUserPlatformAdmin } from '../../lib/roles';
+import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
 
 type DeckData = { areas: HomeOSAreaCard[]; cardSets: HomeOSCardSet[] };
+type PackSource = 'areas' | HomeOSStarterMasterDeck | 'products';
+const STARTER_MASTER_DECKS: readonly HomeOSStarterMasterDeck[] = ['containers', 'fixtures', 'equipment', 'components'];
+const PACK_SOURCE_TABS: readonly { key: PackSource; label: string }[] = [
+    { key: 'areas', label: 'Area' },
+    { key: 'containers', label: 'Container' },
+    { key: 'fixtures', label: 'Fixture' },
+    { key: 'equipment', label: 'Equipment' },
+    { key: 'components', label: 'Component' },
+    { key: 'products', label: 'Product' },
+];
 
 export default function CardDecksScreen() {
     const { width } = useWindowDimensions();
@@ -49,7 +67,7 @@ export default function CardDecksScreen() {
     const [message, setMessage] = useState('Loading Card Decks…');
     const [draft, setDraft] = useState<HomeOSCardSetDraft | null>(null);
     const [draftDirty, setDraftDirty] = useState(false);
-    const [packSource, setPackSource] = useState<'areas' | 'containers' | 'components' | 'products'>('containers');
+    const [packSource, setPackSource] = useState<PackSource>('containers');
     const [query, setQuery] = useState('');
 
     useEffect(() => {
@@ -208,6 +226,7 @@ export default function CardDecksScreen() {
     }, [deckData.areas, draft, packSource, products, query, starterCards]);
 
     if (allowed === false) return <AccessDenied message={message} />;
+    const activeStarterDeck = isStarterMasterDeck(tab) ? tab : null;
 
     return (
         <ScrollView style={[styles.page, { backgroundColor: theme.colors.background }]} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: phone ? 16 : 20, paddingBottom: 56 }}>
@@ -227,8 +246,7 @@ export default function CardDecksScreen() {
                 <Text selectable accessibilityLiveRegion="polite" style={[styles.status, { color: theme.colors.mutedText }]}>{busy ? 'Updating Card Decks…' : message}</Text>
                 {busy && deckData.areas.length === 0 ? <ActivityIndicator size="large" color="#0A7563" style={{ margin: 42 }} /> : null}
                 {tab === 'areas' ? <AreaCards areas={deckData.areas} /> : null}
-                {tab === 'containers' ? <StarterCards title="Container Cards" cards={starterDeckCards(starterCards, 'containers')} /> : null}
-                {tab === 'components' ? <StarterCards title="Component Cards" cards={starterDeckCards(starterCards, 'components')} /> : null}
+                {activeStarterDeck ? <StarterCards title={HOMEOS_CARD_DECK_TABS.find((item) => item.key === activeStarterDeck)?.label || 'Master Cards'} cards={starterDeckCards(starterCards, activeStarterDeck)} allCards={starterCards} /> : null}
                 {tab === 'products' ? <CatalogProducts products={products} /> : null}
                 {tab === 'starter-packs' ? <StarterPacks cardSets={deckData.cardSets} draft={draft} draftDirty={draftDirty} busy={busy} areas={deckData.areas} starterCards={starterCards} products={products} unavailableProductCount={products.filter((product) => product.status !== 'approved').length} sourceCards={visibleSourceCards} packSource={packSource} query={query} setQuery={setQuery} setPackSource={setPackSource} onNew={() => openDraft()} onEdit={openDraft} onArchive={confirmArchive} onChangeDraft={updateDraft} onSave={() => void saveDraft()} onPublish={confirmPublish} /> : null}
             </View>
@@ -236,22 +254,101 @@ export default function CardDecksScreen() {
     );
 }
 
-function AreaCards({ areas }: { areas: HomeOSAreaCard[] }) {
-    return <View style={styles.grid}>{areas.length === 0 ? <EmptyState title="No Area Cards yet" body="Area cards will appear here once the platform deck is configured." /> : areas.map((area) => <View key={area.areaKey} style={styles.card}><Text selectable style={styles.cardTitle}>{area.name}</Text><Text selectable style={styles.meta}>{area.scope || 'Home scope'} · {area.publicationStatus || 'draft'}</Text><Text selectable style={styles.meta}>{area.areaKey}{area.aliases.length ? ` · Also known as ${area.aliases.join(', ')}` : ''}</Text></View>)}</View>;
+function MasterCardGrid({ kind, children }: {
+    kind: 'area' | 'equipment';
+    children: (cardStyle: ViewStyle) => ReactNode;
+}) {
+    const { width: viewportWidth } = useWindowDimensions();
+    const { scaleFont, scaleIcon, theme } = useTheme();
+    const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
+    const contentWidth = Math.min(1160, Math.max(0, viewportWidth - (viewportWidth < 640 ? 32 : 40)));
+    const minimumItemWidth = kind === 'area'
+        ? foundation.grid.areaMinimumWidth
+        : foundation.grid.equipmentMinimumWidth;
+    const columns = resolveHomeOSContainerGrid({
+        viewportWidth,
+        contentWidth,
+        minimumItemWidth,
+        gap: foundation.grid.gap,
+    });
+    const cardWidth = resolveHomeOSContainerItemWidth({
+        contentWidth,
+        columns,
+        gap: foundation.grid.gap,
+        minimumItemWidth,
+        maximumItemWidth: scaleIcon(220),
+    });
+    const cardStyle: ViewStyle = { width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth };
+
+    return <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: foundation.grid.gap }}>{children(cardStyle)}</View>;
 }
 
-function StarterCards({ title, cards }: { title: string; cards: HomeOSStarterDeckCard[] }) {
-    const cardNames = new Map(cards.map((card) => [card.templateKey, card.name]));
-    return <View><Text selectable style={styles.sectionTitle}>{title}</Text><View style={styles.grid}>{cards.length === 0 ? <EmptyState title={`No ${title} yet`} body="Starter-card definitions will appear here." /> : cards.map((card) => <View key={card.templateKey} style={styles.card}><Text selectable style={styles.cardTitle}>{card.name}</Text><Text selectable style={styles.meta}>{card.roomKind.replace(/[_-]+/g, ' ')} · {card.system} · {card.category}</Text><Text selectable style={styles.meta}>{card.shortCode || 'Starter card'} · {card.readinessStatus}</Text>{card.parentTemplateKey ? <Text selectable style={styles.hint}>Parent: {cardNames.get(card.parentTemplateKey) || 'Canonical starter card'}</Text> : null}</View>)}</View></View>;
+function AreaCards({ areas }: { areas: HomeOSAreaCard[] }) {
+    return <View style={styles.masterSection}>
+        <Text selectable style={styles.sectionTitle}>Area Cards</Text>
+        <Text selectable style={styles.hint}>These master cards use the same HomeOS Area card face. Starter Packs reference them by their permanent master key.</Text>
+        {areas.length === 0
+            ? <EmptyState title="No Area Cards yet" body="Area cards will appear here once the platform deck is configured." />
+            : <MasterCardGrid kind="area">{(cardStyle) => areas.map((area) => (
+                <AreaContainer
+                    key={area.areaKey}
+                    title={area.name}
+                    subtitle={[displayWords(area.scope || 'home'), displayWords(area.publicationStatus || 'draft')].join(' · ')}
+                    style={cardStyle}
+                />
+            ))}</MasterCardGrid>}
+    </View>;
+}
+
+function StarterCards({ title, cards, allCards }: { title: string; cards: HomeOSStarterDeckCard[]; allCards: HomeOSStarterDeckCard[] }) {
+    const cardNames = new Map(allCards.map((card) => [card.templateKey, card.name]));
+    return <View style={styles.masterSection}>
+        <Text selectable style={styles.sectionTitle}>{title}</Text>
+        <Text selectable style={styles.hint}>One canonical master can appear in more than one catalog lens while remaining the same card everywhere in HomeOS.</Text>
+        {cards.length === 0
+            ? <EmptyState title={`No ${title} yet`} body="Master-card definitions will appear here." />
+            : <MasterCardGrid kind="equipment">{(cardStyle) => cards.map((card) => {
+                const parentName = card.parentTemplateKey ? cardNames.get(card.parentTemplateKey) : '';
+                const detail = [displayWords(card.category), parentName ? `Inside ${parentName}` : displayWords(card.roomKind)].filter(Boolean).join(' · ');
+                return (
+                    <EquipmentContainer
+                        key={card.templateKey}
+                        title={card.name}
+                        detail={detail}
+                        style={cardStyle}
+                    />
+                );
+            })}</MasterCardGrid>}
+    </View>;
 }
 
 function CatalogProducts({ products }: { products: CatalogFactoryRecord[] }) {
-    return <View><View style={styles.sectionHeader}><View style={{ flex: 1 }}><Text selectable style={styles.sectionTitle}>Catalog Products</Text><Text selectable style={styles.hint}>Product authoring stays in Catalog Factory; this is a deck-ready reference.</Text></View><ThemedButton title="Open Catalog Factory" accessibilityLabel="Open Catalog Factory" onPress={() => router.push('/super-admin/catalog-factory' as any)} style={{ minHeight: 44, paddingHorizontal: 14 }} textStyle={{ fontSize: 14 }} /></View><View style={styles.grid}>{products.length === 0 ? <EmptyState title="No catalog products available" body="Create and edit products in Catalog Factory." /> : products.map((product) => <View key={product.id} style={styles.card}><Text selectable style={styles.cardTitle}>{product.familyName || product.modelNumber || product.category}</Text><Text selectable style={styles.meta}>{[product.brand || product.manufacturer, product.shortCode, product.status].filter(Boolean).join(' · ')}</Text><Text selectable numberOfLines={2} style={styles.meta}>{product.description || product.id}</Text></View>)}</View></View>;
+    return <View style={styles.masterSection}>
+        <View style={styles.sectionHeader}><View style={{ flex: 1 }}><Text selectable style={styles.sectionTitle}>Catalog Products</Text><Text selectable style={styles.hint}>These are the same product cards used by the HomeOS catalog. Product authoring remains in Catalog Factory.</Text></View><ThemedButton title="Open Catalog Factory" accessibilityLabel="Open Catalog Factory" onPress={() => router.push('/super-admin/catalog-factory' as any)} style={{ minHeight: 44, paddingHorizontal: 14 }} textStyle={{ fontSize: 14 }} /></View>
+        {products.length === 0
+            ? <EmptyState title="No catalog products available" body="Create and edit products in Catalog Factory." />
+            : <View style={styles.productGrid}>{products.map((product) => {
+                const productName = catalogProductName(product);
+                const openCatalog = () => router.push('/super-admin/catalog-factory' as any);
+                return (
+                    <CompactCatalogProductTile
+                        key={product.id}
+                        shortCode={product.shortCode}
+                        imageUrl={product.primaryImageUrl}
+                        productName={productName}
+                        model={product.modelNumber ? `Model ${product.modelNumber}` : ''}
+                        identity={[product.brand || product.manufacturer, displayWords(product.category), displayWords(product.status)].filter(Boolean).join(' · ')}
+                        onOpen={openCatalog}
+                        primaryAction={{ title: 'Manage', accessibilityLabel: `Manage master product ${productName}`, onPress: openCatalog }}
+                    />
+                );
+            })}</View>}
+    </View>;
 }
 
 type StarterPacksProps = {
-    cardSets: HomeOSCardSet[]; draft: HomeOSCardSetDraft | null; draftDirty: boolean; busy: boolean; areas: HomeOSAreaCard[]; starterCards: HomeOSStarterDeckCard[]; products: CatalogFactoryRecord[]; unavailableProductCount: number; sourceCards: ReturnType<typeof deckSourceCards>; packSource: 'areas' | 'containers' | 'components' | 'products'; query: string;
-    setQuery: (value: string) => void; setPackSource: (value: 'areas' | 'containers' | 'components' | 'products') => void; onNew: () => void; onEdit: (cardSet: HomeOSCardSet) => void; onArchive: (cardSet: HomeOSCardSet) => void; onChangeDraft: (draft: HomeOSCardSetDraft) => void; onSave: () => void; onPublish: () => void;
+    cardSets: HomeOSCardSet[]; draft: HomeOSCardSetDraft | null; draftDirty: boolean; busy: boolean; areas: HomeOSAreaCard[]; starterCards: HomeOSStarterDeckCard[]; products: CatalogFactoryRecord[]; unavailableProductCount: number; sourceCards: ReturnType<typeof deckSourceCards>; packSource: PackSource; query: string;
+    setQuery: (value: string) => void; setPackSource: (value: PackSource) => void; onNew: () => void; onEdit: (cardSet: HomeOSCardSet) => void; onArchive: (cardSet: HomeOSCardSet) => void; onChangeDraft: (draft: HomeOSCardSetDraft) => void; onSave: () => void; onPublish: () => void;
 };
 
 function StarterPacks(props: StarterPacksProps) {
@@ -273,7 +370,7 @@ function StarterPacks(props: StarterPacksProps) {
             <Text selectable style={[styles.fieldLabel, { marginTop: 18 }]}>Cards in this pack</Text>
             {sortedMembers.length === 0 ? <Text selectable style={styles.hint}>No cards selected yet. Add cards from the canonical decks below.</Text> : sortedMembers.map((member, index) => <DraftMember key={member.slotKey} member={member} index={index} members={draft.members} areas={areas} starterCards={starterCards} products={products} onChange={(next) => onChangeDraft(next)} draft={draft} />)}
             <Text selectable style={[styles.fieldLabel, { marginTop: 20 }]}>Add from canonical decks</Text>
-            <View accessibilityRole="tablist" style={styles.sourceTabs}>{(['areas', 'containers', 'components', 'products'] as const).map((source) => <TouchableOpacity key={source} accessibilityRole="tab" accessibilityState={{ selected: packSource === source }} onPress={() => setPackSource(source)} style={[styles.sourceTab, packSource === source && styles.sourceTabActive]}><Text style={[styles.sourceText, packSource === source && styles.sourceTextActive]}>{source === 'areas' ? 'Area' : source === 'containers' ? 'Container' : source === 'components' ? 'Component' : 'Product'}</Text></TouchableOpacity>)}</View>
+            <View accessibilityRole="tablist" style={styles.sourceTabs}>{PACK_SOURCE_TABS.map((source) => <TouchableOpacity key={source.key} accessibilityRole="tab" accessibilityState={{ selected: packSource === source.key }} onPress={() => setPackSource(source.key)} style={[styles.sourceTab, packSource === source.key && styles.sourceTabActive]}><Text style={[styles.sourceText, packSource === source.key && styles.sourceTextActive]}>{source.label}</Text></TouchableOpacity>)}</View>
             <TextInput accessibilityLabel="Search cards to add" value={query} onChangeText={setQuery} placeholder="Search available cards" style={styles.input} />
             {packSource === 'products' && unavailableProductCount > 0 ? <Text selectable style={styles.hint}>{unavailableProductCount} draft or non-approved catalog product{unavailableProductCount === 1 ? ' is' : 's are'} unavailable until approved in Catalog Factory.</Text> : null}
             <View style={styles.sourceList}>{sourceCards.length === 0 ? <Text selectable style={styles.hint}>No matching cards in this deck.</Text> : sourceCards.map((source) => <TouchableOpacity key={`${source.targetKind}:${source.key}`} accessibilityRole="button" accessibilityLabel={`Add ${source.label}`} onPress={() => onChangeDraft(addDraftMember(draft, source))} style={styles.sourceCard}><View style={{ flex: 1 }}><Text selectable style={styles.cardTitle}>{source.label}</Text><Text selectable style={styles.meta}>{source.detail}</Text></View><Text style={styles.addText}>Add</Text></TouchableOpacity>)}</View>
@@ -304,7 +401,10 @@ function Field({ label, children }: { label: string; children: ReactNode }) { re
 function EmptyState({ title, body }: { title: string; body: string }) { return <ThemedCard style={styles.empty}><Text selectable style={styles.cardTitle}>{title}</Text><Text selectable style={styles.hint}>{body}</Text></ThemedCard>; }
 function AccessDenied({ message }: { message: string }) { return <ScrollView style={styles.page} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 20, alignItems: 'center' }}><View style={{ maxWidth: 640, width: '100%' }}><TouchableOpacity accessibilityRole="button" onPress={() => router.replace('/super-admin' as any)} style={styles.primaryButton}><Text style={styles.primaryButtonText}>Super Admin</Text></TouchableOpacity><Text selectable style={styles.title}>Card Decks unavailable</Text><Text selectable style={styles.subtitle}>{message}</Text></View></ScrollView>; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'Please try again.'; }
+function isStarterMasterDeck(value: HomeOSCardDeckTab): value is HomeOSStarterMasterDeck { return STARTER_MASTER_DECKS.includes(value as HomeOSStarterMasterDeck); }
+function displayWords(value: unknown) { return String(value || '').trim().replace(/[_-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()); }
+function catalogProductName(product: CatalogFactoryRecord) { return product.familyName || product.modelNumber || product.category || 'Catalog product'; }
 
 const styles = {
-    page: { flex: 1, backgroundColor: '#F3F6FA' }, hero: { backgroundColor: '#071B33', borderRadius: 24, padding: 20, marginTop: 16 }, title: { color: '#071B33', fontSize: 34, fontWeight: '900' as const, marginTop: 18 }, subtitle: { color: '#64748B', fontSize: 15, lineHeight: 22, marginTop: 8 }, heroTitle: { color: '#FFF', fontSize: 34, fontWeight: '900' as const }, heroSubtitle: { color: '#D8E3EF', fontSize: 15, lineHeight: 22, marginTop: 8 }, status: { color: '#486174', fontWeight: '700' as const, marginVertical: 14 }, tabs: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, marginTop: 16 }, tab: { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 13, borderRadius: 14, borderWidth: 1, borderColor: '#C8D5E1', backgroundColor: '#FFF' }, tabActive: { backgroundColor: '#0A7563', borderColor: '#0A7563' }, tabText: { color: '#17324D', fontWeight: '900' as const }, tabTextActive: { color: '#FFF' }, grid: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 12 }, card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#DDE5ED', borderRadius: 18, padding: 15, gap: 5, flexGrow: 1, flexBasis: 260, minWidth: 0 }, cardTitle: { color: '#071B33', fontSize: 16, fontWeight: '900' as const }, meta: { color: '#637083', lineHeight: 19 }, hint: { color: '#637083', lineHeight: 20, marginTop: 4 }, sectionTitle: { color: '#071B33', fontSize: 22, fontWeight: '900' as const }, sectionHeader: { flexDirection: 'row' as const, gap: 12, justifyContent: 'space-between' as const, alignItems: 'center' as const, marginBottom: 14 }, primaryButton: { backgroundColor: '#071B33', minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 14, borderRadius: 13 }, primaryButtonText: { color: '#FFF', fontWeight: '900' as const, textAlign: 'center' as const }, secondaryButton: { minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 13, borderRadius: 12, borderWidth: 1, borderColor: '#AFC0CF', backgroundColor: '#FFF' }, secondaryButtonText: { color: '#17324D', fontWeight: '900' as const }, dangerButton: { minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 13, borderRadius: 12, borderWidth: 1, borderColor: '#E3B4B8', backgroundColor: '#FFF5F5' }, dangerButtonText: { color: '#A21829', fontWeight: '900' as const }, packList: { gap: 10 }, editor: { backgroundColor: '#EAF5F3', borderRadius: 20, borderWidth: 1, borderColor: '#B8DBD4', padding: 16, marginTop: 18 }, editorTitle: { color: '#071B33', fontSize: 20, fontWeight: '900' as const }, fieldLabel: { color: '#17324D', fontWeight: '900' as const, marginTop: 16, marginBottom: 7 }, input: { minHeight: 44, color: '#071B33', borderWidth: 1, borderColor: '#B8C7D3', backgroundColor: '#FFF', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 }, choiceRow: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8 }, choice: { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: '#AFC0CF', backgroundColor: '#FFF' }, choiceActive: { backgroundColor: '#0A7563', borderColor: '#0A7563' }, choiceText: { color: '#17324D', fontWeight: '800' as const }, choiceTextActive: { color: '#FFF' }, sourceTabs: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 7, marginBottom: 10 }, sourceTab: { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: '#AFC0CF', backgroundColor: '#FFF' }, sourceTabActive: { backgroundColor: '#17324D', borderColor: '#17324D' }, sourceText: { color: '#17324D', fontWeight: '900' as const }, sourceTextActive: { color: '#FFF' }, sourceList: { maxHeight: 360, gap: 8, marginTop: 10 }, sourceCard: { flexDirection: 'row' as const, gap: 10, minHeight: 56, alignItems: 'center' as const, padding: 12, backgroundColor: '#FFF', borderRadius: 14, borderWidth: 1, borderColor: '#CFDDE8' }, addText: { color: '#0A7563', fontWeight: '900' as const }, member: { backgroundColor: '#FFF', padding: 13, borderRadius: 14, borderWidth: 1, borderColor: '#C8DDE0', marginTop: 9 }, parentChoices: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 7, alignItems: 'center' as const, marginTop: 8 }, parentChoice: { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 9, borderWidth: 1, borderColor: '#B8C7D3', borderRadius: 9, backgroundColor: '#FFF' }, parentChoiceText: { color: '#17324D', fontWeight: '800' as const, fontSize: 12 }, actions: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, marginTop: 12 }, smallButton: { minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 10, borderRadius: 11, borderWidth: 1, borderColor: '#AFC0CF', backgroundColor: '#FFF' }, publishButton: { backgroundColor: '#0A7563', minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 14, borderRadius: 13 }, disabled: { opacity: 0.45 }, empty: { backgroundColor: '#FFF', padding: 20, borderWidth: 1, borderColor: '#DDE5ED', borderRadius: 18, width: '100%' as const, gap: 6 },
+    page: { flex: 1, backgroundColor: '#F3F6FA' }, hero: { backgroundColor: '#071B33', borderRadius: 24, padding: 20, marginTop: 16 }, title: { color: '#071B33', fontSize: 34, fontWeight: '900' as const, marginTop: 18 }, subtitle: { color: '#64748B', fontSize: 15, lineHeight: 22, marginTop: 8 }, heroTitle: { color: '#FFF', fontSize: 34, fontWeight: '900' as const }, heroSubtitle: { color: '#D8E3EF', fontSize: 15, lineHeight: 22, marginTop: 8 }, status: { color: '#486174', fontWeight: '700' as const, marginVertical: 14 }, tabs: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, marginTop: 16 }, tab: { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 13, borderRadius: 14, borderWidth: 1, borderColor: '#C8D5E1', backgroundColor: '#FFF' }, tabActive: { backgroundColor: '#0A7563', borderColor: '#0A7563' }, tabText: { color: '#17324D', fontWeight: '900' as const }, tabTextActive: { color: '#FFF' }, grid: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 12 }, masterSection: { gap: 12 }, productGrid: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, alignItems: 'stretch' as const }, card: { backgroundColor: '#FFF', borderWidth: 1, borderColor: '#DDE5ED', borderRadius: 18, padding: 15, gap: 5, flexGrow: 1, flexBasis: 260, minWidth: 0 }, cardTitle: { color: '#071B33', fontSize: 16, fontWeight: '900' as const }, meta: { color: '#637083', lineHeight: 19 }, hint: { color: '#637083', lineHeight: 20, marginTop: 4 }, sectionTitle: { color: '#071B33', fontSize: 22, fontWeight: '900' as const }, sectionHeader: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 12, justifyContent: 'space-between' as const, alignItems: 'center' as const, marginBottom: 2 }, primaryButton: { backgroundColor: '#071B33', minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 14, borderRadius: 13 }, primaryButtonText: { color: '#FFF', fontWeight: '900' as const, textAlign: 'center' as const }, secondaryButton: { minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 13, borderRadius: 12, borderWidth: 1, borderColor: '#AFC0CF', backgroundColor: '#FFF' }, secondaryButtonText: { color: '#17324D', fontWeight: '900' as const }, dangerButton: { minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 13, borderRadius: 12, borderWidth: 1, borderColor: '#E3B4B8', backgroundColor: '#FFF5F5' }, dangerButtonText: { color: '#A21829', fontWeight: '900' as const }, packList: { gap: 10 }, editor: { backgroundColor: '#EAF5F3', borderRadius: 20, borderWidth: 1, borderColor: '#B8DBD4', padding: 16, marginTop: 18 }, editorTitle: { color: '#071B33', fontSize: 20, fontWeight: '900' as const }, fieldLabel: { color: '#17324D', fontWeight: '900' as const, marginTop: 16, marginBottom: 7 }, input: { minHeight: 44, color: '#071B33', borderWidth: 1, borderColor: '#B8C7D3', backgroundColor: '#FFF', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 }, choiceRow: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8 }, choice: { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: '#AFC0CF', backgroundColor: '#FFF' }, choiceActive: { backgroundColor: '#0A7563', borderColor: '#0A7563' }, choiceText: { color: '#17324D', fontWeight: '800' as const }, choiceTextActive: { color: '#FFF' }, sourceTabs: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 7, marginBottom: 10 }, sourceTab: { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: '#AFC0CF', backgroundColor: '#FFF' }, sourceTabActive: { backgroundColor: '#17324D', borderColor: '#17324D' }, sourceText: { color: '#17324D', fontWeight: '900' as const }, sourceTextActive: { color: '#FFF' }, sourceList: { maxHeight: 360, gap: 8, marginTop: 10 }, sourceCard: { flexDirection: 'row' as const, gap: 10, minHeight: 56, alignItems: 'center' as const, padding: 12, backgroundColor: '#FFF', borderRadius: 14, borderWidth: 1, borderColor: '#CFDDE8' }, addText: { color: '#0A7563', fontWeight: '900' as const }, member: { backgroundColor: '#FFF', padding: 13, borderRadius: 14, borderWidth: 1, borderColor: '#C8DDE0', marginTop: 9 }, parentChoices: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 7, alignItems: 'center' as const, marginTop: 8 }, parentChoice: { minHeight: 44, justifyContent: 'center' as const, paddingHorizontal: 9, borderWidth: 1, borderColor: '#B8C7D3', borderRadius: 9, backgroundColor: '#FFF' }, parentChoiceText: { color: '#17324D', fontWeight: '800' as const, fontSize: 12 }, actions: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8, marginTop: 12 }, smallButton: { minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 10, borderRadius: 11, borderWidth: 1, borderColor: '#AFC0CF', backgroundColor: '#FFF' }, publishButton: { backgroundColor: '#0A7563', minHeight: 44, justifyContent: 'center' as const, alignItems: 'center' as const, paddingHorizontal: 14, borderRadius: 13 }, disabled: { opacity: 0.45 }, empty: { backgroundColor: '#FFF', padding: 20, borderWidth: 1, borderColor: '#DDE5ED', borderRadius: 18, width: '100%' as const, gap: 6 },
 };

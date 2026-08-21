@@ -1,7 +1,8 @@
 import type { CatalogFactoryRecord } from './catalogFactory';
 import type { HomeOSStarterDeckCard } from './homeosStarterCatalog';
 
-export type HomeOSCardDeckTab = 'areas' | 'containers' | 'components' | 'products' | 'starter-packs';
+export type HomeOSStarterMasterDeck = 'containers' | 'fixtures' | 'equipment' | 'components';
+export type HomeOSCardDeckTab = 'areas' | HomeOSStarterMasterDeck | 'products' | 'starter-packs';
 export type HomeOSCardMemberTargetKind = 'area' | 'starter_template' | 'catalog_product_variant';
 
 export type HomeOSAreaCard = {
@@ -65,6 +66,8 @@ export type HomeOSDeckSourceCard = {
 export const HOMEOS_CARD_DECK_TABS: { key: HomeOSCardDeckTab; label: string }[] = [
     { key: 'areas', label: 'Area Cards' },
     { key: 'containers', label: 'Container Cards' },
+    { key: 'fixtures', label: 'Fixture Cards' },
+    { key: 'equipment', label: 'Equipment Cards' },
     { key: 'components', label: 'Component Cards' },
     { key: 'products', label: 'Catalog Products' },
     { key: 'starter-packs', label: 'Starter Packs' },
@@ -104,9 +107,12 @@ export function revisionLabel(cardSet: HomeOSCardSet) {
     return 'No revision yet';
 }
 
-export function starterDeckCards(cards: readonly HomeOSStarterDeckCard[], kind: 'containers' | 'components'): HomeOSStarterDeckCard[] {
+export function starterDeckCards(cards: readonly HomeOSStarterDeckCard[], kind: HomeOSStarterMasterDeck): HomeOSStarterDeckCard[] {
+    const category = kind === 'fixtures' ? 'fixture' : kind === 'equipment' ? 'equipment' : 'component';
     return cards
-        .filter((card) => card.presentationRole === (kind === 'containers' ? 'container' : 'component'))
+        .filter((card) => kind === 'containers'
+            ? card.presentationRole === 'container'
+            : normalizeCardType(card.category) === category)
         .sort((left, right) => left.roomKind.localeCompare(right.roomKind)
             || left.displayOrder - right.displayOrder || left.name.localeCompare(right.name));
 }
@@ -295,4 +301,8 @@ function createsParentCycle(members: readonly HomeOSCardSetMember[], slotKey: st
 
 function sortSourceCards(left: HomeOSDeckSourceCard, right: HomeOSDeckSourceCard) {
     return left.label.localeCompare(right.label) || left.key.localeCompare(right.key);
+}
+
+function normalizeCardType(value: unknown) {
+    return String(value || '').trim().toLowerCase().replace(/[\s_-]+/g, '');
 }
