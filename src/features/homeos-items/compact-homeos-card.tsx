@@ -57,11 +57,11 @@ export default function CompactHomeOSCard({
                 ? foundation.grid.areaMinimumWidth
                 : foundation.grid.equipmentMinimumWidth,
             maxWidth: scaleIcon(250),
-            minHeight: scaleIcon(areaCard ? 176 : 202),
+            minHeight: scaleIcon(areaCard ? 204 : 228),
             borderCurve: 'continuous',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: foundation.spacing.compact,
+            padding: foundation.spacing.regular,
             gap: foundation.spacing.compact,
             overflow: 'hidden',
         }, style]}>

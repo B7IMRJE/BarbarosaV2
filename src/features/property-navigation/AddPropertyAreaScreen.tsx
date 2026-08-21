@@ -15,7 +15,6 @@ import {
     resolveHomeOSContainerGrid,
     resolveHomeOSContainerItemWidth,
 } from '../../lib/homeos-responsive-layout';
-import { getAreaIcon } from '../../lib/systemDefaults';
 import { supabase } from '../../lib/supabase';
 import { getHomeOSVisualFoundation } from '../../theme/homeos-visual-foundation';
 import { useTheme } from '../../theme/useTheme';
@@ -161,7 +160,6 @@ export default function AddPropertyAreaScreen() {
                             <AreaContainer
                                 key={card.name}
                                 title={saving === card.name ? 'Adding…' : card.name}
-                                fallbackIcon={getAreaIcon(card.name)}
                                 accessibilityLabel={`Add ${card.name}`}
                                 onPress={() => void addArea(card.name)}
                                 disabled={Boolean(saving)}

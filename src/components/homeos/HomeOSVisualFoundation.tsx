@@ -88,20 +88,13 @@ export function HomeOSCardVisual({
         ? resolveHomeOSAreaFallbackIcon(label, fallbackIcon)
         : resolveHomeOSEquipmentFallbackIcon(label, fallbackIcon);
 
-    return source ? (
-        <Image
-            source={source}
-            accessibilityLabel={`${label} image`}
-            alt={`${label} image`}
-            cachePolicy="memory-disk"
-            contentFit={contentFit || 'cover'}
-            transition={160}
-            style={[foundation.imageSurface, {
-                width: '100%',
-                height,
-            }]}
-        />
-    ) : (
+    const heroSize = size === 'compact'
+        ? scaleIcon(62)
+        : size === 'destination'
+            ? scaleIcon(72)
+            : scaleIcon(68);
+
+    return (
         <View
             accessible={false}
             style={[foundation.imageSurface, {
@@ -112,7 +105,47 @@ export function HomeOSCardVisual({
                 backgroundColor: theme.colors.iconBackground,
             }]}
         >
-            <Text style={{ fontSize: scaleIcon(size === 'compact' ? 34 : 40) }}>
+            {source ? (
+                <>
+                    <Image
+                        source={source}
+                        accessibilityLabel={`${label} image`}
+                        alt={`${label} image`}
+                        cachePolicy="memory-disk"
+                        contentFit={contentFit || 'cover'}
+                        transition={160}
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            right: 0,
+                            bottom: 0,
+                            left: 0,
+                            opacity: 0.32,
+                        }}
+                    />
+                    <View
+                        pointerEvents="none"
+                        style={{
+                            position: 'absolute',
+                            top: 0,
+                            right: 0,
+                            bottom: 0,
+                            left: 0,
+                            backgroundColor: theme.colors.iconBackground,
+                            opacity: 0.42,
+                        }}
+                    />
+                </>
+            ) : null}
+            <Text
+                accessibilityElementsHidden
+                importantForAccessibility="no-hide-descendants"
+                style={{
+                    fontSize: heroSize,
+                    lineHeight: heroSize,
+                    textAlign: 'center',
+                }}
+            >
                 {resolvedFallbackIcon}
             </Text>
         </View>
@@ -228,6 +261,7 @@ export function AreaContainer({
                 foundation.surface,
                 {
                     minWidth: foundation.grid.areaMinimumWidth,
+                    minHeight: scaleIcon(204),
                     padding: foundation.spacing.regular,
                     alignItems: 'center',
                     gap: foundation.spacing.compact,
@@ -273,6 +307,7 @@ export function EquipmentContainer({
                 foundation.surface,
                 {
                     minWidth: foundation.grid.equipmentMinimumWidth,
+                    minHeight: scaleIcon(228),
                     padding: foundation.spacing.regular,
                     gap: foundation.spacing.regular,
                 },
