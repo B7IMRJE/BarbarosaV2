@@ -16,7 +16,7 @@ export default function ClientHomeOsProviderRedirectScreen() {
         if (!companyId || !clientPropertyId) return;
 
         router.replace({
-            pathname: '/home',
+            pathname: '/',
             params: {
                 providerMode: '1',
                 companyId,

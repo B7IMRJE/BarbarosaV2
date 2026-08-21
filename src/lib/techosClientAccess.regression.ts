@@ -39,7 +39,7 @@ function assignedJobWithPropertyCanOpenClientHomeOS() {
 function clientHomeOSRoutePreservesProviderAndReturnContext() {
     const route = buildTechOSProviderHomeRoute(createContext());
 
-    assert(route.pathname === '/home', 'Client HomeOS should open the property-first My Home route.');
+    assert(route.pathname === '/', 'Client HomeOS should open the property landing before My Home.');
     assert(route.params.providerMode === '1', 'Client HomeOS route should preserve provider mode.');
     assert(route.params.companyId === 'company-1', 'Client HomeOS route should preserve company id.');
     assert(route.params.propertyId === 'property-1', 'Client HomeOS route should preserve property id.');

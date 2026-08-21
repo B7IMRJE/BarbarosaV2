@@ -104,7 +104,7 @@ export default function GlobalNavigation({ children }: GlobalNavigationProps) {
     const isTechOSRoute = currentPath === '/techos' || currentPath.startsWith('/techos/');
     const techOSCompanyId = firstRouteParam(routeParams.companyId);
     const homeRoute = providerModeContext
-        ? '/home'
+        ? '/'
         : resolveGlobalHomeRoute({ pathname: currentPath, companyId: techOSCompanyId });
     const appLabel = isTechOSRoute ? 'TechOS' : providerModeContext ? 'Client HomeOS' : 'HomeOS';
     const shouldHideNavigation = hiddenRoutePrefixes.some((prefix) => currentPath.startsWith(prefix));
@@ -486,7 +486,7 @@ function firstRouteParam(value?: string | string[]) {
 
 function providerPrimaryTabs(companyId: string, propertyId: string): NavigationLink[] {
     return [
-        { label: 'Home', route: '/home', icon: 'home-outline' },
+        { label: 'Home', route: '/', icon: 'home-outline' },
         { label: 'Equipment', route: '/equipment', icon: 'tools' },
         { label: 'Documents', route: '/documents', icon: 'file-document-outline' },
         {
@@ -500,7 +500,7 @@ function providerPrimaryTabs(companyId: string, propertyId: string): NavigationL
 
 function providerDrawerLinks(companyId: string, propertyId: string): NavigationLink[] {
     return [
-        { label: 'Client Home', route: '/home' },
+        { label: 'Client Home', route: '/' },
         { label: 'Equipment', route: '/equipment' },
         { label: 'Documents', route: '/documents' },
         { label: 'Estimate Draft', route: '/estimate' },
