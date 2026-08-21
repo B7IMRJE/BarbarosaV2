@@ -3,6 +3,7 @@ import {
     resolveHomeOSEquipmentFallbackIcon,
     resolveHomeOSEquipmentVisual,
     resolveHomeOSFallbackIcon,
+    resolveHomeOSSemanticVisual,
     resolveHomeOSVisualSource,
 } from './homeos-visual-assets';
 import { propertyAreaCatalog } from '../../lib/propertyAreas';
@@ -36,6 +37,42 @@ const resolvedMixedAsset = resolveHomeOSVisualSource({
 assert(
     resolvedMixedAsset?.uri === 'https://home.test/installed-photo.jpg',
     'a homeowner URI must win when a card also has a bundled or catalog source.'
+);
+
+const expectedSemanticVisuals = [
+    ['My Home', 'area', 'my-home'],
+    ['Interior', 'area', 'interior'],
+    ['Exterior', 'area', 'exterior'],
+    ['Kitchen', 'area', 'kitchen'],
+    ['Bathroom', 'area', 'bathroom'],
+    ['Bathroom Vanity', 'equipment', 'bathroom-vanity'],
+    ['Refrigerator', 'equipment', 'refrigerator'],
+    ['Stove / Range', 'equipment', 'stove-range'],
+    ['Front Yard', 'area', 'front-yard'],
+    ['Backyard', 'area', 'backyard'],
+    ['Patio', 'area', 'patio'],
+    ['Roof', 'area', 'roof'],
+] as const;
+
+const resolvedSemanticVisuals = expectedSemanticVisuals.map(([label, context, expectedKey]) => {
+    const visual = resolveHomeOSSemanticVisual(label, context);
+    assert(visual?.key === expectedKey, `${label} must resolve through the central semantic illustration map.`);
+    assert(Boolean(visual.asset.source), `${label} must resolve to bundled non-generic artwork.`);
+    assert(visual.contentFit === 'contain', `${label} artwork must preserve the established cutout treatment.`);
+    return visual;
+});
+
+assert(
+    new Set(resolvedSemanticVisuals.map((visual) => visual.key)).size === resolvedSemanticVisuals.length,
+    'Every named review concept must have a distinct semantic visual identity.'
+);
+assert(
+    new Set(resolvedSemanticVisuals.map((visual) => visual.asset.source)).size === resolvedSemanticVisuals.length,
+    'Every named review concept must have distinct bundled artwork.'
+);
+assert(
+    !resolveHomeOSSemanticVisual('Custom Reading Nook', 'area'),
+    'A custom or unknown record must remain eligible for the conservative generic fallback.'
 );
 
 const kitchenAreaIcon = resolveHomeOSAreaFallbackIcon('Kitchen');
@@ -114,7 +151,15 @@ const expectedEquipmentIcons: readonly [label: string, icon: string][] = [
     ['Refrigerator', '🧊'],
     ['Stove', '🍳'],
     ['Kitchen Faucet', '🚰'],
-    ['Kitchen Counter', '🗄️'],
+    ['Kitchen Counter', '🪵'],
+    ['Kitchen Island', '🪵'],
+    ['Bathroom Vanity', '🪞'],
+    ['Vanity Mirror', '🪞'],
+    ['Double Vanity', '🪞'],
+    ['Vanity Sink', '🚰'],
+    ['Bathroom Sink', '🚰'],
+    ['Medicine Cabinet', '🪞'],
+    ['Vanity Lights', '💡'],
     ['Garbage Disposal', '⚙️'],
     ['Lighted Mirror', '🪞'],
     ['Bathroom Lights', '💡'],
@@ -157,6 +202,21 @@ const expectedEquipmentIcons: readonly [label: string, icon: string][] = [
     ['Sprinkler Head', '💦'],
     ['Rain Sensor', '💦'],
     ['Valve Box', '🗃️'],
+    ['Water Closet', '🚽'],
+    ['Bed Frame', '🛏️'],
+    ['Office Desk', '💻'],
+    ['Mechanical Closet', '⚙️'],
+    ['Bedroom Closet', '📦'],
+    ['Storage Shelving', '📦'],
+    ['Office File Cabinet', '🗄️'],
+    ['Laundry Sink', '🚰'],
+    ['Outdoor Sink', '🚰'],
+    ['Shower Enclosure / Door', '🚿'],
+    ['Bathroom GFCI Outlet', '⚡'],
+    ['Range / Oven Outlet', '⚡'],
+    ['Built-in Grill', '🍖'],
+    ['Dryer Gas Connection', '〰️'],
+    ['Pool Gate / Safety Barrier', '🛡️'],
 ];
 
 expectedEquipmentIcons.forEach(([label, icon]) => {

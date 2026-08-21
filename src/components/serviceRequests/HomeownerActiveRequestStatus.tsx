@@ -23,14 +23,19 @@ import ThemedButton from '../theme/ThemedButton';
 
 type HomeownerActiveRequestStatusProps = {
     bottomOffset: number;
+    presentation?: 'floating' | 'inline';
 };
 
-export default function HomeownerActiveRequestStatus({ bottomOffset }: HomeownerActiveRequestStatusProps) {
+export default function HomeownerActiveRequestStatus({
+    bottomOffset,
+    presentation = 'floating',
+}: HomeownerActiveRequestStatusProps) {
     const { width: viewportWidth } = useWindowDimensions();
     const { scaleFont, scaleIcon, theme } = useTheme();
     const autoCollapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const previousTrackersRef = useRef<HomeownerActiveRequestTracker[]>([]);
     const refreshRunRef = useRef(0);
+    const realtimeChannelRunRef = useRef(0);
     const [propertyId, setPropertyId] = useState('');
     const [trackers, setTrackers] = useState<HomeownerActiveRequestTracker[]>([]);
     const [selectedRequestId, setSelectedRequestId] = useState('');
@@ -70,8 +75,9 @@ export default function HomeownerActiveRequestStatus({ bottomOffset }: Homeowner
         const refresh = () => {
             void refreshTrackersEvent(propertyId);
         };
+        realtimeChannelRunRef.current += 1;
         const channel = supabase
-            .channel(`homeowner-active-requests:${propertyId}`)
+            .channel(`homeowner-active-requests:${propertyId}:${realtimeChannelRunRef.current}`)
             .on(
                 'postgres_changes',
                 {
@@ -211,21 +217,25 @@ export default function HomeownerActiveRequestStatus({ bottomOffset }: Homeowner
                     borderColor: chipTone.border,
                     borderRadius: theme.radii.pill,
                     borderWidth: 1,
-                    bottom: bottomOffset,
-                    elevation: 8,
                     flexDirection: 'row',
                     gap: scaleIcon(7),
-                    maxWidth: scaleIcon(190),
+                    ...(presentation === 'floating'
+                        ? {
+                            bottom: bottomOffset,
+                            elevation: 8,
+                            maxWidth: scaleIcon(190),
+                            position: 'absolute' as const,
+                            right: scaleIcon(14),
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 6 },
+                            shadowOpacity: 0.16,
+                            shadowRadius: 14,
+                            zIndex: 40,
+                        }
+                        : { alignSelf: 'flex-start' as const, maxWidth: '100%' }),
                     minHeight: scaleIcon(46),
                     paddingHorizontal: scaleIcon(12),
                     paddingVertical: scaleIcon(9),
-                    position: 'absolute',
-                    right: scaleIcon(14),
-                    shadowColor: '#000',
-                    shadowOffset: { width: 0, height: 6 },
-                    shadowOpacity: 0.16,
-                    shadowRadius: 14,
-                    zIndex: 40,
                 }}
             >
                 <Ionicons
@@ -258,18 +268,22 @@ export default function HomeownerActiveRequestStatus({ bottomOffset }: Homeowner
                 borderColor: selectedTracker?.isEmergency ? theme.colors.status.activeEmergency.border : theme.colors.border,
                 borderRadius: theme.radii.card,
                 borderWidth: 1,
-                bottom: bottomOffset,
-                elevation: 9,
-                maxHeight: '78%',
+                ...(presentation === 'floating'
+                    ? {
+                        bottom: bottomOffset,
+                        elevation: 9,
+                        maxHeight: '78%' as const,
+                        position: 'absolute' as const,
+                        right: scaleIcon(14),
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 8 },
+                        shadowOpacity: 0.18,
+                        shadowRadius: 18,
+                        width: cardWidth,
+                        zIndex: 40,
+                    }
+                    : { alignSelf: 'stretch' as const, maxHeight: scaleIcon(680) }),
                 overflow: 'hidden',
-                position: 'absolute',
-                right: scaleIcon(14),
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 8 },
-                shadowOpacity: 0.18,
-                shadowRadius: 18,
-                width: cardWidth,
-                zIndex: 40,
             }}
         >
             <View
