@@ -259,6 +259,14 @@ assert(
     )?.key === 'angle-stop',
     'a reconciled legacy component must use the realistic master Deck cutout even when its saved display name is generic.'
 );
+assert(
+    resolveHomeOSCardSemanticVisual(
+        'Bathroom P-Trap',
+        'equipment',
+        'bathroom:bathroom_sink_p_trap',
+    )?.key === 'p-trap',
+    'a Bathroom P-Trap beneath a reconciled legacy Vanity must use the realistic master Deck cutout.'
+);
 
 assert(
     !resolveHomeOSSemanticVisual('Custom Reading Nook', 'area'),

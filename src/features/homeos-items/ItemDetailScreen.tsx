@@ -87,6 +87,7 @@ import {
     type HomeOSStarterCardChoice,
 } from '../../lib/homeosStarterCatalog';
 import {
+    homeOSStarterCardForInstalledContainer,
     homeOSStarterCardForInstalledComponent,
     homeOSStarterComponentCardsForContainer,
 } from '../../lib/homeosStarterCardPickerCore';
@@ -696,19 +697,25 @@ export default function ItemScreen() {
     const currentItemParent = item
         ? resolveSavedParentForItem(hierarchyItems, item)
         : undefined;
-    const currentItemMasterCard = currentItemParent
-        ? homeOSStarterCardForInstalledComponent(
-            componentDeckChoices,
-            currentItemParent.starter_template_key,
-            item,
-        )
+    const currentItemParentMasterCard = currentItemParent
+        ? homeOSStarterCardForInstalledContainer(componentDeckChoices, currentItemParent)
         : undefined;
+    const currentItemMasterCard = item
+        ? currentItemParent
+            ? homeOSStarterCardForInstalledComponent(
+                componentDeckChoices,
+                currentItemParentMasterCard?.templateKey || currentItemParent.starter_template_key,
+                item,
+            )
+            : homeOSStarterCardForInstalledContainer(componentDeckChoices, item)
+        : undefined;
+    const currentItemDeckKey = currentItemMasterCard?.templateKey || item?.starter_template_key;
     const installedComponentTemplateKeys = new Set(
         relatedItems.flatMap((candidate) => {
             const masterCard = item
                 ? homeOSStarterCardForInstalledComponent(
                     componentDeckChoices,
-                    item.starter_template_key,
+                    currentItemDeckKey,
                     candidate,
                 )
                 : undefined;
@@ -721,7 +728,7 @@ export default function ItemScreen() {
     const availableComponentCards = item
         ? homeOSStarterComponentCardsForContainer(
             componentDeckChoices,
-            String(item.starter_template_key || '')
+            String(currentItemDeckKey || '')
         ).filter((card) => !installedComponentTemplateKeys.has(card.templateKey))
         : [];
 
@@ -5201,7 +5208,7 @@ export default function ItemScreen() {
                 components={relatedItems}
                 componentDeckCards={componentDeckChoices}
                 availableComponents={availableComponentCards}
-                itemSemanticIdentity={currentItemMasterCard?.templateKey}
+                itemMasterCard={currentItemMasterCard}
                 onOpenComponent={openRelatedItem}
                 onAddComponent={(card) => openComponentDeckCard(card.templateKey)}
                 message={message}

@@ -83,6 +83,24 @@ export function homeOSStarterComponentCardsForContainer(
 }
 
 /**
+ * Reconciles a saved root/container record with its one unambiguous Super
+ * Admin Deck card. This gives older containers that predate permanent keys a
+ * stable identity without modifying the saved customer record.
+ */
+export function homeOSStarterCardForInstalledContainer(
+    cards: readonly HomeOSStarterCardChoice[],
+    container: {
+        starter_template_key?: string | null;
+        name?: string | null;
+    },
+) {
+    return starterCardForInstalledRecord(
+        cards.filter((card) => card.presentationRole === 'container'),
+        container,
+    );
+}
+
+/**
  * Reconciles one saved legacy component with a compatible Super Admin Deck
  * card. Exact permanent keys win. Older shortened keys, names, or aliases are
  * accepted only when they identify exactly one descendant of the parent
@@ -97,9 +115,19 @@ export function homeOSStarterCardForInstalledComponent(
     },
 ) {
     const candidates = homeOSStarterComponentCardsForContainer(cards, containerTemplateKey);
+    return starterCardForInstalledRecord(candidates, component);
+}
+
+function starterCardForInstalledRecord(
+    candidates: readonly HomeOSStarterCardChoice[],
+    record: {
+        starter_template_key?: string | null;
+        name?: string | null;
+    },
+) {
     if (candidates.length === 0) return undefined;
 
-    const explicitKey = normalizeTemplateKey(component.starter_template_key);
+    const explicitKey = normalizeTemplateKey(record.starter_template_key);
     const directMatch = explicitKey
         ? candidates.find((card) => normalizeTemplateKey(card.templateKey) === explicitKey)
         : undefined;
@@ -110,7 +138,7 @@ export function homeOSStarterCardForInstalledComponent(
     if (explicitKey.startsWith('custom:')) return undefined;
 
     const observedIdentities = uniqueNormalized([
-        component.name,
+        record.name,
         explicitKey ? templateKeyTail(explicitKey) : '',
     ]);
     if (observedIdentities.length === 0) return undefined;
