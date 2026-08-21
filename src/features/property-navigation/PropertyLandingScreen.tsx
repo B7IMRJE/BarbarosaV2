@@ -3,10 +3,13 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import HomeHeader from '../../components/HomeHeader';
 import { MainDestinationCard } from '../../components/homeos/HomeOSVisualFoundation';
+import HomeownerActiveRequestStatus from '../../components/serviceRequests/HomeownerActiveRequestStatus';
 import { activePropertyErrorMessage, requireActivePropertyMembership } from '../../lib/activeProperty';
 import { formatSingleLineAddress, loadActiveHomeIdentity, type HomeIdentity } from '../../lib/homeIdentity';
 import {
+    propertyLandingIdentityPresentation,
     propertyLandingPrimaryDestinations,
+    propertyLandingWorkflowDestinations,
     resolvePropertyLandingIdentity,
 } from '../../lib/propertyLandingNavigation';
 import {
@@ -58,6 +61,9 @@ export default function PropertyLandingScreen() {
         minimumItemWidth: scaleIcon(280),
         maximumItemWidth: scaleIcon(460),
     });
+    const primaryCardWidth = propertyLandingPrimaryDestinations.length === 1
+        ? Math.min(contentWidth, scaleIcon(640))
+        : cardWidth;
 
     return (
         <ScrollView style={{ flex: 1, backgroundColor: theme.colors.background }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: foundation.spacing.comfortable, paddingBottom: scaleIcon(42), alignItems: 'center' }}>
@@ -78,6 +84,7 @@ export default function PropertyLandingScreen() {
                     ]}
                 >
                     <Text
+                        testID="homeos-property-identity-home-motif"
                         pointerEvents="none"
                         accessible={false}
                         style={{
@@ -87,9 +94,7 @@ export default function PropertyLandingScreen() {
                             fontSize: scaleIcon(112),
                             opacity: 0.16,
                         }}
-                    >
-                        🏠
-                    </Text>
+                    >{propertyLandingIdentityPresentation.showHomeMotif ? '🏠' : ''}</Text>
                     <View style={{ maxWidth: '78%', gap: foundation.spacing.compact }}>
                         <Text selectable style={[foundation.typography.label, { color: theme.colors.primary, textTransform: 'uppercase' }]}>
                             {identityPresentation.eyebrow}
@@ -111,21 +116,40 @@ export default function PropertyLandingScreen() {
                                 key={destination.key}
                                 title={destination.title}
                                 description={destination.description}
-                                visual={{
-                                    source: destination.key === 'interior'
-                                        ? require('../../../assets/homeos/destinations/home.png')
-                                        : require('../../../assets/homeos/destinations/exterior.png'),
-                                }}
-                                fallbackIcon={destination.key === 'interior' ? '🏠' : '🌳'}
+                                visual={{ source: require('../../../assets/homeos/destinations/home.png') }}
+                                fallbackIcon="🏠"
                                 visualContentFit="contain"
                                 actionLabel={destination.actionLabel}
                                 onPress={() => router.push(destination.route as any)}
                                 accessibilityLabel={destination.accessibilityLabel}
-                                style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
+                                style={{ width: primaryCardWidth, minWidth: primaryCardWidth, maxWidth: primaryCardWidth }}
                             />
                         ))}
                     </View>
                 )}
+                {!loading ? (
+                    <View testID="homeos-property-workflow-cards" style={{ gap: foundation.spacing.compact }}>
+                        <Text selectable style={foundation.typography.containerTitle}>Home activity</Text>
+                        <Text selectable style={foundation.typography.body}>
+                            Active emergency updates stay available in the request tracker. Open any card for the established workflow details.
+                        </Text>
+                        <HomeownerActiveRequestStatus bottomOffset={0} presentation="inline" />
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: cardGap }}>
+                            {propertyLandingWorkflowDestinations.map((destination) => (
+                                <MainDestinationCard
+                                    key={destination.key}
+                                    title={destination.title}
+                                    description={destination.description}
+                                    fallbackIcon={destination.icon}
+                                    actionLabel={destination.actionLabel}
+                                    onPress={() => router.push(destination.route as any)}
+                                    accessibilityLabel={destination.accessibilityLabel}
+                                    style={{ width: cardWidth, minWidth: cardWidth, maxWidth: cardWidth }}
+                                />
+                            ))}
+                        </View>
+                    </View>
+                ) : null}
                 {!!message && <Text selectable style={{ color: theme.colors.danger, fontSize: scaleFont(14), marginTop: scaleIcon(18) }}>{message}</Text>}
             </View>
         </ScrollView>

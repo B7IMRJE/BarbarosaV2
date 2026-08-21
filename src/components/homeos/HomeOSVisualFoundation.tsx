@@ -16,6 +16,7 @@ import ThemedButton from '../theme/ThemedButton';
 import {
     resolveHomeOSAreaFallbackIcon,
     resolveHomeOSEquipmentFallbackIcon,
+    resolveHomeOSSemanticVisual,
     resolveHomeOSVisualSource,
     type HomeOSVisualAsset,
 } from './homeos-visual-assets';
@@ -78,13 +79,19 @@ export function HomeOSCardVisual({
 }) {
     const { scaleFont, scaleIcon, theme } = useTheme();
     const foundation = getHomeOSVisualFoundation(theme, scaleIcon, scaleFont);
-    const source = resolveHomeOSVisualSource(asset);
+    const visualContext = fallbackContext || (size === 'compact' ? 'area' : 'equipment');
+    const explicitSource = resolveHomeOSVisualSource(asset);
+    const semanticVisual = resolveHomeOSSemanticVisual(label, visualContext);
+    const semanticSource = resolveHomeOSVisualSource(semanticVisual?.asset);
+    const semanticIsExplicit = Boolean(semanticSource && explicitSource && semanticSource === explicitSource);
+    const heroSource = semanticSource || (semanticIsExplicit ? explicitSource : undefined);
+    const backgroundSource = explicitSource && !semanticIsExplicit ? explicitSource : undefined;
     const height = size === 'destination'
         ? foundation.grid.destinationImageHeight
         : size === 'compact'
             ? foundation.grid.areaImageHeight
             : foundation.grid.equipmentImageHeight;
-    const resolvedFallbackIcon = (fallbackContext || (size === 'compact' ? 'area' : 'equipment')) === 'area'
+    const resolvedFallbackIcon = visualContext === 'area'
         ? resolveHomeOSAreaFallbackIcon(label, fallbackIcon)
         : resolveHomeOSEquipmentFallbackIcon(label, fallbackIcon);
 
@@ -105,10 +112,10 @@ export function HomeOSCardVisual({
                 backgroundColor: theme.colors.iconBackground,
             }]}
         >
-            {source ? (
+            {backgroundSource ? (
                 <>
                     <Image
-                        source={source}
+                        source={backgroundSource}
                         accessibilityLabel={`${label} image`}
                         alt={`${label} image`}
                         cachePolicy="memory-disk"
@@ -120,7 +127,7 @@ export function HomeOSCardVisual({
                             right: 0,
                             bottom: 0,
                             left: 0,
-                            opacity: 0.32,
+                            opacity: semanticSource ? 0.24 : 0.36,
                         }}
                     />
                     <View
@@ -132,22 +139,40 @@ export function HomeOSCardVisual({
                             bottom: 0,
                             left: 0,
                             backgroundColor: theme.colors.iconBackground,
-                            opacity: 0.42,
+                            opacity: semanticSource ? 0.52 : 0.38,
                         }}
                     />
                 </>
             ) : null}
-            <Text
-                accessibilityElementsHidden
-                importantForAccessibility="no-hide-descendants"
-                style={{
-                    fontSize: heroSize,
-                    lineHeight: heroSize,
-                    textAlign: 'center',
-                }}
-            >
-                {resolvedFallbackIcon}
-            </Text>
+            {heroSource ? (
+                <Image
+                    source={heroSource}
+                    accessibilityLabel={`${label} illustration`}
+                    alt={`${label} illustration`}
+                    cachePolicy="memory-disk"
+                    contentFit={semanticVisual?.contentFit || contentFit || 'contain'}
+                    transition={160}
+                    style={{
+                        position: 'absolute',
+                        top: scaleIcon(6),
+                        right: scaleIcon(8),
+                        bottom: scaleIcon(6),
+                        left: scaleIcon(8),
+                    }}
+                />
+            ) : (
+                <Text
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    style={{
+                        fontSize: heroSize,
+                        lineHeight: heroSize,
+                        textAlign: 'center',
+                    }}
+                >
+                    {resolvedFallbackIcon}
+                </Text>
+            )}
         </View>
     );
 }

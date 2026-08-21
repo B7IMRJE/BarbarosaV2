@@ -36,7 +36,7 @@ export default function PropertyAreaScreen() {
     const [loading, setLoading] = useState(true);
     const [message, setMessage] = useState('');
     const label = scope === 'interior'
-        ? 'My Home'
+        ? 'Interior'
         : scope === 'exterior'
             ? 'Exterior'
             : 'Other Areas / Needs Placement';
@@ -158,6 +158,15 @@ export default function PropertyAreaScreen() {
         >
             <View style={{ width: '100%', maxWidth: 960, gap: foundation.spacing.regular }}>
                 <HomeHeader />
+                {scope !== 'unclassified' ? (
+                    <ThemedButton
+                        title="‹ Back to My Home"
+                        variant="secondary"
+                        accessibilityLabel="Back to My Home"
+                        onPress={() => router.replace('/home' as never)}
+                        style={{ alignSelf: 'flex-start' }}
+                    />
+                ) : null}
                 <Text
                     selectable
                     style={[foundation.typography.destinationTitle, { fontSize: scaleFont(30) }]}

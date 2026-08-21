@@ -6,6 +6,12 @@ export type HomeOSVisualAsset = {
     uri?: string | null;
 };
 
+export type HomeOSSemanticVisual = {
+    key: string;
+    asset: HomeOSVisualAsset;
+    contentFit: 'contain';
+};
+
 type HomeOSEquipmentIconRule = {
     icon: string;
     terms: readonly string[];
@@ -15,6 +21,30 @@ type HomeOSAreaIconRule = {
     icon: string;
     terms: readonly string[];
 };
+
+type HomeOSSemanticVisualRule = {
+    key: string;
+    terms: readonly string[];
+    asset: HomeOSVisualAsset;
+};
+
+const HOME_OS_AREA_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
+    semanticVisual('my-home', ['my home', 'whole home'], bundledAsset('my-home', () => require('../../../assets/homeos/destinations/home.png'))),
+    semanticVisual('interior', ['interior'], bundledAsset('interior', () => require('../../../assets/homeos/illustrations/interior.png'))),
+    semanticVisual('exterior', ['exterior'], bundledAsset('exterior', () => require('../../../assets/homeos/destinations/exterior.png'))),
+    semanticVisual('kitchen', ['kitchen'], bundledAsset('kitchen', () => require('../../../assets/homeos/illustrations/kitchen.png'))),
+    semanticVisual('bathroom', ['primary bathroom', 'master bathroom', 'primary bath', 'bathroom', 'bath'], bundledAsset('bathroom', () => require('../../../assets/homeos/illustrations/bathroom.png'))),
+    semanticVisual('front-yard', ['front yard'], bundledAsset('front-yard', () => require('../../../assets/homeos/illustrations/front-yard.png'))),
+    semanticVisual('backyard', ['backyard', 'back yard'], bundledAsset('backyard', () => require('../../../assets/homeos/illustrations/backyard.png'))),
+    semanticVisual('patio', ['patio', 'deck'], bundledAsset('patio', () => require('../../../assets/homeos/illustrations/patio.png'))),
+    semanticVisual('roof', ['roof'], bundledAsset('roof', () => require('../../../assets/homeos/illustrations/roof.png'))),
+];
+
+const HOME_OS_EQUIPMENT_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
+    semanticVisual('bathroom-vanity', ['bathroom vanity', 'double vanity', 'dual vanity', 'two sink vanity', 'vanity'], bundledAsset('bathroom-vanity', () => require('../../../assets/homeos/illustrations/bathroom-vanity.png'))),
+    semanticVisual('refrigerator', ['refrigerator', 'fridge', 'freezer'], bundledAsset('refrigerator', () => require('../../../assets/homeos/illustrations/refrigerator.png'))),
+    semanticVisual('stove-range', ['stove', 'range', 'oven', 'cooktop'], bundledAsset('stove-range', () => require('../../../assets/homeos/illustrations/stove-range.png'))),
+];
 
 /**
  * HomeOS room and zone scenes. Keep this list close to the area catalog: it is
@@ -82,6 +112,10 @@ const HOME_OS_EQUIPMENT_ICON_RULES: readonly HomeOSEquipmentIconRule[] = [
     { icon: '💦', terms: ['sprinkler head', 'drip emitter', 'rain sensor'] },
     { icon: '🗃️', terms: ['valve box'] },
     { icon: '💧', terms: ['backflow preventer', 'backflow device'] },
+    { icon: '💡', terms: ['vanity light', 'vanity lights'] },
+    { icon: '🪞', terms: ['vanity mirror', 'mirror cabinet'] },
+    { icon: '🚰', terms: ['vanity sink', 'lavatory sink', 'bathroom sink'] },
+    { icon: '🪞', terms: ['bathroom vanity', 'double vanity', 'dual vanity', 'two sink vanity', 'medicine cabinet', 'bathroom cabinet', 'vanity'] },
     { icon: '🪞', terms: ['lighted mirror', 'mirror'] },
     { icon: '💡', terms: ['light fixture', 'exterior lighting', 'lighting', 'lights', 'light'] },
     { icon: '🔔', terms: ['doorbell'] },
@@ -93,7 +127,9 @@ const HOME_OS_EQUIPMENT_ICON_RULES: readonly HomeOSEquipmentIconRule[] = [
     { icon: '🔧', terms: ['backwater valve', 'irrigation valve', 'gas shutoff', 'water shutoff', 'main water shutoff', 'shutoff', 'shut off', 'angle stop', 'valve', 'stop'] },
     { icon: '💧', terms: ['reverse osmosis', 'whole house filter', 'water filter', 'pool filter', 'filter', 'softener', 'water treatment', 'salt cell'] },
     { icon: '🚰', terms: ['faucet', 'tap', 'spigot', 'hose bib', 'tub filler'] },
+    { icon: '🪵', terms: ['kitchen island', 'kitchen counter', 'countertop'] },
     { icon: '〰️', terms: ['generator gas line', 'gas line', 'water main', 'ice maker line', 'line', 'hose', 'tubing', 'pipe', 'piping'] },
+    { icon: '〰️', terms: ['gas connection', 'gas supply'] },
     { icon: '⚙️', terms: ['garbage disposal flange', 'garbage disposal', 'food waste disposer', 'disposal', 'disposer', 'flange'] },
     { icon: '♨️', terms: ['instant hot water dispenser', 'insta hot', 'instant hot', 'hot water dispenser', 'dispenser'] },
     { icon: '🛢️', terms: ['tankless water heater', 'gas water heater', 'water heater', 'expansion tank', 'pressure tank', 'tank'] },
@@ -103,13 +139,23 @@ const HOME_OS_EQUIPMENT_ICON_RULES: readonly HomeOSEquipmentIconRule[] = [
     { icon: '🔥', terms: ['pool heater', 'heater', 'boiler'] },
     { icon: '🍽️', terms: ['dishwasher'] },
     { icon: '🧊', terms: ['refrigerator', 'fridge', 'freezer', 'ice maker'] },
+    { icon: '💨', terms: ['range hood', 'hood vent'] },
     { icon: '🍳', terms: ['stove', 'range', 'oven', 'cooktop'] },
+    { icon: '🍖', terms: ['built in grill', 'grill', 'barbecue', 'bbq'] },
     { icon: '🚰', terms: ['sink', 'basin'] },
-    { icon: '🗄️', terms: ['counter', 'countertop', 'vanity', 'cabinet'] },
+    { icon: '🗄️', terms: ['file cabinet', 'filing cabinet'] },
+    { icon: '🪞', terms: ['cabinet'] },
     { icon: '🚽', terms: ['toilet', 'bidet'] },
+    { icon: '🚽', terms: ['water closet'] },
     { icon: '🚿', terms: ['shower', 'body spray', 'body sprays'] },
     { icon: '🛁', terms: ['tub', 'bathtub'] },
     { icon: '🧺', terms: ['washer', 'washing machine', 'dryer', 'laundry machine'] },
+    { icon: '🚪', terms: ['garage door opener', 'garage door'] },
+    { icon: '📻', terms: ['microwave'] },
+    { icon: '🛏️', terms: ['bed frame', 'mattress', 'nightstand'] },
+    { icon: '💻', terms: ['office desk', 'desk', 'workstation', 'computer', 'monitor'] },
+    { icon: '⚙️', terms: ['mechanical closet'] },
+    { icon: '📦', terms: ['storage closet', 'bedroom closet', 'closet', 'shelving', 'shelf', 'storage'] },
     { icon: '❄️', terms: ['air conditioner', 'air conditioning', 'exterior condenser', 'condenser', 'air handler', 'heat pump', 'furnace', 'hvac', 'supply vent', 'return vent', 'vent'] },
     { icon: '⚙️', terms: ['condensate pump', 'ejector pump', 'sump pump', 'irrigation pump', 'pool pump', 'spa pump', 'pump', 'chemical feeder'] },
     { icon: '🏊', terms: ['pool', 'spa', 'jacuzzi'] },
@@ -144,9 +190,57 @@ function resolveIconRule<T extends { icon: string; terms: readonly string[] }>(
         : matches[0]?.icon;
 }
 
+function semanticVisual(
+    key: string,
+    terms: readonly string[],
+    source: ImageSourcePropType,
+): HomeOSSemanticVisualRule {
+    return { key, terms, asset: { source } };
+}
+
+function bundledAsset(key: string, loader: () => ImageSourcePropType): ImageSourcePropType {
+    return process.env.EXPO_OS
+        ? loader()
+        : { uri: `homeos-semantic-asset://${key}` };
+}
+
+function resolveSemanticVisualRule(
+    normalizedLabel: string,
+    rules: readonly HomeOSSemanticVisualRule[],
+) {
+    const matches = rules.flatMap((rule) => rule.terms
+        .filter((term) => labelIncludesTerm(normalizedLabel, term))
+        .map((term) => ({ rule, term })));
+
+    return matches.sort((left, right) => right.term.length - left.term.length)[0]?.rule;
+}
+
+/**
+ * Central HomeOS illustration resolver. Recognized concepts receive the same
+ * approved cutout artwork across active decks, Add decks, and detail headers.
+ * Custom and unknown records intentionally return undefined so existing media
+ * and conservative generic fallbacks remain available without misclassification.
+ */
+export function resolveHomeOSSemanticVisual(
+    label: string,
+    context: 'area' | 'equipment',
+): HomeOSSemanticVisual | undefined {
+    const normalizedLabel = normalizeVisualLabel(label).replace(/\s+#?\d+$/, '');
+    if (!normalizedLabel || normalizedLabel.includes('custom')) return undefined;
+
+    const rule = resolveSemanticVisualRule(
+        normalizedLabel,
+        context === 'area' ? HOME_OS_AREA_VISUAL_RULES : HOME_OS_EQUIPMENT_VISUAL_RULES,
+    );
+
+    return rule
+        ? { key: rule.key, asset: rule.asset, contentFit: 'contain' }
+        : undefined;
+}
+
 /**
  * One replacement point for approved HomeOS illustrations and homeowner media.
- * No generated or placeholder production artwork is bundled here.
+ * Bundled semantic artwork is resolved above; explicit property media still wins here.
  */
 export function resolveHomeOSVisualSource(asset?: HomeOSVisualAsset): ImageSourcePropType | undefined {
     if (asset?.uri?.trim()) return { uri: asset.uri.trim() };
