@@ -1,6 +1,7 @@
 import {
     ACTIVE_REQUEST_INITIAL_EXPAND_MS,
     ACTIVE_REQUEST_UPDATE_EXPAND_MS,
+    buildHomeownerActiveRequestChannelName,
     buildHomeownerActiveRequestTrackers,
     containsRawUuidLikeText,
     formatActiveRequestCompactLabel,
@@ -29,6 +30,7 @@ export function runHomeownerActiveRequestRegressions() {
     trackerReopensAsExpandedRequestCard();
     onMyWayShowsTechnicianEtaAndFallback();
     rootShellKeepsTrackerVisibleAcrossHomeownerRoutes();
+    duplicateTrackerSubscriptionsStayIsolated();
     rootShellKeepsSosVisibleForHomeownersOnly();
     multipleActiveRequestsShowCountAndSelectHighestPriority();
     terminalRequestsDisappear();
@@ -141,13 +143,27 @@ function onMyWayShowsTechnicianEtaAndFallback() {
 }
 
 function rootShellKeepsTrackerVisibleAcrossHomeownerRoutes() {
-    ['/', '/emergency', '/documents', '/system/plumbing', '/item/kitchen-sink', '/profile'].forEach((pathname) => {
+    ['/emergency', '/documents', '/system/plumbing', '/item/kitchen-sink', '/profile'].forEach((pathname) => {
         assert(shouldShowHomeownerActiveRequestStatus({ pathname }), `${pathname} should keep the tracker visible.`);
     });
-    ['/auth/login', '/dispatch', '/techos', '/super-admin', '/schedule'].forEach((pathname) => {
+    ['/', '/auth/login', '/dispatch', '/techos', '/super-admin', '/schedule'].forEach((pathname) => {
         assert(!shouldShowHomeownerActiveRequestStatus({ pathname }), `${pathname} should not show the homeowner tracker.`);
     });
+    assert(
+        !shouldShowHomeownerActiveRequestStatus({ pathname: '/' }),
+        'The property landing must use its inline tracker instead of mounting a duplicate global tracker.'
+    );
     assert(!shouldShowHomeownerActiveRequestStatus({ pathname: '/', providerModeActive: true }), 'Provider mode should not show the homeowner tracker.');
+}
+
+function duplicateTrackerSubscriptionsStayIsolated() {
+    const inlineChannel = buildHomeownerActiveRequestChannelName('property-1', ':inline:', 1);
+    const floatingChannel = buildHomeownerActiveRequestChannelName('property-1', ':floating:', 1);
+    const retryChannel = buildHomeownerActiveRequestChannelName('property-1', ':inline:', 2);
+
+    assert(inlineChannel !== floatingChannel, 'Concurrent tracker instances must never reuse a Supabase realtime channel.');
+    assert(inlineChannel !== retryChannel, 'A Strict Mode retry must receive a fresh Supabase realtime channel.');
+    assert(!inlineChannel.includes('::'), 'React instance IDs must be normalized before becoming realtime channel topics.');
 }
 
 function rootShellKeepsSosVisibleForHomeownersOnly() {

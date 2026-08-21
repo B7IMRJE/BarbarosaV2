@@ -9,6 +9,12 @@ import {
 } from './serviceRequestActivity';
 import { supabase } from './supabase';
 
+export {
+    buildHomeownerActiveRequestChannelName,
+    shouldShowHomeownerActiveRequestStatus,
+    shouldShowHomeownerFloatingSosButton,
+} from './homeownerActiveRequestPresentation';
+
 export const HOMEOWNER_ACTIVE_REQUEST_REFRESH_MS = 30_000;
 export const ACTIVE_REQUEST_INITIAL_EXPAND_MS = 5_000;
 export const ACTIVE_REQUEST_UPDATE_EXPAND_MS = 4_000;
@@ -319,44 +325,6 @@ export function containsRawUuidLikeText(value?: string | null) {
     return /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(String(value || ''));
 }
 
-export function shouldShowHomeownerActiveRequestStatus(input: {
-    pathname?: string | null;
-    providerModeActive?: boolean;
-}) {
-    if (input.providerModeActive) return false;
-
-    const pathname = normalizePath(input.pathname);
-    const hiddenPrefixes = [
-        '/admin',
-        '/auth',
-        '/company-invite',
-        '/customer-invite',
-        '/dispatch',
-        '/dispatch-wall',
-        '/estimate',
-        '/onboarding',
-        '/schedule',
-        '/super-admin',
-        '/techos',
-    ];
-
-    return !hiddenPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
-
-export function shouldShowHomeownerFloatingSosButton(input: {
-    pathname?: string | null;
-    providerModeActive?: boolean;
-    staffAccessResolved?: boolean;
-    isStaff?: boolean;
-}) {
-    if (!input.staffAccessResolved || input.isStaff) return false;
-
-    return shouldShowHomeownerActiveRequestStatus({
-        pathname: input.pathname,
-        providerModeActive: input.providerModeActive,
-    });
-}
-
 async function loadActiveRequestsWithRpc(propertyId: string) {
     const { data, error } = await supabase.rpc('get_homeowner_active_service_requests', {
         p_property_id: propertyId,
@@ -622,13 +590,6 @@ function firstText(...values: (string | null | undefined)[]) {
 
 function normalizeText(value?: string | null) {
     return String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
-}
-
-function normalizePath(value?: string | null) {
-    const text = String(value || '/').split('?')[0] || '/';
-    const withoutTrailingSlash = text.replace(/\/+$/, '');
-
-    return withoutTrailingSlash || '/';
 }
 
 function readString(record: Record<string, unknown>, key: string) {
