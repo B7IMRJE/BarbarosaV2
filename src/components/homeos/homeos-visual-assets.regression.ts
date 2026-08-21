@@ -148,6 +148,59 @@ Object.entries(expectedComponentVisualGroups).forEach(([expectedKey, labels]) =>
     });
 });
 
+const expectedFixtureVisualGroups: Readonly<Record<string, readonly string[]>> = {
+    'bathroom-vanity': ['Bathroom Vanity'],
+    'bathroom-sink': ['Bathroom Sink'],
+    'bathroom-sink-faucet': ['Bathroom Sink Faucet'],
+    'bidet': ['Bidet'],
+    'body-sprays': ['Body Sprays'],
+    'double-vanity': ['Double Vanity'],
+    'exterior-light-fixture': ['Exterior Light Fixture'],
+    'freestanding-soaking-tub': ['Freestanding / Soaking Tub'],
+    'freestanding-tub-filler': ['Freestanding Tub Filler'],
+    'garage-hose-bibb': ['Garage Hose Bibb'],
+    'hand-shower': ['Hand Shower'],
+    'interior-light-fixture': ['Interior Light Fixture'],
+    'kitchen-faucet': ['Kitchen Faucet'],
+    'kitchen-sink': ['Kitchen Sink'],
+    'kitchen-sink-drain': ['Kitchen Sink Drain'],
+    'ro-faucet': ['RO Faucet'],
+    'rain-shower-head': ['Rain Shower Head'],
+    'roman-deck-mount-tub': ['Roman / Deck-Mount Tub'],
+    'roman-tub-filler': ['Roman Tub Filler'],
+    'shower-tub-combination': ['Shower / Tub'],
+    'shower-drain': ['Shower Drain'],
+    'shower-enclosure-door': ['Shower Enclosure / Door'],
+    'shower-head': ['Shower Head'],
+    'walk-in-shower': ['Standalone / Walk-In Shower', 'Shower'],
+    'toilet': ['Toilet'],
+    'bathtub': ['Tub'],
+    'tub-spout': ['Tub Spout'],
+    'washer-drain-standpipe': ['Washer Drain / Standpipe'],
+    'kitchen-counter': ['Kitchen Counter'],
+};
+
+const expectedFixtureLabels = Object.values(expectedFixtureVisualGroups).flat();
+
+assert(expectedFixtureLabels.length === 30, 'the complete Fixture Card catalog must stay under visual coverage.');
+assert(
+    new Set(expectedFixtureLabels).size === expectedFixtureLabels.length,
+    'the Fixture Card visual coverage list must not contain duplicate names.'
+);
+
+Object.entries(expectedFixtureVisualGroups).forEach(([expectedKey, labels]) => {
+    labels.forEach((label) => {
+        const visual = resolveHomeOSSemanticVisual(label, 'equipment');
+        assert(visual?.key === expectedKey, `${label} must resolve to its approved realistic fixture cutout.`);
+        assert(Boolean(visual.asset.source), `${label} must never fall through to a generic Fixture icon.`);
+    });
+});
+
+assert(
+    resolveHomeOSSemanticVisual('Dishwasher', 'equipment')?.key === 'dishwasher',
+    'the Dishwasher container card must use its approved realistic appliance cutout.'
+);
+
 assert(
     !resolveHomeOSSemanticVisual('Custom Reading Nook', 'area'),
     'A custom or unknown record must remain eligible for the conservative generic fallback.'

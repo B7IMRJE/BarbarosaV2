@@ -40,7 +40,40 @@ const HOME_OS_AREA_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
     semanticVisual('roof', ['roof'], bundledAsset('roof', () => require('../../../assets/homeos/illustrations/roof.png'))),
 ];
 
+const HOME_OS_FIXTURE_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
+    semanticVisual('bathroom-sink-faucet', ['bathroom sink faucet', 'bathroom faucet', 'lavatory faucet'], bundledAsset('bathroom-sink-faucet', () => require('../../../assets/homeos/fixtures/bathroom-sink-faucet.png'))),
+    semanticVisual('bathroom-sink', ['bathroom sink', 'vanity sink', 'lavatory sink'], bundledAsset('bathroom-sink', () => require('../../../assets/homeos/fixtures/bathroom-sink.png'))),
+    semanticVisual('toilet', ['toilet', 'water closet'], bundledAsset('toilet', () => require('../../../assets/homeos/fixtures/toilet.png'))),
+    semanticVisual('rain-shower-head', ['rain shower head', 'rain shower'], bundledAsset('rain-shower-head', () => require('../../../assets/homeos/fixtures/rain-shower-head.png'))),
+    semanticVisual('hand-shower', ['hand shower', 'handheld shower head', 'handheld shower'], bundledAsset('hand-shower', () => require('../../../assets/homeos/fixtures/hand-shower.png'))),
+    semanticVisual('body-sprays', ['body sprays', 'shower body sprays', 'body jets'], bundledAsset('body-sprays', () => require('../../../assets/homeos/fixtures/body-sprays.png'))),
+    semanticVisual('shower-head', ['shower head', 'showerhead'], bundledAsset('shower-head', () => require('../../../assets/homeos/fixtures/shower-head.png'))),
+    semanticVisual('shower-enclosure-door', ['shower enclosure door', 'shower enclosure', 'shower door'], bundledAsset('shower-enclosure-door', () => require('../../../assets/homeos/fixtures/shower-enclosure-door.png'))),
+    semanticVisual('shower-drain', ['shower drain', 'shower tub drain'], bundledAsset('shower-drain', () => require('../../../assets/homeos/fixtures/shower-drain.png'))),
+    semanticVisual('tub-spout', ['tub spout'], bundledAsset('tub-spout', () => require('../../../assets/homeos/fixtures/tub-spout.png'))),
+    semanticVisual('shower-tub-combination', ['shower tub', 'tub shower combination', 'shower tub combination'], bundledAsset('shower-tub-combination', () => require('../../../assets/homeos/fixtures/shower-tub-combination.png'))),
+    semanticVisual('roman-deck-mount-tub', ['roman deck mount tub', 'deck mount tub', 'roman tub'], bundledAsset('roman-deck-mount-tub', () => require('../../../assets/homeos/fixtures/roman-deck-mount-tub.png'))),
+    semanticVisual('freestanding-soaking-tub', ['freestanding soaking tub', 'freestanding tub', 'soaking tub'], bundledAsset('freestanding-soaking-tub', () => require('../../../assets/homeos/fixtures/freestanding-soaking-tub.png'))),
+    semanticVisual('walk-in-shower', ['standalone walk in shower', 'walk in shower', 'standalone shower', 'standing shower', 'shower'], bundledAsset('walk-in-shower', () => require('../../../assets/homeos/fixtures/walk-in-shower.png'))),
+    semanticVisual('bathtub', ['standard bathtub', 'bathtub', 'tub'], bundledAsset('bathtub', () => require('../../../assets/homeos/fixtures/bathtub.png'))),
+    semanticVisual('kitchen-sink-drain', ['kitchen sink drain', 'kitchen drain', 'sink drain'], bundledAsset('kitchen-sink-drain', () => require('../../../assets/homeos/fixtures/kitchen-sink-drain.png'))),
+    semanticVisual('kitchen-sink', ['kitchen sink'], bundledAsset('kitchen-sink', () => require('../../../assets/homeos/fixtures/kitchen-sink.png'))),
+    semanticVisual('kitchen-faucet', ['kitchen faucet'], bundledAsset('kitchen-faucet', () => require('../../../assets/homeos/fixtures/kitchen-faucet.png'))),
+    semanticVisual('ro-faucet', ['ro faucet', 'reverse osmosis faucet'], bundledAsset('ro-faucet', () => require('../../../assets/homeos/fixtures/ro-faucet.png'))),
+    semanticVisual('garage-hose-bibb', ['garage hose bibb', 'garage hose bib', 'hose bibb', 'hose bib'], bundledAsset('garage-hose-bibb', () => require('../../../assets/homeos/fixtures/garage-hose-bibb.png'))),
+    semanticVisual('washer-drain-standpipe', ['washer drain standpipe', 'washer drain', 'laundry standpipe'], bundledAsset('washer-drain-standpipe', () => require('../../../assets/homeos/fixtures/washer-drain-standpipe.png'))),
+    semanticVisual('double-vanity', ['double vanity', 'dual vanity', 'two sink vanity'], bundledAsset('double-vanity', () => require('../../../assets/homeos/fixtures/double-vanity.png'))),
+    semanticVisual('bidet', ['bidet fixture', 'bidet'], bundledAsset('bidet', () => require('../../../assets/homeos/fixtures/bidet.png'))),
+    semanticVisual('roman-tub-filler', ['roman tub filler', 'deck mount tub filler'], bundledAsset('roman-tub-filler', () => require('../../../assets/homeos/fixtures/roman-tub-filler.png'))),
+    semanticVisual('freestanding-tub-filler', ['freestanding tub filler', 'floor mount tub filler'], bundledAsset('freestanding-tub-filler', () => require('../../../assets/homeos/fixtures/freestanding-tub-filler.png'))),
+    semanticVisual('interior-light-fixture', ['interior light fixture', 'interior lighting'], bundledAsset('interior-light-fixture', () => require('../../../assets/homeos/fixtures/interior-light-fixture.png'))),
+    semanticVisual('exterior-light-fixture', ['exterior light fixture', 'exterior lighting'], bundledAsset('exterior-light-fixture', () => require('../../../assets/homeos/fixtures/exterior-light-fixture.png'))),
+    semanticVisual('kitchen-counter', ['kitchen counter', 'kitchen countertop', 'countertop'], bundledAsset('kitchen-counter', () => require('../../../assets/homeos/fixtures/kitchen-counter.png'))),
+    semanticVisual('dishwasher', ['dishwasher'], bundledAsset('dishwasher', () => require('../../../assets/homeos/fixtures/dishwasher.png'))),
+];
+
 const HOME_OS_EQUIPMENT_VISUAL_RULES: readonly HomeOSSemanticVisualRule[] = [
+    ...HOME_OS_FIXTURE_VISUAL_RULES,
     semanticVisual('angle-stop', [
         'bathroom sink hot angle stop', 'bathroom sink cold angle stop',
         'kitchen hot angle stop', 'kitchen cold angle stop',
