@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useId, useMemo, useRef, useState } from 'react';
 import { ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import {
     HOMEOWNER_ACTIVE_REQUEST_REFRESH_MS,
@@ -14,6 +14,7 @@ import {
     type ActiveRequestTrackerAutoExpansionReason,
     type HomeownerActiveRequestTracker,
 } from '../../lib/homeownerActiveRequests';
+import { buildHomeownerActiveRequestChannelName } from '../../lib/homeownerActiveRequestPresentation';
 import { requestHomeownerServiceRequestUpdate } from '../../lib/homeServiceRequests';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../theme/useTheme';
@@ -36,6 +37,7 @@ export default function HomeownerActiveRequestStatus({
     const previousTrackersRef = useRef<HomeownerActiveRequestTracker[]>([]);
     const refreshRunRef = useRef(0);
     const realtimeChannelRunRef = useRef(0);
+    const realtimeChannelInstanceId = useId();
     const [propertyId, setPropertyId] = useState('');
     const [trackers, setTrackers] = useState<HomeownerActiveRequestTracker[]>([]);
     const [selectedRequestId, setSelectedRequestId] = useState('');
@@ -77,7 +79,11 @@ export default function HomeownerActiveRequestStatus({
         };
         realtimeChannelRunRef.current += 1;
         const channel = supabase
-            .channel(`homeowner-active-requests:${propertyId}:${realtimeChannelRunRef.current}`)
+            .channel(buildHomeownerActiveRequestChannelName(
+                propertyId,
+                realtimeChannelInstanceId,
+                realtimeChannelRunRef.current
+            ))
             .on(
                 'postgres_changes',
                 {
@@ -105,7 +111,7 @@ export default function HomeownerActiveRequestStatus({
             clearInterval(intervalId);
             void supabase.removeChannel(channel);
         };
-    }, [propertyId]);
+    }, [propertyId, realtimeChannelInstanceId]);
 
     async function refreshTrackers(propertyIdOverride?: string | null) {
         const runId = refreshRunRef.current + 1;
